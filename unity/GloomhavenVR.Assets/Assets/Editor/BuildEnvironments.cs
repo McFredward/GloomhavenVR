@@ -11,10 +11,11 @@
 //        (do NOT pass -quit; BuildAll exits itself. Does NOT build the game bundle.)
 //
 // Produces, deterministically (re-run => identical output):
-//   Assets/Bundle/Environments/Env_Swamp.prefab  — night-sky FX shell: PAINTERLY
-//       star dome (milky-way/nebula wash + PSF-halo stars, EnvStars shader with
-//       baked painterly moon + twinkle + slow drift — style ruling ModBuild 127:
-//       must match Gloomhaven's painted look, never crisp geometric dots),
+//   Assets/Bundle/Environments/Env_Swamp.prefab  — night-sky FX shell: PHOTO
+//       star dome (real night-sky panorama, see NIGHT SKY below; EnvStars shader
+//       with painterly moon sprite + subtle star twinkle + slow drift — style
+//       ruling round 3: procedurally generated skies were rejected twice, the
+//       sky must be a real high-resolution photograph),
 //       comet-tail shooting stars, two bokeh firefly swarms, ground-fog donut.
 //       NO ground plane / trees / water — the game's marsh tiles provide those.
 //   Assets/Bundle/Environments/Env_Cellar.prefab — indoor FX shell: drifting
@@ -91,12 +92,56 @@ namespace GloomhavenVR
             AssetDatabase.SaveAssets();
         }
 
+        // ---------------------------------------------------------------- NIGHT SKY
+        // The sky texture is NOT generated: it is a processed REAL photograph
+        // (style ruling round 3 — two procedural skies were rejected for banding /
+        // low resolution / synthetic look; user demanded a sourced photo).
+        //
+        //   Source   : "Rogland Clear Night" by Greg Zaal, Poly Haven — CC0.
+        //              https://polyhaven.com/a/rogland_clear_night
+        //              16k unclipped linear equirect HDR (16384x8192):
+        //              https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/16k%2B/rogland_clear_night_16k.hdr
+        //   Content  : dense photographic starfield, full milky-way arch (galactic
+        //              core, dark rift, Carina nebula, Magellanic clouds), no moon,
+        //              minimal light pollution. Desert terrain occupied the lowest
+        //              ~22 deg — replaced by a starlit mist band (see below), which
+        //              is exactly what the swamp horizon wants.
+        //   Pipeline : scripted, reproducible (float32 end-to-end, dither only at
+        //              the final 8-bit quantization). The exact processing script
+        //              is embedded verbatim at the END OF THIS FILE; summary:
+        //                1. remap the -20..+90 deg elevation band to WxH*2
+        //                   (supersampled) with bilinear taps, U wraps;
+        //                2. tone map: normalize sky background (lum 0.30) to 1.0,
+        //                   log-contrast ^1.6 around that pivot, scale background
+        //                   to 0.055 linear, Reinhard shoulder above 0.75 for star
+        //                   cores, +12% saturation;
+        //                3. terrain removal: per-column silhouette detection
+        //                   (sky lum > 0.16 sustained), profile smoothed with a
+        //                   wrapping gaussian +2.5 deg margin (min 5 deg); below it
+        //                   a mist band — per-column MEDIAN sky colour sampled
+        //                   above the profile (median rejects stars), luminance-
+        //                   capped at 1.25x its own median, cooled/desaturated,
+        //                   shaded darker toward the horizon, melted over 9 deg;
+        //                4. fade to black from the horizon down to band bottom
+        //                   (the dome shows the water rim there);
+        //                5. alpha = twinkle mask: tone-mapped luminance minus a
+        //                   sigma-6 gaussian background, threshold 0.10, only above
+        //                   the mist;
+        //                6. 2x box downsample, sRGB encode, TPDF +-0.5 LSB dither,
+        //                   write RGBA PNG 8192x2560.
+        //
+        // The dome mesh maps ONLY that -20..+90 deg band onto V (see
+        // GenerateMeshes): no texture memory is wasted on the never-visible lower
+        // hemisphere, so 8192x2560 delivers the full angular resolution of an
+        // 8192x4096 equirect (~23 px/deg, ~4x the rejected 2048 sky in each axis).
+        private const string NightSkyPng = TexDir + "/Env_NightSky.png";
+        private const float SkyBandMinDeg = -20f;   // texture V=0 elevation
+        private const float SkyBandMaxDeg = 90f;    // texture V=1 elevation
+
         // ================================================================ textures
-        // All procedural, seeded => deterministic. No external downloads.
-        // STYLE (user, ModBuild 127 round): the crisp geometric dots / flat-gradient
-        // sky read as "low-poly" and clashed with Gloomhaven's painterly art. All
-        // sprites and the sky are now PAINTED: layered fBM washes, gaussian-PSF
-        // star splats with halos, soft irregular edges — never hard geometry.
+        // Sprites are procedural, seeded => deterministic. The night sky is a
+        // shipped processed photograph (see NIGHT SKY above) — only its import
+        // settings are enforced here.
         private static void GenerateTextures()
         {
             Directory.CreateDirectory(TexDir);
@@ -106,15 +151,36 @@ namespace GloomhavenVR
             WritePng(TexDir + "/Env_Streak.png", MakeStreak(256, 64), 256, 64, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_FogPuff.png", MakeFogPuff(256), 256, 256, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Moon.png", MakeMoon(512), 512, 512, sRGB: true, clamp: true);
-            // night sky: RGB = painted layer (milky way, nebula washes, star PSFs
-            // with halos, horizon haze), A = twinkle mask (bright star cores only).
-            // No mips (the dome magnifies the texture ~3.5x on screen — never
-            // minified) and BC7 (CompressedHQ): the soft painted content compresses
-            // cleanly; the old RGBA32-uncompressed import alone was ~8 MB of bundle.
-            WritePng(TexDir + "/Env_Stars.png", MakeNightSky(2048, 1024), 2048, 1024,
-                sRGB: false, clamp: false, clampV: true, mips: false,
-                comp: TextureImporterCompression.CompressedHQ, alphaDilate: false);
+            ImportNightSky();
             AssetDatabase.Refresh();
+        }
+
+        private static void ImportNightSky()
+        {
+            if (!File.Exists(NightSkyPng))
+                throw new Exception(NightSkyPng + " missing — it is a shipped asset (see NIGHT SKY comment), not generated.");
+            AssetDatabase.ImportAsset(NightSkyPng);
+            var ti = (TextureImporter)AssetImporter.GetAtPath(NightSkyPng);
+            // sRGB=TRUE (unlike the old linear-encoded painted sky): the photo is
+            // stored gamma-encoded, which spends the 8-bit codes perceptually —
+            // the dark end gets ~4x the precision, killing gradient banding.
+            ti.sRGBTexture = true;
+            ti.alphaIsTransparency = false;         // alpha is a twinkle MASK
+            ti.mipmapEnabled = false;               // dome never minifies it
+            ti.wrapModeU = TextureWrapMode.Repeat;  // sky drift wraps U
+            ti.wrapModeV = TextureWrapMode.Clamp;
+            ti.filterMode = FilterMode.Bilinear;
+            ti.maxTextureSize = 8192;               // default cap 2048 would crush it
+            // 8192x2560 is NPOT in height — the default npotScale=ToNearest silently
+            // resampled it to 8192x2048 (caught in review). 2560 is a multiple of 4,
+            // which is all BC7 needs.
+            ti.npotScale = TextureImporterNPOTScale.None;
+            ti.textureCompression = TextureImporterCompression.CompressedHQ; // BC7
+            ti.SaveAndReimport();
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(NightSkyPng);
+            if (tex == null || tex.width != 8192 || tex.height != 2560)
+                throw new Exception($"Env_NightSky import lost resolution: {(tex ? tex.width : 0)}x{(tex ? tex.height : 0)}, expected 8192x2560.");
+            Debug.Log($"[GloomhavenVR][Env] Night sky imported {tex.width}x{tex.height} format={tex.format}");
         }
 
         private static Color[] MakeSpark(int n)
@@ -260,181 +326,6 @@ namespace GloomhavenVR
             return px;
         }
 
-        // Milky-way band plane normal — chosen so the band arcs high across the sky
-        // well away from the moon bearing (composition: moon SE-ish, band NW arc).
-        private static readonly Vector3 MwNormal = new Vector3(0.62f, 0.50f, 0.60f).normalized;
-
-        private static Color[] MakeNightSky(int w, int h)
-        {
-            // RGB = painted additive layer over the shader's vertical gradient:
-            //   milky-way band (fBM patchiness + dark rift), broad teal/indigo nebula
-            //   washes, warm umber horizon haze, stars as gaussian PSFs WITH soft
-            //   halos and colour temperature variation (warm/neutral/blue).
-            // A   = twinkle mask: bright star CORES only (shader modulates a top-up).
-            // v=0 is the nadir, v=1 the zenith (matches the dome mesh UVs).
-            var px = new Color[w * h];
-
-            // ---- painterly wash, computed at half res (it is low-frequency by
-            // design) and bilinearly upsampled — also grants extra softness ----
-            int ww = w / 2, wh = h / 2;
-            var wash = new Vector3[ww * wh];
-            for (int y = 0; y < wh; y++)
-            {
-                float lat = ((y + 0.5f) / wh - 0.5f) * Mathf.PI;
-                float cl = Mathf.Cos(lat), sl = Mathf.Sin(lat);
-                for (int x = 0; x < ww; x++)
-                {
-                    float lon = (x + 0.5f) / ww * Mathf.PI * 2f;
-                    var d = new Vector3(Mathf.Sin(lon) * cl, sl, Mathf.Cos(lon) * cl);
-                    wash[y * ww + x] = NightWash(d);
-                }
-            }
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++)
-                {
-                    var c = SampleBilinear(wash, ww, wh, (x + 0.5f) / w, (y + 0.5f) / h);
-                    px[y * w + x] = new Color(c.x, c.y, c.z, 0f);
-                }
-
-            // ---- stars: uniform on the sphere, density boosted inside the band ----
-            var rnd = new System.Random(4404);
-            int placed = 0;
-            const int starTotal = 4200;
-            int guard = 0;
-            while (placed < starTotal && guard++ < starTotal * 40)
-            {
-                float su = (float)rnd.NextDouble();
-                float sy = (float)rnd.NextDouble() * 2f - 1f;          // dir.y uniform
-                float vAng = Mathf.Asin(sy);
-                float lon = su * Mathf.PI * 2f;
-                float cl = Mathf.Cos(vAng);
-                var dir = new Vector3(Mathf.Sin(lon) * cl, sy, Mathf.Cos(lon) * cl);
-                if (dir.y < -0.05f) continue;                          // below horizon: skip
-                // more stars inside the milky-way band
-                float band = Mathf.Exp(-Mathf.Pow(Vector3.Dot(dir, MwNormal) / 0.20f, 2f));
-                if ((float)rnd.NextDouble() > 0.35f + 0.65f * band) continue;
-
-                float cx = su * w;
-                float cy = (vAng / Mathf.PI + 0.5f) * h;
-                // size classes. Cores stay SMALL (the dome magnifies the texture
-                // ~3.5x on screen — fat gaussians read as bokeh, iteration-1 lesson);
-                // the glow comes from LOW-AMPLITUDE halos, not fat cores.
-                float roll = (float)rnd.NextDouble();
-                bool hero = roll < 0.015f, brightStar = roll < 0.09f;
-                float sigma = hero ? 1.1f + (float)rnd.NextDouble() * 0.4f
-                            : brightStar ? 0.75f + (float)rnd.NextDouble() * 0.35f
-                                         : 0.5f + (float)rnd.NextDouble() * 0.3f;
-                float amp = hero ? 0.80f + (float)rnd.NextDouble() * 0.20f
-                          : brightStar ? 0.45f + (float)rnd.NextDouble() * 0.30f
-                                       : 0.08f + (float)rnd.NextDouble() * 0.32f;
-                // colour temperature: warm gold / parchment white / cold blue
-                float temp = (float)rnd.NextDouble();
-                Vector3 scol = temp < 0.22f
-                    ? Vector3.Lerp(new Vector3(1.00f, 0.86f, 0.64f), new Vector3(1.00f, 0.94f, 0.82f), temp / 0.22f)
-                    : Vector3.Lerp(new Vector3(0.94f, 0.96f, 1.00f), new Vector3(0.72f, 0.82f, 1.00f), (temp - 0.22f) / 0.78f);
-                // fade toward the horizon haze
-                amp *= Mathf.Clamp01(dir.y * 3.5f + 0.25f);
-                // equirect: one texel spans cos(lat) less longitude arc — widen the
-                // splat in x so stars stay ROUND on the dome (zenith is visible!)
-                float xStretch = 1f / Mathf.Max(cl, 0.20f);
-
-                // halos stay TIGHT and FAINT — iteration-5 lesson: 5σ halos at 16%
-                // amp rendered as giant bokeh balls, exactly the cheap look we're
-                // replacing. A halo may only read as "glow", never as a disc.
-                float haloAmp = amp * (hero ? 0.07f : brightStar ? 0.05f : 0.03f);
-                float haloSigma = sigma * (hero ? 3.0f : 2.4f);
-                int rad = Mathf.CeilToInt(haloSigma * 2.2f * xStretch);
-                for (int oy = -rad; oy <= rad; oy++)
-                {
-                    int yy = (int)cy + oy;
-                    if (yy < 0 || yy >= h) continue;
-                    for (int ox = -rad; ox <= rad; ox++)
-                    {
-                        int xx = ((int)cx + ox + w * 4) % w; // wrap U
-                        float ex = ox / xStretch;
-                        float d2 = ex * ex + oy * oy;
-                        float core = amp * Mathf.Exp(-d2 / (sigma * sigma) * 1.6f);
-                        float halo = haloAmp * Mathf.Exp(-d2 / (haloSigma * haloSigma));
-                        int idx = yy * w + xx;
-                        var p = px[idx];
-                        p.r += scol.x * (core + halo);
-                        p.g += scol.y * (core + halo);
-                        p.b += scol.z * (core + halo);
-                        if (hero || brightStar) p.a += core;   // twinkle mask: cores only
-                        px[idx] = p;
-                    }
-                }
-                placed++;
-            }
-
-            // clamp + triangular dither (±0.5 LSB): the washes live in the darkest
-            // 8-bit codes — undithered they band into visible contour blotches
-            var drnd = new System.Random(7707);
-            for (int i = 0; i < px.Length; i++)
-            {
-                var p = px[i];
-                float dth = ((float)drnd.NextDouble() - (float)drnd.NextDouble()) / 255f;
-                px[i] = new Color(Mathf.Clamp01(p.r + dth), Mathf.Clamp01(p.g + dth),
-                                  Mathf.Clamp01(p.b + dth), Mathf.Clamp01(p.a));
-            }
-            return px;
-        }
-
-        /// <summary>Painted additive sky wash for direction d (linear RGB).</summary>
-        private static Vector3 NightWash(Vector3 d)
-        {
-            var col = Vector3.zero;
-
-            // milky way: soft great-circle band — granular fBM clumps (it must read
-            // as "made of stars", not a searchlight beam), dark central rift, and a
-            // narrow brighter spine. Fades out well above the horizon haze.
-            float bd = Vector3.Dot(d, MwNormal);
-            float band = Mathf.Exp(-Mathf.Pow(bd / 0.12f, 2f));
-            if (band > 0.002f)
-            {
-                float patch = Mathf.Pow(Fbm3(d * 5.2f, 5, 9001), 2.2f);
-                // second, finer granularity so no stretch of the band is ever smooth
-                patch *= 0.55f + 0.45f * Mathf.Pow(Fbm3(d * 9.5f, 3, 9007), 1.5f) * 2f;
-                float rift = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.48f, 0.75f,
-                    Fbm3(d * 2.3f + new Vector3(7.7f, 1.3f, 4.1f), 3, 9002)));
-                float spine = Mathf.Exp(-Mathf.Pow(bd / 0.045f, 2f));
-                float mw = (band * (0.15f + 0.85f * patch) * 0.085f + spine * patch * 0.055f)
-                           * (1f - 0.65f * rift * band);
-                float hue = Fbm3(d * 1.7f + new Vector3(2.2f, 8.8f, 5.5f), 3, 9003);
-                var mwCol = Vector3.Lerp(new Vector3(0.55f, 0.63f, 0.75f),   // pale starlight blue
-                                         new Vector3(0.58f, 0.49f, 0.38f),   // warm galactic dust
-                                         Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.35f, 0.70f, hue)));
-                col += mwCol * mw * Mathf.Clamp01(d.y * 2.2f + 0.25f);
-            }
-
-            // broad nebula washes — barely-there colour variation across the vault
-            float neb1 = Mathf.Pow(Mathf.Clamp01(Fbm3(d * 1.15f + new Vector3(3.1f, 0.4f, 6.9f), 3, 9004) * 1.3f - 0.30f), 1.5f);
-            col += new Vector3(0.006f, 0.026f, 0.030f) * neb1;                 // deep teal
-            float neb2 = Mathf.Pow(Mathf.Clamp01(Fbm3(d * 0.9f + new Vector3(8.4f, 4.2f, 1.7f), 3, 9005) * 1.3f - 0.32f), 1.5f);
-            col += new Vector3(0.020f, 0.013f, 0.034f) * neb2;                 // dusky indigo
-
-            // horizon haze: a low, subtle band of warm umber — mist over the marsh,
-            // NOT a glowing wall (iteration-5 lesson: 0.085 amp read as a dust storm)
-            float hz = Mathf.Exp(-Mathf.Pow(Mathf.Max(d.y, 0f) / 0.10f, 1.6f));
-            float hn = 0.55f + 0.45f * Fbm3(d * 2.4f + new Vector3(1.1f, 5.5f, 3.3f), 3, 9006);
-            col += new Vector3(0.038f, 0.026f, 0.015f) * hz * hn;
-
-            // nothing painted below the water line
-            col *= Mathf.Clamp01(d.y * 8f + 1f);
-            return col;
-        }
-
-        private static Vector3 SampleBilinear(Vector3[] grid, int gw, int gh, float u, float v)
-        {
-            float fx = u * gw - 0.5f, fy = v * gh - 0.5f;
-            int x0 = Mathf.FloorToInt(fx), y0 = Mathf.FloorToInt(fy);
-            float tx = fx - x0, ty = fy - y0;
-            int x1 = (x0 + 1 + gw) % gw; x0 = (x0 + gw) % gw;                 // wrap U
-            int y1 = Mathf.Clamp(y0 + 1, 0, gh - 1); y0 = Mathf.Clamp(y0, 0, gh - 1); // clamp V
-            var a = Vector3.Lerp(grid[y0 * gw + x0], grid[y0 * gw + x1], tx);
-            var b = Vector3.Lerp(grid[y1 * gw + x0], grid[y1 * gw + x1], tx);
-            return Vector3.Lerp(a, b, ty);
-        }
 
         // ---- seam-free 3D value noise (evaluated on sphere directions => no
         // equirect seam, no pole pinching) ----
@@ -509,7 +400,11 @@ namespace GloomhavenVR
             Directory.CreateDirectory(MeshDir);
             // 64x32: at 45 m radius the silhouette must never read faceted (style
             // complaint round 2 — "low-poly"). ~4k tris, still trivial for the dome.
-            SaveMesh(MeshDir + "/Env_Dome.asset", BuildSphere(64, 32, inward: true));
+            // The dome UVs map ONLY the SkyBand elevation range onto V (the photo
+            // texture covers -20..+90 deg; below the band V clamps to the black
+            // bottom row) — full angular resolution, no wasted texture memory.
+            SaveMesh(MeshDir + "/Env_Dome.asset",
+                BuildSphere(64, 32, inward: true, bandMinDeg: SkyBandMinDeg, bandMaxDeg: SkyBandMaxDeg));
             SaveMesh(MeshDir + "/Env_GlowSphere.asset", BuildSphere(16, 8, inward: false));
         }
 
@@ -534,7 +429,8 @@ namespace GloomhavenVR
             }
         }
 
-        private static Mesh BuildSphere(int lon, int lat, bool inward)
+        private static Mesh BuildSphere(int lon, int lat, bool inward,
+            float bandMinDeg = -90f, float bandMaxDeg = 90f)
         {
             var v = new List<Vector3>(); var uv = new List<Vector2>(); var t = new List<int>();
             for (int y = 0; y <= lat; y++)
@@ -542,12 +438,20 @@ namespace GloomhavenVR
                 float vv = y / (float)lat;
                 float latAng = (vv - 0.5f) * Mathf.PI; // -90..+90
                 float r = Mathf.Cos(latAng), py = Mathf.Sin(latAng);
+                // V maps the [bandMinDeg..bandMaxDeg] elevation band (default:
+                // whole sphere — then use vv EXACTLY, the deg round-trip added
+                // 1-ulp noise to otherwise identical meshes). Linear in latitude,
+                // so interpolation across the uniform-latitude rings stays exact;
+                // below the band V clamps to 0.
+                float bandV = (bandMinDeg == -90f && bandMaxDeg == 90f)
+                    ? vv
+                    : Mathf.Clamp01((latAng * Mathf.Rad2Deg - bandMinDeg) / (bandMaxDeg - bandMinDeg));
                 for (int x = 0; x <= lon; x++)
                 {
                     float uu = x / (float)lon;
                     float lonAng = uu * Mathf.PI * 2f;
                     v.Add(new Vector3(Mathf.Sin(lonAng) * r, py, Mathf.Cos(lonAng) * r));
-                    uv.Add(new Vector2(uu, vv));
+                    uv.Add(new Vector2(uu, bandV));
                 }
             }
             for (int y = 0; y < lat; y++)
@@ -609,13 +513,18 @@ namespace GloomhavenVR
             // the moon is baked into the star-dome shader (a separate blended quad
             // left a visible seam against the sky gradient)
             var stars = LoadOrNewMat(MatDir + "/Swamp_StarDome.mat", "GloomhavenVR/EnvStars");
-            stars.SetTexture("_MainTex", T("Env_Stars.png"));
-            stars.SetColor("_TopCol", new Color(0.009f, 0.014f, 0.030f));
-            stars.SetColor("_HorizonCol", new Color(0.034f, 0.050f, 0.076f));
+            stars.SetTexture("_MainTex", T("Env_NightSky.png")); // real photo sky (see NIGHT SKY)
+            // gradient is now only a faint backstop UNDER the photo (the photo
+            // carries its own airglow/haze) — the old brighter horizon colour
+            // stacked with the photo's mist into a washed-out band
+            stars.SetColor("_TopCol", new Color(0.004f, 0.006f, 0.014f));
+            stars.SetColor("_HorizonCol", new Color(0.012f, 0.018f, 0.030f));
             stars.SetFloat("_SkyBoost", 1.0f);
             stars.SetColor("_StarCol", new Color(0.85f, 0.90f, 1.0f));
-            stars.SetFloat("_TwinkleSpeed", 1.6f);
-            stars.SetFloat("_TwinkleAmp", 0.5f);
+            // photo stars: twinkle stays but SUBTLE — the alpha mask holds only
+            // compact star cores; hard blinking on a photograph reads synthetic
+            stars.SetFloat("_TwinkleSpeed", 1.2f);
+            stars.SetFloat("_TwinkleAmp", 0.30f);
             stars.SetFloat("_DriftSpeed", 0.00035f); // full sky revolution ~48 min
             stars.SetTexture("_MoonTex", T("Env_Moon.png"));
             stars.SetVector("_MoonDir", MoonDir);
@@ -845,3 +754,154 @@ namespace GloomhavenVR
         }
     }
 }
+
+// ===========================================================================
+// NIGHT-SKY PROCESSING SCRIPT (verbatim, reproducible) — run with python3 +
+// numpy + opencv (pip install opencv-python-headless numpy) on the CC0 source
+// HDR named in the NIGHT SKY comment above:
+//   python3 process_sky.py rogland_clear_night_16k.hdr Env_NightSky.png 8192 2560
+// ---------------------------------------------------------------------------
+// #!/usr/bin/env python3
+// """GloomhavenVR night-sky panorama processing.
+//
+// Source: Poly Haven 'Rogland Clear Night' (CC0), equirectangular .hdr (linear).
+// Output: sky-band texture (elevation EL_MIN..90 deg), sRGB PNG with:
+//   RGB = tone-mapped night sky (terrain replaced by horizon haze)
+//   A   = star-core twinkle mask
+// Run: venv/bin/python process_sky.py <input.hdr> <out.png> <outW> <outH> [--preview]
+// """
+// import sys, numpy as np, cv2
+//
+// EL_MIN = -20.0     # band bottom (deg)
+// EL_MAX = 90.0
+// SKY_BG = 0.30      # source luminance of the empty sky background
+// BG_TARGET = 0.055  # target linear luminance for the sky background (pre-boost)
+// CONTRAST = 1.6     # log-space contrast around the background pivot
+// KNEE = 0.75        # highlight soft-clip knee
+// SAT = 1.12         # slight saturation recovery (night photos are flat)
+//
+// def lum(x):
+//     return 0.2126*x[...,0] + 0.7152*x[...,1] + 0.0722*x[...,2]
+//
+// def srgb_encode(x):
+//     x = np.clip(x, 0.0, 1.0)
+//     return np.where(x <= 0.0031308, x*12.92, 1.055*np.power(x, 1/2.4) - 0.055)
+//
+// def terrain_profile(img):
+//     """Per-column terrain-top elevation (deg, >=0) from silhouette luminance."""
+//     H, W, _ = img.shape
+//     L = lum(img)
+//     horizon = H // 2
+//     scan_top = int(H*0.25)              # +45 deg — no terrain higher than that
+//     sky_mask = L[scan_top:horizon] > 0.16   # True = sky
+//     # first row (from the top) where the next 12 rows are all terrain
+//     terr = ~sky_mask
+//     run = np.zeros_like(terr[0], dtype=np.int32)
+//     top_row = np.full(W, horizon, dtype=np.int32)
+//     found = np.zeros(W, dtype=bool)
+//     consec = np.zeros(W, dtype=np.int32)
+//     for r in range(terr.shape[0]):
+//         consec = np.where(terr[r], consec+1, 0)
+//         newly = (~found) & (consec >= 12)
+//         top_row[newly] = scan_top + r - 11
+//         found |= newly
+//     elev = (horizon - top_row) / (H/2) * 90.0   # deg above horizon
+//     elev[~found] = 0.0
+//     return elev
+//
+// def smooth_wrap(x, sigma_px):
+//     k = int(sigma_px*3)*2+1
+//     xw = np.concatenate([x[-k:], x, x[:k]])
+//     xs = cv2.GaussianBlur(xw.reshape(1,-1).astype(np.float32), (k,1), sigma_px).ravel()
+//     return xs[k:-k]
+//
+// def main():
+//     src, out, outW, outH = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+//     img = cv2.imread(src, cv2.IMREAD_UNCHANGED)[:, :, ::-1].astype(np.float32)
+//     H, W, _ = img.shape
+//     print(f'source {W}x{H}')
+//
+//     # ---------------- terrain silhouette -> haze top profile ----------------
+//     prof = terrain_profile(img)                     # deg, at source W
+//     prof_s = smooth_wrap(prof, W/256) + 2.5         # smoothed + margin (deg)
+//     prof_s = np.maximum(prof_s, 5.0)                # minimum haze height
+//     print(f'terrain profile: max {prof.max():.1f} deg, haze top max {prof_s.max():.1f} deg')
+//
+//     # ---------------- resample to output band (supersample 2x) ----------------
+//     ssW, ssH = outW*2, outH*2
+//     el = EL_MIN + (EL_MAX-EL_MIN) * ((ssH-0.5-np.arange(ssH))+0.5)/ssH  # row -> elevation
+//     # source row for elevation: srcRow = (90-el)/180*H
+//     map_y = ((90.0-el)/180.0*H - 0.5).astype(np.float32)
+//     map_x = ((np.arange(ssW)+0.5)/ssW*W - 0.5).astype(np.float32)
+//     mx, my = np.meshgrid(map_x, map_y)
+//     band = cv2.remap(img[:,:,::-1], mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)[:,:,::-1]
+//     band = np.ascontiguousarray(band)
+//
+//     # ---------------- tone map ----------------
+//     x = band / SKY_BG                                # sky background == 1.0
+//     L0 = np.maximum(lum(x), 1e-6)
+//     Lc = np.power(L0, CONTRAST)                      # contrast around pivot 1.0
+//     y = x * (Lc/L0)[...,None] * BG_TARGET
+//     # highlight soft clip (Reinhard-ish shoulder above the knee)
+//     Ly = np.maximum(lum(y), 1e-9)
+//     Ls = np.where(Ly > KNEE, KNEE + (1.0-KNEE)*(Ly-KNEE)/(Ly-KNEE+ (1.0-KNEE)), Ly)
+//     y *= (Ls/Ly)[...,None]
+//     # saturation
+//     Lg = lum(y)[...,None]
+//     y = np.clip(Lg + (y-Lg)*SAT, 0.0, None)
+//
+//     # ---------------- haze band over terrain ----------------
+//     elev_col = el[:,None]                            # ssH x 1
+//     prof_ss = np.interp((np.arange(ssW)+0.5)/ssW, (np.arange(len(prof_s))+0.5)/len(prof_s), prof_s)
+//     # haze factor: 0 above (profile+9deg), 1 below profile
+//     t = np.clip((prof_ss[None,:]+9.0 - elev_col)/9.0, 0.0, 1.0)
+//     t = t*t*(3-2*t)
+//     # haze colour: per-column MEDIAN of the sky just above the haze top (median
+//     # rejects stars), then wrap-smoothed hard so no column-rate detail survives
+//     r0 = np.clip(((EL_MAX-(prof_ss+16.0))/(EL_MAX-EL_MIN)*ssH).astype(int), 0, ssH-1)
+//     r1 = np.clip(((EL_MAX-(prof_ss+7.0))/(EL_MAX-EL_MIN)*ssH).astype(int), 0, ssH-1)
+//     sky_ref = np.empty((ssW,3), np.float32)
+//     band_h = int(np.max(r1-r0))+1
+//     rows = (r0[None,:] + np.arange(band_h)[:,None]).clip(0, ssH-1)   # band_h x ssW
+//     cols = np.broadcast_to(np.arange(ssW), (band_h, ssW))
+//     sky_ref = np.median(y[rows, cols], axis=0)       # ssW x 3
+//     for c in range(3):
+//         sky_ref[:,c] = smooth_wrap(sky_ref[:,c], ssW/64)
+//     # cap over-bright columns (milky-way limb) so the mist never glows
+//     refL = 0.2126*sky_ref[:,0]+0.7152*sky_ref[:,1]+0.0722*sky_ref[:,2]
+//     cap = 1.25*np.median(refL)
+//     sky_ref *= np.minimum(1.0, cap/np.maximum(refL,1e-6))[:,None]
+//     # cool + desaturate the mist slightly (starlit fog, not glowing smoke)
+//     refL = (0.2126*sky_ref[:,0]+0.7152*sky_ref[:,1]+0.0722*sky_ref[:,2])[:,None]
+//     sky_ref = (0.65*sky_ref + 0.35*refL) * np.array([0.88,0.95,1.06], np.float32)
+//     # vertical shading inside the haze: dimmer toward the horizon (mist, not a wall)
+//     vshade = np.clip((elev_col - 0.0) / np.maximum(prof_ss[None,:]+9.0, 1e-3), 0.0, 1.0)
+//     vshade = 0.30 + 0.38*vshade
+//     haze = sky_ref[None,:,:] * vshade[...,None]
+//     y = y*(1-t[...,None]) + haze*t[...,None]
+//     # fade everything to black below the horizon (dome shows the water rim there)
+//     fade = np.clip((elev_col - EL_MIN) / (0.0 - EL_MIN), 0.0, 1.0)  # 0 at band bottom, 1 at horizon
+//     fade = fade*fade*(3-2*fade)
+//     y *= fade[...,None]
+//
+//     # ---------------- star-core twinkle mask ----------------
+//     Ly = lum(y).astype(np.float32)
+//     bgL = cv2.GaussianBlur(Ly, (0,0), 6.0)
+//     stars = np.clip((Ly - bgL - 0.10)*4.0, 0.0, 1.0)
+//     stars *= (elev_col > prof_ss[None,:]+4.0)        # no twinkle in the haze
+//     alpha = stars
+//
+//     # ---------------- downsample 2x, encode, dither ----------------
+//     rgba = np.dstack([y, alpha[...,None]])
+//     rgba = cv2.resize(rgba, (outW, outH), interpolation=cv2.INTER_AREA)
+//     outp = np.empty((outH, outW, 4), np.float32)
+//     outp[...,:3] = srgb_encode(rgba[...,:3])
+//     outp[...,3] = np.clip(rgba[...,3], 0, 1)
+//     rng = np.random.default_rng(4404)
+//     dith = (rng.random((outH,outW,1), np.float32) - rng.random((outH,outW,1), np.float32))  # TPDF +-1 LSB
+//     q = np.clip(np.round(outp*255.0 + dith), 0, 255).astype(np.uint8)
+//     cv2.imwrite(out, q[:,:,[2,1,0,3]])
+//     print('wrote', out, q.shape)
+//
+// if __name__ == '__main__':
+//     main()

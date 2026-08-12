@@ -1,16 +1,19 @@
-// GloomhavenVR — night-sky dome shader (Sumpfnacht). Renders a vertical sky gradient
-// plus a PAINTED sky layer (Env_Stars.png: RGB = milky-way/nebula wash + stars with
-// PSF halos, A = bright-star twinkle mask). Twinkle and an ultra-slow sky drift are
-// driven purely by shader _Time — data-driven animation, no scripts, world-anchored,
-// stereo-correct (the dome is a real inverted sphere mesh ~45 m out).
-// Background-queue backdrop, no depth write, exactly the SkyPanoramic contract so it
-// never occludes anything.
+// GloomhavenVR — night-sky dome shader (Sumpfnacht). Renders a faint vertical sky
+// gradient plus the REAL photographic sky layer (Env_NightSky.png — processed
+// 'Rogland Clear Night' CC0 panorama, see BuildEnvironments.cs NIGHT SKY comment:
+// RGB = tone-mapped starfield/milky way with a mist band over the old terrain,
+// A = star-core twinkle mask). The dome mesh maps texture V over the -20..+90 deg
+// elevation band only (below that V clamps into the black bottom row).
+// Twinkle and an ultra-slow sky drift are driven purely by shader _Time —
+// data-driven animation, no scripts, world-anchored, stereo-correct (the dome is
+// a real inverted sphere mesh ~45 m out). Background-queue backdrop, no depth
+// write, exactly the SkyPanoramic contract so it never occludes anything.
 Shader "GloomhavenVR/EnvStars"
 {
     Properties
     {
-        _MainTex ("Night sky (RGB=painted layer, A=twinkle mask)", 2D) = "black" {}
-        _SkyBoost ("Painted layer intensity", Range(0,4)) = 1.0
+        _MainTex ("Night sky photo band -20..90deg (RGB=sky, A=twinkle mask)", 2D) = "black" {}
+        _SkyBoost ("Sky layer intensity", Range(0,4)) = 1.0
         _StarCol ("Twinkle top-up color", Color) = (0.85,0.9,1.0,1)
         _TwinkleSpeed ("Twinkle speed", Range(0,10)) = 1.6
         _TwinkleAmp ("Twinkle amount", Range(0,1)) = 0.5
