@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 129`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 130`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-12
 
@@ -126,6 +126,26 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 130** — composites LOAD (dual route), board FIXED in the room, cellar night sky.
+  129 verdicts from his log: staging invisible CONFIRMED, red cubes 0 CONFIRMED (heal found
+  donors), but 'Map ABHM'/'Map DDM' "failed to load" → Map A rectangle again. REVISED root
+  cause: the maps EXIST on his install (Player.log boot dump line 1490: 113 'Map *' prefabs
+  in always_loaded_standalone) — the full-path Addressables key resolves only for
+  single-letter maps on his catalog. Fix: per-candidate DUAL ROUTE — (1) the game's
+  always-loaded asset store (AssetBundleManager._alwaysloadedHandles, session-lifetime,
+  synchronous), (2) Addressables path key; preference lists Cellar ABHM→GI→A / Swamp
+  DDM→LML→A (all verified in his dump); 'MAP CATALOG' census line on first activation.
+  BOARD FIXED (his ruling overrules perceived-constant): frame split — ROOM branch (map +
+  GroundFog + Fireflies by node name) world-FROZEN after placement, zero per-frame writes,
+  zoom changes only perceived size; sized 2.75× board's larger extent, board center =
+  main-room center, room floor = board underside (can never sink); SKY branch (StarDome,
+  shooting stars, dust motes) keeps NotifyRigScaled pivot algebra; far plane = max of both
+  budgets. Board drag needs no follow code (all locomotion writes the rig — WorldGrab 304/
+  401-403, Flight, SnapTurn). CELLAR SKY: Env_Cellar gains the swamp's StarDome node (shared
+  assets by GUID, 'StarDome' = node-name contract with src). Bundle 41,865,652 bytes — 130
+  NEEDS it. UNVERIFIED: ABHM/DDM room shapes/themes (letter-count inference), always-loaded
+  route on future game updates (census covers), room-floor-at-table-height look (new ruled
+  behavior, his test judges).
 - **ModBuild 129** — REAL authored maps, invisible staging, zero red cubes, astrophoto sky.
   128's rendering fix CONFIRMED on hardware (census: 680 drawing, T+3s survival) — remaining
   findings: staging visible (fixed −50 wu = 36 cm real at rig scale 137 — user watched the

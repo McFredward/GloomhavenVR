@@ -416,7 +416,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 129;
+    public const ushort ModBuild = 130;
+    // Build 130: the composites actually LOAD now, the board is FIXED in the room, the cellar
+    // gets the night sky. No wire change.
+    //
+    // (1) DUAL-ROUTE MAP LOADING: 129's 'Map ABHM'/'Map DDM' exist on the user's install (his
+    // Player.log boot dump lists 113 'Map *' prefabs always-loaded) — only the full-path
+    // Addressables key failed for composites. Each preference-list candidate (Cellar
+    // ABHM→GI→A, Swamp DDM→LML→A, all five verified in his dump) now tries the game's own
+    // always-loaded asset store first, then the Addressables path; a MAP CATALOG census line
+    // names what the install carries.
+    //
+    // (2) BOARD FIXED IN THE ROOM ("Die Höhe sowie die Position soll fix sein"): the frame
+    // splits — ROOM branch (map + ground fog + fireflies) is world-fixed after placement,
+    // sized 2.75× the board's larger extent, board center = main-room center, room floor =
+    // board underside (the board can never sink under the map); SKY branch (star dome,
+    // shooting stars, dust motes) keeps the perceived-constant pivot algebra. Zoom changes
+    // the room's perceived size only — the board/room geometry is bit-frozen.
+    //
+    // (3) CELLAR NIGHT SKY ("sonst ist der Himmel einfach nur schwarz"): Env_Cellar gains the
+    // same StarDome node as the swamp (shared mesh/material by GUID, no texture duplication).
+    // Bundle rebuilt — 130 NEEDS it.
+    //
     // Build 129: REAL authored game maps as environments, invisible staging, zero red cubes,
     // and a real astrophoto night sky. No wire change.
     //
