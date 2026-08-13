@@ -137,6 +137,56 @@ namespace GloomhavenVR
             ("FloorAway", Eye, new Vector3(34, MoonAz + 180f, 0), false, 60f),
             ("FloorLow", new Vector3(0f, 0.35f, 0f), new Vector3(6, MoonAz + 90f, 0), false, 65f),
             ("FloorEdge", new Vector3(5.0f, 1.40f, -3.0f), new Vector3(14, 300, 0), false, 60f),
+            // ---- ModBuild 137 review set ----
+            // (2) THE BEAM FROM INSIDE. User finding: "im Keller wenn man nah in
+            // den Mondschein am Fenster geht verschwindet er plötzlich."
+            // The camera positions below are ON the beam axis and to either side
+            // of it: winMid (-1.352, 2.515, 4.500) + dir * s with
+            // dir = -MoonDir = (-0.4926, -0.6427, -0.5868), so
+            //   s=0.60 -> (-1.65, 2.13, 4.15)   just inside the embrasure
+            //   s=1.58 -> (-2.13, 1.50, 3.58)   eye height, the middle of the beam
+            //   s=2.60 -> (-2.63, 0.84, 2.97)   knee height, near the pool
+            // and 'across' = (0.7933, 0, -0.6087) is the horizontal perpendicular.
+            // Looking ALONG the axis is euler(-40, 40, 0) (up toward the window)
+            // and euler(40, 220, 0) (down toward the pool) — 40 deg is the moon's
+            // own altitude and azimuth, so these follow MoonDir if it moves.
+            ("BeamInsideL", new Vector3(-2.13f, 1.50f, 3.58f), new Vector3(-4, 130, 0), false, 70f),
+            ("BeamInsideR", new Vector3(-2.13f, 1.50f, 3.58f), new Vector3(-4, 310, 0), false, 70f),
+            ("BeamInsideUp", new Vector3(-2.13f, 1.50f, 3.58f), new Vector3(-MoonAlt, MoonAz, 0), false, 70f),
+            ("BeamInsideDown", new Vector3(-2.13f, 1.50f, 3.58f), new Vector3(MoonAlt, MoonAz + 180f, 0), false, 70f),
+            ("BeamMouthUp", new Vector3(-1.65f, 2.13f, 4.15f), new Vector3(-MoonAlt, MoonAz, 0), false, 70f),
+            ("BeamKneeUp", new Vector3(-2.63f, 0.84f, 2.97f), new Vector3(-MoonAlt, MoonAz, 0), false, 70f),
+            // walking THROUGH it: five stations 0.6 m apart ALONG the horizontal
+            // perpendicular (0.7933, 0, -0.6087), with one fixed head
+            // orientation looking up the beam's own bearing, so the shaft has to
+            // sweep across the frame and stay continuous. C is dead centre, on
+            // the axis; A and E are 1.2 m out, past the hull's own rim.
+            ("BeamThruA", new Vector3(-3.082f, 1.50f, 4.303f), new Vector3(-10, MoonAz, 0), false, 70f),
+            ("BeamThruB", new Vector3(-2.606f, 1.50f, 3.938f), new Vector3(-10, MoonAz, 0), false, 70f),
+            ("BeamThruC", new Vector3(-2.130f, 1.50f, 3.573f), new Vector3(-10, MoonAz, 0), false, 70f),
+            ("BeamThruD", new Vector3(-1.654f, 1.50f, 3.208f), new Vector3(-10, MoonAz, 0), false, 70f),
+            ("BeamThruE", new Vector3(-1.178f, 1.50f, 2.842f), new Vector3(-10, MoonAz, 0), false, 70f),
+            // ...and the same walk seen from OUTSIDE, which is the control: the
+            // beam must look the same from here whatever the previous frames did.
+            ("BeamFromRoom", new Vector3(1.60f, 1.50f, 0.60f), new Vector3(-2, 315, 0), false, 70f),
+            // (16a) THE FOREST SHAFTS AND THE MOON IN ONE FRAME. If a shaft is
+            // parallel to MoonDir its image must converge on the moon's image, so
+            // a wide frame containing both is a PROOF, not an impression.
+            ("ShaftMoon", Eye, new Vector3(-26, MoonAz, 0), false, 78f),
+            ("ShaftMoonLow", new Vector3(0f, 0.45f, 0f), new Vector3(-30, MoonAz, 0), false, 78f),
+            // four yaws, same pitch: the shafts' lean must reverse as you turn
+            ("ShaftYaw0", Eye, new Vector3(-18, MoonAz, 0), false, 75f),
+            ("ShaftYaw90", Eye, new Vector3(-18, MoonAz + 90f, 0), false, 75f),
+            ("ShaftYaw180", Eye, new Vector3(-18, MoonAz + 180f, 0), false, 75f),
+            ("ShaftYaw270", Eye, new Vector3(-18, MoonAz + 270f, 0), false, 75f),
+            // from above and behind the clearing, looking down the moon bearing:
+            // the shafts' AZIMUTH is measurable in this frame
+            ("ShaftPlan", new Vector3(-9.2f, 12.0f, -11.9f), new Vector3(30, MoonAz, 0), false, 75f),
+            // ...and straight down over the clearing: the ground pools and the
+            // shafts must all run along the same compass bearing
+            ("ShaftTop", new Vector3(0f, 13.5f, 0f), new Vector3(80, MoonAz, 0), false, 80f),
+            // standing under the middle shaft, looking up along it at the moon
+            ("ShaftUnder", new Vector3(3.35f, 1.40f, 4.36f), new Vector3(-MoonAlt, MoonAz, 0), false, 78f),
         };
 
         // The animated things only exist in motion, so the review set below is
@@ -194,8 +244,28 @@ namespace GloomhavenVR
             if (string.IsNullOrEmpty(outDir)) outDir = "env-previews";
             Directory.CreateDirectory(outDir);
 
+            // Iteration filters (the FULL set is what a review is judged on —
+            // these exist so that chasing one shaft does not cost 120 PNGs).
+            //   ENV_PREVIEW_ENVS=Env_Cellar      only that prefab
+            //   ENV_PREVIEW_VIEWS=Beam,Shaft     only views whose name starts
+            //                                    with one of these prefixes
+            //   ENV_PREVIEW_NOTIME=1             skip the cellar time series
+            string envFilter = Environment.GetEnvironmentVariable("ENV_PREVIEW_ENVS");
+            string viewFilter = Environment.GetEnvironmentVariable("ENV_PREVIEW_VIEWS");
+            bool noTime = Environment.GetEnvironmentVariable("ENV_PREVIEW_NOTIME") == "1";
+            string[] viewPrefixes = string.IsNullOrEmpty(viewFilter)
+                ? null : viewFilter.Split(',');
+            bool WantView(string n)
+            {
+                if (viewPrefixes == null) return true;
+                foreach (var p in viewPrefixes)
+                    if (n.StartsWith(p.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
+                return false;
+            }
+
             foreach (var env in new[] { "Env_Cellar", "Env_Swamp" })
             {
+                if (!string.IsNullOrEmpty(envFilter) && !envFilter.Contains(env)) continue;
                 string prefabPath = $"{Root}/{env}.prefab";
                 var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
                 if (prefab == null)
@@ -269,7 +339,7 @@ namespace GloomhavenVR
                 // ---- the still set, at the shader clock's origin ----
                 Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 foreach (var (name, pos, euler, skyOnly, fov) in Views)
-                    Shoot(name, pos, euler, skyOnly, fov, "");
+                    if (WantView(name)) Shoot(name, pos, euler, skyOnly, fov, "");
 
                 // ---- and the time series ----
                 // Flicker, the drip, the ripples, the rat and the cobwebs only
@@ -278,7 +348,7 @@ namespace GloomhavenVR
                 // reads a global clock offset for exactly this (see
                 // EnvRoom.shader/_GhvrTimeOfs), so the whole room can be stepped
                 // to the same instant and the sequence read like a flipbook.
-                if (env == "Env_Cellar")
+                if (env == "Env_Cellar" && !noTime)
                 {
                     foreach (var (tag, ofs) in TimeSteps)
                     {
@@ -288,7 +358,7 @@ namespace GloomhavenVR
                             var v = Array.Find(Views, x => x.name == vn);
                             if (v.name == null)
                                 throw new Exception($"TimeViews names an unknown view '{vn}'.");
-                            Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_" + tag);
+                            if (WantView(v.name)) Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_" + tag);
                         }
                     }
                     Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);

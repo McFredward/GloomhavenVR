@@ -1393,7 +1393,17 @@ namespace GloomhavenVR
                 // Strength 0.30 looks large next to the old slats' 0.105 only
                 // because it is now divided by the path term and squashed by the
                 // Reinhard knee; the peak on screen is LOWER than 135's.
-                beamMat.SetColor("_Tint", new Color(0.55f, 0.68f, 1.0f, 0.055f));
+                // ModBuild 137: the shader now INTEGRATES the density along the
+                // view ray instead of sampling it once at the closest approach
+                // (see EnvBeam.shader's 137 note). Broadside that integral is
+                // sqrt(pi)-ish times the old point sample — 1.78 * w for this
+                // super-gaussian — so the strength drops 0.055 -> 0.031 to land
+                // the beam at the SAME broadside brightness the 136 previews
+                // were judged at. What changes is only what the old model got
+                // wrong: looking up the shaft is now ~5x broadside instead of
+                // zero, and standing inside it counts only the half in front of
+                // the head.
+                beamMat.SetColor("_Tint", new Color(0.55f, 0.68f, 1.0f, 0.031f));
                 beamMat.SetVector("_BeamOrg", winMid);
                 beamMat.SetVector("_BeamDir", dir);
                 beamMat.SetFloat("_Len", beamLen);
@@ -1403,7 +1413,10 @@ namespace GloomhavenVR
                 beamMat.SetFloat("_Ramp", 0.34f);      // = RevealDepth: it emerges from the embrasure
                 beamMat.SetFloat("_Decay", 1.30f);     // 26% left at 1 m, 7% at 2 m: "leicht hereinkommend"
                 beamMat.SetFloat("_EndFade", 0.55f);
-                beamMat.SetFloat("_MinSin", 0.45f);    // looking along it is 2.2x broadside, not 3.1x
+                // The integration interval IS the hull: one number, used twice,
+                // so the density can never end inside its own bounding mesh.
+                beamMat.SetFloat("_HullR", hullR);
+                beamMat.SetFloat("_Steps", 24f);
                 beamMat.SetFloat("_Knee", 1.10f);
                 beamMat.SetFloat("_Shimmer", 0.14f);
                 beamMat.SetFloat("_ShimmerSpeed", 0.13f);
@@ -1908,7 +1921,25 @@ namespace GloomhavenVR
         /// it where the super-gaussian is ~1e-6 of peak, so this mesh's rim is
         /// black before it ends — and hence `clamp`: the hull is drawn BACK FACE
         /// ONLY, so a rim that pokes through a wall or under the floor would
-        /// fail ZTest and cut a hole in the beam.</summary>
+        /// fail ZTest and cut a hole in the beam.
+        ///
+        /// WINDING — THE ModBuild 137 BUG. Every triangle here is wound so that
+        /// cross(p1-p0, p2-p0) points OUTWARD, i.e. along the vertex normals
+        /// this mesh already stored. Until 137 the side quads and both caps were
+        /// wound the other way round, so `Cull Front` in EnvBeam.shader kept the
+        /// hull's NEAR faces instead of its far ones — and a near face is
+        /// exactly what stops existing when the player walks into the volume.
+        /// That, not the density model, is why the moonbeam vanished when
+        /// entered ("verschwindet er plötzlich"): the hull was not drawn AT ALL
+        /// from any camera inside it. The winding below is checked in the same
+        /// way it was found — a debug pass that paints hull coverage must cover
+        /// the whole frame from a camera standing on the axis. Never flip this
+        /// without flipping the shader's Cull with it.
+        ///
+        /// Convention (right-handed basis ax x ay = dir): the side quad at
+        /// (ring r, segment k) is emitted (i0, i0+1, i0+stride), which gives
+        /// cross = +n, and the s0 cap is wound `flip` while the s1 cap is
+        /// not — the mirror image of what 136 had.</summary>
         private static Mesh BeamHullMesh(Vector3 org, Vector3 dir, float s0, float s1,
             float r0, float r1, int rings, int segs, Func<Vector3, Vector3> clamp)
         {
@@ -1935,7 +1966,7 @@ namespace GloomhavenVR
                 for (int k = 0; k < segs; k++)
                 {
                     int i0 = r * stride + k;
-                    a.T.AddRange(new[] { i0, i0 + stride, i0 + 1, i0 + 1, i0 + stride, i0 + stride + 1 });
+                    a.T.AddRange(new[] { i0, i0 + 1, i0 + stride, i0 + 1, i0 + stride + 1, i0 + stride });
                 }
             // caps, so the hull is closed from every side (walking into the beam
             // must not reveal an open end)
@@ -1949,8 +1980,8 @@ namespace GloomhavenVR
                     else a.T.AddRange(new[] { c, ringBase + k, ringBase + k + 1 });
                 }
             }
-            Cap(0, org + dir * s0, -dir, false);
-            Cap(rings * stride, org + dir * s1, dir, true);
+            Cap(0, org + dir * s0, -dir, true);
+            Cap(rings * stride, org + dir * s1, dir, false);
             return a.Build("Env_BeamHull");
         }
 
@@ -2859,8 +2890,38 @@ namespace GloomhavenVR
             Weld(canopy, "Env_S_Canopy.asset", "Canopy", foliage);
 
             // ------------------------------------------------- moonlight shafts
-            // Five blades through the tear in the canopy, along the real moon
+            // Blades through the tear in the canopy, along the real moon
             // bearing, landing in and around the clearing.
+            //
+            // USER FINDING, ModBuild 137: "Die Lichtstrahlen zwischen den Bäumen
+            // in der Waldumgebung kommt nicht von der Richtung aus, aus dem der
+            // Mond zu sehen ist. Sollte es aber."
+            //
+            // THE DIRECTION ITSELF IS NOT THE BUG, and that was checked before
+            // anything was changed here: every shaft's axis is -MoonDir exactly,
+            // so the three of them project to lines that meet at the projection
+            // of +MoonDir — i.e. AT THE MOON — from any camera whatsoever
+            // (parallel lines meet at their direction's vanishing point). The
+            // 137 preview measurement puts all three intersections at the moon's
+            // own pixel, 640 of 1280 across, to within a pixel. The real
+            // disagreement is in the RUNTIME, not in this mesh: the sky branch
+            // and the room branch are given DIFFERENT yaws when the environment
+            // is placed (SkyAlternative.PlaceSky uses the player's head yaw,
+            // TryPlaceRoom uses the board's yaw), so in the game the sky's moon
+            // and this room's shafts stand at whatever angle those two happen to
+            // differ by. That is a src/ fix and is reported as one.
+            //
+            // WHAT IS FIXED HERE is the other half of the same reading: the
+            // shafts used to STOP about a metre and a half BELOW the canopy
+            // (tops at y 7.8-8.8 m where the canopy shell is at 9.1-9.9 m), and
+            // their top 18% faded out on top of that, so the light appeared to
+            // begin in mid-air among the trunks with the moon far above it and
+            // nothing joining the two. Each shaft now runs UP the moon bearing
+            // until it is clear of the canopy — it is seen coming THROUGH the
+            // tear the moon is seen through — and its fade-in is a fixed 1.1 m
+            // rather than a fifth of its length, so it is at full strength where
+            // it crosses that opening. No triangles are added: the same two
+            // crossed blades, longer.
             {
                 var sh = new Acc();
                 var dir = -MoonDir.normalized;                       // light travels DOWN-sunward
@@ -2875,12 +2936,38 @@ namespace GloomhavenVR
                     float side = (i - 1.0f) * 3.1f + 0.8f * (Hash3(i, 0, 0, 5311) - 0.5f);
                     Vector3 hit = moonHoriz * (4.0f + 3.4f * Hash3(i, 1, 0, 5311)) + across * side;
                     hit.y = ForestY(hit.x, hit.z) - 0.15f;
+                    // The length is DERIVED: run up the bearing until the top
+                    // stands `clear` metres over the canopy at the radius it
+                    // reaches. Both sides of that condition move with the length
+                    // (the canopy rises 0.30 m per metre of radius, the shaft
+                    // 0.84), so it is solved by iteration — six passes is far
+                    // more than the two it needs. The old fixed 11.5-14 m is the
+                    // floor, and 19 m the ceiling: past ~19 m the canopy closes
+                    // again (CanopyMask's outer term) and a shaft that ends up
+                    // there would be roofed over instead of open to the sky.
+                    float clear = 1.4f + 0.9f * Hash3(i, 3, 0, 5311);
+                    float lenMax = 17.6f + 2.0f * Hash3(i, 6, 0, 5311);
                     float len = 11.5f + 2.5f * Hash3(i, 3, 0, 5311);
+                    for (int it = 0; it < 6; it++)
+                    {
+                        Vector3 t0 = hit - dir * len;
+                        float rTop = new Vector2(t0.x, t0.z).magnitude;
+                        len = Mathf.Clamp((CanopyY(rTop) + clear - hit.y) / MoonDir.normalized.y,
+                                          11.5f, lenMax);
+                    }
                     Vector3 top = hit - dir * len;                   // back up along the beam
                     float w0 = 0.42f + 0.30f * Hash3(i, 4, 0, 5311);
                     float w1 = w0 * 2.8f;
                     float amp = 0.6f + 0.4f * Hash3(i, 5, 0, 5311);
-                    AddShaft(sh, top, dir, len, w0, w1, amp, across);
+                    // fade lengths in METRES, carried per vertex (see AddShaft):
+                    // 1.1 m in at the top so the beam is already bright where it
+                    // crosses the canopy, 5.5 m out at the bottom so it still
+                    // dies in the air over its pool instead of ending on it.
+                    AddShaft(sh, top, dir, len, w0, w1, amp, across, 1.1f / len, 5.5f / len);
+                    Debug.Log($"[GloomhavenVR][Env] Moon shaft {i}: lands ({hit.x:F2},{hit.z:F2}) "
+                              + $"r {new Vector2(hit.x, hit.z).magnitude:F1} m, length {len:F1} m, top "
+                              + $"y {top.y:F1} m at r {new Vector2(top.x, top.z).magnitude:F1} m "
+                              + $"(canopy there {CanopyY(new Vector2(top.x, top.z).magnitude):F1} m).");
                 }
                 var shaftMat = NewRoomMat("S_Shaft.mat", "GloomhavenVR/EnvShaft");
                 // a touch stronger than ModBuild 133 (alpha 0.30): with the wood
@@ -3024,15 +3111,23 @@ namespace GloomhavenVR
         }
 
         /// <summary>One shaft of moonlight: two crossed tapered blades, world-fixed
-        /// (never camera-facing). uv = (across 0..1, along 0..1) for EnvShaft.</summary>
+        /// (never camera-facing). uv = (across 0..1, along 0..1) for EnvShaft.
+        ///
+        /// VERTEX COLOUR IS DATA, not a tint (ModBuild 137): r = the fade-in
+        /// length and g = the fade-out length, both in v units, so shafts of
+        /// different lengths can share one material and still fade over the same
+        /// number of METRES. It used to be white and multiplied into the tint,
+        /// which is why nothing else has to change. Alpha is still the per-shaft
+        /// strength.</summary>
         private static void AddShaft(Acc a, Vector3 top, Vector3 dir, float len,
-            float w0, float w1, float amp, Vector3 across)
+            float w0, float w1, float amp, Vector3 across, float fadeIn, float fadeOut)
         {
             dir = dir.normalized;
             Vector3 r1 = Vector3.Cross(dir, Vector3.up).normalized;
             if (r1.sqrMagnitude < 0.5f) r1 = across.normalized;
             Vector3 r2 = Vector3.Cross(dir, r1).normalized;
-            var col = new Color(1f, 1f, 1f, amp);
+            var col = new Color(Mathf.Clamp(fadeIn, 0.01f, 0.5f),
+                                Mathf.Clamp(fadeOut, 0.01f, 0.9f), 1f, amp);
             void Blade(Vector3 right)
             {
                 Vector3 bot = top + dir * len;

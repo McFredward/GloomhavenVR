@@ -11,6 +11,16 @@
 // beam (0 at the canopy gap, 1 where it dies on the forest floor). Vertex alpha
 // scales the whole shaft so the builder can dim distant ones.
 //
+// VERTEX COLOUR RGB IS DATA, NOT A TINT (ModBuild 137). r = fade-in length,
+// g = fade-out length, both in v units. The builder derives them from METRES
+// and divides by each shaft's own length, so shafts of different lengths share
+// one material and still fade over the same distance. This mattered the moment
+// the shafts were run up THROUGH the canopy tear (so that the light is seen
+// entering where the moon is seen): a fade of a fixed fifth of the length would
+// have put the fade-out exactly across the opening and hidden the one thing the
+// change exists to show. The channel used to be white and multiplied into the
+// tint, so nothing else had to change.
+//
 // Additive, no depth write, Transparent queue: trunks and canopy occlude the
 // beams correctly (ZTest LEqual against the opaque pass), and additive blending
 // is order-independent so overlapping shafts never sort wrong.
@@ -63,10 +73,12 @@ Shader "GloomhavenVR/EnvShaft"
                 // across the blade: soft gaussian core, zero at both rims
                 float x = (i.uv.x - 0.5) * 2.0;
                 float across = exp(-x * x * _Softness);
-                // along the beam: fades in under the canopy gap, dies out before
-                // it reaches the ground (a shaft has no visible end, only a pool)
+                // along the beam: fades in at the canopy gap, dies out before it
+                // reaches the ground (a shaft has no visible end, only a pool).
+                // Both lengths come from the vertex colour, in v units.
                 float v = i.uv.y;
-                float along = smoothstep(0.0, 0.18, v) * smoothstep(1.0, 0.55, v);
+                float along = smoothstep(0.0, i.col.r, v)
+                            * smoothstep(1.0, 1.0 - i.col.g, v);
                 // slow drifting density — motes and mist crossing the beam
                 float sh = 1.0 + _Shimmer * (sin(v * 7.3 + t * _ShimmerSpeed * 6.1)
                                            * sin(v * 2.7 - t * _ShimmerSpeed * 3.3 + x * 1.9));
@@ -79,7 +91,7 @@ Shader "GloomhavenVR/EnvShaft"
                 float3 V = normalize(_WorldSpaceCameraPos - i.wp);
                 float facing = abs(dot(normalize(i.wn), V));
                 float a = across * along * sh * facing * _Tint.a * i.col.a;
-                return fixed4(_Tint.rgb * i.col.rgb * a, 1.0);
+                return fixed4(_Tint.rgb * a, 1.0);   // col.rgb is data, see header
             }
             ENDCG
         }
