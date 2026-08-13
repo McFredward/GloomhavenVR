@@ -68,6 +68,33 @@ internal enum SkyStyle
 /// two world-fixed objects have a relative pose that is constant by construction, and no
 /// per-frame code can break it.
 ///
+/// THE PROPORTIONS RULING (user, ModBuild 133 hardware round, verbatim — it decides the two
+/// numbers below and NOTHING about the invariance above, which he explicitly kept):
+/// "Das Board ist nun fester Bestandteil der Umgebung und kann innerhalb der Map nicht mehr
+/// kleiner gezogen werden. Dadurch ist zB bei der Sumpflandschaft die Bäume der Umgebung IN
+/// dem Level integriert das soll nicht sein. Es soll in der Mitte schweben in einer
+/// angemessenen Größe, so das es immer noch ein Spielfeld ist in der Umgebung drum rum (wie
+/// Spielfiguren) nicht ansatzweise die Größe von der Umgebung."
+///
+/// The target picture: a SMALL game board FLOATING in the middle of a MUCH larger place, the
+/// way a tabletop with figures sits in the middle of a room. Never anything close to the
+/// environment's own size, and never planted into the environment's ground with the forest's
+/// trees standing inside the play field.
+///
+/// ROOT CAUSE OF WHAT HE SAW — two independent defects, both readable in his ModBuild 133 log
+/// (.planning/debug/LogOutput.log):
+///  1. WRONG NORMALIZATION BASIS. Line 537 (swamp): "board 30.95 world units across over 199
+///     hex tile(s) ... room = 3.0x that = 92.86 world units ... scale 1.542 from an authored
+///     60.2 m". Those 60.2 m are the prefab's TOTAL renderer extent — it includes the deep
+///     tree bands out to ~28.5 m from the centre. Scaling the TOTAL to three board widths
+///     leaves the usable CLEARING far SMALLER than the board, so the tree ring necessarily
+///     ends up standing inside the play field. Line 2485 (cellar): "scale 7.311 from an
+///     authored 12.7 m" — the cellar only looked sane because its total extent happens to be
+///     its interior, so the accident hid the defect for one of two styles.
+///  2. RATIO FAR TOO SMALL AND THE BOARD PLANTED. 3.0x is not "a board in a room", and the
+///     room floor sat exactly AT the board underside ("floor at the board underside y -0.05"
+///     in both lines), so the board was embedded in the ground instead of floating above it.
+///
 /// WHY THE PREVIOUS MODEL PRODUCED HIS BUG (root cause, ModBuild 132). Until now BOTH the
 /// room and the sky rode ONE frame that was world-anchored but tracked the rig scale
 /// (<see cref="NotifyRigScaled"/>), so the frame kept a constant PERCEIVED size (~11 m). The
@@ -128,18 +155,42 @@ internal enum SkyStyle
 /// ROOM BRANCH (<see cref="RoomBoundShellChildren"/>: 'RoomGeo' and the floor-bound FX
 /// 'GroundFog', 'GroundFogFar', 'Fireflies'): BOARD-ANCHORED, WORLD-FIXED, NEVER RE-SEATED.
 /// Its transform is derived ONCE from the BOARD — not from the player, not from the rig:
-///  - SCALE: the room's world size = <see cref="RoomToBoardRatio"/> × the board's world-space
-///    horizontal extent. 3.0 (band 2.5–3.5) leaves one full board width of walking space on
-///    every side, so the diorama sits in the middle of the room/clearing. The prefab's own
-///    authored extent is MEASURED at spawn (<see cref="MeasureAuthoredRoomExtent"/>) instead
-///    of hard-coded, so the content lane can resize a room without a code change and both
-///    styles frame the board identically.
+///  - SCALE, NORMALIZED ON THE PLAY SPACE (defect 1 above). What has to be sized against the
+///    board is the USABLE OPEN AREA — the forest clearing, the cellar interior — not the
+///    prefab's total renderer extent, which for the swamp is mostly tree bands that must land
+///    far OUTSIDE the board. The prefab therefore carries a marker: an empty child of the
+///    prefab root named exactly <see cref="PlaySpaceMarkerName"/>, whose <c>localScale.x</c>
+///    is the authored DIAMETER of that open area in authored meters (a contract with the
+///    content lane, which authors it in
+///    <c>unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentRooms.cs</c>). It has no
+///    renderer, is read and then DESTROYED at spawn, and therefore never reaches the
+///    name splitter, the layer pass, the collider strip or the particle pass — it is a
+///    measurement, not content. Then
+///        roomScale = (<see cref="PlaySpaceToBoardRatio"/> × boardWorldExtent) ÷ authoredPlayExtent
+///    so the clearing/interior is <see cref="PlaySpaceToBoardRatio"/> board widths across and
+///    everything the content lane authored beyond it — trees, walls — lands proportionally
+///    further out. FALLBACK: a bundle without the marker (an older bundle, or a
+///    plugin/bundle mismatch) falls back to the old total-renderer measurement
+///    (<see cref="MeasureAuthoredRoomExtent"/>) and the placement log NAMES the basis it
+///    used, so the degradation is visible in the very next log instead of silent.
 ///  - POSITION: the board's horizontal center; vertically the room floor (frame y = 0, the
-///    authored floor plane) sits at the board's UNDERSIDE, so the board rests ON the floor and
-///    can never sink through it — the exact failure he reported.
+///    authored floor plane) sits <see cref="FloatGapToBoardRatio"/> × the board's world extent
+///    BELOW the board's underside, so the board FLOATS above the forest floor / cellar floor
+///    like a tabletop diorama instead of being planted in the ground (defect 2 above). The
+///    underside itself is still derived exactly as before — the lowest of the hex renderers
+///    and the scenario's room-chunk volumes — and remains the reference plane the gap is
+///    measured DOWN from. The gap is proportional to the BOARD, never an authored-meter
+///    constant: a metre value would be a fixed WORLD distance and would therefore change its
+///    relation to the board the moment the zoom changed the board's perceived size, which is
+///    exactly the class of bug the invariance ruling exists to kill. Proportional means the
+///    picture "board hovering that far above the ground" is identical at every zoom.
 ///  - ROTATION: the yaw of the BOARD's own world transform (a constant). Deliberately NOT the
 ///    head gaze: a gaze-derived yaw is player-dependent, and a player-dependent room pose is
 ///    by definition not invariant relative to the board.
+/// The placement log line prints the gap BOTH in world units and as its perceived value at
+/// the live rig scale, plus the player's own real floor height relative to the new room floor
+/// — the three numbers the next hardware round needs to judge whether he stands on the ground
+/// or above it, and to tune the two ratios.
 /// After that placement there are ZERO per-frame writes, NO rig-scale tracking and NO re-seat
 /// of any kind — not on <see cref="VRRigDriver.RigPoseVersion"/>, not on zoom, not ever
 /// (ModBuild-131 ruling: re-seating a room the player stands in IS a teleport). The only
@@ -198,6 +249,10 @@ internal enum SkyStyle
 ///    hex tiles, so a room floor at the hex plane would be drawn OVER the dungeon floor and the
 ///    board would lose its own ground. The result is clamped to at most half a board extent
 ///    below the hex plane, so one pathological renderer can never drop the floor into the void.
+///    Since the board FLOATS, this underside is no longer where the room floor goes — it is the
+///    REFERENCE PLANE the float gap is measured down from, and it still has to be the true
+///    bottom of the visible diorama or the board would appear to hang by a different amount in
+///    every scenario.
 ///  - THE SANITY CHECK that 130 lacked: the PERCEIVED extent (world extent ÷ live rig scale)
 ///    must lie in [<see cref="MinPlausibleBoardMeters"/>, <see cref="MaxPlausibleBoardMeters"/>]
 ///    = 0.2–20 m. Outside that the placement is REFUSED, one warn is logged, and the probe
@@ -259,7 +314,11 @@ internal enum SkyStyle
 /// FAR PLANE: the far-plane floor must cover BOTH branches. The sky is real-size, so at rig
 /// scale S its farthest geometry sits up to (<see cref="EnvMinFarMeters"/> × S) world units
 /// from its origin; the room is world-fixed and can out-distance the dome when you zoom in, so
-/// its own world extent counts too. <see cref="MinFarWorldUnits"/> hands
+/// its own world extent counts too. NOTE, since the play-space normalization split the two
+/// apart: the room's far-plane budget is the placed size of the room's TOTAL geometry
+/// (authored total extent × roomScale), NOT the play-space size — for the swamp the tree
+/// bands now reach several times further out than the clearing, and budgeting the clearing
+/// would clip them away. <see cref="MinFarWorldUnits"/> hands
 /// <c>VRRigDriver.TickClipPlanes</c> the larger of the two budgets, each plus the head's
 /// distance to that branch's origin (the player can fly away from either) — 0 when idle, still
 /// capped by the depth-precision far/near ratio.
@@ -289,6 +348,21 @@ internal enum SkyStyle
 ///    teleport and displaces the board. Five events in his final log ended the approach.
 ///  - Head-gaze yaw for the room: player-dependent, so the room pose would depend on where you
 ///    happened to look — the opposite of the invariance the ruling demands.
+///  - Normalizing on the prefab's TOTAL renderer extent (133): for the swamp that is 60.2 m of
+///    which the clearing is a fraction, so three board widths of TOTAL left the clearing
+///    smaller than the board and the trees stood in the play field. That is his ModBuild-133
+///    report. The basis, not the ratio alone, was wrong.
+///  - Hard-coding the play-space diameter per style in this file: it would have to be re-tuned
+///    by a code change every time the content lane re-authors a room, and it would silently go
+///    stale against a newer bundle. The marker travels WITH the art; the fallback plus the
+///    logged basis makes a mismatch visible instead of silent.
+///  - A float gap in authored METERS: a fixed world distance, so the board's height above the
+///    floor would change relative to the board itself under zoom. Proportional-to-the-board is
+///    the only formulation that is invariant, which is what the anchor ruling demands.
+///  - Shrinking the BOARD instead of growing the room, to get "nicht ansatzweise die Größe von
+///    der Umgebung": the board is the game's own object and the mod does not resize it — and
+///    it would break every board-relative system at once (spawn ring, control board, grabs).
+///    The same proportion is achieved by sizing the room, which the mod does own.
 ///
 /// MULTIPLAYER: local presentation only — nothing about the environment is on the wire. [Sky]
 /// is not a board section, so the wire-coverage checker does not demand an exemption.
@@ -314,14 +388,42 @@ internal static class SkyAlternative
     private const float EnvMinFarMeters = 100f;
 
     /// <summary>
-    /// How much wider the room is than the board it stands around (class doc ANCHORING). 3.0
-    /// puts one full board width of walking space on every side: room half-width
-    /// (1.5 × extent) minus board half-width (0.5 × extent) = one extent. The usable band is
-    /// 2.5–3.5 — below that the walls crowd the diorama, above it the room reads as a hall the
-    /// board is lost in. Not a config dial on purpose: it is a look constant, and a [Sky] dial
-    /// that changes board-relative geometry would owe the wire-coverage checker an answer.
+    /// How many BOARD widths across the room's usable PLAY SPACE is — the forest clearing, the
+    /// cellar interior (class doc ANCHORING, and the PROPORTIONS RULING it serves). 4.5 was
+    /// chosen from the band 3.5–6: at 4.5 the board occupies 22% of the clearing's width and
+    /// about 5% of its area, so it reads unmistakably as a game board standing in a place — a
+    /// tabletop with figures — with roughly 1.75 board widths of open ground on every side.
+    /// Below 3.5 the place starts to crowd the board again, which is what ModBuild 133's 3.0
+    /// on the wrong basis produced; above 6 the board is lost in a field and the room art no
+    /// longer reads as a room. THIS IS THE KNOB HIS NEXT REPORT TUNES: "zu groß" moves it up,
+    /// "zu klein / zu eng" moves it down, and nothing else in the placement has to change.
+    /// Not a config dial on purpose: it is a look constant, and a [Sky] dial that changes
+    /// board-relative geometry would owe the wire-coverage checker an answer.
     /// </summary>
-    private const float RoomToBoardRatio = 3.0f;
+    private const float PlaySpaceToBoardRatio = 4.5f;
+
+    /// <summary>
+    /// How far the room floor sits BELOW the board's underside, as a multiple of the board's
+    /// world extent — the "floating" of the PROPORTIONS RULING (class doc ANCHORING). 0.75 was
+    /// chosen from the band 0.5–1.0 against his own ModBuild 133 numbers: his board measured
+    /// 30.95 world units, so the gap is 23.2 world units, and his log line 537 puts the rig
+    /// root — the tracking floor, i.e. his real floor — at y -23.59 with the board underside at
+    /// y -0.05, a drop of 23.54. The new floor therefore lands within a third of a world unit
+    /// of the floor he physically stands on, i.e. he stands ON the forest ground while the
+    /// board hovers at about chest height in front of him. Proportional to the BOARD and not
+    /// in meters, so the picture is identical at every zoom (class doc, and the rejected
+    /// alternatives). The placement log prints the achieved gap and his floor delta so the next
+    /// round can retune this without guessing.
+    /// </summary>
+    private const float FloatGapToBoardRatio = 0.75f;
+
+    /// <summary>
+    /// Name of the empty marker child on the environment prefab's ROOT whose
+    /// <c>localScale.x</c> is the authored DIAMETER, in authored meters, of the room's usable
+    /// open area (class doc ANCHORING). A CONTRACT with the content lane — never rename it on
+    /// only one side. Read once at spawn and then destroyed, so no other pass ever sees it.
+    /// </summary>
+    private const string PlaySpaceMarkerName = "PlaySpace";
 
     /// <summary>Plausibility window for the board's PERCEIVED horizontal extent, real meters
     /// (class doc MEASURING THE BOARD). A diorama is knee-high-table-sized when zoomed to a
@@ -385,8 +487,10 @@ internal static class SkyAlternative
     // is hidden and the probe retries on the scan cadence; once true nothing ever writes the
     // room transform again for the life of this activation.
     private static bool _roomPlaced;
-    private static float _roomAuthoredExtent;   // prefab's own horizontal extent, meters (measured)
-    private static float _roomWorldExtent;      // placed world size — the far-plane budget
+    private static float _roomAuthoredExtent;      // prefab's TOTAL horizontal extent, meters (measured)
+    private static float _roomAuthoredPlayExtent;  // the usable open area's authored diameter, meters
+    private static bool _roomPlayExtentFromMarker; // true = from the 'PlaySpace' marker, false = fallback
+    private static float _roomWorldExtent;         // placed TOTAL world size — the far-plane budget
     private static int _nextRoomProbeFrame;
     private static bool _implausibleWarned;     // one-shot warn for a refused measurement
 
@@ -422,12 +526,17 @@ internal static class SkyAlternative
             "exactly as before. Cellar = a candle-lit stone cellar; SwampNight = a moonlit " +
             "swamp clearing under a star dome with shooting stars, ground fog and " +
             "fireflies. A non-Default choice in a scenario hides the game's sky sphere and " +
-            "builds the environment as a FIXED PLACE AROUND THE BOARD: the room is centred " +
-            "on the diorama, its floor sits exactly at the board's underside, and it is " +
-            "about three times as wide as the board, so you have room to walk around the " +
-            "table. THE BOARD NEVER MOVES INSIDE THE ROOM. Zooming scales the whole scene " +
-            "— board and room together, keeping their proportion, so far out the place " +
-            "reads as a model in front of you and zoomed in you stand inside it. The board " +
+            "builds the environment as a FIXED PLACE AROUND THE BOARD, with the board as a " +
+            "SMALL GAME BOARD FLOATING IN THE MIDDLE OF A MUCH LARGER PLACE — like a " +
+            "tabletop with figures standing in a room, never anything close to the size of " +
+            "the surroundings. The open area you stand in — the forest clearing, the cellar " +
+            "interior — is several times as wide as the board, so everything the " +
+            "environment is made of, trees and walls included, stays well outside the play " +
+            "field; and the board hovers a board-proportional height above the ground " +
+            "instead of being planted in it. THE BOARD NEVER MOVES INSIDE THE ROOM. Zooming " +
+            "scales the whole scene — board and room together, keeping their proportion, so " +
+            "far out the place reads as a model in front of you and zoomed in you stand " +
+            "inside it, and the board floats exactly the same way at every zoom. The board " +
             "can no longer end up under the floor. Stick flight, turning, the world-grab " +
             "drag and physical walking all move you through the place; none of them ever " +
             "re-places it. Only the sky itself is re-placed around you, and only by the " +
@@ -534,8 +643,11 @@ internal static class SkyAlternative
             _loggedActive = true;
             VRLog.Info("Core", $"Sky alternative ON — style {style} (scenario active): the game's sky " +
                                "sphere is hidden (pure renderer.enabled hiding; SkyBackdrop stands down). " +
-                               "The ROOM is a fixed place around the board (world-anchored, board-sized, " +
-                               "never re-seated) and the SKY is world-anchored but rig-scale tracked " +
+                               "The ROOM is a fixed place around the board — world-anchored, never " +
+                               "re-seated, its open play space several board widths across and its floor " +
+                               "a board-proportional gap BELOW the board, so the board floats in the " +
+                               "middle of it like a tabletop diorama — and the SKY is world-anchored " +
+                               "but rig-scale tracked " +
                                "(perceived-constant, a distant sky at every zoom). MR overrides it off; " +
                                "leaving the scenario despawns it.");
         }
@@ -685,6 +797,12 @@ internal static class SkyAlternative
         GameObject shell = Object.Instantiate(prefab, _skyGo.transform, false);
         shell.name = prefab.name; // authored disabled children (Cellar's 'GlowTemplate') stay disabled
 
+        // PLAY-SPACE MARKER FIRST, before anything else walks the shell (class doc ANCHORING):
+        // it is a measurement, not content, so it is read and removed here — the name splitter,
+        // the layer pass, the collider strip and the particle pass all run on what is left and
+        // can never see it, and it can never fall through the name router onto the sky branch.
+        float markedPlayExtent = TakePlaySpaceMarker(shell);
+
         // SPLIT BY NODE NAME (class doc ANCHORING): the room geometry and the floor-bound FX
         // move to the board-anchored, world-fixed room branch keeping their authored local pose
         // (they are authored around the origin with the floor at y = 0 — the room frame's origin
@@ -705,8 +823,25 @@ internal static class SkyAlternative
             }
         }
 
-        // The prefab's own room size, measured while the room root still stands at identity.
+        // The prefab's own TOTAL room size, measured while the room root still stands at
+        // identity. It no longer drives the scale (defect 1 in the class doc) — it is the
+        // far-plane budget and the fallback basis.
         _roomAuthoredExtent = MeasureAuthoredRoomExtent(_roomGo);
+
+        // THE NORMALIZATION BASIS (class doc ANCHORING). The marker wins; a bundle without one
+        // degrades to the old total-renderer basis and SAYS SO, here and in the placement line,
+        // so a plugin/bundle mismatch is one grep away instead of a silently wrong room.
+        _roomPlayExtentFromMarker = markedPlayExtent > 0.01f;
+        _roomAuthoredPlayExtent = _roomPlayExtentFromMarker ? markedPlayExtent : _roomAuthoredExtent;
+        if (!_roomPlayExtentFromMarker)
+        {
+            VRLog.Warn("Core", $"Sky alternative: environment '{prefab.name}' carries no " +
+                               $"'{PlaySpaceMarkerName}' marker on its root — a bundle older than the " +
+                               "play-space contract, or a plugin/bundle mismatch. Falling back to the " +
+                               $"TOTAL authored extent {_roomAuthoredExtent:F1} m as the play space, which " +
+                               "is the ModBuild-133 behaviour: for a room whose art reaches far beyond its " +
+                               "open area the board will be framed too tightly. Rebuild the bundle.");
+        }
 
         VRLayers.Apply(_skyGo);  // mod layer, recursive — head camera only (gated on IsRunning)
         VRLayers.Apply(_roomGo);
@@ -733,7 +868,9 @@ internal static class SkyAlternative
         VRLog.Info("Core", $"Sky alternative: environment '{prefab.name}' spawned and SPLIT over the two " +
                            $"branches — {rehomed} board-anchored node(s) onto the world-fixed room frame, " +
                            $"the rest onto the rig-scale-tracked sky frame. Authored room extent " +
-                           $"{_roomAuthoredExtent:F1} m. {systemCount} particle system(s) normalised " +
+                           $"{_roomAuthoredExtent:F1} m total, play space {_roomAuthoredPlayExtent:F1} m " +
+                           $"{(_roomPlayExtentFromMarker ? $"from the '{PlaySpaceMarkerName}' marker" : "from the total extent — NO marker, fallback basis")}" +
+                           $". {systemCount} particle system(s) normalised " +
                            $"(Hierarchy scaling, local simulation space)" +
                            $"{(strippedColliders > 0 ? $", {strippedColliders} stray collider(s) stripped" : "")}. " +
                            $"{(placed ? "Room placed on the board." : "Room HIDDEN until the board measures — no stand-in is ever shown.")}" +
@@ -781,6 +918,51 @@ internal static class SkyAlternative
             if (!ps.isPlaying && ps.gameObject.activeInHierarchy)
                 ps.Play(withChildren: false);
         }
+    }
+
+    /// <summary>
+    /// Read and REMOVE the play-space marker (class doc ANCHORING): the empty child named
+    /// <see cref="PlaySpaceMarkerName"/> whose x scale is the authored DIAMETER, in authored
+    /// meters, of the room's usable open area. Returns 0 when the prefab carries none — the
+    /// caller then falls back to the total-renderer basis and logs that it did.
+    ///
+    /// <para>The value is taken as the marker's scale RELATIVE TO THE SHELL ROOT
+    /// (lossy ÷ lossy) rather than as a raw <c>localScale</c>: the shell already hangs under
+    /// the rig-scaled sky root at this point, and a future prefab could nest the marker one
+    /// level deeper. For the contracted layout — a direct child of an unscaled prefab root —
+    /// the two are identical, and the degenerate case falls back to the raw local scale.</para>
+    ///
+    /// <para>Destroying it is what keeps every other pass honest: the name splitter would
+    /// otherwise route an unknown node onto the SKY branch, where a rig-scale-tracked empty
+    /// would be harmless but would still show up in every future sweep as content. A
+    /// measurement must not survive into the scene.</para>
+    /// </summary>
+    private static float TakePlaySpaceMarker(GameObject shell)
+    {
+        Transform root = shell.transform;
+        Transform? marker = null;
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            if (string.Equals(child.name, PlaySpaceMarkerName, System.StringComparison.Ordinal))
+            {
+                marker = child;
+                break;
+            }
+        }
+        if (marker == null)
+            return 0f;
+
+        float shellScale = Mathf.Abs(root.lossyScale.x);
+        float markerScale = Mathf.Abs(marker.lossyScale.x);
+        float authored = shellScale > 1e-6f ? markerScale / shellScale : Mathf.Abs(marker.localScale.x);
+
+        // Detach first, then destroy: Destroy is deferred to the end of the frame, and the
+        // splitter/layer/collider/particle passes all run within THIS call.
+        marker.SetParent(null, false);
+        Object.Destroy(marker.gameObject);
+
+        return float.IsNaN(authored) || float.IsInfinity(authored) ? 0f : authored;
     }
 
     /// <summary>
@@ -868,9 +1050,10 @@ internal static class SkyAlternative
 
     /// <summary>
     /// The ROOM branch's ONE placement (class doc ANCHORING, room). Derives the pose purely
-    /// from the board: scale so the room spans <see cref="RoomToBoardRatio"/> × the board's
-    /// world extent, position at the board's horizontal centre with the room floor at the
-    /// board's underside, rotation from the board's own world yaw. Refuses — with one warn and
+    /// from the board: scale so the room's PLAY SPACE spans <see cref="PlaySpaceToBoardRatio"/>
+    /// × the board's world extent, position at the board's horizontal centre with the room
+    /// floor <see cref="FloatGapToBoardRatio"/> × that extent BELOW the board's underside so
+    /// the board floats, rotation from the board's own world yaw. Refuses — with one warn and
     /// no write — when the board is not measurable or measures implausibly; the caller retries
     /// on the scan cadence. Returns true once the room stands; after that it is never called
     /// again for this activation, so the room is provably frozen in world space.
@@ -878,7 +1061,7 @@ internal static class SkyAlternative
     private static bool TryPlaceRoom(Transform anchor, string why)
     {
         GameObject? room = _roomGo;
-        if (room == null || _roomPlaced || _roomAuthoredExtent <= 0.01f)
+        if (room == null || _roomPlaced || _roomAuthoredPlayExtent <= 0.01f)
             return false;
 
         if (!TryMeasureBoardWorld(out Vector3 center, out float undersideY, out float extent,
@@ -908,12 +1091,30 @@ internal static class SkyAlternative
             return false;
         }
 
-        float roomWorld = RoomToBoardRatio * extent;
-        float roomScale = roomWorld / _roomAuthoredExtent;
+        // THE PROPORTIONS (class doc ANCHORING). The board sizes the PLAY SPACE — the clearing,
+        // the interior — and the scale that follows carries the rest of the art proportionally
+        // outward, so tree bands and walls land far outside the board instead of inside it.
+        float playWorld = PlaySpaceToBoardRatio * extent;
+        float roomScale = playWorld / _roomAuthoredPlayExtent;
+        float roomTotalWorld = _roomAuthoredExtent * roomScale; // the far-plane budget, not the play space
 
-        room.transform.SetPositionAndRotation(new Vector3(center.x, undersideY, center.z), boardYaw);
+        // THE FLOAT. The underside stays the reference plane; the floor drops a board-proportional
+        // gap below it, so the board hovers over the ground like a tabletop diorama at EVERY zoom.
+        float floatGap = FloatGapToBoardRatio * extent;
+        float floorY = undersideY - floatGap;
+
+        // The player's own real floor, for the log only: tracking space is floor-origin, so the
+        // floor point under the head is where he physically stands. No head yet -> the rig origin.
+        Camera? headCam = VRRigDriver.HeadCamera;
+        Vector3 headLocal = headCam != null ? headCam.transform.localPosition : Vector3.zero;
+        float playerFloorY = headCam != null && headLocal.sqrMagnitude > 1e-6f
+            ? anchor.TransformPoint(new Vector3(headLocal.x, 0f, headLocal.z)).y
+            : anchor.position.y;
+        float standDelta = playerFloorY - floorY; // + = he stands above the room floor
+
+        room.transform.SetPositionAndRotation(new Vector3(center.x, floorY, center.z), boardYaw);
         room.transform.localScale = Vector3.one * roomScale;
-        _roomWorldExtent = roomWorld;
+        _roomWorldExtent = roomTotalWorld;
         _roomPlaced = true;
         if (!room.activeSelf)
         {
@@ -923,12 +1124,19 @@ internal static class SkyAlternative
 
         VRLog.Info("Core", $"Sky alternative: ROOM placed ({why}) — board {extent:F2} world units across " +
                            $"over {tileCount} hex tile(s), perceived {perceived:F2} m at rig scale " +
-                           $"{rigScale:F2}; room = {RoomToBoardRatio:F1}x that = {roomWorld:F2} world units " +
-                           $"(perceived {roomWorld / rigScale:F2} m), scale {roomScale:F3} from an authored " +
-                           $"{_roomAuthoredExtent:F1} m; floor at the board underside y {undersideY:F2}, " +
-                           $"centre {center:F2}, yaw {boardYaw.eulerAngles.y:F1}deg from the board. " +
-                           "WORLD-FIXED from now on: no per-frame writes, no rig-scale tracking, no re-seat " +
-                           "of any kind — the board can never move inside the room again.");
+                           $"{rigScale:F2}. PLAY SPACE = {PlaySpaceToBoardRatio:F1}x the board = " +
+                           $"{playWorld:F2} world units, perceived {playWorld / rigScale:F2} m; scale " +
+                           $"{roomScale:F3} from an authored play space of {_roomAuthoredPlayExtent:F1} m " +
+                           $"[{(_roomPlayExtentFromMarker ? $"'{PlaySpaceMarkerName}' marker" : "FALLBACK: total renderer extent, no marker in this bundle")}], " +
+                           $"total room art {_roomAuthoredExtent:F1} m authored -> {roomTotalWorld:F2} world " +
+                           $"units, perceived {roomTotalWorld / rigScale:F2} m. FLOAT: board underside y " +
+                           $"{undersideY:F2}, floor dropped {floatGap:F2} world units = perceived " +
+                           $"{floatGap / rigScale:F2} m below it to y {floorY:F2}; the player's real floor " +
+                           $"is y {playerFloorY:F2}, i.e. {standDelta:F2} world units = perceived " +
+                           $"{standDelta / rigScale:F2} m above the room floor. Centre {center:F2}, yaw " +
+                           $"{boardYaw.eulerAngles.y:F1}deg from the board. WORLD-FIXED from now on: no " +
+                           "per-frame writes, no rig-scale tracking, no re-seat of any kind — the board can " +
+                           "never move inside the room again.");
         return true;
     }
 
@@ -1147,6 +1355,8 @@ internal static class SkyAlternative
     {
         _roomPlaced = false;
         _roomAuthoredExtent = 0f;
+        _roomAuthoredPlayExtent = 0f;
+        _roomPlayExtentFromMarker = false;
         _roomWorldExtent = 0f;
         _nextRoomProbeFrame = 0;
         _implausibleWarned = false;
