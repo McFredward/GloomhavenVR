@@ -73,7 +73,7 @@ internal static partial class Defaults
     internal const bool HeadMaskFromScenarioCamera = false;  // => [Optimize] HeadMaskFromScenarioCamera
 
     // ---- Core/SkyAlternative.cs ----------------------------------------------------
-    internal const SkyStyle SkyStyle = Core.SkyStyle.Default;  // => [Sky] Style  (the game's own sky — a fresh install looks exactly like today; Cellar/SwampNight generate a room from the game's own art around the play space, SCENARIO-ONLY by user ruling 2026-08-12, and mixed reality always overrides every sky/environment to OFF)
+    internal const SkyStyle SkyStyle = Core.SkyStyle.Default;  // => [Sky] Style  (the game's own sky — a fresh install looks exactly like today; Cellar/SwampNight spawn the mod's own bundled 3D atmosphere around the play space, SCENARIO-ONLY by user ruling 2026-08-12 — game-asset room generation was removed by ruling 2026-08-13, see .planning/game-env-postmortem.md — and mixed reality always overrides every sky/environment to OFF)
 
     // ---- Core/StereoModeConfig.cs --------------------------------------------------
     internal const string RenderMode = nameof(StereoModeConfig.Mode.MultiPass);  // => [Stereo] RenderMode
