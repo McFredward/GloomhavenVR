@@ -39,6 +39,7 @@ Shader "GloomhavenVR/EnvShaft"
 
             fixed4 _Tint;
             float _Softness, _Shimmer, _ShimmerSpeed;
+            float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed4 col : COLOR; float3 wn : TEXCOORD1; float3 wp : TEXCOORD2; };
@@ -58,7 +59,7 @@ Shader "GloomhavenVR/EnvShaft"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                float t = fmod(_Time.y, SKY_PERIOD);
+                float t = fmod(_Time.y + _GhvrTimeOfs, SKY_PERIOD);
                 // across the blade: soft gaussian core, zero at both rims
                 float x = (i.uv.x - 0.5) * 2.0;
                 float across = exp(-x * x * _Softness);

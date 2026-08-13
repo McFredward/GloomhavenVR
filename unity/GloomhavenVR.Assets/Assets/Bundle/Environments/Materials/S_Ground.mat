@@ -39,6 +39,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _BumpScale: 1.15
+    - _PtHard: 0
     m_Colors:
     - _AmbDown: {r: 0.005, g: 0.006, b: 0.005, a: 1}
     - _AmbUp: {r: 0.024, g: 0.029, b: 0.04, a: 1}

@@ -22,7 +22,14 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
+    - _Away: 0
+    - _AwayPeriod: 26
+    - _Blink: 0
+    - _BlinkPeriod: 4.7
     - _Falloff: 3.2
+    - _Flicker: 0
+    - _Phase: 0
+    - _Rate: 1
     m_Colors:
     - _Tint: {r: 1, g: 0.88, b: 0.45, a: 0.85}
   m_BuildTextureStacks: []

@@ -568,12 +568,12 @@ internal static partial class Loc
         // environments replaced the panorama skyboxes; MR precedence is the user's own rule, so
         // the hint states it — the German MR sentence is a fixed formulation, keep it verbatim).
         ["vr_o_sky"] = Pair("Environment", "Umgebung"),
-        ["h_vr_o_sky"] = Pair("Replaces the sky around the table with a 3D environment — a dungeon cellar or a swamp night with shooting stars. With mixed reality the sky is always off.", "Ersetzt den Himmel um den Tisch durch eine 3D-Umgebung — DnD-Keller oder Sumpfnacht mit Sternschnuppen. Bei Mixed Reality ist der Himmel immer aus."),
+        ["h_vr_o_sky"] = Pair("Replaces the sky around the table with a 3D environment — a cellar or a night forest under real stars. With mixed reality the sky is always off.", "Ersetzt den Himmel um den Tisch durch eine 3D-Umgebung — Keller oder Nachtwald unter echten Sternen. Bei Mixed Reality ist der Himmel immer aus."),
         // The three dropdown choices, shown instead of the raw enum members (Default/Cellar/
         // SwampNight stay the config/log identity, like the board-movement labels above).
         ["sky_default"] = Pair("Default", "Standard"),
-        ["sky_cellar"] = Pair("Dungeon cellar", "DnD-Keller"),
-        ["sky_swamp"] = Pair("Swamp night", "Sumpfnacht"),
+        ["sky_cellar"] = Pair("Cellar", "Keller"),
+        ["sky_swamp"] = Pair("Night forest", "Nachtwald"),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),

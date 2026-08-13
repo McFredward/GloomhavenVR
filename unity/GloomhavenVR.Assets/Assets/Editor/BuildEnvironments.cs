@@ -254,6 +254,11 @@ namespace GloomhavenVR
             WritePng(TexDir + "/Env_Streak.png", MakeStreak(256, 64), 256, 64, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_FogPuff.png", MakeFogPuff(256), 256, 256, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Moon.png", MakeMoon(512), 512, 512, sRGB: true, clamp: true);
+            // cobweb: an orb web drawn in (angle, radius) space so it maps onto
+            // EnvRoomBuilder.WebMesh's corner fan without distortion
+            // mipCoverage MUST equal the web material's _Cutoff (see WritePng)
+            WritePng(TexDir + "/Env_Web.png", MakeWeb(512), 512, 512, sRGB: true, clamp: true,
+                mipCoverage: WebCutoff);
             // Tiling noise, in BOTH axes (torus blend), so no octave can ever
             // show a seam. Used twice by EnvStars: as the horizon haze veil and
             // — sampled at integer multiples of a full galactic turn — as the
@@ -296,6 +301,59 @@ namespace GloomhavenVR
                 }
             return px;
         }
+
+        /// <summary>Alpha-test threshold for the cobwebs. Shared by the texture's
+        /// mip-coverage setting and by EnvRoomBuilder's web material — they are
+        /// the same number or the web disappears at distance.</summary>
+        public const float WebCutoff = 0.09f;
+
+        private static Color[] MakeWeb(int n)
+        {
+            // An orb web, drawn in the coordinates the mesh actually uses:
+            //   u (x) = angle across the corner fan, 0..1 over the quarter turn
+            //   v (y) = radius out from the corner, 0..1
+            // so RADIAL threads are vertical lines and the CATCHING SPIRAL is a
+            // set of sagging horizontals. Drawing it as a picture of a web and
+            // wrapping that onto the fan would stretch every thread differently.
+            const int spokes = 9, spirals = 11;
+            var px = new Color[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float u = (x + 0.5f) / n, v = (y + 0.5f) / n;
+                    float a = 0f;
+
+                    // radial threads, thinning outward; a couple of them broken
+                    for (int s = 0; s < spokes; s++)
+                    {
+                        float su = s / (float)(spokes - 1);
+                        float w = 0.0040f + 0.0030f * v;   // ~3-4 px at 512: any thinner and the first mip eats it
+                        float d = Mathf.Abs(u - su);
+                        float live = Hash01(s * 31 + 7, 3301) > 0.14f ? 1f : 0.25f;
+                        a = Mathf.Max(a, live * Mathf.Exp(-(d * d) / (w * w)));
+                    }
+                    // the spiral: rings that SAG between neighbouring spokes
+                    float seg = u * (spokes - 1);
+                    float sag = 0.5f - Mathf.Abs(Mathf.Repeat(seg, 1f) - 0.5f);   // 0 at a spoke
+                    for (int r = 1; r < spirals; r++)
+                    {
+                        float rv = Mathf.Pow(r / (float)(spirals - 1), 0.86f);
+                        float th = rv - sag * (0.030f + 0.055f * rv);
+                        float w = 0.0034f + 0.0034f * rv;
+                        float d = Mathf.Abs(v - th);
+                        float live = Hash01(r * 17 + 5, 3307) > 0.10f ? 1f : 0.2f;
+                        a = Mathf.Max(a, live * Mathf.Exp(-(d * d) / (w * w)));
+                    }
+                    // dust and damage: the web is old, and it is torn at the rim
+                    a *= 0.62f + 0.55f * Fbm3(new Vector3(u * 5.5f, v * 5.5f, 2.2f), 3, 3313);
+                    a *= Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(0.88f, 1f, v));
+                    a *= Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.02f, 0.09f, v));
+                    px[y * n + x] = new Color(1, 1, 1, Mathf.Clamp01(a * 2.2f));
+                }
+            return px;
+        }
+
+        private static float Hash01(int k, int seed) => Noise3(k * 0.731f, seed * 0.013f, 1.7f, seed);
 
         private static Color[] MakeGlow(int n)
         {
@@ -477,10 +535,16 @@ namespace GloomhavenVR
             return acc / ampSum;
         }
 
+        /// <param name="mipCoverage">If >= 0, preserve alpha COVERAGE through the
+        /// mip chain against this cutout threshold. Without it a texture of thin
+        /// alpha threads (the cobweb) simply vanishes at distance: box-filtering
+        /// a 3-pixel thread into a 1-pixel one divides its alpha by three, the
+        /// whole mip drops under the material's _Cutoff, and every fragment is
+        /// clipped. Must match the material's _Cutoff.</param>
         private static void WritePng(string path, Color[] px, int w, int h, bool sRGB, bool clamp,
             bool clampV = false, bool mips = true,
             TextureImporterCompression comp = TextureImporterCompression.Compressed,
-            bool alphaDilate = true)
+            bool alphaDilate = true, float mipCoverage = -1f)
         {
             if (px.Length != w * h) throw new Exception($"WritePng {path}: {px.Length} px != {w}x{h}");
             var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
@@ -498,6 +562,8 @@ namespace GloomhavenVR
             ti.filterMode = mips ? FilterMode.Trilinear : FilterMode.Bilinear;
             ti.maxTextureSize = 2048;
             ti.textureCompression = comp;
+            ti.mipMapsPreserveCoverage = mipCoverage >= 0f;
+            if (mipCoverage >= 0f) ti.alphaTestReferenceValue = mipCoverage;
             ti.SaveAndReimport();
         }
 
@@ -980,21 +1046,56 @@ namespace GloomhavenVR
                 // generated room was pure black) ----
                 AddNightSky(t);
 
-                // drifting dust motes in the candlelight (world-space room volume)
+                // Drifting dust motes in the candlelight (world-space room volume).
+                // ModBuild 135: they now DRIFT, along the same bearing the candle
+                // flames lean in (EnvRoomBuilder.DraftDir, in at the window and
+                // out under the stair door). A draught you can see in two
+                // unrelated places at once is a draught; motes that only jitter
+                // are a screensaver.
                 var dust = NewPS(t, "DustMotes", new Vector3(0, 1.8f, 0), Vector3.zero, Mat("FX_Dust.mat"));
                 var dm = dust.main;
                 dm.simulationSpace = ParticleSystemSimulationSpace.World;
                 dm.duration = 30f;
                 dm.startLifetime = new ParticleSystem.MinMaxCurve(10f, 18f);
                 dm.startSpeed = 0f;
-                dm.startSize = new ParticleSystem.MinMaxCurve(0.006f, 0.014f);
-                dm.startColor = new Color(1f, 0.88f, 0.65f, 0.32f); // subtle: barely-there motes
-                dm.maxParticles = 30;
-                var de = dust.emission; de.rateOverTime = 1.6f;
-                var dsh = dust.shape; dsh.enabled = true; dsh.shapeType = ParticleSystemShapeType.Box; dsh.scale = new Vector3(6.5f, 3.2f, 6.5f);
-                var dn = dust.noise; dn.enabled = true; dn.strength = 0.03f; dn.frequency = 0.25f; dn.scrollSpeed = 0.1f;
+                dm.startSize = new ParticleSystem.MinMaxCurve(0.005f, 0.012f);
+                dm.startColor = new Color(1f, 0.88f, 0.65f, 0.30f); // subtle: barely-there motes
+                dm.maxParticles = 34;
+                var de = dust.emission; de.rateOverTime = 1.9f;
+                var dsh = dust.shape; dsh.enabled = true; dsh.shapeType = ParticleSystemShapeType.Box; dsh.scale = new Vector3(7.5f, 3.0f, 6.5f);
+                var dn = dust.noise; dn.enabled = true; dn.strength = 0.05f; dn.frequency = 0.22f; dn.scrollSpeed = 0.12f;
+                var dv = dust.velocityOverLifetime; dv.enabled = true;
+                dv.space = ParticleSystemSimulationSpace.World;
+                dv.x = new ParticleSystem.MinMaxCurve(-0.075f, -0.030f);   // the draught, XZ
+                dv.z = new ParticleSystem.MinMaxCurve(-0.038f, -0.014f);
+                dv.y = new ParticleSystem.MinMaxCurve(-0.010f, 0.016f);
                 var dcol = dust.colorOverLifetime; dcol.enabled = true;
                 dcol.color = new ParticleSystem.MinMaxGradient(Grad((0f, new Color(1, 1, 1, 0f)), (0.15f, new Color(1, 1, 1, 1f)), (0.85f, new Color(1, 1, 1, 1f)), (1f, new Color(1, 1, 1, 0f))));
+
+                // An occasional settling of dust off the beams: nothing for
+                // twenty seconds, then a small fall of grit somewhere overhead.
+                // Bursts, not a rate — the point is that it is an EVENT.
+                var grit = NewPS(t, "DustFall", new Vector3(1.4f, 3.02f, -1.9f), Vector3.zero, Mat("FX_Dust.mat"));
+                var gm = grit.main;
+                gm.simulationSpace = ParticleSystemSimulationSpace.World;
+                gm.duration = 21f;
+                gm.prewarm = false;                       // bursts are incompatible with prewarm
+                gm.startLifetime = new ParticleSystem.MinMaxCurve(2.6f, 4.4f);
+                gm.startSpeed = new ParticleSystem.MinMaxCurve(0.02f, 0.09f);
+                gm.startSize = new ParticleSystem.MinMaxCurve(0.004f, 0.010f);
+                gm.startColor = new Color(1f, 0.90f, 0.72f, 0.30f);
+                gm.gravityModifier = 0.055f;
+                gm.maxParticles = 26;
+                var ge = grit.emission;
+                ge.rateOverTime = 0f;
+                ge.SetBursts(new[] { new ParticleSystem.Burst(1.5f, 9, 14, 1, 0.01f) });
+                var gsh = grit.shape; gsh.enabled = true; gsh.shapeType = ParticleSystemShapeType.Box;
+                gsh.scale = new Vector3(0.9f, 0.05f, 0.25f);
+                var gn = grit.noise; gn.enabled = true; gn.strength = 0.05f; gn.frequency = 0.6f; gn.scrollSpeed = 0.2f;
+                var gcol = grit.colorOverLifetime; gcol.enabled = true;
+                gcol.color = new ParticleSystem.MinMaxGradient(Grad(
+                    (0f, new Color(1, 1, 1, 0f)), (0.12f, new Color(1, 1, 1, 1f)),
+                    (0.6f, new Color(1, 1, 1, 0.7f)), (1f, new Color(1, 1, 1, 0f))));
 
                 // torch-halo template: DISABLED by default; runtime may clone it onto
                 // the game's torches later. 0.30 m radius = the old wall-torch halo.
@@ -1116,18 +1217,26 @@ namespace GloomhavenVR
                 FireflyPS(t, new Vector3(7.6f, 0.95f, 5.2f));
 
                 // ---- shooting stars: infrequent streaks across the sky ----
-                var meteor = NewPS(t, "ShootingStars", new Vector3(0, 30f, 0), new Vector3(115f, 30f, 0f), Mat("FX_StarStreak.mat"));
+                // User finding, ModBuild 134: "Genauso wie die Sternschnuppen -
+                // die auch gerne aber weiter entfernt und nicht so groß." Two
+                // separate changes, and both were needed: the anchor went from
+                // 30 m to 40 m (the star dome is at 45 m, so they now happen
+                // among the stars instead of over the treetops) and the sprite
+                // from 0.45 to 0.21 with the stretch pulled back to match. The
+                // ANGULAR size therefore drops by 0.21/0.45 * 30/40 = 0.35x —
+                // they read as distant events, not as nearby streaks.
+                var meteor = NewPS(t, "ShootingStars", new Vector3(0, 40f, 0), new Vector3(115f, 30f, 0f), Mat("FX_StarStreak.mat"));
                 var mm = meteor.main;
                 mm.simulationSpace = ParticleSystemSimulationSpace.World;
                 mm.duration = 20f;
-                mm.startLifetime = 1.4f;
+                mm.startLifetime = 1.6f;
                 mm.startSpeed = new ParticleSystem.MinMaxCurve(26f, 38f); // a touch slower = elegant
-                mm.startSize = 0.45f;
-                mm.startColor = new Color(0.95f, 0.93f, 0.85f, 0.9f); // warm-white ember
+                mm.startSize = 0.21f;
+                mm.startColor = new Color(0.95f, 0.93f, 0.85f, 0.78f); // warm-white ember
                 mm.maxParticles = 4;
                 var me = meteor.emission; me.rateOverTime = 0.13f; // infrequent: ~one every 8 s
                 var msh = meteor.shape; msh.enabled = true; msh.shapeType = ParticleSystemShapeType.Box;
-                msh.scale = new Vector3(36f, 36f, 0.1f); // spawn plane ⟂ travel direction
+                msh.scale = new Vector3(44f, 44f, 0.1f); // spawn plane ⟂ travel direction
                 var mcol = meteor.colorOverLifetime; mcol.enabled = true;
                 mcol.color = new ParticleSystem.MinMaxGradient(Grad(
                     (0f, new Color(1, 1, 1, 0f)), (0.1f, new Color(1, 1, 1, 1f)),
@@ -1140,7 +1249,7 @@ namespace GloomhavenVR
                 // The comet texture (Env_Streak.png) is symmetric about its long
                 // axis, so that roll stays invisible — same rule as the old dot.
                 mr.renderMode = ParticleSystemRenderMode.Stretch;
-                mr.velocityScale = 0.11f;
+                mr.velocityScale = 0.075f;   // was 0.11: the streak shortens with the head
                 mr.lengthScale = 1f;
                 mr.cameraVelocityScale = 0f;
 
@@ -1167,9 +1276,15 @@ namespace GloomhavenVR
             m.duration = 24f;
             m.startLifetime = new ParticleSystem.MinMaxCurve(6f, 12f);
             m.startSpeed = 0.02f;
-            m.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.12f); // bokeh sprite is softer => a touch larger
+            // User finding, ModBuild 134: "Die Glühwürmchen sind zu groß und
+            // gerne dezenter." Size 0.05-0.12 -> 0.032-0.070 m (~40% smaller) and
+            // the colour pulled back to 0.80 alpha, so they glimmer between the
+            // trunks rather than hanging there as green lamps. Not smaller than
+            // this: at 8 m — where the swarms are — 0.03 m is already 4 pixels,
+            // and "dezent" must not become "gone".
+            m.startSize = new ParticleSystem.MinMaxCurve(0.032f, 0.070f);
             // wisp, not firefly: cold marsh-light green, sparse and slow
-            m.startColor = new Color(0.40f, 0.80f, 0.50f, 1f);
+            m.startColor = new Color(0.36f, 0.74f, 0.46f, 0.80f);
             m.maxParticles = 14;
             var e = ps.emission; e.rateOverTime = 1.2f;
             var sh = ps.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = 3.1f;

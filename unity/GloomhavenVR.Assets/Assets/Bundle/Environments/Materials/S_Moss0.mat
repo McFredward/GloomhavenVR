@@ -32,6 +32,10 @@ Material:
     m_Floats:
     - _BumpScale: 1
     - _Cutoff: 0.35
+    - _PtHard: 0
+    - _Sway: 0
+    - _SwayPhase: 0
+    - _SwayRate: 0.55
     - _VCol: 0
     m_Colors:
     - _AmbDown: {r: 0.005, g: 0.006, b: 0.005, a: 1}
@@ -44,5 +48,6 @@ Material:
     - _L1Pos: {r: 7.8519263, g: 1.0225896, b: 0.7700664, a: 0.23076923}
     - _L2Col: {r: 0.15, g: 0.18, b: 0.26, a: 0}
     - _L2Pos: {r: 0.92587745, g: 0.48925623, b: 4.7489243, a: 0.25}
+    - _SwayDir: {r: 0, g: 0, b: 1, a: 0}
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

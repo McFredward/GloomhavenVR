@@ -33,6 +33,7 @@ Material:
     - _BumpScale: 1
     - _Cutoff: 0.5
     - _Cutout: 0
+    - _PtHard: 0
     - _RimPow: 3
     - _VCol: 0
     m_Colors:

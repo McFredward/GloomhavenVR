@@ -41,6 +41,9 @@ Shader "GloomhavenVR/EnvRoom"
         _RimCol ("Rim light color", Color) = (0,0,0,1)
         _RimPow ("Rim tightness", Range(0.5,8)) = 3.0
         _RimDir ("Rim gate: light dir (OBJECT space)", Vector) = (0,1,0,0)
+        // Point-light NEAR-FIELD hardness (see PointLight below). 0 reproduces
+        // the old pure (1-(d/r)^2)^2 window exactly => the forest is untouched.
+        _PtHard ("Point falloff hardness", Range(0,64)) = 0
         [Toggle] _Cutout ("Alpha cutout", Float) = 0
         _Cutoff ("Cutout threshold", Range(0,1)) = 0.5
     }
@@ -50,9 +53,16 @@ Shader "GloomhavenVR/EnvRoom"
 
     sampler2D _MainTex; float4 _MainTex_ST;
     sampler2D _BumpMap;
-    float _BumpScale, _VCol, _Cutout, _Cutoff, _RimPow;
+    float _BumpScale, _VCol, _Cutout, _Cutoff, _RimPow, _PtHard;
     fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col, _RimCol;
     float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _RimDir;
+
+    // PREVIEW-ONLY global clock offset. Never set at runtime (=> 0, the shipped
+    // behaviour); EnvironmentsPreview sets it with Shader.SetGlobalFloat so a
+    // still frame can be rendered at an arbitrary point of every animation.
+    // Declared in every Env* shader that reads _Time — the whole room has to
+    // move to the SAME offset or a time series proves nothing.
+    float _GhvrTimeOfs;
 
     struct appdata
     {
@@ -89,24 +99,38 @@ Shader "GloomhavenVR/EnvRoom"
         return o;
     }
 
-    // candle flicker — three incommensurate sines, phase-offset per light
-    float Flicker (float amt, float phase)
+    // Candle flicker — three incommensurate sines plus one slow "breath", each
+    // light on its OWN phase AND its own rate, so two candles in one room never
+    // pulse as a pair. Amplitude is exactly +-amt*0.35 (the sine weights sum to
+    // 1 and the breath is mixed in, not added on top).
+    // amt is the alpha of the light colour, written by EnvRoomBuilder's rig.
+    float Flicker (float amt, float phase, float rate)
     {
-        float t = _Time.y;
+        float t = (_Time.y + _GhvrTimeOfs) * rate;
         float f = 0.42 * sin(t * 11.3 + phase)
                 + 0.33 * sin(t *  6.1 + 1.7 + phase * 1.3)
                 + 0.25 * sin(t * 19.7 + 4.2 + phase * 0.7);
+        // the slow term is what a draft does to a flame: the whole pool swells
+        // and sinks over a couple of seconds instead of only buzzing
+        f = f * 0.70 + 0.30 * sin(t * 1.9 + phase * 0.5);
         return 1.0 + amt * 0.35 * f;
     }
 
-    float3 PointLight (float4 lpos, fixed4 lcol, float3 opos, float3 N, float phase)
+    // Attenuation window (1-(d/r)^2)^2 divided by a near-field inverse-square
+    // term. _PtHard = 0 is EXACTLY the old window (the forest's three points);
+    // _PtHard > 0 collapses the lit pool toward the source, which is the only
+    // way a candle can light its own table and leave the far wall black
+    // (user finding, ModBuild 134: "die Kerzen beleuchten hier viel zu viel").
+    float3 PointLight (float4 lpos, fixed4 lcol, float3 opos, float3 N, float phase, float rate)
     {
         float3 lv = lpos.xyz - opos;
-        float d = max(length(lv), 1e-4);
-        float x = saturate(1.0 - d * d * lpos.w * lpos.w);
-        float atten = x * x;
+        float d2 = max(dot(lv, lv), 1e-8);
+        float d = sqrt(d2);
+        float q = d2 * lpos.w * lpos.w;                  // (d/range)^2
+        float x = saturate(1.0 - q);
+        float atten = x * x / (1.0 + _PtHard * q);
         float ndl = saturate(dot(N, lv / d));
-        return lcol.rgb * (atten * ndl * Flicker(lcol.a, phase));
+        return lcol.rgb * (atten * ndl * Flicker(lcol.a, phase, rate));
     }
 
     fixed4 fragCore (v2f i, float face)
@@ -124,9 +148,12 @@ Shader "GloomhavenVR/EnvRoom"
         float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5);
 
         light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz)));
-        light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0);
-        light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1);
-        light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4);
+        // slot phases AND rates are incommensurate: the room breathes, it does
+        // not pulse (user, ModBuild 134: "Eine flackernde Kerze sollte auch das
+        // Licht drumrum zum flackern bekommen")
+        light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00);
+        light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83);
+        light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19);
 
         float3 col = alb.rgb * light;
 

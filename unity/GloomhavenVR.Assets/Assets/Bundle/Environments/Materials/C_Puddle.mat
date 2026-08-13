@@ -1,0 +1,46 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: C_Puddle
+  m_Shader: {fileID: 4800000, guid: 763186fcfe766a4abbff067630780201, type: 3}
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats:
+    - _Calm: 0.06
+    - _CandPhase: 4.4
+    - _CandPow: 26
+    - _CandRate: 1.19
+    - _Fresnel: 0.5
+    - _Impact: 2.363244
+    - _MoonPow: 45
+    - _Period: 2.85
+    - _Phase: 0
+    - _Radius: 0.72
+    - _RingAmp: 0.55
+    - _RingCon: 0.7
+    - _RingFreq: 4.4
+    m_Colors:
+    - _CandCol: {r: 1, g: 0.52, b: 0.2, a: 0.88}
+    - _CandPos: {r: -1.55, g: 0.7822111, b: -3.95, a: 0}
+    - _Center: {r: -3.6, g: 0, b: 2.35, a: 0}
+    - _MoonCol: {r: 0.78, g: 0.92, b: 1.25, a: 1}
+    - _MoonDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
+    - _SkyCol: {r: 0.16, g: 0.2, b: 0.31, a: 1}
+    - _Wet: {r: 0.46, g: 0.49, b: 0.56, a: 1}
+  m_BuildTextureStacks: []

@@ -78,6 +78,64 @@ namespace GloomhavenVR
             // alcove behind the W doorway)
             ("DarkCornerSW", Eye, new Vector3(6, 232, 0), false, 60f),
             ("DarkCornerNW", Eye, new Vector3(4, 300, 0), false, 60f),
+            // ---- ModBuild 135 review set ----
+            // cellar: the window and its moonlight, from the middle of the room
+            ("Window", Eye, new Vector3(-6, 344, 0), false, 60f),
+            ("WindowClose", new Vector3(-0.9f, 1.55f, 2.2f), new Vector3(-8, 350, 0), false, 34f),
+            // the beam where it lands, and the puddle it lands in
+            ("Puddle", new Vector3(-1.6f, 1.10f, 0.9f), new Vector3(22, 318, 0), false, 55f),
+            ("PuddleLow", new Vector3(-2.35f, 0.42f, 1.35f), new Vector3(9, 305, 0), false, 55f),
+            // ceiling to floor at the drip, so the whole fall is in one frame
+            ("DripColumn", new Vector3(-0.6f, 1.5f, 0.2f), new Vector3(0, 306, 0), false, 55f),
+            // the rat's route: across the moonbeam, then away into the crate
+            // candle's pool (RatRun looks north-west at the beam, RatLow follows
+            // the second half of the run down the dark west side)
+            ("RatRun", new Vector3(0.7f, 1.25f, 0.2f), new Vector3(13, 295, 0), false, 62f),
+            // where the route crosses the beam — the shot the rat exists for
+            ("RatBeam", new Vector3(-1.70f, 0.45f, 0.90f), new Vector3(10, 308, 0), false, 50f),
+            ("RatLow", new Vector3(-1.10f, 0.80f, -0.60f), new Vector3(9, 292, 0), false, 55f),
+            ("RatEnd", new Vector3(1.2f, 0.85f, -1.4f), new Vector3(11, 215, 0), false, 55f),
+            // the cobwebs: the one the shelf candle reaches, and the one over
+            // the stair door (the only two that are ever lit enough to judge)
+            ("Web", new Vector3(2.60f, 2.20f, 1.20f), new Vector3(-6, 87, 0), false, 34f),
+            ("WebCorner", new Vector3(-2.20f, 1.60f, -1.90f), new Vector3(-33, 232, 0), false, 45f),
+            // the candle pools: does the wall behind them stay dark?
+            ("CandleTable", new Vector3(1.0f, 1.30f, 0.4f), new Vector3(6, 42, 0), false, 55f),
+            ("CandleCrate", new Vector3(0.6f, 1.20f, -1.0f), new Vector3(10, 212, 0), false, 55f),
+            // forest: the axe in the stump, close
+            ("Axe", new Vector3(3.2f, 1.05f, -2.6f), new Vector3(16, 137, 0), false, 34f),
+            ("AxeLow", new Vector3(3.5f, 0.62f, -2.9f), new Vector3(6, 139, 0), false, 30f),
+            // forest: the firefly swarm (both from the clearing, where it is
+            // judged, and close, where its SIZE is judged) and sky for meteors
+            ("Fireflies", new Vector3(0f, 1.4f, 0f), new Vector3(2, 217, 0), false, 55f),
+            ("FirefliesClose", new Vector3(-2.4f, 1.2f, -3.2f), new Vector3(3, 217, 0), false, 32f),
+            ("MeteorSky", Eye, new Vector3(-46, 250, 0), false, 70f),
+        };
+
+        // The animated things only exist in motion, so the review set below is
+        // ALSO rendered at these offsets of the shared shader clock
+        // (_GhvrTimeOfs, see EnvRoom.shader). The values are picked against the
+        // cellar's own constants, not round numbers — the drip cycle is 2.85 s
+        // with the drop released at 1.55 s and landing at 2.363 s, and the rat
+        // runs 4.6 s of every 31 starting at t=0:
+        //   t0 0.00  drop starts forming;      rat leaving its hole
+        //   t1 0.85  drop hanging, half grown; rat u=0.18
+        //   t2 1.15  drop hanging, nearly full;rat u=0.25, IN THE MOONBEAM
+        //   t3 1.75  drop falling (0.20 s);    rat u=0.38, out of it again
+        //   t4 2.20  drop falling (0.65 s);    rat u=0.48
+        //   t5 2.55  JUST LANDED (+0.19 s):    splash up, first ring running out
+        //   t6 4.20  next drop hanging;        rat u=0.91, going into the hole
+        private static readonly (string tag, float t)[] TimeSteps =
+        {
+            ("t0", 0.00f), ("t1", 0.85f), ("t2", 1.15f), ("t3", 1.75f),
+            ("t4", 2.20f), ("t5", 2.55f), ("t6", 4.20f),
+        };
+        // ...and the frames worth repeating across those offsets. Rendering all
+        // 30-odd views six times over is 200 PNGs nobody reads.
+        private static readonly string[] TimeViews =
+        {
+            "Corner", "CandleTable", "CandleCrate", "Puddle", "PuddleLow",
+            "DripColumn", "WindowClose", "RatRun", "RatBeam", "RatLow", "RatEnd", "DarkCornerSW",
         };
 
         [MenuItem("GloomhavenVR/Render Environment Previews")]
@@ -153,7 +211,8 @@ namespace GloomhavenVR
                 // (iteration-2 lesson — mid-tones crushed to black).
                 var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
                 var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
-                foreach (var (name, pos, euler, skyOnly, fov) in Views)
+
+                void Shoot(string name, Vector3 pos, Vector3 euler, bool skyOnly, float fov, string suffix)
                 {
                     if (roomGeo != null) roomGeo.gameObject.SetActive(!skyOnly);
                     cam.fieldOfView = fov;
@@ -167,9 +226,37 @@ namespace GloomhavenVR
                     for (int i = 0; i < px.Length; i++) { var c = px[i].gamma; c.a = 1f; px[i] = c; }
                     tex.SetPixels(px);
                     tex.Apply();
-                    string png = Path.Combine(outDir, $"{env.ToLowerInvariant()}_{name}.png");
+                    string png = Path.Combine(outDir, $"{env.ToLowerInvariant()}_{name}{suffix}.png");
                     File.WriteAllBytes(png, tex.EncodeToPNG());
                     Debug.Log($"[GloomhavenVR][EnvPreview] wrote {Path.GetFullPath(png)}");
+                }
+
+                // ---- the still set, at the shader clock's origin ----
+                Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+                foreach (var (name, pos, euler, skyOnly, fov) in Views)
+                    Shoot(name, pos, euler, skyOnly, fov, "");
+
+                // ---- and the time series ----
+                // Flicker, the drip, the ripples, the rat and the cobwebs only
+                // EXIST in motion; a still frame cannot show that any of them
+                // move, let alone that they move together. Every Env* shader
+                // reads a global clock offset for exactly this (see
+                // EnvRoom.shader/_GhvrTimeOfs), so the whole room can be stepped
+                // to the same instant and the sequence read like a flipbook.
+                if (env == "Env_Cellar")
+                {
+                    foreach (var (tag, ofs) in TimeSteps)
+                    {
+                        Shader.SetGlobalFloat("_GhvrTimeOfs", ofs);
+                        foreach (var vn in TimeViews)
+                        {
+                            var v = Array.Find(Views, x => x.name == vn);
+                            if (v.name == null)
+                                throw new Exception($"TimeViews names an unknown view '{vn}'.");
+                            Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_" + tag);
+                        }
+                    }
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 }
                 RenderTexture.active = null;
                 cam.targetTexture = null;

@@ -198,7 +198,18 @@ namespace GloomhavenVR
             public Color ambUp, ambDown;
             public Vector3 dirWorld; public Color dirCol;
             public PLight[] points = Array.Empty<PLight>();
+            // Near-field hardness of the point falloff (EnvRoom/_PtHard). 0 is
+            // the historical pure (1-(d/r)^2)^2 window — the forest keeps it.
+            // The cellar needs it high: a candle must light its own table and
+            // leave the far wall black (user, ModBuild 134).
+            public float ptHard = 0f;
         }
+
+        // Flicker phases and RATES are baked into the shaders, one per light
+        // slot, and several places have to agree with them (the flame cards, the
+        // candle halos, the puddle's reflection). Single source of truth.
+        private static readonly float[] SlotPhase = { 0.0f, 2.1f, 4.4f };
+        private static readonly float[] SlotRate = { 1.00f, 0.83f, 1.19f };
 
         // Deferred rig application: props are placed (and stacked via bounds)
         // BEFORE the candle/light positions are final, so materials register
@@ -229,6 +240,7 @@ namespace GloomhavenVR
             // pulled out from under it, a rim that ignores the moon is the
             // difference between a volume and a glowing tube.
             m.SetVector("_RimDir", dirObj);
+            if (m.HasProperty("_PtHard")) m.SetFloat("_PtHard", rig.ptHard);
             float s = (xf.lossyScale.x + xf.lossyScale.y + xf.lossyScale.z) / 3f;
             for (int i = 0; i < 3; i++)
             {
@@ -611,7 +623,7 @@ namespace GloomhavenVR
             string texBase, Vector3 pos, float yaw, float scale,
             string matPrefix, float tintMul = 1f, float bump = 1f, Vector3? euler3 = null,
             bool cutout = false, Vector3? scale3 = null, float sink = 0.015f,
-            GameObject support = null, Material shared = null)
+            GameObject support = null, Material shared = null, Quaternion? rot = null)
         {
             var mesh = ImpMesh(meshName);
             Material mat = shared ?? NewRoomMat($"{matPrefix}_{goName}.mat",
@@ -628,14 +640,26 @@ namespace GloomhavenVR
             Vector3 sc = scale3 ?? Vector3.one * scale;
             var e = euler3 ?? new Vector3(0, yaw, 0);
             var go = Place(parent, goName, mesh, pos, e, sc, mat);
+            // `rot` wins over the Euler triple: for a prop whose pose is DERIVED
+            // (the axe's, from the direction its blade bites and the angle its
+            // handle rises) a quaternion built from those two vectors is the
+            // statement, and three Euler numbers are a transcription of it.
+            if (rot.HasValue) go.transform.localRotation = rot.Value;
             Rest(go, support, sink, pos);
             if (shared == null) Defer(mat, go.transform, tintMul);
             return go;
         }
 
         // ======================================================= procedural mesh
-        private static Mesh SaveMesh(string file, Mesh src)
+        /// <summary>Write a generated mesh to a stable asset path. `bounds`
+        /// OVERRIDES the derived bounding box — mandatory for the meshes whose
+        /// vertex shader moves them far from their authored position (the rat
+        /// along its path, the drop down its fall): the derived box is a few
+        /// centimetres wide and Unity would frustum-cull them the moment the
+        /// object's own origin left the view.</summary>
+        private static Mesh SaveMesh(string file, Mesh src, Bounds? bounds = null)
         {
+            if (bounds.HasValue) src.bounds = bounds.Value;
             string path = MeshDir + "/" + file;
             var existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
             if (existing == null)
@@ -652,6 +676,7 @@ namespace GloomhavenVR
             existing.colors = src.colors;
             existing.triangles = src.triangles;
             existing.RecalculateBounds();
+            if (bounds.HasValue) existing.bounds = bounds.Value;
             EditorUtility.SetDirty(existing);
             UnityEngine.Object.DestroyImmediate(src);
             return existing;
@@ -913,17 +938,176 @@ namespace GloomhavenVR
             a.Quad(b);
         }
 
+        /// <summary>Weld a finished mesh into an accumulator under a transform.
+        /// This is how the window bars and each candle group become ONE object:
+        /// the baked light rig is written in OBJECT space, so a material shared
+        /// by several transforms lights every one of them as if it stood where
+        /// the FIRST one does. (That is the bug the four bars had — bars 1..3
+        /// were lit from bar 0's position — and it is the same class of silent
+        /// default as the forest's unset _RimDir.)</summary>
+        private static void MergeInto(Acc a, Mesh src, Vector3 pos, Quaternion rot,
+            Vector3 scale, Color col)
+        {
+            var v = src.vertices; var n = src.normals; var uv = src.uv; var t = src.triangles;
+            int b = a.Count;
+            for (int i = 0; i < v.Length; i++)
+                a.Vert(pos + rot * Vector3.Scale(v[i], scale),
+                       (rot * (n != null && n.Length == v.Length ? n[i] : Vector3.up)).normalized,
+                       uv != null && uv.Length == v.Length ? uv[i] : Vector2.zero, col);
+            foreach (var idx in t) a.T.Add(b + idx);
+        }
+
+        /// <summary>An axis-aligned quad, given its centre and two half-axes.
+        /// uv spans the full 0..1 sprite. Used for the moonlight pools on the
+        /// floor and for the dark mouths of the rat holes.</summary>
+        private static void AddQuad(Acc a, Vector3 c, Vector3 halfU, Vector3 halfV, Color col)
+        {
+            Vector3 nrm = Vector3.Cross(halfV, halfU).normalized;
+            int b = a.Count;
+            a.Vert(c - halfU - halfV, nrm, new Vector2(0, 0), col);
+            a.Vert(c + halfU - halfV, nrm, new Vector2(1, 0), col);
+            a.Vert(c + halfU + halfV, nrm, new Vector2(1, 1), col);
+            a.Vert(c - halfU + halfV, nrm, new Vector2(0, 1), col);
+            a.Quad(b);
+        }
+
+        /// <summary>A tapered tube through a polyline of rings — the rat's body,
+        /// head, tail and legs are all this. `uvx` runs along the tube, the ring
+        /// angle gives the belly/back blend in uv.x (0 belly, 1 back).</summary>
+        private static void AddTube(Acc a, Vector3[] c, float[] r, Color[] col, float[] along, int segs)
+        {
+            int n = c.Length, stride = segs + 1;
+            int b0 = a.Count;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 axis = (i == 0 ? c[1] - c[0] : i == n - 1 ? c[n - 1] - c[n - 2] : c[i + 1] - c[i - 1]).normalized;
+                Vector3 hint = Mathf.Abs(axis.y) > 0.9f ? Vector3.forward : Vector3.up;
+                Vector3 rt = Vector3.Cross(hint, axis).normalized;
+                Vector3 uu = Vector3.Cross(axis, rt).normalized;
+                for (int s = 0; s <= segs; s++)
+                {
+                    float ang = s / (float)segs * Mathf.PI * 2f;
+                    Vector3 nrm = rt * Mathf.Cos(ang) + uu * Mathf.Sin(ang);
+                    a.Vert(c[i] + nrm * r[i], nrm,
+                           new Vector2(0.5f + 0.5f * Mathf.Sin(ang), along[i]), col[i]);
+                }
+            }
+            for (int i = 0; i < n - 1; i++)
+                for (int s = 0; s < segs; s++)
+                {
+                    int i0 = b0 + i * stride + s;
+                    a.T.AddRange(new[] { i0, i0 + stride, i0 + 1, i0 + 1, i0 + stride, i0 + stride + 1 });
+                }
+        }
+
         // ================================================================ CELLAR
         // ~10.5 x 9 m weathered stone cellar, beamed plank ceiling, barred night
-        // window (StarDome visible through it), stair alcove rising into darkness,
-        // barrels/crates/table/shelf props, three candle groups = the light rig.
+        // window with a real reveal and a moonlight shaft, stair alcove rising
+        // into darkness, barrels/crates/table/shelf props, three candle groups.
+        //
+        // USER VERDICT, ModBuild 134 — the room was REJECTED on atmosphere:
+        //   "Die Beleuchtung ist noch nicht athmosphärisch genug - die Kerzen
+        //    beleuchten hier viel zu viel. Eine flackernde Kerze sollte auch das
+        //    Licht drumrum zum flackern bekommen und auch nicht den ganze Raum
+        //    beleuchten. Die Gitterstäbe schweben vor der Wand. Gerne Mondschein
+        //    durch das Fenster scheinen lassen. Und hier mehr athmosphärische
+        //    Details einbauen! zB tropft Wasser von irgendwo runter in eine
+        //    pütze, eine Ratte huscht durch den Raum..."
+        //
+        // THE LIGHT RECIPE, in the order that matters (all of it baked into the
+        // materials — no scene lights exist, see EnvRoom.shader):
+        //  1. RANGE + HARDNESS. Candle ranges went 4.6/4.0/4.6 m -> 2.55/2.15/
+        //     2.45 m, and the falloff gained a near-field inverse-square divisor
+        //     (_PtHard = 22). Together those two cut the light on the far wall by
+        //     ~15x while leaving the table top where it was. THIS is what turns
+        //     "amber room" into "three pools in the dark".
+        //  2. FLICKER. The flicker amount is the alpha of the light colour and it
+        //     went 0.30/0.35/0.35 -> 0.90/0.95/0.88, i.e. from +-10% (invisible on
+        //     a wall) to +-31% (unmistakable). Each slot also runs at its own
+        //     RATE (1.00 / 0.83 / 1.19), so the three pools never pulse together.
+        //     Every consumer of a slot — the flame card, the halo, the puddle's
+        //     reflection — is built with that slot's phase AND rate, so what you
+        //     see burning and what you see lit are one flame.
+        //  3. MOONLIGHT. dirWorld is now MoonDir itself (it used to be a
+        //     hand-typed vector that disagreed with the sky), and a five-slat
+        //     EnvShaft beam comes through the window along that same bearing:
+        //     the slats ARE the bar shadows, so the pattern is exact and free.
+        //     Cold (0.55,0.68,1.0) against the candles' amber — the two light
+        //     sources must never be mistaken for each other.
+        // Knobs a future round tunes, in order of effect: PLight.range, ptHard,
+        // PLight colour scale, PLight flicker alpha, ambUp/ambDown, dirCol.
         private const float CW = 10.5f, CD = 9.0f, CH = 3.3f;   // room extents
+        private const float WallCell = 0.16f;                   // wall mesh cell
 
         private static float CellarFloorY(float x, float z) =>
             0.012f * Fbm2(x * 0.8f, z * 0.8f, 3, 901) - 0.006f;
 
-        private static readonly Rect WindowHole = new Rect(6.0f, 2.15f, 1.15f, 0.7f);  // in N-wall local x/y
-        private static readonly Rect StairHole = new Rect(6.2f, 0f, 1.6f, 2.35f);      // in W-wall local x/y
+        // The window moved WEST (was x 6.0 in wall-local units). Two reasons:
+        // the moon shaft that now comes through it has a fixed bearing, and at
+        // the old position its pool landed 2.3 m from the room centre — inside
+        // the 6.5 m PlaySpace disc, i.e. across the board. From here the beam
+        // lands at ~3.95 m, clear of it, and the cold light ends up on the
+        // OPPOSITE side of the room from the warm candles.
+        private static readonly Rect WindowHole = new Rect(3.32f, 2.15f, 1.15f, 0.7f);  // in N-wall local x/y
+        private static readonly Rect StairHole = new Rect(6.2f, 0f, 1.6f, 2.35f);       // in W-wall local x/y
+        private const float RevealDepth = 0.34f;   // wall thickness at the window
+
+        // ------------------------------------------------- the cellar's ONE clock
+        // The drip, its splash, and the rings in the puddle are three views of a
+        // single event, so they share one period and one phase and all of them
+        // read _Time (see EnvDrip.shader's header for why NOT Shuriken).
+        private const float DripPeriod = 2.85f;    // seconds between drops
+        private const float DripHang = 1.55f;      // how long a drop clings first
+        private const float DripY0 = 3.252f;       // the plank it forms on
+        private const float DripY1 = 0.008f;       // the water surface
+        private static float DripFall => Mathf.Sqrt(2f * (DripY0 - DripY1) / 9.81f);
+        private static readonly Vector3 PuddleAt = new Vector3(-3.60f, 0f, 2.35f);
+        private const float PuddleR = 0.72f;
+        // The draught: in at the window, out under the stair door. The flames
+        // lean along it (EnvFlame/_GustDir) and the dust motes drift along it
+        // (EnvironmentsBuilder), which is what makes it read as one draught
+        // through the room instead of two unrelated wobbles.
+        private static readonly Vector3 DraftDir = new Vector3(-0.890f, 0f, -0.456f);
+
+        /// <summary>The opening WallMesh actually cut. It keeps or drops whole
+        /// cells, so the hole is quantised to the 0.16 m grid and is NOT the
+        /// authored rect — build a reveal or a set of bars against the authored
+        /// rect and they miss the stone by up to half a cell. (Half of "die
+        /// Gitterstäbe schweben vor der Wand" was this; the other half was the
+        /// 5 cm the bars stood proud of the wall plane.)</summary>
+        private static Rect SnappedHole(Rect ho, float len, float h, float cell)
+        {
+            int nx = Mathf.CeilToInt(len / cell), ny = Mathf.CeilToInt(h / cell);
+            int i0 = int.MaxValue, i1 = int.MinValue, j0 = int.MaxValue, j1 = int.MinValue;
+            for (int j = 0; j < ny; j++)
+                for (int i = 0; i < nx; i++)
+                {
+                    if (!ho.Contains(new Vector2(len * (i + 0.5f) / nx, h * (j + 0.5f) / ny))) continue;
+                    i0 = Mathf.Min(i0, i); i1 = Mathf.Max(i1, i + 1);
+                    j0 = Mathf.Min(j0, j); j1 = Mathf.Max(j1, j + 1);
+                }
+            if (i0 == int.MaxValue) throw new Exception($"SnappedHole: {ho} cuts no cell of a {len}x{h} wall.");
+            return Rect.MinMaxRect(len * i0 / nx, h * j0 / ny, len * i1 / nx, h * j1 / ny);
+        }
+
+        /// <summary>Centre of the window opening, in room coordinates.</summary>
+        private static Vector3 WindowCentre()
+        {
+            var wh = SnappedHole(WindowHole, CW, CH, WallCell);
+            return new Vector3(-CW / 2f + (wh.xMin + wh.xMax) * 0.5f,
+                               (wh.yMin + wh.yMax) * 0.5f, CD / 2f);
+        }
+
+        /// <summary>Where the moon shaft's axis strikes the floor. Derived, never
+        /// typed: the shaft blades, the pools they make on the flagstones and the
+        /// light the rat picks up as it crosses the beam all read this, so they
+        /// cannot drift apart when the window or the moon moves.</summary>
+        private static Vector3 MoonBeamHit()
+        {
+            var mid = WindowCentre();
+            var dir = -MoonDir.normalized;
+            return mid + dir * ((mid.y - 0.012f) / -dir.y);
+        }
 
         public static void BuildCellarRoom(Transform shellRoot)
         {
@@ -932,34 +1116,40 @@ namespace GloomhavenVR
 
             // Light positions are patched in AFTER the props are stacked (the
             // candles sit ON the props — bounds-derived); see rig fixup below.
+            // See the CELLAR header for what every number here does and why.
             var rig = new LightRig
             {
-                // User finding, ModBuild 133: "Die Lichtstimmungen können noch
-                // dunkler 'Grusiliger' sein, mit dunklen ecken die man kaum
-                // erkennt." — iteration 5 halves the ambient in both hemispheres
-                // and pulls every candle range in by ~1 m. The room is no longer
-                // lit; it is three pools of candlelight with a cellar around them,
-                // and the corners between the pools fall to almost nothing.
-                //
-                // TUNING NOTES for a future round, in order of effect:
-                //   ambUp/ambDown  the floor under everything. Halving them is
-                //                  what makes the corners unreadable; they cannot
-                //                  go much lower without the stone losing its
-                //                  normal-map relief entirely.
-                //   PLight.range   the SIZE of each candle pool (falloff is
-                //                  (1-(d/range)^2)^2). This is the knob that
-                //                  separates "dark room, lit table" from "amber
-                //                  everywhere" — round 3's mistake.
-                //   dirCol         the cold counter-tone through the N window.
-                ambUp = new Color(0.026f, 0.029f, 0.040f),
-                ambDown = new Color(0.021f, 0.017f, 0.013f),
-                dirWorld = new Vector3(0.25f, 0.62f, 0.74f), // in through the N window
-                dirCol = new Color(0.040f, 0.050f, 0.076f),
+                // The ambient is the floor under everything: it is the only term
+                // that reaches surfaces no candle and no moonbeam can, so it sets
+                // how much of the room exists at all. Slightly LOWER and colder
+                // than ModBuild 134's — with the candle pools now small, a warm
+                // ambient was the only thing still making the whole room amber.
+                ambUp = new Color(0.028f, 0.032f, 0.045f),
+                ambDown = new Color(0.020f, 0.018f, 0.015f),
+                // THE MOON, not a hand-typed lookalike. It used to be
+                // (0.25,0.62,0.74) — 21 deg off the moon you can see through the
+                // window, so the shaft and the shading disagreed about where the
+                // light came from. Same class of silent mistake as the forest's
+                // unset _RimDir; it is now the shared constant, by construction.
+                dirWorld = MoonDir,
+                // Raised in the second pass of this round: with the candles no
+                // longer washing the walls, the moon is what gives the ROOM its
+                // shape. It rakes in from the north-east, so the south and west
+                // walls carry a cold wash and the two the moon cannot see stay
+                // black — which is the geometry of the room, told in light.
+                // Deliberately far bluer than it "should" be: the stone's albedo
+                // is warm, so a neutral moon term comes out grey and the wash
+                // reads as fog, not moonlight. The colour has to survive the
+                // multiply.
+                dirCol = new Color(0.048f, 0.070f, 0.128f),
+                // 16, not 22: at 22 a candle standing ON the bookshelf could not
+                // light the bookshelf. The pool has to have a soft outer half.
+                ptHard = 16f,
                 points = new[]
                 {
-                    new PLight(new Vector3(3.55f, 1.06f, 3.10f), 4.6f, new Color(1f, 0.62f, 0.33f) * 1.45f, 0.30f), // table candles
-                    new PLight(new Vector3(4.72f, 2.00f, 0.70f), 4.0f, new Color(1f, 0.58f, 0.28f) * 1.10f, 0.35f), // shelf candle
-                    new PLight(new Vector3(-1.55f, 1.30f, -3.95f), 4.6f, new Color(1f, 0.58f, 0.28f) * 1.25f, 0.35f), // crate candle
+                    new PLight(new Vector3(3.55f, 1.06f, 3.10f), 3.10f, new Color(1f, 0.60f, 0.30f) * 2.10f, 0.90f), // table candles
+                    new PLight(new Vector3(4.72f, 2.00f, 0.70f), 2.90f, new Color(1f, 0.56f, 0.26f) * 1.75f, 0.95f), // shelf candle
+                    new PLight(new Vector3(-1.55f, 1.30f, -3.95f), 3.00f, new Color(1f, 0.57f, 0.27f) * 1.90f, 0.88f), // crate candle
                 },
             };
 
@@ -1028,17 +1218,117 @@ namespace GloomhavenVR
                 }
             }
 
-            // ---- window bars ----
-            var barMesh = SaveMesh("Env_C_Bar.asset", LatheMesh(new[]
-            { new Vector2(0.021f, 0f), new Vector2(0.021f, 0.8f) }, 8));
-            var barMat = NewRoomMat("C_Bars.mat", "GloomhavenVR/EnvRoom");
-            barMat.SetColor("_Tint", new Color(0.16f, 0.15f, 0.14f));
+            // ---- the window: reveal, sill, bars, and the moonlight through it ----
+            // The opening WallMesh really cut, in ROOM coordinates. Everything
+            // below is derived from it, so nothing can be half a cell out.
+            var wh = SnappedHole(WindowHole, CW, CH, WallCell);
+            float wx0 = -hw + wh.xMin, wx1 = -hw + wh.xMax;
+            float wy0 = wh.yMin, wy1 = wh.yMax;
+            var winMid = new Vector3((wx0 + wx1) * 0.5f, (wy0 + wy1) * 0.5f, hd);
+            Debug.Log($"[GloomhavenVR][Env] Cellar window opening (snapped): x {wx0:F3}..{wx1:F3}, "
+                      + $"y {wy0:F3}..{wy1:F3}, reveal depth {RevealDepth:F2} m.");
+
+            // Reveal (jambs + head + sill). Without it the wall is a zero-
+            // thickness plane, there is no "inside the opening" to put the bars
+            // in, and anything placed near it necessarily floats in front of it.
+            var revealMesh = SaveMesh("Env_C_Reveal.asset", RevealMesh(wx0, wy0, wx1, wy1, hd, RevealDepth));
+            var revealGo = Place(root, "WindowReveal", revealMesh, Vector3.zero, Vector3.zero, Vector3.one, null);
+            revealGo.GetComponent<MeshRenderer>().sharedMaterial =
+                SurfMat("C_Reveal.mat", "medieval_blocks_05", 3.4f, revealGo.transform, 1.0f, 0.9f);
+
+            // Bars: FOUR uprights standing in the middle of the reveal (they used
+            // to sit 5 cm proud of the wall plane, which is exactly what "die
+            // Gitterstäbe schweben vor der Wand" was), their feet and heads
+            // buried 3 cm into sill and head so they read as set in the stone.
+            // Welded into ONE mesh in room coordinates: the light rig is baked in
+            // OBJECT space, so four transforms sharing one material would all be
+            // lit from the first bar's position.
+            float barZ = hd + RevealDepth * 0.45f;
+            float barGap = (wx1 - wx0) / 5f;             // 5 slots of light, 4 bars
+            var bars = new Acc();
+            var barProfile = new[] { new Vector2(0.017f, 0f), new Vector2(0.019f, 0.35f), new Vector2(0.017f, 1f) };
+            var barUnit = LatheMesh(barProfile, 6);
             for (int i = 0; i < 4; i++)
+                MergeInto(bars, barUnit,
+                    new Vector3(wx0 + barGap * (i + 1), wy0 - 0.03f, barZ),
+                    Quaternion.Euler(0f, 22f * i, 0f),   // hand-forged: none of them square
+                    new Vector3(1f, (wy1 - wy0) + 0.06f, 1f), Color.white);
+            var barMesh = SaveMesh("Env_C_Bars.asset", bars.Build("Env_C_Bars"));
+            var barMat = NewRoomMat("C_Bars.mat", "GloomhavenVR/EnvRoom");
+            barMat.SetColor("_Tint", new Color(0.14f, 0.13f, 0.12f));
+            var barsGo = Place(root, "WindowBars", barMesh, Vector3.zero, Vector3.zero, Vector3.one, barMat);
+            Defer(barMat, barsGo.transform, 1f);
+            UnityEngine.Object.DestroyImmediate(barUnit);
+
+            // ---- moonlight shaft: five slats, one per gap between the bars ----
+            // The bars' shadow is not painted, it is the GEOMETRY: build the beam
+            // out of the five lit slabs and the four dark ones are what is left.
             {
-                float wx = -hw + WindowHole.xMin + WindowHole.width * (i + 0.5f) / 4f;
-                var bar = Place(root, "WindowBar" + i, barMesh,
-                    new Vector3(wx, WindowHole.yMin - 0.05f, hd - 0.05f), Vector3.zero, Vector3.one, barMat);
-                if (i == 0) Defer(barMat, bar.transform, 1f);
+                var dir = -MoonDir.normalized;                       // light travels this way
+                var across = Vector3.Cross(Vector3.up, new Vector3(MoonDir.x, 0f, MoonDir.z).normalized).normalized;
+                // Bars are spaced barGap apart along world X; the beam's own
+                // cross-section axis is `across`, so the slats are spaced by the
+                // projection of that gap onto it.
+                float slat = barGap * Mathf.Abs(across.x);
+                // Beam axis through the opening centre; started 0.9 m OUTSIDE so
+                // EnvShaft's fade-in (v<0.18) is spent before it reaches the
+                // aperture and the beam is at full strength where you see it.
+                float back = 0.9f, len = 8.0f;
+                Vector3 axisTop = winMid - dir * back;
+                var sh = new Acc();
+                for (int i = 0; i < 5; i++)
+                {
+                    Vector3 off = across * ((i - 2) * slat);
+                    // widths stay well under half the slat spacing, or the five
+                    // slabs merge before they reach the floor and the shadow
+                    // pattern — the whole point of building it this way — is gone
+                    AddShaft(sh, axisTop + off, dir, len,
+                             slat * 0.34f, slat * 0.46f, 0.82f + 0.18f * Hash3(i, 3, 0, 6301), across);
+                }
+                var shaftMat = NewRoomMat("C_MoonShaft.mat", "GloomhavenVR/EnvShaft");
+                // COLD, and deliberately the opposite temperature to the candles
+                // 0.105, not 0.30 (the forest's blades run at 0.34, but they are
+                // seen through a wood): in a black room an additive slab at 0.30
+                // stops being light and becomes a pane of blue plastic. The
+                // brightness of a moonbeam is the CONTRAST to the room, and the
+                // room is now very dark.
+                shaftMat.SetColor("_Tint", new Color(0.55f, 0.68f, 1.0f, 0.105f));
+                shaftMat.SetFloat("_Softness", 4.6f);
+                shaftMat.SetFloat("_Shimmer", 0.26f);
+                shaftMat.SetFloat("_ShimmerSpeed", 0.14f);
+                var shMesh = SaveMesh("Env_C_MoonShaft.asset", sh.Build("Env_C_MoonShaft"));
+                Place(root, "MoonShaft", shMesh, Vector3.zero, Vector3.zero, Vector3.one, shaftMat);
+
+                // ...and where those five slabs land: five soft cold pools on the
+                // flagstones, striped by the same bars.
+                Vector3 hit = MoonBeamHit();
+                Vector3 along = new Vector3(dir.x, 0f, dir.z).normalized;
+                var pool = new Acc();
+                for (int i = 0; i < 5; i++)
+                {
+                    Vector3 c = hit + across * ((i - 2) * slat);
+                    c.y = CellarFloorY(c.x, c.z) + 0.012f;
+                    AddQuad(pool, c, along * 0.34f, across * (slat * 0.62f), Color.white);
+                }
+                var poolMesh = SaveMesh("Env_C_MoonPool.asset", pool.Build("Env_C_MoonPool"));
+                var poolMat = NewRoomMat("C_MoonPool.mat", "GloomhavenVR/EnvParticleAdd");
+                poolMat.SetTexture("_MainTex", AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Glow.png"));
+                poolMat.SetColor("_Tint", new Color(0.42f, 0.55f, 0.86f, 0.19f));
+                Place(root, "MoonPool", poolMesh, Vector3.zero, Vector3.zero, Vector3.one, poolMat);
+
+                Debug.Log($"[GloomhavenVR][Env] Moon shaft: 5 slats {slat * 0.72f:F3} m wide, "
+                          + $"lands at ({hit.x:F2},{hit.z:F2}) = {new Vector2(hit.x, hit.z).magnitude:F2} m from centre "
+                          + $"(PlaySpace radius {CellarPlaySpaceDia * 0.5f:F2} m).");
+
+                // the aperture itself glows cold, so the window reads as the
+                // source and not as a hole with something bright behind it
+                var winGlowMat = NewRoomMat("C_GlowMoon.mat", "GloomhavenVR/EnvGlow");
+                winGlowMat.SetColor("_Tint", new Color(0.40f, 0.54f, 0.88f, 0.22f));
+                winGlowMat.SetFloat("_Falloff", 2.0f);
+                var glowSphere = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
+                if (glowSphere != null)
+                    Place(root, "WindowGlow", glowSphere, winMid + new Vector3(0, 0, -0.06f),
+                          Vector3.zero, new Vector3(0.46f, 0.30f, 0.20f), winGlowMat);
             }
 
             // ---- stair alcove behind W doorway: steps up into darkness ----
@@ -1091,48 +1381,279 @@ namespace GloomhavenVR
             float shelfTop = SurfaceYAt(shelf, 4.72f, 0.70f);
 
             // ---- candles: lathe wax + flame cards + warm glow, ON the props ----
-            var flameTexMat = FlameMat();
-            var glowMat = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/FX_GlowWarm.mat");
+            // Each GROUP drives one light slot, so everything that belongs to it —
+            // its flames, its halo — is built with that slot's phase AND rate.
+            // Before this round every flame in the room shared one material with
+            // _Phase 0 while the three light slots ran on phases 0/2.1/4.4: the
+            // flame you were looking at and the light it cast were two unrelated
+            // animations, which is most of why the flicker read as "only the
+            // flame cards move".
             var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
-            void CandleGroup(string n, Vector3 basePos, (float h, float dx, float dz)[] candles, float glowR)
+            void CandleGroup(string n, int slot, Vector3 basePos,
+                (float h, float dx, float dz)[] candles, float glowR, float glowA)
             {
+                // one welded mesh per group: a shared material across several
+                // transforms would light all of them from the first one's spot
                 var wax = NewRoomMat($"C_Wax{n}.mat", "GloomhavenVR/EnvRoom");
                 wax.SetColor("_Tint", new Color(0.94f, 0.86f, 0.70f));
-                bool rigged = false;
+                var acc = new Acc();
                 int ci = 0;
                 foreach (var c in candles)
                 {
-                    var mesh = SaveMesh($"Env_C_Candle{n}{ci}.asset", CandleMesh(c.h, 0.016f, 400 + ci * 17));
-                    var go = Place(root, $"Candle{n}{ci}", mesh, basePos + new Vector3(c.dx, 0, c.dz), Vector3.zero, Vector3.one, wax);
-                    if (!rigged) { Defer(wax, go.transform, 1f); rigged = true; }
-                    var fm = SaveMesh($"Env_Flame.asset", CrossQuadMesh(0.045f, 0.085f));
-                    Place(root, $"Flame{n}{ci}", fm, basePos + new Vector3(c.dx, c.h + 0.002f, c.dz), Vector3.zero, Vector3.one, flameTexMat);
+                    var unit = CandleMesh(c.h, 0.016f, 400 + ci * 17);
+                    MergeInto(acc, unit, basePos + new Vector3(c.dx, 0, c.dz),
+                              Quaternion.identity, Vector3.one, Color.white);
+                    UnityEngine.Object.DestroyImmediate(unit);
+
+                    // the flame: its own material so it can carry its own phase
+                    var fm = SaveMesh("Env_Flame.asset", CrossQuadMesh(0.045f, 0.085f));
+                    var flame = NewRoomMat($"C_Flame{n}{ci}.mat", "GloomhavenVR/EnvFlame");
+                    flame.SetTexture("_MainTex", Imp("candle_flame_alb"));
+                    flame.SetColor("_Tint", new Color(1f, 0.82f, 0.55f, 1f));
+                    flame.SetFloat("_Sway", 0.045f);
+                    flame.SetFloat("_Flicker", 0.75f);
+                    flame.SetFloat("_Phase", SlotPhase[slot] + 0.63f * ci);
+                    flame.SetFloat("_Rate", SlotRate[slot]);
+                    flame.SetFloat("_Gust", 0.055f);
+                    flame.SetVector("_GustDir", DraftDir);
+                    Place(root, $"Flame{n}{ci}", fm, basePos + new Vector3(c.dx, c.h + 0.002f, c.dz),
+                          Vector3.zero, Vector3.one, flame);
                     ci++;
                 }
-                if (glowMat != null && glowMesh != null)
+                var waxMesh = SaveMesh($"Env_C_Wax{n}.asset", acc.Build($"Env_C_Wax{n}"));
+                var waxGo = Place(root, $"Candles{n}", waxMesh, Vector3.zero, Vector3.zero, Vector3.one, wax);
+                Defer(wax, waxGo.transform, 1f);
+
+                if (glowMesh != null)
                 {
+                    // the halo breathes WITH the candle — it used to be a static
+                    // sphere sitting inside a flickering pool of light
+                    var g = NewRoomMat($"C_Glow{n}.mat", "GloomhavenVR/EnvGlow");
+                    g.SetColor("_Tint", new Color(1f, 0.55f, 0.20f, glowA));
+                    g.SetFloat("_Falloff", 2.2f);
+                    g.SetFloat("_Flicker", 0.95f);
+                    g.SetFloat("_Rate", SlotRate[slot]);
+                    g.SetFloat("_Phase", SlotPhase[slot]);
                     Place(root, $"CandleGlow{n}", glowMesh,
                         basePos + new Vector3(candles[0].dx, candles[0].h + 0.05f, candles[0].dz),
-                        Vector3.zero, Vector3.one * glowR, glowMat);
+                        Vector3.zero, Vector3.one * glowR, g);
                 }
             }
             var candleTable = new Vector3(3.72f, tableTop, 2.95f);
             var candleShelf = new Vector3(4.72f, shelfTop, 0.70f);
             var candleCrate = new Vector3(-1.55f, crateTop, -3.95f);
-            CandleGroup("Table", candleTable,
-                new[] { (0.16f, 0f, 0f), (0.11f, 0.07f, 0.04f), (0.085f, -0.05f, 0.06f) }, 0.30f);
-            CandleGroup("Shelf", candleShelf, new[] { (0.12f, 0f, 0f) }, 0.24f);
-            CandleGroup("Crate", candleCrate, new[] { (0.14f, 0f, 0f), (0.09f, 0.06f, -0.05f) }, 0.27f);
+            CandleGroup("Table", 0, candleTable,
+                new[] { (0.16f, 0f, 0f), (0.11f, 0.07f, 0.04f), (0.085f, -0.05f, 0.06f) }, 0.30f, 0.60f);
+            CandleGroup("Shelf", 1, candleShelf, new[] { (0.12f, 0f, 0f) }, 0.24f, 0.50f);
+            CandleGroup("Crate", 2, candleCrate, new[] { (0.14f, 0f, 0f), (0.09f, 0.06f, -0.05f) }, 0.27f, 0.55f);
 
             // rig fixup: light sources sit just above the tallest flame of each group
             rig.points[0].pos = candleTable + new Vector3(0, 0.22f, 0);
             rig.points[1].pos = candleShelf + new Vector3(0, 0.18f, 0);
             rig.points[2].pos = candleCrate + new Vector3(0, 0.20f, 0);
+
+            BuildCellarAtmosphere(root, rig);
+
             PaintContactAO(floorGo, 0.40f, 0.30f);
             FlushRig(rig);
             ReportGrounding("Cellar");
-            AssertPlaySpaceClear(root, "Cellar", CellarPlaySpaceDia, "Floor");
+            // 'Floor' is what the board stands on; the moonlight and its pools on
+            // the flagstones are light, not matter; 'Rat' is authored in its own
+            // body space at the origin and put on its path by the vertex shader,
+            // so its raw vertices say nothing about where it ever is.
+            AssertPlaySpaceClear(root, "Cellar", CellarPlaySpaceDia,
+                "Floor", "MoonShaft", "MoonPool", "WindowGlow", "Rat");
             Debug.Log("[GloomhavenVR][Env] Cellar room geometry assembled.");
+        }
+
+        // ------------------------------------------------- atmosphere geometry
+        /// <summary>The window's embrasure: two jambs, a head and a sill, all
+        /// facing INTO the opening, running from the wall plane (z = zWall)
+        /// outward. The walls are zero-thickness planes, so without this there
+        /// is no inside of the opening at all — and anything placed at the
+        /// window necessarily hangs in front of the stone.</summary>
+        private static Mesh RevealMesh(float x0, float y0, float x1, float y1, float zWall, float d)
+        {
+            var v = new List<Vector3>(); var uv = new List<Vector2>(); var tri = new List<int>();
+            const float us = 3.4f;   // same world UV scale as the walls
+            void Face(Vector3 o, Vector3 du, Vector3 dv)
+            {
+                int b = v.Count;
+                v.Add(o); v.Add(o + du); v.Add(o + du + dv); v.Add(o + dv);
+                float lu = du.magnitude / us, lv = dv.magnitude / us;
+                // offset the UV origin by the world position so the reveal's
+                // stone continues the wall's instead of restarting at a block edge
+                float ou = (o.x + o.z) / us, ov = o.y / us;
+                uv.Add(new Vector2(ou, ov)); uv.Add(new Vector2(ou + lu, ov));
+                uv.Add(new Vector2(ou + lu, ov + lv)); uv.Add(new Vector2(ou, ov + lv));
+                tri.AddRange(new[] { b, b + 1, b + 2, b, b + 2, b + 3 });  // normal = cross(du,dv)
+            }
+            float h = y1 - y0, w = x1 - x0;
+            // jambs (normals +X and -X, into the opening)
+            Face(new Vector3(x0, y0, zWall), new Vector3(0, 0, d), new Vector3(0, h, 0));
+            Face(new Vector3(x1, y0, zWall + d), new Vector3(0, 0, -d), new Vector3(0, h, 0));
+            // head (normal down) and sill (normal up)
+            Face(new Vector3(x0, y1, zWall), new Vector3(w, 0, 0), new Vector3(0, 0, d));
+            Face(new Vector3(x0, y0, zWall + d), new Vector3(w, 0, 0), new Vector3(0, 0, -d));
+            return FinishMesh(v, uv, tri, null);
+        }
+
+        /// <summary>The puddle: an irregular polar patch lying on (and following)
+        /// the flagstones, its vertex ALPHA carrying the wet mask so the edge
+        /// feathers into damp stone instead of ending in a rim.</summary>
+        private static Mesh PuddleMesh(Vector2 centre, float radius, int rings, int segs, int seed)
+        {
+            var a = new Acc();
+            float Edge(float ang) => 0.74f + 0.42f * Fbm2(Mathf.Cos(ang) * 1.7f + 3f, Mathf.Sin(ang) * 1.7f, 2, seed);
+            for (int r = 0; r <= rings; r++)
+            {
+                float f = Mathf.Pow(r / (float)rings, 0.92f);
+                float mask = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(1.0f, 0.55f, f));
+                for (int s = 0; s < segs; s++)
+                {
+                    float ang = s / (float)segs * Mathf.PI * 2f;
+                    float rr = radius * Edge(ang) * f;
+                    float x = centre.x + Mathf.Cos(ang) * rr, z = centre.y + Mathf.Sin(ang) * rr;
+                    a.Vert(new Vector3(x, CellarFloorY(x, z) + 0.007f, z), Vector3.up,
+                           new Vector2(s / (float)segs, f), new Color(1, 1, 1, mask));
+                }
+            }
+            for (int r = 0; r < rings; r++)
+                for (int s = 0; s < segs; s++)
+                {
+                    int i0 = r * segs + s, i1 = r * segs + (s + 1) % segs;
+                    int j0 = i0 + segs, j1 = i1 + segs;
+                    a.T.AddRange(new[] { i0, j0, i1, i1, j0, j1 });
+                }
+            return a.Build("Env_C_Puddle");
+        }
+
+        /// <summary>The drop and its splash, as six cross-quads AT THE ORIGIN —
+        /// EnvDrip puts every one of them where it belongs from _Time, so the
+        /// mesh carries only the sprite quads and the per-element parameters
+        /// (COLOR: r kind, g azimuth, b size/speed, a stretch flag).</summary>
+        private static Mesh DripMesh()
+        {
+            var a = new Acc();
+            void Cross(float hw2, float hh, Color col)
+            {
+                AddQuad(a, Vector3.zero, new Vector3(hw2, 0, 0), new Vector3(0, hh, 0), col);
+                AddQuad(a, Vector3.zero, new Vector3(0, 0, hw2), new Vector3(0, hh, 0), col);
+            }
+            // 1.4 x 2.4 cm — larger than a real drop on purpose: at the 3-5 m the
+            // puddle is normally seen from, a physically sized drop is under two
+            // pixels and the drip simply does not exist.
+            Cross(0.0070f, 0.0120f, new Color(0f, 0f, 0f, 1f));            // the drop
+            for (int k = 0; k < 5; k++)                                    // the splash
+                Cross(0.0060f, 0.0060f,
+                      new Color(1f, (k + 0.35f) / 5f, Hash3(k, 7, 0, 6607), 0f));
+            return a.Build("Env_C_Drip");
+        }
+
+        /// <summary>A rat, ~20 cm of body and 20 cm of tail, built nose-down-Z-
+        /// forward at the origin with the gait weights in its vertex colours
+        /// (r tail, g leg, b leg phase). EnvCritter walks it along its Bezier.</summary>
+        private static Mesh RatMesh()
+        {
+            var a = new Acc();
+            var fur = new Color(0f, 0f, 0f, 1f);
+
+            // body + head as one tube: rump -> shoulders -> muzzle
+            var bc = new[]
+            {
+                new Vector3(0, 0.044f, -0.045f), new Vector3(0, 0.048f, -0.010f),
+                new Vector3(0, 0.052f,  0.028f), new Vector3(0, 0.054f,  0.066f),
+                new Vector3(0, 0.052f,  0.100f), new Vector3(0, 0.050f,  0.126f),
+                new Vector3(0, 0.046f,  0.156f), new Vector3(0, 0.040f,  0.182f),
+            };
+            var br = new[] { 0.024f, 0.036f, 0.042f, 0.041f, 0.034f, 0.027f, 0.018f, 0.006f };
+            var bcol = new[] { fur, fur, fur, fur, fur, fur, fur, fur };
+            var balong = new[] { 0f, 0.12f, 0.28f, 0.45f, 0.62f, 0.75f, 0.88f, 1f };
+            AddTube(a, bc, br, bcol, balong, 8);
+
+            // the tail: trails back, lifts, and tapers to a whip
+            var tc = new[]
+            {
+                new Vector3(0, 0.044f, -0.048f), new Vector3(0, 0.048f, -0.090f),
+                new Vector3(0, 0.052f, -0.135f), new Vector3(0, 0.048f, -0.180f),
+                new Vector3(0, 0.038f, -0.220f), new Vector3(0, 0.026f, -0.252f),
+            };
+            var tr = new[] { 0.012f, 0.010f, 0.0082f, 0.0062f, 0.0040f, 0.0018f };
+            var tcol = new Color[tc.Length];
+            var talong = new float[tc.Length];
+            for (int i = 0; i < tc.Length; i++)
+            {
+                float f = i / (float)(tc.Length - 1);
+                tcol[i] = new Color(Mathf.SmoothStep(0f, 1f, f), 0f, 0f, 1f);   // r = tail weight
+                talong[i] = f;
+            }
+            AddTube(a, tc, tr, tcol, talong, 5);
+
+            // four legs, two alternating phases (b = phase)
+            void Leg(float x, float z, float phase)
+            {
+                var lc = new[]
+                {
+                    new Vector3(x, 0.046f, z),
+                    new Vector3(x * 1.25f, 0.024f, z + 0.006f),
+                    new Vector3(x * 1.35f, 0.004f, z + 0.014f),
+                };
+                var lr = new[] { 0.0105f, 0.0075f, 0.0055f };
+                var lcol = new[] { new Color(0f, 0.5f, phase, 1f), new Color(0f, 1f, phase, 1f), new Color(0f, 1f, phase, 1f) };
+                AddTube(a, lc, lr, lcol, new[] { 0f, 0.5f, 1f }, 4);
+            }
+            Leg(0.026f, 0.098f, 0.0f); Leg(-0.026f, 0.098f, 0.5f);   // fore
+            Leg(0.028f, -0.012f, 0.5f); Leg(-0.028f, -0.012f, 0.0f); // hind
+
+            // Ears: SHORT FAT TUBES, not quads. A quad ear is a flat plate that
+            // catches the light as a hard rectangle from one side and disappears
+            // from the other — at 2 m it reads as a piece of geometry stuck to
+            // the animal, which is worse than no ear at all.
+            void Ear(float sx)
+            {
+                var ec = new[]
+                {
+                    new Vector3(sx * 0.019f, 0.068f, 0.114f),
+                    new Vector3(sx * 0.028f, 0.076f, 0.113f),
+                };
+                AddTube(a, ec, new[] { 0.0125f, 0.0105f }, new[] { fur, fur }, new[] { 0f, 1f }, 6);
+            }
+            Ear(1f); Ear(-1f);
+            return a.Build("Env_C_Rat");
+        }
+
+        /// <summary>A corner cobweb: a quarter fan anchored along `a` (the
+        /// ceiling) and `b` (the wall) with an irregular, torn outer edge.
+        /// Vertex RED is the freedom EnvRoomCutout's _Sway weights by — zero on
+        /// both anchored edges, greatest in the middle of the free span.</summary>
+        private static Mesh WebMesh(Vector3 corner, Vector3 a, Vector3 b, float R,
+            int rings, int segs, int seed)
+        {
+            a = a.normalized; b = b.normalized;
+            var nrm = Vector3.Cross(a, b).normalized;
+            var acc = new Acc();
+            for (int r = 0; r <= rings; r++)
+            {
+                float f = Mathf.Pow(r / (float)rings, 0.95f);
+                for (int s = 0; s <= segs; s++)
+                {
+                    float u = s / (float)segs;
+                    float ang = u * Mathf.PI * 0.5f;
+                    var dir = a * Mathf.Cos(ang) + b * Mathf.Sin(ang);
+                    float edge = 0.72f + 0.46f * Fbm2(u * 3.1f, 5f, 2, seed);
+                    float freedom = Mathf.Sin(u * Mathf.PI) * Mathf.Pow(f, 1.15f);
+                    acc.Vert(corner + dir * (R * edge * f), nrm, new Vector2(u, f),
+                             new Color(freedom, 0f, 0f, 1f));
+                }
+            }
+            int stride = segs + 1;
+            for (int r = 0; r < rings; r++)
+                for (int s = 0; s < segs; s++)
+                {
+                    int i0 = r * stride + s;
+                    acc.T.AddRange(new[] { i0, i0 + stride, i0 + 1, i0 + 1, i0 + stride, i0 + stride + 1 });
+                }
+            return acc.Build("Env_C_Web");
         }
 
         private static Mesh BuildShaft(float depth, float h, float width)
@@ -1174,14 +1695,236 @@ namespace GloomhavenVR
             return LatheMesh(prof.ToArray(), 10);
         }
 
-        private static Material FlameMat()
+        // ==================================================== CELLAR ATMOSPHERE
+        // "Und hier mehr athmosphärische Details einbauen! zB tropft Wasser von
+        //  irgendwo runter in eine pütze, eine Ratte huscht durch den Raum...
+        //  Sowas." — user, ModBuild 134.
+        //
+        // Everything below is script-free: Shuriken lives in BuildEnvironments,
+        // and every single motion HERE is a vertex shader reading _Time. Sparse
+        // on purpose — five things that happen, not a haunted-house prop shop:
+        //   1. a drip that forms on a plank, falls, splashes, and rings a puddle
+        //      that mirrors the moonbeam it lands in (one shared clock, see the
+        //      CELLAR header and EnvDrip.shader);
+        //   2. a rat that comes out of a hole in the wall, runs the corner and
+        //      goes into another one, roughly every half minute;
+        //   3. a pair of eyes that watch from between the barrels, blink, and
+        //      are not there when you look again;
+        //   4. four cobwebs that breathe in the same draught the candles lean in;
+        //   5. the two rat holes themselves, so the rat comes from somewhere.
+        private static void BuildCellarAtmosphere(Transform root, LightRig rig)
         {
-            var m = NewRoomMat("C_Flame.mat", "GloomhavenVR/EnvFlame");
-            m.SetTexture("_MainTex", Imp("candle_flame_alb"));
-            m.SetColor("_Tint", new Color(1f, 0.82f, 0.55f, 1f));
-            m.SetFloat("_Sway", 0.045f);
-            m.SetFloat("_Flicker", 0.4f);
-            return m;
+            float hw = CW / 2f, hd = CD / 2f;
+            var moonObj = MoonDir.normalized;
+
+            // ------------------------------------------------------- the puddle
+            var puddleMesh = SaveMesh("Env_C_Puddle.asset",
+                PuddleMesh(new Vector2(PuddleAt.x, PuddleAt.z), PuddleR, 10, 30, 5501));
+            var pud = NewRoomMat("C_Puddle.mat", "GloomhavenVR/EnvPuddle");
+            // 0.45 rather than 0.30: at 0.30 a wet patch on an already very dark
+            // floor is indistinguishable from a hole in it. Water reads as water
+            // through its REFLECTIONS, not through being darker than the stone.
+            pud.SetColor("_Wet", new Color(0.46f, 0.49f, 0.56f, 1f));
+            pud.SetVector("_Center", new Vector4(PuddleAt.x, 0f, PuddleAt.z, 0f));
+            pud.SetFloat("_Radius", PuddleR);
+            pud.SetFloat("_Period", DripPeriod);
+            pud.SetFloat("_Phase", 0f);
+            pud.SetFloat("_Impact", DripHang + DripFall);
+            pud.SetFloat("_RingFreq", 4.4f);
+            pud.SetFloat("_RingAmp", 0.55f);
+            pud.SetFloat("_RingCon", 0.70f);
+            pud.SetFloat("_Calm", 0.06f);
+            pud.SetColor("_SkyCol", new Color(0.16f, 0.20f, 0.31f, 1f));
+            pud.SetVector("_MoonDir", moonObj);
+            pud.SetColor("_MoonCol", new Color(0.78f, 0.92f, 1.25f, 1f));
+            // 45, not 160: at 160 the mirror image of the moon is a point you
+            // have to stand in exactly one place to see. A puddle is not a
+            // mirror — it is a rippled one, and the blur is the point.
+            pud.SetFloat("_MoonPow", 45f);
+            // the nearest flame — far enough that the warm shard is a hint, which
+            // is what a candle across a cellar actually looks like in water
+            pud.SetVector("_CandPos", rig.points[2].pos);
+            // alpha carries the FLICKER amount, exactly as ApplyRig writes it
+            // into _L2Col — the reflection has to breathe with the flame it is a
+            // reflection of, or the puddle is lit by a different candle
+            pud.SetColor("_CandCol", new Color(1.0f, 0.52f, 0.20f, rig.points[2].flicker));
+            pud.SetFloat("_CandPow", 26f);
+            pud.SetFloat("_CandRate", SlotRate[2]);
+            pud.SetFloat("_CandPhase", SlotPhase[2]);
+            pud.SetFloat("_Fresnel", 0.50f);
+            Place(root, "Puddle", puddleMesh, Vector3.zero, Vector3.zero, Vector3.one, pud);
+
+            // --------------------------------------------------------- the drip
+            var dripMesh = SaveMesh("Env_C_Drip.asset", DripMesh(),
+                new Bounds(new Vector3(0f, (DripY0 + DripY1) * 0.5f, 0f),
+                           new Vector3(0.9f, DripY0 - DripY1 + 0.4f, 0.9f)));
+            var drip = NewRoomMat("C_Drip.mat", "GloomhavenVR/EnvDrip");
+            drip.SetTexture("_MainTex", AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Spark.png"));
+            drip.SetColor("_Tint", new Color(0.62f, 0.74f, 1.0f, 0.85f));
+            drip.SetFloat("_Period", DripPeriod);
+            drip.SetFloat("_Phase", 0f);
+            drip.SetFloat("_Hang", DripHang);
+            drip.SetFloat("_Y0", DripY0);
+            drip.SetFloat("_Y1", DripY1);
+            drip.SetFloat("_SplashLife", 0.40f);
+            drip.SetFloat("_SplashOut", 0.55f);
+            drip.SetFloat("_SplashUp", 1.10f);
+            drip.SetFloat("_Stretch", 0.075f);
+            Place(root, "Drip", dripMesh, PuddleAt, Vector3.zero, Vector3.one, drip);
+            Debug.Log($"[GloomhavenVR][Env] Cellar drip: period {DripPeriod:F2} s, hang {DripHang:F2} s, "
+                      + $"fall {DripFall:F3} s => the puddle rings at t={DripHang + DripFall:F3} s of every cycle.");
+
+            // ---------------------------------------------------------- the rat
+            // ROUTE IS LIGHTING, not decoration. The first version ran it round
+            // the south-east corner, which is the one quadrant no candle and no
+            // moonbeam reaches: a preview of it is a black rectangle, and so
+            // would the headset have been. It now comes out of a hole in the
+            // north wall, crosses the MOONBEAM and its puddle (a cold silhouette
+            // with rings under its feet), runs the dark west side, and ends up in
+            // the crate candle's pool before it disappears under the crates.
+            // Dark -> cold light -> dark -> warm light -> gone.
+            // W1/W2 are TUNED so the curve passes within ~0.16 m of MoonBeamHit()
+            // at u~0.25 (it really crosses the light, it does not merely go near
+            // it) while its closest approach to the room centre stays at 3.41 m,
+            // outside the 3.25 m PlaySpace radius. Move a control point and check
+            // both of those again.
+            var w0 = new Vector3(-4.00f, 0.015f, 4.42f);
+            var w1 = new Vector3(-2.42f, 0.015f, 1.81f);
+            var w2 = new Vector3(-5.00f, 0.015f, -2.30f);
+            var w3 = new Vector3(-0.95f, 0.015f, -4.44f);
+            // ...and both of those claims are CHECKED, because they are the two
+            // things a future edit to the route would silently break.
+            {
+                Vector3 Bez(float u)
+                {
+                    float k = 1f - u;
+                    return k * k * k * w0 + 3f * k * k * u * w1 + 3f * k * u * u * w2 + u * u * u * w3;
+                }
+                var beam = MoonBeamHit();
+                var bd = -MoonDir.normalized;
+                float nearCentre = float.MaxValue, nearBeam = float.MaxValue;
+                for (int i = 0; i <= 240; i++)
+                {
+                    var p = Bez(i / 240f);
+                    nearCentre = Mathf.Min(nearCentre, new Vector2(p.x, p.z).magnitude);
+                    var rel = p - beam;
+                    nearBeam = Mathf.Min(nearBeam, (rel - bd * Vector3.Dot(rel, bd)).magnitude);
+                }
+                if (nearCentre < CellarPlaySpaceDia * 0.5f)
+                    throw new Exception($"Rat path reaches {nearCentre:F2} m from the room centre — inside the "
+                                        + $"{CellarPlaySpaceDia:F1} m PlaySpace. Move a control point outward.");
+                Debug.Log($"[GloomhavenVR][Env] Rat path: nearest the room centre {nearCentre:F2} m "
+                          + $"(needs >= {CellarPlaySpaceDia * 0.5f:F2}), nearest the moon beam axis {nearBeam:F2} m "
+                          + "(it has to cross it, not pass by).");
+            }
+
+            var pathBox = new Bounds(w0, Vector3.zero);
+            foreach (var p in new[] { w1, w2, w3 }) pathBox.Encapsulate(p);
+            pathBox.Expand(new Vector3(0.7f, 0.8f, 0.7f));
+            var ratMesh = SaveMesh("Env_C_Rat.asset", RatMesh(), pathBox);
+            var ratMat = NewRoomMat("C_Rat.mat", "GloomhavenVR/EnvCritter");
+            ratMat.SetColor("_Tint", new Color(0.36f, 0.310f, 0.280f));
+            ratMat.SetColor("_BellyTint", new Color(0.52f, 0.46f, 0.42f));
+            // the beam it runs through, as a real light on this one object
+            ratMat.SetVector("_ShaftP", MoonBeamHit());
+            ratMat.SetVector("_ShaftD", -MoonDir.normalized);
+            // 0.80 m, not the beam's own 0.12 m slats: this is the light the rat
+            // walks through, and the five slats plus their penumbra are that wide
+            // taken together. A radius that matched one slat lit the animal for a
+            // tenth of a second.
+            ratMat.SetFloat("_ShaftR", 0.80f);
+            ratMat.SetColor("_ShaftCol", new Color(0.55f, 0.70f, 1.05f));
+            ratMat.SetVector("_W0", w0); ratMat.SetVector("_W1", w1);
+            ratMat.SetVector("_W2", w2); ratMat.SetVector("_W3", w3);
+            ratMat.SetFloat("_Period", 31f);
+            ratMat.SetFloat("_RunTime", 4.6f);
+            // Phase 0: the run starts at t=0 of the shader clock. That is not a
+            // detail — it is what lets a preview time series (and a reviewer with
+            // a stopwatch) see the whole run at known offsets.
+            ratMat.SetFloat("_Phase", 0f);
+            ratMat.SetFloat("_Dart", 0.062f);
+            ratMat.SetFloat("_Stride", 24f);
+            ratMat.SetFloat("_Scale", 1f);
+            var ratGo = Place(root, "Rat", ratMesh, Vector3.zero, Vector3.zero, Vector3.one, ratMat);
+            Defer(ratMat, ratGo.transform, 1f);
+
+            // ...and the holes it uses. Nothing bigger than a fist, black inside.
+            // (Quads face INTO the room: AddQuad's facing is cross(halfV,halfU).)
+            var holes = new Acc();
+            AddQuad(holes, new Vector3(w0.x, 0.062f, hd - 0.022f),
+                    new Vector3(0.082f, 0, 0), new Vector3(0, 0.062f, 0), Color.white);
+            AddQuad(holes, new Vector3(w3.x, 0.058f, -hd + 0.022f),
+                    new Vector3(-0.078f, 0, 0), new Vector3(0, 0.058f, 0), Color.white);
+            var holeMat = NewRoomMat("C_RatHole.mat", "GloomhavenVR/EnvRoom");
+            holeMat.SetColor("_Tint", new Color(0.012f, 0.011f, 0.010f));
+            Place(root, "RatHoles", SaveMesh("Env_C_RatHoles.asset", holes.Build("Env_C_RatHoles")),
+                  Vector3.zero, Vector3.zero, Vector3.one, holeMat);
+
+            // --------------------------------------------------------- the eyes
+            // Between the barrels in the south-west, where no candle reaches.
+            // ONE material for both eyes, deliberately: two would blink out of
+            // step and a rat with independent eyelids is a horror of its own.
+            var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
+            if (glowMesh != null)
+            {
+                var eye = NewRoomMat("C_Eyes.mat", "GloomhavenVR/EnvGlow");
+                eye.SetColor("_Tint", new Color(1f, 0.72f, 0.34f, 0.80f));
+                eye.SetFloat("_Falloff", 3.2f);
+                eye.SetFloat("_Blink", 1f);
+                eye.SetFloat("_BlinkPeriod", 4.3f);
+                eye.SetFloat("_Away", 1f);
+                eye.SetFloat("_AwayPeriod", 23f);
+                var at = new Vector3(-4.86f, 0.115f, -3.55f);
+                var side = new Vector3(0.028f, 0f, -0.010f);
+                Place(root, "EyeL", glowMesh, at - side, Vector3.zero, Vector3.one * 0.021f, eye);
+                Place(root, "EyeR", glowMesh, at + side, Vector3.zero, Vector3.one * 0.021f, eye);
+            }
+
+            // ------------------------------------------------------- the cobwebs
+            // Anchored along the ceiling and down the wall; the free middle
+            // billows on _Sway (EnvRoomCutout), phase-shifted per web but all in
+            // the same DraftDir as the flames, so one draught moves the room.
+            var webTex = AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Web.png");
+            void Web(string n, Vector3 corner, Vector3 a, Vector3 b, float R, float sway, float phase, float tint)
+            {
+                var mesh = SaveMesh($"Env_C_Web{n}.asset", WebMesh(corner, a, b, R, 5, 12, 700 + n.Length * 13));
+                var m = NewRoomMat($"C_Web{n}.mat", "GloomhavenVR/EnvRoomCutout");
+                m.SetTexture("_MainTex", webTex);
+                m.SetFloat("_BumpScale", 0f);
+                // must equal the texture's mip-coverage threshold, or the web is
+                // clipped out of existence as soon as it minifies (see WritePng)
+                m.SetFloat("_Cutoff", EnvironmentsBuilder.WebCutoff);
+                m.SetColor("_Tint", new Color(0.80f, 0.78f, 0.73f) * tint);
+                m.SetFloat("_Sway", sway);
+                m.SetFloat("_SwayRate", 0.42f);
+                m.SetFloat("_SwayPhase", phase);
+                m.SetVector("_SwayDir", Vector3.Cross(a, b).normalized);
+                var go = Place(root, "Web" + n, mesh, Vector3.zero, Vector3.zero, Vector3.one, m);
+                Defer(m, go.transform, 1f);
+            }
+            // ORIENTATION IS THE WHOLE PROBLEM with a flat web. A quarter fan
+            // filling the dihedral between a ceiling and a wall is geometrically
+            // the right thing and visually useless: its plane contains the wall's
+            // normal, so from anywhere except one bearing it is a one-pixel
+            // sliver. Each of these is therefore placed so that its plane FACES
+            // somewhere you look from:
+            var down = Vector3.down;
+            // 1. beside the shelf candle, hanging a few centimetres proud of the
+            //    east wall — plane parallel to that wall, so it is face-on from
+            //    the middle of the room, and it is the one web a candle reaches.
+            Web("Shelf", new Vector3(hw - 0.045f, 2.62f, 1.35f), Vector3.back, down, 0.55f, 0.024f, 1.9f, 1f);
+            // 2. the south-west ceiling corner, spanning the two walls: its plane
+            //    is HORIZONTAL, so it is seen from below at a good angle from
+            //    everywhere. Unlit on purpose — it is a shape in the dark.
+            Web("Corner", new Vector3(-hw + 0.03f, CH - 0.06f, -hd + 0.03f),
+                Vector3.right, Vector3.forward, 0.68f, 0.034f, 3.7f, 0.9f);
+            // 3. and one strung across the top of the window opening, horizontal,
+            //    so the moonbeam comes through it: a black lattice in the light.
+            {
+                var wh = SnappedHole(WindowHole, CW, CH, WallCell);
+                Web("Window", new Vector3(-hw + wh.xMin + 0.02f, wh.yMax - 0.012f, hd + 0.02f),
+                    Vector3.right, Vector3.forward, 0.30f, 0.012f, 5.2f, 1.15f);
+            }
         }
 
         // ================================================================ FOREST
@@ -1726,11 +2469,12 @@ namespace GloomhavenVR
                 Mathf.SmoothStep(1f, 0.04f, Mathf.InverseLerp(5.5f, 12f, new Vector2(pos.x, pos.z).magnitude));
             GameObject SProp(string n, string mesh, string tex, Vector3 pos, float yaw, float scale,
                 Vector3? e3 = null, Vector3? s3 = null, bool cutout = false, float bump = 1f,
-                float sink = 0.05f, float tintExtra = 1f, GameObject support = null)
+                float sink = 0.05f, float tintExtra = 1f, GameObject support = null,
+                Quaternion? rot = null)
             {
                 return Prop(root, n, mesh, tex, pos, yaw, scale, "S",
                     tintMul: Fade(pos) * tintExtra, euler3: e3, scale3: s3, cutout: cutout,
-                    bump: bump, sink: sink, support: support);
+                    bump: bump, sink: sink, support: support, rot: rot);
             }
 
             // deadfall: one log across the path, one at the clearing edge
@@ -1745,8 +2489,39 @@ namespace GloomhavenVR
             // stumps; the axe is left in the near one
             var stump0 = SProp("Stump0", "tree_stump_01", "tree_stump_01", new Vector3(4.4f, 0, -4.1f), 60, 1.05f);
             SProp("Stump1", "tree_stump_02", "tree_stump_02", new Vector3(-7.2f, 0, -2.1f), 200, 1.0f);
-            SProp("Axe", "wooden_axe_02", "wooden_axe_02", new Vector3(4.48f, 0, -4.12f), 108, 1.0f,
-                e3: new Vector3(-64f, 108f, 0f), sink: -0.02f, support: stump0);
+            // THE AXE. User finding, ModBuild 134: "Die Axt schwebt falsch rum
+            // auf dem Stamm." Both halves of that were true, and both came from
+            // guessing a pose in Euler angles instead of deriving it.
+            //
+            // wooden_axe_02's own axes (measured from the OBJ): the haft runs
+            // along local Y with the head at +Y (y 0.30..0.42) and the butt at
+            // y = -0.28; the blade widens along +Z and its cutting EDGE is the
+            // line at z = 0.185. Those two facts are all a stuck axe needs:
+            //   * the haft (local -Y) must rise out of the block at ~34 deg,
+            //   * the edge (local +Z) must point INTO the wood — and because the
+            //     two are perpendicular in the mesh, "handle up at 34 deg" fixes
+            //     the edge at 34 deg past vertical automatically, both leaning
+            //     the same way. That is what an axe left in a chopping block
+            //     looks like, and it is not expressible as three round numbers.
+            // The old pose had the head 2 cm ABOVE the stump (sink -0.02, i.e. a
+            // deliberate lift); now it bites 4.5 cm INTO it, and Rest() measures
+            // that against the stump's real triangles under the blade.
+            {
+                const float rise = 34f * Mathf.Deg2Rad;
+                var h = new Vector3(Mathf.Sin(40f * Mathf.Deg2Rad), 0f, Mathf.Cos(40f * Mathf.Deg2Rad));
+                var handle = h * Mathf.Cos(rise) + Vector3.up * Mathf.Sin(rise);   // head -> butt
+                var edge = h * Mathf.Sin(rise) - Vector3.up * Mathf.Cos(rise);     // eye -> cutting edge
+                // Rest() re-centres a prop's FOOTPRINT on the asked-for spot, and
+                // this prop's footprint is dominated by the haft sticking out over
+                // the edge — so the position is chosen so the HEAD, not the
+                // silhouette, lands on the middle of the stump top (4.40,-4.10):
+                // the head sits ~0.29 m back along the lean bearing from the
+                // footprint centre. Aiming at the centre put the blade out on the
+                // stump's falling rim, where it read as hanging past the back.
+                var head = new Vector3(4.40f, 0f, -4.10f);
+                SProp("Axe", "wooden_axe_02", "wooden_axe_02", head + h * 0.29f, 0, 1.0f,
+                    rot: Quaternion.LookRotation(edge, -handle), sink: 0.060f, support: stump0);
+            }
             // roots breaking the floor, mostly at the trunk feet and the path rim
             SProp("Roots0", "root_cluster_02", "root_cluster_02", new Vector3(5.4f, 0, 2.3f), 190, 0.95f, sink: 0.14f);
             SProp("Roots1", "root_cluster_02", "root_cluster_02", new Vector3(-5.7f, 0, -3.1f), 55, 0.85f, sink: 0.16f);
