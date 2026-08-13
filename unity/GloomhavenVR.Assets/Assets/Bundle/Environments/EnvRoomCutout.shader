@@ -46,6 +46,7 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 float3 normal  : NORMAL;
                 float4 tangent : TANGENT;
                 float2 uv      : TEXCOORD0;
+                fixed4 color   : COLOR;
             };
             struct v2f
             {
@@ -55,6 +56,7 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 float3 n    : TEXCOORD2;
                 float3 t    : TEXCOORD3;
                 float3 b    : TEXCOORD4;
+                fixed4 vcol : COLOR;
             };
 
             v2f vert (appdata v)
@@ -66,6 +68,7 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 o.n = v.normal;
                 o.t = v.tangent.xyz;
                 o.b = cross(v.normal, v.tangent.xyz) * v.tangent.w;
+                o.vcol = v.color;
                 return o;
             }
 

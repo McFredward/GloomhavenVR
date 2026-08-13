@@ -67,19 +67,29 @@ MODELS = {
     "wooden_bookshelf_worn": dict(d="1k", n="1k", ao="1k", tris=None),
     "wooden_bucket_01":      dict(d="1k", n="1k", ao="1k", tris=None),
     "jug_01":                dict(d="1k", n="1k", ao="1k", tris=None),
-    # ---- swamp ----
-    "dead_quiver_trunk":     dict(d="2k", n="1k", ao="1k", tris=8000),
-    "dead_tree_trunk":       dict(d="2k", n="1k", ao="1k", tris=12000),
-    "dead_tree_trunk_02":    dict(d="2k", n="1k", ao="1k", tris=10000),
-    "tree_stump_01":         dict(d="1k", n="1k", ao="1k", tris=8000),
-    "root_cluster_01":       dict(d="1k", n="1k", ao="1k", tris=10000),
-    "rock_moss_set_01":      dict(d="2k", n="1k", ao="1k", tris=9000),
-    # boulder_01's UV atlas defeats the texture-preserving decimator (66k tris
-    # barely reduce); namaqualand_boulder_05 decimates cleanly to 6k instead.
-    "namaqualand_boulder_05": dict(d="1k", n="1k", ao="1k", tris=6000),
-    "dry_branches_medium_01": dict(d="1k", n="1k", ao="1k", tris=6000),
-    "grass_medium_02":       dict(d="1k", n=None, ao="1k", alpha="1k", tris=None),
-    "fern_02":               dict(d="1k", n=None, ao="1k", alpha="1k", tris=None),
+    # ---- night forest (replaced the swamp, user ruling 2026-08-13 "statt Moor
+    #      mach eventuell doch lieber einen gruseligen Wald") ----
+    # Deadfall + trunks lying on the forest floor. Decimation targets are much
+    # lower than the cellar props': these live 3-20 m away in moonlight and fog,
+    # and the tri budget is spent on the TREE RING instead (~150k/room cap).
+    "dead_tree_trunk":       dict(d="2k", n="1k", ao="1k", tris=4000),
+    "dead_tree_trunk_02":    dict(d="2k", n="1k", ao="1k", tris=4000),
+    "tree_stump_01":         dict(d="1k", n="1k", ao="1k", tris=2500),
+    "tree_stump_02":         dict(d="1k", n="1k", ao="1k", tris=2500),
+    "root_cluster_02":       dict(d="1k", n="1k", ao="1k", tris=2500),
+    "single_root":           dict(d="1k", n="1k", ao="1k", tris=1200),
+    "rock_moss_set_01":      dict(d="2k", n="1k", ao="1k", tris=3000),
+    "rock_moss_set_02":      dict(d="1k", n="1k", ao="1k", tris=2500),
+    "dry_branches_medium_01": dict(d="1k", n="1k", ao="1k", tris=2000),
+    # Understory. These are scanned as thin blade/frond geometry — decimating
+    # them much below the values here eats the silhouettes, so instance counts
+    # (not tri targets) are the budget knob for foliage.
+    "grass_medium_02":       dict(d="1k", n=None, ao="1k", alpha="1k", tris=5000),
+    "fern_02":               dict(d="1k", n=None, ao="1k", alpha="1k", tris=3500),
+    "shrub_03":              dict(d="1k", n=None, ao="1k", alpha="1k", tris=3500),
+    "moss_01":               dict(d="1k", n=None, ao="1k", alpha="1k", tris=None),
+    # the story beat at the clearing edge: an axe left in a stump
+    "wooden_axe_02":         dict(d="1k", n="1k", ao="1k", tris=3000),
 }
 
 SURFACES = {
@@ -88,8 +98,22 @@ SURFACES = {
     "medieval_blocks_05":    dict(d="2k", n="2k", ao="2k"),
     "monastery_stone_floor": dict(d="2k", n="2k", ao="2k"),   # cellar floor
     "dark_wooden_planks":    dict(d="2k", n="2k", ao="2k"),   # cellar ceiling/beams
-    "brown_mud_leaves_01":   dict(d="2k", n="2k", ao="2k"),   # swamp ground core
-    "forest_leaves_04":      dict(d="2k", n="2k", ao="2k"),   # swamp ground outer
+    "forest_ground_04":      dict(d="2k", n="2k", ao="2k"),   # forest floor (needles/dirt)
+    "forest_leaves_04":      dict(d="2k", n="2k", ao="2k"),   # forest floor (leaf litter)
+    "pine_bark":             dict(d="2k", n="2k", ao="2k"),   # procedural conifer trunks
+    "bark_brown_02":         dict(d="1k", n="1k", ao="1k"),   # second trunk species
+}
+
+# ------------------------------------------------------------------- foliage
+# Poly Haven's scanned conifers (pine_tree_01 / fir_tree_01) ship as ~500 MB-1 GB
+# multi-material photoscans — far past this bundle's budget, and their alpha
+# twig cards do not survive decimation. But their TWIG ATLASES are exactly the
+# asset a card-built forest needs: real photoscanned fir sprigs and a bare
+# branch on a clean alpha, 1k, CC0. Downloaded standalone (no mesh, no .bin) and
+# merged into one RGBA card sheet; BuildEnvironmentRooms.cs cuts sub-rects out
+# of it (FirCards) for the crowns and the canopy.
+CARDS = {
+    "fir_twig": dict(asset="fir_tree_01", diff="twig_diff", alpha="twig_alpha", res="1k"),
 }
 
 
@@ -169,21 +193,42 @@ def export_mesh(name, fj, target_tris, out_dir):
     return n1
 
 
+def process_card(name, r, tex_out):
+    """Standalone twig/leaf atlas from a model asset: diffuse + alpha -> RGBA PNG.
+
+    Used for photoscanned foliage whose MESH is unaffordable but whose alpha
+    card atlas is exactly what a card-built tree needs (see CARDS)."""
+    fj = files_json(r["asset"])
+    adl = os.path.join(DL, r["asset"])
+    dp = fetch(map_url(fj, r["diff"], r["res"], "jpg"),
+               os.path.join(adl, "%s_%s.jpg" % (r["asset"], r["diff"])))
+    ap = fetch(map_url(fj, r["alpha"], r["res"], "png"),
+               os.path.join(adl, "%s_%s.png" % (r["asset"], r["alpha"])))
+    d = load_rgb(dp)
+    al = Image.open(ap).convert("L").resize(d.size, Image.LANCZOS)
+    out = d.convert("RGBA")
+    out.putalpha(al)
+    out.save(os.path.join(tex_out, name + "_alb.png"))
+    print("  wrote %s_alb.png %s" % (name, out.size))
+
+
+def prune(out_dir, keep):
+    """Delete outputs (and their .meta) that no recipe produces any more —
+    dropped assets must not linger in the bundle."""
+    for f in sorted(os.listdir(out_dir)):
+        base = f[:-5] if f.endswith(".meta") else f
+        if base in keep:
+            continue
+        os.remove(os.path.join(out_dir, f))
+        print("  pruned", f)
+
+
 def main():
     os.makedirs(DL, exist_ok=True)
     models_out = os.path.join(OUT, "Models")
     tex_out = os.path.join(OUT, "Textures")
-    # clean stale outputs from earlier runs (keep .meta of survivors — Unity
-    # regenerates missing metas; the builder enforces import settings anyway)
     for d in (models_out, tex_out):
         os.makedirs(d, exist_ok=True)
-    stale = [f for f in os.listdir(tex_out) if f.startswith(("brass_candleholders", "grass_medium_01"))]
-    stale += [f for f in os.listdir(models_out) if f.startswith(("brass_candleholders", "grass_medium_01"))]
-    for f in stale:
-        p = os.path.join(tex_out if f in os.listdir(tex_out) else models_out, f)
-        if os.path.exists(p):
-            os.remove(p)
-            print("  removed stale", f)
 
     total_tris = {}
     for name, r in MODELS.items():
@@ -222,6 +267,18 @@ def main():
         if r.get("n"):
             np_ = fetch(map_url(fj, "nor_gl", r["n"], "jpg"), os.path.join(adl, f"{name}_nor.jpg"))
             load_rgb(np_).save(os.path.join(tex_out, f"{name}_nrm.jpg"), quality=95)
+
+    for name, r in CARDS.items():
+        print("== card %s" % name)
+        process_card(name, r, tex_out)
+
+    # ---- prune outputs no recipe produces any more ----
+    keep_tex = {"candle_flame_alb.jpg"}
+    for name in list(MODELS) + list(SURFACES):
+        keep_tex |= {name + "_alb.jpg", name + "_alb.png", name + "_nrm.jpg"}
+    keep_tex |= {name + "_alb.png" for name in CARDS}
+    prune(tex_out, keep_tex)
+    prune(models_out, {name + ".obj" for name in MODELS})
 
     print("== tri counts:", json.dumps(total_tris, indent=1))
     disk = 0

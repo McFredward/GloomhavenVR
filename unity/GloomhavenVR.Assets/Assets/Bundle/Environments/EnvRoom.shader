@@ -36,6 +36,11 @@ Shader "GloomhavenVR/EnvRoom"
         _L2Pos ("Light2 pos (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
         _L2Col ("Light2 color (a=flicker)", Color) = (0,0,0,0)
         _VCol ("Vertex color amount", Range(0,1)) = 0
+        // Cold moon rim (forest trunks). Defaults to BLACK so every existing
+        // material — the whole cellar — is bit-identical without it.
+        _RimCol ("Rim light color", Color) = (0,0,0,1)
+        _RimPow ("Rim tightness", Range(0.5,8)) = 3.0
+        _RimDir ("Rim gate: light dir (OBJECT space)", Vector) = (0,1,0,0)
         [Toggle] _Cutout ("Alpha cutout", Float) = 0
         _Cutoff ("Cutout threshold", Range(0,1)) = 0.5
     }
@@ -45,9 +50,9 @@ Shader "GloomhavenVR/EnvRoom"
 
     sampler2D _MainTex; float4 _MainTex_ST;
     sampler2D _BumpMap;
-    float _BumpScale, _VCol, _Cutout, _Cutoff;
-    fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col;
-    float4 _DirDir, _L0Pos, _L1Pos, _L2Pos;
+    float _BumpScale, _VCol, _Cutout, _Cutoff, _RimPow;
+    fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col, _RimCol;
+    float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _RimDir;
 
     struct appdata
     {
@@ -66,6 +71,7 @@ Shader "GloomhavenVR/EnvRoom"
         float3 n      : TEXCOORD2; // object-space normal
         float3 t      : TEXCOORD3; // object-space tangent
         float3 b      : TEXCOORD4; // object-space bitangent
+        float3 ov     : TEXCOORD5; // object-space view vector (rim light only)
         fixed4 vcol   : COLOR;
     };
 
@@ -78,6 +84,7 @@ Shader "GloomhavenVR/EnvRoom"
         o.n = v.normal;
         o.t = v.tangent.xyz;
         o.b = cross(v.normal, v.tangent.xyz) * v.tangent.w;
+        o.ov = ObjSpaceViewDir(v.vertex);
         o.vcol = v.color;
         return o;
     }
@@ -122,6 +129,16 @@ Shader "GloomhavenVR/EnvRoom"
         light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4);
 
         float3 col = alb.rgb * light;
+
+        // Cold rim: a grazing-angle wrap of the moon, gated so only the moonlit
+        // SIDE of a trunk catches it. This is what makes a night forest read as
+        // volumes instead of flat silhouettes. It is view-dependent and so
+        // differs slightly between the eyes — which is physically what a rim IS,
+        // and the gradient is smooth, so it fuses (unlike a screen-space
+        // pattern, which would not). Black by default => opt-in per material.
+        float rim = pow(1.0 - saturate(dot(N, normalize(i.ov))), _RimPow)
+                  * saturate(dot(N, normalize(_RimDir.xyz)) * 0.5 + 0.55);
+        col += _RimCol.rgb * rim;
         col *= lerp(float3(1, 1, 1), i.vcol.rgb, _VCol);
         return fixed4(col, 1.0);
     }

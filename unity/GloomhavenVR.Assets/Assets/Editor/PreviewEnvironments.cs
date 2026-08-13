@@ -23,18 +23,33 @@ namespace GloomhavenVR
         private const string Root = "Assets/Bundle/Environments";
         private const int W = 1280, H = 720;
 
-        // 4 yaws + the most detailed corner of each room + zenith (cellar
-        // ceiling check / swamp sky) — the mandatory self-review set for the
-        // custom-asset room round.
-        private static readonly (string name, Vector3 euler)[] Views =
+        // NOTE: declared BEFORE Views — C# initialises static fields in textual
+        // order, so a Views table that referenced Eye from above would capture
+        // (0,0,0) and render every view from inside the floor.
+        private static readonly Vector3 Eye = new Vector3(0f, 1.4f, 0f); // seated player head
+
+        // The mandatory self-review set. 4 yaws at seated eye height, the most
+        // detailed corner of each room, two upward views (canopy / zenith), a
+        // LOW pass that is the only way to catch a prop hovering a centimetre
+        // over the floor, a shot from the clearing edge looking back across the
+        // play space, and a sky-only frame with the room hidden.
+        private static readonly (string name, Vector3 pos, Vector3 euler, bool skyOnly)[] Views =
         {
-            ("N", new Vector3(0, 0, 0)),
-            ("E", new Vector3(0, 90, 0)),
-            ("S", new Vector3(0, 180, 0)),
-            ("W", new Vector3(0, 270, 0)),
-            ("Corner", new Vector3(8, 48, 0)),   // cellar: candle table NE; swamp: pond+menhirs
-            ("Up", new Vector3(-30, 45, 0)),
-            ("Zenith", new Vector3(-88, 0, 0)),
+            ("N", Eye, new Vector3(0, 0, 0), false),
+            ("E", Eye, new Vector3(0, 90, 0), false),
+            ("S", Eye, new Vector3(0, 180, 0), false),
+            ("W", Eye, new Vector3(0, 270, 0), false),
+            ("Corner", Eye, new Vector3(8, 48, 0), false),   // cellar: candle table NE; forest: toward the moon
+            ("Up", Eye, new Vector3(-30, 45, 0), false),
+            ("Canopy", Eye, new Vector3(-58, 20, 0), false),
+            ("Zenith", Eye, new Vector3(-88, 0, 0), false),
+            // low camera: floaters are invisible from 1.4 m and obvious from 0.45 m
+            ("LowS", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 195, 0), false),
+            ("LowN", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 25, 0), false),
+            ("LowW", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 285, 0), false),
+            // from the edge of the clearing, looking back over the play space
+            ("Edge", new Vector3(3.6f, 1.4f, -3.6f), new Vector3(2, 315, 0), false),
+            ("SkyOnly", Eye, new Vector3(-34, 40, 0), true),
         };
 
         [MenuItem("GloomhavenVR/Render Environment Previews")]
@@ -103,15 +118,17 @@ namespace GloomhavenVR
                 cam.fieldOfView = 60f;
                 cam.nearClipPlane = 0.05f;
                 cam.farClipPlane = 300f;
-                cam.transform.position = new Vector3(0f, 1.4f, 0f); // seated player head
+                var roomGeo = inst.transform.Find("RoomGeo");
 
                 // Project is LINEAR color space: take the readback as raw linear and
                 // gamma-encode manually, otherwise the PNG comes out ~2.2x too dark
                 // (iteration-2 lesson — mid-tones crushed to black).
                 var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
                 var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
-                foreach (var (name, euler) in Views)
+                foreach (var (name, pos, euler, skyOnly) in Views)
                 {
+                    if (roomGeo != null) roomGeo.gameObject.SetActive(!skyOnly);
+                    cam.transform.position = pos;
                     cam.transform.rotation = Quaternion.Euler(euler);
                     cam.targetTexture = rt;
                     cam.Render();

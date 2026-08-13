@@ -21,11 +21,11 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BumpMap:
-        m_Texture: {fileID: 2800000, guid: 0f7f66156d809bd0f8e13aeea56175c8, type: 3}
+        m_Texture: {fileID: 2800000, guid: 0dcd4249befe99de98cdf60736f95206, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: a89255edc769038d08eeb8cb2c398062, type: 3}
+        m_Texture: {fileID: 2800000, guid: 9cd75931a553e680495e542b0b797ec2, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
@@ -33,17 +33,20 @@ Material:
     - _BumpScale: 1
     - _Cutoff: 0.5
     - _Cutout: 0
+    - _RimPow: 3
     - _VCol: 0
     m_Colors:
-    - _AmbDown: {r: 0.007, g: 0.009, b: 0.007, a: 1}
-    - _AmbUp: {r: 0.03, g: 0.04, b: 0.058, a: 1}
-    - _DirCol: {r: 0.085, g: 0.1, b: 0.13, a: 1}
-    - _DirDir: {r: -0.31735075, g: 0.3741512, b: -0.87137794, a: 0}
-    - _L0Col: {r: 0.05, g: 0.1, b: 0.065, a: 0.15}
-    - _L0Pos: {r: -6.2419734, g: 0.4352656, b: -14.687303, a: 0.16363639}
-    - _L1Col: {r: 0, g: 0, b: 0, a: 0}
-    - _L1Pos: {r: 0, g: 0, b: 0, a: 1}
-    - _L2Col: {r: 0, g: 0, b: 0, a: 0}
-    - _L2Pos: {r: 0, g: 0, b: 0, a: 1}
+    - _AmbDown: {r: 0.017, g: 0.02, b: 0.016, a: 1}
+    - _AmbUp: {r: 0.072, g: 0.086, b: 0.118, a: 1}
+    - _DirCol: {r: 0.62, g: 0.71, b: 0.86, a: 1}
+    - _DirDir: {r: -0.2621596, g: 0.6427071, b: -0.71986115, a: 0}
+    - _L0Col: {r: 0.13, g: 0.3, b: 0.19, a: 0.22}
+    - _L0Pos: {r: -3.8783898, g: 0.7636558, b: 2.9775372, a: 0.14285716}
+    - _L1Col: {r: 0.52, g: 0.29, b: 0.11, a: 0.3}
+    - _L1Pos: {r: -17.256575, g: 1.2636558, b: -0.61470985, a: 0.10000001}
+    - _L2Col: {r: 0.14, g: 0.17, b: 0.24, a: 0}
+    - _L2Pos: {r: -6.8675, g: 0.46365574, b: -6.582998, a: 0.16666669}
+    - _RimCol: {r: 0, g: 0, b: 0, a: 1}
+    - _RimDir: {r: 0, g: 1, b: 0, a: 0}
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

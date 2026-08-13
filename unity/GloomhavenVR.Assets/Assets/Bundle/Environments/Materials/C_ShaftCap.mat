@@ -33,6 +33,7 @@ Material:
     - _BumpScale: 1
     - _Cutoff: 0.5
     - _Cutout: 0
+    - _RimPow: 3
     - _VCol: 0
     m_Colors:
     - _AmbDown: {r: 0.015, g: 0.015, b: 0.015, a: 1}
@@ -45,5 +46,7 @@ Material:
     - _L1Pos: {r: 0, g: 0, b: 0, a: 1}
     - _L2Col: {r: 0, g: 0, b: 0, a: 0}
     - _L2Pos: {r: 0, g: 0, b: 0, a: 1}
+    - _RimCol: {r: 0, g: 0, b: 0, a: 1}
+    - _RimDir: {r: 0, g: 1, b: 0, a: 0}
     - _Tint: {r: 0, g: 0, b: 0, a: 1}
   m_BuildTextureStacks: []

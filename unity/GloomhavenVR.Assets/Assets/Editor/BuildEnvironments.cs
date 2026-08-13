@@ -49,6 +49,7 @@
 //    follows the streak's WORLD velocity, never the head.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using UnityEditor;
@@ -63,8 +64,23 @@ namespace GloomhavenVR
         private const string MeshDir = Root + "/Meshes";
         private const string MatDir = Root + "/Materials";
 
-        // Moon bearing baked into the star-dome shader.
-        private static readonly Vector3 MoonDir = new Vector3(0.596f, 0.374f, 0.710f).normalized;
+        // Moon bearing baked into the star-dome shader. Same azimuth as the old
+        // swamp moon, but raised from 22 deg to 40 deg elevation for the night
+        // forest: at 22 deg the moon sat behind the tree ring, and its shafts
+        // raked so flat they never reached the clearing. At 40 deg it is seen
+        // through the tear in the canopy and the shafts cross the play space.
+        // EnvRoomBuilder.MoonDir MUST match (shafts, rim light, water glints).
+        public static readonly Vector3 MoonDir = new Vector3(0.49262f, 0.64279f, 0.58686f).normalized;
+
+        // ------------------------------------------------------------ star sky
+        // Yale Bright Star Catalogue (public domain) -> real star point sprites.
+        // See Assets/Editor/star_catalogue.py for the source and the parse; the
+        // CSV lives in Assets/Editor (editor-only: never in the player build or
+        // the bundle), only the derived MESH ships.
+        private const string StarCsv = "Assets/Editor/bsc5_stars.csv";
+        private const float StarMagLimit = 6.0f;   // full naked-eye sky (~5000 stars)
+        private const float StarRadius = 44f;      // just inside the 45 m photo dome
+        private const float ObserverLatDeg = 48f;  // central-European sky: Polaris at 48 deg
 
         // ------------------------------------------------------------------ entry
         [MenuItem("GloomhavenVR/Build Environments")]
@@ -91,14 +107,43 @@ namespace GloomhavenVR
         {
             AssetDatabase.Refresh();
             GenerateTextures();
-            EnvRoomBuilder.GenerateRippleTexture();   // water ripple normal (swamp ponds)
             EnvRoomBuilder.EnforceImports();          // CC0 photoscan models/textures (Imported/)
             GenerateMeshes();
             BuildMaterials();
             AssetDatabase.SaveAssets();
             BuildCellar();
-            BuildSwamp();
+            BuildForest();
             AssetDatabase.SaveAssets();
+            PruneUnreferenced();
+            AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>Delete generated materials/meshes/textures no prefab uses any
+        /// more. EVERYTHING under Assets/Bundle ships (BuildBundles collects the
+        /// whole tree), so a prop dropped from a room would otherwise keep paying
+        /// bundle bytes forever — the swamp's ponds, water shader and quiver-tree
+        /// materials all died that way.</summary>
+        private static void PruneUnreferenced()
+        {
+            var prefabs = new[] { Root + "/Env_Cellar.prefab", Root + "/Env_Swamp.prefab" }
+                .Select(AssetDatabase.LoadAssetAtPath<GameObject>)
+                .Where(p => p != null).Cast<UnityEngine.Object>().ToArray();
+            if (prefabs.Length != 2) throw new Exception("PruneUnreferenced: a room prefab is missing.");
+            var keep = new HashSet<string>(EditorUtility.CollectDependencies(prefabs)
+                .Select(AssetDatabase.GetAssetPath)
+                .Where(s => !string.IsNullOrEmpty(s)));
+            int n = 0;
+            foreach (var dir in new[] { MatDir, MeshDir, TexDir })
+                foreach (var f in Directory.GetFiles(dir))
+                {
+                    string p = f.Replace('\\', '/');
+                    if (p.EndsWith(".meta") || keep.Contains(p)) continue;
+                    AssetDatabase.DeleteAsset(p);
+                    Debug.Log("[GloomhavenVR][Env] pruned unreferenced " + p);
+                    n++;
+                }
+            if (n > 0) AssetDatabase.Refresh();
+            Debug.Log($"[GloomhavenVR][Env] Prune: {n} orphan asset(s) removed, {keep.Count} referenced.");
         }
 
         // ---------------------------------------------------------------- NIGHT SKY
@@ -160,8 +205,30 @@ namespace GloomhavenVR
             WritePng(TexDir + "/Env_Streak.png", MakeStreak(256, 64), 256, 64, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_FogPuff.png", MakeFogPuff(256), 256, 256, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Moon.png", MakeMoon(512), 512, 512, sRGB: true, clamp: true);
+            // haze veil for the sky dome — tiles in BOTH axes (torus blend), so
+            // the two scrolling octaves never show a seam as they cross.
+            WritePng(TexDir + "/Env_Haze.png", MakeHaze(256), 256, 256, sRGB: false, clamp: false,
+                comp: TextureImporterCompression.Compressed, alphaDilate: false);
             ImportNightSky();
             AssetDatabase.Refresh();
+        }
+
+        private static Color[] MakeHaze(int n)
+        {
+            // thin high cloud / airglow veil: soft multi-octave value noise,
+            // seamlessly tileable by blending the four torus corners.
+            var px = new Color[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float fx = x / (float)n, fy = y / (float)n;
+                    float H(float ox, float oy) => Fbm3(new Vector3((fx + ox) * 3.4f, (fy + oy) * 3.4f, 5.1f), 4, 771);
+                    float h = Mathf.Lerp(Mathf.Lerp(H(0, 0), H(-1, 0), fx),
+                                         Mathf.Lerp(H(0, -1), H(-1, -1), fx), fy);
+                    h = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.30f, 0.80f, h));
+                    px[y * n + x] = new Color(h, h, h, 1f);
+                }
+            return px;
         }
 
         private static void ImportNightSky()
@@ -415,6 +482,111 @@ namespace GloomhavenVR
             SaveMesh(MeshDir + "/Env_Dome.asset",
                 BuildSphere(64, 32, inward: true, bandMinDeg: SkyBandMinDeg, bandMaxDeg: SkyBandMaxDeg));
             SaveMesh(MeshDir + "/Env_GlowSphere.asset", BuildSphere(16, 8, inward: false));
+            SaveMesh(MeshDir + "/Env_StarField.asset", BuildStarField());
+        }
+
+        // ============================================================ STAR FIELD
+        // One quad per catalogue star, in the star's OWN frame — EnvStarPoints
+        // rotates it about the celestial pole in the vertex shader (no scripts,
+        // no camera coupling). Deterministic: same CSV in, same mesh out.
+        //
+        // Frame (Unity is left-handed with +X east, +Y up, +Z north — a correct
+        // geographic frame, verified below):
+        //   P = (0, sin lat,  cos lat)   celestial north pole
+        //   M = (0, cos lat, -sin lat)   celestial equator on the meridian
+        //                                (altitude 90-lat, due SOUTH — correct)
+        //   W = P x M = (-1, 0, 0)       due WEST
+        //   d(H) = sin(dec) P + cos(dec) cos(H) M + cos(dec) sin(H) W
+        // A star at dec=0, H=+6h lands on W (just set) and at H=-6h on +X (east,
+        // rising): the hour angle runs the right way, so the constellations come
+        // out un-mirrored and Rodrigues rotation about P with a POSITIVE angle
+        // carries them east -> meridian -> west, as the real sky does.
+        private static Mesh BuildStarField()
+        {
+            string[] lines = File.Exists(StarCsv)
+                ? File.ReadAllLines(StarCsv)
+                : throw new Exception(StarCsv + " missing — run Assets/Editor/star_catalogue.py.");
+
+            float lat = ObserverLatDeg * Mathf.Deg2Rad;
+            var P = new Vector3(0f, Mathf.Sin(lat), Mathf.Cos(lat));
+            var M = new Vector3(0f, Mathf.Cos(lat), -Mathf.Sin(lat));
+            var W = new Vector3(-1f, 0f, 0f);
+
+            var v = new List<Vector3>(); var uv = new List<Vector2>();
+            var uv2 = new List<Vector2>(); var col = new List<Color>(); var tri = new List<int>();
+            int used = 0;
+            foreach (var line in lines)
+            {
+                if (line.Length == 0 || line[0] == '#') continue;
+                var f = line.Split(',');
+                if (f.Length < 5) continue;
+                int hr = int.Parse(f[0], CultureInfo.InvariantCulture);
+                float ra = float.Parse(f[1], CultureInfo.InvariantCulture) * Mathf.Deg2Rad;
+                float dec = float.Parse(f[2], CultureInfo.InvariantCulture) * Mathf.Deg2Rad;
+                float mag = float.Parse(f[3], CultureInfo.InvariantCulture);
+                float bv = float.Parse(f[4], CultureInfo.InvariantCulture);
+                if (mag > StarMagLimit) continue;
+
+                float h0 = -ra;                                     // hour angle at LST 0
+                Vector3 d = P * Mathf.Sin(dec)
+                          + M * (Mathf.Cos(dec) * Mathf.Cos(h0))
+                          + W * (Mathf.Cos(dec) * Mathf.Sin(h0));
+                d.Normalize();
+
+                // brightness: the true flux ratio spans 1500x, which would be one
+                // white blob and 5000 invisible dots — compress it, and let the
+                // bright ones grow a bigger point-spread instead (as a real one
+                // does in the eye).
+                float flux = Mathf.Pow(10f, -0.4f * (mag - StarMagLimit) / 3.0f);
+                float bright = 0.055f * flux;
+                float size = 0.028f + 0.0055f * Mathf.Max(0f, StarMagLimit - mag);
+                var c = BvToRgb(bv);
+                float phase = Hash3(hr, 17, 3, 6101) * 6.2831853f;
+
+                int b0 = v.Count;
+                for (int k = 0; k < 4; k++)
+                {
+                    v.Add(d * StarRadius);
+                    uv.Add(new Vector2(k == 0 || k == 3 ? -1f : 1f, k < 2 ? -1f : 1f));
+                    uv2.Add(new Vector2(size, phase));
+                    col.Add(new Color(c.x, c.y, c.z, bright));
+                }
+                tri.AddRange(new[] { b0, b0 + 2, b0 + 1, b0, b0 + 3, b0 + 2 });
+                used++;
+            }
+
+            var m = new Mesh { name = "Env_StarField" };
+            m.SetVertices(v);
+            m.SetUVs(0, uv);
+            m.SetUVs(1, uv2);
+            m.SetColors(col);
+            m.SetTriangles(tri, 0);
+            // the shader moves every vertex; a bounds box that follows the real
+            // sphere keeps the whole field from being frustum-culled mid-rotation
+            m.bounds = new Bounds(Vector3.zero, Vector3.one * (StarRadius * 2.2f));
+            Debug.Log($"[GloomhavenVR][Env] Star field: {used} catalogue stars (V<={StarMagLimit}), "
+                      + $"{v.Count} verts, {tri.Count / 3} tris.");
+            return m;
+        }
+
+        /// <summary>B-V colour index -> linear RGB, normalized to unit luminance.
+        /// Ballesteros (2012, EPL 97 34008) B-V -> blackbody temperature, then
+        /// Tanner Helland's Kelvin -> RGB fit (valid 1000..40000 K, so clamp:
+        /// the catalogue's reddest star, B-V 5.74, would land at 1439 K).</summary>
+        private static Vector3 BvToRgb(float bv)
+        {
+            float T = 4600f * (1f / (0.92f * bv + 1.7f) + 1f / (0.92f * bv + 0.62f));
+            T = Mathf.Clamp(T, 1000f, 40000f);
+            float t = T / 100f;
+            float r = t <= 66f ? 255f : 329.698727446f * Mathf.Pow(t - 60f, -0.1332047592f);
+            float g = t <= 66f ? 99.4708025861f * Mathf.Log(t) - 161.1195681661f
+                               : 288.1221695283f * Mathf.Pow(t - 60f, -0.0755148492f);
+            float b = t >= 66f ? 255f : (t <= 19f ? 0f : 138.5177312231f * Mathf.Log(t - 10f) - 305.0447927307f);
+            var c = new Vector3(Mathf.Clamp01(r / 255f), Mathf.Clamp01(g / 255f), Mathf.Clamp01(b / 255f));
+            // equal-luminance normalization: without it the hot blue-white stars
+            // read DIMMER than the cool orange ones at the same magnitude
+            float lum = Mathf.Max(0.2126f * c.x + 0.7152f * c.y + 0.0722f * c.z, 1e-3f);
+            return c / lum;
         }
 
         private static void SaveMesh(string path, Mesh src)
@@ -427,12 +599,18 @@ namespace GloomhavenVR
             }
             else
             {
+                var bounds = src.bounds;
                 existing.Clear();
                 existing.vertices = src.vertices;
                 existing.normals = src.normals;
                 existing.uv = src.uv;
+                existing.uv2 = src.uv2;
+                existing.colors = src.colors;
                 existing.triangles = src.triangles;
                 existing.RecalculateBounds();
+                // the star field's vertices are moved by the shader — keep the
+                // authored (oversized) bounds so rotation cannot cull it
+                if (src.name == "Env_StarField") existing.bounds = bounds;
                 EditorUtility.SetDirty(existing);
                 UnityEngine.Object.DestroyImmediate(src);
             }
@@ -519,28 +697,51 @@ namespace GloomhavenVR
             glowWarm.SetColor("_Tint", new Color(1f, 0.55f, 0.20f, 0.65f));
             glowWarm.SetFloat("_Falloff", 2.2f);
 
-            // the moon is baked into the star-dome shader (a separate blended quad
-            // left a visible seam against the sky gradient)
+            // ---- sky backdrop: photographic Milky Way + moon + haze veil ----
+            // The moon is baked into this shader (a separate blended quad left a
+            // visible seam against the sky gradient).
             var stars = LoadOrNewMat(MatDir + "/Swamp_StarDome.mat", "GloomhavenVR/EnvStars");
             stars.SetTexture("_MainTex", T("Env_NightSky.png")); // real photo sky (see NIGHT SKY)
             // gradient is now only a faint backstop UNDER the photo (the photo
             // carries its own airglow/haze) — the old brighter horizon colour
             // stacked with the photo's mist into a washed-out band
             stars.SetColor("_TopCol", new Color(0.004f, 0.006f, 0.014f));
-            stars.SetColor("_HorizonCol", new Color(0.012f, 0.018f, 0.030f));
-            stars.SetFloat("_SkyBoost", 1.0f);
+            stars.SetColor("_HorizonCol", new Color(0.008f, 0.012f, 0.021f));
+            stars.SetFloat("_SkyBoost", 0.78f);
+            // the photo's own star cores are pushed down: the catalogue layer
+            // (EnvStarPoints) owns the point stars now, and two unaligned
+            // starfields would read as a double exposure
+            stars.SetFloat("_CoreSuppress", 0.88f);
             stars.SetColor("_StarCol", new Color(0.85f, 0.90f, 1.0f));
-            // photo stars: twinkle stays but SUBTLE — the alpha mask holds only
-            // compact star cores; hard blinking on a photograph reads synthetic
             stars.SetFloat("_TwinkleSpeed", 1.2f);
             stars.SetFloat("_TwinkleAmp", 0.30f);
-            stars.SetFloat("_DriftSpeed", 0.00035f); // full sky revolution ~48 min
+            // one full turn per 2880 s — the SAME period the star layer rotates
+            // in, so backdrop and stars read as ONE turning sky
+            stars.SetFloat("_DriftSpeed", 1f / 2880f);
+            stars.SetTexture("_HazeTex", T("Env_Haze.png"));
+            stars.SetColor("_HazeCol", new Color(0.038f, 0.048f, 0.072f));
+            stars.SetFloat("_HazeAmt", 0.42f);
+            // dim the lowest ~10 deg so a treeline never silhouettes on a bright band
+            stars.SetFloat("_HorizonDim", 0.14f);
             stars.SetTexture("_MoonTex", T("Env_Moon.png"));
             stars.SetVector("_MoonDir", MoonDir);
             stars.SetColor("_MoonCol", new Color(1f, 0.98f, 0.92f));
             // disc fills only 0.44 of the sprite (R=0.22/0.5) — extent sized so the
             // disc stays ~3.3° radius while the halo gets real room to breathe
             stars.SetFloat("_MoonExtent", 0.13f);
+
+            // ---- real catalogue stars (see BuildStarField / EnvStarPoints) ----
+            var pts = LoadOrNewMat(MatDir + "/Sky_StarPoints.mat", "GloomhavenVR/EnvStarPoints");
+            float lat = ObserverLatDeg * Mathf.Deg2Rad;
+            pts.SetVector("_Pole", new Vector4(0f, Mathf.Sin(lat), Mathf.Cos(lat), 0f));
+            // 2*pi / 2880 s = 0.125 deg/s ~= 30x sidereal. Real 15 deg/h is
+            // imperceptible; games run 20-70x (Skyrim 20x, Minecraft 72x). Above
+            // ~100x a rotating sky starts to induce vection in VR.
+            pts.SetFloat("_RotSpeed", 2f * Mathf.PI / 2880f);
+            pts.SetFloat("_Gain", 2.1f);
+            pts.SetFloat("_TwinkleAmp", 0.80f);
+            pts.SetFloat("_TwinkleSpeed", 1.9f);
+            pts.SetFloat("_Core", 34f);
 
             AssetDatabase.SaveAssets();
         }
@@ -600,8 +801,17 @@ namespace GloomhavenVR
         // children onto sky/room branches BY NODE NAME) — never rename it.
         private static void AddNightSky(Transform parent)
         {
-            Solid(parent, "StarDome", "Env_Dome.asset", Mat("Swamp_StarDome.mat"),
+            var dome = Solid(parent, "StarDome", "Env_Dome.asset", Mat("Swamp_StarDome.mat"),
                 Vector3.zero, Vector3.zero, Vector3.one * 45f);
+            // The real catalogue stars ride as a CHILD of StarDome (contract: new
+            // sky FX are children of that single root node) so they inherit the
+            // sky branch's anchoring exactly. Its own transform is identity-in-
+            // world: the dome is scaled 45x, so undo that on the child — the star
+            // positions are already baked at StarRadius metres.
+            var field = Solid(dome.transform, "StarField", "Env_StarField.asset",
+                Mat("Sky_StarPoints.mat"), Vector3.zero, Vector3.zero, Vector3.one / 45f);
+            field.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            field.GetComponent<MeshRenderer>().receiveShadows = false;
         }
 
         private static void LogStats(GameObject root, string label)
@@ -668,33 +878,37 @@ namespace GloomhavenVR
             }
         }
 
-        // =================================================================== SWAMP
-        // FX shell: star dome + shooting stars + fireflies + ground fog. NO ground
-        // plane, trees or water — the game's marsh tiles provide those at runtime.
-        private static void BuildSwamp()
+        // ================================================================== FOREST
+        // FX shell for the night forest (prefab file name Env_Swamp.prefab is a
+        // runtime contract and does not change — only the content did, see
+        // BuildEnvironmentRooms.BuildForestRoom): star dome + real catalogue
+        // stars + shooting stars + wisps + two mist layers between the tree rows.
+        private static void BuildForest()
         {
             var root = new GameObject("Env_Swamp");
             try
             {
                 var t = root.transform;
 
-                // ---- sky: star dome (shader-twinkled, moon baked into the shader) ----
+                // ---- sky: photo dome + real Yale-catalogue stars (children) ----
                 AddNightSky(t);
 
-                // ---- ground fog: big slow WORLD-SPACE puffs standing over the marsh ----
+                // ---- ground mist, layer 1: drifting between the near trunks ----
                 var fog = NewPS(t, "GroundFog", new Vector3(0, 0.45f, 0), new Vector3(-90, 0, 0), Mat("FX_Fog.mat"));
                 var fm = fog.main;
                 fm.simulationSpace = ParticleSystemSimulationSpace.World;
                 fm.duration = 40f;
                 fm.startLifetime = new ParticleSystem.MinMaxCurve(14f, 22f);
                 fm.startSpeed = 0f;
-                fm.startSize = new ParticleSystem.MinMaxCurve(7f, 13f); // bigger + dimmer = softer overlap
+                fm.startSize = new ParticleSystem.MinMaxCurve(6f, 11f); // bigger + dimmer = softer overlap
                 fm.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-                fm.startColor = new Color(0.54f, 0.62f, 0.76f, 0.07f); // dim: mist, not snowdrifts
+                // cold and thin: mist BETWEEN the trunks, so the first row of
+                // trees is sharp and the second is already half-dissolved
+                fm.startColor = new Color(0.20f, 0.25f, 0.33f, 0.045f);
                 fm.maxParticles = 34;
                 var fe = fog.emission; fe.rateOverTime = 1.7f;
                 var fsh = fog.shape; fsh.enabled = true; fsh.shapeType = ParticleSystemShapeType.Donut;
-                fsh.radius = 8.5f; fsh.donutRadius = 3.5f; fsh.radiusThickness = 1f;
+                fsh.radius = 8.0f; fsh.donutRadius = 3.8f; fsh.radiusThickness = 1f;
                 var fv = fog.velocityOverLifetime; fv.enabled = true;
                 fv.space = ParticleSystemSimulationSpace.World;
                 fv.x = new ParticleSystem.MinMaxCurve(0.06f, 0.16f);
@@ -715,23 +929,24 @@ namespace GloomhavenVR
                 fr.maxParticleSize = 2.5f; // don't clamp big close puffs
                 fr.sortMode = ParticleSystemSortMode.Distance;
 
-                // ---- far fog ring (custom-asset round): a second, larger donut
-                // of mist over the 16–26 m band — veils the ground disc's faded
-                // rim + berm treeline so the world dissolves into night instead
-                // of ending at an edge. Same HorizontalBillboard constraint. ----
-                var farFog = NewPS(t, "GroundFogFar", new Vector3(0, 1.1f, 0), new Vector3(-90, 0, 0), Mat("FX_Fog.mat"));
+                // ---- ground mist, layer 2: a second, larger donut over the
+                // 14–24 m band. This is the layer that makes the wood have DEPTH:
+                // it sits between the second and third rows of trunks, so the far
+                // trees are read through it and the ground disc's rim dissolves
+                // long before it ends. Same HorizontalBillboard constraint. ----
+                var farFog = NewPS(t, "GroundFogFar", new Vector3(0, 2.1f, 0), new Vector3(-90, 0, 0), Mat("FX_Fog.mat"));
                 var ffm = farFog.main;
                 ffm.simulationSpace = ParticleSystemSimulationSpace.World;
                 ffm.duration = 40f;
                 ffm.startLifetime = new ParticleSystem.MinMaxCurve(16f, 26f);
                 ffm.startSpeed = 0f;
-                ffm.startSize = new ParticleSystem.MinMaxCurve(14f, 24f);
+                ffm.startSize = new ParticleSystem.MinMaxCurve(15f, 26f);
                 ffm.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-                ffm.startColor = new Color(0.50f, 0.58f, 0.72f, 0.085f);
-                ffm.maxParticles = 30;
-                var ffe = farFog.emission; ffe.rateOverTime = 1.3f;
+                ffm.startColor = new Color(0.17f, 0.21f, 0.29f, 0.055f);
+                ffm.maxParticles = 22;
+                var ffe = farFog.emission; ffe.rateOverTime = 0.95f;
                 var ffsh = farFog.shape; ffsh.enabled = true; ffsh.shapeType = ParticleSystemShapeType.Donut;
-                ffsh.radius = 20f; ffsh.donutRadius = 5.5f; ffsh.radiusThickness = 1f;
+                ffsh.radius = 18f; ffsh.donutRadius = 5.5f; ffsh.radiusThickness = 1f;
                 var ffv = farFog.velocityOverLifetime; ffv.enabled = true;
                 ffv.space = ParticleSystemSimulationSpace.World;
                 ffv.x = new ParticleSystem.MinMaxCurve(0.04f, 0.12f);
@@ -745,9 +960,11 @@ namespace GloomhavenVR
                 ffr.maxParticleSize = 2.5f;
                 ffr.sortMode = ParticleSystemSortMode.Distance;
 
-                // ---- fireflies: two swarms flanking the play space ----
-                FireflyPS(t, new Vector3(2.6f, 0.55f, -2.4f));
-                FireflyPS(t, new Vector3(-3.6f, 0.6f, 3.4f));
+                // ---- will-o'-the-wisps: two slow swarms deep BETWEEN the trunks
+                // (node name 'Fireflies' is the runtime contract). Not in the
+                // clearing: the point is that something is moving out there. ----
+                FireflyPS(t, new Vector3(-5.0f, 0.75f, -6.6f));
+                FireflyPS(t, new Vector3(7.6f, 0.95f, 5.2f));
 
                 // ---- shooting stars: infrequent streaks across the sky ----
                 var meteor = NewPS(t, "ShootingStars", new Vector3(0, 30f, 0), new Vector3(115f, 30f, 0f), Mat("FX_StarStreak.mat"));
@@ -778,9 +995,9 @@ namespace GloomhavenVR
                 mr.lengthScale = 1f;
                 mr.cameraVelocityScale = 0f;
 
-                // ---- room interior (custom-asset round, 2026-08-13): night marsh
-                // clearing assembled from CC0 photoscans under 'RoomGeo' ----
-                EnvRoomBuilder.BuildSwampRoom(t);
+                // ---- room interior: the night forest and its clearing, under
+                // 'RoomGeo' (see BuildEnvironmentRooms.BuildForestRoom) ----
+                EnvRoomBuilder.BuildForestRoom(t);
 
                 LogStats(root, "Env_Swamp");
                 PrefabUtility.SaveAsPrefabAsset(root, Root + "/Env_Swamp.prefab", out bool ok);
@@ -801,12 +1018,13 @@ namespace GloomhavenVR
             m.duration = 24f;
             m.startLifetime = new ParticleSystem.MinMaxCurve(6f, 12f);
             m.startSpeed = 0.02f;
-            m.startSize = new ParticleSystem.MinMaxCurve(0.045f, 0.10f); // bokeh sprite is softer => a touch larger
-            m.startColor = new Color(0.85f, 1f, 0.42f, 1f); // warm green-gold
-            m.maxParticles = 34;
-            var e = ps.emission; e.rateOverTime = 3.4f;
-            var sh = ps.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = 2.4f;
-            var n = ps.noise; n.enabled = true; n.strength = 0.35f; n.frequency = 0.35f; n.scrollSpeed = 0.15f;
+            m.startSize = new ParticleSystem.MinMaxCurve(0.05f, 0.12f); // bokeh sprite is softer => a touch larger
+            // wisp, not firefly: cold marsh-light green, sparse and slow
+            m.startColor = new Color(0.40f, 0.80f, 0.50f, 1f);
+            m.maxParticles = 14;
+            var e = ps.emission; e.rateOverTime = 1.2f;
+            var sh = ps.shape; sh.enabled = true; sh.shapeType = ParticleSystemShapeType.Sphere; sh.radius = 3.1f;
+            var n = ps.noise; n.enabled = true; n.strength = 0.30f; n.frequency = 0.22f; n.scrollSpeed = 0.10f;
             // gentle breathing pulse (the old hard on/off blink read as a cheap LED)
             var sol = ps.sizeOverLifetime; sol.enabled = true;
             sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(

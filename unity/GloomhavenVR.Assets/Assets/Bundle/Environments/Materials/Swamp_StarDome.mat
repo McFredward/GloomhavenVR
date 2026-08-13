@@ -20,6 +20,10 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - _HazeTex:
+        m_Texture: {fileID: 2800000, guid: 317d7e2492baa3ad5bc351156ff944b4, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _MainTex:
         m_Texture: {fileID: 2800000, guid: 6ec45f3942bc715688881f40707e44b7, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -30,16 +34,20 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _DriftSpeed: 0.00035
+    - _CoreSuppress: 0.88
+    - _DriftSpeed: 0.00034722223
+    - _HazeAmt: 0.42
+    - _HorizonDim: 0.14
     - _MoonExtent: 0.13
-    - _SkyBoost: 1
+    - _SkyBoost: 0.78
     - _StarBoost: 1.8
     - _TwinkleAmp: 0.3
     - _TwinkleSpeed: 1.2
     m_Colors:
-    - _HorizonCol: {r: 0.012, g: 0.018, b: 0.03, a: 1}
+    - _HazeCol: {r: 0.038, g: 0.048, b: 0.072, a: 1}
+    - _HorizonCol: {r: 0.008, g: 0.012, b: 0.021, a: 1}
     - _MoonCol: {r: 1, g: 0.98, b: 0.92, a: 1}
-    - _MoonDir: {r: 0.59624094, g: 0.3741512, b: 0.710287, a: 0}
+    - _MoonDir: {r: 0.4925564, g: 0.64270705, b: 0.58678424, a: 0}
     - _StarCol: {r: 0.85, g: 0.9, b: 1, a: 1}
     - _TopCol: {r: 0.004, g: 0.006, b: 0.014, a: 1}
   m_BuildTextureStacks: []

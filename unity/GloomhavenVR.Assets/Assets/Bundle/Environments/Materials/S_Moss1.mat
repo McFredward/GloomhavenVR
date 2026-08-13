@@ -1,0 +1,48 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: S_Moss1
+  m_Shader: {fileID: 4800000, guid: d17f3d753aaa3995ca72a9788d944fd9, type: 3}
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _BumpMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 2800000, guid: 33c33ac6415799d8e969946eccf8c2fe, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _BumpScale: 1
+    - _Cutoff: 0.35
+    - _VCol: 0
+    m_Colors:
+    - _AmbDown: {r: 0.017, g: 0.02, b: 0.016, a: 1}
+    - _AmbUp: {r: 0.072, g: 0.086, b: 0.118, a: 1}
+    - _DirCol: {r: 0.62, g: 0.71, b: 0.86, a: 1}
+    - _DirDir: {r: -0.2621596, g: 0.6427071, b: -0.71986115, a: 0}
+    - _L0Col: {r: 0.13, g: 0.3, b: 0.19, a: 0.22}
+    - _L0Pos: {r: 4.7809024, g: 0.7244643, b: 10.212223, a: 0.18571433}
+    - _L1Col: {r: 0.52, g: 0.29, b: 0.11, a: 0.3}
+    - _L1Pos: {r: -5.510008, g: 1.1090797, b: 7.4489574, a: 0.13000003}
+    - _L2Col: {r: 0.14, g: 0.17, b: 0.24, a: 0}
+    - _L2Pos: {r: 2.4815884, g: 0.49369505, b: 2.8579671, a: 0.21666671}
+    - _Tint: {r: 1, g: 1, b: 1, a: 1}
+  m_BuildTextureStacks: []
