@@ -9,8 +9,14 @@ namespace GloomhavenVR.Core;
 /// <summary>
 /// The player's environment choice. Stored as the mod's own enum (BepInEx serialises the member
 /// name into the cfg, and the catalog's Choice classification gives it a dropdown for free); the
-/// member order IS the dropdown index map (Default=0/Cellar=1/SwampNight=2), exactly like
-/// <c>Cards.BoardMoveMode</c>.
+/// member order IS the dropdown index map (Default=0/Cellar=1/SwampNight=2/OffBlack=3), exactly
+/// like <c>Cards.BoardMoveMode</c>.
+///
+/// APPENDING ONLY, NEVER RENUMBERING: the cfg persists the member NAME, so reordering would
+/// silently repoint a peer's or a player's stored choice at a different environment, and the
+/// curated dropdown in <c>WorldUI/VROptionsTab.4.Curated.cs</c> maps its index 1:1 onto these
+/// values. <see cref="SkyStyle.OffBlack"/> is therefore appended at 3 even though "nothing"
+/// would read more naturally next to Default.
 ///
 /// CONFIG MIGRATION from the panorama era (ModBuild 124 shipped Default/Night/Sunset/Cellar):
 /// BepInEx 5's <c>ConfigEntryBase.SetSerializedValue</c> wraps the enum parse
@@ -37,6 +43,25 @@ internal enum SkyStyle
     /// photoscanned marsh clearing under 'RoomGeo', plus star dome, shooting stars,
     /// fireflies and ground fog).</summary>
     SwampNight = 2,
+
+    /// <summary>
+    /// NO surroundings at all — just black (user, 2026-08-13, verbatim: "Ich möchte auch 'Aus'
+    /// bzw. 'Schwarz' in dem Dropdown zur Auswahl haben, dass jegliche Umgebung deaktiviert OHNE
+    /// die mixed reality änderungen zusätzlich zu aktivieren."). The game's sky sphere is hidden
+    /// exactly the way the two environments hide it, and NOTHING is put in its place: no prefab
+    /// is loaded, no GameObject is instantiated, no particle system exists, no far-plane budget
+    /// is claimed. That the result is BLACK is not an assumption — it is the ModBuild-129
+    /// hardware finding quoted in <c>unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironments.cs</c>:
+    /// "with the game's sky sphere hidden, everything above the generated room was pure black",
+    /// which is why the cellar had to grow a star dome in the first place. Here that void IS the
+    /// feature.
+    ///
+    /// DELIBERATELY NOT MIXED REALITY: MR is its own dial with its own precedence (see the class
+    /// doc's MR PRECEDENCE note) and it additionally key-colours the camera clear and sweeps the
+    /// game's sky meshes for the chroma key. This value touches none of that — it is one more
+    /// ENVIRONMENT choice that happens to consist of nothing.
+    /// </summary>
+    OffBlack = 3,
 }
 
 /// <summary>
@@ -120,10 +145,23 @@ internal enum SkyStyle
 ///
 /// WHAT IT DOES
 /// ------------
-/// A dial (<c>[Sky] Style</c>: Default / Cellar / SwampNight, curated in Grafik ▸ Darstellung)
-/// picks the surroundings. Default is the game's own sky, bit-identical to today —
-/// <see cref="SkyBackdrop"/> keeps making it a non-occluding backdrop and this class does
-/// nothing. SCENARIO-ONLY SCOPE (second ruling): everything below happens exclusively while an
+/// A dial (<c>[Sky] Style</c>: Default / Cellar / SwampNight / OffBlack, curated in
+/// Grafik ▸ Darstellung) picks the surroundings. Default is the game's own sky, bit-identical to
+/// today — <see cref="SkyBackdrop"/> keeps making it a non-occluding backdrop and this class does
+/// nothing.
+///
+/// OFF (BLACK) — the fourth choice (user, 2026-08-13, verbatim): "Ich möchte auch 'Aus' bzw.
+/// 'Schwarz' in dem Dropdown zur Auswahl haben, dass jegliche Umgebung deaktiviert OHNE die mixed
+/// reality änderungen zusätzlich zu aktivieren." <see cref="SkyStyle.OffBlack"/> takes step 1
+/// below (hide the sphere) and NOTHING ELSE: step 2 is never reached, so no bundle asset is
+/// loaded, no GameObject is instantiated, no particle system exists, the board is never measured,
+/// the room probe never runs and <see cref="MinFarWorldUnits"/> stays 0 — a style that shows
+/// nothing must not inflate the far plane. It is an ENVIRONMENT choice, not an MR switch: mixed
+/// reality keeps its own dial, its own key-colour clear and its own precedence (MR PRECEDENCE
+/// below), and none of that is touched from here. Its settled state is documented on hardware by
+/// the one-shot <c>SKY IDLE</c> log line.
+///
+/// SCENARIO-ONLY SCOPE (second ruling): everything below happens exclusively while an
 /// actual scenario board exists (<see cref="Events.VRModeStateMachine.ScenarioBoardExists"/> —
 /// the Choreographer-alive signal the rig/WorldUI/mode machine already read; deliberately not
 /// the save-state phase, which flips during loading/travel before any board exists). In the
@@ -135,7 +173,8 @@ internal enum SkyStyle
 ///     precisely: suppressing a renderer only bites when a CommandBuffer is supposed to REDRAW
 ///     it, which nothing does here. The sphere is found through <see cref="SkyBackdrop.FindSky"/>
 ///     (one shared set of name/shader hints), recorded, and re-enabled on restore. Hidden for
-///     BOTH styles: SwampNight's star dome must own the sky, and the cellar mood wants darkness.
+///     ALL THREE non-Default styles: SwampNight's star dome must own the sky, the cellar mood
+///     wants darkness, and OffBlack is nothing BUT this step.
 ///  2. SPAWNS the environment prefab from the mod's asset bundle and SPLITS its children over
 ///     two roots by NODE NAME (the content lane authors against that fixed contract — see
 ///     <c>unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentRooms.cs</c>, which states
@@ -299,6 +338,44 @@ internal enum SkyStyle
 /// sky per scaled frame), on the rare RigPoseVersion sky re-seats, and once for the room.
 /// Default/MR-on: an enum read plus an idempotent early-out.
 ///
+/// WHAT IS ALIVE WHILE NOTHING IS SHOWN (user, 2026-08-13: "prüfe nochmal dass wenn eine
+/// Umgebung deaktiviert ist die deaktivierten assets nicht irgendwie perfomance fressen obwohl
+/// sie nicht gezeichnet werden"). The answer is structural, not a tuning: the mod NEVER hides an
+/// environment — it DESTROYS it. There is no disabled-renderer path and no
+/// active-but-invisible path anywhere in this file, which is the only way to be sure no Shuriken
+/// system keeps simulating (a ParticleSystem whose RENDERER is merely disabled still simulates
+/// every frame; so does an active off-screen one whose culling mode falls back to
+/// AlwaysSimulate). Concretely:
+///  - Default / OffBlack / MR-on / after leaving a scenario: <see cref="Deactivate"/> has run
+///    <c>Object.Destroy</c> on BOTH branch roots, so ZERO ParticleSystem, MeshRenderer or
+///    Transform instances of this feature exist. Nothing to cull, nothing to simulate.
+///  - The ONE inactive object that ever exists is the cellar's authored 'GlowTemplate' child
+///    (<c>glow.SetActive(false)</c> in the content lane's BuildEnvironments.cs), and it is a
+///    plain MeshFilter+MeshRenderer with no ParticleSystem and no script: an inactive GameObject
+///    is not rendered, not culled and not updated by Unity, so it costs its memory and nothing
+///    else. It only exists at all while the cellar IS shown.
+///  - The room branch is <c>SetActive(false)</c> for the window between spawn and the board
+///    becoming measurable. Its four Shuriken systems (GroundFog, GroundFogFar, 2× Fireflies)
+///    are on an INACTIVE root and therefore do not simulate; that is also why
+///    <see cref="KickRoomParticles"/> exists — <c>playOnAwake</c> never fired for them, so they
+///    have to be started when the placement makes the root active.
+///  - No environment asset is ever <c>Resources.UnloadAsset</c>-able waste either: the cached
+///    <see cref="Prefabs"/> entries are references INTO the mod's own always-loaded bundle
+///    (ASSETS below), i.e. memory that the bundle holds regardless. A prefab asset is not in a
+///    scene; its ParticleSystems never tick.
+///  - Per-frame mod code while nothing is shown: Default and MR-on cost one enum read plus
+///    <see cref="Deactivate"/>'s idempotent early-out. OffBlack costs that read, the
+///    ScenarioBoardExists compare (one static Unity-null check), one bool latch compare and one
+///    <c>renderer.enabled</c> read to keep the sphere down. No probe, no heal, no re-seat, no
+///    scan: the sphere rescan is gated on <c>_hiddenSphere == null</c> and stops the moment the
+///    sphere is acquired, and the board-measure probe lives behind
+///    <see cref="EnsureEnvironment"/>, which OffBlack never reaches.
+///  - The board-measure probe's retry IS unbounded while an environment is shown and the board
+///    stays unmeasurable, by design (giving up would leave the room hidden forever). It is
+///    bounded in cost, not in count: at most once per <see cref="ScanIntervalFrames"/> frames,
+///    over two REGISTRIES (ObjectCacheService's tile set, SceneRegistry's map tiles) and never a
+///    heap sweep, and it stops permanently on the first success.
+///
 /// PARTICLES: prefab systems auto-play (playOnAwake) and the sky instance is always active, so
 /// no kick is strictly needed — a defensive <c>Play()</c> runs anyway after instantiate, and
 /// the room branch is kicked when its first placement makes it visible. Two module
@@ -321,7 +398,9 @@ internal enum SkyStyle
 /// would clip them away. <see cref="MinFarWorldUnits"/> hands
 /// <c>VRRigDriver.TickClipPlanes</c> the larger of the two budgets, each plus the head's
 /// distance to that branch's origin (the player can fly away from either) — 0 when idle, still
-/// capped by the depth-precision far/near ratio.
+/// capped by the depth-precision far/near ratio. OffBlack is IDLE for this purpose: it never
+/// sets <c>_active</c>, so <see cref="MinFarWorldUnits"/> returns 0 and the clip planes keep the
+/// game's own values. A style that shows nothing must never widen the depth range.
 ///
 /// MR PRECEDENCE (the user's rule: MR ON ⇒ the sky is ALWAYS off): <see cref="MixedReality.Tick"/>
 /// calls <see cref="StandDown"/> FIRST on its MR-on path — the environment despawns and the
@@ -336,6 +415,10 @@ internal enum SkyStyle
 /// (<c>AssetBundle.GetAllLoadedAssetBundles()</c> + <c>LoadAsset</c>); a loaded prefab
 /// reference is KEPT for the session (it is a reference into the loaded bundle, not a copy).
 /// Missing prefab (older bundle) = one-shot warn, the game's own sky stays fully in place.
+/// OffBlack owns NO asset: its <see cref="PrefabBundlePaths"/> slot is null and
+/// <see cref="EnsurePrefab"/> is never called for it, so selecting it can never be what pulls
+/// an environment into memory — that is the "load NOTHING" half of the user's request, and the
+/// SKY IDLE line reports which prefabs an earlier selection had already cached.
 ///
 /// REJECTED ALTERNATIVES (each cost at least one hardware round — do not retry them):
 ///  - Rig-child room (125): the room rides every locomotion write. Rejected by the user,
@@ -359,6 +442,17 @@ internal enum SkyStyle
 ///  - A float gap in authored METERS: a fixed world distance, so the board's height above the
 ///    floor would change relative to the board itself under zoom. Proportional-to-the-board is
 ///    the only formulation that is invariant, which is what the anchor ruling demands.
+///  - Implementing OffBlack as "turn mixed reality on": explicitly refused by the user ("OHNE
+///    die mixed reality änderungen zusätzlich zu aktivieren"). MR additionally repaints the
+///    camera clear in the key colour and sweeps every sky MESH for the chroma key; he wants
+///    black, not a chroma key.
+///  - Implementing OffBlack by spawning an all-black sphere/box: geometry that has to be sized,
+///    anchored, layered, far-planed and re-seated — all the machinery this file exists to get
+///    right — in order to render the same pixels the empty camera clear already produces. The
+///    ModBuild-129 finding (a hidden sphere leaves pure black) makes the geometry pointless.
+///  - Making OffBlack set <c>_active</c> so it shares the on/off log: it would hand
+///    <see cref="MinFarWorldUnits"/> a 100 m × rig-scale far-plane floor for a scene with
+///    nothing in it, and would make <see cref="NotifyRigScaled"/> chase a null sky.
 ///  - Shrinking the BOARD instead of growing the room, to get "nicht ansatzweise die Größe von
 ///    der Umgebung": the board is the game's own object and the mod does not resize it — and
 ///    it would break every board-relative system at once (spawn ring, control board, grabs).
@@ -452,17 +546,21 @@ internal static class SkyAlternative
         "RoomGeo", "GroundFog", "GroundFogFar", "Fireflies",
     };
 
-    /// <summary>Bundle paths of the environment prefabs, indexed by <see cref="SkyStyle"/>
-    /// (0 = Default = none).</summary>
+    /// <summary>Bundle paths of the environment prefabs, indexed by <see cref="SkyStyle"/>. A
+    /// null slot means the style OWNS NO ASSET and must never touch the bundle — Default (the
+    /// game's own sky) and OffBlack (nothing at all). <see cref="EnsurePrefab"/> reads the null
+    /// rather than a length, so appending a further style cannot accidentally make one of these
+    /// load something.</summary>
     private static readonly string?[] PrefabBundlePaths =
     {
-        null,
-        "Assets/Bundle/Environments/Env_Cellar.prefab",
-        "Assets/Bundle/Environments/Env_Swamp.prefab",
+        null,                                            // Default    — the game's own sky
+        "Assets/Bundle/Environments/Env_Cellar.prefab",  // Cellar
+        "Assets/Bundle/Environments/Env_Swamp.prefab",   // SwampNight
+        null,                                            // OffBlack   — loads NOTHING, by ruling
     };
 
     // Lazily loaded bundle prefab references — kept for the session once found (doc above).
-    private static readonly GameObject?[] Prefabs = new GameObject?[3];
+    private static readonly GameObject?[] Prefabs = new GameObject?[PrefabBundlePaths.Length];
     private static bool _missingWarned; // one-shot: bundle lacks the environment (older bundle)
 
     // The game sphere we hid (renderer.enabled = false) — re-enabled on restore. Unity fake-null
@@ -508,6 +606,15 @@ internal static class SkyAlternative
     private static bool _active;             // non-Default environment currently shown
     private static bool _loggedActive;       // change-dedup for the on/off log
 
+    // OFF (BLACK) state. Deliberately NOT _active: nothing is shown, so the far-plane budget and
+    // the zoom scale-follow must both stay idle (class doc FAR PLANE / rejected alternatives).
+    // _blackShown latches the settled state so the transition work (despawning whatever the
+    // previous style had built) runs ONCE, and so Deactivate knows there is something to undo
+    // even on a frame where the sphere was never found. _blackLogged is the SKY IDLE one-shot,
+    // held back until the sphere is actually down so the line describes the settled picture.
+    private static bool _blackShown;
+    private static bool _blackLogged;
+
     /// <summary>
     /// Bind the dial into the rig module's config file. Called from
     /// <see cref="Rig.RenderQuality.Bind"/> (which owns that file), AFTER its own binds — the
@@ -522,11 +629,16 @@ internal static class SkyAlternative
             "Which surroundings you play in (user rulings 2026-08-12/13: the environment " +
             "renders ONLY inside a scenario, like the game's own default surroundings — " +
             "never in the menu; it is built from the mod's OWN bundle content, styled to " +
-            "match the game's painterly look). Default = the game's own animated sky, " +
-            "exactly as before. Cellar = a candle-lit stone cellar; SwampNight = a moonlit " +
-            "swamp clearing under a star dome with shooting stars, ground fog and " +
-            "fireflies. A non-Default choice in a scenario hides the game's sky sphere and " +
-            "builds the environment as a FIXED PLACE AROUND THE BOARD, with the board as a " +
+            "match the game's painterly look). FOUR choices. Default = the game's own " +
+            "animated sky, exactly as before. Cellar = a candle-lit stone cellar. " +
+            "SwampNight = a moonlit swamp clearing under a star dome with shooting stars, " +
+            "ground fog and fireflies. OffBlack = NO surroundings at all: the game's sky " +
+            "sphere is hidden and nothing is put in its place, so everything around the " +
+            "table is plain black. OffBlack loads nothing from the mod's bundle, spawns no " +
+            "object, runs no effect and does not widen the view distance — and it is NOT " +
+            "mixed reality: MR stays its own separate setting with its own chroma key. " +
+            "Cellar and SwampNight in a scenario hide the game's sky sphere and " +
+            "build the environment as a FIXED PLACE AROUND THE BOARD, with the board as a " +
             "SMALL GAME BOARD FLOATING IN THE MIDDLE OF A MUCH LARGER PLACE — like a " +
             "tabletop with figures standing in a room, never anything close to the size of " +
             "the surroundings. The open area you stand in — the forest clearing, the cellar " +
@@ -600,7 +712,7 @@ internal static class SkyAlternative
         // Anything that is not a defined non-Default member is Default — including undefined
         // numeric leftovers a hand-edited cfg can smuggle past Enum.Parse (enum doc above).
         SkyStyle style = Style.Value;
-        if (style != SkyStyle.Cellar && style != SkyStyle.SwampNight)
+        if (style != SkyStyle.Cellar && style != SkyStyle.SwampNight && style != SkyStyle.OffBlack)
         {
             Deactivate();
             return false;
@@ -609,10 +721,44 @@ internal static class SkyAlternative
         // SCENARIO-ONLY SCOPE (class doc, second ruling): outside a live scenario board the
         // feature stands down entirely — the menu keeps the game's default look, exactly like
         // the original surroundings. Leaving/ending a scenario deactivates on the next tick.
+        // OffBlack keeps that scope too: he asked for an environment choice, and "no environment"
+        // must behave like the other environments — the menu and the world map stay untouched.
         if (!Events.VRModeStateMachine.ScenarioBoardExists)
         {
             Deactivate();
             return false;
+        }
+
+        // OFF (BLACK) — the whole style, in full (class doc OFF (BLACK)). It is step 1 of the
+        // pipeline and nothing else: hide the game's sky sphere and stop. No prefab is asked for,
+        // no rig anchor is needed (nothing is placed relative to the player), no branch root is
+        // built, no probe is armed and _active stays FALSE so the far plane keeps the game's own
+        // value. Returning true stands SkyBackdrop down — a hidden sphere needs no non-occluding
+        // treatment, which is exactly the same reason the two environments return true.
+        if (style == SkyStyle.OffBlack)
+        {
+            if (!_blackShown)
+            {
+                // Coming from Cellar/SwampNight: DESTROY what that style built rather than hiding
+                // it. This is the whole answer to "die deaktivierten assets fressen keine
+                // Performance" — there is no disabled-but-alive path, so no Shuriken system can
+                // survive the switch and keep simulating behind a style that shows nothing.
+                DespawnEnvironment();
+                _blackShown = true;
+            }
+            HideGameSphere();
+            LogIdleOnce();
+            return true;
+        }
+
+        // OffBlack -> Cellar/SwampNight goes straight on without passing through Deactivate (the
+        // sphere stays hidden either way, so there is nothing to restore). Drop the black latches
+        // here, or a later return to OffBlack would inherit a spent SKY IDLE one-shot and the
+        // hardware log would be missing exactly the line the audit exists to produce.
+        if (_blackShown)
+        {
+            _blackShown = false;
+            _blackLogged = false;
         }
 
         if (!EnsurePrefab(style))
@@ -671,6 +817,49 @@ internal static class SkyAlternative
         _scanNextFrame = 0;
     }
 
+    /// <summary>
+    /// THE ONE 'SKY IDLE' LINE (Task B, user 2026-08-13: "Nur zur sicherheit prüfen ... dass wenn
+    /// eine Umgebung deaktiviert ist die deaktivierten assets nicht irgendwie perfomance fressen
+    /// obwohl sie nicht gezeichnet werden"). Emitted ONCE per settled OffBlack state — held back
+    /// until the game sphere is actually down, so the line describes the finished picture rather
+    /// than a frame in the middle of acquiring it — and it names the three things the next
+    /// hardware log has to be able to answer without re-reading this file: what is LOADED, what is
+    /// INSTANTIATED and what still TICKS. The latch is cleared by <see cref="Deactivate"/>, so
+    /// each fresh settle documents itself once instead of once per session.
+    /// </summary>
+    private static void LogIdleOnce()
+    {
+        if (_blackLogged || _hiddenSphere == null)
+            return;
+        _blackLogged = true;
+
+        int cached = 0;
+        for (int i = 0; i < Prefabs.Length; i++)
+        {
+            if (Prefabs[i] != null)
+                cached++;
+        }
+        string loaded = cached == 0
+            ? "nothing — no environment prefab has been loaded this session"
+            : $"{cached} environment prefab reference/s cached by an earlier style selection. That " +
+              "is MEMORY ONLY: a reference into the mod's already-loaded bundle, not a copy, and a " +
+              "prefab asset lives outside every scene, so its particle systems never simulate";
+
+        VRLog.Info("Core", $"SKY IDLE — [Sky] Style = OffBlack: the environment feature is showing " +
+                           $"NOTHING and this line is everything it still owns. LOADED: {loaded}. " +
+                           $"INSTANTIATED: sky root {(_skyGo == null ? "none" : "LIVE — UNEXPECTED")}, " +
+                           $"room root {(_roomGo == null ? "none" : "LIVE — UNEXPECTED")}; both branches " +
+                           "are DESTROYED on this path, never disabled and never hidden, so ZERO " +
+                           "ParticleSystem, MeshRenderer or Transform instances of the cellar/swamp art " +
+                           "exist — nothing can simulate off-camera or behind a disabled renderer. " +
+                           $"TICKS: this class does one enum read, one scenario check, one latch compare " +
+                           $"and one renderer.enabled read per frame to hold the game's sky sphere " +
+                           $"'{_hiddenSphere.gameObject.name}' down. No board-measure probe, no scale-drift " +
+                           "heal, no sphere rescan, no transform write; MinFarWorldUnits returns 0 so the " +
+                           "clip planes keep the game's own far value. Mixed reality is untouched and " +
+                           "stays on its own dial.");
+    }
+
     // ---- the game sphere ----------------------------------------------------------------------
 
     private static void HideGameSphere()
@@ -710,7 +899,10 @@ internal static class SkyAlternative
     private static bool EnsurePrefab(SkyStyle style)
     {
         int i = (int)style;
-        if (i <= 0 || i >= PrefabBundlePaths.Length)
+        // A style with no path owns no asset (Default, OffBlack) — return without warning and,
+        // above all, without probing a single bundle: "load NOTHING" is a promise of the OffBlack
+        // ruling, and this is the line that keeps it even if a future caller reaches here.
+        if (i <= 0 || i >= PrefabBundlePaths.Length || PrefabBundlePaths[i] == null)
             return false;
 
         if (Prefabs[i] == null)
@@ -1362,14 +1554,23 @@ internal static class SkyAlternative
         _implausibleWarned = false;
     }
 
-    /// <summary>Back to vanilla: re-enable the game sphere and destroy both branch roots.
-    /// The loaded prefab references stay (session-cached by design — class doc).</summary>
-    private static void Deactivate()
+    /// <summary>
+    /// DESTROY both branch roots and forget everything that describes a SHOWN environment —
+    /// without touching the game sphere, which the OffBlack style still wants hidden.
+    ///
+    /// <para>DESTROY, never disable: this is the mechanism behind the class doc's WHAT IS ALIVE
+    /// WHILE NOTHING IS SHOWN answer. A ParticleSystem whose renderer is merely switched off goes
+    /// on simulating every frame, and so can an active one that is only off-camera; a destroyed
+    /// GameObject cannot. Because this is the ONLY teardown path in the file, "no environment
+    /// shown" and "no environment instance exists" are the same statement.</para>
+    ///
+    /// <para>Clearing <see cref="_active"/> here is load-bearing beyond bookkeeping: it is what
+    /// returns <see cref="MinFarWorldUnits"/> to 0 and what makes <see cref="NotifyRigScaled"/>
+    /// early-out, so a style that shows nothing neither widens the depth range nor chases a sky
+    /// that is no longer there.</para>
+    /// </summary>
+    private static void DespawnEnvironment()
     {
-        if (!_active && _skyGo == null && _roomGo == null && _hiddenSphere == null)
-            return;
-
-        RestoreGameSphere();
         if (_skyGo != null)
         {
             Object.Destroy(_skyGo);
@@ -1384,12 +1585,29 @@ internal static class SkyAlternative
         _placedPoseVersion = int.MinValue; // a fresh activation always places fresh
         _nextHealLogTime = 0f;
         ResetRoomState();
-        if (_active)
+        _active = false;
+        _loggedActive = false;
+    }
+
+    /// <summary>Back to vanilla: re-enable the game sphere and destroy both branch roots.
+    /// The loaded prefab references stay (session-cached by design — class doc). The
+    /// <c>_blackShown</c> latch is part of the early-out test because OffBlack can hold the
+    /// sphere down on a frame where nothing else is set — without it, leaving OffBlack for
+    /// Default would keep the latch and the next OffBlack settle would never re-log.</summary>
+    private static void Deactivate()
+    {
+        if (!_active && !_blackShown && _skyGo == null && _roomGo == null && _hiddenSphere == null)
+            return;
+
+        RestoreGameSphere();
+        bool wasActive = _active;
+        DespawnEnvironment();
+        _blackShown = false;
+        _blackLogged = false;
+        if (wasActive)
         {
             VRLog.Info("Core", "Sky alternative OFF — game sphere restored, 3D environment despawned.");
             TeardownReport.Note("sky alternative (game sphere restored, room + sky despawned)");
         }
-        _active = false;
-        _loggedActive = false;
     }
 }

@@ -622,6 +622,10 @@ internal static partial class VROptionsTab
                 Loc.Mod("sky_default"),
                 Loc.Mod("sky_cellar"),
                 Loc.Mod("sky_swamp"),
+                // Index maps 1:1 onto SkyStyle (Default=0/Cellar=1/SwampNight=2/OffBlack=3).
+                // A missing entry here does not hide the value — BuildPresetRow clamps to the
+                // last index, so a persisted OffBlack would display as the night forest.
+                Loc.Mod("sky_off"),
             };
             BuildPresetRow(parent, item, caption, hintKey, skyNames,
                            (int)SkyAlternative.Style.Value,

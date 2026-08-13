@@ -568,12 +568,16 @@ internal static partial class Loc
         // environments replaced the panorama skyboxes; MR precedence is the user's own rule, so
         // the hint states it — the German MR sentence is a fixed formulation, keep it verbatim).
         ["vr_o_sky"] = Pair("Environment", "Umgebung"),
-        ["h_vr_o_sky"] = Pair("Replaces the sky around the table with a 3D environment — a cellar or a night forest under real stars. With mixed reality the sky is always off.", "Ersetzt den Himmel um den Tisch durch eine 3D-Umgebung — Keller oder Nachtwald unter echten Sternen. Bei Mixed Reality ist der Himmel immer aus."),
-        // The three dropdown choices, shown instead of the raw enum members (Default/Cellar/
-        // SwampNight stay the config/log identity, like the board-movement labels above).
+        ["h_vr_o_sky"] = Pair("Replaces the sky around the table with a 3D environment — a cellar or a night forest under real stars. 'Off (black)' shows no surroundings at all, just black, without switching mixed reality on. With mixed reality the sky is always off.", "Ersetzt den Himmel um den Tisch durch eine 3D-Umgebung — Keller oder Nachtwald unter echten Sternen. 'Aus (schwarz)' zeigt gar keine Umgebung, nur Schwarz, ohne Mixed Reality einzuschalten. Bei Mixed Reality ist der Himmel immer aus."),
+        // The four dropdown choices, shown instead of the raw enum members (Default/Cellar/
+        // SwampNight/OffBlack stay the config/log identity, like the board-movement labels above).
+        // 'Aus (schwarz)' is the user's own wording (2026-08-13: "Ich möchte auch 'Aus' bzw.
+        // 'Schwarz' in dem Dropdown zur Auswahl haben") — it is a fourth ENVIRONMENT, not an
+        // off-switch for the feature, so it sits in the same list rather than beside it.
         ["sky_default"] = Pair("Default", "Standard"),
         ["sky_cellar"] = Pair("Cellar", "Keller"),
         ["sky_swamp"] = Pair("Night forest", "Nachtwald"),
+        ["sky_off"] = Pair("Off (black)", "Aus (schwarz)"),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),
