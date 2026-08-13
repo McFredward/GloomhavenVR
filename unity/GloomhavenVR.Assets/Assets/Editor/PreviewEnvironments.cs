@@ -110,6 +110,33 @@ namespace GloomhavenVR
             ("Fireflies", new Vector3(0f, 1.4f, 0f), new Vector3(2, 217, 0), false, 55f),
             ("FirefliesClose", new Vector3(-2.4f, 1.2f, -3.2f), new Vector3(3, 217, 0), false, 32f),
             ("MeteorSky", Eye, new Vector3(-46, 250, 0), false, 70f),
+            // ---- ModBuild 136 review set ----
+            // THE MOONLIGHT, from the angles that expose a slab. The old five
+            // slats read as lasers, so the new volume is judged on: (a) can you
+            // see an edge from the side, (b) does it brighten when you look
+            // along it the way real light-filled air does, (c) is there any
+            // grazing angle at which a face shows.
+            ("BeamSide", new Vector3(1.20f, 1.50f, 1.20f), new Vector3(3, 302, 0), false, 55f),
+            ("BeamEdge", new Vector3(-0.60f, 1.45f, 2.00f), new Vector3(9, 294, 0), false, 50f),
+            ("BeamAlong", new Vector3(-4.20f, 0.60f, 1.30f), new Vector3(-24, 42, 0), false, 55f),
+            ("BeamLow", new Vector3(-1.00f, 0.35f, 0.90f), new Vector3(-3, 300, 0), false, 60f),
+            ("BeamGraze", new Vector3(-3.05f, 1.62f, 3.05f), new Vector3(1, 262, 0), false, 60f),
+            ("PoolClose", new Vector3(-2.20f, 1.05f, 0.90f), new Vector3(31, 321, 0), false, 50f),
+            ("SillClose", new Vector3(-1.35f, 2.00f, 2.60f), new Vector3(-6, 0, 0), false, 40f),
+            // right under the aperture, looking back into it: the only frame in
+            // which the bar shadows are supposed to be visible at all
+            ("BarStripe", new Vector3(-2.00f, 2.00f, 3.30f), new Vector3(-21, 28, 0), false, 45f),
+            // THE WEBS, close enough to judge the threads and in context
+            ("WebShelfClose", new Vector3(2.90f, 2.05f, 1.35f), new Vector3(-25, 91, 0), false, 38f),
+            ("WebCornerNew", new Vector3(-2.30f, 1.90f, -1.80f), new Vector3(-15, 228, 0), false, 45f),
+            ("StrandClose", new Vector3(0.00f, 1.90f, -1.20f), new Vector3(-22, 223, 0), false, 42f),
+            // THE FOREST FLOOR, which is the thing that was "viel zu hell":
+            // from eye height toward the moon and away from it, and from a low
+            // angle where a lit floor betrays itself worst.
+            ("FloorToMoon", Eye, new Vector3(34, MoonAz, 0), false, 60f),
+            ("FloorAway", Eye, new Vector3(34, MoonAz + 180f, 0), false, 60f),
+            ("FloorLow", new Vector3(0f, 0.35f, 0f), new Vector3(6, MoonAz + 90f, 0), false, 65f),
+            ("FloorEdge", new Vector3(5.0f, 1.40f, -3.0f), new Vector3(14, 300, 0), false, 60f),
         };
 
         // The animated things only exist in motion, so the review set below is
@@ -209,7 +236,15 @@ namespace GloomhavenVR
                 // Project is LINEAR color space: take the readback as raw linear and
                 // gamma-encode manually, otherwise the PNG comes out ~2.2x too dark
                 // (iteration-2 lesson — mid-tones crushed to black).
-                var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+                //
+                // ARGBHalf, not ARGB32 (ModBuild 136). An 8-bit LINEAR target
+                // quantises at 1/255 = 0.0039 linear, which after the gamma
+                // encode is a FIRST STEP OF 18/255 — so every soft gradient in a
+                // dark room arrived in the PNG as five or six hard contour bands
+                // that do not exist on the headset (whose target is 8-bit sRGB,
+                // i.e. ~0.0006 linear near black). A whole review pass was spent
+                // chasing "hard edges" in the moonbeam that were this.
+                var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
                 var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
 
                 void Shoot(string name, Vector3 pos, Vector3 euler, bool skyOnly, float fov, string suffix)

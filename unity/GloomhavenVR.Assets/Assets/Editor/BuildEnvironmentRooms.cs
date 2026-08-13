@@ -72,6 +72,12 @@ namespace GloomhavenVR
             // the fir twig atlas is EVERY needle in the forest — its alpha must
             // stay clean, so it is 1k and BC7 (see HqAlbedo)
             ["fir_twig"] = 1024,
+            // the cobweb alpha (TextureCan CC0, see License.md). 1k, not the
+            // source's 4k: at 1k a thread is ~1 px, which is as thin as an
+            // alpha-tested thread may get before mip coverage cannot save it,
+            // and 4k would have cost ~4.5 MB of bundle for detail nobody can
+            // resolve on a 0.7 m web.
+            ["cobweb"] = 1024,
             // hero props
             ["wine_barrel_01"] = 1024,
             ["dead_tree_trunk"] = 1024, ["dead_tree_trunk_02"] = 1024,
@@ -116,7 +122,20 @@ namespace GloomhavenVR
         {
             "medieval_blocks_05", "monastery_stone_floor",
             "forest_ground_04", "pine_bark", "fir_twig",
+            // the cobweb: 1-px-wide alpha threads. Under BC1/BC3's 3-bit alpha
+            // interpolation a thread becomes a dotted line.
+            "cobweb",
         };
+
+        /// <summary>Imported textures whose ALPHA is alpha-tested against a known
+        /// cutoff. THE MIP TRAP: a 1-px thread has ~11% coverage at mip 0 and
+        /// ~1.5% four mips down, so at any distance the whole web clips away and
+        /// simply is not there any more. `mipMapsPreserveCoverage` re-normalises
+        /// every mip so the fraction of texels above `alphaTestReferenceValue`
+        /// stays constant — which only works if that value is EXACTLY the
+        /// material's `_Cutoff`. Both come from EnvironmentsBuilder.WebCutoff.</summary>
+        private static readonly Dictionary<string, float> CoverageCutoff =
+            new Dictionary<string, float> { ["cobweb"] = EnvironmentsBuilder.WebCutoff };
 
         public static void EnforceImports()
         {
@@ -161,6 +180,11 @@ namespace GloomhavenVR
                 Set(ti.filterMode, FilterMode.Trilinear, () => ti.filterMode = FilterMode.Trilinear);
                 Set(ti.anisoLevel, 4, () => ti.anisoLevel = 4);
                 Set(ti.mipmapEnabled, true, () => ti.mipmapEnabled = true);
+                bool cover = !isNrm && CoverageCutoff.ContainsKey(baseName);
+                Set(ti.mipMapsPreserveCoverage, cover, () => ti.mipMapsPreserveCoverage = cover);
+                if (cover)
+                    Set(ti.alphaTestReferenceValue, CoverageCutoff[baseName],
+                        () => ti.alphaTestReferenceValue = CoverageCutoff[baseName]);
                 if (dirty) ti.SaveAndReimport();
             }
 
@@ -1233,8 +1257,14 @@ namespace GloomhavenVR
             // in, and anything placed near it necessarily floats in front of it.
             var revealMesh = SaveMesh("Env_C_Reveal.asset", RevealMesh(wx0, wy0, wx1, wy1, hd, RevealDepth));
             var revealGo = Place(root, "WindowReveal", revealMesh, Vector3.zero, Vector3.zero, Vector3.one, null);
+            // tintMul 0.9 -> 1.25 (ModBuild 136): the sill and the west jamb are
+            // the only two surfaces in the room the moon strikes head-on, and
+            // they are what makes the window read as a SOURCE rather than a
+            // hole. Raising the albedo raises the lit faces and the unlit ones
+            // by the same factor, so the reveal's own light/dark reading — which
+            // the baked rig gets right for free — is preserved.
             revealGo.GetComponent<MeshRenderer>().sharedMaterial =
-                SurfMat("C_Reveal.mat", "medieval_blocks_05", 3.4f, revealGo.transform, 1.0f, 0.9f);
+                SurfMat("C_Reveal.mat", "medieval_blocks_05", 3.4f, revealGo.transform, 1.0f, 1.25f);
 
             // Bars: FOUR uprights standing in the middle of the reveal (they used
             // to sit 5 cm proud of the wall plane, which is exactly what "die
@@ -1260,75 +1290,210 @@ namespace GloomhavenVR
             Defer(barMat, barsGo.transform, 1f);
             UnityEngine.Object.DestroyImmediate(barUnit);
 
-            // ---- moonlight shaft: five slats, one per gap between the bars ----
-            // The bars' shadow is not painted, it is the GEOMETRY: build the beam
-            // out of the five lit slabs and the four dark ones are what is left.
+            // ---- moonlight: ONE soft volume, not five slats ----
+            // USER FINDING, ModBuild 135 (hardware): "die Mondstraheln sind
+            // wirklich 5 Strahlen (sehen aus wie Laser) durch das Fenster.
+            // Stattdessen soll es ein realistisches Licht sein was durch das
+            // Fenster leicht hereinkommt vom Mond."
+            //
+            // ModBuild 135 built the beam out of five EnvShaft slats, one per
+            // gap between the bars, so the bar shadows would be free geometry.
+            // That is exactly why it read as five lasers: a slat is a flat
+            // blade, a blade has an OUTLINE, and five outlines side by side in a
+            // black room are five objects, not light. Dimming cannot fix an
+            // outline.
+            //
+            // It is now a single analytic volume (EnvBeam.shader — read its
+            // header for the density model). The mesh below is a bounding HULL
+            // that is never seen: the shader integrates a smooth gaussian
+            // density along each view ray, so the hull's own rim sits where the
+            // density is already ~2%. Consequences that matter:
+            //   * it has no faces and no silhouette at ANY angle, including the
+            //     grazing ones where the old slabs betrayed themselves;
+            //   * it brightens when you look along it and dims broadside, which
+            //     is what air full of dust does and what a blade cannot do;
+            //   * the bar shadows survive only as SOFT STRIPING that is gone
+            //     within ~1.5 m (the user asked for restraint), computed from
+            //     the real bar pitch traced back to the window plane;
+            //   * the bright thing is now the POOL on the flagstones and the
+            //     sill it grazes, not the beam. _Decay 0.95 takes the volume to
+            //     40% by 1 m and 6% by the floor: light "leicht hereinkommend".
+            // Knobs, in order of effect: _Tint.a (strength), _Decay (how fast it
+            // dissolves), _W0/_WK (thickness and spread), _BarDepth, poolA.
             {
                 var dir = -MoonDir.normalized;                       // light travels this way
                 var across = Vector3.Cross(Vector3.up, new Vector3(MoonDir.x, 0f, MoonDir.z).normalized).normalized;
-                // Bars are spaced barGap apart along world X; the beam's own
-                // cross-section axis is `across`, so the slats are spaced by the
-                // projection of that gap onto it.
-                float slat = barGap * Mathf.Abs(across.x);
-                // Beam axis through the opening centre; started 0.9 m OUTSIDE so
-                // EnvShaft's fade-in (v<0.18) is spent before it reaches the
-                // aperture and the beam is at full strength where you see it.
-                float back = 0.9f, len = 8.0f;
-                Vector3 axisTop = winMid - dir * back;
-                var sh = new Acc();
-                for (int i = 0; i < 5; i++)
-                {
-                    Vector3 off = across * ((i - 2) * slat);
-                    // widths stay well under half the slat spacing, or the five
-                    // slabs merge before they reach the floor and the shadow
-                    // pattern — the whole point of building it this way — is gone
-                    AddShaft(sh, axisTop + off, dir, len,
-                             slat * 0.34f, slat * 0.46f, 0.82f + 0.18f * Hash3(i, 3, 0, 6301), across);
-                }
-                var shaftMat = NewRoomMat("C_MoonShaft.mat", "GloomhavenVR/EnvShaft");
-                // COLD, and deliberately the opposite temperature to the candles
-                // 0.105, not 0.30 (the forest's blades run at 0.34, but they are
-                // seen through a wood): in a black room an additive slab at 0.30
-                // stops being light and becomes a pane of blue plastic. The
-                // brightness of a moonbeam is the CONTRAST to the room, and the
-                // room is now very dark.
-                shaftMat.SetColor("_Tint", new Color(0.55f, 0.68f, 1.0f, 0.105f));
-                shaftMat.SetFloat("_Softness", 4.6f);
-                shaftMat.SetFloat("_Shimmer", 0.26f);
-                shaftMat.SetFloat("_ShimmerSpeed", 0.14f);
-                var shMesh = SaveMesh("Env_C_MoonShaft.asset", sh.Build("Env_C_MoonShaft"));
-                Place(root, "MoonShaft", shMesh, Vector3.zero, Vector3.zero, Vector3.one, shaftMat);
-
-                // ...and where those five slabs land: five soft cold pools on the
-                // flagstones, striped by the same bars.
                 Vector3 hit = MoonBeamHit();
-                Vector3 along = new Vector3(dir.x, 0f, dir.z).normalized;
-                var pool = new Acc();
-                for (int i = 0; i < 5; i++)
+                float beamLen = Vector3.Distance(winMid, hit);
+
+                // ---- the hull, and the two traps in building it ----
+                // It is drawn BACK-FACE ONLY, so any part of it that ends up
+                // behind the north wall or under the flagstones fails the depth
+                // test and takes its pixels' beam with it — a hard-edged bite
+                // out of the light. It must therefore be clipped INTO the room.
+                //
+                // TRAP 1: clipping by moving vertices along the world axes (the
+                // obvious clamp) pulls them TOWARD the beam axis, because the
+                // beam runs at 54 deg to the wall's normal. The hull then stops
+                // enclosing the density it is supposed to bound and cuts the
+                // beam anyway. Clipping SLIDES each vertex along the beam
+                // direction instead: that changes only how far down the beam the
+                // vertex sits, never its distance from the axis.
+                //
+                // TRAP 2: sliding is only safe if the required radius does not
+                // grow with distance, or a vertex slid forward lands inside the
+                // envelope it was meant to enclose. Hence the hull is a
+                // CYLINDER at the widest radius the beam ever needs, not a cone.
+                // It costs a bigger screen footprint and nothing else — the hull
+                // has no appearance of its own.
+                // WK is deliberately SMALL. The moon is collimated (0.5 deg), so
+                // a real shaft through a 1.1 m window is very nearly a prism —
+                // but a perfect prism is what reads as a manufactured object, so
+                // it widens by 4.5 cm per metre: 0.30 -> 0.48 m over the whole
+                // fall, which is a suggestion of divergence and no more.
+                // HULL 2.85 is not decoration: it is where the super-gaussian
+                // cross-section reaches 1e-6 of its peak. At the 2.05 the first
+                // pass used, the density at the hull's own rim was still 1.5%
+                // of peak and the bounding mesh's silhouette was PLAINLY VISIBLE
+                // as a hard arc — the exact failure this construction exists to
+                // avoid, just moved from the blades to the hull.
+                const float W0 = 0.24f, WK = 0.045f, HULL = 2.85f;
+                float hullR = HULL * (W0 + WK * beamLen);
+                Vector3 SlideIntoRoom(Vector3 p)
                 {
-                    Vector3 c = hit + across * ((i - 2) * slat);
-                    c.y = CellarFloorY(c.x, c.z) + 0.012f;
-                    AddQuad(pool, c, along * 0.34f, across * (slat * 0.62f), Color.white);
+                    for (int pass = 0; pass < 3; pass++)
+                    {
+                        float lo = 0f, hi = float.MaxValue;   // t along `dir`
+                        void Need(float bound, float cur, float slope, bool upper)
+                        {
+                            if (Mathf.Abs(slope) < 1e-5f) return;
+                            float t = (bound - cur) / slope;
+                            bool violated = upper ? cur > bound : cur < bound;
+                            if (!violated) return;
+                            if (t > 0f) lo = Mathf.Max(lo, t); else hi = Mathf.Min(hi, t);
+                        }
+                        Need(hd - 0.035f, p.z, dir.z, true);                       // N wall
+                        Need(-hd + 0.03f, p.z, dir.z, false);                      // S wall
+                        Need(hw - 0.03f, p.x, dir.x, true);                        // E wall
+                        Need(-hw + 0.03f, p.x, dir.x, false);                      // W wall
+                        Need(CH - 0.03f, p.y, dir.y, true);                        // ceiling
+                        Need(CellarFloorY(p.x, p.z) + 0.035f, p.y, dir.y, false);  // floor
+                        float t2 = lo > 0f ? lo : (hi < 0f ? hi : 0f);
+                        if (Mathf.Abs(t2) < 1e-5f) break;
+                        p += dir * t2;
+                    }
+                    return p;
                 }
-                var poolMesh = SaveMesh("Env_C_MoonPool.asset", pool.Build("Env_C_MoonPool"));
+                var hullMesh = SaveMesh("Env_C_MoonShaft.asset",
+                    BeamHullMesh(winMid, dir, 0f, beamLen, hullR, hullR, 10, 24, SlideIntoRoom));
+
+                var beamMat = NewRoomMat("C_MoonShaft.mat", "GloomhavenVR/EnvBeam");
+                // COLD, the opposite temperature to the candles — the two light
+                // sources in this room must never be mistaken for each other.
+                // Strength 0.30 looks large next to the old slats' 0.105 only
+                // because it is now divided by the path term and squashed by the
+                // Reinhard knee; the peak on screen is LOWER than 135's.
+                beamMat.SetColor("_Tint", new Color(0.55f, 0.68f, 1.0f, 0.055f));
+                beamMat.SetVector("_BeamOrg", winMid);
+                beamMat.SetVector("_BeamDir", dir);
+                beamMat.SetFloat("_Len", beamLen);
+                beamMat.SetFloat("_W0", W0);
+                beamMat.SetFloat("_WK", WK);
+                beamMat.SetFloat("_RadPow", 1.35f);
+                beamMat.SetFloat("_Ramp", 0.34f);      // = RevealDepth: it emerges from the embrasure
+                beamMat.SetFloat("_Decay", 1.30f);     // 26% left at 1 m, 7% at 2 m: "leicht hereinkommend"
+                beamMat.SetFloat("_EndFade", 0.55f);
+                beamMat.SetFloat("_MinSin", 0.45f);    // looking along it is 2.2x broadside, not 3.1x
+                beamMat.SetFloat("_Knee", 1.10f);
+                beamMat.SetFloat("_Shimmer", 0.14f);
+                beamMat.SetFloat("_ShimmerSpeed", 0.13f);
+                // the bars' true shadow: pitch and first bar taken from the SAME
+                // numbers the bars were built from, traced back to the wall plane
+                beamMat.SetFloat("_WinZ", hd);
+                beamMat.SetFloat("_BarX0", wx0 + barGap);
+                beamMat.SetFloat("_BarPitch", barGap);
+                beamMat.SetFloat("_BarDepth", 0.34f);
+                beamMat.SetFloat("_BarSig", 0.030f);
+                beamMat.SetFloat("_BarBlur", 0.095f);
+                beamMat.SetFloat("_BarFade", 0.85f);
+                Place(root, "MoonShaft", hullMesh, Vector3.zero, Vector3.zero, Vector3.one, beamMat);
+
+                // ---- the pool, which is now the bright end of this ----
+                // The footprint of the beam landing at the moon's altitude:
+                // 2w across, 2w/sin(alt) along, so the ellipse is derived, not
+                // drawn. But the important part is WHAT is in it.
+                //
+                // The first pass put a soft glow SPRITE there and it read as a
+                // luminous blue disc hovering over a black floor — light with
+                // nothing under it. A pool of moonlight is not a glow, it is
+                // FLAGSTONES YOU CAN SUDDENLY SEE. So the pool is a patch of the
+                // floor's own albedo, at the floor's own UVs, added back over
+                // itself through a soft elliptical mask: the mortar lines, the
+                // chips and the tool marks all come up cold inside the ellipse
+                // and vanish outside it. (EnvParticleAdd multiplies by alpha AND
+                // blends by it, so the authored mask is effectively squared —
+                // hence the linear 1-f^2 mask, which lands as a smooth
+                // zero-derivative falloff.)
+                Vector3 alongDir = new Vector3(dir.x, 0f, dir.z).normalized;
+                float wEnd = W0 + WK * beamLen;
+                float sinAlt = Mathf.Max(MoonDir.normalized.y, 0.2f);
+                float poolAcross = wEnd * 1.60f, poolAlong = wEnd * 1.60f / sinAlt;
+                var poolMesh = SaveMesh("Env_C_MoonPool.asset",
+                    MoonPoolMesh(hit, alongDir, across, poolAlong, poolAcross, 7, 26, 2.6f));
                 var poolMat = NewRoomMat("C_MoonPool.mat", "GloomhavenVR/EnvParticleAdd");
-                poolMat.SetTexture("_MainTex", AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Glow.png"));
-                poolMat.SetColor("_Tint", new Color(0.42f, 0.55f, 0.86f, 0.19f));
+                poolMat.SetTexture("_MainTex", Imp("monastery_stone_floor_alb"));
+                poolMat.SetColor("_Tint", new Color(0.34f, 0.44f, 0.68f, 0.85f));
                 Place(root, "MoonPool", poolMesh, Vector3.zero, Vector3.zero, Vector3.one, poolMat);
 
-                Debug.Log($"[GloomhavenVR][Env] Moon shaft: 5 slats {slat * 0.72f:F3} m wide, "
-                          + $"lands at ({hit.x:F2},{hit.z:F2}) = {new Vector2(hit.x, hit.z).magnitude:F2} m from centre "
-                          + $"(PlaySpace radius {CellarPlaySpaceDia * 0.5f:F2} m).");
+                // ...and a small, much fainter air-glow just above it, which is
+                // the scattering the beam does in the last few centimetres. It
+                // is the only part of the pool that is a sprite, and it is
+                // deliberately smaller than the lit stone so it reads as a
+                // brightening of the pool and never as a lamp on the floor.
+                var haloMesh = new Acc();
+                {
+                    var c = hit; c.y = CellarFloorY(hit.x, hit.z) + 0.035f;
+                    AddQuad(haloMesh, c, alongDir * (poolAlong * 0.80f),
+                            across * (poolAcross * 0.80f), Color.white);
+                }
+                var haloMat = NewRoomMat("C_MoonPoolAir.mat", "GloomhavenVR/EnvParticleAdd");
+                haloMat.SetTexture("_MainTex", AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Glow.png"));
+                haloMat.SetColor("_Tint", new Color(0.40f, 0.52f, 0.84f, 0.16f));
+                Place(root, "MoonPoolAir", SaveMesh("Env_C_MoonPoolAir.asset", haloMesh.Build("Env_C_MoonPoolAir")),
+                      Vector3.zero, Vector3.zero, Vector3.one, haloMat);
+
+                // ---- and the sill it grazes ----
+                // Which reveal faces the moon can see is not a choice: a face is
+                // lit iff its normal opposes the light. With the moon bearing
+                // down-and-west that is the SILL (+y) and the WEST jamb (+x) and
+                // nothing else, and the baked rig already shades exactly those
+                // two — so the grazing highlight is bought by RAISING THE
+                // REVEAL'S ALBEDO (see the reveal material above), not by adding
+                // geometry.
+                //
+                // REJECTED, and worth recording: a pair of additive glow quads
+                // laid on the sill and the west jamb. They looked right head-on
+                // and became a one-pixel-wide BRIGHT LINE the moment the view
+                // dropped into their plane — the very "laser" failure this round
+                // exists to remove, reintroduced 30 cm from the window. Any flat
+                // additive card near a surface the player can get level with has
+                // this problem; the fix is always to light the surface instead.
+
+                Debug.Log($"[GloomhavenVR][Env] Moonlight: one analytic volume, axis {beamLen:F2} m, "
+                          + $"w {W0:F2}->{wEnd:F2} m, lands at ({hit.x:F2},{hit.z:F2}) = "
+                          + $"{new Vector2(hit.x, hit.z).magnitude:F2} m from centre "
+                          + $"(PlaySpace radius {CellarPlaySpaceDia * 0.5f:F2} m); "
+                          + $"bar pitch {barGap:F3} m from x {wx0 + barGap:F3}.");
 
                 // the aperture itself glows cold, so the window reads as the
                 // source and not as a hole with something bright behind it
                 var winGlowMat = NewRoomMat("C_GlowMoon.mat", "GloomhavenVR/EnvGlow");
-                winGlowMat.SetColor("_Tint", new Color(0.40f, 0.54f, 0.88f, 0.22f));
+                winGlowMat.SetColor("_Tint", new Color(0.40f, 0.54f, 0.88f, 0.34f));
                 winGlowMat.SetFloat("_Falloff", 2.0f);
                 var glowSphere = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
                 if (glowSphere != null)
                     Place(root, "WindowGlow", glowSphere, winMid + new Vector3(0, 0, -0.06f),
-                          Vector3.zero, new Vector3(0.46f, 0.30f, 0.20f), winGlowMat);
+                          Vector3.zero, new Vector3(0.52f, 0.34f, 0.22f), winGlowMat);
             }
 
             // ---- stair alcove behind W doorway: steps up into darkness ----
@@ -1462,7 +1627,7 @@ namespace GloomhavenVR
             // body space at the origin and put on its path by the vertex shader,
             // so its raw vertices say nothing about where it ever is.
             AssertPlaySpaceClear(root, "Cellar", CellarPlaySpaceDia,
-                "Floor", "MoonShaft", "MoonPool", "WindowGlow", "Rat");
+                "Floor", "MoonShaft", "MoonPool", "MoonPoolAir", "WindowGlow", "Rat");
             Debug.Log("[GloomhavenVR][Env] Cellar room geometry assembled.");
         }
 
@@ -1622,38 +1787,90 @@ namespace GloomhavenVR
             return a.Build("Env_C_Rat");
         }
 
-        /// <summary>A corner cobweb: a quarter fan anchored along `a` (the
-        /// ceiling) and `b` (the wall) with an irregular, torn outer edge.
-        /// Vertex RED is the freedom EnvRoomCutout's _Sway weights by — zero on
-        /// both anchored edges, greatest in the middle of the free span.</summary>
-        private static Mesh WebMesh(Vector3 corner, Vector3 a, Vector3 b, float R,
-            int rings, int segs, int seed)
+        /// <summary>A cobweb SHEET: one span of silk strung across an opening or
+        /// a corner, as a subdivided card that bellies out of its own plane.
+        ///
+        /// USER FINDING, ModBuild 135: "Im Keller die Spinnwebe sehen sehr
+        /// low-poly aus". They were quarter fans (5 rings x 12 segments) carrying
+        /// a PROCEDURAL orb web drawn in (angle, radius) space — nine perfectly
+        /// even spokes, eleven perfectly even spirals, and a straight-edged
+        /// polygon silhouette. Every part of that is regular, and regularity at
+        /// low tessellation is exactly what "low-poly" means to the eye.
+        ///
+        /// What replaced it: the web is a 4k photoscanned CC0 ALPHA (see
+        /// Environments/License.md) whose threads, tears and anchor strands are
+        /// irregular because they were once real, and the geometry's only job is
+        /// to hold it in a plausible place and let it move. The card is
+        /// subdivided so the sheet can BELLY (out of plane, and drooping under
+        /// its own weight), so its silhouette is a curve and not a rectangle,
+        /// and so _Sway ripples it instead of translating it.
+        ///
+        /// Vertex RED is the freedom EnvRoomCutout's _Sway weights by — zero all
+        /// round the rim, where the silk is anchored to stone, greatest in the
+        /// middle of the free span.</summary>
+        private static Mesh WebSheetMesh(Vector3 c, Vector3 halfU, Vector3 halfV,
+            Rect uv, float belly, int nu, int nv, int seed)
         {
-            a = a.normalized; b = b.normalized;
-            var nrm = Vector3.Cross(a, b).normalized;
+            var nrm = Vector3.Cross(halfV, halfU).normalized;
             var acc = new Acc();
-            for (int r = 0; r <= rings; r++)
-            {
-                float f = Mathf.Pow(r / (float)rings, 0.95f);
-                for (int s = 0; s <= segs; s++)
+            for (int j = 0; j <= nv; j++)
+                for (int i = 0; i <= nu; i++)
                 {
-                    float u = s / (float)segs;
-                    float ang = u * Mathf.PI * 0.5f;
-                    var dir = a * Mathf.Cos(ang) + b * Mathf.Sin(ang);
-                    float edge = 0.72f + 0.46f * Fbm2(u * 3.1f, 5f, 2, seed);
-                    float freedom = Mathf.Sin(u * Mathf.PI) * Mathf.Pow(f, 1.15f);
-                    acc.Vert(corner + dir * (R * edge * f), nrm, new Vector2(u, f),
-                             new Color(freedom, 0f, 0f, 1f));
+                    float fu = i / (float)nu, fv = j / (float)nv;
+                    // the rim is pinned; the middle is free. sin*sin is the first
+                    // mode of a stretched membrane, which is what silk is.
+                    float bulge = Mathf.Sin(fu * Mathf.PI) * Mathf.Sin(fv * Mathf.PI);
+                    float rough = 0.55f + 0.90f * Fbm2(fu * 2.6f, fv * 2.6f, 3, seed);
+                    Vector3 p = c + halfU * (fu * 2f - 1f) + halfV * (fv * 2f - 1f)
+                              + nrm * (belly * bulge * rough)
+                              + Vector3.down * (belly * 0.45f * bulge * rough);
+                    acc.Vert(p, nrm,
+                             new Vector2(Mathf.Lerp(uv.xMin, uv.xMax, fu),
+                                         Mathf.Lerp(uv.yMin, uv.yMax, fv)),
+                             new Color(bulge, 0f, 0f, 1f));
                 }
-            }
-            int stride = segs + 1;
-            for (int r = 0; r < rings; r++)
-                for (int s = 0; s < segs; s++)
+            int stride = nu + 1;
+            for (int j = 0; j < nv; j++)
+                for (int i = 0; i < nu; i++)
                 {
-                    int i0 = r * stride + s;
+                    int i0 = j * stride + i;
                     acc.T.AddRange(new[] { i0, i0 + stride, i0 + 1, i0 + 1, i0 + stride, i0 + stride + 1 });
                 }
-            return acc.Build("Env_C_Web");
+            return acc.Build("Env_C_WebSheet");
+        }
+
+        /// <summary>A single loose strand hanging off something: a narrow ribbon
+        /// that follows a catenary from its anchor, twisting slightly so it is
+        /// never edge-on for long. `col` picks one of the three threads in
+        /// Env_Strand.png. Vertex RED grows toward the free end — the anchor
+        /// cannot move, the tip swings most.</summary>
+        private static Mesh StrandMesh(Vector3 anchor, Vector3 drop, Vector3 wide,
+            int col, int cols, int segs, int seed)
+        {
+            var acc = new Acc();
+            float u0 = col / (float)cols, u1 = (col + 1) / (float)cols;
+            for (int i = 0; i <= segs; i++)
+            {
+                float f = i / (float)segs;
+                // catenary-ish: it hangs straight down at first and drifts
+                float sway = 0.35f * f * f + 0.10f * (Fbm2(f * 3.3f, seed * 0.01f, 2, seed) - 0.5f);
+                Vector3 c = anchor + drop * f + wide * sway;
+                // the ribbon narrows and turns as it falls
+                float tw = Mathf.Lerp(1f, 0.55f, f);
+                Vector3 right = (wide.normalized * Mathf.Cos(f * 1.9f + seed * 0.1f)
+                                 + Vector3.Cross(drop.normalized, wide.normalized) * Mathf.Sin(f * 1.9f + seed * 0.1f))
+                                * (wide.magnitude * 0.5f * tw);
+                Vector3 n = Vector3.Cross(drop.normalized, right).normalized;
+                var col2 = new Color(f * f, 0f, 0f, 1f);
+                acc.Vert(c - right, n, new Vector2(u0, f), col2);
+                acc.Vert(c + right, n, new Vector2(u1, f), col2);
+            }
+            for (int i = 0; i < segs; i++)
+            {
+                int b = i * 2;
+                acc.T.AddRange(new[] { b, b + 2, b + 1, b + 1, b + 2, b + 3 });
+            }
+            return acc.Build("Env_C_Strand");
         }
 
         private static Mesh BuildShaft(float depth, float h, float width)
@@ -1677,6 +1894,97 @@ namespace GloomhavenVR
             // sloped ceiling following the stairs
             Quad(new Vector3(0, h, 0), new Vector3(-depth, h, 0), new Vector3(-depth, h, width), new Vector3(0, h, width), 3.4f);
             return FinishMesh(v, uv, tri, null);
+        }
+
+        /// <summary>The bounding hull of an analytic light volume (EnvBeam) — a
+        /// closed truncated cone (r0 == r1 gives a cylinder, which is what the
+        /// cellar uses) about the axis, every vertex pushed back inside the room
+        /// by `clamp`.
+        ///
+        /// IT IS NEVER SEEN. The shader evaluates the density along the view ray
+        /// analytically, so this surface only has to (a) cover the beam's screen
+        /// footprint and (b) stay in front of every opaque thing that could
+        /// depth-reject it. Hence the radius of several sigma — the caller sizes
+        /// it where the super-gaussian is ~1e-6 of peak, so this mesh's rim is
+        /// black before it ends — and hence `clamp`: the hull is drawn BACK FACE
+        /// ONLY, so a rim that pokes through a wall or under the floor would
+        /// fail ZTest and cut a hole in the beam.</summary>
+        private static Mesh BeamHullMesh(Vector3 org, Vector3 dir, float s0, float s1,
+            float r0, float r1, int rings, int segs, Func<Vector3, Vector3> clamp)
+        {
+            dir = dir.normalized;
+            Vector3 ax = Vector3.Cross(dir, Vector3.up);
+            if (ax.sqrMagnitude < 1e-4f) ax = Vector3.Cross(dir, Vector3.forward);
+            ax.Normalize();
+            Vector3 ay = Vector3.Cross(dir, ax).normalized;
+
+            var a = new Acc();
+            int stride = segs + 1;
+            for (int r = 0; r <= rings; r++)
+            {
+                float f = r / (float)rings;
+                float s = Mathf.Lerp(s0, s1, f), rad = Mathf.Lerp(r0, r1, f);
+                for (int k = 0; k <= segs; k++)
+                {
+                    float ang = k / (float)segs * Mathf.PI * 2f;
+                    Vector3 n = ax * Mathf.Cos(ang) + ay * Mathf.Sin(ang);
+                    a.Vert(clamp(org + dir * s + n * rad), n, new Vector2(k / (float)segs, f), Color.white);
+                }
+            }
+            for (int r = 0; r < rings; r++)
+                for (int k = 0; k < segs; k++)
+                {
+                    int i0 = r * stride + k;
+                    a.T.AddRange(new[] { i0, i0 + stride, i0 + 1, i0 + 1, i0 + stride, i0 + stride + 1 });
+                }
+            // caps, so the hull is closed from every side (walking into the beam
+            // must not reveal an open end)
+            void Cap(int ringBase, Vector3 centre, Vector3 n, bool flip)
+            {
+                int c = a.Count;
+                a.Vert(clamp(centre), n, new Vector2(0.5f, 0.5f), Color.white);
+                for (int k = 0; k < segs; k++)
+                {
+                    if (flip) a.T.AddRange(new[] { c, ringBase + k + 1, ringBase + k });
+                    else a.T.AddRange(new[] { c, ringBase + k, ringBase + k + 1 });
+                }
+            }
+            Cap(0, org + dir * s0, -dir, false);
+            Cap(rings * stride, org + dir * s1, dir, true);
+            return a.Build("Env_BeamHull");
+        }
+
+        /// <summary>The lit patch of floor a beam lands on: an elliptical polar
+        /// grid lying 1 cm over the flagstones, carrying THE FLOOR'S OWN UVs
+        /// (uvScale must be the floor material's) and a soft radial mask in
+        /// vertex alpha. Drawn additively with the floor albedo as its texture,
+        /// so what brightens is the stone, not the air.</summary>
+        private static Mesh MoonPoolMesh(Vector3 hit, Vector3 alongDir, Vector3 acrossDir,
+            float halfAlong, float halfAcross, int rings, int segs, float uvScale)
+        {
+            var a = new Acc();
+            int stride = segs + 1;
+            for (int r = 0; r <= rings; r++)
+            {
+                float f = r / (float)rings;
+                float m = Mathf.Clamp01(1f - f * f);
+                for (int k = 0; k <= segs; k++)
+                {
+                    float ang = k / (float)segs * Mathf.PI * 2f;
+                    Vector3 p = hit + alongDir * (halfAlong * f * Mathf.Cos(ang))
+                                    + acrossDir * (halfAcross * f * Mathf.Sin(ang));
+                    p.y = CellarFloorY(p.x, p.z) + 0.010f;
+                    a.Vert(p, Vector3.up, new Vector2(p.x / uvScale, p.z / uvScale),
+                           new Color(1f, 1f, 1f, m));
+                }
+            }
+            for (int r = 0; r < rings; r++)
+                for (int k = 0; k < segs; k++)
+                {
+                    int i0 = r * stride + k;
+                    a.T.AddRange(new[] { i0, i0 + 1, i0 + stride, i0 + 1, i0 + stride + 1, i0 + stride });
+                }
+            return a.Build("Env_C_MoonPool");
         }
 
         private static Mesh CandleMesh(float h, float r, int seed)
@@ -1884,47 +2192,119 @@ namespace GloomhavenVR
             // Anchored along the ceiling and down the wall; the free middle
             // billows on _Sway (EnvRoomCutout), phase-shifted per web but all in
             // the same DraftDir as the flames, so one draught moves the room.
-            var webTex = AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Web.png");
-            void Web(string n, Vector3 corner, Vector3 a, Vector3 b, float R, float sway, float phase, float tint)
+            //
+            // THE WEBS THEMSELVES are the CC0 photoscanned orb-web alpha now
+            // (Imported/Textures/cobweb_alb.png — TextureCan others_0015, see
+            // Environments/License.md), on a handful of well-placed sheets. The
+            // ModBuild 135 webs were procedural: nine even spokes and eleven even
+            // spirals on a five-ring quarter fan, i.e. regular threads on a
+            // straight-edged polygon, which is what "sehr low-poly" was seeing.
+            // No amount of extra geometry fixes regularity; a real web's alpha
+            // does, and four irregular sheets cost 0.6k triangles between them.
+            var webTex = Imp("cobweb_alb");
+            var strandTex = AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Strand.png");
+            Material WebMat(string n, Texture2D tex, float tint, float sway, float phase, Vector3 swayDir)
             {
-                var mesh = SaveMesh($"Env_C_Web{n}.asset", WebMesh(corner, a, b, R, 5, 12, 700 + n.Length * 13));
                 var m = NewRoomMat($"C_Web{n}.mat", "GloomhavenVR/EnvRoomCutout");
-                m.SetTexture("_MainTex", webTex);
+                m.SetTexture("_MainTex", tex);
                 m.SetFloat("_BumpScale", 0f);
                 // must equal the texture's mip-coverage threshold, or the web is
-                // clipped out of existence as soon as it minifies (see WritePng)
+                // clipped out of existence as soon as it minifies (see WritePng
+                // and EnvRoomBuilder.CoverageCutoff)
                 m.SetFloat("_Cutoff", EnvironmentsBuilder.WebCutoff);
+                // _VCol stays 0: this shader now APPLIES vertex colour (ModBuild
+                // 136), and a web's vertex RED is a sway weight, not a tint.
+                m.SetFloat("_VCol", 0f);
                 m.SetColor("_Tint", new Color(0.80f, 0.78f, 0.73f) * tint);
                 m.SetFloat("_Sway", sway);
                 m.SetFloat("_SwayRate", 0.42f);
                 m.SetFloat("_SwayPhase", phase);
-                m.SetVector("_SwayDir", Vector3.Cross(a, b).normalized);
+                m.SetVector("_SwayDir", swayDir.normalized);
+                return m;
+            }
+            void Sheet(string n, Vector3 c, Vector3 halfU, Vector3 halfV, Rect uv,
+                       float belly, float sway, float phase, float tint)
+            {
+                var nrm = Vector3.Cross(halfV, halfU).normalized;
+                var mesh = SaveMesh($"Env_C_Web{n}.asset",
+                    WebSheetMesh(c, halfU, halfV, uv, belly, 7, 7, 700 + n.Length * 13));
+                var m = WebMat(n, webTex, tint, sway, phase, nrm);
                 var go = Place(root, "Web" + n, mesh, Vector3.zero, Vector3.zero, Vector3.one, m);
                 Defer(m, go.transform, 1f);
             }
-            // ORIENTATION IS THE WHOLE PROBLEM with a flat web. A quarter fan
-            // filling the dihedral between a ceiling and a wall is geometrically
-            // the right thing and visually useless: its plane contains the wall's
-            // normal, so from anywhere except one bearing it is a one-pixel
-            // sliver. Each of these is therefore placed so that its plane FACES
-            // somewhere you look from:
-            var down = Vector3.down;
-            // 1. beside the shelf candle, hanging a few centimetres proud of the
-            //    east wall — plane parallel to that wall, so it is face-on from
-            //    the middle of the room, and it is the one web a candle reaches.
-            Web("Shelf", new Vector3(hw - 0.045f, 2.62f, 1.35f), Vector3.back, down, 0.55f, 0.024f, 1.9f, 1f);
-            // 2. the south-west ceiling corner, spanning the two walls: its plane
-            //    is HORIZONTAL, so it is seen from below at a good angle from
-            //    everywhere. Unlit on purpose — it is a shape in the dark.
-            Web("Corner", new Vector3(-hw + 0.03f, CH - 0.06f, -hd + 0.03f),
-                Vector3.right, Vector3.forward, 0.68f, 0.034f, 3.7f, 0.9f);
-            // 3. and one strung across the top of the window opening, horizontal,
-            //    so the moonbeam comes through it: a black lattice in the light.
+            void Strand(string n, Vector3 anchor, Vector3 drop, Vector3 wide,
+                        int col, float sway, float phase, float tint)
+            {
+                var mesh = SaveMesh($"Env_C_Strand{n}.asset",
+                    StrandMesh(anchor, drop, wide, col, 3, 9, 810 + n.Length * 7));
+                var m = WebMat("Strand" + n, strandTex, tint, sway, phase, wide);
+                var go = Place(root, "Strand" + n, mesh, Vector3.zero, Vector3.zero, Vector3.one, m);
+                Defer(m, go.transform, 1f);
+            }
+
+            // ORIENTATION IS THE WHOLE PROBLEM with a flat web, and it has not
+            // changed: a sheet whose plane contains the viewing direction is a
+            // one-pixel sliver. Every sheet below therefore spans a corner or an
+            // opening DIAGONALLY, which is both where a spider would actually
+            // string it and the one orientation that faces the room.
+            //
+            // 1. THE HERO. Across the east wall / ceiling dihedral beside the
+            //    shelf candle, at 45 deg: one edge lies on the ceiling, the other
+            //    on the wall, and its face looks down into the room. It is the
+            //    one web a candle reaches, so it is the one that has to hold up
+            //    at 0.4 m.
+            {
+                const float wSpan = 0.62f;      // how far it reaches down each surface
+                Sheet("Shelf",
+                      new Vector3(hw - wSpan * 0.5f, CH - wSpan * 0.5f, 1.30f),
+                      new Vector3(0f, 0f, 0.46f),                       // along the corner
+                      new Vector3(wSpan * 0.5f, -wSpan * 0.5f, 0f),     // ceiling -> wall
+                      new Rect(0.04f, 0.06f, 0.92f, 0.88f), 0.055f, 0.021f, 1.9f, 1.0f);
+            }
+            // 2. THE SOUTH-WEST CORNER, the deep dark one. A big sheet cutting
+            //    the vertical corner diagonally so its face is square to the
+            //    middle of the room, plus a small one lying in the ceiling corner
+            //    above it. Barely lit on purpose — shapes in the dark.
+            Sheet("Corner",
+                  new Vector3(-hw + 0.42f, CH - 0.52f, -hd + 0.42f),
+                  new Vector3(0.44f, 0f, -0.44f),                       // across the corner
+                  new Vector3(0f, -0.42f, 0f),                          // straight down
+                  new Rect(0.02f, 0.10f, 0.96f, 0.86f), 0.075f, 0.030f, 3.7f, 0.92f);
+            Sheet("CornerTop",
+                  new Vector3(-hw + 0.30f, CH - 0.10f, -hd + 0.30f),
+                  new Vector3(0.30f, 0f, -0.30f),
+                  new Vector3(0.24f, -0.09f, 0.24f),                    // near-horizontal
+                  new Rect(0.22f, 0.20f, 0.56f, 0.56f), 0.030f, 0.020f, 0.8f, 0.80f);
+            // 3. IN THE WINDOW, inside the reveal, so the moonlight comes THROUGH
+            //    it: a black lattice in the one bright thing in the room. Kept in
+            //    the upper half of the opening — a web across the whole window
+            //    would put a texture over the beam's source.
             {
                 var wh = SnappedHole(WindowHole, CW, CH, WallCell);
-                Web("Window", new Vector3(-hw + wh.xMin + 0.02f, wh.yMax - 0.012f, hd + 0.02f),
-                    Vector3.right, Vector3.forward, 0.30f, 0.012f, 5.2f, 1.15f);
+                float wx0 = -hw + wh.xMin, wx1 = -hw + wh.xMax, wy1 = wh.yMax;
+                Sheet("Window",
+                      new Vector3((wx0 + wx1) * 0.5f, wy1 - 0.20f, hd + RevealDepth * 0.34f),
+                      new Vector3((wx1 - wx0) * 0.48f, 0f, 0f),
+                      new Vector3(0f, 0.19f, 0f),
+                      new Rect(0.10f, 0.30f, 0.80f, 0.40f), 0.022f, 0.011f, 5.2f, 1.10f);
             }
+            // 4. LOOSE STRANDS. What sells a web as silk rather than as a decal
+            //    is the stuff that came adrift from it: three threads hanging off
+            //    the beams and the shelf web, each with the dust it has caught,
+            //    swinging on the same draught as the flames (DraftDir) and much
+            //    more freely than the sheets — they are held at ONE end.
+            Strand("A", new Vector3(hw - 0.30f, CH - 0.28f, 1.52f),
+                   new Vector3(0.02f, -0.62f, 0.04f), DraftDir * 0.075f, 0, 0.055f, 0.7f, 0.95f);
+            // B hangs off the beam ABOVE THE CRATE CANDLE. Its first home was
+            // over the middle of the room, where nothing lights it: a thread
+            // 2 cm wide in a black room is not a detail, it is nothing. A loose
+            // strand is only worth building where something can catch it.
+            // (Its drop stays short for another reason: below y = 2.20
+            // AssertPlaySpaceClear counts geometry as intruding on the players.)
+            Strand("B", new Vector3(-1.30f, CH - 0.30f, -2.62f),
+                   new Vector3(-0.03f, -0.62f, 0.02f), DraftDir * 0.090f, 1, 0.070f, 2.6f, 0.95f);
+            Strand("C", new Vector3(-hw + 0.72f, CH - 0.34f, -hd + 0.66f),
+                   new Vector3(0.04f, -0.74f, 0.03f), DraftDir * 0.080f, 2, 0.062f, 4.4f, 0.75f);
         }
 
         // ================================================================ FOREST
@@ -2246,8 +2626,11 @@ namespace GloomhavenVR
                     // the pool where the moon shafts land on the clearing floor —
                     // KEPT at full strength: this is the light the players read the
                     // board by, and it is the last thing that may be taken away.
+                    // ModBuild 136 raised it ~13% as the counterweight to the
+                    // ground's new _DirScale (see S_Ground below): the FLOOR gets
+                    // darker, the place the shafts LAND does not.
                     new PLight(new Vector3(moonHoriz.x * 2.3f, 0.55f, moonHoriz.z * 2.3f), 6.0f,
-                               new Color(0.15f, 0.18f, 0.26f), 0.0f),
+                               new Color(0.17f, 0.20f, 0.29f), 0.0f),
                 },
             };
 
@@ -2270,9 +2653,12 @@ namespace GloomhavenVR
                 float fade = Mathf.SmoothStep(1f, 0.015f, Mathf.InverseLerp(5.2f, 11.5f, r));
                 float open = Mathf.Lerp(0.20f, 1f, Mathf.SmoothStep(1f, 0f,
                                         Mathf.InverseLerp(ClearR - 2.0f, ClearR + 2.5f, r)));
-                // a slightly brighter pool where the shafts strike
+                // a slightly brighter pool where the shafts strike (0.55 -> 0.70
+                // in ModBuild 136: the ground's overall moon response came down
+                // by nearly a third, and this is the term that keeps the landing
+                // zone — and with it the board's own surroundings — readable)
                 var pl = new Vector2(moonHoriz.x * 2.3f, moonHoriz.z * 2.3f);
-                float pool = 0.55f * Mathf.Exp(-(new Vector2(x, z) - pl).sqrMagnitude / 5.5f);
+                float pool = 0.70f * Mathf.Exp(-(new Vector2(x, z) - pl).sqrMagnitude / 5.5f);
                 float g = fade * open * (1f + pool);
                 // trodden earth is a touch darker and greyer than the litter
                 g *= 1f - 0.18f * onPath;
@@ -2288,6 +2674,38 @@ namespace GloomhavenVR
             gm.SetTexture("_MainTex2", Imp("forest_leaves_04_alb"));
             gm.SetTexture("_BumpMap2", Imp("forest_leaves_04_nrm"));
             gm.SetFloat("_BumpScale", 1.15f);
+            // USER FINDING, ModBuild 135 (hardware): "Pass nochmal die
+            // Lichtverhältnisse im Wald auf dem Boden an - der erscheint viel zu
+            // hell bei den Lichtverältnissen. Er soll eher leicht angestrahlt
+            // werden von Mond."
+            //
+            // WHY THE FLOOR, AND ONLY THE FLOOR. Every other surface in the wood
+            // is a trunk, a bough or a prop: vertical or tilted, so the moon
+            // rakes it and half of it stays dark. The ground is flat. Its normal
+            // is up EVERYWHERE, so N.L against a 40 deg moon is 0.64 over the
+            // whole disc — the one uniformly, fully lit surface in a room whose
+            // entire recipe is contrast. That is what "viel zu hell" was.
+            //
+            // 0.38, i.e. the ground answers the moon with a bit over a third of
+            // what everything else does. Turning the MOON down instead would
+            // have cost the trunk rim, which is the one thing separating a trunk
+            // from the black behind it (ModBuild 134's whole round). Numbers at
+            // the clearing centre, per unit albedo: ambient 0.024 + moon 0.450 ->
+            // ambient 0.024 + moon 0.171; times the vertex fade, the floor there
+            // goes 0.61 -> 0.29, and out under the first trunks it goes to a
+            // third of what it was. The LANDING POOL is held up separately (see
+            // GroundColor's `pool` term and the third PLight): the board must
+            // stay readable, and it now sits on the only lit patch of ground.
+            gm.SetFloat("_DirScale", 0.38f);
+            // ...and the other half of "viel zu hell": the floor was still
+            // wearing its DAYLIGHT COLOUR. forest_ground_04 is a warm brown
+            // photoscan, and a warm brown floor under a cold moon does not read
+            // as dim, it reads as lit — by something else. The trunks were given
+            // exactly this treatment in ModBuild 133 ("night bark is desaturated
+            // and cold, not the warm pink of the daylight photoscan"); the
+            // ground was simply forgotten. 0.72/0.74/0.82 takes another 25% off
+            // and tilts what is left toward the moon's own colour.
+            gm.SetColor("_Tint", new Color(0.72f, 0.74f, 0.82f));
             Defer(gm, g.transform, 1f);
             g.GetComponent<MeshRenderer>().sharedMaterial = gm;
 
@@ -2303,9 +2721,21 @@ namespace GloomhavenVR
             // described object; behind it there is effectively nothing left. This
             // one curve does more for "I would not walk back there" than the
             // ambient does, because it also darkens the moonlit side.
-            Color Depth(float r, float mul = 1f)
+            //
+            // ModBuild 136: `floorAt` is new, and it exists because THE CANOPY
+            // ONLY STARTED OBEYING THIS CURVE THIS ROUND. EnvRoomCutout declared
+            // _VCol and never applied it (ModBuild 135's own KNOWN DEBT), so
+            // every foliage tint below was written and thrown away; only the
+            // trunks (EnvRoom) were ever faded. With the shader fixed, the raw
+            // curve would take the far canopy to 1% and the wood would lose its
+            // roof in one build — a change the user never asked for on a room he
+            // has approved. The TRUNKS therefore keep the tuned 0.010 floor
+            // exactly as ModBuild 134 left it, and the FOLIAGE gets a floor of
+            // 0.34: the crowns still recede, but they recede to a dark canopy
+            // instead of to nothing.
+            Color Depth(float r, float mul = 1f, float floorAt = 0.010f)
             {
-                float f = Mathf.SmoothStep(1f, 0.010f, Mathf.InverseLerp(3.0f, 10.5f, r)) * mul;
+                float f = Mathf.SmoothStep(1f, floorAt, Mathf.InverseLerp(3.0f, 10.5f, r)) * mul;
                 return new Color(f, f, f, 1f);
             }
 
@@ -2336,7 +2766,7 @@ namespace GloomhavenVR
                 {
                     // a snag keeps a few bare branches and nothing else
                     AddCrown(canopy, t, whorls: 2, perWhorl: 3, crownFrac: 0.62f,
-                             radScale: 0.5f, tint: Depth(r, 0.55f), crossed: false, dead: true);
+                             radScale: 0.5f, tint: Depth(r, 0.55f, 0.34f), crossed: false, dead: true);
                     continue;
                 }
                 AddCrown(canopy, t,
@@ -2344,7 +2774,7 @@ namespace GloomhavenVR
                     perWhorl: near ? 7 : 5,
                     crownFrac: near ? 0.34f : 0.28f,      // bare trunk under the crown
                     radScale: near ? 1.0f : 0.85f,
-                    tint: Depth(r, 0.92f),
+                    tint: Depth(r, 0.92f, 0.34f),
                     crossed: near);
             }
 
@@ -2369,9 +2799,12 @@ namespace GloomhavenVR
                                              Mathf.Cos(ta)).normalized;
                     Vector3 right = Vector3.Cross(up, Vector3.up).normalized;
                     float halfW = len * 0.6f * (rect.width / Mathf.Max(rect.height, 1e-3f));
-                    // brighter near the tear (moonlit rim), black deep in the mass
-                    // (ModBuild 134: bottoms out at 0.025 by 16 m, was 0.10 at 21)
-                    float lit = Mathf.Lerp(1.15f, 0.020f, Mathf.InverseLerp(5.5f, 13f, r));
+                    // brighter near the tear (moonlit rim), dark deep in the mass.
+                    // ModBuild 136: 1.15 -> 0.020 became 1.05 -> 0.30, for the
+                    // same reason Depth() grew a floor — this tint had no effect
+                    // at all until EnvRoomCutout was fixed this round, and the
+                    // authored value would have blacked the roof out in one step.
+                    float lit = Mathf.Lerp(1.05f, 0.30f, Mathf.InverseLerp(5.5f, 13f, r));
                     AddCard(canopy, c, right * halfW, up * (len * 0.55f),
                             (Vector3.down * 0.7f + up * 0.3f).normalized, rect,
                             new Color(lit, lit, lit, 1f));

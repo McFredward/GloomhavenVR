@@ -21,11 +21,11 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: eb44feae523bbac8bbca5dc1a95c5e2a, type: 3}
+        m_Texture: {fileID: 2800000, guid: 87043ded25bfbf33eba79d2addcb6620, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats: []
     m_Colors:
-    - _Tint: {r: 0.42, g: 0.55, b: 0.86, a: 0.19}
+    - _Tint: {r: 0.34, g: 0.44, b: 0.68, a: 0.85}
   m_BuildTextureStacks: []

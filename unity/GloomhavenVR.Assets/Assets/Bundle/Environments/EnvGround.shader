@@ -27,6 +27,19 @@ Shader "GloomhavenVR/EnvGround"
         _L2Pos ("Light2 pos (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
         _L2Col ("Light2 color (a=flicker)", Color) = (0,0,0,0)
         _PtHard ("Point falloff hardness", Range(0,64)) = 0
+        // How much of the directional (moon) term the GROUND takes. 1 = as every
+        // other surface, which is what it was until ModBuild 136.
+        // USER FINDING, ModBuild 135 (hardware): "Pass nochmal die
+        // Lichtverhältnisse im Wald auf dem Boden an - der erscheint viel zu
+        // hell bei den Lichtverältnissen. Er soll eher leicht angestrahlt werden
+        // von Mond." The forest floor is very nearly horizontal, so N.L against
+        // a moon at 40 deg altitude is ~0.64 EVERYWHERE — the one surface in the
+        // room that is uniformly and fully lit, which is exactly why it read as
+        // a lit floor instead of a floor a little moonlight falls on. This is
+        // the knob for that, and it is on the GROUND only: turning the moon
+        // itself down would flatten the trunk rim, which is the contrast recipe
+        // ModBuild 134 spent a round building.
+        _DirScale ("Directional (moon) response", Range(0,2)) = 1
     }
     SubShader
     {
@@ -42,7 +55,7 @@ Shader "GloomhavenVR/EnvGround"
             sampler2D _BumpMap;
             sampler2D _MainTex2; float4 _MainTex2_ST;
             sampler2D _BumpMap2;
-            float _BumpScale, _PtHard;
+            float _BumpScale, _PtHard, _DirScale;
             fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col;
             float4 _DirDir, _L0Pos, _L1Pos, _L2Pos;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
@@ -114,7 +127,7 @@ Shader "GloomhavenVR/EnvGround"
 
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
                 float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5);
-                light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz)));
+                light += _DirCol.rgb * (_DirScale * saturate(dot(N, normalize(_DirDir.xyz))));
                 light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00);
                 light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83);
                 light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19);

@@ -31,5 +31,5 @@ Material:
     - _Phase: 0
     - _Rate: 1
     m_Colors:
-    - _Tint: {r: 0.4, g: 0.54, b: 0.88, a: 0.22}
+    - _Tint: {r: 0.4, g: 0.54, b: 0.88, a: 0.34}
   m_BuildTextureStacks: []

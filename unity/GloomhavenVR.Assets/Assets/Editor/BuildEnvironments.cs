@@ -254,10 +254,14 @@ namespace GloomhavenVR
             WritePng(TexDir + "/Env_Streak.png", MakeStreak(256, 64), 256, 64, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_FogPuff.png", MakeFogPuff(256), 256, 256, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Moon.png", MakeMoon(512), 512, 512, sRGB: true, clamp: true);
-            // cobweb: an orb web drawn in (angle, radius) space so it maps onto
-            // EnvRoomBuilder.WebMesh's corner fan without distortion
-            // mipCoverage MUST equal the web material's _Cutoff (see WritePng)
-            WritePng(TexDir + "/Env_Web.png", MakeWeb(512), 512, 512, sRGB: true, clamp: true,
+            // The ORB WEB itself is no longer drawn here — it is a real CC0
+            // photoscanned opacity map now (Imported/Textures/cobweb_alb.png,
+            // TextureCan others_0015; see Environments/License.md). User finding,
+            // ModBuild 135: "Im Keller die Spinnwebe sehen sehr low-poly aus".
+            // What is left procedural is the LOOSE STRANDS that hang off it,
+            // because those want a specific shape no photo happens to contain.
+            // mipCoverage MUST equal the web material's _Cutoff (see WritePng).
+            WritePng(TexDir + "/Env_Strand.png", MakeStrand(192, 512), 192, 512, sRGB: true, clamp: true,
                 mipCoverage: WebCutoff);
             // Tiling noise, in BOTH axes (torus blend), so no octave can ever
             // show a seam. Used twice by EnvStars: as the horizon haze veil and
@@ -302,53 +306,68 @@ namespace GloomhavenVR
             return px;
         }
 
-        /// <summary>Alpha-test threshold for the cobwebs. Shared by the texture's
-        /// mip-coverage setting and by EnvRoomBuilder's web material — they are
-        /// the same number or the web disappears at distance.</summary>
-        public const float WebCutoff = 0.09f;
+        /// <summary>Alpha-test threshold for the cobwebs. Shared by the STRAND
+        /// texture's mip-coverage setting below, by the imported cobweb alpha's
+        /// (EnvRoomBuilder.CoverageCutoff) and by both web materials' `_Cutoff`.
+        /// They are the same number or the threads disappear at distance —
+        /// mip-coverage preservation is defined relative to a threshold, and a
+        /// material that clips at a different one gets no benefit from it.
+        /// 0.09 -> 0.12 with the photoscanned alpha, whose threads reach 1.0
+        /// where the procedural one's peaked around 0.4.</summary>
+        public const float WebCutoff = 0.12f;
 
-        private static Color[] MakeWeb(int n)
+        /// <summary>Three loose gossamer strands, side by side in one strip, so a
+        /// hanging thread can pick a column and not look like its neighbours.
+        /// u across a column, v from the anchor (0) to the free end (1).
+        ///
+        /// Each is a single sinuous thread of the same weight as one thread of
+        /// the photoscanned web, with the SNAGGED DUST a hanging strand collects
+        /// (small bright nodules, denser toward the bottom, which is what makes
+        /// a loose strand read as old and catch the candlelight) and a short
+        /// forked tail on one of them.</summary>
+        private static Color[] MakeStrand(int w, int h)
         {
-            // An orb web, drawn in the coordinates the mesh actually uses:
-            //   u (x) = angle across the corner fan, 0..1 over the quarter turn
-            //   v (y) = radius out from the corner, 0..1
-            // so RADIAL threads are vertical lines and the CATCHING SPIRAL is a
-            // set of sagging horizontals. Drawing it as a picture of a web and
-            // wrapping that onto the fan would stretch every thread differently.
-            const int spokes = 9, spirals = 11;
-            var px = new Color[n * n];
-            for (int y = 0; y < n; y++)
-                for (int x = 0; x < n; x++)
+            var px = new Color[w * h];
+            int cols = 3, cw = w / cols;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
                 {
-                    float u = (x + 0.5f) / n, v = (y + 0.5f) / n;
-                    float a = 0f;
-
-                    // radial threads, thinning outward; a couple of them broken
-                    for (int s = 0; s < spokes; s++)
+                    int c = Mathf.Min(x / cw, cols - 1);
+                    float u = (x - c * cw + 0.5f) / cw;        // 0..1 within the column
+                    float v = (y + 0.5f) / h;                  // 0 anchor .. 1 free end
+                    int sd = 4100 + c * 37;
+                    // the thread wanders: two slow sines plus noise, amplitude
+                    // growing toward the free end (the anchor cannot move)
+                    float amp = 0.06f + 0.26f * v * v;
+                    float cx = 0.5f + amp * (0.62f * Mathf.Sin(v * 4.1f + c * 2.3f)
+                                             + 0.38f * Mathf.Sin(v * 9.7f + c * 1.1f))
+                             + 0.10f * (Noise3(v * 3.3f, c * 1.7f, 0.5f, sd) - 0.5f);
+                    float tw = 0.016f * (1f - 0.35f * v);      // ~3 px at 64 wide
+                    float d = Mathf.Abs(u - cx);
+                    float a = Mathf.Exp(-(d * d) / (tw * tw));
+                    // one strand forks near the bottom
+                    if (c == 2 && v > 0.55f)
                     {
-                        float su = s / (float)(spokes - 1);
-                        float w = 0.0040f + 0.0030f * v;   // ~3-4 px at 512: any thinner and the first mip eats it
-                        float d = Mathf.Abs(u - su);
-                        float live = Hash01(s * 31 + 7, 3301) > 0.14f ? 1f : 0.25f;
-                        a = Mathf.Max(a, live * Mathf.Exp(-(d * d) / (w * w)));
+                        float fx = cx + 0.22f * (v - 0.55f);
+                        float df = Mathf.Abs(u - fx);
+                        a = Mathf.Max(a, 0.85f * Mathf.Exp(-(df * df) / (tw * tw)));
                     }
-                    // the spiral: rings that SAG between neighbouring spokes
-                    float seg = u * (spokes - 1);
-                    float sag = 0.5f - Mathf.Abs(Mathf.Repeat(seg, 1f) - 0.5f);   // 0 at a spoke
-                    for (int r = 1; r < spirals; r++)
+                    // snagged dust: bright nodules strung along the thread
+                    for (int k = 0; k < 7; k++)
                     {
-                        float rv = Mathf.Pow(r / (float)(spirals - 1), 0.86f);
-                        float th = rv - sag * (0.030f + 0.055f * rv);
-                        float w = 0.0034f + 0.0034f * rv;
-                        float d = Mathf.Abs(v - th);
-                        float live = Hash01(r * 17 + 5, 3307) > 0.10f ? 1f : 0.2f;
-                        a = Mathf.Max(a, live * Mathf.Exp(-(d * d) / (w * w)));
+                        float kv = Hash01(k * 13 + c * 5 + 3, 4201);
+                        float nv = 0.12f + 0.84f * kv;
+                        if (Hash01(k * 29 + c * 7, 4211) < 0.35f) continue;
+                        float nr = 0.030f + 0.045f * Hash01(k * 11 + c, 4217);
+                        float ncx = 0.5f + amp * (0.62f * Mathf.Sin(nv * 4.1f + c * 2.3f)
+                                                  + 0.38f * Mathf.Sin(nv * 9.7f + c * 1.1f));
+                        float dx = (u - ncx) * 1.6f, dy = (v - nv) * (h / (float)cw) * 1.6f;
+                        a = Mathf.Max(a, Mathf.Exp(-(dx * dx + dy * dy) / (nr * nr)));
                     }
-                    // dust and damage: the web is old, and it is torn at the rim
-                    a *= 0.62f + 0.55f * Fbm3(new Vector3(u * 5.5f, v * 5.5f, 2.2f), 3, 3313);
-                    a *= Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(0.88f, 1f, v));
-                    a *= Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.02f, 0.09f, v));
-                    px[y * n + x] = new Color(1, 1, 1, Mathf.Clamp01(a * 2.2f));
+                    // thins and frays out at the free end; solid at the anchor
+                    a *= Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(0.86f, 1f, v));
+                    a *= 0.70f + 0.45f * Fbm3(new Vector3(u * 3.0f, v * 7.0f, c * 2.1f), 3, 4231);
+                    px[y * w + x] = new Color(1, 1, 1, Mathf.Clamp01(a * 1.6f));
                 }
             return px;
         }
@@ -1159,6 +1178,16 @@ namespace GloomhavenVR
                 fv.space = ParticleSystemSimulationSpace.World;
                 fv.x = new ParticleSystem.MinMaxCurve(0.06f, 0.16f);
                 fv.z = new ParticleSystem.MinMaxCurve(0.03f, 0.10f);
+                // Y IS SET DELIBERATELY, and it is set as a TWO-CONSTANT range.
+                // The user's Player.log was full of "Particle Velocity curves
+                // must all be in the same mode": Shuriken stores one curve mode
+                // per module and warns every frame it evaluates a module whose
+                // x/y/z disagree. x and z here are TwoConstants; y, never
+                // assigned, kept the default Constant — two modes in one module.
+                // A range of 0 would be Constant again, so the fix has to be a
+                // real range, and a mist bank that breathes a centimetre a
+                // second is the right one anyway.
+                fv.y = new ParticleSystem.MinMaxCurve(-0.008f, 0.012f);
                 var frot = fog.rotationOverLifetime; frot.enabled = true;
                 frot.z = new ParticleSystem.MinMaxCurve(-3f * Mathf.Deg2Rad, 3f * Mathf.Deg2Rad);
                 var fcol = fog.colorOverLifetime; fcol.enabled = true;
@@ -1201,6 +1230,7 @@ namespace GloomhavenVR
                 ffv.space = ParticleSystemSimulationSpace.World;
                 ffv.x = new ParticleSystem.MinMaxCurve(0.04f, 0.12f);
                 ffv.z = new ParticleSystem.MinMaxCurve(0.02f, 0.08f);
+                ffv.y = new ParticleSystem.MinMaxCurve(-0.006f, 0.009f);  // see GroundFog above
                 var ffcol = farFog.colorOverLifetime; ffcol.enabled = true;
                 ffcol.color = new ParticleSystem.MinMaxGradient(Grad(
                     (0f, new Color(1, 1, 1, 0f)), (0.18f, new Color(1, 1, 1, 1f)),

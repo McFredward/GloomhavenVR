@@ -13,7 +13,9 @@ project**. Third-party assets:
 ## Room models & PBR texture sets (`Imported/`)
 
 All meshes and photo textures under `Imported/Models` and `Imported/Textures`
-are from **Poly Haven** (<https://polyhaven.com>), license **CC0 1.0**
+are from **Poly Haven** (<https://polyhaven.com>) — with ONE exception, the
+cobweb alpha, which is TextureCan and has its own section below — license
+**CC0 1.0**
 (public domain, <https://polyhaven.com/license>) — no attribution required;
 credited here with thanks. Modifications: UV-preserving decimation
 (MeshLab quadric-with-texture), AO multiplied into albedo, opacity merged
@@ -47,6 +49,43 @@ is the `flame_diff` map of Poly Haven's brass_candleholders.
   `BuildEnvironmentRooms.cs` and textured with these real photoscanned needles.
 - **Modifications**: diffuse and alpha merged into one RGBA PNG; sub-rects cut
   by connected-component analysis of the alpha channel.
+
+### Cobwebs (`cobweb_alb.png`)
+
+- **Asset**: the `opacity` (+ `color`) maps of *Spider Web / Cobweb*, asset id
+  **`others_0015`**, from **TextureCan** —
+  <https://www.texturecan.com/details/237/>.
+- **License**: **CC0 1.0**, stated at <https://www.texturecan.com/terms/>:
+  “All the PBR textures … are under the Creative Commons CC0 1.0 Universe
+  License … The textures are allowed to be redistributed together with your
+  projects.” No attribution required; credited here with thanks.
+- **Why this one**: it is a photoscanned *opacity map*, not a photograph we
+  would have to key — a full orb web with irregular anchor strands running off
+  every edge, which is exactly what a cellar corner wants. The webs it replaced
+  were procedural (nine even spokes, eleven even spirals, on a five-ring quarter
+  fan) and the user reported them as “sehr low-poly”; regularity, not triangle
+  count, was the problem, and a real web's alpha is the fix.
+- **Modifications** (reproducible: `Assets/Editor/cobweb_pipeline.py`, python3 +
+  numpy + Pillow): normalised by the source's own peak (it maxes at 114/255,
+  not 255), a 5.5 % floor subtracted to kill JPEG ringing around the ~1 px
+  threads, 4096 → 1024 by area mean followed by a ×3.0 gain so alpha-test
+  coverage is preserved (11.4 % of texels above the cutoff, unchanged), and RGB
+  replaced by the source colour map's heavily blurred luminance mapped to
+  0.72–1.00 — large-scale dustiness only. Imported BC7 with
+  `mipMapsPreserveCoverage` at `EnvironmentsBuilder.WebCutoff`.
+- **Not used, but evaluated** (recorded so a future round need not repeat the
+  search): ambientCG and Poly Haven have **no** web asset at all (both APIs
+  queried in full); Kenney has none. CC0 alternatives that would have worked:
+  Wikimedia Commons *“The Web is a Tentative Thing”* (Alan Levine, CC0 1.0,
+  5184×3456, <https://commons.wikimedia.org/wiki/File:2016-366-292_The_Web_is_a_Tentative_Thing_(30420326115).jpg>)
+  and OpenGameArt *2D Spider Webs* (Christina Lee, CC0, RGBA but only 707×282).
+  Rejected on licence: Resource Boy's 4K spiderweb pack — its licence forbids
+  redistributing the files as part of a bundle, **even for free**. Rejected as
+  mislabeled: Commons `File:Spider Cobweb (blue).jpg`, the top CC0 hit for
+  “cobweb”, is a photograph of **feathers**.
+
+The loose hanging strands (`Textures/Env_Strand.png`) are still generated —
+`EnvironmentsBuilder.MakeStrand`, original work of this project.
 
 ## Night-sky panorama — REMOVED in ModBuild 134
 

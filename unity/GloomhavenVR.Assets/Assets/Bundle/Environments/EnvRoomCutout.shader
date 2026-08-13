@@ -131,7 +131,18 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83);
                 light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19);
 
-                return fixed4(alb.rgb * light, 1.0);
+                float3 col = alb.rgb * light;
+                // KNOWN DEBT of ModBuild 135, paid here: _VCol was declared and
+                // written by the builder but never APPLIED, so every per-vertex
+                // tint baked into a cutout mesh did nothing — including the
+                // forest canopy's Depth() fade, which is the single curve that
+                // is supposed to dissolve the wood into black. EnvRoom.shader
+                // has always had this line; this shader was the odd one out.
+                // Materials that do not set _VCol default to 0 and are therefore
+                // bit-identical (the cobwebs' vertex RED is a sway weight, not a
+                // tint — they must keep _VCol = 0).
+                col *= lerp(float3(1, 1, 1), i.vcol.rgb, _VCol);
+                return fixed4(col, 1.0);
             }
             ENDCG
         }
