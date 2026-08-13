@@ -1,3 +1,4 @@
+using ScenarioRuleLibrary;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -13,7 +14,9 @@ namespace GloomhavenVR.Cards;
 /// burn/redraw dialogs. The mod short button is the SOLE short-rest control: the native
 /// "Kurze Rast" widget never docks any more (<see cref="Surfaces.TrayControlDockSurface"/>
 /// hardcodes <c>ShortRestDocked =&gt; false</c> and its docked-control list is empty), and
-/// <see cref="TickStatus"/> never consults it — visibility is <c>canShort || shortSelected</c>.
+/// <see cref="TickStatus"/> never consults it — visibility is
+/// <c>RestUiOffered &amp;&amp; (canShort || shortSelected)</c>, the outer term being the game's own
+/// offer predicate (see <see cref="RestUiOffered"/>).
 /// This doc used to describe a hide/reappear handshake with the native widget; there is none.
 /// Long rest: press → toggles the long-rest pseudo-card (CardID −1) through the game's
 /// own fan selection (CardsGameApi.ToggleLongRest) — there is NO discrete native
@@ -33,6 +36,11 @@ internal sealed class RestControls
     // true — the keycaps are built visible, so the first "not relevant" tick logs the hide.
     private bool _lastShortVisible = true;
     private bool _lastLongVisible = true;
+
+    // REST GATE (ModBuild 134/135 report, see TickStatus): edge state for the ONE log line that
+    // proves the offer gate — not the availability signal — is what removed a keycap. False until
+    // a stale …Selected flag is actually being suppressed.
+    private bool _lastGateSuppressing;
 
     /// <summary>Raised on press; CardsDriver queues the actual game call.</summary>
     internal System.Action? ShortRestRequested;
@@ -189,36 +197,120 @@ internal sealed class RestControls
     /// / enemy turns. The <see cref="PlayTray.BoardButton.SetVisible"/> flip animates via the
     /// button worker.
     /// </summary>
+    /// <summary>
+    /// The game's OWN "is a rest offered at all right now" predicate, quoted rather than invented.
+    /// The flat UI uses exactly <c>PhaseManager.PhaseType == CPhase.PhaseType.
+    /// SelectAbilityCardsOrLongRest &amp;&amp; !IsImprovedLongResting</c> in all three places it
+    /// decides whether a rest control exists:
+    /// <list type="bullet">
+    /// <item><c>CardsHandUI.UpdateShortRest</c> — CardsHandUI.cs:700 — <c>shortRest.Show</c> on
+    /// true, else <c>shortRest.ResetSelection; shortRest.Hide</c>. Note the RESET: vanilla
+    /// throws the SELECTION away when it stops offering, which is why "selected" may never
+    /// outrank this predicate;</item>
+    /// <item><c>CardsHandUI.UpdateCards</c> — CardsHandUI.cs:1307 — activates the long-rest
+    /// pseudo-card <c>CardID −1</c>, which IS the game's only long-rest control — there is no
+    /// discrete long-rest widget;</item>
+    /// <item><c>CardsHandUI.HidePreviewActionCards</c> — CardsHandUI.cs:1487 — the same pseudo-card
+    /// gets <c>SetActive</c> off the same phase compare.</item>
+    /// </list>
+    /// Verified: <c>public bool IsImprovedLongResting</c> — CardsHandUI.cs:244 — which dereferences
+    /// <c>playerActor</c> as soon as the phase matches, hence the null guard before it. Cheap: one
+    /// enum compare outside the selection phase, no allocation.
+    /// </summary>
+    private static bool RestUiOffered(CardsHandUI hand) =>
+        PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest
+        && hand.PlayerActor != null
+        && !hand.IsImprovedLongResting;
+
     internal void TickStatus(CardsHandUI? hand)
     {
+        // ---- REST GATE (user report, ModBuild 134/135 round, verbatim) ---------------------------
+        //   "Der Character mit den Initativschuhen hat lange Rast gewählt. Trotzdem muss er zu
+        //    beginn der Runde eine Entscheidung treffen die Schuhe zu benutzen oder nicht. Während
+        //    dieser Entscheidung blieb der 'Lange Rast' Knopf bestehen und verschwindet nicht -
+        //    egal welchen Character ich auswähle. Die Knopf macht in dieser Phase keinen Sinn.
+        //    Nachdem er die Enstcheidung bestätigt hat ist der Knopf verschwunden. Fix das noch."
+        //
+        // ROOT CAUSE. The boots decision is its own PHASE after card selection:
+        // CheckForInitiativeAdjustments, walked one actor at a time by GameState.cs:1976-1999 and
+        // announced per actor as CMessageData.MessageType.CheckForInitiativeAdjustments →
+        // UIActiveBonusBar.ShowActiveBonus with AdjustInitiative — Choreographer.cs:11670-11692;
+        // see also CardsGameApi.InitiativeAdjustHand, which already resolves that flow's actor.
+        // canLong/canShort DO fence on the selection phase and were both false there — but the
+        // visibility term was `canX || xSelected`, and CardsHandUI.IsLongRestSelected — :2662,
+        // selectedCardsUI.Count == 1 && CardID == −1 — stays TRUE from the moment long rest is
+        // committed until the fan's selection is torn down at the end of that decision. So the
+        // OR-term alone held the keycap up for the whole prompt, and it vanished the instant the
+        // player confirmed — exactly the reported timing. "Egal welchen Character ich auswähle"
+        // follows: this tick reads CardsHandManager.CurrentHand, and vanilla deliberately does NOT
+        // SwitchHand during CheckForInitiativeAdjustments — InitiativeTrackPlayerAvatar.cs:24 — so
+        // the long-rester's hand stayed the one being sampled no matter who was picked.
+        //
+        // THE FIX. A keycap may never outlive the game's own OFFER: both visibilities are now
+        // AND-ed with RestUiOffered — the flat UI's own predicate, see its doc — so the
+        // "…Selected" terms can only keep a keycap up INSIDE the window in which vanilla itself
+        // still draws a rest control. Vanilla resets the short-rest selection when it hides
+        // (CardsHandUI.cs:706), which is the same statement in the game's own code.
+        //
+        // REJECTED. (a) Special-casing the boots phase — e.g. hiding while
+        // CardsGameApi.InitiativeAdjustHand is non-null — enumerates prompts instead of stating the
+        // rule; every other post-selection prompt would keep its own stale keycap. (b) Dropping the
+        // "…Selected" OR-terms outright: the short keycap must stay up while the game's own yes/no
+        // confirmation is open, and the long keycap must stay ACCENTED while the fan holds the −1
+        // card — both live inside the selection phase, which the gate preserves. (c) Gating on
+        // WorldUI.ModalFallback.BlockingWindowModalActive: the boots prompt is an ActiveBonusBar
+        // plus a ReadyButton, not a blocking window, so it would not fire at all — and it would
+        // wrongly hide the keycaps for unrelated modals DURING selection. (d) Clearing the
+        // selection ourselves the way UpdateShortRest does: a per-frame DISPLAY tick must never
+        // write rule-engine state.
+        //
         // A rest is only OFFERED during the card-SELECTION phase (SelectAbilityCardsOrLongRest),
         // and the game distinguishes short vs long availability independently — so each keycap
         // follows its OWN availability signal (CardsGameApi.CanShortRest / CanLongRest, both of
         // which already gate on the selection phase and return false during action/enemy turns,
         // mirroring the card board's IsActionTurn clear). A keycap stays up while its rest is
         // SELECTED / mid-choice (|| …Selected) so it does not vanish the instant it is chosen —
-        // its accent then reads as the commitment. Item 1 note kept: the native "Kurze Rast"
+        // its accent then reads as the commitment — but ONLY inside the offer window above, which
+        // is the whole point of the gate. Item 1 note kept: the native "Kurze Rast"
         // widget never docks (TrayControlDockSurface.ShortRestDocked permanently false), so this
         // mod keycap is the sole short-rest control; long rest never had a discrete uGUI widget.
         bool canShort = false, canLong = false, shortSelected = false, longSelected = false;
+        bool offered = false;
         if (hand != null)
         {
+            offered = RestUiOffered(hand);
             canShort = CardsGameApi.CanShortRest(hand);
             canLong = CardsGameApi.CanLongRest(hand);
             shortSelected = CardsGameApi.IsShortRestSelected(hand);
             longSelected = CardsGameApi.IsLongRestSelected(hand);
         }
 
-        bool shortVisible = canShort || shortSelected;
-        bool longVisible = canLong || longSelected;
+        bool shortVisible = offered && (canShort || shortSelected);
+        bool longVisible = offered && (canLong || longSelected);
+
+        // The ONE gate line: fires only on the edge where the offer gate is actually suppressing a
+        // keycap a stale selection flag would otherwise have kept up — i.e. precisely the reported
+        // boots-decision case — so the next hardware log proves the gate fired and why.
+        bool gateSuppressing = !offered && (shortSelected || longSelected);
+        if (gateSuppressing != _lastGateSuppressing)
+        {
+            _lastGateSuppressing = gateSuppressing;
+            if (gateSuppressing)
+                Core.VRLog.Info("Cards", "REST GATE: rest keycaps hidden — the game offers no rest control here " +
+                                         $"{(PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest ? "because the improved-short-rest long rest is running" : $"in phase {PhaseManager.PhaseType}")}" +
+                                         $", while a stale selection flag was still set: short={shortSelected}, long={longSelected}. " +
+                                         "Same predicate as CardsHandUI.UpdateShortRest / the long-rest pseudo-card.");
+        }
+
         if (shortVisible != _lastShortVisible || longVisible != _lastLongVisible)
         {
             _lastShortVisible = shortVisible;
             _lastLongVisible = longVisible;
             Core.VRLog.Info("Cards", $"Rest buttons visibility: short={shortVisible} " +
-                                     $"(canShort={canShort}, selected={shortSelected}), long={longVisible} " +
-                                     $"(canLong={canLong}, selected={longSelected}) — hidden when a rest " +
-                                     "isn't offered (action phase / enemy turns).");
+                                     $"[canShort={canShort}, selected={shortSelected}], long={longVisible} " +
+                                     $"[canLong={canLong}, selected={longSelected}], offered={offered} " +
+                                     "— hidden when the game itself offers no rest control: action phase, " +
+                                     "enemy turns, and every start-of-round prompt after selection.");
         }
 
         _shortButton?.SetVisible(shortVisible);
