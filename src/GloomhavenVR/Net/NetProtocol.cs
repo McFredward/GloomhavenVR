@@ -416,7 +416,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 130;
+    public const ushort ModBuild = 131;
+    // Build 131: the environment is LIFE-SIZE around the player — one room, alive, floor-tight.
+    // No wire change; same bundle as 130.
+    //
+    // ("Die Umgebung spawned so klein wie das Spielfeld selber! ... Der ganze Sinn ist es IN
+    // der Umgebung zu sein.") 130's board-relative sizing made a 7 cm miniature (board extent
+    // is world-tiny at diorama zoom) — deleted. Room seats at world scale = live rig scale,
+    // main room 11 REAL meters, player at its center, floor at the real floor; world-frozen
+    // between seats (board never sinks mid-gesture), re-seats life-size when a zoom settles
+    // beyond 1.4x (recenter-chord event class). (a) ONE room: DLC_SC*_RM* single-room maps
+    // (catalog-verified), multi-tile arrivals culled to the center tile. (b) Atmosphere
+    // preserved: particles/Animators/torch flames live, LightFlicker rebased per seat,
+    // DynamicAmbience driven then parked. (c) Floors never deleted: cross-packet donor match,
+    // clone-patching, reveal-disabled hex re-enable, 10x10 FLOOR GATE; RESOURCE TOPOLOGY
+    // census names the floors' true packet on first miss.
+    //
     // Build 130: the composites actually LOAD now, the board is FIXED in the room, the cellar
     // gets the night sky. No wire change.
     //

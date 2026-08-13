@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 130`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 131`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-12
 
@@ -126,6 +126,25 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 131** — LIFE-SIZE single-room environment, alive, floor-tight. Same bundle as 130.
+  130 verdict: 'Map ABHM' LOADED (dual route works) but as a 7 cm miniature next to the board —
+  the 130 board-relative sizing was the bug (board extent is world-tiny at diorama zoom; log:
+  5.8 wu at rig scale 85). DELETED; sizing is perceived again: room world scale = live rig
+  scale, main room 11 REAL meters, player's floor point at room center, floor at real floor,
+  world-frozen between seats (finding-3 ruling holds mid-gesture), RE-SEAT when a zoom settles
+  beyond 1.4x (0.7 s settle timer; recenter-chord event class; board-appears probe re-centers
+  SKY only). (a) ONE ROOM: preference lists = DLC_SC*_RM* single-room scenario maps (Cellar
+  SC02/04/06_RM01, Swamp SC03_RM01/SC16/SC20_RM01; all in his MAP CATALOG census; Map A
+  terminal), multi-tile arrivals CULLED to center tile; main-room measure fixed (renderer
+  bounds ≤ map bounds — collider claimed 60.2 vs map 35.0). (b) ATMOSPHERE: particles/
+  Animators/flames PRESERVED; LightFlicker kept + rebased per seat (its Start caches the
+  STAGING pose — flames would teleport); DynamicAmbience SetLightLevel(1) then parked;
+  StaticAmbience destroyed (writes RenderSettings globals — from source). (c) FLOORS never
+  deleted (130 heal REMOVED StoneRooms.Floor.Tile = the see-through floor): 4-rank variant-
+  stripped donor match across ALL loaded packets, clone-patch holes, re-enable reveal-disabled
+  hex floors, 10x10 FLOOR GATE; RESOURCE TOPOLOGY census on first miss. UNVERIFIED: DLC room
+  themes (inferred from scenario numbering), floor-band heuristic vs short props, room-board
+  intersection when recentering far zoomed out.
 - **ModBuild 130** — composites LOAD (dual route), board FIXED in the room, cellar night sky.
   129 verdicts from his log: staging invisible CONFIRMED, red cubes 0 CONFIRMED (heal found
   donors), but 'Map ABHM'/'Map DDM' "failed to load" → Map A rectangle again. REVISED root
