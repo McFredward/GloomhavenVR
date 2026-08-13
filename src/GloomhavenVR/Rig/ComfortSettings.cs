@@ -330,12 +330,35 @@ internal static class ComfortSettings
             "What flight steers by. Head = the HMD's forward, pitch included, so you fly where you " +
             "look. Hand = the dominant hand's aim ray - the same ray the laser draws - so you can " +
             "fly one way while looking another.");
+        // MAXIMUM 3 (user, hardware ModBuild 137, finding 12: "Maximale Fluggeschwindigkeit auf 3
+        // setzen. (Also voller Balken = 3)").
+        //
+        // ROOT CAUSE of the complaint: the declared range was 0.2..20, and a DECLARED RANGE IS THE
+        // SLIDER — VROptionsTab.2.Rows.BuildSliderRow feeds item.Min/item.Max straight into
+        // Slider.minValue/maxValue (VROptionsTab.2.Rows.cs:931-932), the row being a slider at all
+        // is decided by ConfigCatalog's HasRange (ConfigCatalog.cs:575, VROptionsTab.2.Rows.cs:813).
+        // So nineteen twentieths of the bar's travel sat above anything flyable, and his tuned
+        // 1.43362 lived in the first 7 % of it: the dial was unusable at exactly the resolution it
+        // needed. Full bar now means 3 apparent m/s, and his value sits at 45 % of the travel.
+        //
+        // The DEFAULT is deliberately untouched at 1.43362 — it is his own tuned value, taken over
+        // verbatim from the cfg drop in ModBuild 137 (standing rule: a dropped cfg is always against
+        // the newest build, so it is never re-expressed). It is inside the new range, so no config
+        // file is silently rewritten by BepInEx's range clamp on load. Only the CEILING moved.
+        //
+        // The floor stays 0.2: it is the deflection below which flight cannot cross a hex in a
+        // reasonable push, and the report asked about the maximum only.
+        //
+        // REJECTED: an explicit ConfigSteps entry to go with the narrower range. The row is a
+        // slider, not a stepper — the arrow-button step is not even read on this path
+        // (BuildSliderRow only uses Min/Max and wholeNumbers) — and ConfigSteps.cs is another
+        // lane's file. Nothing about the step needs to change for this report.
         FlightMaxSpeed = Bind("FlightMaxSpeed", Defaults.FlightMaxSpeed,
             "Flight speed at FULL stick deflection, in apparent meters per second - i.e. meters as " +
             "the diorama looks to you, not world units. Zooming the table therefore never changes " +
             "how fast flying feels. Partial deflection is squared, so small pushes creep and the " +
-            "full push is exactly this value.",
-            new AcceptableValueRange<float>(0.2f, 20f));
+            "full push is exactly this value. Maximum 3 (user ruling 2026-08-13).",
+            new AcceptableValueRange<float>(0.2f, 3f));
         FlightHand = Bind("FlightHand", Defaults.FlightHand,
             "Which thumbstick flies. Dominant follows [Hands] PrimaryHand.");
         // "TableHeightOffset" was bound here. REMOVED (user ruling 2026-08). BepInEx keeps the

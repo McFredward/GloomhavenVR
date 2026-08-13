@@ -21,6 +21,17 @@ namespace GloomhavenVR.Rig;
 /// dialog floats. It is further suppressed while the turn hand participates in a
 /// world grab.
 ///
+/// …BUT ONLY FOR MY OWN TARGETING (user, hardware ModBuild 137, finding 14: "Während
+/// dessen ein Mitspieler gerade eine Bewegung bestätigen musste konnte keiner der
+/// Mitspieler (inklusive mir) sich mehr mit dem Joystick drehen. … Das darf nicht
+/// sein."). BoardTargeting is composed from the SHARED Choreographer wait-state, which
+/// the lockstep rule library drives identically on every peer, so one player's pending
+/// movement confirmation put the whole session into it and took everyone's turning away.
+/// The extra question — WHOSE decision is the board waiting for — is
+/// <see cref="LocalTurnControl"/>'s, and the standing rule it encodes is: another
+/// actor's turn or decision may gate GAME actions, never the local player's locomotion
+/// or view.
+///
 /// MENU SCROLLING OWNS THIS STICK TOO (user, hardware 2026-08-11: "Während dessen man
 /// in einem menu scrollt soll auch die Drehung blockiert sein, das passiert mir immer
 /// wieder versehentlich ungewollt."). Scrolling reads the stick's y axis, turning its x,
@@ -85,7 +96,13 @@ internal sealed class SnapTurn : MonoBehaviour
 
         VRMode vrMode = VRModeStateMachine.CurrentMode;
         // Test #13: ModalUI no longer suppresses turning (see class doc).
-        if (vrMode == VRMode.BoardTargeting
+        //
+        // …AND TARGETING ONLY SUPPRESSES IT WHEN THE TARGETING IS MINE (user, hardware ModBuild 137,
+        // finding 14 — a fellow player's pending movement confirmation froze EVERY player's turning).
+        // BoardTargeting is derived from the SHARED Choreographer state, so it is true on every
+        // client in the session; asking LocalTurnControl turns it into the question this line always
+        // meant to ask. Full reasoning, proof and rejected alternatives: LocalTurnControl.
+        if ((vrMode == VRMode.BoardTargeting && LocalTurnControl.TargetingOwnsStick)
             || (vrMode == VRMode.Menu2D && !RigTarget.IsDevProxy))
         {
             _armed = true; // never fire a stale flick when the stick is handed back

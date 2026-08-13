@@ -300,7 +300,14 @@ internal sealed class Flight : MonoBehaviour
         // keeps flying while aiming, they just cannot strafe with the same flick that turns the
         // pattern. Same shape of ruling as the turning contest, same reason — the older, aimed
         // control keeps the axis it was built on.
-        bool aoeOwnsSideways = VRModeStateMachine.CurrentMode == VRMode.BoardTargeting;
+        //
+        // …AND ONLY WHILE THE TARGETING IS MINE (user, hardware ModBuild 137, finding 14). The mode
+        // is derived from the SHARED Choreographer state, so a fellow player's pending movement
+        // confirmation put EVERY client into BoardTargeting; snap turning was the loud casualty and
+        // strafe was the quiet one on the same axis. LocalTurnControl asks the "whose" question —
+        // and AoeControl.CanRotate already declines to rotate anything on a client without turn
+        // control, so this axis had no other claimant there. See LocalTurnControl for the proof.
+        bool aoeOwnsSideways = LocalTurnControl.TargetingOwnsStick;
         bool allowed = !turningOnThisStick && !aoeOwnsSideways;
         if (_strafeAllowed != allowed)
         {

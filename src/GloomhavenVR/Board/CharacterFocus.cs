@@ -58,6 +58,16 @@ internal enum FocusTurnMark
 /// — the game's own ownership guards are not merely "still in force", they are the ONLY thing
 /// that can ever act, because the focus path has no mutator to reach for.</para>
 ///
+/// <para>AND THERE IS A FLOOR UNDER IT (user ruling 2026-08-13, finding 11: "der Zustand NIEMANDEN
+/// ausgewählt zu haben darf nicht existieren auch nicht während dessen die Gegner dran sind"). The
+/// game's presented hand follows whoever is ACTING — teammates included — so on every client it
+/// spends most of a multiplayer round pointing at a character that client may not drive, which the
+/// mod correctly maps to "no hand" and then, wrongly, presented as NOBODY. <see cref="ResolveHand"/>
+/// now ends with <see cref="LocalFloorHand"/>: whenever the focus tree would answer "no hand", the
+/// board holds a character this client actually controls, read-only. It is a presentation floor
+/// only — it writes no game selection and never presents a foreign character. Full derivation,
+/// evidence and rejected alternatives are on <see cref="LocalFloorHand"/>.</para>
+///
 /// <para>THE ONE GATE (user ruling 2026-08-08: "Ich will nie wieder eine Blockierung haben, den
 /// Character zu wechseln — dafür ist ja nun die Anzeige, ob er dran ist oder nicht"). Focus is
 /// refused in EXACTLY one situation: the secret card-selection window
@@ -158,6 +168,23 @@ internal static class CharacterFocus
 
     /// <summary>Change-log guard: the last focus we logged, so a per-frame resolve is silent.</summary>
     private static int _loggedFocusId;
+
+    /// <summary>
+    /// SELECTION FLOOR — the last locally-controlled character the board actually presented, kept
+    /// so that "nobody selected" has something to fall back TO and so the fallback is a CONTINUATION
+    /// of what the player was looking at rather than a fresh pick every time (see
+    /// <see cref="LocalFloorHand"/>).
+    /// </summary>
+    private static CPlayerActor? _floorActor;
+
+    /// <summary>
+    /// Edge guard for the floor's diagnostic — the actor id we last announced it for, or null while
+    /// the floor is not engaged. Deliberately NULLABLE and not "0 means nothing": 0 is a real id in
+    /// this space (<c>NetFigures.StableActorId(null)</c> returns it, NetFigures.cs:510-511), and it
+    /// is exactly the id of the one case that would then re-log on every rebuild — the floor finding
+    /// nothing to fall back to.
+    /// </summary>
+    private static int? _loggedFloorId;
 
     /// <summary>Peer focus state, keyed by transport player id (wire record 22). Written by
     /// <see cref="ApplyPeer"/> from the extras apply pass, read by the remote outlines.</summary>
@@ -754,9 +781,56 @@ internal static class CharacterFocus
     ///   game refuses to act on it during the action phase anyway (FullAbilityCard.cs:635), so
     ///   presenting it interactively would only rebuild the deadlock the mod already guards
     ///   against. Read-only is the correct — and the safe — answer for every override.</item>
+    /// <item>…and a FOURTH, which is not a focus decision at all: whenever the three above would
+    ///   answer "no hand", the SELECTION FLOOR steps in (<see cref="LocalFloorHand"/>) so the board
+    ///   is never empty. That clause lives in this method rather than in the tree, because it is
+    ///   about the tree's ANSWER, not about the focus.</item>
     /// </list>
     /// </summary>
     internal static CardsHandUI? ResolveHand(CardsHandUI? gameHand)
+    {
+        CardsHandUI? resolved = ResolveHandCore(gameHand);
+        if (resolved != null)
+        {
+            // Remember what we presented, while it is still ours: the floor's first choice is
+            // CONTINUITY, so a board that has to fall back falls back to the character the player
+            // was already looking at rather than to whoever happens to be first in the list.
+            if (PresentedActor != null && !IsForeign(PresentedActor))
+                _floorActor = PresentedActor;
+            _loggedFloorId = null; // the floor is not engaged — the next engagement announces itself
+            return resolved;
+        }
+
+        // NOBODY SELECTED IS NOT A STATE (user, hardware ModBuild 137, finding 11) — see
+        // <see cref="LocalFloorHand"/> for the whole story.
+        CardsHandUI? floor = LocalFloorHand();
+        if (floor == null)
+        {
+            // Genuinely nothing to show: no scenario, no hands built yet, or this client controls
+            // no living character at all (spectator / whole party exhausted). The empty board is
+            // then the truth, and SelectionOwnershipFallback documents the same terminal case.
+            LogFloor(null);
+            return null;
+        }
+
+        PresentedActor = floor.PlayerActor;
+        // READ-ONLY, without exception. The commit seams (confirm/undo, rests, action play, item
+        // use, every pick flow) deliberately read the GAME's hand — CardsDriver.CurrentHand() —
+        // which is precisely the null that got us here, so an interactive fan would offer actions
+        // that resolve against no hand at all. Presenting a picture is the only honest answer, and
+        // it is the same answer the class already gives every override.
+        _readOnlyView = true;
+        _floorActor = floor.PlayerActor;
+        LogFloor(floor.PlayerActor);
+        return floor;
+    }
+
+    /// <summary>
+    /// <see cref="ResolveHand"/>'s original body — the focus decision alone, before the selection
+    /// floor is applied on top. Split out so the floor is a single, visible wrapper rather than a
+    /// clause repeated at four returns.
+    /// </summary>
+    private static CardsHandUI? ResolveHandCore(CardsHandUI? gameHand)
     {
         PresentedActor = gameHand != null ? gameHand.PlayerActor : null;
         _readOnlyView = false;
@@ -786,7 +860,10 @@ internal static class CharacterFocus
             return gameHand;
         }
 
-        CardsHandUI? focusHand = PresentedHand(gameHand);
+        // The UN-FLOORED twin on purpose. The floor is applied ONCE, by ResolveHand, to this
+        // method's answer — asking the floored PresentedHand here would let a focus whose widget is
+        // not built yet resolve to the FLOOR character and be latched as though it were the focus.
+        CardsHandUI? focusHand = PresentedHandCore(gameHand);
         if (focusHand == null || ReferenceEquals(focusHand, gameHand))
         {
             // Mid-rebuild / mid-teardown: fall back to the game's hand rather than an empty
@@ -824,6 +901,15 @@ internal static class CharacterFocus
     /// </summary>
     internal static CardsHandUI? PresentedHand(CardsHandUI? gameHand)
     {
+        CardsHandUI? resolved = PresentedHandCore(gameHand);
+        // The selection floor is part of the ANSWER, so this twin has to apply it too — otherwise
+        // the per-frame consumers (the pile counts) would read "no hand" for exactly the character
+        // the rebuild is showing, which is the very drift this method was extracted to end.
+        return resolved != null ? resolved : LocalFloorHand();
+    }
+
+    private static CardsHandUI? PresentedHandCore(CardsHandUI? gameHand)
+    {
         if (_focused == null || _focused.IsDead || !Refusal(out _))
             return gameHand;
         if (gameHand != null && ReferenceEquals(gameHand.PlayerActor, _focused))
@@ -831,6 +917,126 @@ internal static class CharacterFocus
         CardsHandManager manager = CardsHandManager.Instance;
         CardsHandUI? focusHand = manager != null ? manager.GetHand(_focused) : null;
         return focusHand != null ? focusHand : gameHand;
+    }
+
+    /// <summary>
+    /// THE SELECTION FLOOR: a hand for a character the LOCAL client controls, so that "no character
+    /// selected" cannot exist while this client has a character to select.
+    ///
+    /// <para>USER REPORT (hardware, ModBuild 137, finding 11): "Während dem Test ist es passiert das
+    /// ich keinen Character ausgewählt hatte. Ich konnte zwar normal jemand wieder auswählen aber der
+    /// Zustand NIEMANDEN ausgewählt zu haben darf nicht existieren auch nicht während dessen die
+    /// Gegner dran sind."</para>
+    ///
+    /// <para>ROOT CAUSE, and it is a MULTIPLAYER-ONLY one. The board's character comes from the
+    /// GAME's presented hand, and the game re-points that hand at whoever is ACTING — remote players
+    /// included, on every client (<c>Choreographer.cs:4024/4043/4062/5586/6004</c> call
+    /// <c>CardsHandManager.Show(playerActor, …)</c> → <c>SwitchHand</c> → <c>currentHand = …</c>,
+    /// CardsHandManager.cs:626, with no ownership test — the ownership branch that follows only
+    /// picks the ActionProcessor state). <c>CardsDriver.CurrentHand()</c> then filters that through
+    /// <c>CardsGameApi.IsLocalHand</c> and answers <b>null</b> for a foreign hand
+    /// (CardsDriver.2.Update.cs:944-945), and <see cref="ResolveHand"/> latched that null straight
+    /// into <see cref="PresentedActor"/>. Result: from the moment a teammate's turn began until the
+    /// player clicked a portrait, the control board had NOBODY on it — no fan, no piles, no
+    /// selection ring (<c>FocusDriver.cs:440</c> only draws it for a non-null
+    /// <see cref="LookingAt"/>), and record 22 carried actor id 0, so the peers' mirrors showed him
+    /// looking at nothing either. <c>CardsHandManager.Hide()</c> only clears <c>isShown</c>
+    /// (CardsHandManager.cs:899-918) — <c>currentHand</c> keeps pointing at the foreign actor
+    /// through the whole enemy phase, which is exactly the "auch nicht während dessen die Gegner
+    /// dran sind" half of the report.</para>
+    ///
+    /// <para>EVIDENCE FROM HIS SESSION. Host log <c>.planning/debug/LogOutput.log</c>: line 43057
+    /// <c>[Focus] cleared (the game now presents the focused character)</c> — his own turn arrived
+    /// on the character he was watching, so the override was correctly dropped and the board went
+    /// back to "follow the game". Line 45066 then records the game waiting on <c>'Scream'</c>, a
+    /// character "this client does not control". From there the game's hand was foreign, the board
+    /// had nobody, and the state ended only at line 46037/46038, a manual portrait click:
+    /// <c>[Focus] now looking at 'Cryonaris'; phase Action, at turn 'Scream'</c> — verbatim his "Ich
+    /// konnte zwar normal jemand wieder auswählen".</para>
+    ///
+    /// <para>THE ORDER, and why it is this one. First the character we were already presenting
+    /// (<see cref="_floorActor"/>) while it is still ours and alive — a floor that CHANGES which
+    /// character you are looking at every time a teammate's turn starts would be its own bug.
+    /// Otherwise the first local, living hand in the game's own list order, which is the exact rule
+    /// two neighbours already use for the same problem: <c>CardsGameApi.LoseRewardPickHand</c>
+    /// ("the presented ActiveHand when it is local, else the first local hand", written because a
+    /// demand "could arrive during a REMOTE actor's turn and no local surface would exist") and
+    /// <c>SelectionOwnershipFallback</c> ("first still-owned, non-dead player").</para>
+    ///
+    /// <para>IT NEVER PRESENTS A FOREIGN CHARACTER. Every candidate passes
+    /// <c>CardsGameApi.IsLocalHand</c>, so the floor cannot disclose anything the player is not
+    /// already entitled to see, in any phase — including the secret card-selection window, which is
+    /// why this clause needs no gate of its own and <see cref="Refusal"/> is left alone.</para>
+    ///
+    /// <para>REJECTED: writing the game's own selection instead (<c>CardsGameApi.SelectActor</c> →
+    /// <c>InitiativeTrack.Select</c> → <c>SwitchHand</c>), which would make the fallback fully
+    /// interactive. It would fight the game every turn: <c>InitiativeTrack.UpdateInitiativeTrack</c>
+    /// re-selects the CURRENT ACTOR on every turn message (InitiativeTrack.cs:618-624), so the
+    /// selection would flip back and forth for as long as somebody else is acting.
+    /// <c>SelectionOwnershipFallback</c> may write that seam only because it is a strict one-shot
+    /// armed by a real control-release event, and its own class doc warns that this fallback "must
+    /// never steal" the game's turn display. A presentation floor steals nothing.</para>
+    ///
+    /// <para>REJECTED: fixing it at <c>CardsDriver.CurrentHand()</c> by returning a local hand
+    /// there. That method is what the COMMIT seams read (confirm/undo, rests, action play, item use,
+    /// the pick flows — "USE IT FOR WHAT IS DISPLAYED, NEVER FOR WHAT IS COMMITTED",
+    /// CardsDriver.2.Update.cs:953-956), so widening it would let a click resolve against a hand the
+    /// game is not presenting. The floor belongs on the PRESENTATION side, which is this class.</para>
+    ///
+    /// <para>REJECTED: keeping the board empty but reporting the floor character on the wire, so at
+    /// least the peers see something. The report is about the local board being empty; a wire-only
+    /// fix would answer a question nobody asked and make the mirror disagree with the screen.</para>
+    /// </summary>
+    private static CardsHandUI? LocalFloorHand()
+    {
+        CardsHandManager manager = CardsHandManager.Instance;
+        if (manager == null)
+            return null;
+
+        if (_floorActor != null && !_floorActor.IsDead)
+        {
+            CardsHandUI kept = manager.GetHand(_floorActor);
+            if (kept != null && CardsGameApi.IsLocalHand(kept))
+                return kept;
+        }
+
+        List<CardsHandUI> hands = manager.CardHandsUI;
+        if (hands == null)
+            return null;
+        for (int i = 0; i < hands.Count; i++)
+        {
+            CardsHandUI hand = hands[i];
+            if (hand != null && hand.PlayerActor != null && !hand.PlayerActor.IsDead
+                && CardsGameApi.IsLocalHand(hand))
+                return hand;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The floor's diagnostic — <c>SELECTION GUARD</c>, edge-only (one line per change of the
+    /// character it lands on), so the next multiplayer log proves both halves: that the empty state
+    /// was reached at all, and that it was filled.
+    /// </summary>
+    private static void LogFloor(CPlayerActor? actor)
+    {
+        // Outside a live scenario there is nothing to select and nothing to report — the menu is not
+        // an empty board.
+        if (actor == null && !CardsGameApi.InScenario)
+            return;
+        int id = NetFigures.StableActorId(actor);
+        if (_loggedFloorId == id)
+            return;
+        _loggedFloorId = id;
+        VRLog.Info("Board", actor != null
+            ? $"SELECTION GUARD: the game presents no hand this client may drive (its own hand "
+              + $"follows whoever is acting, teammates included) — holding '{Describe(actor)}' on the "
+              + "board READ-ONLY instead of showing nobody. 'No character selected' is not a state "
+              + "(user 2026-08-13, #11); the view returns to normal by itself the moment the game "
+              + "presents one of ours again."
+            : "SELECTION GUARD: the game presents no hand this client may drive AND there is no "
+              + "local character to fall back to (no scenario, hands not built yet, spectator, or "
+              + "the whole party is exhausted) — the empty board is the truth here.");
     }
 
     /// <summary>
@@ -1146,6 +1352,8 @@ internal static class CharacterFocus
         _readOnlyView = false;
         PresentedActor = null;
         _loggedFocusId = 0;
+        _floorActor = null;    // a dead scenario's character must never be the next one's floor
+        _loggedFloorId = null;
         _lastRefusal = null;
         _lastRefusedActorId = 0;
         _lastRefusalTime = float.NegativeInfinity;
