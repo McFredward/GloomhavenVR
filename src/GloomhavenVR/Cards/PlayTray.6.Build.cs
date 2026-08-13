@@ -288,8 +288,10 @@ internal sealed partial class PlayTray
         // paragraph used to say it did, and the paragraph six lines below explains why that was
         // taken out. Believe the lower one.
         // Today the mod owns Confirm + Undo here (GenericButtonCount); the real Skip/Select turn-flow
-        // buttons still dock via the WorldUI ButtonCluster mount (not one of these files).
-        int count = GenericCount; // 2 (Confirm/Undo) or 3 while the item "Use" confirm is a cluster member
+        // buttons still dock via the WorldUI ButtonCluster mount (not one of these files). The item
+        // "Use" confirm built below is a fourth cap but NOT a fourth seat — it shares Confirm's
+        // (PlayTray.GenericPrimarySlot), which is what makes "Auswahl beenden" and "Benutzen" land in
+        // the same place. Nothing here reads the count: SetConfirmUndoOffset owns the layout.
         // Cap size is the TUNED size at every count (user: "der Use-Button soll genauso groß sein und
         // sich nach den Werten richten, die die generischen Buttons vorgegeben haben"). It used to be
         // run through GenericClusterButtonSize, which shrank every cap once a third member joined — so
@@ -346,9 +348,13 @@ internal sealed partial class PlayTray
         RegisterLaserTarget(_undo.Collider!, _undo);
 
         // Requirement 9a: while the item "Use" confirm is a live cluster member, it is a GENERIC
-        // cluster board button in THIS column at index 1 (the slot directly ABOVE Undo) — same board
-        // keycap look as Confirm/Undo (never the old bespoke keycap beside the slot); onClick routes
-        // to the ItemsPile-supplied use action.
+        // cluster board button in THIS column — same board keycap look as Confirm/Undo (never the old
+        // bespoke keycap beside the slot); onClick routes to the ItemsPile-supplied use action.
+        //
+        // IT IS PARENTED TO confirmParent ON PURPOSE, and that is now load-bearing: a placed item
+        // hides Confirm outright, so the two caps are mutually exclusive and share ONE seat
+        // (PlayTray.GenericPrimarySlot). Sharing the anchor is what reduces "same position" to "same
+        // localPosition" — SetConfirmUndoOffset writes one Vector3 to both.
         //
         // IT IS NOW BUILT UNCONDITIONALLY AND HIDDEN, instead of being built when it becomes active
         // and destroyed when it stops. User report 2026-08-09: "Wenn man einen abgelegten Gegenstand
@@ -405,7 +411,7 @@ internal sealed partial class PlayTray
         if (!_itemUseActive)
             _itemUseConfirm?.SetVisible(false);
 
-        SetConfirmUndoOffset(off, spacing); // count-aware: Confirm(top)/[Use]/Undo(bottom), Z proud
+        SetConfirmUndoOffset(off, spacing); // Confirm+Use share the top seat, Undo the bottom one, Z proud
         VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
                             $"{rectSize.x:F3}×{rectSize.y:F3} m for {active} (offset {off}, spacing {spacing:F3} m)" +
                             (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));

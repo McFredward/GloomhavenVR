@@ -99,23 +99,90 @@ internal sealed partial class PlayTray
     /// <summary>
     /// PART F live-apply: move the generic Confirm/Undo buttons to a new per-board offset +
     /// inter-button spacing (instant). Confirm (upper) takes +spacing/2 along the board's short
-    /// axis, Undo (lower) −spacing/2.
+    /// axis, Undo (lower) −spacing/2 — and the item "Use" confirm is written to the SAME seat as
+    /// Confirm (see <see cref="GenericPrimarySlot"/>).
     /// </summary>
     internal void SetConfirmUndoOffset(Vector3 offset, float spacing)
     {
-        // Item D / requirement 9a: auto-fit the generic cluster's buttons in a vertical stack. The
-        // member COUNT is dynamic — normally Confirm(0)/Undo(1); while a held usable item card is
-        // clipped into the use slot the item "Use" confirm joins as member 1 (the slot directly ABOVE
-        // Undo), pushing the pair to a 3-member stack. GenericClusterY packs any count into the column
-        // (at 2 it reproduces the tuned ±spacing/2 pair; at 3 it spreads within GenericColumnHeight so
-        // Use lands squarely above Undo). Undo is ALWAYS the bottom member (index count-1).
+        // Item D: the generic cluster is a vertical stack laid out by GenericClusterY. Confirm takes
+        // the PRIMARY slot (0), Undo is ALWAYS the bottom member (index count-1), and at the tuned
+        // count of 2 that is exactly the authored ±spacing/2 pair.
         int count = GenericCount;
+        // ONE SEAT FOR THE COMMIT CAP — computed once, written to BOTH caps (user, verbatim: "Die
+        // Position des Buttons 'Auswahl beendet' bei den allgemeinen Buttons sollte EXAKT die gleiche
+        // sein wie der 'Benutzen' button der erscheint wenn ein Item in dem Slot liegt und genutzt
+        // werden kann. Aktuell gibt es da einen Offset auf der Y-Achse."). See GenericPrimarySlot for
+        // the mechanism that produced that offset and why the CONFIRM slot is the surviving seat.
+        Vector3 primary = offset + new Vector3(0f, GenericClusterY(GenericPrimarySlot, count, spacing), 0f);
         if (_confirm != null)
-            _confirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(0, count, spacing), 0f);
-        if (_itemUseConfirm != null && _itemUseActive)
-            _itemUseConfirm.transform.localPosition = offset + new Vector3(0f, GenericClusterY(1, count, spacing), 0f);
+            _confirm.transform.localPosition = primary;
+        // Written unconditionally, not only while active: the cap is built on the SAME anchor as
+        // Confirm and merely hidden when idle, so seating it every time removes the one state the old
+        // code had to be in for the two to agree.
+        if (_itemUseConfirm != null)
+            _itemUseConfirm.transform.localPosition = primary;
         if (_undo != null)
             _undo.transform.localPosition = offset + new Vector3(0f, GenericClusterY(count - 1, count, spacing), 0f);
+        LogPrimarySeat(primary, spacing);
+    }
+
+    /// <summary>
+    /// The generic cluster's PRIMARY (commit) slot — the seat BOTH the board's CONFIRM keycap and the
+    /// item "Benutzen" keycap are written to.
+    ///
+    /// <para>THE BUG THIS CLOSES, mechanically. Both caps are children of the very same anchor
+    /// (<c>BuildButtons</c> parents <see cref="_itemUseConfirm"/> to <c>confirmParent</c>), so their
+    /// local Y was the whole difference. The item cap used to be a THIRD stack member: while it was
+    /// live <see cref="GenericCount"/> returned 3, which put Confirm at <c>+spacing</c>, Use at
+    /// <c>0</c> and Undo at <c>−spacing</c>; while it was idle the count fell back to 2 and Confirm
+    /// sat at <c>+spacing/2</c>. Since a placed item HIDES Confirm and Undo outright (the ModBuild
+    /// 103 rule in <c>TickStatus</c>), the two caps were never on screen together — the player only
+    /// ever saw the visible one of the pair, "Auswahl beenden" at <c>+spacing/2</c> and "Benutzen" at
+    /// <c>0</c>. That difference — exactly HALF the tuned <c>[Cards] GenericButtonSpacing</c>, 5 mm
+    /// board-local on the shipped Steel board — is the reported Y offset. It was never a tuning
+    /// value: it fell out of a member count, so no number could be nudged to remove it.</para>
+    ///
+    /// <para>WHY THE CONFIRM SLOT IS THE SURVIVING SEAT rather than the item cap's old one. The two
+    /// caps are mutually exclusive by construction, so the cluster only ever needs TWO seats and the
+    /// third one was the drift. Of the two candidates only the Confirm slot is a TUNED quantity: the
+    /// player's <c>[Cards] ConfirmUndoOffset_{board}</c> places the cluster and
+    /// <c>GenericButtonSpacing_{board}</c> spreads Confirm against Undo, and that spread is defined
+    /// as the gap BETWEEN the pair. Had the pair moved down onto the item cap's old seat instead, the
+    /// Confirm↔Undo gap would have silently shrunk by spacing/2 on every board and the spacing dial
+    /// would have become an asymmetric one that only moves Undo — a live retune of two shipped
+    /// per-board values as a side effect of an alignment fix. Seating the transient cap on the tuned
+    /// slot changes nothing the player dialled in, and it holds under board rescale, a board switch
+    /// and any future relayout because the seat is one expression evaluated once above: whatever the
+    /// anchor and spacing resolve to, both caps get that same Vector3.</para>
+    /// </summary>
+    private const int GenericPrimarySlot = 0;
+
+    /// <summary>Last primary seat announced by <see cref="LogPrimarySeat"/> — NaN until the first
+    /// application, so a fresh board always logs exactly once and a re-layout only speaks up when the
+    /// shared seat actually moved.</summary>
+    private Vector3 _alignLoggedSeat = new(float.NaN, float.NaN, float.NaN);
+
+    /// <summary>
+    /// One <c>BUTTON ALIGN</c> line per distinct shared seat: names the anchor the pose was derived
+    /// from, states whether both caps really hang off it, and prints the local offset both of them
+    /// were written to — so a hardware log proves "Auswahl beenden" and "Benutzen" agree instead of
+    /// leaving it to a screenshot.
+    /// </summary>
+    private void LogPrimarySeat(Vector3 seat, float spacing)
+    {
+        if (_confirm == null || _itemUseConfirm == null)
+            return;
+        if ((seat - _alignLoggedSeat).sqrMagnitude < 1e-12f)
+            return;
+        _alignLoggedSeat = seat;
+        Transform? anchor = _confirm.transform.parent;
+        string anchorName = anchor != null ? anchor.name : "<none>";
+        bool shared = anchor != null && ReferenceEquals(anchor, _itemUseConfirm.transform.parent);
+        VRLog.Info("Cards", "BUTTON ALIGN: generic-cluster commit seat derived from anchor " +
+                            $"'{anchorName}' — {(shared ? "shared by BOTH caps" : "MISMATCH: the item cap hangs off a different anchor")}; " +
+                            $"local offset {seat.x:F4}, {seat.y:F4}, {seat.z:F4} m " +
+                            $"[slot {GenericPrimarySlot} of {GenericCount}, spacing {spacing:F4} m] — " +
+                            "CONFIRM 'Auswahl beenden' and item-USE 'Benutzen' are written to this one pose.");
     }
 
     /// <summary>
@@ -127,13 +194,21 @@ internal sealed partial class PlayTray
 
     /// <summary>
     /// Requirement 9a: true while the item "Use" confirm is a live member of the generic cluster (a held
-    /// usable item card is clipped into the use slot). It bumps <see cref="GenericCount"/> to 3 so Confirm
-    /// (top) / Use (middle, above Undo) / Undo (bottom) auto-fit the column; false restores the tuned pair.
+    /// usable item card is clipped into the use slot).
+    ///
+    /// <para>It no longer changes <see cref="GenericCount"/>. It used to bump the count to 3 so the item
+    /// cap could claim a slot of its own between Confirm and Undo — the mechanism that produced the
+    /// reported Y offset, since a placed item hides Confirm and Undo anyway and the extra slot only ever
+    /// displaced the one cap that was actually on screen. The cap now shares the Confirm seat
+    /// (<see cref="GenericPrimarySlot"/>); this flag is purely a VISIBILITY/label state.</para>
     /// </summary>
     private bool _itemUseActive;
 
-    /// <summary>Live generic-cluster member count: the tuned pair, plus the item "Use" confirm while pending.</summary>
-    private int GenericCount => GenericButtonCount + (_itemUseActive ? 1 : 0);
+    /// <summary>Generic-cluster SEAT count: the tuned Confirm/Undo pair. The item "Use" confirm does not
+    /// add a seat — it shares Confirm's (<see cref="GenericPrimarySlot"/>), because the two can never be
+    /// visible at the same time. Kept as a named property so a future third member that really does need
+    /// its own slot has one place to say so.</summary>
+    private int GenericCount => GenericButtonCount;
 
     /// <summary>Vertical room (tray-local meters) the generic cluster packs its buttons into. Kept clear of
     /// the round readout (top edge) and the settings gear (bottom edge) so a 3-member stack (with the item
@@ -397,10 +472,12 @@ internal sealed partial class PlayTray
     /// <para>NOTHING ABOUT THE PAIR ACTUALLY DEPENDED ON THE COUNT. The caps stopped being auto-sized
     /// from the member count when the user ruled that the Use button must keep the tuned
     /// <c>[BoardButtons]</c> size ("der Use-Button soll genauso groß sein …"); all the count still
-    /// drives is each cap's local Y, which <see cref="SetConfirmUndoOffset"/> writes on the live
+    /// drove was each cap's local Y, which <see cref="SetConfirmUndoOffset"/> writes on the live
     /// transforms. With the item-use cap now BUILT ONCE AND HIDDEN (see <c>BuildButtons</c>), a
     /// clip-in is a re-layout plus three <c>SetVisible</c> calls — i.e. the ordinary animated path
-    /// every other cap on the board already uses — and the rebuild storm is gone with it.</para>
+    /// every other cap on the board already uses — and the rebuild storm is gone with it. Since the
+    /// item cap took over the Confirm SEAT (<see cref="GenericPrimarySlot"/>) the count does not move
+    /// at all any more, so the clip-in re-layout is now a no-op that only re-reads the tuning.</para>
     /// </summary>
     internal void RebuildAttachedControls()
     {
@@ -417,7 +494,8 @@ internal sealed partial class PlayTray
             // (Core.TmpFit.Fit leaves enableAutoSizing on) re-fits the new string inside the same
             // cap, which is what the rebuild used to be doing the long way round.
             _itemUseConfirm.SetLabel(_itemUseConfirmLabel ?? Core.Loc.Mod("item_use_area"));
-            // Re-lay-out for the live member count (2 ↔ 3) and re-read the per-board offsets.
+            // Re-seat every cap from the live per-board offsets. The member count no longer moves
+            // (the item cap shares Confirm's seat), so this is a re-read of the tuning, not a reflow.
             ControlBoard live = CardsConfig.CurrentBoard;
             SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset(live).Value,
                 CardsConfig.GenericButtonSpacing(live).Value);

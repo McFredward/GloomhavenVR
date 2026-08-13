@@ -929,18 +929,21 @@ internal sealed class RemoteBoardFurniture
         _confirm = GenericCap(confirmParent, "Confirm", confirmPos, CapIdleColor, ConfirmColor, labels);
         _undo = GenericCap(undoParent, "Undo", undoPos, CapIdleColor, UndoColor, labels);
 
-        // The item "USE" confirm is a DYNAMIC member of that same generic cluster (PlayTray
-        // requirement 9a): while a usable item card is clipped into the use recess it joins as
-        // member 1, i.e. the slot between CONFIRM (top) and UNDO (bottom). Drawn at the geometric
-        // midpoint of the two caps (computed through world space so it is right on the real
-        // anchors too), which is where a sanely tuned three-stack puts it.
-        Vector3 useMidLocal = confirmParent.InverseTransformPoint(
-            (_confirm.WorldPosition + _undo.WorldPosition) * 0.5f);
+        // The item "USE" confirm SHARES THE CONFIRM SEAT — the same seat, term for term, that
+        // PlayTray.SetConfirmUndoOffset now writes to both of the owner's caps
+        // (PlayTray.GenericPrimarySlot). It used to be drawn at the geometric MIDPOINT of Confirm and
+        // Undo, on the reading that it was a third stack member between them; it never was one on the
+        // owner's board (there it sat on the Confirm ANCHOR, ~52 mm higher than this midpoint), and
+        // since the user's alignment ruling it is not a separate member at all — a placed item hides
+        // Confirm, so the two are mutually exclusive and occupy one seat. Reusing `confirmPos`
+        // verbatim, on `confirmParent` exactly as the owner does, is what keeps the mirror 1:1: this
+        // seat is DERIVED on every peer from the synced [Cards] ConfirmUndoOffset/GenericButtonSpacing
+        // (BoardTuning record), never carried as a pose on the wire.
         // …and this one IS accented, permanently: every SetState on the local item-USE cap is
         // (enabled: true, accent: true) — "always pressable while shown (no game gate)" — so its
         // look is a BUILD fact, not a state fact, and it costs no wire bit (see
         // NetProtocol.BoardUiCapConfirmAccentBit's "what is not here" note).
-        _use = GenericCap(confirmParent, "ItemUse", useMidLocal, ConfirmColor, ConfirmColor, labels);
+        _use = GenericCap(confirmParent, "ItemUse", confirmPos, ConfirmColor, ConfirmColor, labels);
         // Starts hidden and in step with the _shownArmed seed below: the local cluster only holds
         // this member while an item decision is pending, and Refresh() early-outs while nothing
         // changed — so a board that never sees an item fan must not be left showing a USE cap.
