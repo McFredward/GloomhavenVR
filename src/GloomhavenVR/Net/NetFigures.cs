@@ -440,6 +440,16 @@ internal static class NetFigures
             if (t.localScale != want)
                 t.localScale = want;
             rec.ScaleTouched = true;
+            // FIGURE RESCALE, the peer half (user, ModBuild 137: "Beim Skallieren der Figuren
+            // skallieren nicht alle Assets richtig mit … Alle Teile der Figur sollen korrekt
+            // mitskallieren"). A cape is a UnityEngine.Cloth whose per-vertex constraints are
+            // absolute distances seeded once at spawn (ActorBehaviour.cs:122) and never re-seeded by
+            // the game, so it does not follow a transform scale. The MIRROR must apply exactly the
+            // same correction as the holder's own machine or the two clients show different capes at
+            // the same size — the 1:1 ruling. Zero wire bytes: the factor is the one reconstructed
+            // right above, so both sides arrive at the same number from the data they already have.
+            // See Board/FigureGrab/FigureCloth.
+            FigureCloth.Note(t.gameObject, sizeFactor);
         }
         return true;
     }
@@ -563,8 +573,14 @@ internal static class NetFigures
         if (rec == null || !rec.ScaleTouched)
             return;
         Transform? t = RootTransform(rec.Actor);
-        if (t != null && t.localScale != rec.HomeLocalScale)
+        if (t == null)
+            return;
+        if (t.localScale != rec.HomeLocalScale)
             t.localScale = rec.HomeLocalScale;
+        // Back at board size — tell FigureCloth so the cape's authored coefficients are restored
+        // verbatim and its simulation faded back in. Unconditional (not gated on the write above)
+        // because the size may already be home while the cloth is still mid-correction.
+        FigureCloth.Note(t.gameObject, 1f);
     }
 
     private static Transform? RootTransform(ActorBehaviour actor)

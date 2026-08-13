@@ -120,6 +120,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         FigureGhosts.Clear();
         FigureRingSuppressor.Clear();
         FigureStallWatchdog.Reset();
+        FigureCloth.Clear(); // no stale per-figure cloth bookkeeping across a scene change
     }
 
     private void Update()

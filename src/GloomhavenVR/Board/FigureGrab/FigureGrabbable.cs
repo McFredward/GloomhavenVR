@@ -846,6 +846,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     {
         foreach (FigureGrabbable g in Live)
             g.ReassertHeldScale();
+
+        // FIGURE RESCALE — keep the SIMULATED parts (capes/cloth) in step with whatever size was
+        // just written, here and on the peer's mirror alike. Deliberately ridden on this step
+        // rather than made a new one: it is the correction that belongs to the size write, it must
+        // run in the same place (above the config gate, so a figure the gate releases on THIS frame
+        // still gets its cloth back), and a new step would edit the locked frame order. Strict
+        // no-op unless something is being resized. See FigureCloth for the whole account.
+        FigureCloth.Tick();
     }
 
     private void ReassertHeldScale()
@@ -853,7 +861,26 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         GameObject? root = Root;
         if (!_attached || root == null || _anchor == null)
             return;
-        root.transform.localScale = HeldLocalScale();
+        Transform t = root.transform;
+        t.localScale = HeldLocalScale();
+        NoteClothScale(t);
+    }
+
+    /// <summary>
+    /// Report this figure's rendered size RELATIVE to the board size it was grabbed at, so
+    /// <see cref="FigureCloth"/> can re-seed the cape/cloth simulation that does not follow a
+    /// transform scale on its own (user, ModBuild 137: "Alle Teile der Figur sollen korrekt
+    /// mitskallieren"). World scale, not local: the mini is reparented into the hand, so its LOCAL
+    /// scale means nothing across the grab boundary, while <see cref="_homeWorldScale"/> is the same
+    /// board world size the latch itself is derived from. A diorama zoom is therefore included by
+    /// construction — it genuinely does change the figure's world size, which is the only size the
+    /// cloth solver knows about.
+    /// </summary>
+    private void NoteClothScale(Transform t)
+    {
+        float home = _homeWorldScale.x;
+        if (home > 1e-6f)
+            FigureCloth.Note(t.gameObject, t.lossyScale.x / home);
     }
 
     /// <summary>
@@ -1082,6 +1109,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // Size rides the same curve as the position: a mini released after a mid-hold zoom eases
         // from its latched in-hand size back to the board's live size instead of snapping there.
         t.localScale = Vector3.LerpUnclamped(_glideFromScale, _origLocalScale, e);
+        NoteClothScale(t); // the glide is a size ANIMATION — the cape rides it home too
     }
 
     /// <summary>
@@ -1103,6 +1131,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             t.localPosition = _origLocalPos;
             t.localRotation = _origLocalRot;
             t.localScale = _origLocalScale;
+            NoteClothScale(t); // back at board size → FigureCloth restores the authored coefficients
         }
 
         if (_actor != null)
@@ -1150,6 +1179,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
                 // root/parent). The ordinary player release glides, and since the 2026-08-11 hold
                 // ruling the game-forced hold-gate release glides too. See OnRelease.
                 t.localScale = _origLocalScale;
+                NoteClothScale(t); // back at board size → FigureCloth restores the authored coefficients
             }
             _attached = false;
             _anchor = null;
