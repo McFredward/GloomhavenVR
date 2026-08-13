@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 136`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 137`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-13
 
@@ -126,6 +126,20 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 137** — his tuned setup is the shipped default. 31 values taken over VERBATIM from
+  the cfg drop via `python3 scripts/rebase-defaults.py apply` (standing rule: a dropped cfg is
+  always against the NEWEST build — never re-express it, see memory tuned-cfg-drops-are-current).
+  Shipped board style is now **Bronze**; the play tray moves to where he holds it (TrayForward
+  0.585→0.679, TrayDown 0.094→0.127, TrayRight −0.264→−0.035, TrayPitch 33→42.4, TrayYaw
+  −41→−10, TrayScale 0.57→2); BoardScale rebased on all three boards (Oak 0.924→0.554, Steel
+  0.299→0.437, Bronze 0.4→0.437); the item-use slot gains per-board offsets on all three; the
+  decision dock, pile, rest discs, slot overlays and active card follow; world scale
+  SavedScaleMultiplier 2.82→3.37; RoundButtons Depth 0.009→0.015 and OffsetZ 0.025→0.005.
+  Only `Defaults/{Cards,Rig,WorldUI}.cs` changed — no code, no wire, same bundle as 136.
+  **`rebase-defaults.py check` exits 0 for the first time** — the reference cfg directory was
+  missing until now, so that fifth gate had been reporting an environment gap in every round's
+  worker reports. The 109 cfg keys with no Defaults line are correctly left alone; ~20 of them
+  are the dials removed in 136's audit and are inert orphans by design.
 - **ModBuild 136** — STACK TRACES RESTORED (the round's biggest win), settings audit round 2,
   moonlight instead of lasers, Off (black) environment, three reported bugs closed.
   **DIAGNOSTICS:** `GloomhavenShared.LogBuildInfo()` (decompiled GH.Shared:57-61) calls

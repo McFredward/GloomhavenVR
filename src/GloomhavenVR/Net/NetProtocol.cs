@@ -416,7 +416,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 136;
+    public const ushort ModBuild = 137;
+    // Build 137: the user's tuned setup becomes the shipped default. No code change beyond
+    // Defaults/, no wire change, same bundle as 136.
+    //
+    // 31 values taken over VERBATIM from his cfg drop via scripts/rebase-defaults.py apply
+    // (standing rule: a dropped cfg is always against the newest build — never re-express it).
+    // Headline: the shipped board style is now Bronze, the play tray sits where he actually
+    // holds it (forward/down/right/pitch/yaw, scale 2), the three board scales are rebased,
+    // the item-use slot gains its per-board offsets, and the decision/pile/rest furniture moves
+    // with it. Also his world scale (SavedScaleMultiplier 2.82 -> 3.37) and the round buttons'
+    // depth/Z. rebase-defaults now reports every cfg value equal to the shipped default — the
+    // fifth gate runs green for the first time (the reference cfg was missing until now).
+    //
     // Build 136: exceptions finally carry stack traces, settings audit round 2, moonlight
     // instead of lasers, an Off (black) environment, and three reported bugs closed.
     // No wire change. Bundle rebuilt (64.5 MB) — 136 NEEDS it.

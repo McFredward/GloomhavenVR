@@ -38,12 +38,12 @@ internal static partial class Defaults
     // ---- WorldUI/ButtonTuning.cs ---------------------------------------------------
     internal const float RoundButtons_OffsetX = -0.045f;                                // => [RoundButtons] OffsetX
     internal const float RoundButtons_OffsetY = 0.26f;                                  // => [RoundButtons] OffsetY
-    internal const float OffsetZ = 0.025f;                                              // => [RoundButtons] OffsetZ
+    internal const float OffsetZ = 0.005f;                                              // => [RoundButtons] OffsetZ
     internal const Cards.ButtonShape RoundButtons_Shape = Cards.ButtonShape.Square;     // => [RoundButtons] Shape
     internal const float RoundButtons_CapSize = 0.042f;                                 // => [RoundButtons] CapSize
     internal const float RoundButtons_Width = 0.089f;                                   // => [RoundButtons] Width
     internal const float RoundButtons_Height = 0.035f;                                  // => [RoundButtons] Height
-    internal const float RoundButtons_Depth = 0.009f;                                   // => [RoundButtons] Depth
+    internal const float RoundButtons_Depth = 0.015f;                                   // => [RoundButtons] Depth
     internal const float RoundButtons_Travel = 0.008f;                                  // => [RoundButtons] Travel
     internal const float BoardButtons_Width = 0.063f;                                   // => [BoardButtons] Width
     internal const float BoardButtons_Height = 0.065f;                                  // => [BoardButtons] Height
