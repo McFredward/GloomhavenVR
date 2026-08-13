@@ -67,8 +67,9 @@ internal static partial class Defaults
     internal const float StableDepthBias = 0.0002f;  // => [HexHighlight] StableDepthBias
     internal const bool KillBorderFlame = true;      // => [HexHighlight] KillBorderFlame
     internal const bool KillCrosshair = true;        // => [HexHighlight] KillCrosshair
-    internal const bool KillBorderLine = false;      // => [HexHighlight] KillBorderLine
-    internal const bool KillFill = false;            // => [HexHighlight] KillFill
+    // [HexHighlight] KillBorderLine / KillFill are GONE (user ruling 2026-08-13): switching
+    // them ON erased the hex outline and fill — the readout that says which field you are
+    // acting on. See Board/HexHighlightFix.cs.
     internal const bool LogMaterialDump = true;      // => [HexHighlight] LogMaterialDump
 
     // ---- Board/SelectionReadyHighlighter.cs ----------------------------------------

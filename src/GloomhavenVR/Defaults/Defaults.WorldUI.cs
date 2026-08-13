@@ -97,34 +97,30 @@ internal static partial class Defaults
     internal const bool VideoDepthLayer = true;            // => [WorldUI] VideoDepthLayer
     internal const float VideoDepth = 0.8f;                // => [WorldUI] VideoDepth
     internal const float ScreenParallaxScale = 6.0f;       // => [WorldUI] ScreenParallaxScale
-    internal const bool ScreenLeftMirrorFallback = true;   // => [WorldUI] ScreenLeftMirrorFallback
-    internal const bool MapAlbedoRender = true;            // => [WorldUI] MapAlbedoRender
 
     // ---- WorldUI/WorldUIConfig.cs --------------------------------------------------
+    // ROUND 2 OF THE SETTINGS AUDIT (user ruling 2026-08-13) removed sixteen defaults from this
+    // file with their dials: InitiativeTrack, ElementBoard, Objectives, StatPanels,
+    // PropInfoCards, EnemyReveal, ActorBars, Tooltips, ActionElementHints (readouts the flat
+    // game always shows, whose OFF released the panel to its 2D home = invisible in VR),
+    // ClickLatch, ClickMode, ForceMouseMode (the documented no-click failure modes),
+    // DemoteOverlaySolidClears, ScreenLeftMirrorFallback, MapAlbedoRender (each OFF = a black
+    // campaign map) and Keyboard_Enabled (a text field with no way to type). See the tombstone
+    // in WorldUI/WorldUIConfig.cs.
     // Master, UseBars, DoomPicker, DistributePanel, FlatScreen, FlatScreenAutoShow,
     // CatchAllModals, MenuPopupFloat and ManualScreenChord are GONE (user ruling 2026-08-11:
     // essential — those features are unconditional now; see WorldUIConfig.cs).
     internal const bool ButtonCluster = true;                // => [WorldUI] ButtonCluster
-    internal const bool InitiativeTrack = true;              // => [WorldUI] InitiativeTrack
-    internal const bool ElementBoard = true;                 // => [WorldUI] ElementBoard
     internal const bool CombatLog = true;                    // => [WorldUI] CombatLog
-    internal const bool Objectives = true;                   // => [WorldUI] Objectives
     internal const bool Dialogs = true;                      // => [WorldUI] Dialogs
-    internal const bool StatPanels = true;                   // => [WorldUI] StatPanels
-    internal const bool PropInfoCards = true;                // => [WorldUI] PropInfoCards
-    internal const bool EnemyReveal = true;                  // => [WorldUI] EnemyReveal
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
-    internal const bool ActorBars = true;                    // => [WorldUI] ActorBars
     internal const bool BarFixedSize = true;                 // => [WorldUI] BarFixedSize
     internal const float BarSizeScale = 1.0f;                // => [WorldUI] BarSizeScale
     internal const float BarZoomMinScale = 0.7f;             // => [WorldUI] BarZoomMinScale
     internal const float BarZoomMaxScale = 1.5f;             // => [WorldUI] BarZoomMaxScale
     internal const bool WristHud = true;                     // => [WorldUI] WristHud
-    internal const bool Tooltips = true;                     // => [WorldUI] Tooltips
-    internal const bool ActionElementHints = true;           // => [WorldUI] ActionElementHints
     internal const bool PanelMipBake = true;                 // => [WorldUI] PanelMipBake
-    internal const bool ForceMouseMode = true;               // => [WorldUI] ForceMouseMode
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale
@@ -133,7 +129,6 @@ internal static partial class Defaults
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro
     internal const float ScreenWidth = 2.2f;                 // => [WorldUI] ScreenWidth
     internal const float ScreenDistance = 1.6f;              // => [WorldUI] ScreenDistance
-    internal const bool ClickLatch = true;                   // => [WorldUI] ClickLatch
     internal const bool SuppressPhysicalMouse = true;        // => [WorldUI] SuppressPhysicalMouse
     internal const float MapWindOpacity = 0.3f;              // => [WorldUI] MapWindOpacity
     internal const float DragUnlockDegrees = 2.0f;           // => [WorldUI] DragUnlockDegrees
@@ -141,7 +136,6 @@ internal static partial class Defaults
     internal const bool PokeClick = true;                    // => [WorldUI] PokeClick
     internal const float PokePressDepthMm = 12f;             // => [WorldUI] PokePressDepthMm
     internal const bool DecisionPokeDeliberate = true;       // => [WorldUI] DecisionPokeDeliberate
-    internal const string ClickMode = "execute";             // => [WorldUI] ClickMode
     internal const bool CombatLogFollowSeat = false;         // => [WorldUI] CombatLogFollowSeat
     internal const float CombatLogForward = -0.234156f;      // => [WorldUI] CombatLogForward
     internal const float CombatLogRight = 0.941762f;         // => [WorldUI] CombatLogRight
@@ -155,10 +149,8 @@ internal static partial class Defaults
     internal const float HexHintSide = 0f;                   // => [WorldUI] HexHintSide
     internal const string ModalStyle = "window";             // => [WorldUI] ModalStyle
     internal const float ManualScreenChordSeconds = 2f;      // => [WorldUI] ManualScreenChordSeconds
-    internal const bool DemoteOverlaySolidClears = true;     // => [WorldUI] DemoteOverlaySolidClears
     internal const bool ScreenLayerSplit = true;             // => [WorldUI] ScreenLayerSplit
     internal const bool LoadingIndicator = true;             // => [WorldUI] LoadingIndicator
-    internal const bool Keyboard_Enabled = true;             // => [Keyboard] Enabled
     internal const bool AutoCapitalise = true;               // => [Keyboard] AutoCapitalise
     internal const bool DevShowAllPanels = false;            // => [WorldUI] DevShowAllPanels
     internal const bool DevForceConvert = false;             // => [WorldUI] DevForceConvert

@@ -112,7 +112,7 @@ internal sealed class CompatModule : IVRModule
         // FindObjectsOfType skips entirely). Bookkeeping only, vanilla path untouched.
         VRSession.Harmony?.PatchAll(typeof(MaterialLoader_LoadMaterials_RegisterPatch));
 
-        // Tutorial VR bridge ([Compat] TutorialVRAdapt, default on): the tutorial's
+        // Tutorial VR bridge (unconditional since 2026-08-13): the tutorial's
         // camera-familiarization step waits on the flat room-camera button
         // (CameraRoomButtonPressed — its ONLY producer, RoomCameraButton.OnClick, is
         // unreachable while the P1 rig patches park the game camera), so the scripted hint
@@ -129,23 +129,24 @@ internal sealed class CompatModule : IVRModule
         //   own CameraRoomButtonPressed UIEvent once real VR locomotion happened while a
         //   tutorial trigger provably waits for it. Zero wire (the event's single
         //   subscriber is LevelEventsController).
-        if (Plugin.TutorialVRAdapt.Value)
-        {
-            VRSession.Harmony?.PatchAll(typeof(LevelEventsController_StartListeningForEvents_Patch));
-            VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDisplayed_Patch));
-            VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDismissed_Patch));
-            VRSession.Harmony?.PatchAll(typeof(LevelMessagePageUI_OnLanguageChanged_Patch));
-            VRSession.Harmony?.PatchAll(typeof(LevelMessageUILayout_Title_Patch));
-            // - TutorialChainHold: the sequencing gate for the mod-owned extra VR step
-            //   (TutorialGrabStep). Prefix on LevelEventsController.ShowLevelMessage — the single
-            //   funnel every scripted message passes through — so the tutorial's NEXT window
-            //   (TB_11) waits until the player has actually taken a figure into their hand, instead
-            //   of opening in the same ProcessEvent call that dismisses HT_10 and arms our step.
-            //   Inert unless the step engages it; releases hand the message straight back.
-            VRSession.Harmony?.PatchAll(typeof(TutorialChainHold));
-            VRLog.Info(Name, "Tutorial VR bridge armed — camera step completes from world-grab "
-                + "locomotion, flat camera hints show VR movement text (tutorial scenarios only).");
-        }
+        // UNCONDITIONAL since the 2026-08-13 user ruling: the [Compat] TutorialVRAdapt kill switch
+        // is gone. Its OFF restored vanilla behaviour, and vanilla behaviour IS the deadlock this
+        // bridge exists for, so it could only ever strand the tutorial. Scope is unchanged — every
+        // seam below is still runtime-gated to tutorial scenarios.
+        VRSession.Harmony?.PatchAll(typeof(LevelEventsController_StartListeningForEvents_Patch));
+        VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDisplayed_Patch));
+        VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDismissed_Patch));
+        VRSession.Harmony?.PatchAll(typeof(LevelMessagePageUI_OnLanguageChanged_Patch));
+        VRSession.Harmony?.PatchAll(typeof(LevelMessageUILayout_Title_Patch));
+        // - TutorialChainHold: the sequencing gate for the mod-owned extra VR step
+        //   (TutorialGrabStep). Prefix on LevelEventsController.ShowLevelMessage — the single
+        //   funnel every scripted message passes through — so the tutorial's NEXT window
+        //   (TB_11) waits until the player has actually taken a figure into their hand, instead
+        //   of opening in the same ProcessEvent call that dismisses HT_10 and arms our step.
+        //   Inert unless the step engages it; releases hand the message straight back.
+        VRSession.Harmony?.PatchAll(typeof(TutorialChainHold));
+        VRLog.Info(Name, "Tutorial VR bridge armed — camera step completes from world-grab "
+            + "locomotion, flat camera hints show VR movement text (tutorial scenarios only).");
 
         var names = new List<string>();
         if (Plugin.DisablePostProcessing.Value)

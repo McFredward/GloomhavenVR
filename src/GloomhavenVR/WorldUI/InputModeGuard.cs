@@ -31,9 +31,11 @@ internal static class InputModeGuard
 {
     private static bool _enforced;
 
-    /// <summary>Guard active: VR (or forced dev conversion) + config.</summary>
-    internal static bool Active =>
-        WorldUIConfig.ForceMouseMode.Value && WorldUIConfig.ConversionActive;
+    /// <summary>Guard active whenever the mod converts UI at all — VR, or the forced dev
+    /// conversion. ([WorldUI] ForceMouseMode is GONE, user ruling 2026-08-13: its OFF let the
+    /// game load the 'Game_gamepad' scene variants and put every button behind a gamepad
+    /// long-press, an input a VR player has no device for. Mouse mode is not a preference.)</summary>
+    internal static bool Active => WorldUIConfig.ConversionActive;
 
     /// <summary>Called every frame by the WorldUI driver (cheap; static reads only).</summary>
     internal static void Tick()

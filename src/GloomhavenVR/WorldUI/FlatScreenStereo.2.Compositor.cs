@@ -72,29 +72,16 @@ internal sealed partial class FlatScreenStereo
         // blit-orientation knobs and the MapUv* CPU-rebuild knobs) are DELETED (2026-08 dead-settings
         // sweep): each configured a map-capture design disproven on hardware whose code was already
         // removed, and none had a reader left. Values in old .cfg files survive as harmless BepInEx
-        // orphans. The live map fix is MapAlbedoRender below, gated by ScreenLeftMirrorFallback.
-        s_leftMirrorFallback = file.Bind("WorldUI", "ScreenLeftMirrorFallback", Defaults.ScreenLeftMirrorFallback,
-            "Safety gate for the campaign-map rescue (default ON — leave it on): while the map " +
-            "scene runs, this allows the black-frame probe and the fast map engage " +
-            "(FlatScreenStereo.3.Map, TickBlackProbe / TickFastMapEngage) that detect the black " +
-            "campaign map and switch the screen to the MapAlbedoRender re-render. OFF disables " +
-            "that detection entirely, so the campaign map stays a black screen even with " +
-            "MapAlbedoRender on. Turn it off only to diagnose the probe itself.");
-        s_mapAlbedoRender = file.Bind("WorldUI", "MapAlbedoRender", Defaults.MapAlbedoRender,
-            "THE MAP FIX (default ON): render the campaign map's parchment UNLIT via a mod-owned " +
-            "FORWARD camera into a PRIVATE RenderTexture, which the screen quad then shows. The map " +
-            "is ordinary mesh geometry (MapChoreographer.worldMap / cityMap, GH_WorldMap materials " +
-            "whose albedo lives in _Alb / _MainTex), but its deferred Amplify shader is never lit " +
-            "into any RenderTexture we own and its backbuffer is unreadable under XR — so instead of " +
-            "capturing the game's render, the mod re-renders the mesh with a GloomhavenVR/MapUnlit " +
-            "material per submesh (albedo -> _MainTex, UV sampled on the GPU from the mesh's own " +
-            "TexCoord0), swapped on only for our render and restored the same frame (rendering-only, " +
-            "multiplayer-safe). A top-down painted map reads correct unlit. Off = detect the black " +
-            "map but leave the base RT as-is (black).");
+        // orphans.
+        //
+        // AND THE LAST TWO WENT WITH THEM — [WorldUI] ScreenLeftMirrorFallback and MapAlbedoRender
+        // are GONE (user ruling 2026-08-13). They were the map rescue's two halves (detect the
+        // black map / re-render it unlit), and each one's OFF is spelled out in its own former
+        // description: "the campaign map stays a black screen" and "leave the base RT as-is
+        // (black)". The campaign map is the only route into a scenario, so a switch that blanks
+        // it is not an option — the whole rescue is unconditional now (FlatScreenStereo.3.Map).
     }
 
-    /// <summary>[WorldUI] MapAlbedoRender — render the map parchment unlit via a mod forward camera (class doc MAP ALBEDO RENDER).</summary>
-    internal static bool MapAlbedoRenderOn => s_mapAlbedoRender?.Value ?? true;
     private static float DepthStrength => Mathf.Clamp(s_depthStrength?.Value ?? 1f, 0f, 3f);
 
     private static float ParallaxScale => Mathf.Clamp(s_parallaxScale?.Value ?? 6f, 1f, 60f);

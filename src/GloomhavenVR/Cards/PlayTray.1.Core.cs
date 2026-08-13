@@ -1251,9 +1251,15 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         * Quaternion.LookRotation(flatForward, Vector3.up)
         * Quaternion.Euler(90f - CardsConfig.BoardTilt(board).Value - CardsConfig.EffectiveTrayPitch, 0f, 0f);
 
-    /// <summary>PART B: the board's local scale = grab-written TrayScale × per-board BoardScale (seeded 1).</summary>
+    /// <summary>PART B: the board's local scale = grab-written TrayScale × per-board BoardScale
+    /// (seeded 1). The per-board factor is floored at 0.05 (user ruling 2026-08-13): TrayScale
+    /// is already read-clamped to 0.5-2 by ClampedTrayScale, but BoardScale_{board} carries no
+    /// range — it is grab-WRITTEN (PlayTray.3.Pose absorbs whatever TrayScale cannot express),
+    /// so a config range would fight the gesture. A hand-edited 0 would leave the control board
+    /// at zero size, i.e. no board at all, and the board is not optional content. Floored at the
+    /// READ instead, which changes nothing for any value the gesture can produce.</summary>
     private static float ComputeBoardScale(ControlBoard board) =>
-        CardsConfig.ClampedTrayScale * CardsConfig.BoardScale(board).Value;
+        CardsConfig.ClampedTrayScale * Mathf.Max(0.05f, CardsConfig.BoardScale(board).Value);
 
     /// <summary>
     /// Item 3 safety net: clamp a candidate board offset from the head to a sane reach — no

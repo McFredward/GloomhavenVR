@@ -23,7 +23,10 @@ internal sealed partial class FlatScreenStereo
     /// </summary>
     private void TickBlackProbe(bool anyMirrorRendering)
     {
-        if (_mapBaseCapture || !(s_leftMirrorFallback?.Value ?? true))
+        // The detection gate ([WorldUI] ScreenLeftMirrorFallback) is GONE — user ruling
+        // 2026-08-13: its OFF left the campaign map a BLACK SCREEN by design, which is not a
+        // setting but a way to lose the campaign. The probe always runs.
+        if (_mapBaseCapture)
             return;
         if (!anyMirrorRendering || _leftRt == null || _probePending)
             return;
@@ -157,8 +160,10 @@ internal sealed partial class FlatScreenStereo
     /// </summary>
     private void TickFastMapEngage(Camera? mapSource)
     {
-        if (_mapBaseCapture || mapSource == null || _leftRt == null || _introGuard
-            || !MapAlbedoRenderOn || !(s_leftMirrorFallback?.Value ?? true))
+        // [WorldUI] MapAlbedoRender + ScreenLeftMirrorFallback are GONE (user ruling
+        // 2026-08-13): both OFF states ended in a black campaign map. The rescue is
+        // unconditional now.
+        if (_mapBaseCapture || mapSource == null || _leftRt == null || _introGuard)
             return;
         if (_fastMapChoreo == null)
         {
@@ -887,7 +892,7 @@ internal sealed partial class FlatScreenStereo
     /// </summary>
     private bool EnsureAlbedoReady()
     {
-        if (!MapAlbedoRenderOn || _root == null || _leftRt == null)
+        if (_root == null || _leftRt == null)
             return false;
 
         // ISSUE 3: detect a world↔city switch every tick (it does NOT change scene) and invalidate the

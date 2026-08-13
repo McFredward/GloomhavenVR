@@ -50,10 +50,12 @@ namespace GloomhavenVR.Board;
 /// every swap/postfix for on-device experiments; the applied ZTest is logged.
 ///
 /// FALLBACK (old bundle without the shader, or <c>SwapStableShader=false</c>): the
-/// previous mitigation stays — zero the swimming layers (<c>_BorderFlameIntensity</c>,
-/// <c>_CrossHair</c> by default; <c>_BorderLineIntensity</c>/<c>_HexIntensity</c> as
-/// bisect knobs). When the swap IS active the kill knobs are bypassed: the layers
-/// no longer swim, so the full vanilla look comes back.
+/// previous mitigation stays — zero the swimming DECORATION layers
+/// (<c>_BorderFlameIntensity</c>, <c>_CrossHair</c>). The two bisect knobs that could also
+/// zero <c>_BorderLineIntensity</c>/<c>_HexIntensity</c> are GONE (user ruling 2026-08-13):
+/// the ring and the fill are the "which hex" readout and must never be switchable off.
+/// When the swap IS active the kill knobs are bypassed: the layers no longer swim, so the
+/// full vanilla look comes back.
 ///
 /// SHUTDOWN: swapped materials are tracked and restored to the original shader in
 /// <see cref="Reset"/> (best effort — the game recreates materials from
@@ -150,8 +152,12 @@ internal static class HexHighlightFix
     internal static ConfigEntry<float>? StableDepthBias;
     internal static ConfigEntry<bool>? KillBorderFlame;
     internal static ConfigEntry<bool>? KillCrosshair;
-    internal static ConfigEntry<bool>? KillBorderLine;
-    internal static ConfigEntry<bool>? KillFill;
+    // [HexHighlight] KillBorderLine and KillFill are GONE (user ruling 2026-08-13). Both were
+    // bisect knobs whose ON state ERASES the targeting readout itself — the hex outline and the
+    // soft fill that say WHICH field you are about to act on ("this removes most of the
+    // highlight", its own description). A diagnostic that can blank the selection marker is not
+    // an optional content setting. The two knobs that survive (KillBorderFlame, KillCrosshair)
+    // only remove the DECORATIVE swimming layers and are the shipped fallback mitigation.
     internal static ConfigEntry<bool>? LogMaterialDump;
 
     private static ConfigFile? _file;
@@ -193,15 +199,8 @@ internal static class HexHighlightFix
             "FALLBACK (used only when the stable shader swap is off/unavailable): zero " +
             "_CrossHair. Kills the pulsing target-frame/crosshair graphic projected " +
             "INSIDE the hex during target selection — same swimming projection.");
-        KillBorderLine = config.Bind(
-            "HexHighlight", "KillBorderLine", Defaults.KillBorderLine,
-            "FALLBACK bisect knob: additionally zero _BorderLineIntensity (the crisp " +
-            "border ring). Enable if the swimming artifact persists with the " +
-            "flame/crosshair killed. Changes the look (hex loses its sharp outline).");
-        KillFill = config.Bind(
-            "HexHighlight", "KillFill", Defaults.KillFill,
-            "FALLBACK bisect knob: additionally zero _HexIntensity (the soft white fill). " +
-            "Only for diagnosis — this removes most of the highlight.");
+        // KillBorderLine / KillFill: not bound any more (user ruling 2026-08-13) — the border
+        // ring and the white fill are the selection readout and are never zeroed now.
         LogMaterialDump = config.Bind(
             "HexHighlight", "LogMaterialDump", Defaults.LogMaterialDump,
             "Log the hex highlight material's shader name and full property dump for the " +
@@ -545,8 +544,6 @@ internal static class HexHighlightFix
             AccessTools.FieldRefAccess<HexSelect_Control, Material?>("m_Material");
 
         private static readonly int BorderFlameIntensity = Shader.PropertyToID("_BorderFlameIntensity");
-        private static readonly int BorderLineIntensity = Shader.PropertyToID("_BorderLineIntensity");
-        private static readonly int HexIntensity = Shader.PropertyToID("_HexIntensity");
         private static readonly int CrossHair = Shader.PropertyToID("_CrossHair");
         private static readonly int VRZTest = Shader.PropertyToID("_VRZTest");
         private static readonly int VRDepthBias = Shader.PropertyToID("_VRDepthBias");
@@ -589,10 +586,8 @@ internal static class HexHighlightFix
                     mat.SetFloat(BorderFlameIntensity, 0f);
                 if (KillCrosshair?.Value == true)
                     mat.SetFloat(CrossHair, 0f);
-                if (KillBorderLine?.Value == true)
-                    mat.SetFloat(BorderLineIntensity, 0f);
-                if (KillFill?.Value == true)
-                    mat.SetFloat(HexIntensity, 0f);
+                // The border ring (_BorderLineIntensity) and the fill (_HexIntensity) are
+                // never touched: they ARE the "which hex" readout (user ruling 2026-08-13).
             }
             catch (System.Exception e)
             {

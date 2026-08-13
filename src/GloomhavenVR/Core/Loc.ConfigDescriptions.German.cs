@@ -343,18 +343,12 @@ internal static partial class Loc
                 "In welcher Umgebung du spielst (Nutzer-Entscheide 2026-08-12/13: die "
                 + "Umgebung rendert NUR im Szenario, so wie es die originale "
                 + "Standard-Umgebung auch macht — niemals im Menü; sie besteht aus EIGENEN "
-                + "Inhalten des Mods im malerischen Stil des Spiels). VIER Möglichkeiten. "
-                + "Default = der eigene animierte Himmel des Spiels, exakt wie bisher. "
-                + "Cellar = ein kerzenbeleuchteter Steinkeller. SwampNight = eine "
-                + "mondbeschienene Sumpflichtung unter einer Sternenkuppel mit "
-                + "Sternschnuppen, Bodennebel und Glühwürmchen. OffBlack = GAR KEINE "
-                + "Umgebung: die Himmelskugel des Spiels wird ausgeblendet und nichts an "
-                + "ihre Stelle gesetzt, rings um den Tisch ist also einfach Schwarz. "
-                + "OffBlack lädt nichts aus dem Bundle des Mods, erzeugt kein Objekt, "
-                + "betreibt keinen Effekt und vergrößert die Sichtweite nicht — und es ist "
-                + "NICHT Mixed Reality: MR bleibt eine eigene Einstellung mit eigenem "
-                + "Chroma-Key. Cellar und SwampNight blenden im Szenario die "
-                + "Himmelskugel des Spiels aus und bauen die Umgebung als FESTEN ORT UM DAS "
+                + "Inhalten des Mods im malerischen Stil des Spiels). Default = der eigene "
+                + "animierte Himmel des Spiels, exakt wie bisher. Cellar = ein "
+                + "kerzenbeleuchteter Steinkeller; SwampNight = eine mondbeschienene "
+                + "Sumpflichtung unter einer Sternenkuppel mit Sternschnuppen, Bodennebel "
+                + "und Glühwürmchen. Eine andere Wahl als Default blendet im Szenario die "
+                + "Himmelskugel des Spiels aus und baut die Umgebung als FESTEN ORT UM DAS "
                 + "SPIELBRETT, wobei das Brett ein KLEINES SPIELFELD IST, DAS IN DER MITTE "
                 + "EINES VIEL GRÖSSEREN ORTES SCHWEBT — wie ein Tisch mit Spielfiguren in "
                 + "einem Raum, niemals ansatzweise so groß wie die Umgebung. Die offene "
@@ -583,11 +577,6 @@ internal static partial class Loc
                 + "Grafikgerät, bevor xrCreateSession funktioniert. 0 (Standard) = sofortige Initialisierung im "
                 + "Awake des Plugins.",
             // ---- [Rig] ----
-            ["Rig/MenuRig"] =
-                "Koppelt die Menükamera des Spiels an die Kopfbewegung, solange kein Szenario läuft "
-                + "(Hauptmenü, Guildmaster-Karte), damit die schwebende 2D-Leinwand und die Hände auch "
-                + "außerhalb von Szenarien funktionieren. Aus = das Menü wird aus einem festen Blickpunkt "
-                + "gerendert.",
             ["Rig/SpawnInCircle"] =
                 "Mehrspieler: Beim Beitreten zu einer Sitzung bzw. beim Betreten eines Szenarios wirst du "
                 + "GEGENÜBER den bereits anwesenden Spielern abgesetzt — bei einem Mitspieler genau "
@@ -654,13 +643,6 @@ internal static partial class Loc
                 + "Wände nie flackern lassen. AUS (Standard) hält jede Wand solide — das bisherige "
                 + "VR-Verhalten. Rein visuell und lokal (Material Property Blocks pro Renderer): Mitspieler im "
                 + "Mehrspieler sind nicht betroffen. Live umschaltbar in der VR-Einstellungstafel.",
-            ["Compat/TutorialVRAdapt"] =
-                "Macht das Spiel-Tutorial in VR spielbar. Der Kamera-Kennenlern-Schritt des Tutorials wartet "
-                + "auf den flachen Raumkamera-Knopf, den die VR-Fortbewegung ersetzt — mit AN schließt "
-                + "tatsächliches Bewegen der Welt (Stick-Klick ziehen / drehen / zoomen, Stick-Drehung) diesen "
-                + "Schritt über das spieleigene Ereignis ab, und Tutorial-Hinweise zu Maus-/Tastatur-Kamera "
-                + "zeigen stattdessen VR-Bewegungsanleitungen. Nur in Tutorial-Szenarien aktiv; AUS stellt das "
-                + "vollständig unveränderte Tutorial-Verhalten wieder her.",
             // ---- [Hands] ----
             ["Hands/PrimaryHand"] =
                 "Dominante Hand (Right/Left). Ihr Zeigefinger-Strahl ist die Standardquelle für die Auswahl "
@@ -1514,24 +1496,8 @@ internal static partial class Loc
                 + "Karte schneller. 8 erreicht ~90 % einer Kopfdrehung in ~0.3 s.",
             // ---- [WorldUI] ----
             ["WorldUI/ButtonCluster"] = "Physische Knöpfe für Bereit/Rückgängig/Überspringen am Tischrand.",
-            ["WorldUI/InitiativeTrack"] = "Initiativleiste als Welt-Tafel über dem Tisch.",
-            ["WorldUI/ElementBoard"] =
-                "Element-Infusionstafel, angedockt an der linken Spalte des Kontrollbretts, unter der "
-                + "Aufgaben-Tafel (schwebende Welt-Tafel nur als Rückfall ohne Board).",
             ["WorldUI/CombatLog"] = "Kampflog als Welt-Tafel an der gegenüberliegenden Tischseite.",
-            ["WorldUI/Objectives"] = "Szenario-Aufgaben als Welt-Tafel an der gegenüberliegenden Tischseite.",
             ["WorldUI/Dialogs"] = "Bestätigungsdialoge als Welt-Modale vor dem HMD (Ja/Nein antippen).",
-            ["WorldUI/StatPanels"] =
-                "Werte-Tafeln von Figuren/Monstern als Welt-Tafeln nahe dem Tisch (geöffnet vom Spiel / per "
-                + "Phase-3a-Antippen).",
-            ["WorldUI/PropInfoCards"] =
-                "Mouseover-Objektinfokarten (geschlossene Türen/Truhen, Fallen, Gelände, Questgegenstände — "
-                + "die TextInfoPanel/PropInfoPanel-Popups des Spiels) als kleine passive Welt-Tafel unten im "
-                + "Blickfeld.",
-            ["WorldUI/EnemyReveal"] =
-                "Gegner-Rundenenthüllung (die Monster-Fähigkeitskarten, die gezeigt werden, nachdem alle ihre "
-                + "Kartenwahl bestätigt haben) als reine Anzeige-Tafel, die über dem Spielbrett schwebt, "
-                + "solange das Spiel sie zeigt — statt versteckt auf dem Kontrollbrett.",
             ["WorldUI/DecisionDock"] =
                 "Entscheidungs-/Bestätigungsabfragen im Szenario (die Verbrennen-Wahl beim Schadennehmen, der "
                 + "Verbrennen-Bestätigungsdialog \"diese verbrennen / andere Karte wählen\" und jede weitere "
@@ -1556,9 +1522,6 @@ internal static partial class Loc
                 + "abgetastete native Spiel-Optik (NativeButtonSkin, Test #26); AUS gelassen bekommt daher "
                 + "jeder Board-Knopf EIN dauerhaftes, einheitliches Aussehen im Spielstil, ganz ohne Wechsel. "
                 + "An = das Andocken der echten Widgets wieder aktivieren (nimmt das Flackern in Kauf).",
-            ["WorldUI/ActorBars"] =
-                "Echte LP-/Effekt-Balken im 3D-Raum über den Miniaturen (ersetzt die auf den Bildschirm "
-                + "projizierten Balken).",
             ["WorldUI/BarFixedSize"] =
                 "LP-/Effekt-Balken der Figuren ignorieren den KOPFABSTAND — ein Balken ist gleich groß, ob du "
                 + "dich vorbeugst oder zurücktrittst (Test #14: die alte Abstandskompensation ließ die Balken "
@@ -1593,15 +1556,6 @@ internal static partial class Loc
             ["WorldUI/WristHud"] =
                 "Kompakter Charakterstatus (LP/EP/Zustände/Gold) am nicht-dominanten Handgelenk, per Hinsehen "
                 + "aktiviert.",
-            ["WorldUI/Tooltips"] =
-                "Verankert das Tooltip-Canvas des Spiels neu im 3D-Raum, nahe der antippenden Fingerspitze.",
-            ["WorldUI/ActionElementHints"] =
-                "Zeigt den Erklärungshinweis des Spiels zu Element/Fähigkeit in der Aktionsphase (den "
-                + "Kartenaktions-Tooltip) als Welt-Tafel, die während eines Szenarios an der Ecke OBEN LINKS "
-                + "des Kontrollbretts angeheftet ist. Eine kurze Nachlaufzeit beim Mouseover verhindert, dass "
-                + "er bei winzigen Bewegungen vom Element weg wegflackert. Aus = der Hinweis wird nie in den "
-                + "3D-Raum überführt und in VR nie gezeigt (der normale 2D-Menü-Tooltip bleibt unberührt). Mit "
-                + "der VR-Einstellungstafel verdrahtet und live gelesen — das Umschalten wirkt ohne Neustart.",
             ["WorldUI/PanelMipBake"] =
                 "Aliasing-Nachzügler zu [Cards] FaceMipBake: auch die Texturen, die die INITIATIVLEISTE "
                 + "(RawImage-Porträts + Rahmen-/Linien-Sprites) und die Mouseover-HINWEISBOX abtasten, liefert "
@@ -1611,9 +1565,6 @@ internal static partial class Loc
                 + "beiden genutzter Atlas wird nur einmal gebacken) und die Grafiken auf die Kopien umgestellt "
                 + "(Originale kehren zurück, sobald eine Fläche freigegeben wird). false = Initiativleiste und "
                 + "Hinweisbox tasten weiter die miplosen Originale ab.",
-            ["WorldUI/ForceMouseMode"] =
-                "Hält den InputManager während des VR-Betriebs im Maus-Modus, damit die \"Game\"- (nicht "
-                + "\"Game_gamepad\"-) Szenenvarianten laden und Knöpfe ohne Gamepad-Langdruck-Abläufe auslösen.",
             ["WorldUI/CanvasScaleMm"] =
                 "Welt-Canvas-Skalierung: Millimeter pro uGUI-Pixel bei Diorama-Größe 1 (Standard 1 px = 1 "
                 + "mm).",
@@ -1667,13 +1618,6 @@ internal static partial class Loc
                 + "den Schlüssel \"FlatScreenWidth\" von vor Test #6 (1.4 m wirkte auf 1.6 m Entfernung zu "
                 + "klein).",
             ["WorldUI/ScreenDistance"] = "Abstand vom Kopf zur schwebenden 2D-Leinwand in echten Metern.",
-            ["WorldUI/ClickLatch"] =
-                "Friert die Position der virtuellen Maus vom Trigger-Druck (oder der Berührung mit der "
-                + "Fingerspitze) bis zum Loslassen ein, damit Druck und Loslassen auf DEMSELBEN Pixel landen "
-                + "und uGUI einen Klick registriert — sonst verschiebt schon ein Handzittern von unter einem "
-                + "Grad den projizierten Punkt um Dutzende px und macht aus jedem Klick ein wirkungsloses "
-                + "Ziehen. Bewusste Bewegung über DragUnlockDegrees hinaus für DragUnlockSeconds löst die "
-                + "Sperre zu einem echten Ziehen (Scroll-Listen funktionieren weiter).",
             ["WorldUI/SuppressPhysicalMouse"] =
                 "Deaktiviert während des VR-Betriebs die physische Desktop-Maus im InputSystem, damit ihre "
                 + "(veraltete) Desktop-Position keine Karten-/Menüelemente mehr hinter deinem Rücken überfahren "
@@ -1715,14 +1659,6 @@ internal static partial class Loc
                 + "das körperliche Antippen von Entscheidungs-Dock-Knöpfen; jede andere konvertierte Fläche "
                 + "behält den Eindrück-Druck über PokePressDepthMm, und Laser-Klicks bleiben unberührt. Aus = "
                 + "Entscheidungsknöpfe drücken sich wie alles andere.",
-            ["WorldUI/ClickMode"] =
-                "Wie ein gesperrter Klick auf dem schwebenden Bildschirm zugestellt wird. \"execute\" "
-                + "(Standard): direkt über uGUI ExecuteEvents auf dem Raycast-Ziel — derselbe Mechanismus, den "
-                + "auch BaseButtons.clickButton des Spiels nutzt; unempfindlich gegen Eigenheiten der "
-                + "Flankensichtbarkeit im Input-Modul (Hardware-Test #7: die Tastenflanken der virtuellen Maus "
-                + "erzeugten keine Klicks). \"virtualmouse\": Druck/Loslassen nur über das virtuelle Mausgerät. "
-                + "\"both\": beide Wege (kann doppelt auslösen — nur zur Diagnose). Bewusstes Ziehen läuft "
-                + "unabhängig vom Modus immer über die virtuelle Maus.",
             ["WorldUI/CombatLogFollowSeat"] =
                 "Ankermodus der Kampflog-Tafel (der FOLGEN/FIXIERT-Pin schaltet um). False (FIXIERT, "
                 + "Standard): die Tafel steht STATISCH IN DER WELT — bei Szenariobeginn einmal aus den "
@@ -1788,14 +1724,6 @@ internal static partial class Loc
             ["WorldUI/ManualScreenChordSeconds"] =
                 "Haltedauer (Sekunden) von A/X der nicht-dominanten Hand für das manuelle Umschalten der "
                 + "Leinwand.",
-            ["WorldUI/DemoteOverlaySolidClears"] =
-                "Solange die schwebende 2D-Leinwand die Kameras des Spiels in ihre RenderTexture aufnimmt, "
-                + "werden VOLLBILD-SolidColor-Clears erfasster NICHT-Basis-Kameras (z. B. die \"Video Camera\" "
-                + "der Kampagnenkarte auf Tiefe 5, deren Clear nur der schwarze Hintergrund hinter "
-                + "Vollbildvideos ist — GH VideoCamera.PlayFullscreenVideo) auf Depth-only herabgestuft, damit "
-                + "sie die zusammengesetzte Karte/UI nie schwarz überschreiben können. Kameras mit "
-                + "eingeschränktem Viewport (Teilrechteck) behalten ihren Clear. Abschalten für vanilla-genaue "
-                + "Clears (schwarzer Letterbox-Hintergrund während Videos).",
             ["WorldUI/ScreenLayerSplit"] =
                 "Rendert die schwebende 2D-Leinwand als ZWEI Ebenen (Hardware-Test #18): die UI-Kameras des "
                 + "Spiels — deren Screen-Space-Camera-Canvases immer nur über ihre zugewiesene Kamera rendern, "
@@ -1805,13 +1733,6 @@ internal static partial class Loc
                 + "Hintergrundebene mit augenweiser Stereotiefe rendern. Aus (oder bei jedem Fehler): Rückfall "
                 + "auf eine einzelne RT — eine flache Mono-Leinwand in beiden Augen, nie einäugig.",
             // ---- [SettingsPanel] ----
-            ["Keyboard/Enabled"] =
-                "Zeigt die spieleigene Bildschirmtastatur (UIKeyboard), sobald ein Textfeld den "
-                + "Fokus bekommt — damit lässt sich eine Gruppe benennen, ohne nach einer echten "
-                + "Tastatur zu greifen. Es ist die Tastatur DES SPIELS, keine nachgebaute: sie "
-                + "bringt dessen Gestaltung und dessen Layouts pro Sprache mit. Das Spiel selbst "
-                + "zeigt sie nur im Gamepad-Modus, den VR nie benutzt. Aus = Textfelder brauchen "
-                + "eine echte Tastatur.",
             ["Keyboard/AutoCapitalise"] =
                 "Schreibt den ersten Buchstaben jedes Wortes groß und den Rest klein. Die Tastatur "
                 + "des Spiels sendet Tasten-CODES und bildet Buchstaben auf ihren Großbuchstaben-"
@@ -2380,13 +2301,6 @@ internal static partial class Loc
                 + "ist): setzt _CrossHair auf null. Entfernt die pulsierende Zielrahmen-/Fadenkreuz-Grafik, die "
                 + "während der Zielauswahl INNERHALB des Felds projiziert wird — dieselbe mitschwimmende "
                 + "Projektion.",
-            ["HexHighlight/KillBorderLine"] =
-                "RÜCKFALL-Eingrenzungsregler: setzt zusätzlich _BorderLineIntensity (den scharfen Randring) "
-                + "auf null. Einschalten, wenn das Mitschwimm-Artefakt trotz entfernter Flamme/Fadenkreuz "
-                + "bestehen bleibt. Ändert die Optik (das Feld verliert seine scharfe Kontur).",
-            ["HexHighlight/KillFill"] =
-                "RÜCKFALL-Eingrenzungsregler: setzt zusätzlich _HexIntensity (die weiche weiße Füllung) auf "
-                + "null. Nur zur Diagnose — das entfernt den größten Teil der Hervorhebung.",
             ["HexHighlight/LogMaterialDump"] =
                 "Protokolliert Shader-Namen und die vollständige Eigenschaftsliste des Materials der "
                 + "Feld-Hervorhebung für die ersten paar gesehenen Materialien (Belege zum Feinjustieren der "
@@ -2470,25 +2384,5 @@ internal static partial class Loc
                 + "angenehm bleibt, während Tiefenunterschiede innerhalb der erfassten Szene um diesen Faktor "
                 + "stärker werden — Diorama hinter Glas statt flaches Foto. 1 = strenge Fenstergeometrie; auf "
                 + "1-60 begrenzt.",
-            ["WorldUI/ScreenLeftMirrorFallback"] =
-                "Sicherheitsschalter für die Rettung der Kampagnenkarte (Standard AN — anlassen): solange "
-                + "die Kartenszene läuft, erlaubt er die Schwarzbild-Prüfung und das schnelle Einrasten der "
-                + "Kartenkorrektur (FlatScreenStereo.3.Map, TickBlackProbe / TickFastMapEngage), die die "
-                + "schwarze Kampagnenkarte erkennen und die Leinwand auf das MapAlbedoRender-Neurendering "
-                + "umschalten. AUS schaltet diese Erkennung komplett ab — die Kampagnenkarte bleibt dann "
-                + "auch mit eingeschaltetem MapAlbedoRender ein schwarzer Bildschirm. Nur zum Diagnostizieren "
-                + "der Prüfung selbst abschalten.",
-            ["WorldUI/MapAlbedoRender"] =
-                "DIE KARTEN-KORREKTUR (Standard AN): rendert das Pergament der Kampagnenkarte UNBELEUCHTET "
-                + "über eine modeigene FORWARD-Kamera in eine PRIVATE RenderTexture, die das Leinwand-Quad dann "
-                + "anzeigt. Die Karte ist gewöhnliche Mesh-Geometrie (MapChoreographer.worldMap / cityMap, "
-                + "GH_WorldMap-Materialien, deren Albedo in _Alb / _MainTex liegt), aber ihr "
-                + "Deferred-Amplify-Shader wird nie in eine RenderTexture beleuchtet, die uns gehört, und ihr "
-                + "Backbuffer ist unter XR nicht lesbar — statt das Rendering des Spiels abzugreifen, rendert "
-                + "der Mod das Mesh deshalb neu, mit einem GloomhavenVR/MapUnlit-Material pro Submesh (Albedo "
-                + "-> _MainTex, UV auf der GPU aus dem mesheigenen TexCoord0 gesampelt), nur für unser "
-                + "Rendering eingesetzt und im selben Frame wiederhergestellt (rein darstellend, "
-                + "mehrspielersicher). Eine von oben gemalte Karte wirkt unbeleuchtet korrekt. Aus = die "
-                + "schwarze Karte wird erkannt, aber die Basis-RT bleibt, wie sie ist (schwarz).",
         };
 }

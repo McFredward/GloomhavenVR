@@ -142,7 +142,10 @@ internal sealed class PropInfoSurface
                 // Re-shown inside the hysteresis window — keep the live conversion.
                 watch.ReleaseAt = 0f;
             }
-            else if (WorldUIConfig.PropInfoCards.Value && WorldUIConfig.ConversionActive
+            // [WorldUI] PropInfoCards is GONE (user ruling 2026-08-13): the hover cards are how a
+            // door, chest, trap or quest item names itself, and OFF left them on the hidden 2D
+            // stack. The conversion gate is the only gate now.
+            else if (WorldUIConfig.ConversionActive
                 && watch.Attached != null)
             {
                 // Informational panel (no buttons, verified) — NOT pokeable: never in

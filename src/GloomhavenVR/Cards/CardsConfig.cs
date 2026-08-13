@@ -567,6 +567,17 @@ internal static class CardsConfig
         internal static readonly float[] AssetPitchDegrees = { Defaults.AssetPitchDegrees_Oak, Defaults.AssetPitchDegrees_Steel, Defaults.AssetPitchDegrees_Bronze };
     }
 
+    /// <summary>
+    /// The sentence every size dial bounded by the 2026-08-13 settings audit carries, so the
+    /// reason is in the config file next to the value and nobody re-opens the range by accident.
+    /// The user's ruling, verbatim: "Entferne weiterhin die Optionen die den Spielfluss in VR
+    /// beschädigen können. Die Einstellungen sollen nur Optionale Inhalte einstellbar machen."
+    /// A size is taste; a size of ZERO deletes the thing, and the things below are not optional.
+    /// </summary>
+    private const string BoundedNote =
+        "BOUNDED by the 2026-08-13 settings audit: how big this is may be taste, but 0 would "
+        + "remove it outright, and it is not optional content. ";
+
     internal static void Bind()
     {
         if (_file != null)
@@ -625,8 +636,11 @@ internal static class CardsConfig
             RevealEnterDegrees.Value = 60f;
             RevealExitDegrees.Value = 45f;
         }
-        FanRadius = _file.Bind("Cards", "FanRadius", Defaults.FanRadius,
-            "Palm fan arc radius in real-world meters (diorama scale is applied automatically).");
+        FanRadius = _file.Bind("Cards", "FanRadius", Defaults.FanRadius, new ConfigDescription(
+            "Palm fan arc radius in real-world meters (diorama scale is applied automatically). " +
+            "BOUNDED (user ruling 2026-08-13): at 0 the whole hand collapses onto one point and " +
+            "no card can be picked out of it any more. Range 0.05-0.5.",
+            new AcceptableValueRange<float>(0.05f, 0.5f)));
         FanArcDegrees = _file.Bind("Cards", "FanArcDegrees", Defaults.FanArcDegrees,
             "LEGACY — no effect, superseded by FanArcSweepDegrees. Nothing reads this value. It was " +
             "the maximum total fan arc in degrees; FanArcSweepDegrees replaced it and was seeded to " +
@@ -634,10 +648,17 @@ internal static class CardsConfig
             "unbound key is silently dropped from your file on the next save.");
         FanPalmOffset = _file.Bind("Cards", "FanPalmOffset", Defaults.FanPalmOffset,
             "Height of the fan pivot above the palm center, real-world meters.");
-        CardWidth = _file.Bind("Cards", "CardWidth", Defaults.CardWidth,
-            "Physical card width in meters (real poker card = 0.0635). Height keeps the 63.5:88 aspect.");
-        InspectScale = _file.Bind("Cards", "InspectScale", Defaults.InspectScale,
-            "Scale multiplier applied to a card while it is held (natural-size inspection).");
+        CardWidth = _file.Bind("Cards", "CardWidth", Defaults.CardWidth, new ConfigDescription(
+            "Physical card width in meters (real poker card = 0.0635). Height keeps the 63.5:88 " +
+            "aspect. BOUNDED (user ruling 2026-08-13): a card is the thing you read and play, so " +
+            "the size may be taste but 0 may not — at the low end it stops being readable and at " +
+            "0 it stops existing. Range 0.03-0.15.",
+            new AcceptableValueRange<float>(0.03f, 0.15f)));
+        InspectScale = _file.Bind("Cards", "InspectScale", Defaults.InspectScale, new ConfigDescription(
+            "Scale multiplier applied to a card while it is held (natural-size inspection). " +
+            "BOUNDED (user ruling 2026-08-13): holding a card up to read it is the gesture this " +
+            "multiplies, and 0 would make the held card vanish out of your hand. Range 0.5-4.",
+            new AcceptableValueRange<float>(0.5f, 4f)));
         HeldTiltDegrees = _file.Bind("Cards", "HeldTiltDegrees", Defaults.Cards_HeldTiltDegrees,
             "LEGACY — no effect, superseded by HeldFaceBias. Nothing reads this value (hardware " +
             "test #13). The old palm-aligned held pose required a hard supination to read the card; " +
@@ -1016,7 +1037,11 @@ internal static class CardsConfig
                 "player (NEGATIVE = prouder). Replaces the raycast seat — dial Z until the discs " +
                 "rest cleanly in the notches. Ships this board's own measured seat.");
             _restButtonDiameter[i] = _file.Bind("Cards", $"RestButtonDiameter_{board}", BoardDefaults.RestButtonDiameter[i],
-                $"[{board}] diameter (meters) of the round short/long-rest discs. Per-board measured.");
+                new ConfigDescription(
+                    $"[{board}] diameter (meters) of the round short/long-rest discs. Per-board " +
+                    "measured. BOUNDED (user ruling 2026-08-13): at 0 the rest discs are a point " +
+                    "nobody can press, and resting is a move the game requires. Range 0.02-0.25.",
+                    new AcceptableValueRange<float>(0.02f, 0.25f)));
             _confirmUndoOffset[i] = _file.Bind("Cards", $"ConfirmUndoOffset_{board}",
                 BoardDefaults.ConfirmUndoOffset[i],
                 $"[{board}] SQUARE Confirm/Undo offset from their button anchors, board-local meters. " +
@@ -1042,6 +1067,7 @@ internal static class CardsConfig
                 "board's long (inter-slot) axis — slot 0 (left) moves −½, slot 1 (right) +½. Seeded 0 " +
                 "(the slots already space the overlays; positive spreads them apart). Item 1.");
             _slotOverlayScale[i] = _file.Bind("Cards", $"SlotOverlayScale_{board}", BoardDefaults.SlotOverlayScale[i],
+                new ConfigDescription(
                 $"[{board}] SIZE of the two blinking slot overlays AND of the card that comes to rest " +
                 "in them — one dial for both, so what the overlay marks is exactly what the card " +
                 "covers. Multiplies the card's own width/height (on top of the slot frame's 1.3x " +
@@ -1049,7 +1075,10 @@ internal static class CardsConfig
                 "value exactly; the gold snap glow keeps its shipped 0.912 ratio to it so it still " +
                 "reads INSIDE the teal when both show. Raise until the card nearly fills the physical " +
                 "recess without overflowing the rim. Replaces the retired global SlotCardFill and " +
-                "ships its 1.45 unchanged. Does NOT change the seating depth (that is SlotCardInset).");
+                "ships its 1.45 unchanged. Does NOT change the seating depth (that is " +
+                "SlotCardInset). " + BoundedNote + "It sizes the PLAYED CARDS as well as their " +
+                "markers, so 0 would empty the board's two card slots. Range 0.25-3.",
+                new AcceptableValueRange<float>(0.25f, 3f)));
             _initiativeOffset[i] = _file.Bind("Cards", $"InitiativeOffset_{board}",
                 BoardDefaults.InitiativeOffset[i],
                 $"[{board}] initiative-track mount local position (replaces the fixed mount pos), " +
@@ -1152,8 +1181,10 @@ internal static class CardsConfig
                 $"[{board}] offset ADDED to the ACTIVE-cards mount local position (on top of the fixed base " +
                 "just past the pile stacks), board-local meters. Seeded 0 (Oak).");
             _activeCardScale[i] = _file.Bind("Cards", $"ActiveCardScale_{board}", BoardDefaults.ActiveCardScale[i],
-                $"[{board}] scale of the ACTIVE-cards column (× card size). Seeded 0.82 — slightly smaller " +
-                "than the hand/browse fan.");
+                new ConfigDescription(
+                    $"[{board}] scale of the ACTIVE-cards column (× card size). Seeded 0.82 — " +
+                    "slightly smaller than the hand/browse fan. " + BoundedNote + "Range 0.25-3.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
             _activeGridSpacing[i] = _file.Bind("Cards", $"ActiveGridSpacing_{board}", Defaults.ActiveGridSpacing_ByBoard[i],
                 $"[{board}] ACTIVE-cards grid step FACTORS: X = column step (× scaled card width), Y = row " +
                 "step (× scaled card height). Seeded (1.06, 0.70).");
@@ -1161,7 +1192,10 @@ internal static class CardsConfig
                 $"[{board}] offset ADDED to the discard/burn PILE mount local position (on top of the fixed " +
                 "right-edge base), board-local meters. Seeded 0 (Oak).");
             _pileScale[i] = _file.Bind("Cards", $"PileScale_{board}", Defaults.PileScale_ByBoard[i],
-                $"[{board}] size MULTIPLIER of the two discard/burn pile stacks. Seeded 1 (Oak).");
+                new ConfigDescription(
+                    $"[{board}] size MULTIPLIER of the two discard/burn pile stacks. Seeded 1 " +
+                    "(Oak). " + BoundedNote + "Range 0.25-3.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
             _pileSpacing[i] = _file.Bind("Cards", $"PileSpacing_{board}", Defaults.PileSpacing_ByBoard[i],
                 $"[{board}] vertical gap (board-local meters) between the discard (upper) and burn (lower) " +
                 "pile stack centers. Seeded 0.116 (Oak).");
@@ -1173,11 +1207,14 @@ internal static class CardsConfig
                 $"[{board}] offset ADDED to the OBJECTIVES ('Aufgaben') dock mount local position (on top of " +
                 "the fixed left-column base), board-local meters. Seeded 0 (Oak).");
             _objectivesScale[i] = _file.Bind("Cards", $"ObjectivesScale_{board}", BoardDefaults.ObjectivesScale[i],
-                $"[{board}] SIZE multiplier of the OBJECTIVES ('Aufgaben') dock — a true ZOOM: text, " +
-                "progress bars, icons and the panel itself all scale together, because this is the " +
-                "objectives MOUNT's localScale and the docked panel rides mount.lossyScale. This is the " +
-                "ONLY dial that changes how big the task text renders; ObjectivesWidth changes the shape " +
-                "of the block, never its type size. Seeded 1 (Oak).");
+                new ConfigDescription(
+                    $"[{board}] SIZE multiplier of the OBJECTIVES ('Aufgaben') dock — a true ZOOM: " +
+                    "text, progress bars, icons and the panel itself all scale together, because " +
+                    "this is the objectives MOUNT's localScale and the docked panel rides " +
+                    "mount.lossyScale. This is the ONLY dial that changes how big the task text " +
+                    "renders; ObjectivesWidth changes the shape of the block, never its type size. " +
+                    "Seeded 1 (Oak). " + BoundedNote + "Range 0.25-3.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
             _objectivesWidth[i] = _file.Bind("Cards", $"ObjectivesWidth_{board}", BoardDefaults.ObjectivesWidth[i],
                 new ConfigDescription(
                     $"[{board}] WIDTH multiplier of the OBJECTIVES ('Aufgaben') dock — SHAPE ONLY, NOT " +
@@ -1198,7 +1235,10 @@ internal static class CardsConfig
                 $"[{board}] offset ADDED to the ELEMENT infusion ('Elemente') dock mount local position (on top " +
                 "of the fixed left-column base below the objectives), board-local meters. Seeded 0 (Oak).");
             _elementsScale[i] = _file.Bind("Cards", $"ElementsScale_{board}", Defaults.ElementsScale_ByBoard[i],
-                $"[{board}] size MULTIPLIER of the ELEMENT infusion ('Elemente') dock. Seeded 1 (Oak).");
+                new ConfigDescription(
+                    $"[{board}] size MULTIPLIER of the ELEMENT infusion ('Elemente') dock. " +
+                    "Seeded 1 (Oak). " + BoundedNote + "Range 0.25-3.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
             _pinOffset[i] = _file.Bind("Cards", $"PinOffset_{board}", BoardDefaults.PinOffset[i],
                 $"[{board}] offset ADDED to the FOLLOW/PIN toggle button local position (on top of its fixed " +
                 "bottom-right base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
@@ -1211,8 +1251,10 @@ internal static class CardsConfig
                 "(Z = proud toward the player). Adds to the shared [RoundButtons] OffsetX/Y/Z in the same " +
                 "frame and the same unit. Live. Seeded 0 (Oak).");
             _clusterScale[i] = _file.Bind("Cards", $"ClusterScale_{board}", Defaults.ClusterScale_ByBoard[i],
-                $"[{board}] size MULTIPLIER of the turn-flow BUTTON CLUSTER (on top of its fixed 0.7x dock scale). " +
-                "Seeded 1 (Oak).");
+                new ConfigDescription(
+                    $"[{board}] size MULTIPLIER of the turn-flow BUTTON CLUSTER (on top of its " +
+                    "fixed 0.7x dock scale). Seeded 1 (Oak). " + BoundedNote + "Range 0.25-3.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
 
             // Item C: the shared DECISION DOCK (text + buttons UNDER the board — the decision/confirm
             // prompt row) offset + size, per board.
@@ -1225,8 +1267,12 @@ internal static class CardsConfig
                 "every board (the 157 mm this used to ship with lives in the mount's own base since " +
                 "the Y went live; see DecisionOffsetYRebased).");
             _decisionScale[i] = _file.Bind("Cards", $"DecisionScale_{board}", Defaults.DecisionScale_ByBoard[i],
-                $"[{board}] size MULTIPLIER of the shared DECISION DOCK (its docked prompt row pose-follows the " +
-                "mount's lossyScale). Seeded 1 (Oak).");
+                new ConfigDescription(
+                    $"[{board}] size MULTIPLIER of the shared DECISION DOCK (its docked prompt " +
+                    "row pose-follows the mount's lossyScale). Seeded 1 (Oak). " + BoundedNote +
+                    "The dock carries the buttons that ANSWER a prompt the rule engine is waiting " +
+                    "on, so this bound is a flow guard, not a taste one. Range 0.25-3.",
+                    new AcceptableValueRange<float>(0.25f, 3f)));
         }
 
         // ONE-TIME defaults migration (paired with the 2.5x default table scale in

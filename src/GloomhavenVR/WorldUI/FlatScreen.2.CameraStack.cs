@@ -438,7 +438,10 @@ internal sealed partial class FlatScreen
     /// BASE: the stack's lowest-depth camera keeps its forced OPAQUE SolidColor clear
     /// (fresh RTs have undefined color — see field comment).
     ///
-    /// NON-BASE FULLSCREEN SolidColor DEMOTION ([WorldUI] DemoteOverlaySolidClears):
+    /// NON-BASE FULLSCREEN SolidColor DEMOTION (UNCONDITIONAL since the 2026-08-13 user ruling —
+    /// the [WorldUI] DemoteOverlaySolidClears dial is gone, because its OFF let that clear wipe
+    /// the composited campaign map to black, i.e. it could switch off the only route into a
+    /// scenario from the options menu):
     /// the campaign map's 'Video Camera' (decompiled GH.Runtime/VideoCamera.cs) is a
     /// depth-5 fullscreen-video surface: enabled ONLY between PlayFullscreenVideo
     /// (VideoCamera.cs:96) and EndReached/Stop/error (VideoCamera.cs:146,164,190,
@@ -461,7 +464,6 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void TickStackClears()
     {
-        bool demote = WorldUIConfig.DemoteOverlaySolidClears.Value;
         for (int i = 0; i < _captured.Count; i++)
         {
             CapturedCamera c = _captured[i];
@@ -506,7 +508,7 @@ internal sealed partial class FlatScreen
                 continue; // non-base UI cameras keep their own flags (overlay demotion is a BACKGROUND policy)
 
             bool fullscreen = cam.rect.width >= 0.99f && cam.rect.height >= 0.99f;
-            bool wantDemote = demote && fullscreen && c.OriginalClearFlags == CameraClearFlags.SolidColor;
+            bool wantDemote = fullscreen && c.OriginalClearFlags == CameraClearFlags.SolidColor;
             if (wantDemote)
             {
                 if (!c.Demoted)

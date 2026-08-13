@@ -863,7 +863,7 @@ internal static class ConfigCatalog
             "General" => key is "Enabled" or "RuntimeOverride",
             "Core" => true, // RuntimePriority / SkipRuntimeCandidates / InitDelayFrames: bootstrap only
             "Compat" => key is "DisablePostProcessing" or "DisableVolumetricFog" or "DisableComponents",
-            "Rig" => key is "ForwardRendering" or "MenuRig",
+            "Rig" => key is "ForwardRendering",
             "Dev" => key == "Enabled",
             _ => false,
         };
@@ -881,7 +881,6 @@ internal static class ConfigCatalog
     {
         ("Core", "RuntimePriority") => new object[] { "auto", "default", "vdxr", "steamvr", "oculus" },
         ("Hands", "PrimaryHand") => new object[] { "Right", "Left" },
-        ("WorldUI", "ClickMode") => new object[] { "execute", "virtualmouse", "both" },
         ("WorldUI", "ModalStyle") => new object[] { "window", "screen" },
         ("Cards", "RevealMode") => new object[] { "tilt", "always" },
         _ => null,

@@ -45,8 +45,9 @@ namespace GloomhavenVR.Compat;
 /// GameState), so <c>ShouldEventCauseTrigger</c> treats it identically.
 ///
 /// SAFETY / SCOPE:
-/// - Zero game-data changes; one additive client event, fully reversible (config
-///   <c>[Compat] TutorialVRAdapt</c>, default on).
+/// - Zero game-data changes; one additive client event. UNCONDITIONAL since the 2026-08-13
+///   user ruling (the [Compat] TutorialVRAdapt kill-switch is gone: its OFF was the vanilla
+///   deadlock); scope is the runtime tutorial gate below, not a config flag.
 /// - Zero wire traffic: <c>UIEventManager.OnEventLogged</c> has exactly ONE subscriber,
 ///   <c>LevelEventsController.UIEventLogged</c> (verified repo-wide grep) — UIEvents never
 ///   serialize to Photon/FFSNet.
@@ -85,8 +86,11 @@ internal static class TutorialVR
     private static float _accMeters, _accDegrees, _accOctaves;
     private static int _posts;
 
-    /// <summary>Master gate: config on and the bridge has not tripped its error latch.</summary>
-    internal static bool Enabled => !_disabledByError && Plugin.TutorialVRAdapt.Value;
+    /// <summary>Master gate: the bridge has not tripped its error latch. (The [Compat]
+    /// TutorialVRAdapt config half is GONE — user ruling 2026-08-13: its OFF restored the
+    /// vanilla camera-step DEADLOCK this bridge exists to break, so it could only strand the
+    /// tutorial. The error latch, which disarms on a real fault, is the only gate left.)</summary>
+    internal static bool Enabled => !_disabledByError;
 
     /// <summary>
     /// A tutorial scenario is the LOCAL, OFFLINE context this whole feature is scoped to.
@@ -135,8 +139,6 @@ internal static class TutorialVR
     {
         if (_disabledByError || !LevelEventsController.s_EventsControllerActive)
             return; // cold path: outside scripted levels this is two static reads
-        if (!Plugin.TutorialVRAdapt.Value)
-            return;
         try
         {
             NotifyCore(meters, degrees, octaves);

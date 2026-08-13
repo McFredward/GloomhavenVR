@@ -401,7 +401,10 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
 internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPortraitPicker
 {
     public override string Name => "InitiativeTrack";
-    protected override bool ConfigEnabled => WorldUIConfig.InitiativeTrack.Value;
+    // ALWAYS ON (user ruling 2026-08-13; the initiative order was his own named example):
+    // the [WorldUI] InitiativeTrack dial is gone, so the turn order can no longer be released
+    // back to its 2D home — where, in VR, nobody can see it.
+    protected override bool ConfigEnabled => true;
     protected override PanelSlot Slot => PanelSlot.InitiativeTrack;
     protected override Transform? Mount => PlayTray.Current?.InitiativeMount;
     protected override float MountWidth => PlayTray.InitiativeMountWidth;
@@ -1909,7 +1912,9 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 internal sealed class ElementBoardSurface : TrayMountedPanelSurface
 {
     public override string Name => "ElementBoard";
-    protected override bool ConfigEnabled => WorldUIConfig.ElementBoard.Value;
+    // ALWAYS ON (user ruling 2026-08-13): the [WorldUI] ElementBoard dial is gone — the
+    // element infusions are state you must read to spend them.
+    protected override bool ConfigEnabled => true;
     protected override PanelSlot Slot => PanelSlot.ElementBoard;
     protected override Transform? Mount => PlayTray.Current?.ElementMount;
     protected override float MountWidth => PlayTray.ElementMountWidth;
@@ -1955,7 +1960,9 @@ internal sealed class ElementBoardSurface : TrayMountedPanelSurface
 internal sealed class ObjectivesSurface : TrayMountedPanelSurface
 {
     public override string Name => "Objectives";
-    protected override bool ConfigEnabled => WorldUIConfig.Objectives.Value;
+    // ALWAYS ON (user ruling 2026-08-13): the [WorldUI] Objectives dial is gone — the
+    // scenario goal is what the whole scenario is for.
+    protected override bool ConfigEnabled => true;
     protected override PanelSlot Slot => PanelSlot.Objectives;
     protected override Transform? Mount => PlayTray.Current?.ObjectivesMount;
 

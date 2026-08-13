@@ -23,23 +23,37 @@ internal static class WorldUIConfig
     // ManualScreenChord, CatchAllModals, MenuPopupFloat, UseBars, DoomPicker, DistributePanel —
     // each OFF path ended in an unreachable modal or a rule-engine deadlock. None is re-bound,
     // so stale cfg keys are dropped on the next save.
+    //
+    // ROUND 2 OF THE SAME THEME — user ruling 2026-08-13, verbatim:
+    //   "Entferne weiterhin die Optionen die den Spielfluss in VR beschädigen können. Die
+    //    Einstellungen sollen nur Optionale Inhalte einstellbar machen. Das ist die Runde 2 in
+    //    der Thematik. So zB: Die Initativreihenfolge ausschalten zu können am Controllboard
+    //    macht keinen Sinn."
+    // Round 1 kept "all informational panel toggles (alternatives exist)". His example overrules
+    // exactly that: a panel toggle whose OFF releases the panel back to its 2D home makes the
+    // readout UNREACHABLE in VR, because the 2D home is only visible behind the manual A/X
+    // rescue screen. THE TEST THAT DECIDED EACH ONE: does the flat game let you switch this
+    // display off? If it does not, the mod must not invent a way to lose it. Gone here, and
+    // unconditional from now on: InitiativeTrack, ElementBoard, Objectives, StatPanels,
+    // PropInfoCards, EnemyReveal, ActorBars, Tooltips, ActionElementHints (readouts the flat
+    // game always shows), ClickLatch + ClickMode + ForceMouseMode (their off/non-default states
+    // are the documented no-click failure modes), [Keyboard] Enabled (off = a text field with no
+    // way to type in a headset), DemoteOverlaySolidClears (off = the campaign map can be wiped
+    // to black). Kept on purpose: ButtonCluster, WristHud, CombatLog, LoadingIndicator (mod-
+    // invented extras the flat game has no equivalent of), Dialogs / DecisionDock / ModalStyle /
+    // TrayNativeControls / ScreenLayerSplit (both states present the SAME content, a real
+    // fallback path each). None of the removed keys is re-bound: a stale cfg line is an inert
+    // BepInEx orphan and is dropped on the next save, so it can never resurrect the behaviour.
 
     /// <summary>The module's config file (for late binders like FlatScreenStereo). Valid after <see cref="Bind"/>.</summary>
     internal static ConfigFile FileHandle => _file!;
 
     // ---- surfaces (each individually toggleable) ---------------------------------------
     internal static ConfigEntry<bool> ButtonCluster = null!;
-    internal static ConfigEntry<bool> InitiativeTrack = null!;
-    internal static ConfigEntry<bool> ElementBoard = null!;
     internal static ConfigEntry<bool> CombatLog = null!;
-    internal static ConfigEntry<bool> Objectives = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
-    internal static ConfigEntry<bool> StatPanels = null!;
-    internal static ConfigEntry<bool> PropInfoCards = null!;
-    internal static ConfigEntry<bool> EnemyReveal = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
-    internal static ConfigEntry<bool> ActorBars = null!;
 
     /// <summary>Actor bars keep a fixed board-space size (no distance growth) — test #14 item 4.</summary>
     internal static ConfigEntry<bool> BarFixedSize = null!;
@@ -53,8 +67,8 @@ internal static class WorldUIConfig
     /// at the eye: the diorama scale is a scale on the RIG, so a world-unit size means a different
     /// apparent size at every zoom while the same real-millimetre size looks identical at all of
     /// them. 1.0 = the shipped size, which is <see cref="CanvasScaleMm"/> × 0.35 mm per uGUI pixel
-    /// at the eye (see <see cref="ActorBars"/>); 2.0 is a bar twice as tall and twice as wide in
-    /// front of your face at any table zoom.</para>
+    /// at the eye (see <see cref="WorldUI.ActorBars"/>); 2.0 is a bar twice as tall and twice as
+    /// wide in front of your face at any table zoom.</para>
     /// </summary>
     internal static ConfigEntry<float> BarSizeScale = null!;
 
@@ -63,18 +77,14 @@ internal static class WorldUIConfig
     /// zoomen nie über die Grenzen hinaus skalieren können"). The bars FOLLOW the table zoom — they
     /// grow with the miniature when the table is pinched larger and shrink with it when it is
     /// pinched away — and this is the floor of that following, as a factor of
-    /// <see cref="BarSizeScale"/>. See <see cref="ActorBars"/> for the arithmetic and the guarantee.
+    /// <see cref="BarSizeScale"/>. See <see cref="WorldUI.ActorBars"/> for the arithmetic and the
+    /// guarantee.
     /// </summary>
     internal static ConfigEntry<float> BarZoomMinScale = null!;
 
     /// <summary>Upper end of the zoom clamp; see <see cref="BarZoomMinScale"/>.</summary>
     internal static ConfigEntry<float> BarZoomMaxScale = null!;
     internal static ConfigEntry<bool> WristHud = null!;
-    internal static ConfigEntry<bool> Tooltips = null!;
-
-    /// <summary>User #7c: enable/disable the action-phase element/ability explanation hints
-    /// (the world-space tooltip presentation). Wired to the in-VR settings panel; read live.</summary>
-    internal static ConfigEntry<bool> ActionElementHints = null!;
 
     /// <summary>Aliasing follow-up to [Cards] FaceMipBake: mip-bake the mipless game textures the
     /// initiative track and the hover-hint tooltip sample on their world-space hosts (see
@@ -82,9 +92,10 @@ internal static class WorldUIConfig
     internal static ConfigEntry<bool> PanelMipBake = null!;
 
     // ---- behavior ----------------------------------------------------------------------
-    /// <summary>Keep the game in mouse mode so `Game` (not `Game_gamepad`) scenes load.</summary>
-    internal static ConfigEntry<bool> ForceMouseMode = null!;
-
+    // [WorldUI] ForceMouseMode is GONE (user ruling 2026-08-13): mouse mode is now pinned
+    // unconditionally while VR runs. Its OFF let the game load the 'Game_gamepad' scene variants
+    // and put every button behind a gamepad long-press — an input the VR player has no device
+    // for. See InputModeGuard.
     /// <summary>World-canvas scale in millimeters per uGUI pixel (at diorama scale 1).</summary>
     internal static ConfigEntry<float> CanvasScaleMm = null!;
 
@@ -157,8 +168,10 @@ internal static class WorldUIConfig
     /// <summary>Flat-screen distance from the head in real-world meters.</summary>
     internal static ConfigEntry<float> ScreenDistance = null!;
 
-    /// <summary>Freeze the pointer from trigger-press to release so uGUI sees a CLICK, not a tremor drag.</summary>
-    internal static ConfigEntry<bool> ClickLatch = null!;
+    // [WorldUI] ClickLatch is GONE (user ruling 2026-08-13): the press-to-release position freeze
+    // is unconditional. Its OFF is the documented no-click failure mode — sub-degree hand tremor
+    // moves the projected pixel dozens of px between press and release, so uGUI sees a drag and
+    // NOTHING in the flat menus (main menu included) can be clicked. See FlatScreen.6.Pointer.
 
     /// <summary>Disable the physical desktop mouse while VR runs so only the VR laser drives the pointer.</summary>
     internal static ConfigEntry<bool> SuppressPhysicalMouse = null!;
@@ -193,8 +206,13 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<bool> DecisionPokeDeliberate = null!;
 
-    /// <summary>Click delivery: "execute" (ExecuteEvents, default) | "virtualmouse" | "both".</summary>
-    internal static ConfigEntry<string> ClickMode = null!;
+    // [WorldUI] ClickMode is GONE (user ruling 2026-08-13): clicks are delivered through uGUI
+    // ExecuteEvents, always. Of its three values only the default 'execute' ever worked —
+    // 'virtualmouse' was disproven on hardware (test #7: the virtual-mouse BUTTON edges do not
+    // survive the input module, so no click and no slider drag ever landed) and 'both' is
+    // documented as double-firing, "diagnostic use only". A dial whose two non-default values
+    // break clicking is not a choice. The virtual mouse keeps carrying POSITION (hover) — only
+    // its press/release path is gone with the dial.
 
     /// <summary>Legacy: world panels re-orient with the rig yaw per frame (HUD-like). Default false (P6).</summary>
     internal static ConfigEntry<bool> PanelsFollowView = null!;
@@ -237,8 +255,11 @@ internal static class WorldUIConfig
     /// hold the non-dominant A/X in a scenario to toggle the flat screen).</summary>
     internal static ConfigEntry<float> ManualScreenChordSeconds = null!;
 
-    /// <summary>Demote fullscreen SolidColor clears of non-base captured cameras to Depth (test #10).</summary>
-    internal static ConfigEntry<bool> DemoteOverlaySolidClears = null!;
+    // [WorldUI] DemoteOverlaySolidClears is GONE (user ruling 2026-08-13): the demotion is
+    // unconditional. Its OFF let a non-base captured camera's fullscreen SolidColor clear (the
+    // campaign map's depth-5 'Video Camera') wipe the composited map/UI to BLACK — i.e. the
+    // campaign map, which is the only way to reach a scenario, could be switched to a black
+    // rectangle from the options menu. See FlatScreen.2.CameraStack.
 
     /// <summary>Split the flat screen into a UI glass layer over a stereo background layer (test #18).</summary>
     internal static ConfigEntry<bool> ScreenLayerSplit = null!;
@@ -247,21 +268,17 @@ internal static class WorldUIConfig
     /// flat screen suppressed, background loading priority lowered (smaller hitches).</summary>
     internal static ConfigEntry<bool> LoadingIndicator = null!;
 
-    /// <summary>True when clicks go through ExecuteEvents (ClickMode execute/both).</summary>
-    internal static bool ExecuteClicks =>
-        !string.Equals(ClickMode.Value, "virtualmouse", System.StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>True when button state goes through the virtual mouse (ClickMode virtualmouse/both).</summary>
-    internal static bool VirtualMouseButtons =>
-        !string.Equals(ClickMode.Value, "execute", System.StringComparison.OrdinalIgnoreCase);
-
     /// <summary>True when fallback windows float individually ([WorldUI] ModalStyle != "screen").</summary>
     internal static bool ModalWindowStyle =>
         !string.Equals(ModalStyle.Value, "screen", System.StringComparison.OrdinalIgnoreCase);
 
     // ---- on-screen keyboard --------------------------------------------------------------
-    /// <summary>Show the game's own on-screen keyboard whenever a text field takes focus.</summary>
-    internal static ConfigEntry<bool> KeyboardEnabled = null!;
+    // [Keyboard] Enabled is GONE (user ruling 2026-08-13): the game's own on-screen keyboard
+    // comes up for every focused text field, always. Its OFF said "text fields need a real
+    // keyboard" — in a headset that is a text field with no way to type into it, and naming a
+    // party is a REQUIRED step of starting a campaign. The keyboard only ever appears while a
+    // field has focus, so there was never anything to switch off but the ability to proceed.
+    // [Keyboard] AutoCapitalise survives: it only changes what the typed letters look like.
 
     /// <summary>Capitalise the first letter of each word (the game's keyboard has no shift key).</summary>
     internal static ConfigEntry<bool> KeyboardAutoCase = null!;
@@ -282,26 +299,21 @@ internal static class WorldUIConfig
 
         ButtonCluster = _file.Bind("WorldUI", "ButtonCluster", Defaults.ButtonCluster,
             "Physical Ready/Undo/Skip buttons at the table edge.");
-        InitiativeTrack = _file.Bind("WorldUI", "InitiativeTrack", Defaults.InitiativeTrack,
-            "Initiative track as a world-space panel above the table.");
-        ElementBoard = _file.Bind("WorldUI", "ElementBoard", Defaults.ElementBoard,
-            "Element infusion board docked on the control board's left column, below the " +
-            "objectives panel (floating world panel only as the no-tray fallback).");
+        // InitiativeTrack / ElementBoard / Objectives / StatPanels / PropInfoCards / EnemyReveal:
+        // always on — user ruling 2026-08-13 (his named example is the initiative order). Each
+        // OFF released the panel back to its 2D home, which in VR lives on the hidden flat stack:
+        // the turn order, the element infusions, the scenario goal, the monster stat block, the
+        // hover info for doors/chests/traps and the round's monster ability cards were all
+        // switchable into invisibility. See the tombstone at the top of this file.
         CombatLog = _file.Bind("WorldUI", "CombatLog", Defaults.CombatLog,
-            "Combat log as a world-space panel at the table's far side.");
-        Objectives = _file.Bind("WorldUI", "Objectives", Defaults.Objectives,
-            "Scenario objectives as a world-space panel at the table's far side.");
+            "Combat log as a world-space panel at the table's far side. Kept switchable on " +
+            "purpose: the log is a HISTORY of things that already happened and the flat game " +
+            "lets you close it too, so hiding it costs no state you need to play.");
         Dialogs = _file.Bind("WorldUI", "Dialogs", Defaults.Dialogs,
-            "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no).");
-        StatPanels = _file.Bind("WorldUI", "StatPanels", Defaults.StatPanels,
-            "Actor/monster stat panels as world panels near the table (opened by the game / Phase-3a poke).");
-        PropInfoCards = _file.Bind("WorldUI", "PropInfoCards", Defaults.PropInfoCards,
-            "Hover prop-info cards (closed doors/chests, traps, terrain, quest items — the " +
-            "game's TextInfoPanel/PropInfoPanel popups) as a small passive world panel low in view.");
-        EnemyReveal = _file.Bind("WorldUI", "EnemyReveal", Defaults.EnemyReveal,
-            "Enemy round reveal (the monster ability cards shown after everyone confirmed " +
-            "their card selection) as a display-only world panel floating above the board " +
-            "while the game shows it, instead of hidden on the control board.");
+            "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no). " +
+            "Off = the generic modal fallback floats the SAME window instead (ModalFallback " +
+            "IsFallbackWindow), so the dialog stays answerable either way — this picks the " +
+            "presentation, it never hides the prompt.");
         DecisionDock = _file.Bind("WorldUI", "DecisionDock", Defaults.DecisionDock,
             "In-scenario decision/confirmation prompts (take-damage burn choice, the burn-" +
             "confirm 'burn this / choose another card' dialog, and any other prompt in the " +
@@ -326,8 +338,10 @@ internal static class WorldUIConfig
             "board buttons now wear the sampled native game skin themselves (NativeButtonSkin, test " +
             "#26), so leaving this OFF gives every board button ONE permanent, uniform game-styled " +
             "look with no swap. On = re-enable the real-widget docking (accepts the flicker).");
-        ActorBars = _file.Bind("WorldUI", "ActorBars", Defaults.ActorBars,
-            "True world-space HP/effect bars above the miniatures (replaces the screen-projected bars).");
+        // ActorBars: always on — user ruling 2026-08-13. Its OFF released every adopted HP/effect
+        // bar back to the game's screen-projected presentation, which is not visible from inside
+        // the HMD: the health of every miniature on the board disappeared. The SIZE dials below
+        // stay — how big the bars are is taste, whether they exist is not.
         BarFixedSize = _file.Bind("WorldUI", "BarFixedSize", Defaults.BarFixedSize,
             "Actor HP/effect bars ignore the HEAD DISTANCE — a bar the same size whether you " +
             "lean in or step back (test #14: the old distance compensation grew bars up to 2.5x " +
@@ -366,15 +380,10 @@ internal static class WorldUIConfig
                 new AcceptableValueRange<float>(1f, 3f)));
         WristHud = _file.Bind("WorldUI", "WristHud", Defaults.WristHud,
             "Compact character status (HP/XP/conditions/gold) on the non-dominant wrist, look-at activated.");
-        Tooltips = _file.Bind("WorldUI", "Tooltips", Defaults.Tooltips,
-            "Re-anchor the game's tooltip canvas in world space near the poking fingertip.");
-        ActionElementHints = _file.Bind("WorldUI", "ActionElementHints", Defaults.ActionElementHints,
-            "Show the game's action-phase element/ability explanation hint (the card-action " +
-            "tooltip) as a world-space panel pinned to the control board's TOP-LEFT corner " +
-            "while a scenario runs. A short hover grace keeps it from flickering away on tiny " +
-            "movements off the hovered element. Off = the hint is never flipped to world space " +
-            "and never shown in VR (the vanilla 2D menu tooltip is unaffected). Wired to the " +
-            "in-VR settings panel and read live, so toggling takes effect without a restart.");
+        // Tooltips / ActionElementHints: always on — user ruling 2026-08-13. The flat game raises
+        // both on hover and offers no way to switch them off; in VR the mod's dials did, and their
+        // OFF left the tooltip canvas at its 2D screen position, i.e. nowhere the player can read
+        // it. Losing them means losing every condition/element/ability explanation the game gives.
         PanelMipBake = _file.Bind("WorldUI", "PanelMipBake", Defaults.PanelMipBake,
             "Aliasing follow-up to [Cards] FaceMipBake: the game also ships the textures the " +
             "INITIATIVE TRACK (RawImage portraits + frame/line sprites) and the mouseover " +
@@ -387,11 +396,15 @@ internal static class WorldUIConfig
 
         // CatchAllModals / MenuPopupFloat: always on — user ruling 2026-08-11: essential
         // deadlock insurance (their OFF paths restored the silent-deadlock classes).
-        ForceMouseMode = _file.Bind("WorldUI", "ForceMouseMode", Defaults.ForceMouseMode,
-            "Keep InputManager in mouse mode while VR runs so the 'Game' (not 'Game_gamepad') " +
-            "scene variants load and buttons commit without gamepad long-press flows.");
+        // ForceMouseMode: always on — user ruling 2026-08-13 (see the tombstone above).
         CanvasScaleMm = _file.Bind("WorldUI", "CanvasScaleMm", Defaults.CanvasScaleMm,
-            "World-canvas scale: millimeters per uGUI pixel at diorama scale 1 (default 1 px = 1 mm).");
+            new ConfigDescription(
+                "World-canvas scale: millimeters per uGUI pixel at diorama scale 1 (default 1 px " +
+                "= 1 mm). This sizes EVERY converted panel at once, so the range is bounded on " +
+                "both ends: at 0 every world panel in the mod collapses to a point and the game " +
+                "becomes unreadable, and the ceiling keeps the panels from swallowing the board. " +
+                "Range 0.2-4.",
+                new AcceptableValueRange<float>(0.2f, 4f)));
         InitiativeDepthMaxSpreadPx = _file.Bind("WorldUI", "InitiativeDepthMaxSpreadPx", Defaults.InitiativeDepthMaxSpreadPx,
             "Initiative track 3D depth effect: the MAXIMUM total front-to-back z spread (uGUI " +
             "pixels) between the shallowest and deepest initiative portrait. The authored row " +
@@ -438,16 +451,21 @@ internal static class WorldUIConfig
             "too. Off = old behavior: intro plays on the desktop only and the HMD shows a " +
             "'starting...' indicator in the void.");
         ScreenWidth = _file.Bind("WorldUI", "ScreenWidth", Defaults.ScreenWidth,
-            "Width of the floating 2D screen in real-world meters (16:9, height follows). " +
-            "Replaces the pre-test-#6 'FlatScreenWidth' key (1.4 m read too small at 1.6 m).");
+            new ConfigDescription(
+                "Width of the floating 2D screen in real-world meters (16:9, height follows). " +
+                "Replaces the pre-test-#6 'FlatScreenWidth' key (1.4 m read too small at 1.6 m). " +
+                "Bounded because this screen is the ONLY surface that carries the main menu and " +
+                "the A/X rescue: a 0 m screen is a rescue you cannot see. Range 0.4-8.",
+                new AcceptableValueRange<float>(0.4f, 8f)));
         ScreenDistance = _file.Bind("WorldUI", "ScreenDistance", Defaults.ScreenDistance,
-            "Distance from the head to the floating 2D screen in real-world meters.");
-        ClickLatch = _file.Bind("WorldUI", "ClickLatch", Defaults.ClickLatch,
-            "Freeze the virtual-mouse position from trigger-press (or fingertip contact) until " +
-            "release, so press and release land on the SAME pixel and uGUI registers a click — " +
-            "sub-degree hand tremor otherwise moves the projected pixel dozens of px and turns " +
-            "every click into a no-op drag. Deliberate movement past DragUnlockDegrees for " +
-            "DragUnlockSeconds opens the latch into a real drag (scroll lists keep working).");
+            new ConfigDescription(
+                "Distance from the head to the floating 2D screen in real-world meters. Bounded " +
+                "for the same reason as ScreenWidth, and at the near end also because a screen " +
+                "inside your own head renders as nothing at all. Range 0.3-8.",
+                new AcceptableValueRange<float>(0.3f, 8f)));
+        // ClickLatch: always on — user ruling 2026-08-13 (see the tombstone above). The two
+        // DragUnlock* dials below stay: they tune WHEN a deliberate movement opens the latch into
+        // a drag, which is taste, not the difference between clicking and not clicking.
         SuppressPhysicalMouse = _file.Bind("WorldUI", "SuppressPhysicalMouse", Defaults.SuppressPhysicalMouse,
             "While VR is running, disable the physical desktop mouse in the InputSystem so its " +
             "(stale) desktop position can no longer hover or select map/menu elements behind your " +
@@ -488,14 +506,8 @@ internal static class WorldUIConfig
             "accidental instant triggers. Applies ONLY to the physical poke on decision-dock " +
             "buttons; every other converted surface keeps the PokePressDepthMm push-in press, " +
             "and laser clicks are unaffected. Off = decision buttons press like everything else.");
-        ClickMode = _file.Bind("WorldUI", "ClickMode", Defaults.ClickMode,
-            "How a latched click on the floating screen is delivered. 'execute' (default): " +
-            "directly via uGUI ExecuteEvents on the raycast target — the same mechanism the " +
-            "game's own BaseButtons.clickButton uses; immune to input-module edge-visibility " +
-            "quirks (hardware test #7: virtual-mouse button edges produced no clicks). " +
-            "'virtualmouse': press/release through the virtual mouse device only. " +
-            "'both': both paths (may double-fire — diagnostic use only). Deliberate drags " +
-            "always go through the virtual mouse regardless of mode.");
+        // ClickMode: gone — user ruling 2026-08-13. Clicks are delivered via uGUI ExecuteEvents,
+        // unconditionally, and deliberate drags via the uGUI drag handlers; see the tombstone.
 
         CombatLogFollow = _file.Bind("WorldUI", "CombatLogFollowSeat", Defaults.CombatLogFollowSeat,
             "Combat log panel anchor mode (the panel's own FOLLOW/PINNED pin button flips " +
@@ -565,15 +577,13 @@ internal static class WorldUIConfig
         // ManualScreenChord: always on — user ruling 2026-08-11: the universal rescue must not
         // be switchable off; only its hold duration below stays tunable.
         ManualScreenChordSeconds = _file.Bind("WorldUI", "ManualScreenChordSeconds", Defaults.ManualScreenChordSeconds,
-            "Hold duration (seconds) of the non-dominant A/X for the manual flat-screen " +
-            "toggle.");
-        DemoteOverlaySolidClears = _file.Bind("WorldUI", "DemoteOverlaySolidClears", Defaults.DemoteOverlaySolidClears,
-            "While the floating 2D screen captures the game's cameras into its RenderTexture, " +
-            "demote FULLSCREEN SolidColor clears of NON-base captured cameras (e.g. the campaign " +
-            "map's depth-5 'Video Camera', whose clear is only the black backdrop behind fullscreen " +
-            "videos — GH VideoCamera.PlayFullscreenVideo) to Depth-only, so they can never wipe the " +
-            "composited map/UI to black. Viewport-limited (sub-rect) cameras keep their clear. " +
-            "Disable for vanilla-exact clears (black letterbox backdrop during videos).");
+            new ConfigDescription(
+                "Hold duration (seconds) of the non-dominant A/X for the manual flat-screen " +
+                "toggle. BOUNDED (user ruling 2026-08-13): the chord itself is the universal " +
+                "rescue and is no longer switchable off, so its hold time must not be settable " +
+                "to a duration nobody can hold either. Range 0.3-6.",
+                new AcceptableValueRange<float>(0.3f, 6f)));
+        // DemoteOverlaySolidClears: always on — user ruling 2026-08-13 (see the tombstone above).
         ScreenLayerSplit = _file.Bind("WorldUI", "ScreenLayerSplit", Defaults.ScreenLayerSplit,
             "Render the floating 2D screen as TWO layers (hardware test #18): the game's UI " +
             "cameras — whose Screen-Space-Camera canvases only ever render through their " +
@@ -592,12 +602,7 @@ internal static class WorldUIConfig
             "GC pause and synchronous asset-assembly frames cannot be split). Off = vanilla " +
             "behavior: the HMD shows a motionless void during loads.");
 
-        KeyboardEnabled = _file.Bind("Keyboard", "Enabled", Defaults.Keyboard_Enabled,
-            "Show the game's own on-screen keyboard whenever a text field takes focus, so a party " +
-            "can be named without reaching for a physical keyboard. The keyboard is the game's " +
-            "(UIKeyboard) rather than a mod-drawn one, so it carries the game's art and its " +
-            "per-language layouts; the game only ever shows it in gamepad mode, which VR never " +
-            "uses. Off = text fields need a real keyboard.");
+        // [Keyboard] Enabled: always on — user ruling 2026-08-13 (see the tombstone above).
         KeyboardAutoCase = _file.Bind("Keyboard", "AutoCapitalise", Defaults.AutoCapitalise,
             "Capitalise the first letter of each word typed on the on-screen keyboard and lower " +
             "the rest. The game's keyboard emits key CODES and maps letters to their upper-case " +
@@ -609,6 +614,28 @@ internal static class WorldUIConfig
         DevForceConvert = _file.Bind("WorldUI", "DevForceConvert", Defaults.DevForceConvert,
             "DEV: apply the real canvas conversions in dev mode without an HMD (this moves the " +
             "game's 2D panels into world space — the desktop view changes accordingly).");
+
+        // ONE line per build so the round is documented in the next hardware log. WorldUI is the
+        // first module to bind, and the audit spans several modules, so the counts are written
+        // down here rather than summed at runtime from something that could drift.
+        VRLog.Info("Config", "SETTINGS AUDIT round 2 (user ruling 2026-08-13): 20 dials REMOVED "
+                             + "and 16 CLAMPED (8 of the clamped are per-board families, so 31 "
+                             + "cfg keys gained a range and 3 more a read floor). Removed, now "
+                             + "unconditional: [WorldUI] "
+                             + "InitiativeTrack, ElementBoard, Objectives, StatPanels, "
+                             + "PropInfoCards, EnemyReveal, ActorBars, Tooltips, "
+                             + "ActionElementHints, ClickLatch, ClickMode, ForceMouseMode, "
+                             + "DemoteOverlaySolidClears, ScreenLeftMirrorFallback, "
+                             + "MapAlbedoRender; [Keyboard] Enabled; [Compat] TutorialVRAdapt; "
+                             + "[Rig] MenuRig; [HexHighlight] KillBorderLine, KillFill. "
+                             + "Clamped: [WorldUI] CanvasScaleMm, ScreenWidth, ScreenDistance, "
+                             + "ManualScreenChordSeconds; [Cards] CardWidth, InspectScale, "
+                             + "FanRadius, and per board RestButtonDiameter, SlotOverlayScale, "
+                             + "ActiveCardScale, PileScale, ObjectivesScale, ElementsScale, "
+                             + "ClusterScale, DecisionScale; [Cards] BoardScale is floored at the "
+                             + "READ instead, because the two-hand grab writes it. Stale keys in "
+                             + "an existing cfg are inert BepInEx orphans and drop on the next "
+                             + "save, so none of the removed behaviour can come back.");
     }
 
     /// <summary>True while WorldUI physicalization should be applied to live game UI.

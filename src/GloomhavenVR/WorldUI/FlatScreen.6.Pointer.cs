@@ -113,31 +113,19 @@ internal sealed partial class FlatScreen
                 else if (Time.unscaledTime - _dragOverSince >= WorldUIConfig.DragUnlockSeconds.Value)
                 {
                     _latched = false;
-                    // Deliberate drag. virtualmouse/both modes press-and-follow the
-                    // virtual-mouse device; execute mode (the default) drives uGUI drag
-                    // events directly. The VM path never moved a menu slider on hardware:
-                    // the virtual-mouse BUTTON edges do not survive the input module
-                    // (test #7 — the very reason clicks default to ExecuteEvents), so a
-                    // held VM "drag" carried no pressed state, uGUI started no drag, and
-                    // the slider handle never followed — only the DirectClick on release
-                    // ever set a value (user report: sliders in the MAIN MENU can only be
-                    // clicked, never dragged, so 0 is unreachable). The ExecuteEvents drag
-                    // below moves Sliders/Scrollbars/ScrollRects the same way the in-game
-                    // world-space menus do (Hands.Interact.UguiPointer).
-                    if (WorldUIConfig.VirtualMouseButtons)
-                    {
-                        if (!_vmPressed)
-                        {
-                            VirtualMouse.WarpTo(_latchedPixel);
-                            VirtualMouse.Press();
-                            _vmPressed = true;
-                        }
-                    }
-                    else
-                    {
-                        BeginScreenDrag(_latchedPixel);
-                        UpdateScreenDrag(pixel); // catch the drag up to the current ray at once
-                    }
+                    // Deliberate drag, through uGUI's own drag events — UNCONDITIONALLY since
+                    // [WorldUI] ClickMode was removed (user ruling 2026-08-13). The alternative
+                    // it used to offer (press-and-follow the virtual-mouse device) never moved a
+                    // menu slider on hardware: the virtual-mouse BUTTON edges do not survive the
+                    // input module (test #7 — the very reason clicks went to ExecuteEvents), so a
+                    // held VM "drag" carried no pressed state, uGUI started no drag, and the
+                    // slider handle never followed — only the DirectClick on release ever set a
+                    // value (user report: sliders in the MAIN MENU can only be clicked, never
+                    // dragged, so 0 is unreachable). This path moves Sliders/Scrollbars/
+                    // ScrollRects the same way the in-game world-space menus do
+                    // (Hands.Interact.UguiPointer).
+                    BeginScreenDrag(_latchedPixel);
+                    UpdateScreenDrag(pixel); // catch the drag up to the current ray at once
                     VRLog.Info("WorldUI", $"FlatScreen pointer: click latch OPENED → drag " +
                                           $"(ray {angle:F1}° off the press direction for " +
                                           $">{WorldUIConfig.DragUnlockSeconds.Value:F2}s).");
@@ -160,11 +148,6 @@ internal sealed partial class FlatScreen
             {
                 _mapPanGesture = true;
                 _latched = false;             // consume the click — release must not DirectClick
-                if (_vmPressed)
-                {
-                    VirtualMouse.Release();    // drop any held virtual-mouse button so no hover/drag leaks
-                    _vmPressed = false;
-                }
                 EndScreenDrag();
                 _stereo.BeginMapPan(_latchedPixel);
                 VRLog.Info("WorldUI", "FlatScreen pointer: map PAN started (trigger-drag grabbed the map).");
@@ -182,9 +165,9 @@ internal sealed partial class FlatScreen
         if (!_mapPanGesture)
             VirtualMouse.WarpTo(frozen ? _latchedPixel : pixel);
 
-        // Execute-mode drag (default ClickMode): once the latch has opened, drive the
-        // uGUI IDragHandler under the press so sliders/scrollbars/scroll-rects follow
-        // the ray continuously — down/up/click alone never move a Slider handle.
+        // uGUI drag (the only delivery path since [WorldUI] ClickMode was removed): once the
+        // latch has opened, drive the uGUI IDragHandler under the press so sliders/scrollbars/
+        // scroll-rects follow the ray continuously — down/up/click alone never move a Slider.
         if (_screenDragActive)
             UpdateScreenDrag(pixel);
 
@@ -206,21 +189,17 @@ internal sealed partial class FlatScreen
         if (hand.TriggerDown && !_pressing)
         {
             _pressing = true;
-            _latched = WorldUIConfig.ClickLatch.Value;
+            // ALWAYS LATCHED ([WorldUI] ClickLatch removed, user ruling 2026-08-13): press and
+            // release must land on the same pixel or uGUI sees a tremor drag and no click at all.
+            _latched = true;
             _latchedLocal = new Vector2(local.x, local.y);
             _latchedPixel = pixel;
             _pressDirection = pose.Direction;
             _dragOverSince = -1f;
             VirtualMouse.WarpTo(pixel); // press lands exactly on the frozen pixel
-            if (WorldUIConfig.VirtualMouseButtons)
-            {
-                VirtualMouse.Press();
-                _vmPressed = true;
-            }
             LogUnderPointer(pixel); // diagnostic: what the click will actually hit
             VRLog.Info("WorldUI", $"FlatScreen pointer: trigger PRESS at RT pixel " +
-                                  $"({pixel.x:F0},{pixel.y:F0}), latch={_latched}, " +
-                                  $"mode={WorldUIConfig.ClickMode.Value}.");
+                                  $"({pixel.x:F0},{pixel.y:F0}).");
         }
         else if (_pressing && !hand.TriggerPressed)
         {
@@ -228,11 +207,6 @@ internal sealed partial class FlatScreen
             if (!hand.TriggerUp)
                 VRLog.Warn("WorldUI", "FlatScreen pointer: trigger release edge was missed " +
                                       "(hands rebuilt mid-press?) — forced release.");
-            if (_vmPressed)
-            {
-                VirtualMouse.Release();
-                _vmPressed = false;
-            }
             // A map pan consumed the press (latch already false) — end it, no click fires.
             if (_mapPanGesture)
             {
@@ -243,7 +217,7 @@ internal sealed partial class FlatScreen
             // latch, so _latched is false here and DirectClick does not double-fire —
             // the two paths are mutually exclusive (tap → DirectClick; drag → EndScreenDrag).
             EndScreenDrag();
-            if (_latched && WorldUIConfig.ExecuteClicks)
+            if (_latched)
                 DirectClick(_latchedPixel);
             VRLog.Info("WorldUI", $"FlatScreen pointer: trigger RELEASE at RT pixel " +
                                   $"({pixel.x:F0},{pixel.y:F0}) — " +
@@ -359,22 +333,10 @@ internal sealed partial class FlatScreen
                    > PokeDragUnlockMeters * PokeDragUnlockMeters * scale * scale)
             {
                 _pokeLatched = false;
-                // Same drag split as the trigger-ray path: execute mode (default) drives
-                // uGUI drag events (sliders/scrollbars follow); virtualmouse/both press
-                // the VM device. The VM path never moved a slider (test #7 button edges).
-                if (WorldUIConfig.VirtualMouseButtons)
-                {
-                    if (!_vmPressed)
-                    {
-                        VirtualMouse.WarpTo(_pokePressPixel);
-                        VirtualMouse.Press();
-                        _vmPressed = true;
-                    }
-                }
-                else
-                {
-                    BeginScreenDrag(_pokePressPixel);
-                }
+                // Same drag path as the trigger ray, and now the only one: uGUI drag events
+                // (sliders/scrollbars follow). The virtual-mouse alternative went with
+                // [WorldUI] ClickMode — it never moved a slider (test #7 button edges).
+                BeginScreenDrag(_pokePressPixel);
                 VRLog.Info("WorldUI", "FlatScreen poke: latch OPENED → drag (fingertip slid " +
                                       $">{PokeDragUnlockMeters * 1000f:F0} mm laterally).");
             }
@@ -458,15 +420,10 @@ internal sealed partial class FlatScreen
         var pixel = new Vector2((local.x + 0.5f) * _rt!.width, (local.y + 0.5f) * _rt.height);
         _pokePressing = true;
         _pokeHand = hand;
-        _pokeLatched = WorldUIConfig.ClickLatch.Value;
+        _pokeLatched = true; // always latched — see the trigger path ([WorldUI] ClickLatch is gone)
         _pokePressPoint = tip - t.forward * signed;
         _pokePressPixel = pixel;
         VirtualMouse.WarpTo(pixel);
-        if (WorldUIConfig.VirtualMouseButtons)
-        {
-            VirtualMouse.Press();
-            _vmPressed = true;
-        }
         hand.SendHaptic(HapticPreset.ClickPulse);
         LogUnderPointer(pixel);
         VRLog.Info("WorldUI", $"FlatScreen poke: {hand.Side} fingertip PRESS at RT pixel " +
@@ -477,16 +434,11 @@ internal sealed partial class FlatScreen
     {
         _pokePressing = false;
         _pokeHand = null;
-        if (_vmPressed)
-        {
-            VirtualMouse.Release();
-            _vmPressed = false;
-        }
-        // End any execute-mode drag (endDrag + pointerUp); no-op for a plain latched tap.
+        // End any uGUI drag (endDrag + pointerUp); no-op for a plain latched tap.
         EndScreenDrag();
         // reason == null is the normal withdraw → deliver the click; any named reason
         // (hand lost, poke disabled) is an abort.
-        if (_pokeLatched && reason == null && WorldUIConfig.ExecuteClicks)
+        if (_pokeLatched && reason == null)
             DirectClick(_pokePressPixel);
         VRLog.Info("WorldUI", $"FlatScreen poke: fingertip RELEASE — " +
                               $"{reason ?? (_pokeLatched ? "CLICK (latched)" : "drag end")}.");
@@ -499,11 +451,6 @@ internal sealed partial class FlatScreen
         {
             _pressing = false;
             _latched = false;
-            if (_vmPressed)
-            {
-                VirtualMouse.Release();
-                _vmPressed = false;
-            }
             EndScreenDrag();
             VRLog.Info("WorldUI", "FlatScreen pointer: press released (ray left the screen / pose lost).");
         }

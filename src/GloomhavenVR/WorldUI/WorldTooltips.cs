@@ -43,7 +43,9 @@ namespace GloomhavenVR.WorldUI;
 /// it from flickering away on micro-jitter off a tiny target: the game's own show/hide fade
 /// is widened (<see cref="FadeGraceSeconds"/>) and the parked position is latched for
 /// <see cref="HoverGraceSeconds"/> after the content stops showing. The whole presentation
-/// is gated on <see cref="WorldUIConfig.ActionElementHints"/> (user #7c).
+/// is unconditional in every scenario mode: the [WorldUI] Tooltips and ActionElementHints dials
+/// (user #7c) were removed by the 2026-08-13 ruling — an explanation the flat game always gives
+/// must not be switchable into invisibility in VR.
 ///
 /// FLAT 2D (part A): the game tooltip's content carries baked local-z / local rotation
 /// (subtle styling under the perspective UI camera) that becomes literal geometry on a
@@ -186,7 +188,6 @@ internal sealed class WorldTooltips
     // ---- diagnostics (dedupe so a per-frame path logs once) ---------------------------
     private bool _parkedLogged;
     private Vector3 _parkedLogPos;
-    private bool _gateOffLogged;
 
     /// <summary>[Optimize] TooltipScanGate: earliest frame the CanvasManager may be searched for
     /// again while the tooltip canvas is still unresolved.</summary>
@@ -937,30 +938,21 @@ internal sealed class WorldTooltips
         // Menu2D keeps the vanilla 2D tooltip path (UICamera → FlatScreen RT); every
         // scenario mode (incl. ModalUI/BoardTargeting — Recompute() only leaves
         // Menu2D while a scenario runs) gets the world-space presentation.
-        bool modeWantsTooltip = WorldUIConfig.Tooltips.Value && WorldUIConfig.ConversionActive
-                                && VRModeStateMachine.CurrentMode != VRMode.Menu2D
-                                && !MenuOnFlatScreen();
-        // User #7c: the in-VR settings toggle gates the whole world-space presentation.
-        // Read live so a flip takes effect without a restart; the 2D menu tooltip (Menu2D
-        // path above) is never touched by this gate.
-        bool hintsEnabled = WorldUIConfig.ActionElementHints.Value;
-        bool want = modeWantsTooltip && hintsEnabled;
+        // [WorldUI] Tooltips AND [WorldUI] ActionElementHints are GONE (user ruling 2026-08-13):
+        // the flat game raises both on hover and offers no way to switch them off, while the mod's
+        // dials did — and their OFF left the tooltip canvas at its 2D screen position, i.e. every
+        // condition / element / ability explanation the game gives became unreadable in VR. The
+        // world-space presentation is now decided by the MODE alone (user #7c's toggle is gone
+        // with them, and the gate-off diagnostic that named it went with the branch).
+        bool want = WorldUIConfig.ConversionActive
+                    && VRModeStateMachine.CurrentMode != VRMode.Menu2D
+                    && !MenuOnFlatScreen();
 
         if (!want)
         {
-            // Diagnostic (user #7c): note the one case where the USER'S hints toggle is
-            // what holds the presentation off (would otherwise be showing), once per flip.
-            if (modeWantsTooltip && !hintsEnabled && !_gateOffLogged)
-            {
-                _gateOffLogged = true;
-                VRLog.Info("WorldUI",
-                    "Action element hints disabled ([WorldUI] ActionElementHints=false) — " +
-                    "tooltip never flipped to world space / never shown.");
-            }
             Restore();
             return;
         }
-        _gateOffLogged = false;
 
         if (_canvas == null)
         {

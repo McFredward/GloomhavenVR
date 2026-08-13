@@ -63,10 +63,11 @@ namespace GloomhavenVR.Compat;
 ///   int.MaxValue</c>, not a UI-event trigger), so <c>ProcessEvent</c>'s dismiss check against
 ///   the currently displayed help text can never fire on it — the game will not consume a
 ///   gameplay event on our behalf either.</item>
-/// <item>FAILSAFES — exactly four, and every one of them releases the hold as well:
-///   the tutorial context ending (scenario left / <c>LevelEventsController</c> inactive /
-///   <c>LevelMessagesUIHandler</c> gone / our window no longer on the strip), the
-///   <c>[Compat] TutorialVRAdapt</c> kill-switch being switched off, ANY exception (latched for
+/// <item>FAILSAFES — exactly three since the 2026-08-13 ruling removed the [Compat]
+///   TutorialVRAdapt kill-switch (the fourth was "the switch was flipped mid-step"), and every
+///   one of them releases the hold as well: the tutorial context ending (scenario left /
+///   <c>LevelEventsController</c> inactive / <c>LevelMessagesUIHandler</c> gone / our window no
+///   longer on the strip), ANY exception (latched for
 ///   the session and logged with its stack), and ONE absolute ceiling of
 ///   <see cref="MaxStepSeconds"/> that logs a loud <c>Warn</c> first. See that field for why it
 ///   is five minutes and not less.</item>
@@ -79,8 +80,8 @@ namespace GloomhavenVR.Compat;
 /// (the flow dump's ctxIds are all <c>TB_*</c>/<c>HT_*</c>), so it is inert by construction.
 ///
 /// SCOPE: single-player tutorial only (<see cref="TutorialVR.IsTutorialActive"/> refuses online
-/// sessions outright), fires at most once per scenario, rides the <c>[Compat] TutorialVRAdapt</c>
-/// kill-switch. Off ⇒ nothing is ever shown or held and the tutorial is bit-for-bit vanilla.
+/// sessions outright) and fires at most once per scenario. Outside a tutorial nothing is ever
+/// shown or held and the game is bit-for-bit vanilla.
 /// </summary>
 internal static class TutorialGrabStep
 {
@@ -177,7 +178,7 @@ internal static class TutorialGrabStep
     {
         if (_disabledByError || _doneThisScenario || Pending)
             return;
-        if (messageDismissed == null || !Plugin.TutorialVRAdapt.Value)
+        if (messageDismissed == null)
             return;
         if (!string.Equals(messageDismissed.TitleKey, AfterTitleKey, StringComparison.OrdinalIgnoreCase))
             return;
@@ -213,12 +214,9 @@ internal static class TutorialGrabStep
     {
         if (_disabledByError || !Pending)
             return;
-        if (!Plugin.TutorialVRAdapt.Value)
-        {
-            // FAILSAFE 2 — kill-switch flipped mid-step.
-            Finish("the tutorial VR adaptation was switched off");
-            return;
-        }
+        // FAILSAFE 2 (the mid-step kill-switch bail) is GONE with [Compat] TutorialVRAdapt
+        // itself — user ruling 2026-08-13. The step can no longer be switched off underneath
+        // itself; the remaining failsafes (error latch, scenario end, timeout) are unchanged.
         try
         {
             TickCore();

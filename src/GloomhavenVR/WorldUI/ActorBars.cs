@@ -291,7 +291,11 @@ internal static class ActorBars
 
     internal static void Tick()
     {
-        bool want = WorldUIConfig.ActorBars.Value && WorldUIConfig.ConversionActive
+        // [WorldUI] ActorBars is GONE (user ruling 2026-08-13): its OFF released every adopted
+        // bar back to the game's screen-projected presentation, which is invisible from inside
+        // the HMD — i.e. it switched off the health of every figure on the board. The SIZE dials
+        // ([WorldUI] BarSizeScale / BarZoomMin/MaxScale / BarFixedSize / BarsOccluded) stay.
+        bool want = WorldUIConfig.ConversionActive
                     && Choreographer.s_Choreographer != null;
 
         if (!want)

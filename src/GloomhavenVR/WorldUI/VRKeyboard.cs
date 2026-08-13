@@ -115,13 +115,11 @@ internal static class VRKeyboard
     /// </summary>
     internal static void Tick()
     {
-        if (!WorldUIConfig.KeyboardEnabled.Value)
-        {
-            if (IsShowing)
-                Detach("switched off in the config");
-            return;
-        }
-
+        // [Keyboard] Enabled is GONE (user ruling 2026-08-13): the on-screen keyboard comes up for
+        // every focused text field, always. Its OFF meant "text fields need a real keyboard",
+        // which in a headset is a text field you cannot fill — and naming a party is a REQUIRED
+        // step of starting a campaign. The keyboard only ever appears while a field has focus, so
+        // there was nothing to switch off but the ability to proceed.
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
 
@@ -196,8 +194,6 @@ internal static class VRKeyboard
     /// </summary>
     internal static void NoticeClick(GameObject? target)
     {
-        if (!WorldUIConfig.KeyboardEnabled.Value)
-            return;
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
 

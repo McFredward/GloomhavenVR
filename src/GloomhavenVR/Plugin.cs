@@ -56,8 +56,6 @@ public class Plugin : BaseUnityPlugin
     /// <summary>Escape hatch: delay mod init (and thus VR init) by N rendered frames.</summary>
     internal static ConfigEntry<int> InitDelayFrames = null!;
 
-    /// <summary>Head-track the menu camera outside scenarios (menu rig, P5). Off = static menu view.</summary>
-    internal static ConfigEntry<bool> MenuRig = null!;
 
     /// <summary>
     /// Multiplayer join placement (<see cref="Rig.SpawnRing"/>): seat an arriving VR player on a
@@ -119,12 +117,6 @@ public class Plugin : BaseUnityPlugin
     /// </summary>
     internal static ConfigEntry<bool> WallFade = null!;
 
-    /// <summary>
-    /// [Compat] Tutorial VR bridge: complete the tutorial's camera-familiarization step
-    /// from VR locomotion + swap flat camera-control hints for VR movement text.
-    /// Runtime-gated to tutorial scenarios (Compat.TutorialVR.IsTutorialActive).
-    /// </summary>
-    internal static ConfigEntry<bool> TutorialVRAdapt = null!;
 
     /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
     internal static ConfigEntry<string> PrimaryHand = null!;
@@ -288,11 +280,12 @@ public class Plugin : BaseUnityPlugin
             "Escape hatch: delay mod initialization (including OpenXR init) by this many rendered " +
             "frames. Some runtime/GPU combos need the graphics device fully up before " +
             "xrCreateSession works. 0 (default) = initialize immediately in plugin Awake.");
-        MenuRig = Config.Bind(
-            "Rig", "MenuRig", Defaults.MenuRig,
-            "Head-track the game's menu camera while no scenario runs (main menu, guildmaster " +
-            "map) so the floating 2D screen and the hands work outside scenarios. Off = the " +
-            "menu renders from a static viewpoint.");
+        // [Rig] MenuRig is GONE (user ruling 2026-08-13). Its OFF did not produce "a static
+        // viewpoint": VRRigDriver's desired kind fell to RigKind.None outside a scenario, so the
+        // mod built NO rig at all — no head tracking, no tracked anchor for the hands, and no
+        // anchor for the floating 2D screen that carries the main menu. That is the same class of
+        // brick the 2026-08-11 round removed [WorldUI] Master and FlatScreen for. The menu rig is
+        // unconditional now (VRRigDriver.TickRig).
         SpawnInCircle = Config.Bind(
             "Rig", "SpawnInCircle", Defaults.SpawnInCircle,
             "Multiplayer: when you join a session or enter a scenario, seat you ACROSS the board " +
@@ -370,14 +363,15 @@ public class Plugin : BaseUnityPlugin
             "solid — the VR behavior so far. Purely visual and local (per-renderer material " +
             "property blocks): multiplayer peers are unaffected. Live-togglable from the VR " +
             "settings panel.");
-        TutorialVRAdapt = Config.Bind(
-            "Compat", "TutorialVRAdapt", Defaults.TutorialVRAdapt,
-            "Make the game tutorial playable in VR. The tutorial's camera-familiarization " +
-            "step waits for the flat room-camera button, which VR locomotion replaces — with " +
-            "this ON, actually moving the world (stick-click drag / rotate / zoom, stick turn) " +
-            "completes that step through the game's own event, and tutorial hints that teach " +
-            "mouse/keyboard camera controls show VR movement instructions instead. Only active " +
-            "inside tutorial scenarios; OFF restores fully vanilla tutorial behavior.");
+        // [Compat] TutorialVRAdapt is GONE (user ruling 2026-08-13). "OFF restores fully vanilla
+        // tutorial behavior" was true and that is exactly the problem: vanilla's camera-
+        // familiarization step waits on CameraRoomButtonPressed, whose only producer
+        // (RoomCameraButton.OnClick) is unreachable while the rig patches park the game camera —
+        // so the scripted hint chain DEADLOCKS right after the camera hint (hardware log
+        // .planning/debug/tutorial/LogOutput.log:989). A dial that can strand the tutorial is not
+        // an option. The bridge is unconditional now; it is still runtime-gated to tutorial
+        // scenarios (TutorialVR.IsTutorialActive, which also refuses online sessions) and still
+        // disarms itself permanently on any exception.
         PrimaryHand = Config.Bind(
             "Hands", "PrimaryHand", Defaults.PrimaryHand,
             "Dominant hand (Right/Left). Its index-finger ray is the default pick source " +

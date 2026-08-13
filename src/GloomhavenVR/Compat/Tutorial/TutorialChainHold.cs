@@ -153,8 +153,9 @@ internal static class TutorialChainHold
     {
         if (!_engaged || _replaying || message == null)
             return false;
-        // Kill-switch / context: the gate may only act inside a live single-player tutorial.
-        if (!Plugin.TutorialVRAdapt.Value || !TutorialVR.IsTutorialActive)
+        // Context: the gate may only act inside a live single-player tutorial. (The config
+        // kill-switch went with the 2026-08-13 ruling; the context gate is the real guard.)
+        if (!TutorialVR.IsTutorialActive)
             return false;
         // NEVER the scenario-won/lost message — dismissing it is what ends the level.
         if (message.DisplayTrigger != null

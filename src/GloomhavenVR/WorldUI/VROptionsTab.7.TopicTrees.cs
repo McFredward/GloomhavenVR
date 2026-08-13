@@ -53,19 +53,11 @@ internal static partial class VROptionsTab
                     LocKey = "vr_pt_sw_show",
                     Entries = new[]
                     {
-                        new BoardRef("WorldUI", "InitiativeTrack", perBoard: false),
-                        new BoardRef("WorldUI", "ElementBoard", perBoard: false),
-                        new BoardRef("WorldUI", "Objectives", perBoard: false),
-                        new BoardRef("WorldUI", "StatPanels", perBoard: false),
-                        new BoardRef("WorldUI", "PropInfoCards", perBoard: false),
-                        new BoardRef("WorldUI", "EnemyReveal", perBoard: false),
                         new BoardRef("WorldUI", "Dialogs", perBoard: false),
                         new BoardRef("WorldUI", "DecisionDock", perBoard: false),
                         new BoardRef("WorldUI", "TrayNativeControls", perBoard: false),
                         new BoardRef("WorldUI", "ButtonCluster", perBoard: false),
                         new BoardRef("WorldUI", "WristHud", perBoard: false),
-                        new BoardRef("WorldUI", "Tooltips", perBoard: false),
-                        new BoardRef("WorldUI", "ActionElementHints", perBoard: false),
                         new BoardRef("WorldUI", "LoadingIndicator", perBoard: false),
                     },
                 },
@@ -113,7 +105,6 @@ internal static partial class VROptionsTab
                 {
                     Entries = new[]
                     {
-                        new BoardRef("WorldUI", "ActorBars", perBoard: false),
                         new BoardRef("WorldUI", "BarSizeScale", perBoard: false),
                         new BoardRef("WorldUI", "BarZoomMinScale", perBoard: false),
                         new BoardRef("WorldUI", "BarZoomMaxScale", perBoard: false),
@@ -150,19 +141,17 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "VideoDepthLayer", perBoard: false),
                         new BoardRef("WorldUI", "VideoDepth", perBoard: false),
                         new BoardRef("WorldUI", "ScreenLayerSplit", perBoard: false),
-                        new BoardRef("WorldUI", "DemoteOverlaySolidClears", perBoard: false),
                     },
                 },
                 new()
                 {
-                    // Gate before gated (VROptionsTab.8.Dependencies.cs): the probe gate allows
-                    // the map re-render, the re-render owns the clouds dial — each folds out
-                    // under the row above it.
+                    // One row left: the two gates above it ([WorldUI] ScreenLeftMirrorFallback
+                    // and MapAlbedoRender) went with the 2026-08-13 ruling — each of their OFF
+                    // states left the campaign map BLACK, so the rescue is unconditional and
+                    // only the ambiance-particle opacity is still a choice.
                     LocKey = "vr_pt_screen_map",
                     Entries = new[]
                     {
-                        new BoardRef("WorldUI", "ScreenLeftMirrorFallback", perBoard: false),
-                        new BoardRef("WorldUI", "MapAlbedoRender", perBoard: false),
                         new BoardRef("WorldUI", "MapWindOpacity", perBoard: false),
                     },
                 },
@@ -180,11 +169,8 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "PokeClick", perBoard: false),
                         new BoardRef("WorldUI", "PokePressDepthMm", perBoard: false),
                         new BoardRef("WorldUI", "DecisionPokeDeliberate", perBoard: false),
-                        new BoardRef("WorldUI", "ClickMode", perBoard: false),
-                        new BoardRef("WorldUI", "ClickLatch", perBoard: false),
                         new BoardRef("WorldUI", "DragUnlockDegrees", perBoard: false),
                         new BoardRef("WorldUI", "DragUnlockSeconds", perBoard: false),
-                        new BoardRef("WorldUI", "ForceMouseMode", perBoard: false),
                         new BoardRef("WorldUI", "SuppressPhysicalMouse", perBoard: false),
                     },
                 },
@@ -231,7 +217,6 @@ internal static partial class VROptionsTab
                 {
                     Entries = new[]
                     {
-                        new BoardRef("Keyboard", "Enabled", perBoard: false),
                         new BoardRef("Keyboard", "AutoCapitalise", perBoard: false),
                     },
                 },

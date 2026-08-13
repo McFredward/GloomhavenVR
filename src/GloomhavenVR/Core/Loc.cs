@@ -481,11 +481,9 @@ internal static partial class Loc
         ["vr_o_fingertiptouch"] = Pair("Touch hexes with fingertip", "Feld mit Finger antippen"),
         ["vr_o_fog"] = Pair("Volumetric fog off", "Volumennebel aus"),
         ["vr_o_forward"] = Pair("Forward rendering", "Forward-Rendering"),
-        ["vr_o_menurig"] = Pair("Main menu in VR", "Hauptmenü in VR"),
         ["vr_o_circle"] = Pair("Free seat around the board", "Freier Platz am Brett"),
         ["vr_o_gfxjobs"] = Pair("Threaded submission", "Parallele Bildabgabe"),
         ["vr_o_autorestart"] = Pair("Restart automatically", "Automatisch neu starten"),
-        ["vr_o_actorbars"] = Pair("Health bars", "Lebensbalken"),
         // ONE family, ONE object name (2026-08 naming pass, audit 05 §3): the size trio used to
         // read "Größe der Lebensbalken" / "Balken: Mindestgröße" / "Balken: Maximalgröße" —
         // three name forms for one family on ONE screen. All on "Lebensbalken: …" now, matching
@@ -496,7 +494,6 @@ internal static partial class Loc
         ["vr_o_buttoncluster"] = Pair("Wrist buttons", "Handgelenk-Tasten"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
         ["vr_o_decisiondock"] = Pair("Decision dock", "Entscheidungsleiste"),
-        ["vr_o_enemyreveal"] = Pair("Enemy cards", "Gegnerkarten"),
         // The board family on the "Objekt: Wirkung" colon pattern (2026-08 naming pass, audit
         // 05 §3): "Brettgröße" / "Brett folgt dir" / "Brett-Bewegung" mixed compound, sentence
         // and hyphen forms for one object.
@@ -569,11 +566,8 @@ internal static partial class Loc
         // the hint states it — the German MR sentence is a fixed formulation, keep it verbatim).
         ["vr_o_sky"] = Pair("Environment", "Umgebung"),
         ["h_vr_o_sky"] = Pair("Replaces the sky around the table with a 3D environment — a cellar or a night forest under real stars. 'Off (black)' shows no surroundings at all, just black, without switching mixed reality on. With mixed reality the sky is always off.", "Ersetzt den Himmel um den Tisch durch eine 3D-Umgebung — Keller oder Nachtwald unter echten Sternen. 'Aus (schwarz)' zeigt gar keine Umgebung, nur Schwarz, ohne Mixed Reality einzuschalten. Bei Mixed Reality ist der Himmel immer aus."),
-        // The four dropdown choices, shown instead of the raw enum members (Default/Cellar/
-        // SwampNight/OffBlack stay the config/log identity, like the board-movement labels above).
-        // 'Aus (schwarz)' is the user's own wording (2026-08-13: "Ich möchte auch 'Aus' bzw.
-        // 'Schwarz' in dem Dropdown zur Auswahl haben") — it is a fourth ENVIRONMENT, not an
-        // off-switch for the feature, so it sits in the same list rather than beside it.
+        // The three dropdown choices, shown instead of the raw enum members (Default/Cellar/
+        // SwampNight stay the config/log identity, like the board-movement labels above).
         ["sky_default"] = Pair("Default", "Standard"),
         ["sky_cellar"] = Pair("Cellar", "Keller"),
         ["sky_swamp"] = Pair("Night forest", "Nachtwald"),
@@ -595,20 +589,8 @@ internal static partial class Loc
         ["vr_o_hoverinfo"] = Pair("Hover info size", "Info-Karten: Größe"),
         ["h_vr_o_hoverinfo"] = Pair("How large the little info panels over the play area are ('2 Gold', 'Closed door').", "Wie groß die kleinen Infotafeln über dem Spielfeld sind ('2 Gold', 'Geschlossene Tür')."),
         // Tafeln ▸ Tafeln & Anzeigen (the panel-visibility family that lived only under Debug)
-        ["vr_o_initiative"] = Pair("Initiative track", "Initiative-Leiste"),
-        ["h_vr_o_initiative"] = Pair("The turn-order track as a panel in the world.", "Die Zugreihenfolge als Tafel in der Welt."),
-        ["vr_o_elemboard"] = Pair("Element board", "Elemente-Tafel"),
-        ["h_vr_o_elemboard"] = Pair("The element-infusion state as a panel in the world.", "Der Elemente-Zustand als Tafel in der Welt."),
-        ["vr_o_objectives"] = Pair("Objectives panel", "Aufgaben-Tafel"),
-        ["h_vr_o_objectives"] = Pair("The scenario goals as a panel in the world.", "Die Szenario-Ziele als Tafel in der Welt."),
-        ["vr_o_statpanels"] = Pair("Stat panels", "Statustafeln"),
-        ["h_vr_o_statpanels"] = Pair("Character and enemy stat sheets as panels in the world.", "Charakter- und Gegnerwerte als Tafeln in der Welt."),
-        ["vr_o_propinfo"] = Pair("Hover info cards", "Info-Karten (Hover)"),
-        ["h_vr_o_propinfo"] = Pair("Little info cards when you point at chests, doors, traps.", "Kleine Info-Karten, wenn du auf Truhen, Türen, Fallen zeigst."),
         ["vr_o_wristhud"] = Pair("Wrist status display", "Handgelenk-Anzeige"),
         ["h_vr_o_wristhud"] = Pair("HP, XP and gold on your forearm.", "LP, EP und Gold auf deinem Unterarm."),
-        ["vr_o_tooltips"] = Pair("Tooltips at fingertip", "Tooltips am Finger"),
-        ["h_vr_o_tooltips"] = Pair("Explanations follow your pointing fingertip.", "Erklärungen folgen deiner zeigenden Fingerspitze."),
         ["vr_o_loading"] = Pair("Loading indicator", "Ladeanzeige"),
         ["h_vr_o_loading"] = Pair("A spinner in the headset while the game loads.", "Eine Ladeanzeige im Headset, während das Spiel lädt."),
         // Tafeln ▸ Lebensbalken
@@ -662,22 +644,18 @@ internal static partial class Loc
         ["h_vr_o_fog"] = Pair("Removes the haze in rooms. Clearer view, less atmosphere.", "Entfernt den Dunst in Räumen. Klarere Sicht, weniger Stimmung."),
         ["h_wall_see_through"] = Pair("Fades walls that stand between you and the board.", "Blendet Wände aus, die zwischen dir und dem Brett stehen."),
         ["h_vr_o_forward"] = Pair("A cheaper render path. Helps weak hardware, changes lighting slightly.", "Günstigerer Renderpfad. Hilft schwacher Hardware, ändert die Beleuchtung leicht."),
-        ["h_vr_o_menurig"] = Pair("Show the main menu as a screen in VR instead of flat.", "Zeigt das Hauptmenü als Fläche in VR statt flach."),
         ["h_vr_o_circle"] = Pair("On joining, seats you at the spot furthest from every player already at the table, facing the board.", "Setzt dich beim Beitreten an die Stelle mit dem größten Abstand zu allen schon anwesenden Spielern, mit Blick zum Brett."),
         ["h_vr_o_gfxjobs"] = Pair("Spreads drawing over several CPU threads. The single biggest performance gain.", "Verteilt das Zeichnen auf mehrere CPU-Threads. Der größte Leistungsgewinn."),
         ["h_vr_o_autorestart"] = Pair("Restarts the game by itself the one time the setting above needs it.", "Startet das Spiel einmal selbst neu, wenn die Einstellung darüber es braucht."),
         ["h_mixed_reality"] = Pair("Clears the sky to one colour so your room can show through it.", "Färbt den Himmel einfarbig, damit dein Zimmer durchscheinen kann."),
         ["h_key_color"] = Pair("The colour your headset replaces with the room. Black keeps it simply dark.", "Die Farbe, die dein Headset durch das Zimmer ersetzt. Schwarz lässt es einfach dunkel."),
         ["h_show_combat_log"] = Pair("A floating panel listing what just happened.", "Eine schwebende Tafel mit dem, was gerade passiert ist."),
-        ["h_vr_o_actorbars"] = Pair("Health and condition bars above figures.", "Lebens- und Zustandsbalken über den Figuren."),
         ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten."),
         ["h_vr_o_barsizemin"] = Pair("The bars follow the table zoom. However far you zoom out, they never get smaller than this share of the size above.", "Die Balken folgen dem Tischzoom. Wie weit du auch herauszoomst, kleiner als dieser Anteil der Größe darüber werden sie nie."),
         ["h_vr_o_barsizemax"] = Pair("However far you zoom in, the bars never get larger than this share of the size above.", "Wie weit du auch hineinzoomst, größer als dieser Anteil der Größe darüber werden die Balken nie."),
-        ["h_element_hints"] = Pair("Marks which elements an action would use or create.", "Zeigt, welche Elemente eine Aktion nutzt oder erzeugt."),
         ["h_vr_o_buttoncluster"] = Pair("Buttons on your wrist for the things you press most.", "Tasten am Handgelenk für das, was du am häufigsten drückst."),
         ["h_vr_o_dialogs"] = Pair("Show the game's dialogs as panels in front of you.", "Zeigt die Dialoge des Spiels als Tafeln vor dir."),
         ["h_vr_o_decisiondock"] = Pair("A bar within reach for choices you have to make.", "Eine Leiste in Reichweite für Entscheidungen."),
-        ["h_vr_o_enemyreveal"] = Pair("Lays revealed enemy cards out where you can read them.", "Legt aufgedeckte Gegnerkarten so aus, dass du sie lesen kannst."),
         ["h_control_board"] = Pair("Which control board model sits in front of you.", "Welches Kontrollbrett-Modell vor dir steht."),
         ["h_vr_o_trayscale"] = Pair("How large the control board is.", "Wie groß das Kontrollbrett ist."),
         ["h_vr_o_trayfollow"] = Pair("The board stays in front of you instead of fixed in the room.", "Das Brett bleibt vor dir statt fest im Raum."),
@@ -693,7 +671,6 @@ internal static partial class Loc
         ["h_mask_size"] = Pair("How large your mask is.", "Wie groß deine Maske ist."),
         ["h_mirror"] = Pair("A mirror in front of you so you can see your own mask and hands.", "Ein Spiegel vor dir, damit du Maske und Hände selbst siehst."),
         ["h_vr_o_netenabled"] = Pair("Send your head and hand movement to the other players.", "Sendet deine Kopf- und Handbewegung an die anderen Spieler."),
-        ["h_vr_o_keyboard"] = Pair("Appears by itself when a text field is active, so you can type without a real keyboard.", "Erscheint von selbst, wenn ein Textfeld aktiv ist — Tippen ohne echte Tastatur."),
         ["h_vr_o_keyboardcase"] = Pair("Turns MY PARTY into My Party. The game's keyboard only produces capitals.", "Macht aus MEINE GRUPPE Meine Gruppe. Die Spiel-Tastatur liefert nur Großbuchstaben."),
         ["h_remote_boards"] = Pair("Show the other players' control boards as well as your own.", "Zeigt auch die Kontrollbretter der anderen Spieler."),
         ["h_vr_o_nametags"] = Pair("Show each player's name and Steam picture above their mask.", "Zeigt Name und Steam-Bild der Mitspieler über ihrer Maske."),
@@ -706,7 +683,6 @@ internal static partial class Loc
         // ["vr_sec_cards"] ("Karten & Brett") is GONE (2026-08 overhaul, audit 05 S6): the
         // section grew into the "Brett & Karten" TAB — see cat_boardcards and its sections.
         ["vr_sec_keyboard"] = Pair("Text entry", "Texteingabe"),
-        ["vr_o_keyboard"] = Pair("On-screen keyboard", "Bildschirmtastatur"),
         ["vr_o_keyboardcase"] = Pair("Capitalise words", "Wörter großschreiben"),
         // Section headers WITHIN a tab — one navigation level cheaper than another tab (24 px per
         // group instead of a sidebar entry), which is why the restructure uses them for grouping.
@@ -748,7 +724,6 @@ internal static partial class Loc
         ["h_wallfade_sync"] = Pair(
             "Walls that fade for a teammate also fade for you — same animation as your own.",
             "Wände, die bei einem Mitspieler ausgeblendet sind, verschwinden auch bei dir — mit derselben Animation wie deine eigenen."),
-        ["element_hints"] = Pair("Element hints", "Element-Hinweise"),
 
         ["show_combat_log"] = Pair("Show combat log", "Kampflog anzeigen"),
         // Size dial for the mouseover info panels ("2 Gold", "Geschlossene Tür", …) — the German

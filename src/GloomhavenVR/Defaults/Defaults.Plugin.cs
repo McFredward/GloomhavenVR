@@ -42,7 +42,9 @@ internal static partial class Defaults
     internal const bool EnableGraphicsJobs = true;                           // => [Core] EnableGraphicsJobs
     internal const bool AutoRestartForGraphicsJobs = true;                   // => [Core] AutoRestartForGraphicsJobs
     internal const int InitDelayFrames = 0;                                  // => [Core] InitDelayFrames
-    internal const bool MenuRig = true;                                      // => [Rig] MenuRig
+    // [Rig] MenuRig is GONE (user ruling 2026-08-13): its OFF built NO rig outside a scenario
+    // at all — no head tracking, no hand anchor, no anchor for the 2D screen that carries the
+    // main menu. The menu rig is unconditional (Rig/VRRigDriver.cs).
     internal const bool SpawnInCircle = true;                                // => [Rig] SpawnInCircle
     internal const bool Experimental3DMap = false;                           // => [Rig] Experimental3DMap
     internal const float WorldTiltDegrees = 0f;                              // => [Rig] WorldTiltDegrees
@@ -53,7 +55,8 @@ internal static partial class Defaults
     internal const bool DisableVolumetricFog = true;                         // => [Compat] DisableVolumetricFog
     internal const string DisableComponents = "";                            // => [Compat] DisableComponents
     internal const bool WallFade = true;                                     // => [Compat] WallFade
-    internal const bool TutorialVRAdapt = true;                              // => [Compat] TutorialVRAdapt
+    // [Compat] TutorialVRAdapt is GONE (user ruling 2026-08-13): its OFF restored the vanilla
+    // camera-step DEADLOCK the bridge exists to break (Compat/Tutorial/TutorialVR.cs).
     internal const string PrimaryHand = "Right";                             // => [Hands] PrimaryHand
     internal const Hands.HandStyle Hands_HandStyle = Hands.HandStyle.Glove;  // => [Hands] HandStyle
     internal const bool LaserFingerOrigin = false;                           // => [Hands] LaserFingerOrigin

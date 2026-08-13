@@ -472,12 +472,6 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// </summary>
     private void Update()
     {
-        // FIRST, and before the body can arm a new one: a scenario teardown armed LAST frame is
-        // reported now, because Object.Destroy defers to end of frame — a census taken inside the
-        // teardown would still see every object it just destroyed as alive. Cheap no-op (one bool
-        // test) on every frame that is not the one after a scenario teardown.
-        Core.TeardownReport.Pump();
-
         using (Core.PerfMonitor.Scope("Rig.Update"))
             UpdateBody();
         // AFTER the body on purpose: the rig may have been (re)built, recentered or torn down
@@ -513,8 +507,11 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         RigKind desired =
             !VRSession.IsRunning ? RigKind.None :
             scenarioCameraAlive && scenarioBoardExists ? RigKind.Scenario :
-            Plugin.MenuRig.Value ? RigKind.Menu :
-            RigKind.None;
+            // MENU RIG, UNCONDITIONALLY ([Rig] MenuRig removed, user ruling 2026-08-13): the
+            // former dial's OFF landed here on RigKind.None, i.e. no rig outside a scenario at
+            // all — no head tracking, no hand anchor and nothing for the floating 2D screen (and
+            // therefore the main menu) to hang on. Not a viewpoint choice; a brick.
+            RigKind.Menu;
 
         bool sceneRecheck = _sceneRecheck;
         _sceneRecheck = false;
@@ -630,15 +627,8 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// <summary>Cached LateUpdate tick delegate ([Optimize] CacheTickDelegates).</summary>
     private System.Action? _tickWorldTilt;
 
-    /// <summary>True from the first line of <see cref="OnDestroy"/>: the teardown below is the
-    /// mod going away, not a scenario ending, so it must not arm the RESTART TEARDOWN report — a
-    /// report armed here would never be pumped (this driver stops ticking) and would then be
-    /// emitted, stale, by the NEXT driver's first frame after a hot reload.</summary>
-    private bool _destroying;
-
     private void OnDestroy()
     {
-        _destroying = true;
         VREvents.SceneLoaded -= OnSceneLoaded;
         TearDownRig("rig driver destroyed (shutdown/hot reload)");
         // RESTORE ORDER IS LOAD-BEARING: MixedReality FIRST, then VRCameraPolicy. MR is the
@@ -812,16 +802,6 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     {
         bool hadRig = _kind != RigKind.None;
         bool wasMenu = _kind == RigKind.Menu;
-        // SCENARIO TEARDOWN = the RESTART TEARDOWN report's trigger. A round restart, "quit to
-        // menu" and a scenario end all arrive here as a SCENARIO rig going down; a menu rig going
-        // down is ordinary scene churn and is not worth two log lines. Armed BEFORE anything is
-        // released so the steps below (and the other modules that tear down in the same frame)
-        // can note themselves into the ledger; the report itself lands next frame (Update).
-        if (hadRig && !wasMenu && !_destroying)
-        {
-            Core.TeardownReport.Arm(reason);
-            Core.TeardownReport.Note("VR rig root + owned head camera");
-        }
         // What the NEXT build is coming from (spawn-ring arming — see BuildRig). Only a real rig
         // updates it: a teardown with nothing to tear down says nothing about where we were.
         if (hadRig)
@@ -882,7 +862,6 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             if (controller != null)
                 controller.m_IsCameraCodeControlDisabled = false;
             _frozeGameCameraControl = false;
-            Core.TeardownReport.Note("game orbit-camera control un-frozen");
         }
 
         if (hadRig)

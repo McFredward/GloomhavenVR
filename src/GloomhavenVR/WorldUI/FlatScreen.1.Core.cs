@@ -200,8 +200,9 @@ internal sealed partial class FlatScreen
     private float _noUiSince = -1f;
     /// <summary>Last logged stereo-gate reason (change-deduped diagnostic, test #20).</summary>
     private string? _stereoGateReason;
-    /// <summary>True while the virtual mouse left button is held by us (drag or virtualmouse mode).</summary>
-    private bool _vmPressed;
+    // _vmPressed is GONE with [WorldUI] ClickMode (user ruling 2026-08-13): nothing PRESSES the
+    // virtual mouse any more — the device still carries the pointer POSITION (hover), while
+    // clicks and drags go through uGUI ExecuteEvents / the drag handlers, unconditionally.
     private RenderTexture? _rt;
     private bool _visible;
 

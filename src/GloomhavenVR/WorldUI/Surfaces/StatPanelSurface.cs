@@ -319,7 +319,10 @@ internal sealed class StatPanelSurface
         _held2Anchor = secondary?.Anchor;
         _held2SideSign = secondary.HasValue ? SignFor(secondary.Value.Side) : 1f;
 
-        bool canShow = WorldUIConfig.StatPanels.Value && WorldUIConfig.ConversionActive
+        // [WorldUI] StatPanels is GONE (user ruling 2026-08-13): the stat card is the only place
+        // a monster's HP, immunities and attributes can be read in VR, and its OFF released the
+        // panel back to the hidden 2D stack. The conversion gate is now the only gate.
+        bool canShow = WorldUIConfig.ConversionActive
                        && !CanvasConversion.IsLockedNow && Singleton<ActorStatPanel>.IsInitialized;
 
         // --- secondary (second hand) → request/keep a static snapshot copy ---
@@ -417,7 +420,7 @@ internal sealed class StatPanelSurface
 
     private static void OnMiniaturePoked(MiniaturePokedEvent e)
     {
-        if (!WorldUIConfig.StatPanels.Value || !WorldUIConfig.ConversionActive)
+        if (!WorldUIConfig.ConversionActive)
             return;
         if (CanvasConversion.IsLockedNow)
             return; // modality: no popups while the game locked its UI
@@ -469,7 +472,7 @@ internal sealed class StatPanelSurface
                 // Re-shown inside the hysteresis window — keep the live conversion.
                 watch.ReleaseAt = 0f;
             }
-            else if (WorldUIConfig.StatPanels.Value && WorldUIConfig.ConversionActive
+            else if (WorldUIConfig.ConversionActive
                 && Choreographer.s_Choreographer != null && watch.Attached != null)
             {
                 // Informational panel (no buttons, verified) — NOT pokeable: never in
@@ -548,7 +551,7 @@ internal sealed class StatPanelSurface
     /// </summary>
     private static void TickCopy()
     {
-        bool active = WorldUIConfig.StatPanels.Value && WorldUIConfig.ConversionActive;
+        bool active = WorldUIConfig.ConversionActive;
 
         // Teardown: second hold gone, feature off, or the copy portrays the wrong figure.
         if (_copyHolder != null && (!active || _held2Actor == null || !ReferenceEquals(_copyActor, _held2Actor)))

@@ -263,8 +263,9 @@ namespace GloomhavenVR.WorldUI;
 /// reads, so no currently-working scene (menu video, guildmaster town whose camera
 /// renders fine) is ever switched. Engagement is sticky for the scene (the game base RT
 /// stays black) and re-arms on the next captured-stack release.
-/// [WorldUI] MapAlbedoRender off = detect but do not render (base RT left as-is).
-/// [WorldUI] ScreenLeftMirrorFallback off = do not even detect (probe + fast engage gated).
+/// Detection and re-render are UNCONDITIONAL (user ruling 2026-08-13: the two dials that could
+/// switch either half off — [WorldUI] MapAlbedoRender and ScreenLeftMirrorFallback — both had a
+/// black campaign map as their off-state, and are removed).
 /// </summary>
 internal sealed partial class FlatScreenStereo
 {
@@ -305,10 +306,9 @@ internal sealed partial class FlatScreenStereo
     private static ConfigEntry<float>? s_parallaxScale;
     private static ConfigEntry<bool>? s_videoDepthLayer;
     private static ConfigEntry<float>? s_videoDepth;
-    /// <summary>Gates the black-map probe + fast map engage (FlatScreenStereo.3.Map) — the detection half of the map rescue. Default on.</summary>
-    private static ConfigEntry<bool>? s_leftMirrorFallback;
-    /// <summary>MAP ALBEDO RENDER (default ON, LIVE): render the campaign map parchment unlit via a mod forward camera into a private RT (see the MapAlbedoRender config text and the class doc MAP ALBEDO RENDER).</summary>
-    private static ConfigEntry<bool>? s_mapAlbedoRender;
+    // s_leftMirrorFallback / s_mapAlbedoRender are GONE with their dials (user ruling
+    // 2026-08-13): the black-map probe, the fast engage and the unlit albedo re-render all run
+    // unconditionally, because every OFF state of those two left the campaign map black.
     // ---- map base capture (class doc MAP ALBEDO RENDER) ------------------------------------
     /// <summary>Downsample resolution of the base-RT non-black probe (NxN texels, max-reduced).</summary>
     private const int BlackProbeSize = 8;

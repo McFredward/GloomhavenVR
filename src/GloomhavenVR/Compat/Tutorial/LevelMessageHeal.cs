@@ -47,7 +47,8 @@ namespace GloomhavenVR.Compat;
 /// and non-tutorial scripted levels run the identical dismiss→show handover, so they carry
 /// the identical race. MP-safe: level-message display is purely local UI, the re-shown
 /// dismiss action is the same local delegate the game registered — zero wire traffic.
-/// Kill-switch: rides <c>[Compat] TutorialVRAdapt</c> (the tutorial-flow feature family).
+/// No kill-switch: the [Compat] TutorialVRAdapt family switch was removed by the 2026-08-13
+/// user ruling. The error latch below still disarms the heal permanently on a real fault.
 /// </summary>
 internal static class LevelMessageHeal
 {
@@ -72,7 +73,7 @@ internal static class LevelMessageHeal
     /// </summary>
     internal static void Tick()
     {
-        if (_disabledByError || !Plugin.TutorialVRAdapt.Value)
+        if (_disabledByError)
             return;
         if (!LevelEventsController.s_EventsControllerActive)
         {

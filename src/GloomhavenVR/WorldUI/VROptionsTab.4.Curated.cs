@@ -249,7 +249,9 @@ internal static partial class VROptionsTab
                         // choice row has no children.
                         new("Sky", "Style", "vr_o_sky"),
                         new("Rig", "ForwardRendering", "vr_o_forward"),
-                        new("Rig", "MenuRig", "vr_o_menurig"),
+                        // "Hauptmenü in VR" ([Rig] MenuRig) is GONE with its dial (user ruling
+                        // 2026-08-13): off built no rig at all outside a scenario — the main
+                        // menu had nothing to hang on. Unconditional now.
                     },
                 },
                 new()
@@ -372,22 +374,26 @@ internal static partial class VROptionsTab
             {
                 new()
                 {
+                    // SETTINGS AUDIT ROUND 2 (user ruling 2026-08-13, verbatim: "Die
+                    // Initativreihenfolge ausschalten zu können am Controllboard macht keinen
+                    // Sinn."). This section used to be fourteen rows; nine of them are gone with
+                    // their dials — Initiative-Leiste, Elemente-Tafel, Aufgaben, Statustafeln,
+                    // Info-Karten, Gegnerkarten, Lebensbalken, Tooltips and Element-Hinweise —
+                    // because switching any of them off released the panel back to its 2D home,
+                    // which in VR is nowhere. What is left is what the flat game also lets you
+                    // hide, or what the mod ADDED and nobody needs: the combat log, the wrist
+                    // HUD, the table-edge button cluster (the board's own CONFIRM/UNDO keycaps
+                    // are always there), the loading spinner, and the two presentation choices
+                    // (Dialoge / Entscheidungsleiste) whose off-state shows the SAME prompt as a
+                    // floating window.
                     LocKey = "vr_sec_panels",
                     Entries = new CuratedEntry[]
                     {
                         new("WorldUI", "CombatLog", "show_combat_log"),
-                        new("WorldUI", "InitiativeTrack", "vr_o_initiative"),
-                        new("WorldUI", "ElementBoard", "vr_o_elemboard"),
-                        new("WorldUI", "Objectives", "vr_o_objectives"),
-                        new("WorldUI", "StatPanels", "vr_o_statpanels"),
-                        new("WorldUI", "PropInfoCards", "vr_o_propinfo"),
                         new("WorldUI", "WristHud", "vr_o_wristhud"),
                         new("WorldUI", "ButtonCluster", "vr_o_buttoncluster"),
-                        new("WorldUI", "Tooltips", "vr_o_tooltips"),
-                        new("WorldUI", "ActionElementHints", "element_hints"),
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),
                         new("WorldUI", "DecisionDock", "vr_o_decisiondock"),
-                        new("WorldUI", "EnemyReveal", "vr_o_enemyreveal"),
                         new("WorldUI", "LoadingIndicator", "vr_o_loading"),
                     },
                 },
@@ -400,7 +406,9 @@ internal static partial class VROptionsTab
                     LocKey = "vr_sec_bars",
                     Entries = new CuratedEntry[]
                     {
-                        new("WorldUI", "ActorBars", "vr_o_actorbars"),
+                        // The bars themselves are no longer switchable ([WorldUI] ActorBars,
+                        // removed 2026-08-13) — only how big they are and whether walls hide
+                        // them. HP is not optional content.
                         // User request: the health bars' SIZE, plus the two ends of the clamp
                         // that keeps the table zoom from carrying that size away ("sowie ein
                         // minimum und maximum der Größe, damit sie sich trotz zoomen nie über
@@ -440,10 +448,11 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    // [Keyboard] Enabled is gone (user ruling 2026-08-13): a text field you
+                    // cannot type into is not a setting. Only the capitalisation taste is left.
                     LocKey = "vr_sec_keyboard",
                     Entries = new CuratedEntry[]
                     {
-                        new("Keyboard", "Enabled", "vr_o_keyboard"),
                         new("Keyboard", "AutoCapitalise", "vr_o_keyboardcase"),
                     },
                 },

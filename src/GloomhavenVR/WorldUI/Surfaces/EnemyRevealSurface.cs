@@ -262,7 +262,10 @@ internal sealed class EnemyRevealSurface
         }
 
         InitiativeTrack track = InitiativeTrack.Instance;
-        bool visible = WorldUIConfig.EnemyReveal.Value && WorldUIConfig.ConversionActive
+        // [WorldUI] EnemyReveal is GONE (user ruling 2026-08-13): the monsters' ability cards for
+        // the round are the information the whole round is played against, and OFF hid them on
+        // the control board where VR never shows them. The reveal is unconditional now.
+        bool visible = WorldUIConfig.ConversionActive
                        && Choreographer.s_Choreographer != null && RevealVisible(track);
 
         // Once per flip, with what is shown (the card names carry the round info).

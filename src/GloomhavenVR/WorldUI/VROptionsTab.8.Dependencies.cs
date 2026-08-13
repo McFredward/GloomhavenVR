@@ -111,14 +111,10 @@ internal static partial class VROptionsTab
         ["Cards/RevealEnterDegrees"] = new("Cards", "RevealMode", Named("tilt")),
         ["Cards/RevealExitDegrees"] = new("Cards", "RevealMode", Named("tilt")),
 
-        // ---- Tafeln ▸ Lebensbalken: every Bar* dial tunes the world-space bars ActorBars
-        //      creates ("replaces the screen-projected bars") — without them there is nothing
-        //      these five could size, clamp or occlude.
-        ["WorldUI/BarSizeScale"] = new("WorldUI", "ActorBars", On),
-        ["WorldUI/BarZoomMinScale"] = new("WorldUI", "ActorBars", On),
-        ["WorldUI/BarZoomMaxScale"] = new("WorldUI", "ActorBars", On),
-        ["WorldUI/BarFixedSize"] = new("WorldUI", "ActorBars", On),
-        ["WorldUI/BarsOccluded"] = new("WorldUI", "ActorBars", On),
+        // ---- Tafeln ▸ Lebensbalken: the five Bar* dials USED to fold under [WorldUI]
+        //      ActorBars. That parent is gone (user ruling 2026-08-13 — the bars themselves
+        //      are not optional), so they are top-level rows now: there is no longer a state
+        //      in which they have nothing to size, clamp or occlude.
 
         // ---- Tafeln ▸ 2D-Schirm, stereo block: "0 = mono (same as StereoScreen=false)";
         //      VideoDepth is "How far … (VideoDepthLayer)" and chains through it.
@@ -127,11 +123,10 @@ internal static partial class VROptionsTab
         ["WorldUI/VideoDepthLayer"] = new("WorldUI", "StereoScreen", On),
         ["WorldUI/VideoDepth"] = new("WorldUI", "VideoDepthLayer", On),
 
-        // ---- Tafeln ▸ 2D-Schirm, map block: "OFF disables that detection entirely, so the
-        //      campaign map stays a black screen even with MapAlbedoRender on"; the clouds dial
-        //      tames "the VR forward capture" that only MapAlbedoRender performs.
-        ["WorldUI/MapAlbedoRender"] = new("WorldUI", "ScreenLeftMirrorFallback", On),
-        ["WorldUI/MapWindOpacity"] = new("WorldUI", "MapAlbedoRender", On),
+        // ---- Tafeln ▸ 2D-Schirm, map block: the two-step chain (MapWindOpacity →
+        //      MapAlbedoRender → ScreenLeftMirrorFallback) is gone with its two parents (user
+        //      ruling 2026-08-13: both of their OFF states left the campaign map black). The
+        //      map rescue always runs, so the clouds dial always has a capture to tame.
 
         // ---- Figuren greifen: "Ignored while StretchLimits is off" — the NEW case wired with
         //      this mechanism. Chains through the [FigureGrab] section rule to GrabFigures.
@@ -165,8 +160,8 @@ internal static partial class VROptionsTab
         // "OFF: buttons pop in/out instantly (no dust, no fade)" — the three animation dials
         // have nothing to time or emit.
         ["ButtonAnim"] = new("ButtonAnim", "Enable", On),
-        // AutoCapitalise shifts a keyboard that Enabled=false never shows.
-        ["Keyboard"] = new("Keyboard", "Enabled", On),
+        // [Keyboard] has no master any more ([Keyboard] Enabled removed 2026-08-13), so
+        // AutoCapitalise stands on its own — the keyboard is always there to shift.
         // The whole grab family — pick radius, stretch gesture, held pose, held info — tunes a
         // grab that GrabFigures=false removes outright.
         ["FigureGrab"] = new("FigureGrab", "GrabFigures", On),
@@ -189,8 +184,9 @@ internal static partial class VROptionsTab
     private static bool IsDependencyParent(ConfigCatalog.ConfigItem item) =>
         DependencyParents.Contains(Id(item.Section, item.Key));
 
-    /// <summary>Longest declared chain is 2 (MapWindOpacity → MapAlbedoRender →
-    /// ScreenLeftMirrorFallback); anything deeper is a declaration cycle and stops gating.</summary>
+    /// <summary>Longest declared chain is 2 (VideoDepth → VideoDepthLayer → StereoScreen);
+    /// anything deeper is a declaration cycle and stops gating. (The map chain that used to be
+    /// the example died with its two parents — user ruling 2026-08-13.)</summary>
     private const int MaxDependencyDepth = 4;
 
     /// <summary>This row declares a parent — it is drawn slightly indented beneath it.</summary>
