@@ -416,7 +416,35 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 132;
+    public const ushort ModBuild = 133;
+    // Build 133: the room is BOARD-ANCHORED (the relationship is finally invariant), the hex
+    // decal stops at its tile, a creepy forest, and a real turning star sky. No wire change.
+    // Bundle rebuilt (76.4 MB) — 133 NEEDS it.
+    //
+    // (1) BOARD ANCHOR ("Von der Position im Raum im Verhältnis zum Raum drumrum, MUSS es fix
+    // an der Stelle bleiben. Es darf sich nur drehen und kleine bzw. größer werden wenn man
+    // zoomed"): the perceived-constant room was structurally incompatible — zoom changed the
+    // board's perceived size but not the room's. The room branch is now derived ONCE from the
+    // board (3.0x its world extent measured from the live hex tiles, floor at the board
+    // underside incl. room-chunk volumes, yaw from the board) and then WORLD-FIXED forever.
+    // Since every locomotion writes the rig and nothing moves the diorama, the relationship is
+    // invariant by construction. 130's miniature is disarmed (it measured disabled colliders =
+    // zero bounds): the perceived extent must land in [0.2, 20] m or nothing is placed. Zero
+    // re-seat paths for the room — the 131 teleport cannot recur. Sky stays perceived-constant.
+    //
+    // (2) HEX DECAL ("Das Hex feld ... UNTER dem Spielbrett auf dem Boden"): NOT a Projector —
+    // HexSelect_Control.HexProjector is a mesh decal, and HexDecalStable's depth scheme was
+    // one-sided (rejects nearer surfaces, accepts everything farther; pre-132 'farther' was the
+    // black sky). A ColorMask-0 pre-pass with GEqual + stencil now certifies that the receiving
+    // surface is within _VRSurfaceTolerance (0.25 m) of the tile plane. Proven by rendering.
+    // Separately, the game's REAL projectors (DeathDissolve, RFX4 FX) now ignore the mod layer.
+    //
+    // (3) FOREST + STAR SKY: the moor becomes a creepy night forest with a clearing (moonlight
+    // shafts, mist layers, will-o'-wisps, eyes in the dark); the sky gains 5080 real Yale
+    // Bright Star Catalogue stars turning about the celestial pole with scintillation over the
+    // photographic milky way. Cellar floaters fixed (transformed-vertex heights, pivot
+    // re-centring, ray-cast stacking, baked contact shading).
+    //
     // Build 132: game-asset environments DELETED by ruling; custom photoscan rooms instead.
     // No wire change. Bundle rebuilt (65.8 MB) — 132 NEEDS it.
     //

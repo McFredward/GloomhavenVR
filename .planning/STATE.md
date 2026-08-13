@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 132`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 133`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-12
 
@@ -126,6 +126,39 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 133** — BOARD-ANCHORED room (invariant at last), hex decal banded, creepy forest,
+  real turning star sky. ANCHOR: his ruling "Verhältnis zum Raum drumrum MUSS fix ... nur drehen
+  und kleiner/größer beim Zoomen" is incompatible with perceived-constant rooms. Room branch
+  (RoomGeo + GroundFog/GroundFogFar/Fireflies) is derived ONCE from the board — 3.0× its world
+  extent from the live hex tiles via ObjectCacheService (+half a hex per side, SpawnRing's own
+  math), floor at the board underside (hex renderers AND SceneRegistry room-chunk volumes,
+  since floor ART hangs off map tiles), yaw from the board hierarchy — then WORLD-FIXED forever
+  (zero writes, zero re-seats: 131's teleport is structurally impossible). Invariance proof:
+  all locomotion writes the rig (WorldGrab 362/401/403, Flight 213, SnapTurn 162), nothing
+  moves the diorama. 130's miniature root cause found: it encapsulated DISABLED BoxColliders
+  (zero bounds at origin) → 2.1 wu; now a perceived-extent window [0.2, 20] m refuses to place
+  rather than ship nonsense. Sky branch unchanged (perceived-constant, RigPoseVersion re-seat).
+  HEX DECAL: NOT a Projector (HexSelect_Control.HexProjector is a MeshRenderer decal box) —
+  HexDecalStable's depth scheme was one-sided (LEqual rejects nearer, accepts ALL farther; the
+  black sky hid it until the room floor arrived). New ColorMask-0 pre-pass exports P pushed
+  back by _VRSurfaceTolerance (0.25 m) with ZTest GEqual + stencil bit 128; colour pass draws
+  Comp Equal. Verified by standalone renders (leak cut at the board edge, 0 changed px for
+  shared borders and figure occlusion). _CameraDepthTexture rejected: off by default
+  (HeadDepthPrepass=false) and a full extra scene submission per eye under MultiPass.
+  _VRStencilBit=0 = rebuild-free kill switch; all degenerate paths fail to the OLD behavior.
+  Also: game's real projectors (DeathDissolve, RFX4) now ignore the mod layer, additively.
+  FOREST (moor rejected): 106 procedural trunks in 4 depth bands to 28.5 m w/ photoscanned
+  needle atlases, canopy torn toward the moon, 3 moonlight shafts, forest floor + trodden path,
+  2 HorizontalBillboard mist layers, will-o'-wisps, far lantern, eyes at 12.5 m, story props.
+  SKY: 5080 Yale Bright Star Catalogue stars (public domain; HYG rejected CC BY-SA, Shadertoy
+  NC/SA) as per-star quads, B−V→temperature colours, celestial-pole rotation 1 turn/2880 s,
+  extinction, rise/set, Rozenberg scintillation; photo dome suppresses its own star cores +
+  haze veil + dither + wrapped clock. FLOATERS: Renderer.bounds is a transformed-AABB (399 mm
+  phantom drop on the tilted tree), photoscan pivots arbitrary (40 cm) → transformed-vertex
+  heights, pivot re-centring, ray-cast stacking, overhang = build error, baked contact pools.
+  Bundle 76,384,749 bytes — 133 NEEDS it. UNVERIFIED: reversed-Z branch of the decal band,
+  stencil bit 128 free on this rig, room-to-board ratio 3.0 by eye, preview gamma vs headset
+  (rooms went darker this round).
 - **ModBuild 132** — game-asset environments DELETED (user ruling 2026-08-13); custom photoscan
   rooms; teleport killed. THE TELEPORT ("darf unter keinen Umständen passien"): 131's
   scale-settle re-seat fired 5× in his log — re-seating a room the player stands IN reads as a
