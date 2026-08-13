@@ -96,6 +96,14 @@ internal sealed class BoardModule : IVRModule
         // after every game material write (fallback: zero the offending layers when the
         // bundle lacks the shader; see HexHighlightFix).
         VRSession.Harmony?.PatchAll(typeof(HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch));
+        // ModBuild 132 finding 5: with a 3D environment room now spawned around the play space
+        // (Core/SkyAlternative), any LIVE UnityEngine.Projector in the game paints its decal onto
+        // the room's floor a metre under the board — projectors have no distance limit beyond
+        // their far clip and ignore nothing by default. Guard them additively (mod layer ORed
+        // into ignoreLayers, restored on shutdown); this postfix is the game's own decal-projector
+        // creation site, so pooled/re-created decals are covered at birth. See HexHighlightFix,
+        // ENVIRONMENT-ROOM BLEED.
+        VRSession.Harmony?.PatchAll(typeof(HexHighlightFix.ProjectorModifier_Awake_Patch));
         VRSession.Harmony?.PatchAll(typeof(Controller_CommonLoop_Patch));
         // P8: suppress the game's per-frame figure-transform writes for HELD actors only,
         // so a grabbed mini can ride the hand (gated by HeldFigures.Owns).
@@ -150,6 +158,10 @@ internal sealed class BoardModule : IVRModule
         // LOCAL control board. Peers' boards are drawn by Net/RemoteFocusOutline from the same
         // FocusCue palette; the focus itself is set by the portrait-click seam above.
         _driverGo.AddComponent<FocusDriver>();
+
+        // One sweep now (and the single HEX PROJECTOR log line that proves the guard ran);
+        // later projectors are caught by the creation-site postfix and by the scene-load arm.
+        HexHighlightFix.InstallProjectorGuard();
 
         VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control, figure grab).");
         VRLog.Info(Name, BoardConfig.TouchTilesWithFingertip.Value

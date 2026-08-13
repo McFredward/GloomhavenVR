@@ -62,6 +62,77 @@ namespace GloomhavenVR.Board;
 /// SAFETY: postfix body fully try/caught (WorldUI lesson: an unguarded NRE in a
 /// per-frame game path starves input); work happens only when the game itself just
 /// rewrote the material (state changes), not per-frame.
+///
+/// ---------------------------------------------------------------------------
+/// ENVIRONMENT-ROOM BLEED — ModBuild 132 hardware finding 5
+/// ---------------------------------------------------------------------------
+/// User, verbatim: "5) Das Hex feld mit dem aktuellen ausgewählt character ist auch
+/// UNTER dem Spielbrett auf dem Boden drauf zu sehen bzw. die Umrahmung des hex
+/// felds." — the selection hex, or rather its outline, is also visible BELOW the
+/// board, on the floor of the mod's new 3D environment room
+/// <see cref="Core.SkyAlternative"/>, which is spawned at the player's floor point
+/// and therefore spans the space under the diorama.
+///
+/// WHAT THE HEX HIGHLIGHT IS — from decompiled source, NOT inferred:
+/// <c>HexSelect_Control.HexProjector</c> is declared
+/// <c>public MeshRenderer HexProjector { get; set; }</c>
+/// (decompiled GH.Runtime/HexSelect_Control.cs:243-245) — the highlight itself is a
+/// MESH decal box, not a <c>UnityEngine.Projector</c>, so
+/// <c>Projector.ignoreLayers</c> has no purchase on it. Its geometry is exactly what
+/// <c>ProjectorModifier.ReplaceProjector</c> produces
+/// (decompiled GH.Runtime/ProjectorModifier.cs:32-53): builtin Cube mesh, local scale
+/// <c>new Vector3(aspectRatio * 2f, farClipPlane - nearClipPlane, aspectRatio * 2f)</c> —
+/// the measured (2, 0.3, 2) of the shader header, i.e. aspectRatio 1 and a 0.3-deep
+/// frustum. That converter runs in <c>Awake</c> and ONLY when
+/// <c>PlatformLayer.Setting.UseDecalOptimization</c> is on AND the source projector has
+/// <c>ignoreLayers == 0</c>; it then disables the <c>Projector</c> and adds the mesh.
+/// So a build with the optimization OFF keeps LIVE <c>Projector</c> components on the
+/// very same objects, and a live orthographic projector paints its material onto every
+/// renderer inside its frustum on any layer not in <c>ignoreLayers</c> — the mod's room
+/// floor a metre below the board included. Both shapes of the game are therefore
+/// covered here:
+///
+///  * MESH shape (what this rig logged in ModBuild 132: the material dump shows the
+///    swap landing on <c>HexProjector.material</c>): the decal draws the pattern at the
+///    per-pixel view-ray ∩ tile-plane point and depth-tests with the plane's own
+///    exported depth, so wherever its box footprint covers a pixel that shows something
+///    FARTHER than the tile plane — the void past a room's edge, the gap between two
+///    rooms — the pattern still passes ZTest and is drawn. That was always true; until
+///    ModBuild 132 the surface behind was the black sky sphere, so nobody could see it.
+///    Nothing in this file can clip that: the receiving-surface test lives in the
+///    fragment shader (unity/…/HexDecalStable.shader, another lane's file). Documented
+///    for the next round rather than half-fixed here.
+///  * PROJECTOR shape: <see cref="GuardProjector"/> ORs the mod layer's bit into
+///    <c>ignoreLayers</c>, which is exactly the mechanism the bleed needs and costs
+///    nothing when the component is already disabled. STRICTLY ADDITIVE — the game's own
+///    bits are never cleared — and reversed in <see cref="Reset"/> by clearing ONLY the
+///    bit we set.
+///
+/// This is a CLASS of bug, not one hex: every live <c>Projector</c> in the game paints
+/// the room the same way. The decompiled inventory of components that own one:
+/// <c>ProjectorModifier</c>, <c>ObjectPosToMaterial</c>, <c>DeathDissolve</c>
+/// (<c>dissolveProjectors</c>), and the RFX4 spell-FX family
+/// (<c>RFX4_ColorHelper</c>, <c>RFX4_EffectSettingVisible</c>, <c>RFX4_UVAnimation</c>,
+/// <c>RFX4_UVScroll</c>, <c>RFX4_ScaleCurves</c>, <c>RFX4_ShaderFloatCurve</c>,
+/// <c>RFX4_ShaderColorGradient</c>). The guard is component-type-driven, so it covers all
+/// of them without naming any.
+///
+/// WHERE IT IS HOOKED, and why that covers re-creation:
+///  1. one sweep at install — <see cref="InstallProjectorGuard"/>, the ONE
+///     <c>HEX PROJECTOR</c> log line;
+///  2. a postfix on <c>ProjectorModifier.Awake</c> — the game's own decal-projector
+///     creation site, so every instantiated/pooled decal is guarded at birth. It runs
+///     AFTER the vanilla body, so the <c>ignoreLayers == 0</c> precondition of
+///     <c>ReplaceProjector</c> still sees the authored value and the game's decal
+///     optimization is never disabled by us;
+///  3. the hex postfix guards its OWN tree whenever the swap lands on a FRESH material —
+///     that is exactly <c>RefreshHexUI</c>'s <c>m_Material = new Material(_exampleMaterial)</c>
+///     (HexSelect_Control.cs:335-338), i.e. the moment a pooled star is (re)built mid-scenario,
+///     which is the one creation the install sweep cannot have seen. With the swap disabled
+///     this signal is absent and hooks 2 and 4 carry the star instead;
+///  4. scene loads re-arm the sweep, which then runs on the next hex material write.
+/// NO periodic full-scene sweep: the perf lane deleted those on purpose. Every trigger
+/// above is an event, and each projector is touched once (an instance-keyed record).
 /// </summary>
 internal static class HexHighlightFix
 {
@@ -186,6 +257,193 @@ internal static class HexHighlightFix
     /// <summary>Materials this class swapped; restored to the original shader on Reset().</summary>
     private static readonly List<Material> Swapped = new();
 
+    // -------- environment-room bleed: game Projectors must ignore the mod layer --------
+    // (class doc, ENVIRONMENT-ROOM BLEED)
+
+    /// <summary>
+    /// Every <c>Projector</c> we ORed the mod-layer bit into, with the mask it had when we
+    /// first saw it. Instance-keyed, so a projector is touched exactly once and a sweep that
+    /// runs again is free. Destroyed entries fake-null and are skipped/dropped.
+    /// </summary>
+    private static readonly Dictionary<Projector, int> GuardedProjectors = new();
+
+    /// <summary>Set by install and by every scene load; consumed by the next hex material write.</summary>
+    private static bool _sweepPending;
+
+    /// <summary>Scene-load hook registered once, so <see cref="Reset"/> can take it off again.</summary>
+    private static bool _sceneHookArmed;
+
+    /// <summary>
+    /// Log budget for the guard. The install line is unconditional (proof the fix ran); the
+    /// scenario sweeps that follow are what actually find projectors, so a few of those are
+    /// allowed through and then it goes quiet for the session.
+    /// </summary>
+    private const int MaxProjectorLogLines = 4;
+    private static int _projectorLogLines;
+
+    /// <summary>
+    /// One sweep of every <c>Projector</c> currently in the scene, called once from
+    /// <c>BoardModule.Init</c>. Logs the single <c>HEX PROJECTOR</c> line (count + names) the
+    /// next hardware log needs to prove the guard ran, even when the count is zero — install
+    /// happens in the menu, where the scenario's decals do not exist yet, so a zero here is
+    /// the expected reading and the scenario sweep is the interesting one.
+    /// </summary>
+    internal static void InstallProjectorGuard()
+    {
+        _sweepPending = true;
+        SweepProjectors("install", forceLog: true);
+
+        if (!_sceneHookArmed)
+        {
+            _sceneHookArmed = true;
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+        }
+    }
+
+    private static void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene,
+                                      UnityEngine.SceneManagement.LoadSceneMode mode)
+    {
+        // Arm only. The sweep itself runs on the next hex material write, i.e. when a board
+        // with decals actually exists — never on a timer (the perf lane deleted those).
+        _sweepPending = true;
+    }
+
+    /// <summary>
+    /// Guard every projector in the scene, INCLUDING inactive ones (pooled FX decals are
+    /// parked disabled and re-enabled without a fresh Awake). Idempotent: already-guarded
+    /// instances cost a dictionary probe. Only ever called from an event — install, a scene
+    /// load's first hex write, or a fresh hex material.
+    /// </summary>
+    private static void SweepProjectors(string why, bool forceLog = false)
+    {
+        _sweepPending = false;
+        if (!VRSession.IsRunning)
+            return;   // no mod-layer visuals exist without the VR head camera
+
+        int adjusted = 0;
+        var names = new System.Text.StringBuilder(128);
+        try
+        {
+            Projector[] all = Object.FindObjectsOfType<Projector>(includeInactive: true);
+            foreach (Projector p in all)
+            {
+                // NEVER pre-empt ProjectorModifier.Awake: it converts a projector into the
+                // cheap mesh decal ONLY while ignoreLayers == 0 (ProjectorModifier.cs:32-36),
+                // so writing our bit before that object has awakened would silently cost the
+                // game its decal optimization. An object that is not active in the hierarchy
+                // may still be waiting for its first Awake — leave every such ProjectorModifier
+                // to the creation-site postfix that owns it and that runs after the vanilla body.
+                if (!p.gameObject.activeInHierarchy && p.GetComponent<ProjectorModifier>() != null)
+                    continue;
+                if (!GuardProjector(p))
+                    continue;
+                adjusted++;
+                if (adjusted <= 12)
+                    names.Append(names.Length > 0 ? ", " : "").Append(p.name);
+                else if (adjusted == 13)
+                    names.Append(", …");
+            }
+        }
+        catch (System.Exception e)
+        {
+            if (_errorLogs < 3)
+            {
+                _errorLogs++;
+                VRLog.Error(Scope, $"HEX PROJECTOR sweep failed: {e}");
+            }
+            return;
+        }
+
+        if (!forceLog && (adjusted == 0 || _projectorLogLines >= MaxProjectorLogLines))
+            return;
+        _projectorLogLines++;
+        int layer = VRLayers.ModLayer;
+        VRLog.Info(Scope, $"HEX PROJECTOR guard [{why}]: {adjusted} game projector(s) now ignore the mod " +
+                          $"layer {layer} — mask bit 0x{VRLayers.ModLayerMask:X8} ORed into ignoreLayers, so " +
+                          "no game projector paints the mod's environment room. Names: " +
+                          (adjusted > 0 ? names.ToString() : "none in this scope"));
+    }
+
+    /// <summary>
+    /// ADD the mod layer to one projector's <c>ignoreLayers</c>. Never clears a bit the game
+    /// set; records the authored mask once so <see cref="Reset"/> can take only OUR bit back
+    /// out. True when this call changed something.
+    /// </summary>
+    private static bool GuardProjector(Projector? p)
+    {
+        if (p == null || !VRSession.IsRunning)
+            return false;
+        int bit = VRLayers.ModLayerMask;
+        if (GuardedProjectors.ContainsKey(p))
+            return false;
+        int authored = p.ignoreLayers;
+        // Keep the record from growing forever across scene loads: destroyed projectors stay
+        // as (fake-null) keys, so drop them when the book gets long. Same hygiene as Swapped.
+        if (GuardedProjectors.Count > 512)
+            PruneGuardedProjectors();
+        GuardedProjectors[p] = authored;
+        if ((authored & bit) != 0)
+            return false;              // the game already excludes it — nothing to do or undo
+        p.ignoreLayers = authored | bit;
+        return true;
+    }
+
+    /// <summary>Drop destroyed (fake-null) keys from the guard record.</summary>
+    private static void PruneGuardedProjectors()
+    {
+        var dead = new List<Projector>();
+        foreach (var kv in GuardedProjectors)
+        {
+            // Unity fake-null: the component is destroyed but the key REFERENCE is alive and
+            // is still the handle Remove needs — hence the suppression, not a null add.
+            if (kv.Key == null)
+                dead.Add(kv.Key!);
+        }
+        foreach (Projector p in dead)
+            GuardedProjectors.Remove(p);
+    }
+
+    /// <summary>
+    /// Guard the projectors on ONE object tree — the per-instance path, used at the game's own
+    /// creation sites (<c>ProjectorModifier.Awake</c>) and when a hex star is (re)built. No
+    /// scene scan; the tree is a handful of nodes.
+    /// </summary>
+    private static void GuardTree(GameObject? go)
+    {
+        if (go == null || !VRSession.IsRunning)
+            return;
+        Projector[] found = go.GetComponentsInChildren<Projector>(includeInactive: true);
+        for (int i = 0; i < found.Length; i++)
+            GuardProjector(found[i]);
+    }
+
+    /// <summary>
+    /// Postfix on the game's decal-projector creation site. Runs AFTER the vanilla body, so
+    /// <c>ReplaceProjector</c>'s <c>ignoreLayers == 0</c> precondition still reads the authored
+    /// value and the game's own decal optimization is never disabled by this guard. Covers
+    /// every instantiated / pooled decal at birth, which is the re-creation path a one-shot
+    /// sweep would miss.
+    /// </summary>
+    [HarmonyPatch(typeof(ProjectorModifier), "Awake")]
+    internal static class ProjectorModifier_Awake_Patch
+    {
+        private static void Postfix(ProjectorModifier __instance)
+        {
+            try
+            {
+                GuardTree(__instance.gameObject);
+            }
+            catch (System.Exception e)
+            {
+                if (_errorLogs < 3)
+                {
+                    _errorLogs++;
+                    VRLog.Error(Scope, $"HEX PROJECTOR creation-site guard failed: {e}");
+                }
+            }
+        }
+    }
+
     // -------- diagnostics --------
 
     /// <summary>How many distinct materials get a full property dump before going quiet.</summary>
@@ -209,6 +467,33 @@ internal static class HexHighlightFix
             }
         }
         Swapped.Clear();
+
+        // Restore-on-uninstall for the projector guard: clear ONLY the bit we set, and only
+        // where the authored mask did not already have it — a game write that happened after
+        // us keeps every bit of its own.
+        if (GuardedProjectors.Count > 0)
+        {
+            int bit = VRLayers.ModLayerMask;
+            foreach (var kv in GuardedProjectors)
+            {
+                try
+                {
+                    Projector p = kv.Key;
+                    if (p != null && (kv.Value & bit) == 0)
+                        p.ignoreLayers &= ~bit;
+                }
+                catch { /* restoring is cosmetic; never throw during shutdown */ }
+            }
+            GuardedProjectors.Clear();
+        }
+        if (_sceneHookArmed)
+        {
+            _sceneHookArmed = false;
+            UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
+        }
+        _sweepPending = false;
+        _projectorLogLines = 0;
+
         _materialDumps = 0;
         _errorLogs = 0;
         _lastLoggedZTest = -1;
@@ -274,13 +559,19 @@ internal static class HexHighlightFix
                 if (mat == null)
                     return;
 
+                // Environment-room bleed: a sweep armed by install/scene load is spent HERE —
+                // the first hex material write after a load is the earliest moment a board
+                // with decals provably exists, and it costs nothing on every later write.
+                if (_sweepPending)
+                    SweepProjectors("first hex highlight of the scene");
+
                 if (_materialDumps < MaxMaterialDumps && LogMaterialDump?.Value == true)
                 {
                     _materialDumps++;
                     DumpMaterial(mat);
                 }
 
-                if (SwapStableShader?.Value == true && TrySwapStable(mat))
+                if (SwapStableShader?.Value == true && TrySwapStable(mat, __instance))
                 {
                     // Stable shader active: the layers no longer swim, so the kill
                     // knobs are bypassed and the full vanilla look returns.
@@ -320,7 +611,7 @@ internal static class HexHighlightFix
         /// included) across the shader assignment; the pre-swap renderQueue (4000,
         /// from the game's _exampleMaterial) is re-asserted afterwards.
         /// </summary>
-        private static bool TrySwapStable(Material mat)
+        private static bool TrySwapStable(Material mat, HexSelect_Control owner)
         {
             Shader? current = mat.shader;
             if (current != null && current.name == StableShaderName)
@@ -345,6 +636,11 @@ internal static class HexHighlightFix
             mat.renderQueue = queue > 0 ? queue : 4000;
             ApplyOcclusionKnobs(mat);
             Swapped.Add(mat);
+            // A material is created exactly once per RefreshHexUI
+            // (HexSelect_Control.cs:335-338), i.e. this branch IS the "a pooled hex star was
+            // just (re)built" signal — guard whatever projectors that star owns, right here,
+            // without a scene scan.
+            GuardTree(owner != null ? owner.gameObject : null);
             // Keep the restore list tidy across long sessions: drop destroyed entries.
             if (Swapped.Count > 512)
                 Swapped.RemoveAll(m => m == null);
