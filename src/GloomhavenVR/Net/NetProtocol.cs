@@ -416,7 +416,34 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 134;
+    public const ushort ModBuild = 135;
+    // Build 135: the cellar becomes a place, the hex decal stops leaking for good, forest
+    // polish. No wire change. Bundle rebuilt (64.2 MB) — 135 NEEDS it.
+    //
+    // (1) CELLAR ("die Kerzen beleuchten hier viel zu viel ... sollte auch das Licht drumrum
+    // zum flackern bekommen ... Gitterstäbe schweben ... Gerne Mondschein ... mehr
+    // athmosphärische Details"): candle ranges cut to ~3 m with a hardened falloff (−4.8x at
+    // 1.55 m, −870x at 3 m, table top unchanged); the flicker was invisible AND desynchronised
+    // — one shared flame material at phase 0 against light slots at 0/2.1/4.4 — now ±31% with
+    // per-slot phase/rate driving flame, halo and puddle alike. Two more silent-default bugs
+    // of the _RimDir class fixed (hand-typed moon direction 21° off the visible moon; shared
+    // materials lighting every bar/candle as if it stood where the first one does). Real
+    // window reveal with the bars inside it, a five-slat moonbeam whose bar shadows ARE
+    // geometry, a phase-locked drip and puddle with reflections, a rat that runs through the
+    // beam, swaying cobwebs, blinking eyes, a draft that leans every flame together.
+    //
+    // (2) HEX DECAL, round 2 ("kurz wieder ... dann auch mal wieder verschwunden"): the
+    // intermittency was REPRODUCED — a render target without a stencil attachment makes 133's
+    // Comp Equal degenerate to always-pass (the mod's own compositor documents hitting exactly
+    // that; XR eye textures are not ours to control). A second intermittency fell out: 133's
+    // band was measured along the view ray, so its vertical reach was tol·sin(elevation). The
+    // predicate is now an object-space SLAB, exact at every angle, and the bound that stops
+    // the leak is a literal ZTest needing no stencil — every stencil failure now degrades to
+    // "draws through figures", never to a floor leak.
+    //
+    // (3) FOREST (approved): axe seated by derived pose, fireflies ~40% smaller, shooting
+    // stars at 40 m and 0.35x the angular size. Style names are now just Cellar / Night forest.
+    //
     // Build 134: the board floats small in a large place, the sky is fully procedural, the
     // night is dark. No wire change. Bundle rebuilt (64.1 MB, −12.3) — 134 NEEDS it.
     //

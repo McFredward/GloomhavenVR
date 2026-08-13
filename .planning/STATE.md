@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 134`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 135`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-12
 
@@ -126,6 +126,40 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 135** — cellar reworked into a place, hex decal leak killed at the root, forest
+  polish. FOREST APPROVED by the user this round ("gefällt mir schon sehr gut") — only the three
+  requested fixes touched it (axe pose derived so it bites the stump centre, fireflies −40%,
+  shooting stars at 40 m / 0.35× angular size). CELLAR: ranges 4.6/4.0/4.6 → 3.1/2.9/3.0 m plus
+  a hardened falloff (`_PtHard`, default 0 so the forest is bit-identical) — north wall −4.8× at
+  1.55 m, −870× at 3 m, table top unchanged. The flicker DID reach surfaces; it was invisible
+  (±10%) and desynchronised — all flame cards shared one material at phase 0 while light slots
+  ran 0/2.1/4.4. Now ±31%, `SlotPhase[]`/`SlotRate[]` the single source for flame, halo and
+  puddle reflection. TWO more silent-default bugs of the `_RimDir` class: cellar `dirWorld` was
+  hand-typed 21° off the visible moon (→ MoonDir), and SHARED MATERIALS across transforms baked
+  object-space lighting as if every bar/candle stood where the first one does (welded to one
+  mesh each). WINDOW: bars floated because they sat proud AND `WallMesh` quantises the hole to
+  its 0.16 m grid → new `SnappedHole()` + a 0.34 m reveal (zero-thickness walls had no "inside"
+  before); window moved west so the beam lands 3.95 m out, clear of the 3.25 m play radius; the
+  beam is 5 EnvShaft slats, one per bar gap, so bar shadows are geometry. LIFE, script-free on
+  one clock: EnvDrip (hang 1.55 s → gravity fall 0.813 s → 5 ballistic splash droplets) with
+  EnvPuddle's ring train phase-shifted by exactly hang+fall; EnvCritter rat on a cubic Bézier
+  routed THROUGH the moonbeam and candle pool (build assert: ≥3.25 m from centre, ≤0.12 m from
+  the beam axis; it alone gets the shaft as a real light); cobwebs with `_Sway` (mip coverage
+  preserved or thin threads vanish); blinking eyes on ONE shared material; unphased `_Gust` so
+  all flames lean together with the dust. HEX DECAL round 2: intermittency REPRODUCED — a target
+  without a stencil attachment degenerates `Comp Equal` to always-pass (FlatScreenStereo.2
+  documents the mod hitting exactly that; XR eye textures aren't ours). Stencil COLLISION
+  eliminated (poison draw setting all 255 bits changes nothing — the prepass rewrites over its
+  own coverage). Second intermittency found: 133's band was along the view ray, vertical reach
+  tol·sin(elev) — same tile painted at 57°, vanished at 8°. Now an object-space SLAB (y=0 to
+  y=−tol, both ray∩plane of the same ray), roles swapped so the far bound is a literal ZTest
+  GEqual needing NO stencil; Ref 0 keeps zero-reading targets passing; guards clamp non-positive
+  /NaN tolerance. Verified across 16 harness scenarios incl. the no-stencil and poison cases.
+  Bundle 64,152,301 bytes — 135 NEEDS it. Style labels now plain "Keller"/"Nachtwald".
+  KNOWN DEBT: `EnvRoomCutout` receives `_VCol` but never applies it, so the forest canopy's
+  baked depth fade does nothing — deliberately NOT fixed (it would visibly darken the approved
+  room); decide next round. If the highlight ever draws THROUGH figures, that confirms the eye
+  target lacks stencil and needs a C# fix.
 - **ModBuild 134** — board floats small in a large place, sky fully procedural, night dark.
   PROPORTIONS: 133 normalized on the prefab's TOTAL renderer extent (forest 60.2 m incl. tree
   bands out to 28.5 m) → the CLEARING came out smaller than the 30.95 wu board and the tree ring
