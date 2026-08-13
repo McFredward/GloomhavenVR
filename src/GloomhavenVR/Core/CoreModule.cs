@@ -27,6 +27,12 @@ internal sealed class CoreModule : IVRModule
         // torn down cleanly on hot-reload.
         Loc.Init();
 
+        // Give logged exceptions their stack back. FIRST, before any other module can throw:
+        // the game switches every stack trace off at boot, which is why a mod throw and a game
+        // throw have been indistinguishable single anonymous lines in Player.log. See
+        // ExceptionTraces for the full evidence chain. Runs regardless of VR availability.
+        ExceptionTraces.Install();
+
         // Order matters: nothing referencing Unity.XR.* types may be JIT-compiled
         // before LoadAll() has put those assemblies into the AppDomain. Init() itself
         // only *calls* the (non-inlined) methods that use them.
@@ -70,6 +76,7 @@ internal sealed class CoreModule : IVRModule
     public void Shutdown()
     {
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
+        ExceptionTraces.Shutdown(); // puts the game's own StackTraceLogType.None straight back
         PerfMonitor.Shutdown(); // drop the sampling host + every step record before the GO dies
 
         if (_hostGo != null)

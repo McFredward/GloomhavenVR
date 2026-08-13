@@ -2166,9 +2166,17 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         SetBodyVisible(true); // a parked/pooled card never carries a suppressed body into its next life
     }
 
+    /// <summary>
+    /// BOTH STEPS ARE RESTORE CONTRACTS, so neither may be skipped by the other throwing.
+    /// <c>DetachGameCard</c> hands the game's own card widget back; <c>_burnFx.Detach</c> puts a
+    /// bounded smoke module back. A card is destroyed in the scene-unload wave of a scenario
+    /// restart, where the game widget it borrowed may already be gone — and an unguarded throw
+    /// there printed one anonymous, stackless "NullReferenceException" (the game disables stack
+    /// traces process-wide; see Core/ExceptionTraces) and left the OTHER restore undone.
+    /// </summary>
     private void OnDestroy()
     {
-        _burnFx.Detach();
-        DetachGameCard();
+        Core.TickGuard.Run("Cards.Teardown.BurnFx", _burnFx.Detach, "Cards");
+        Core.TickGuard.Run("Cards.Teardown.DetachGameCard", DetachGameCard, "Cards");
     }
 }

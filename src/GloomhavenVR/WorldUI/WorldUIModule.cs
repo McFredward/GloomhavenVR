@@ -340,34 +340,50 @@ internal sealed class WorldUIModule : IVRModule
             }
         }
 
+        /// <summary>
+        /// EVERY STEP IS ISOLATED, because this method is nothing but restore contracts and it
+        /// used to be one unguarded run: a single throw in any Shutdown() — and a teardown is
+        /// exactly where a stale Unity reference bites — silently skipped every restore BELOW it.
+        /// The tail is the expensive half (MrBacking puts every opacified alpha back, ActorBars
+        /// releases the adopted bars), so a throw at, say, _flatScreen.Shutdown() left the game's
+        /// UI permanently modified with no line in the log naming the cause. TickGuard isolates
+        /// the throw, names the step and logs its stack — the same contract the Update/LateUpdate
+        /// passes above already run under. ORDER IS PRESERVED VERBATIM; only isolation is added.
+        /// </summary>
         private void OnDestroy()
         {
-            CameraInventory.Detach();
-            _buttons.Shutdown();
+            TickGuard.Run("WorldUI.Shutdown.CameraInventory", CameraInventory.Detach, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.Buttons", _buttons.Shutdown, "WorldUI");
             for (int i = 0; i < _slotSurfaces.Length; i++)
-                _slotSurfaces[i].Shutdown();
-            _dialogs.Shutdown();
-            _statPanels.Shutdown();
-            _propInfo.Shutdown();
-            _enemyReveal.Shutdown();
-            _decisionDock.Shutdown();
-            _useBars.Shutdown();
-            _doomPicker.Shutdown();
-            _distributePoints.Shutdown();
-            _damageTooltip.Shutdown();
-            _damagePreview.Shutdown();
-            _trayControls.Shutdown();
-            _wristHud.Shutdown();
-            _loadingIndicator.Shutdown(); // restores backgroundLoadingPriority defensively
-            _flatScreen.Shutdown();
-            VROptionsTab.Shutdown();
-            VRKeyboard.Shutdown();
-            _avatarMirror.Shutdown();
-            _tooltips.Shutdown();
-            _hexHintFacing.Shutdown();
-            _devPanels.Shutdown();
-            MrBacking.Shutdown(); // destroys the MR plates, restores every opacified alpha
-            ActorBars.ReleaseAll();
+            {
+                WorldSurface surface = _slotSurfaces[i];
+                TickGuard.Run($"WorldUI.Shutdown.Surface:{surface.GetType().Name}",
+                    surface.Shutdown, "WorldUI");
+            }
+            TickGuard.Run("WorldUI.Shutdown.Dialogs", _dialogs.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.StatPanels", _statPanels.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.PropInfo", _propInfo.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.EnemyReveal", _enemyReveal.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.DecisionDock", _decisionDock.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.UseBars", _useBars.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.DoomPicker", _doomPicker.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.DistributePoints", _distributePoints.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.DamageTooltip", _damageTooltip.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.DamagePreview", _damagePreview.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.TrayControls", _trayControls.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.WristHud", _wristHud.Shutdown, "WorldUI");
+            // restores backgroundLoadingPriority defensively
+            TickGuard.Run("WorldUI.Shutdown.LoadingIndicator", _loadingIndicator.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.FlatScreen", _flatScreen.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.OptionsTab", VROptionsTab.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.Keyboard", VRKeyboard.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.AvatarMirror", _avatarMirror.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.Tooltips", _tooltips.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.HexHintFacing", _hexHintFacing.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.DevPanels", _devPanels.Shutdown, "WorldUI");
+            // destroys the MR plates, restores every opacified alpha
+            TickGuard.Run("WorldUI.Shutdown.MrBacking", MrBacking.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.ActorBars", ActorBars.ReleaseAll, "WorldUI");
         }
     }
 }

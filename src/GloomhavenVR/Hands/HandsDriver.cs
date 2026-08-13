@@ -186,7 +186,11 @@ internal sealed class HandsDriver : MonoBehaviour
                             $"1-bone intro skinning. handsRoot lossyScale={rootScale:F2}, hand WorldScale={worldScale:F2}.");
     }
 
-    private void OnDestroy() => TearDown();
+    // ISOLATED for the same reason VRHand.OnDestroy is: this runs in the destroy wave of a
+    // scenario teardown, it frees cloned ghost materials and destroys the hand tree, and an
+    // unguarded throw here would leave VRHands pointing at dead hands under a single anonymous
+    // NullReferenceException (the game logs no stack traces — see Core/ExceptionTraces).
+    private void OnDestroy() => TickGuard.Run("Hands.Teardown.Driver", TearDown, "Hands");
 
     private void OnModeChanged(VRModeChange change) => ApplyMode(change.To);
 
@@ -267,6 +271,7 @@ internal sealed class HandsDriver : MonoBehaviour
         _right = null;
         _simActive = false;
         VRLog.Info("Hands", "Hands torn down.");
+        Core.TeardownReport.Note("hands (both hand trees, ghost materials restored, VRHands cleared)");
     }
 
     // ---- desktop simulation --------------------------------------------------------------

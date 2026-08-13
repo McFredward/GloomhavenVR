@@ -392,13 +392,23 @@ internal sealed class VRHand : MonoBehaviour
         _simGrip = grip;
     }
 
+    /// <summary>
+    /// Hand teardown, ONE ISOLATED STEP PER INTERACTOR. This runs inside Unity's end-of-frame
+    /// destroy wave whenever the rig goes down — a scenario restart, a hand-style switch, a scene
+    /// swap — and every cancel below reaches into objects (hover targets, held grabbables, laser
+    /// visuals) that the SAME wave may already have destroyed. Unguarded, one throw skipped the
+    /// remaining cancels and printed a single anonymous "NullReferenceException" with no owner:
+    /// the game turns stack traces off process-wide (see Core/ExceptionTraces), so a bare NRE in
+    /// Player.log names nothing. Under TickGuard each step is isolated and the throw is logged
+    /// WITH its stack under its own name. Order is unchanged.
+    /// </summary>
     private void OnDestroy()
     {
-        Ray?.DestroyVisuals();
-        RayUgui?.Cancel();
-        RayGrab?.Cancel();
-        Poke?.CancelAll();
-        Grabber?.CancelAll();
+        Core.TickGuard.Run("Hands.Teardown.RayVisuals", () => Ray?.DestroyVisuals(), "Hands");
+        Core.TickGuard.Run("Hands.Teardown.RayUgui", () => RayUgui?.Cancel(), "Hands");
+        Core.TickGuard.Run("Hands.Teardown.RayGrab", () => RayGrab?.Cancel(), "Hands");
+        Core.TickGuard.Run("Hands.Teardown.Poke", () => Poke?.CancelAll(), "Hands");
+        Core.TickGuard.Run("Hands.Teardown.Grabber", () => Grabber?.CancelAll(), "Hands");
     }
 
     // ---- per-frame -------------------------------------------------------------------------

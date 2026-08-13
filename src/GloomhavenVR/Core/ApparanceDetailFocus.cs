@@ -397,6 +397,7 @@ internal static class ApparanceDetailFocus
                     _appliedEngine.EnableDetailFocus = _origEnable;
                     _appliedEngine.DetailFocus = _origFocus;
                     VRLog.Info(Name, $"engine viewpoint restored to authored source ({reason}).");
+                    TeardownReport.Note("Apparance synthesis viewpoint (engine back on its authored source)");
                 }
                 _appliedEngine = null;
                 _origFocus = null;

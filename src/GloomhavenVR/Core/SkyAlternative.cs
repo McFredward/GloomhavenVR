@@ -1385,7 +1385,10 @@ internal static class SkyAlternative
         _nextHealLogTime = 0f;
         ResetRoomState();
         if (_active)
+        {
             VRLog.Info("Core", "Sky alternative OFF — game sphere restored, 3D environment despawned.");
+            TeardownReport.Note("sky alternative (game sphere restored, room + sky despawned)");
+        }
         _active = false;
         _loggedActive = false;
     }
