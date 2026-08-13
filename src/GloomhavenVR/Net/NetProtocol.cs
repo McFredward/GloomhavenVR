@@ -416,7 +416,35 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 135;
+    public const ushort ModBuild = 136;
+    // Build 136: exceptions finally carry stack traces, settings audit round 2, moonlight
+    // instead of lasers, an Off (black) environment, and three reported bugs closed.
+    // No wire change. Bundle rebuilt (64.5 MB) — 136 NEEDS it.
+    //
+    // (1) DIAGNOSTICS, the round's biggest win: GloomhavenShared.LogBuildInfo() turns stack
+    // traces OFF process-wide at boot, which is why every exception this project has ever seen
+    // in a log was a bare unattributable one-liner (1172 in his last run). ExceptionTraces
+    // restores them and re-asserts on scene load. The NREs he reported after a round restart
+    // are game-side (they fire identically on a plain quit-to-menu, which is no restart at
+    // all); WorldUIModule's ~25-call shutdown chain was found unguarded while proving it and
+    // is now per-step isolated, so one throw can no longer skip every restore below it.
+    //
+    // (2) SETTINGS AUDIT ROUND 2 ("Entferne weiterhin die Optionen die den Spielfluss in VR
+    // beschädigen können"): 20 dials removed, 16 clamped. Decision test: does the flat game
+    // let you switch this display off? If not, the mod must not invent a way to lose it.
+    //
+    // (3) REST KEYCAPS follow the game's own offer predicate instead of a stale selection flag
+    // (the boots prompt kept 'Lange Rast' up until confirmation). BUTTON SEAT: the commit cap
+    // and the item-use cap share one derived pose — the Y offset was exactly half the tuned
+    // spacing, because the item cap counted as a third cluster member it never co-appears
+    // with; the peer mirror's 52 mm error is corrected with it.
+    //
+    // (4) OFF (BLACK) environment added, and the perf audit he asked for: the mod never HIDES
+    // an environment, it destroys it, so no particle system can keep simulating behind a
+    // disabled renderer. CONTENT: the cellar's five moonbeam slats become one analytic volume
+    // with no faces at all, its pool re-lights the floor's own albedo, cobwebs come from a CC0
+    // photoscan, and the forest ground finally gets the cold tint the trunks got in 133.
+    //
     // Build 135: the cellar becomes a place, the hex decal stops leaking for good, forest
     // polish. No wire change. Bundle rebuilt (64.2 MB) — 135 NEEDS it.
     //

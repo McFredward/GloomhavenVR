@@ -2,9 +2,9 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 135`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 136`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
-- **Last update:** 2026-08-12
+- **Last update:** 2026-08-13
 
 ---
 
@@ -126,6 +126,59 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 136** — STACK TRACES RESTORED (the round's biggest win), settings audit round 2,
+  moonlight instead of lasers, Off (black) environment, three reported bugs closed.
+  **DIAGNOSTICS:** `GloomhavenShared.LogBuildInfo()` (decompiled GH.Shared:57-61) calls
+  `Application.SetStackTraceLogType(..., None)` five times at boot including LogType.Exception —
+  so EVERY exception in every log this project ever read was a bare unattributable one-liner
+  (1172 in his run). `Core/ExceptionTraces.cs` restores ScriptOnly and re-asserts on scene load;
+  Shutdown writes the game's authored value back. Traces land in Player.log only. **From now on
+  exceptions are attributable — read Player.log stacks before theorising.** The restart NREs are
+  game-side (they fire identically on quit-to-menu, which is no restart); the options-tab burst
+  is one NRE per clone of the game's settings-row prefab (AdvancedIndex = 11 link rows → exactly
+  1), harmless. Found while proving it: WorldUIModule's ~25-call shutdown chain ran UNGUARDED —
+  one throw silently skipped every restore below it (MrBacking alphas, ActorBars, flat screen);
+  that chain + Hands/VRHand/VRCard teardowns are now per-step TickGuard-isolated, order verbatim.
+  Diagnostic `RESTART TEARDOWN` (released / already-destroyed census 2 frames later).
+  **SETTINGS ROUND 2:** 20 dials removed, 16 clamped, method mirrored from round 1 (8594ebd).
+  Decision test that settled every borderline: *does the flat game let you switch this display
+  off?* → readouts REMOVED (initiative track, element board, objectives, stat panels, prop info,
+  enemy reveal, actor bars, tooltips, action hints, hex outline+fill), mod-invented extras KEPT
+  (wrist HUD, combat log). Also removed: ClickLatch (off = nothing clickable), ClickMode (only
+  'execute' ever worked), ForceMouseMode, 2 map-composite switches (off = documented black
+  screen), Keyboard (unfillable text field blocks campaign creation), TutorialVRAdapt (off = the
+  known camera-step deadlock), MenuRig (off = no rig at all). Clamps where 0 deleted the thing
+  (canvas scale, screen size/distance, card width, inspect scale, fan radius, rest discs,
+  per-board furniture scales); BoardScale floored at the READ because the two-hand grab writes
+  that key. No wire change (no removed key is in a board section), 1506 assertions unchanged.
+  **BUGS:** rest keycaps now ride the game's own offer predicate (phase ==
+  SelectAbilityCardsOrLongRest && !IsImprovedLongResting) instead of `can || selected` — the
+  boots prompt kept 'Lange Rast' up because the selected flag survives until confirmation, and
+  vanilla doesn't switch hands in that phase (hence "egal welchen Character"). Commit cap and
+  item-use cap now share ONE derived seat: the Y offset was exactly half the tuned per-board
+  spacing because the item cap counted as a third cluster member it is never co-visible with
+  (5 mm Steel / 4 mm Oak / 0 Bronze — matching his report); the peer mirror's 52 mm error fixed
+  with it. **[Sky] OffBlack** appended (never renumbering): hides the sphere, loads and spawns
+  nothing, doesn't set `_active` so the far plane stays the game's, MR untouched. Perf audit:
+  the mod never HIDES an environment, it destroys it — so the "disabled renderer still
+  simulates" trap cannot apply; cellar's inactive GlowTemplate has no ParticleSystem; prefabs
+  have 0 MonoBehaviours / 0 colliders. Diagnostic `SKY IDLE`. **CONTENT:** the five moonbeam
+  slats become ONE analytic volume (EnvBeam) with NO faces — density from ray/axis distance,
+  super-Gaussian section, path-length term so it brightens looking along it; hull sized where
+  density is 1e-6 of peak. Pool re-lights the FLOOR'S OWN ALBEDO through an elliptical mask
+  (mortar comes up cold) instead of a glow sprite; additive sill glows were tried and REJECTED
+  (edge-on = one-pixel line = the laser failure again). Cobwebs from TextureCan others_0015
+  (CC0; ambientCG/PolyHaven/Kenney carry none, the 4K pack forbids redistribution). Forest
+  ground `_DirScale` 0.38 + the cold tint the trunks got in 133 (0.61 → 0.22 at centre) with the
+  board's landing patch raised; `_VCol` debt paid with per-class floors so the canopy recedes
+  instead of vanishing. Fog velocity curves unified (his log's warning spam).
+  **TOOLING FINDING:** PreviewEnvironments rendered into an 8-bit LINEAR RT — first step after
+  gamma is 18/255, so every dark gradient showed hard bands that do not exist on the headset.
+  Now ARGBHalf. **Earlier rounds' previews under-reported darks and over-reported banding.**
+  Bundle 64,473,235 bytes — 136 NEEDS it.
+  MERGE NOTE: two lanes' stale-based patches reverted already-merged lanes this round; caught
+  both times by the marker sweep. Restrict patches to owned paths AND grep every prior lane's
+  marker after every apply — see memory git-worktree-merge-hazards.
 - **ModBuild 135** — cellar reworked into a place, hex decal leak killed at the root, forest
   polish. FOREST APPROVED by the user this round ("gefällt mir schon sehr gut") — only the three
   requested fixes touched it (axe pose derived so it bites the stump centre, fireflies −40%,
