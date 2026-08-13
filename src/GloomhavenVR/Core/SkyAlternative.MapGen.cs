@@ -113,12 +113,13 @@ namespace GloomhavenVR.Core;
 ///  2. "Mir gefallen die Umgebungen nicht, sie sind Rechtecking, haben keine Beleuchtung, die
 ///     assets klippen ineinander und es fühlt sich nicht wie ein interesannter Ort an. Statt
 ///     selber assets zusammenzufwürfen kannst du nicht zwei echte interesannte fertige Räume
-///     aus dem Spiel nutzen die zu dem Thema passen?" ⇒ Fix: the single-room 'Map A' template
-///     is replaced by REAL AUTHORED MULTI-ROOM MAPS from the same mapsprocgen catalog the
-///     campaign scenarios load ("Map " + EMapType, decompiled Choreographer.cs:14943):
-///     per-style PREFERENCE LISTS with 'Map A' as the terminal entry (see AUTHORED MAPS
-///     below — revised after 129, when the composite ADDRESSES failed while the assets
-///     provably existed). Authored per-tile styles are PRESERVED — the fill rule
+///     aus dem Spiel nutzen die zu dem Thema passen?" ⇒ Fix: the assembled-template look is
+///     replaced by REAL AUTHORED MAPS from the same mapsprocgen catalog the campaign
+///     scenarios load ("Map " + EMapType, decompiled Choreographer.cs:14943): per-style
+///     PREFERENCE LISTS with 'Map A' as the terminal entry (see AUTHORED MAPS below —
+///     revised after 129, when the composite ADDRESSES failed while the assets provably
+///     existed, and again after 130, which ruled ONE SINGLE ROOM — finding a: the 129/130
+///     multi-room composites loaded the whole level). Authored per-tile styles are PRESERVED — the fill rule
 ///     writes an axis only when the prefab left it Inherit/Default (in vanilla the scenario
 ///     style lives on the ProcGen Maps ROOT and tiles inherit through
 ///     ProceduralStyle.GetBiome's parent walk, decompiled — our clone has no parent style, so
@@ -150,6 +151,37 @@ namespace GloomhavenVR.Core;
 ///     donor anywhere is REMOVED — the user's finding is the red box, and a small gap in an
 ///     ambience room beats a debug cube. The census prints the NAMES of everything healed or
 ///     removed; goal state is 0 fallback renderers at placement, by construction.
+///
+/// THE ModBuild-130 REPORT (user, verbatim — the round this file's current shape answers):
+/// "Die Umgebung spawned so klein wie das Spielfeld selber! Das soll auf keinen Fall so
+/// sein. Der ganze Sinn ist es IN der Umgebung zu sein. Daher siehst du noch andere
+/// Probleme: a) Das ganze Level inklusive aller Räume wird geladen statt nur ein Raum - ein
+/// Raum reicht in dem man ist. b) Der Raum inklusive aller Effekte (Fackeln, Feldermäuse,
+/// Belichtung, etc.) soll geladen werden damit es athmosphärisch ist!. c) Der Boden ist
+/// nicht zu sehen, man kann hindurch sehen. Das muss nochmal deutlich überarbeitet werden.
+/// Ich möchte einfach eine athmosphärische Spielumgebung in der man spielen kann - die zum
+/// Styl des Spiels passt." FOUR revisions, each pinned to its evidence in his 130 log:
+///
+///  MAIN (the miniature): sizing is back to PERCEIVED meters and the room is seated around
+///     the PLAYER — SkyAlternative's class doc (ANCHORING, fourth revision) owns that story;
+///     this file's part is the NORMALIZATION MATH below. The 130 board-relative experiment
+///     (2.75× board extent, floor at the board underside) is DELETED as a rejected
+///     alternative: board extent is world-tiny at diorama zoom (his log line 551: rig scale
+///     85.21, "placed map 5.8 m across" = a perceived ~7 cm tabletop miniature).
+///  (a) ONE ROOM ONLY: the preference lists now name SINGLE-ROOM maps (AUTHORED MAPS,
+///     130 revision below), and a map that still arrives with several room tiles is CULLED
+///     to the tile containing the map's center before anything is measured or placed —
+///     the whole-level load must never reach the player again.
+///  (b) ATMOSPHERE STAYS ALIVE: the placed clone keeps its self-contained visual drivers
+///     ticking — see COMPONENT PRESERVE-VS-DESTROY below.
+///  (c) FLOOR INTEGRITY: floor pieces are NEVER removed — see FLOOR INTEGRITY below. (The
+///     130 hole was OUR OWN removal fallback: line 552 "removed [StoneRooms.Floor.Tile]" —
+///     the heal pass deleted floor tiles it found no donor for, because the donor match
+///     demanded the exact variant suffix while the warmed Dungeon list only carried
+///     'Floor.Tile#N' variants.) Also fixed here: the 130 main-room measurement read the
+///     tile's authored BoxCollider (60.2) LARGER than the whole map's render bounds (35.0)
+///     — colliders can exceed the art; measurement is now renderer-bounds per tile,
+///     sanity-clamped to the map bounds.
 ///
 /// AUTHORED MAPS (finding 2, REVISED after the ModBuild-129 run — THE GUESSING ENDED).
 /// THE ModBuild-129 REPORT (user, verbatim): "Es ist immer noch kein real existierendes Level
@@ -184,22 +216,32 @@ namespace GloomhavenVR.Core;
 ///    logs ONE line with every 'mapsprocgen' path key the Addressables catalog carries plus
 ///    every always-loaded 'Map *' prefab name — the next report convicts a wrong list from
 ///    facts, not guesses.
-///  - CHOICES ("einen echten Raum aus einem Szenario/Level"): every mapsprocgen map IS a
-///    scenario map — YML scenario files name their rooms as EMapType members (READ FROM
-///    SOURCE: ScenarioRoomsYML.cs:144-158 parses 'MapTiles' into EMapType; Choreographer
-///    loads 'Map ' + MapType for every EScenarioType.YML scenario). Cellar → 'Map ABHM'
-///    (four-tile dungeon composite), then 'Map GI' (two-tile; per the board game's tile
-///    letters G+I this is campaign scenario #1 'Black Barrow', the opening crypt — the tile
-///    attribution is INFERRED from the physical game's tile list, the asset's presence is
-///    VERIFIED). SwampNight → 'Map DDM' (three-tile composite), then 'Map LML' (three-tile).
-///    Which specific scenario uses ABHM/DDM is YML asset data not readable on this machine —
-///    theme risk is low because authored axes are kept and unset axes are filled with the
-///    style vocabulary either way (finding 2 rule below).
-///  - REJECTED: 'Map ABCHL' (five rooms — each drops below ~5 m at a walkable
-///    normalization); single-letter maps as PRIMARY choices (the rejected 'Map A' class: one
-///    rectangular room, the exact finding); DLC_SC*/Solo_* members (present only with the
-///    DLC/solo content — a base-game user would walk the fallback chain every run); numeric
-///    scenario finales (D21/C82/M521…, likely single-arena boss rooms).
+///  - CHOICES, 130 REVISION ("ein Raum reicht in dem man ist"): the lists now name
+///    SINGLE-ROOM maps. His 130 MAP CATALOG census (his LogOutput.log line ~416) proves the
+///    always-loaded store carries every 'Map DLC_SC&lt;scenario&gt;_RM&lt;room&gt;' prefab —
+///    the DLC's PER-ROOM maps (RM = one revealed room of one scenario, the naming scheme
+///    itself is the single-room guarantee) — plus the singles A–N. Cellar →
+///    'Map DLC_SC02_RM01', 'Map DLC_SC04_RM01', 'Map DLC_SC06_RM01' (early DLC-campaign
+///    rooms; the DLC arc opens INDOORS in town — cellars, house interiors, crypts — so the
+///    early RM01 rooms are the enclosed-stone-room candidates; scenario-theme attribution is
+///    INFERRED from the campaign arc, the assets' presence is VERIFIED in his census).
+///    SwampNight → 'Map DLC_SC03_RM01' (scenario 3 is the DLC's ship/docks episode — water
+///    at night, the closest authored fit), 'Map DLC_SC16_RM01', 'Map DLC_SC20_RM01'
+///    (mid/late-arc rooms, flooded-quarter episodes — INFERRED). Theme risk is bounded
+///    either way: authored axes are kept, unset axes are filled with the style vocabulary,
+///    SwampNight forces the night tone, and the CULL (below) guarantees one room regardless.
+///  - The 129 rejection of DLC_SC* members ("present only with the DLC") is OVERRULED by
+///    the 130 evidence — his install carries them all — but its concern still holds for
+///    base-game installs: those walk the list to the terminal 'Map A' (one warn per
+///    candidate, once per session) and still get a room. 'Map A' stays terminal precisely
+///    for them. STILL REJECTED: multi-tile composites (ABHM/DDM/GI/LML — the 130 finding a:
+///    the whole level loaded), single-letter maps as PRIMARY (plain rectangles, the 129
+///    finding), Solo_* (solo-content gated), numeric finales (D21/C82/M521…, boss arenas).
+///  - CULL TO ONE ROOM (belt and braces, finding a): if the resolved map still arrives with
+///    MORE than one ProceduralMapTile, FinalizeBuild destroys every tile subtree except the
+///    one whose footprint contains the map's render-bounds center (nearest-center fallback)
+///    BEFORE measuring or placing anything — the whole-level load can never reach the
+///    player, whatever the preference list resolved to.
 ///
 /// THE SEQUENCE (once per activation, all phases ticked from <see cref="SkyAlternative.Tick"/>):
 ///
@@ -246,30 +288,87 @@ namespace GloomhavenVR.Core;
 ///     warn, staging cleaned up, focus returned, and the style degrades to the FX shell alone
 ///     (<see cref="GenPhase.Failed"/> — no retry loop; a style re-select or scenario re-entry
 ///     starts fresh).
-///  6. FINALIZE + PLACE: force full tile visibility (ProceduralMapTile.ApplyVisibility — the
-///     prefab's serialized visibility state is asset data this mod cannot read, so All is
-///     forced rather than assumed), measure, light the room (root cause C), neutralize the
-///     Apparance machinery (root causes B + D), strip all colliders (non-interactive by
-///     ruling), re-apply the mod layer, then reparent the instance into the world-fixed room branch with
-///     the normalization below, drop the staging root, and log the ROOM CENSUS diagnostic
-///     block (one line at placement, one T+3 s survival proof).
+///  6. FINALIZE + PLACE: sweep any last fallbacks (floors clone-patched, never deleted),
+///     CULL to one room tile (130 finding a), force full tile visibility
+///     (ProceduralMapTile.ApplyVisibility — the prefab's serialized visibility state is
+///     asset data this mod cannot read, so All is forced rather than assumed), measure
+///     (renderer bounds, clamped — the 130 measurement fix), run the FLOOR GATE (finding c),
+///     light the room (root cause C, rig owners preserved disabled), neutralize the
+///     Apparance machinery (root causes B + D), destroy the scenario-logic components while
+///     PRESERVING the visual drivers (finding b — see COMPONENT PRESERVE-VS-DESTROY),
+///     normalize the particles, strip all colliders (non-interactive by ruling), re-apply
+///     the mod layer, then reparent the instance into the room branch with the normalization
+///     below, re-base the flicker caches, drop the staging root, and log the ROOM CENSUS
+///     diagnostic block (one line at placement, one T+3 s survival proof).
 ///
-/// NORMALIZATION MATH (finding-3 revision): the map is authored in world/diorama units and
-/// normalized into FRAME units — the largest tile (by its authored BoxCollider bounds,
-/// measured at staging scale 1) becomes <see cref="TargetMainRoomMeters"/> frame units
-/// across, capped so the WHOLE map never exceeds <see cref="MaxTotalRoomMeters"/>
-/// (n = min(10/mainExtent, 24/totalExtent)) — the proportions stay sane at any final size.
-/// The FRAME is the WORLD-FIXED room branch (SkyAlternative class doc ANCHORING/SPAWN POSE):
-/// its world scale maps those frame units to (RoomToBoardRatio × the board's larger
-/// horizontal extent) / TargetMainRoomMeters, so the MAIN room spans ~2.75 board widths and
-/// the whole map ≤ 2.4× that — a fixed geometric relationship to the diorama, unchanged by
-/// zoom (finding 3: zoom changes the PERCEIVED size, never the board's place in the room).
-/// Placement: the LARGEST tile's center (not the map bounds center — for a room chain that
-/// point can land inside a wall between rooms) goes to the frame origin — the BOARD's center
-/// (fallback: the player's floor point until the board exists — the anchor logic lives in
-/// SkyAlternative.PlaceBothBranches) — and the floor top goes to frame-local y = 0, which
-/// the room branch pins JUST UNDER THE BOARD'S UNDERSIDE: floor height = the average
-/// ProceduralMapTile height (figures stand at tile level), bounds-min fallback.
+/// NORMALIZATION MATH (130 revision — LIFE-SIZE): the map is authored in world/diorama
+/// units and normalized into FRAME units — the (post-cull) room tile, measured by its
+/// RENDERER bounds at staging scale 1 and sanity-clamped to the whole map's bounds (the 130
+/// measurement bug: the authored BoxCollider read 60.2 on a 35.0-unit map), becomes
+/// <see cref="TargetMainRoomMeters"/> frame units across, capped so the WHOLE remaining map
+/// never exceeds <see cref="MaxTotalRoomMeters"/> (n = min(11/mainExtent, 24/totalExtent)).
+/// The FRAME is the room branch (SkyAlternative class doc ANCHORING, fourth revision):
+/// seated at world scale = the live rig scale S, so the room's world size is
+/// TargetMainRoomMeters × S wu = ~11 PERCEIVED meters — a life-size room at any zoom, by
+/// construction. REJECTED (the 130 miniature): any board-derived world scale — the board's
+/// extent is world-tiny at diorama zoom (his log: 5.8 wu at rig scale 85.21 = ~7 cm).
+/// Placement: the room tile's center goes to the frame origin — the PLAYER's floor point
+/// (SkyAlternative.PlaceBothBranches) — and the floor top goes to frame-local y = 0, which
+/// the room branch pins at the REAL floor under the player's feet: floor height = the
+/// average ProceduralMapTile height (figures stand at tile level), bounds-min fallback.
+///
+/// COMPONENT PRESERVE-VS-DESTROY (130 finding b — "inklusive aller Effekte ... damit es
+/// athmosphärisch ist"). The rule: DESTROY exactly the scenario-logic and registry
+/// machinery the 129 run PROVED safe to destroy; PRESERVE every self-contained visual
+/// driver. The table, with the why per row:
+///  DESTROYED — ProceduralMapTile/ProceduralWall/ProceduralProp/ProceduralDoorway/
+///     ProceduralStyle/UnityGameEditorDoorProp/TilesOcclusionVolume (root cause D: their
+///     OnDisable/OnDestroy deregister them from the game's caches; scenario logic, zero
+///     visual behaviour of their own — 129-proven), ApparanceEntity neutralize+disable
+///     (root cause B), StaticAmbience (NOT self-contained: Apply() writes
+///     RenderSettings.skybox/ambientMode and the CAMERA's post-processing profile —
+///     global state a preserved component must never be able to touch), all Colliders
+///     (non-interactive by ruling).
+///  PRESERVED — ParticleSystem (torch flames, dust, drips: self-contained Shuriken;
+///     normalized to Hierarchy scaling + Local simulation space at finalize so they scale
+///     with the room and ride re-seats), Animator/Animation (animated props, critters:
+///     self-contained clips in local space), LightFlicker (the torch/candle flicker driver,
+///     decompiled ThirdParty/LightFlicker.cs: pure Perlin writes to its OWN light/transform
+///     — safe, BUT it caches initialPosition/initialScale in WORLD space at Start, which
+///     runs at the STAGING pose; the TickGuard-style guard here is RebaseFlickerDrivers:
+///     after every room placement/re-seat the component is swapped for a fresh copy with
+///     the same public tuning, so its caches re-Start at the placed pose — without that,
+///     adjustLocation flames would teleport back toward the staging depth), MaterialLoader
+///     (pending Addressables material assigns, healer-supervised — unchanged),
+///     DynamicAmbience (the room's light rig OWNER: SetLightLevel(1f) is driven at
+///     finalize, then the component is left DISABLED, not destroyed — it has no Update and
+///     ticks nothing itself; keeping it keeps the rig's template/instance bookkeeping
+///     alive, disabling guarantees no scenario blend flow can ever drive our clone's
+///     ambient/fog globals).
+///
+/// FLOOR INTEGRITY (130 finding c — "Der Boden ist nicht zu sehen"). Floor pieces may NEVER
+/// be removed; four layers:
+///  (i) WHERE FLOORS LIVE: when the heal pass meets any miss, a one-shot RESOURCE TOPOLOGY
+///     census logs the loader's COMPLETE packet inventory (ApparanceResourceListLoader's
+///     serialized _references names — decompiled: the full set of packets that exist),
+///     which are loaded, the missing category's resolved mapping, and every loaded entry
+///     whose name carries the missing piece's family token — the next hardware log answers
+///     "which packet actually serves StoneRooms.Floor.*" from facts.
+///  (ii) DONORS FROM ANY WARMED FLOOR SET: the donor match now strips the '#variant' from
+///     the DONOR side too (the 130 bug: missing 'StoneRooms.Floor.Tile' found no donor
+///     because the warmed Dungeon list only carries 'Floor.Tile#N' variants — exact-suffix
+///     matching removed the floor), and the donor scope is every packet loaded in the
+///     session (loader._loadedPackets), not just the ones this run warmed.
+///  (iii) LAST RESORT — CLONE-PATCH, NEVER DELETE: a floor miss with no donor anywhere is
+///     patched by cloning the nearest healthy floor piece instance into the hole. Removal
+///     stays the fallback ONLY for non-floor pieces (a small prop gap beats a debug cube;
+///     a floor gap is finding c).
+///  (iv) FLOOR GATE: after healing, a grid of test points over the room's inner footprint
+///     is checked against the floor-band renderer bounds (colliders are stripped — bounds
+///     tests, no physics). An uncovered cell first tries re-enabling a reveal-disabled
+///     authored hex floor renderer there (census: 'hex (5)'[no-loader] etc. — re-enabled
+///     only when every material slot is present and no MaterialLoader manages it), else
+///     clone-patches; one line logs the result either way.
 ///
 /// LIFECYCLE: <see cref="CancelMapGen"/> runs on every deactivation (scenario end/leave, style
 /// change, MR on, VR stop) — it returns the borrowed focus, destroys the staging root, and
@@ -297,22 +396,30 @@ internal static partial class SkyAlternative
     private const string MapPrefabFolder = "Assets/_AssetBundles/mapsprocgen/";
 
     /// <summary>Per-style map PREFERENCE LISTS, walked in order at runtime (class doc AUTHORED
-    /// MAPS — the 129 revision: choices, evidence and rejections documented there). The last
-    /// entry is the terminal 'Map A' (proven loadable AND generable by the 128/129 hardware
-    /// runs) before the FX-shell-only degrade; every name is verified present in the user's
-    /// boot-time always-loaded dump (his Player.log:1490). Index = (int)SkyStyle.</summary>
+    /// MAPS — the 130 revision: SINGLE-ROOM maps only; choices, evidence and rejections
+    /// documented there). The last entry is the terminal 'Map A' (proven loadable AND
+    /// generable by the 128/129 hardware runs, and the only guaranteed hit on a base-game
+    /// install without the DLC room maps) before the FX-shell-only degrade; every name is
+    /// verified present in the user's 130 MAP CATALOG census. Index = (int)SkyStyle.</summary>
     private static readonly string[][] MapPreference =
     {
-        Array.Empty<string>(),                     // Default — never generates
-        new[] { "Map ABHM", "Map GI", "Map A" },   // Cellar: 4-tile dungeon, then scenario-1 crypt tiles
-        new[] { "Map DDM", "Map LML", "Map A" },   // SwampNight: 3-tile composites, restyled as marsh
+        Array.Empty<string>(),   // Default — never generates
+        // Cellar: single authored DLC-campaign rooms, early indoor arc (class doc CHOICES).
+        new[] { "Map DLC_SC02_RM01", "Map DLC_SC04_RM01", "Map DLC_SC06_RM01", "Map A" },
+        // SwampNight: ship/docks + flooded-arc rooms, night tone forced (class doc CHOICES).
+        new[] { "Map DLC_SC03_RM01", "Map DLC_SC16_RM01", "Map DLC_SC20_RM01", "Map A" },
     };
 
-    /// <summary>Target real-world size of the generated map's MAIN room — the largest tile's
-    /// authored collider extent is normalized to this (class doc NORMALIZATION MATH).</summary>
-    private const float TargetMainRoomMeters = 10f;
+    /// <summary>PERCEIVED meters the room reads across at every seat event (130 revision):
+    /// the room tile's renderer extent is normalized to this many frame units and the room
+    /// branch is seated at world scale = the rig scale, so frame units ARE perceived meters.
+    /// 11 m = mid of the task-ruled 10-14 m walkable single-room band: generous enough to
+    /// hold the table diorama and walk around it, small enough that the walls stay present
+    /// as a ROOM (class doc NORMALIZATION MATH).</summary>
+    private const float TargetMainRoomMeters = 11f;
 
-    /// <summary>Cap on the WHOLE map's real-world extent — keeps a multi-room composite inside
+    /// <summary>Cap on the whole REMAINING map's frame extent — post-cull this is nearly
+    /// always moot (one tile), but a single oversized/odd-shaped tile still stays inside
     /// the FX shell / far-plane budget (class doc NORMALIZATION MATH).</summary>
     private const float MaxTotalRoomMeters = 24f;
 
@@ -375,19 +482,21 @@ internal static partial class SkyAlternative
 
     // WARMUP bookkeeping (root cause A). Paths are the loader's own asset paths; a pending
     // entry either completes through our callback or (when the game kicked the same load
-    // first) through the LoadCheck poll. Failed paths are kept for the census; ALL matched
-    // paths are kept as the donor-search scope for the heal pass (finding 3).
+    // first) through the LoadCheck poll. Failed paths are kept for the census. (The donor
+    // search no longer tracks warmed paths itself — it walks the loader's own
+    // _loadedPackets store, FLOOR INTEGRITY ii.)
     private static bool _warmupKickDone;
     private static int _warmupRequested;
     private static readonly List<string> _warmupPending = new();
     private static readonly List<string> _warmupFailed = new();
-    private static readonly List<string> _warmupPaths = new();
     private static string[] _warmupTokens = Array.Empty<string>();
 
     // HEAL bookkeeping (finding 3): what the heal pass did, for the census.
     private static int _healPasses;
     private static readonly List<string> _healedNames = new();  // "missing←donor"
-    private static readonly List<string> _removedNames = new(); // no donor anywhere
+    private static readonly List<string> _removedNames = new(); // no donor anywhere (non-floor only)
+    private static readonly List<string> _floorPatchedNames = new(); // FLOOR INTEGRITY iii: clone-patched
+    private static bool _topologyCensusDone; // one-shot per run: RESOURCE TOPOLOGY on first miss
 
     // ROOM LIGHTS (root cause C): every Light under the placed instance with its AUTHORED
     // range — Unity light range does not follow transform scale, so the range is re-derived
@@ -745,7 +854,6 @@ internal static partial class SkyAlternative
         _warmupRequested = 0;
         _warmupPending.Clear();
         _warmupFailed.Clear();
-        _warmupPaths.Clear();
         _warmupTokens = EffectiveWarmupTokens(style, _mapPrefabs[(int)style]);
         _genPhase = GenPhase.Warmup;
         _genDeadline = Time.realtimeSinceStartup + GenTimeoutSeconds;
@@ -902,8 +1010,6 @@ internal static partial class SkyAlternative
     {
         try
         {
-            if (!_warmupPaths.Contains(path))
-                _warmupPaths.Add(path); // donor-search scope for the heal pass, loaded or not
             ApparanceResourceList? loadedAlready = loader.LoadCheck(path);
             if (loadedAlready != null)
             {
@@ -1183,6 +1289,8 @@ internal static partial class SkyAlternative
         _healPasses = 0;
         _healedNames.Clear();
         _removedNames.Clear();
+        _floorPatchedNames.Clear();
+        _topologyCensusDone = false;
         float now = Time.realtimeSinceStartup;
         _genDeadline = now + GenTimeoutSeconds;
         _nextGenPoll = now;
@@ -1327,12 +1435,15 @@ internal static partial class SkyAlternative
         }
         if (byName.Count == 0)
             return;
+        LogResourceTopologyOnce(byName.Keys); // FLOOR INTEGRITY (i): where do these live?
 
-        int healed = 0, removed = 0;
+        int healed = 0, removed = 0, floorPatched = 0;
         foreach (KeyValuePair<string, List<GameObject>> kv in byName)
         {
             GameObject? donor = FindDonor(kv.Key, out string donorName);
             bool replaced = false;
+            bool isFloor = IsFloorPieceName(kv.Key);
+            int patchedForName = 0;
             foreach (GameObject cube in kv.Value)
             {
                 if (cube == null)
@@ -1348,22 +1459,39 @@ internal static partial class SkyAlternative
                     catch (Exception e)
                     {
                         VRLog.Warn("Core", $"Sky alternative heal: replacing '{kv.Key}' threw " +
-                                           $"({e.GetType().Name}: {e.Message}) — removing the cube instead.");
-                        removed++;
+                                           $"({e.GetType().Name}: {e.Message}) — " +
+                                           (isFloor ? "clone-patching the floor instead." : "removing the cube instead."));
+                        if (isFloor && CloneFloorPatch(cube, kv.Key)) patchedForName++;
+                        else removed++;
                     }
+                }
+                else if (isFloor)
+                {
+                    // FLOOR INTEGRITY (iii): a floor piece is NEVER removed — the 130 hole
+                    // ("Der Boden ist nicht zu sehen") was exactly this branch deleting
+                    // 'StoneRooms.Floor.Tile'. No donor → clone a neighboring floor piece
+                    // instance into the hole.
+                    if (CloneFloorPatch(cube, kv.Key)) patchedForName++;
+                    else removed++; // no floor art ANYWHERE in the clone — the gate reports it
                 }
                 else
                 {
-                    removed++;
+                    removed++; // non-floor: a small prop gap beats a debug cube (128 ruling)
                 }
                 try { UnityEngine.Object.Destroy(cube); }
                 catch { /* already going down */ }
             }
+            floorPatched += patchedForName;
             if (replaced)
             {
                 if (_healedNames.Count < 8)
                     _healedNames.Add($"{kv.Key}←{donorName}");
                 InjectDonorAlias(kv.Key, donor!);
+            }
+            else if (patchedForName > 0)
+            {
+                if (_floorPatchedNames.Count < 8 && !_floorPatchedNames.Contains(kv.Key))
+                    _floorPatchedNames.Add(kv.Key);
             }
             else if (_removedNames.Count < 8)
             {
@@ -1372,9 +1500,168 @@ internal static partial class SkyAlternative
         }
 
         VRLog.Info("Core", $"Sky alternative HEAL pass {_healPasses} ({_genStyle}): {byName.Count} missing " +
-                           $"asset name(s) → {healed} instance(s) replaced with donor art, {removed} removed " +
-                           $"(no donor). Healed: [{(_healedNames.Count > 0 ? string.Join(", ", _healedNames) : "none")}]; " +
+                           $"asset name(s) → {healed} instance(s) replaced with donor art, {floorPatched} " +
+                           $"floor piece(s) clone-patched, {removed} removed (no donor, non-floor). Healed: " +
+                           $"[{(_healedNames.Count > 0 ? string.Join(", ", _healedNames) : "none")}]; floor-patched: " +
+                           $"[{(_floorPatchedNames.Count > 0 ? string.Join(", ", _floorPatchedNames) : "none")}]; " +
                            $"removed: [{(_removedNames.Count > 0 ? string.Join(", ", _removedNames) : "none")}].");
+    }
+
+    /// <summary>A resource name that is a FLOOR piece — the family the 130 finding c bans
+    /// from ever being removed ('StoneRooms.Floor.Tile', 'Marsh.Floor.Tile#2', …).</summary>
+    private static bool IsFloorPieceName(string missing)
+        => missing.IndexOf(".Floor", StringComparison.OrdinalIgnoreCase) >= 0;
+
+    /// <summary>
+    /// FLOOR INTEGRITY (iii) — LAST RESORT: patch a floor hole by cloning the nearest
+    /// healthy floor piece INSTANCE over the fallback cube's spot (same-family pieces share
+    /// the same procedure-frame semantics, so the neighbor's own scale/rotation are the
+    /// right ones; only the XZ location comes from the hole). Never runs when a donor
+    /// prefab exists — this is for "no floor art in any loaded packet".
+    /// </summary>
+    private static bool CloneFloorPatch(GameObject cube, string missing)
+    {
+        GameObject? inst = _mapInstance;
+        if (inst == null || cube == null)
+            return false;
+        try
+        {
+            GameObject? src = null;
+            float best = float.MaxValue;
+            Vector3 at = cube.transform.position;
+            foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || IsFallbackRenderer(r) || r.gameObject == cube)
+                    continue;
+                if (r.name.IndexOf(".Floor", StringComparison.OrdinalIgnoreCase) < 0
+                    && !r.name.StartsWith("GloomhavenVR.FloorPatch", StringComparison.Ordinal))
+                    continue;
+                Vector3 d = r.transform.position - at;
+                float sq = d.x * d.x + d.z * d.z; // nearest in the floor PLANE
+                if (sq < best)
+                {
+                    best = sq;
+                    src = r.gameObject;
+                }
+            }
+            if (src == null)
+                return false;
+            GameObject go = UnityEngine.Object.Instantiate(
+                src, new Vector3(at.x, src.transform.position.y, at.z),
+                src.transform.rotation, cube.transform.parent);
+            go.name = "GloomhavenVR.FloorPatch." + missing; // mod prefix: IsModObject-excluded
+            // lossy-scale match through the (possibly different) parent chain.
+            Vector3 want = src.transform.lossyScale;
+            Vector3 have = go.transform.lossyScale;
+            go.transform.localScale = Vector3.Scale(go.transform.localScale, new Vector3(
+                SafeDiv(want.x, have.x), SafeDiv(want.y, have.y), SafeDiv(want.z, have.z)));
+            go.hideFlags = cube.hideFlags;
+            ApplyBuildLayer(go);
+            return true;
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("Core", $"Sky alternative floor patch for '{missing}' threw " +
+                               $"({e.GetType().Name}: {e.Message}) — the FLOOR GATE will report the gap.");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// FLOOR INTEGRITY (i) — the RESOURCE TOPOLOGY census, once per run, on the first heal
+    /// miss: WHERE the missing pieces' art actually lives. Logs the loader's complete
+    /// serialized packet inventory (its _references names — the full set of packets that
+    /// EXIST, decompiled ApparanceResourceListLoader.cs:22-23), which of them are loaded,
+    /// each missing category's resolved table mapping, and every loaded entry carrying the
+    /// missing family token — so the next hardware log answers 'which packet serves
+    /// StoneRooms.Floor.*' from enumerated facts instead of warmup-token guesses.
+    /// </summary>
+    private static void LogResourceTopologyOnce(IEnumerable<string> missingNames)
+    {
+        if (_topologyCensusDone)
+            return;
+        _topologyCensusDone = true;
+        try
+        {
+            ApparanceEngine? engine = ApparanceEngine.Instance;
+            if (engine == null)
+                return;
+            ApparanceResourceListLoader? loader = engine.GetComponent<ApparanceResourceListLoader>();
+            ApparanceResources? res = engine.Resources != null ? engine.Resources : engine.GetComponent<ApparanceResources>();
+            if (loader == null || res == null)
+                return;
+
+            var refNames = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ApparanceResourceListLoader.NameReference nr in loader._references)
+            {
+                if (nr != null && !string.IsNullOrEmpty(nr.Name))
+                    refNames.Add(nr.Name);
+            }
+            var loadedNames = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, ApparanceResourceList> kv in loader._loadedPackets)
+                loadedNames.Add(kv.Key);
+
+            // Per missing name: the category's resolved mapping (mirroring LookupResourceList)
+            // and every loaded entry that carries the piece's family token (e.g. 'Floor').
+            var perMiss = new List<string>(4);
+            foreach (string missing in missingNames)
+            {
+                if (perMiss.Count >= 4)
+                    break;
+                int dot = missing.IndexOf('.');
+                if (dot <= 0)
+                    continue;
+                string category = missing.Substring(0, dot);
+                int dot2 = missing.IndexOf('.', dot + 1);
+                string family = dot2 > dot ? missing.Substring(dot + 1, dot2 - dot - 1)
+                                           : missing.Substring(dot + 1);
+                string mapping = "<unmapped>";
+                foreach (ApparanceResourceTable table in res.Indirects)
+                {
+                    if (table == null)
+                        continue;
+                    foreach (ApparanceResourceTable.ResourceListMapping m in table.ResourceLists)
+                    {
+                        if (string.Compare(m.Category, category, StringComparison.OrdinalIgnoreCase) == 0)
+                        {
+                            mapping = table.AssetPathPrefix + m.AssetPath;
+                            break;
+                        }
+                    }
+                    if (mapping == "<unmapped>" && table.autoFallback)
+                        mapping = table.AssetPathPrefix + category + " [autoFallback]";
+                    if (mapping != "<unmapped>")
+                        break;
+                }
+                var carriers = new List<string>(6);
+                foreach (KeyValuePair<string, ApparanceResourceList> kv in loader._loadedPackets)
+                {
+                    if (kv.Value == null || carriers.Count >= 6)
+                        continue;
+                    foreach (ApparanceObjectResource o in kv.Value.Objects)
+                    {
+                        if (o == null || string.IsNullOrEmpty(o.Name)
+                            || o.Name.IndexOf(family, StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+                        carriers.Add($"{kv.Key}:{o.Name}{(o.Object == null ? "[null]" : "")}");
+                        if (carriers.Count >= 6)
+                            break;
+                    }
+                }
+                perMiss.Add($"'{missing}' cat '{category}' → {mapping}; '{family}' entries " +
+                            $"[{(carriers.Count > 0 ? string.Join(", ", carriers) : "NONE in any loaded packet")}]");
+            }
+
+            VRLog.Info("Core", $"Sky alternative RESOURCE TOPOLOGY: {refNames.Count} packet(s) exist " +
+                               $"[{string.Join(", ", refNames)}]; loaded now " +
+                               $"[{string.Join(", ", loadedNames)}]. Miss resolution: " +
+                               string.Join(" | ", perMiss));
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("Core", $"Sky alternative RESOURCE TOPOLOGY census failed ({e.GetType().Name}: " +
+                               $"{e.Message}) — diagnostics only, the heal continues.");
+        }
     }
 
     /// <summary>
@@ -1461,11 +1748,22 @@ internal static partial class SkyAlternative
                 return;
             string prefix = o.Name.Substring(0, d);
             string tail = o.Name.Substring(d + 1);
+            // 130 FLOOR FIX (FLOOR INTEGRITY ii): strip the '#variant' from the DONOR tail
+            // too. The 130 removal of 'StoneRooms.Floor.Tile' happened because the warmed
+            // Dungeon list only carries 'Floor.Tile#N' variants — under exact-only matching
+            // a variant can serve a variant but never the base piece, so the base-name floor
+            // had "no donor anywhere" while nine of its siblings healed fine.
+            int dh = tail.IndexOf('#');
+            string tailBase = dh > 0 ? tail.Substring(0, dh) : tail;
             int suffixRank;
             if (string.Equals(tail, suffix, StringComparison.OrdinalIgnoreCase))
                 suffixRank = 0; // exact piece incl. variant
+            else if (string.Equals(tailBase, suffix, StringComparison.OrdinalIgnoreCase))
+                suffixRank = 1; // a donor VARIANT of the exact missing piece
             else if (string.Equals(tail, baseSuffix, StringComparison.OrdinalIgnoreCase))
-                suffixRank = 1; // base piece, variant dropped
+                suffixRank = 2; // base piece, missing side's variant dropped
+            else if (string.Equals(tailBase, baseSuffix, StringComparison.OrdinalIgnoreCase))
+                suffixRank = 3; // both sides variant-stripped — family match
             else
                 return;
             int prefRank = _warmupTokens.Length + 1;
@@ -1490,9 +1788,13 @@ internal static partial class SkyAlternative
         {
             if (loader != null)
             {
-                for (int i = 0; i < _warmupPaths.Count; i++)
+                // FLOOR INTEGRITY (ii): the donor scope is EVERY packet loaded in the
+                // session (the loader's own _loadedPackets store, publicized — a superset of
+                // this run's warmed paths), so a floor donor is found wherever a floor set
+                // was ever warmed — by us or by the game.
+                foreach (KeyValuePair<string, ApparanceResourceList> kv in loader._loadedPackets)
                 {
-                    ApparanceResourceList? list = loader.LoadCheck(_warmupPaths[i]);
+                    ApparanceResourceList? list = kv.Value;
                     if (list == null)
                         continue;
                     for (int j = 0; j < list.Objects.Count; j++)
@@ -1597,21 +1899,93 @@ internal static partial class SkyAlternative
 
         // 0. NO RED BOX IS EVER PLACED (finding 3 goal state) — the heal pass normally
         // leaves zero fallbacks, but a deadline finalize after exhausted heal passes could
-        // still carry one; sweep them here as last insurance, names to the removed list.
+        // still carry one; sweep them here as last insurance. FLOOR pieces are clone-patched
+        // first (FLOOR INTEGRITY iii — never deleted), everything else to the removed list.
         foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
         {
             if (r == null || !IsFallbackRenderer(r))
                 continue;
-            if (_removedNames.Count < 8)
+            string? miss = ParseMissingName(r.name);
+            if (miss != null && IsFloorPieceName(miss) && CloneFloorPatch(r.gameObject, miss))
             {
-                string? miss = ParseMissingName(r.name);
-                if (miss != null && !_removedNames.Contains(miss))
-                    _removedNames.Add(miss);
+                if (_floorPatchedNames.Count < 8 && !_floorPatchedNames.Contains(miss))
+                    _floorPatchedNames.Add(miss);
+            }
+            else if (_removedNames.Count < 8 && miss != null && !_removedNames.Contains(miss))
+            {
+                _removedNames.Add(miss);
             }
             // Immediate, not deferred: the ROOM CENSUS below runs THIS frame and must prove
             // the 0-fallback goal state; the object is our own staged clone's child.
             try { UnityEngine.Object.DestroyImmediate(r.gameObject); }
             catch { /* already going down */ }
+        }
+
+        // 0.5 CULL TO ONE ROOM (130 finding a — "ein Raum reicht in dem man ist"): if the
+        // resolved map still carries several authored room tiles, keep exactly the one whose
+        // XZ footprint contains the map's render-bounds center (nearest-center fallback) and
+        // destroy the other tiles' subtrees NOW — before anything measures, lights or
+        // places. Their ApparanceEntities are neutralized first so the destroy disposes
+        // plain GameObjects, not live engine containers (the root-cause-B lesson).
+        ProceduralMapTile[] tiles = inst.GetComponentsInChildren<ProceduralMapTile>(true);
+        int culledTiles = 0;
+        if (tiles.Length > 1)
+        {
+            Bounds all = default;
+            bool hasAll = false;
+            foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null)
+                    continue;
+                if (!hasAll) { all = r.bounds; hasAll = true; }
+                else all.Encapsulate(r.bounds);
+            }
+            ProceduralMapTile? keep = null;
+            float bestSq = float.MaxValue;
+            foreach (ProceduralMapTile tile in tiles)
+            {
+                if (tile == null)
+                    continue;
+                Bounds tb = TileRenderBounds(tile, out bool hasTb);
+                if (!hasTb)
+                    tb = new Bounds(tile.transform.position, Vector3.zero);
+                bool contains = hasAll
+                    && tb.min.x <= all.center.x && all.center.x <= tb.max.x
+                    && tb.min.z <= all.center.z && all.center.z <= tb.max.z;
+                Vector3 d = tb.center - (hasAll ? all.center : tile.transform.position);
+                float sq = d.x * d.x + d.z * d.z;
+                if (contains)
+                    sq -= 1e6f; // containing tiles always beat merely-near ones
+                if (keep == null || sq < bestSq)
+                {
+                    keep = tile;
+                    bestSq = sq;
+                }
+            }
+            foreach (ProceduralMapTile tile in tiles)
+            {
+                if (tile == null || tile == keep)
+                    continue;
+                foreach (ApparanceEntity e in tile.GetComponentsInChildren<ApparanceEntity>(true))
+                {
+                    if (e == null)
+                        continue;
+                    try
+                    {
+                        e.m_GenerationTiers?.Clear();
+                        e.m_GenerationRoot = null;
+                        e.m_Instances?.Clear();
+                        e.enabled = false;
+                    }
+                    catch { /* publicized access — defensive */ }
+                }
+                try { UnityEngine.Object.DestroyImmediate(tile.gameObject); culledTiles++; }
+                catch { /* already going down */ }
+            }
+            tiles = inst.GetComponentsInChildren<ProceduralMapTile>(true);
+            VRLog.Info("Core", $"Sky alternative: CULLED '{_mapName}' to ONE room — {culledTiles} other " +
+                               $"tile subtree(s) destroyed, kept '{(keep != null ? keep.name : "<none>")}' " +
+                               "(130 finding a: the whole level must never reach the player).");
         }
 
         // 1. FORCE FULL VISIBILITY (hypothesis B of the ModBuild-127 report): the map
@@ -1620,7 +1994,6 @@ internal static partial class SkyAlternative
         // fully-revealed state is FORCED, on our own staged instance only, via the game's own
         // ApplyVisibility (publicized; ShowContent activates the 'Full' content and drops the
         // gray 'Preview' hulls). The pre-force values go into the census.
-        ProceduralMapTile[] tiles = inst.GetComponentsInChildren<ProceduralMapTile>(true);
         var visBefore = new Dictionary<ProceduralMapTile.Visibility, int>();
         foreach (ProceduralMapTile tile in tiles)
         {
@@ -1637,10 +2010,11 @@ internal static partial class SkyAlternative
         }
 
         // 2. MEASURE at staging (scale 1, identity rotation): world bounds == authored map
-        // units. The MAIN ROOM (largest tile by its authored BoxCollider) drives normalization
-        // and placement (class doc NORMALIZATION MATH — a multi-room map's bounds center can
-        // land inside a wall between rooms; the colliders are still alive here, step 6 strips
-        // them afterwards).
+        // units. 130 MEASUREMENT FIX (class doc): the room tile is measured by the RENDERER
+        // bounds of its own subtree, NOT the authored BoxCollider — his 130 log read the
+        // collider at 60.2 on a 35.0-unit map (colliders can far exceed the art), which
+        // alone halved the placed size. Sanity-clamp to the whole map's bounds as the
+        // belt-and-braces for any remaining pathological tile.
         Bounds bounds = default;
         bool hasBounds = false;
         foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
@@ -1659,10 +2033,9 @@ internal static partial class SkyAlternative
         {
             if (tile == null)
                 continue;
-            Collider? c = tile.BoxCollider != null ? tile.BoxCollider : tile.GetComponent<BoxCollider>();
-            if (c == null)
+            Bounds tb = TileRenderBounds(tile, out bool hasTb);
+            if (!hasTb)
                 continue;
-            Bounds tb = c.bounds;
             float ext = Mathf.Max(tb.size.x, tb.size.z);
             if (!hasMainTile || ext > Mathf.Max(mainTile.size.x, mainTile.size.z))
             {
@@ -1671,6 +2044,8 @@ internal static partial class SkyAlternative
             }
         }
         float mainExtent = hasMainTile ? Mathf.Max(mainTile.size.x, mainTile.size.z) : totalExtent;
+        if (totalExtent > 0.01f && mainExtent > totalExtent)
+            mainExtent = totalExtent; // the 130 sanity clamp — a room is never larger than its map
 
         float norm = 1f;
         if (mainExtent > 0.01f)
@@ -1679,7 +2054,8 @@ internal static partial class SkyAlternative
             norm = Mathf.Min(norm, MaxTotalRoomMeters / totalExtent);
         norm = Mathf.Clamp(norm, 0.02f, 10f);
 
-        // The frame-origin anchor: the MAIN room's center — the diorama sits mid-main-room.
+        // The frame-origin anchor: the room tile's center — the PLAYER stands mid-room
+        // (the frame origin is their floor point, fourth revision).
         Vector3 anchorWorld = hasMainTile ? mainTile.center : (hasBounds ? bounds.center : rootPos);
 
         // Floor top = the tile plane figures stand on (average ProceduralMapTile height);
@@ -1700,6 +2076,12 @@ internal static partial class SkyAlternative
                 floorY = sum / n;
         }
 
+        // 2.7 FLOOR GATE (FLOOR INTEGRITY iv — "Der Boden ist nicht zu sehen, man kann
+        // hindurch sehen"): prove the floor is closed BEFORE the room is placed. Runs at
+        // staging (map units, renderer-bounds tests — the colliders go in step 6 and were
+        // never trustworthy for this, see the measurement fix).
+        FloorGate(inst, hasMainTile ? mainTile : bounds, hasBounds || hasMainTile, floorY, mainExtent);
+
         // 3. LIGHT THE ROOM (root cause C). Drive the game's own ambience light rig to full —
         // DynamicAmbience.Start parked it at SetLightLevel(0) and only a ProceduralScenario's
         // blend flow (which our clone never joins) would ever raise it. SetLightLevel(1f) is
@@ -1713,6 +2095,12 @@ internal static partial class SkyAlternative
                 continue;
             try { amb.SetLightLevel(1f); ambienceRigs++; }
             catch { /* a rig without templates — the fallback rig below covers the room */ }
+            // 130 finding b (COMPONENT PRESERVE-VS-DESTROY): the rig OWNER is PRESERVED but
+            // DISABLED — it has no Update (decompiled: driven only by a scenario's blend
+            // flow, which our clone never joins), so disabling costs nothing and guarantees
+            // no future blend path can drive our clone's ambient/fog globals; its light
+            // instances stay active at level 1 and their flicker drivers keep ticking.
+            amb.enabled = false;
         }
 
         // Every room light is restricted to the MOD LAYER ONLY: it must relight OUR room
@@ -1788,8 +2176,13 @@ internal static partial class SkyAlternative
         // ProceduralTileObserver.OnDisable, ProceduralWall.m_WallCache via its OnDestroy) and
         // SceneRegistry's ComponentRegistry prunes destroyed entries on Collect — so
         // WallSegmentFade, UnseenTileOrder and every other tile sweep provably never adopts
-        // the placed room again. MaterialLoader components are KEPT: their pending
-        // Addressables loads still assign materials and MaterialLoaderHeal supervises them.
+        // the placed room again. THE 130-b LINE (class doc COMPONENT PRESERVE-VS-DESTROY):
+        // this list destroys scenario LOGIC only. PRESERVED and left ticking: MaterialLoader
+        // (pending material assigns, healer-supervised), ParticleSystem (normalized below),
+        // Animator/Animation (self-contained clips), LightFlicker (re-based after placement)
+        // and the disabled DynamicAmbience rig owners (driven to level 1 above). StaticAmbience
+        // is still DESTROYED — it is a pure global-state writer (RenderSettings.skybox/
+        // ambientMode + the camera's post-processing profile), never a visual driver.
         int destroyed = 0;
         destroyed += DestroyComponents<ProceduralMapTile>(inst);
         destroyed += DestroyComponents<ProceduralWall>(inst);
@@ -1799,7 +2192,27 @@ internal static partial class SkyAlternative
         destroyed += DestroyComponents<UnityGameEditorDoorProp>(inst);
         destroyed += DestroyComponents<TilesOcclusionVolume>(inst);
         destroyed += DestroyComponents<StaticAmbience>(inst);
-        destroyed += DestroyComponents<DynamicAmbience>(inst); // light rig already at level 1
+
+        // 5.5 PARTICLES STAY ALIVE AND IN SCALE (130 finding b: "Fackeln ... Effekte"): the
+        // generated content's Shuriken systems (torch flames, dust, drips) are authored at
+        // map scale, but the placed room runs at (norm × rig scale) — Hierarchy scaling
+        // makes size/speed/shape follow the room's scale (the established pattern, same as
+        // the FX shell), and Local simulation space makes in-flight particles ride the rare
+        // re-seat moves instead of smearing behind the room. Defensive Play() for systems
+        // authored with playOnAwake off.
+        int roomParticles = 0;
+        foreach (ParticleSystem ps in inst.GetComponentsInChildren<ParticleSystem>(true))
+        {
+            if (ps == null)
+                continue;
+            roomParticles++;
+            ParticleSystem.MainModule main = ps.main;
+            main.scalingMode = ParticleSystemScalingMode.Hierarchy;
+            if (main.simulationSpace == ParticleSystemSimulationSpace.World)
+                main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            if (!ps.isPlaying && ps.gameObject.activeInHierarchy)
+                ps.Play(withChildren: false);
+        }
 
         // 6. Non-interactive by ruling — a stray collider would eat laser/poke rays room-wide.
         Collider[] colliders = inst.GetComponentsInChildren<Collider>(true);
@@ -1811,12 +2224,12 @@ internal static partial class SkyAlternative
         // children; hideFlags don't hide them from this walk. Also covers the fallback lights.
         VRLayers.Apply(inst);
 
-        // 8. PLACE: main-room center → frame origin, floor top → frame-local y = 0. The frame
-        // is the WORLD-FIXED room branch (finding 3, ModBuild 129 — SkyAlternative.
-        // PlaceBothBranches owns its pose/scale): its origin is the BOARD's center at the
-        // board's underside, its scale maps TargetMainRoomMeters frame units to
-        // RoomToBoardRatio × the board's extent — so the diorama sits mid-main-room ON the
-        // room floor, and zoom changes only the perceived size of the whole arrangement.
+        // 8. PLACE: room center → frame origin, floor top → frame-local y = 0. The frame is
+        // the room branch (fourth revision — SkyAlternative.PlaceBothBranches owns its
+        // pose/scale): its origin is the PLAYER's floor point, its scale the rig scale — so
+        // the player stands mid-room on its floor and the room reads TargetMainRoomMeters
+        // perceived meters. Between seat events it is world-frozen; zoom changes only the
+        // perceived size of the whole arrangement (finding 3).
         Vector3 centerOff = anchorWorld - rootPos;
         inst.transform.SetParent(frame, worldPositionStays: false);
         inst.transform.localRotation = Quaternion.identity;
@@ -1825,6 +2238,11 @@ internal static partial class SkyAlternative
             new Vector3(-centerOff.x, -(floorY - rootPos.y), -centerOff.z) * norm;
         _roomFrameExtent = totalExtent * norm; // far-plane budget (MinFarWorldUnits)
         SyncRoomLightRanges();
+
+        // 8.5 RE-BASE the world-space animation caches (COMPONENT PRESERVE-VS-DESTROY:
+        // LightFlicker cached its Start pose at STAGING — without this, preserved flames
+        // with adjustLocation would teleport back toward the staging depth).
+        int flickerRebased = RebaseFlickerDrivers(inst);
 
         ReturnBorrowedFocus();
         if (_stagingRoot != null)
@@ -1837,14 +2255,18 @@ internal static partial class SkyAlternative
         _builtCensusDone = false;
         _builtCensusTime = Time.realtimeSinceStartup + BuiltCensusDelaySeconds;
         VRLog.Info("Core", $"Sky alternative: {_genStyle} room BUILT from the game's own '{_mapName}' — " +
-                           $"{renderers} generated renderer(s), {tiles.Length} authored room tile(s), " +
-                           $"{neutralized} entity(ies) neutralized, {destroyed} procedural component(s) destroyed" +
-                           $"{(colliders.Length > 0 ? $", {colliders.Length} collider(s) stripped" : "")}. " +
-                           $"Bounds {(hasBounds ? bounds.size.ToString("F1") : "<none>")} map units, main room " +
-                           $"{mainExtent:F1} → normalization {norm:F3} (main room target {TargetMainRoomMeters:F0} m, " +
-                           $"whole map ≤ {MaxTotalRoomMeters:F0} m, placed map {totalExtent * norm:F1} m across), " +
-                           $"floor at map y {floorY - rootPos.y:F2} aligned to the real floor; main-room center " +
-                           "anchored to the room-branch origin (the board center once pinned). Engine detail focus returned.");
+                           $"{renderers} generated renderer(s), {tiles.Length} room tile(s) kept" +
+                           $"{(culledTiles > 0 ? $" after culling {culledTiles}" : "")}, " +
+                           $"{neutralized} entity(ies) neutralized, {destroyed} logic component(s) destroyed" +
+                           $"{(colliders.Length > 0 ? $", {colliders.Length} collider(s) stripped" : "")}; " +
+                           $"alive: {roomParticles} particle system(s) kept ticking, {flickerRebased} flicker " +
+                           $"driver(s) re-based, {ambienceRigs} ambience rig(s) at level 1 and preserved disabled. " +
+                           $"Bounds {(hasBounds ? bounds.size.ToString("F1") : "<none>")} map units, room " +
+                           $"{mainExtent:F1} → normalization {norm:F3} (room target {TargetMainRoomMeters:F0} " +
+                           $"PERCEIVED m at the seat scale, whole map ≤ {MaxTotalRoomMeters:F0} m, frame extent " +
+                           $"{totalExtent * norm:F1}), floor at map y {floorY - rootPos.y:F2} aligned to the real " +
+                           "floor under the player; room center anchored to the room-branch origin = the " +
+                           "player's floor point. Engine detail focus returned.");
 
         LogRoomCensus(inst, visBefore, ambienceRigs, activeLights);
     }
@@ -1942,7 +2364,8 @@ internal static partial class SkyAlternative
                                $"material slot(s), {fallbacks} fallback 'Red Cube'(s)" +
                                $"{(fallbackNames.Count > 0 ? ": " + string.Join(", ", fallbackNames) : "")}); " +
                                $"heal passes {_healPasses}, healed " +
-                               $"[{(_healedNames.Count > 0 ? string.Join(", ", _healedNames) : "none")}], removed " +
+                               $"[{(_healedNames.Count > 0 ? string.Join(", ", _healedNames) : "none")}], floor-patched " +
+                               $"[{(_floorPatchedNames.Count > 0 ? string.Join(", ", _floorPatchedNames) : "none")}], removed " +
                                $"[{(_removedNames.Count > 0 ? string.Join(", ", _removedNames) : "none")}]; " +
                                $"MaterialLoaders {loaders} ({loaderEntries} entries, healer-supervised); tile " +
                                $"visibility pre-force [{string.Join(", ", visParts)}] → forced All; packets warmed " +
@@ -1990,6 +2413,254 @@ internal static partial class SkyAlternative
             catch { /* already going down with the scene */ }
         }
         return n;
+    }
+
+    /// <summary>Encapsulated RENDERER bounds of a tile's own subtree — the 130 measurement
+    /// fix (the authored BoxCollider read 60.2 on a 35.0-unit map; art is the truth).</summary>
+    private static Bounds TileRenderBounds(ProceduralMapTile tile, out bool has)
+    {
+        Bounds b = default;
+        has = false;
+        foreach (Renderer r in tile.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null)
+                continue;
+            if (!has) { b = r.bounds; has = true; }
+            else b.Encapsulate(r.bounds);
+        }
+        return b;
+    }
+
+    /// <summary>
+    /// THE FLOOR GATE (FLOOR INTEGRITY iv). A grid of test points over the room's inner
+    /// footprint (12% inset — the wall band) is checked against the FLOOR-BAND renderers:
+    /// enabled renderers whose bounds TOP sits within a band around the floor plane, plus
+    /// anything named like floor art. An uncovered cell first tries to RE-ENABLE a
+    /// reveal-disabled authored hex floor renderer there (the census's 'hex (N)'[no-loader]
+    /// pieces — re-enabled only when every material slot is present and no MaterialLoader
+    /// manages the renderer, so nothing can disable it again or load over it), else it
+    /// CLONE-PATCHES the nearest healthy floor piece into the cell. One line logs the
+    /// result; runs once per build at staging, renderer-bounds tests only (no physics — the
+    /// colliders are stripped by ruling).
+    /// </summary>
+    private static void FloorGate(GameObject inst, Bounds room, bool hasRoom, float floorY, float mainExtent)
+    {
+        try
+        {
+            if (!hasRoom || mainExtent <= 0.01f)
+            {
+                VRLog.Warn("Core", "Sky alternative FLOOR GATE skipped — no measurable room footprint.");
+                return;
+            }
+            float band = Mathf.Max(0.75f, 0.05f * mainExtent);
+
+            var cover = new List<Bounds>(64);       // enabled floor-band renderer bounds
+            var disabledHex = new List<Renderer>(16); // re-enable candidates (materials present)
+            foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || IsFallbackRenderer(r))
+                    continue;
+                Bounds rb = r.bounds;
+                bool inBand = rb.max.y >= floorY - band && rb.max.y <= floorY + band;
+                bool floorish = inBand
+                    || r.name.IndexOf(".Floor", StringComparison.OrdinalIgnoreCase) >= 0
+                    || r.name.StartsWith("GloomhavenVR.FloorPatch", StringComparison.Ordinal);
+                if (!floorish)
+                    continue;
+                bool drawing = r.enabled && r.gameObject.activeInHierarchy;
+                if (drawing)
+                {
+                    cover.Add(rb);
+                }
+                else if (!r.enabled && r.gameObject.activeInHierarchy
+                         && (r.name.StartsWith("hex", StringComparison.OrdinalIgnoreCase)
+                             || r.name.StartsWith("halfhex", StringComparison.OrdinalIgnoreCase)))
+                {
+                    // The reveal-disabled authored floor hexes from his 130 census. Only
+                    // usable when self-sufficient: all materials present, no loader that
+                    // could disable it again mid-load.
+                    Material[] shared = r.sharedMaterials;
+                    bool ok = shared.Length > 0;
+                    foreach (Material m in shared)
+                    {
+                        if (m == null) { ok = false; break; }
+                    }
+                    if (ok && MaterialLoaderHeal.DescribeForRenderer(r) == "no-loader")
+                        disabledHex.Add(r);
+                }
+            }
+
+            const int N = 10;
+            float inset = 0.12f;
+            float x0 = Mathf.Lerp(room.min.x, room.max.x, inset);
+            float x1 = Mathf.Lerp(room.min.x, room.max.x, 1f - inset);
+            float z0 = Mathf.Lerp(room.min.z, room.max.z, inset);
+            float z1 = Mathf.Lerp(room.min.z, room.max.z, 1f - inset);
+            int covered = 0, reEnabled = 0, patched = 0, holes = 0;
+            var holeSamples = new List<string>(3);
+            for (int ix = 0; ix < N; ix++)
+            {
+                for (int iz = 0; iz < N; iz++)
+                {
+                    float x = Mathf.Lerp(x0, x1, (ix + 0.5f) / N);
+                    float z = Mathf.Lerp(z0, z1, (iz + 0.5f) / N);
+                    bool hit = false;
+                    for (int i = 0; i < cover.Count; i++)
+                    {
+                        Bounds b = cover[i];
+                        if (b.min.x <= x && x <= b.max.x && b.min.z <= z && z <= b.max.z)
+                        {
+                            hit = true;
+                            break;
+                        }
+                    }
+                    if (hit) { covered++; continue; }
+
+                    // Uncovered: re-enable a disabled authored hex covering this point first.
+                    Renderer? hex = null;
+                    for (int i = 0; i < disabledHex.Count; i++)
+                    {
+                        Bounds b = disabledHex[i].bounds;
+                        if (b.min.x <= x && x <= b.max.x && b.min.z <= z && z <= b.max.z)
+                        {
+                            hex = disabledHex[i];
+                            break;
+                        }
+                    }
+                    if (hex != null)
+                    {
+                        hex.enabled = true;
+                        cover.Add(hex.bounds);
+                        disabledHex.Remove(hex);
+                        reEnabled++;
+                        covered++;
+                        continue;
+                    }
+                    // Else clone-patch the nearest healthy floor piece into the cell.
+                    if (patched < 24 && PatchFloorCell(inst, new Vector3(x, floorY, z), cover))
+                    {
+                        patched++;
+                        covered++;
+                        continue;
+                    }
+                    holes++;
+                    if (holeSamples.Count < 3)
+                        holeSamples.Add($"({x:F1}, {z:F1})");
+                }
+            }
+            VRLog.Info("Core", $"Sky alternative FLOOR GATE ({_genStyle}, '{_mapName}'): {covered}/{N * N} " +
+                               $"cells covered — {reEnabled} authored hex floor(s) re-enabled, {patched} " +
+                               $"cell(s) clone-patched, {holes} hole(s) left" +
+                               $"{(holeSamples.Count > 0 ? " at " + string.Join(" ", holeSamples) : "")} " +
+                               $"(floor band ±{band:F1} around map y {floorY:F2}, {cover.Count} floor renderer(s)).");
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("Core", $"Sky alternative FLOOR GATE failed ({e.GetType().Name}: {e.Message}) — " +
+                               "the room is unaffected; the census still reports renderer state.");
+        }
+    }
+
+    /// <summary>Clone the nearest floor-band piece over an uncovered gate cell (same parent
+    /// as the source, so the authored local scale carries over verbatim). Appends the new
+    /// cover bounds so later cells see it.</summary>
+    private static bool PatchFloorCell(GameObject inst, Vector3 at, List<Bounds> cover)
+    {
+        try
+        {
+            Renderer? src = null;
+            float best = float.MaxValue;
+            foreach (Renderer r in inst.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || IsFallbackRenderer(r) || !r.enabled || !r.gameObject.activeInHierarchy)
+                    continue;
+                if (r.name.IndexOf(".Floor", StringComparison.OrdinalIgnoreCase) < 0
+                    && !r.name.StartsWith("hex", StringComparison.OrdinalIgnoreCase)
+                    && !r.name.StartsWith("halfhex", StringComparison.OrdinalIgnoreCase)
+                    && !r.name.StartsWith("GloomhavenVR.FloorPatch", StringComparison.Ordinal))
+                    continue;
+                Vector3 d = r.transform.position - at;
+                float sq = d.x * d.x + d.z * d.z;
+                if (sq < best)
+                {
+                    best = sq;
+                    src = r;
+                }
+            }
+            if (src == null)
+                return false;
+            GameObject go = UnityEngine.Object.Instantiate(
+                src.gameObject,
+                new Vector3(at.x, src.transform.position.y, at.z),
+                src.transform.rotation,
+                src.transform.parent);
+            go.name = "GloomhavenVR.FloorPatch.Gate";
+            ApplyBuildLayer(go);
+            Renderer? nr = go.GetComponentInChildren<Renderer>();
+            if (nr != null)
+                cover.Add(nr.bounds);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// TickGuard-style guard for the PRESERVED LightFlicker drivers (class doc COMPONENT
+    /// PRESERVE-VS-DESTROY): the component caches its light intensity, world position and
+    /// scale at Start — which ran at the STAGING pose — and its Update writes the transform
+    /// back from those caches when adjustLocation/adjustScale are authored on. Swap each one
+    /// for a fresh copy carrying the same public tuning; the fresh Start (next frame, at the
+    /// placed pose) re-bases every cache. Runs after placement and again after every re-seat
+    /// (<see cref="NotifyRoomFrameMoved"/>). Reflection-free: LightFlicker's tuning fields
+    /// are public (decompiled ThirdParty/LightFlicker.cs), only its caches are private —
+    /// and a fresh Start rebuilds exactly those.
+    /// </summary>
+    private static int RebaseFlickerDrivers(GameObject inst)
+    {
+        int n = 0;
+        foreach (LightFlicker f in inst.GetComponentsInChildren<LightFlicker>(true))
+        {
+            if (f == null)
+                continue;
+            try
+            {
+                GameObject go = f.gameObject;
+                bool wasEnabled = f.enabled;
+                float amount = f.amount;
+                float speed = f.speed;
+                bool adjustLocation = f.adjustLocation;
+                float locationAdjustAmount = f.locationAdjustAmount;
+                bool adjustScale = f.adjustScale;
+                float scaleAdjustAmount = f.scaleAdjustAmount;
+                Transform scaleObject = f.scaleObject;
+                UnityEngine.Object.DestroyImmediate(f); // ours; immediate so no stale-cache Update runs
+                LightFlicker fresh = go.AddComponent<LightFlicker>();
+                fresh.amount = amount;
+                fresh.speed = speed;
+                fresh.adjustLocation = adjustLocation;
+                fresh.locationAdjustAmount = locationAdjustAmount;
+                fresh.adjustScale = adjustScale;
+                fresh.scaleAdjustAmount = scaleAdjustAmount;
+                fresh.scaleObject = scaleObject;
+                fresh.enabled = wasEnabled;
+                n++;
+            }
+            catch { /* one broken driver must not stop the rest */ }
+        }
+        return n;
+    }
+
+    /// <summary>The room branch just moved (a seat event in SkyAlternative.PlaceBothBranches)
+    /// — re-base the placed room's world-space animation caches. No-op while nothing is
+    /// placed.</summary>
+    internal static void NotifyRoomFrameMoved()
+    {
+        if (_genPhase != GenPhase.Built || _mapInstance == null)
+            return;
+        RebaseFlickerDrivers(_mapInstance);
     }
 
     /// <summary>Re-derive every room light's world range from its AUTHORED range × the
@@ -2054,6 +2725,8 @@ internal static partial class SkyAlternative
         _healPasses = 0;
         _healedNames.Clear();
         _removedNames.Clear();
+        _floorPatchedNames.Clear();
+        _topologyCensusDone = false;
         _stagingLayerSafe = false;
         _genPhase = GenPhase.Idle;
         _genStyle = SkyStyle.Default;
