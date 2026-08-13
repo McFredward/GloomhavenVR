@@ -416,7 +416,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 133;
+    public const ushort ModBuild = 134;
+    // Build 134: the board floats small in a large place, the sky is fully procedural, the
+    // night is dark. No wire change. Bundle rebuilt (64.1 MB, −12.3) — 134 NEEDS it.
+    //
+    // (1) PROPORTIONS ("Es soll in der Mitte schweben ... wie Spielfiguren, nicht ansatzweise
+    // die Größe von der Umgebung"): 133 normalized the room on the prefab's TOTAL extent —
+    // 60.2 m for the forest including tree bands — so the CLEARING came out smaller than the
+    // board and the trees stood in the level. Prefabs now carry a 'PlaySpace' marker (swamp
+    // 9.0 m, cellar 6.5 m authored) and the runtime scales THAT to 4.5x the board's world
+    // extent, then drops the floor 0.75x the board extent below its underside so the board
+    // hovers. Both ratios are board-proportional, never metres, so zoom cannot change them.
+    //
+    // (2) SKY FULLY PROCEDURAL ("entferne das statische Bild ... ausschließlich"): the
+    // astrophoto and its pipeline are deleted. Gradient + 8404 Yale catalogue stars + a Milky
+    // Way in REAL galactic coordinates (IAU 1958; orthogonality and l(NCP) asserted at build
+    // time) + sub-visual star dust, all in one rotating celestial frame; the moon shrank to
+    // 1.39 deg and occludes stars per-star in the vertex shader.
+    //
+    // (3) DARKNESS ("so dunkel das man sich nicht traut dahinter hinweg zu gehen"): ambient
+    // floors cut ~3x, depth fade pulled to 3-10.5 m, far fog nearly gone — while moonlight and
+    // trunk rim go UP. Fixed en route: _RimDir was never set, so the moonlit-side gate rimmed
+    // trunks all the way round.
+    //
     // Build 133: the room is BOARD-ANCHORED (the relationship is finally invariant), the hex
     // decal stops at its tile, a creepy forest, and a real turning star sky. No wire change.
     // Bundle rebuilt (76.4 MB) — 133 NEEDS it.

@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 133`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 134`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-12
 
@@ -126,6 +126,32 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 134** — board floats small in a large place, sky fully procedural, night dark.
+  PROPORTIONS: 133 normalized on the prefab's TOTAL renderer extent (forest 60.2 m incl. tree
+  bands out to 28.5 m) → the CLEARING came out smaller than the 30.95 wu board and the tree ring
+  stood inside the level (his log 537; the cellar only looked sane because total ≈ interior).
+  Fix: prefabs carry a `PlaySpace` marker child (localScale.x = authored usable diameter; swamp
+  9.0 m, cellar 6.5 m), taken and DESTROYED before any other pass sees it; runtime scales that
+  to `PlaySpaceToBoardRatio` 4.5× the board world extent and drops the floor
+  `FloatGapToBoardRatio` 0.75× below the board underside so the board HOVERS. Both ratios are
+  board-proportional — an authored-metre value would break under zoom. Worked on his numbers:
+  clearing 139 wu (perceived 9.4 m vs 2.1 m board), tree band at 14.9 m perceived, his real
+  floor 2 cm under the new forest floor. No marker = old total basis + warn + FALLBACK note in
+  the placement line. Far plane budgets the TOTAL art, not the play space. Sanity window and
+  zero-re-seat both intact. SKY: astrophoto + its bake pipeline DELETED. Gradient (inverted —
+  darkest at the horizon, which also killed the lifted ridge band) + 8404 Yale stars (cut to
+  the catalogue's own V≤6.5 limit) + Milky Way in REAL galactic coordinates (IAU 1958; basis
+  from NGP + centre, orthogonality 1.4e-6 and l(NCP) 122.93190 vs 122.93192 published — both
+  HARD build failures) + sub-visual star dust (denser in the band — the MW *is* unresolved
+  stars); one celestial frame, dome direction from the OBJECT-SPACE vertex (only space where
+  dome and star geometry cannot slide); moon 3.27°→1.39°, occludes stars per-star in the vertex
+  shader (no depth-buffer assumptions). DARKNESS: ambient ~3× down, depth fade 6.5–22 m →
+  3–10.5 m, far fog α 0.055→0.012, lantern range halved, WHILE dirCol and _RimCol go UP —
+  contrast not dimming. Bug found en route: `_RimDir` was never set, so the moonlit-side gate
+  read EnvRoom's default and rimmed trunks all the way round. New build gate
+  AssertPlaySpaceClear walks transformed vertices and FAILS on intruders (caught 6 props + the
+  fog donut). Bundle 64,097,948 bytes (−12.3 MB) — 134 NEEDS it. UNVERIFIED: ratio 4.5 and gap
+  0.75 by eye; `_MwGain` 0.040 (band soft by design); cellar window now a dark hole.
 - **ModBuild 133** — BOARD-ANCHORED room (invariant at last), hex decal banded, creepy forest,
   real turning star sky. ANCHOR: his ruling "Verhältnis zum Raum drumrum MUSS fix ... nur drehen
   und kleiner/größer beim Zoomen" is incompatible with perceived-constant rooms. Room branch
