@@ -1004,9 +1004,127 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         if (!TryMeasure(out Bounds b))
             return false;
         _measurePath = "graphics union";
-        sizePx = new Vector2(b.size.x, b.size.y);
-        centerPx = new Vector2(b.center.x, b.center.y);
+
+        // ─── THE FALLBACK MEASURES WHAT THE OWNER'S FIT MEASURES, PADDING AND CLAMP INCLUDED ────
+        //
+        // USER RULING (standing, ModBuild 137): a mirrored piece of the control board must be
+        // „genau die gleiche Größe und Position" as on its owner's board. The PRIMARY path is exact
+        // by construction (it reads the owner's own host rect), and this fallback was not: it took
+        // the BARE union of visible clone graphics, while <c>CanvasConversion.TryMeasureContent</c>
+        // — the measure behind every <c>Panel.HostRect.rect</c> a docked surface fits to — does
+        // three things to that same union before it becomes a host rect
+        // (CanvasConversion.3.Fit.cs:800-830):
+        //   1. clamps it into the TARGET'S OWN RECT (the frame), unless the target is degenerate
+        //      (<c>ConvertedPanel.FitFrameDegenerate</c>, latched at Convert from a target whose
+        //      rect is under 1 px on an axis — the 0x0 layout containers ObjectivesSurface found);
+        //   2. adds <c>FitContentPaddingPx</c> on EVERY side, i.e. 2 × 12 px per axis;
+        //   3. clamps the padded size back to that same frame extent.
+        // Steps 1 and 3 are why the padding is not simply "+24 px": on a source whose own rect
+        // already bounds its content — the decision row is exactly that, an isolated row of the
+        // game's own take-damage widgets — the frame wins and the fitted rect IS the row's rect.
+        //
+        // HIS ModBuild 137 LOGS, both halves of the same row. The owner (peer log) converted it at
+        // `Converted 'DecisionDock' to world space (720x48 px)` and never re-fitted it — there is no
+        // `Host rect fit 'GloomhavenVR.Panel_DecisionDock'` line in the whole session, because the
+        // fit's own result equalled the current size and an unchanged fit is not applied. The
+        // mirror (host log) reported `Remote board 'DecisionRow' mirror fitted: 0.369x0.025 m
+        // (708x48 px) … measured via graphics union`. 708 + 24 = 732 → clamped to the 720 px frame;
+        // 48 + 24 = 72 → clamped to the 48 px frame: 720x48, the owner's number to the pixel. The
+        // bare union was 1.7 % narrow. It did not bite in that session only because both sides
+        // clamp the density at MaxDensityScale = 1.0 (owner min(0.420·1920/720, 0.120·1920/48) =
+        // 1.12, mirror 1.139 — both clamp), so the error stayed a size error and never became a
+        // scale error; on longer wording or a narrower budget the two would fit at different
+        // densities, which is the divergence the ruling forbids.
+        //
+        // REJECTED: (a) padding without the clamps — that is the naive reading of "add the same
+        // padding" and it would have made the row 732x72, i.e. turned a 1.7 % width error into a
+        // 50 % HEIGHT error and moved everything the drawer stacks under it (RowHeight); (b) making
+        // the OWNER publish its rect on the wire — no wire change is warranted for a number both
+        // machines can derive from the same object, and the record layout is settled; (c) leaving it
+        // and relying on the density clamp — that is an accident of his budget, not a guarantee.
+        Vector2 min = new(b.min.x, b.min.y);
+        Vector2 max = new(b.max.x, b.max.y);
+        bool framed = TryFrameExtent(out Vector2 frameMin, out Vector2 frameMax);
+        if (framed)
+        {
+            min = Vector2.Max(min, frameMin);
+            max = Vector2.Min(max, frameMax);
+        }
+        Vector2 sz = max - min;
+        if (sz.x < MinMeasuredPixels || sz.y < MinMeasuredPixels)
+            return false; // the frame cropped the union away — keep the previous fit
+        Vector2 union = sz;
+        sz += Vector2.one * (2f * WorldUI.CanvasConversion.FitContentPaddingPx);
+        if (framed)
+        {
+            sz.x = Mathf.Min(sz.x, frameMax.x - frameMin.x);
+            sz.y = Mathf.Min(sz.y, frameMax.y - frameMin.y);
+        }
+        sizePx = sz;
+        centerPx = (min + max) * 0.5f;
+        LogDockMeasure(union, sz, framed, frameMax - frameMin);
         return true;
+    }
+
+    /// <summary>
+    /// The CLONE ROOT'S own rect in pivot-local pixels — the mirror's counterpart to the frame
+    /// <c>CanvasConversion.TryMeasureContent</c> clamps into (<c>panel.Target</c>'s live world
+    /// corners, expressed in host-local space). Read from the clone rather than the source so it is
+    /// the same object the union above was measured on, and via world corners for the same reason
+    /// the local fit uses them: a live show-animation scale must be honoured.
+    ///
+    /// <para>False for a DEGENERATE root — the local fit's <c>FitFrameDegenerate</c> rule, same 1 px
+    /// test (CanvasConversion.1.Core.cs:160): a 0x0 layout container has no real frame, and clamping
+    /// to it would crop the union to a corner of visibly overflowing content.</para>
+    /// </summary>
+    private bool TryFrameExtent(out Vector2 frameMin, out Vector2 frameMax)
+    {
+        frameMin = default;
+        frameMax = default;
+        if (_pivot == null || _cloneRect == null)
+            return false;
+        Rect r = _cloneRect.rect;
+        if (r.width < 1f || r.height < 1f)
+            return false; // degenerate root — the union IS the frame (see the doc)
+
+        _cloneRect.GetWorldCorners(CornerScratch);
+        Vector3 a = _pivot.InverseTransformPoint(CornerScratch[0]);
+        Vector3 c = _pivot.InverseTransformPoint(CornerScratch[2]);
+        // Min/max-normalised exactly like the local fit: a mid-animation rotation or negative scale
+        // must not invert the frame and turn the clamp into garbage.
+        frameMin = Vector2.Min(a, c);
+        frameMax = Vector2.Max(a, c);
+        return frameMax.x - frameMin.x >= 1f && frameMax.y - frameMin.y >= 1f;
+    }
+
+    /// <summary>Change gate for the <c>DOCK MEASURE</c> line (union|committed|frame).</summary>
+    private string? _loggedDockMeasure;
+
+    /// <summary>
+    /// THE ONE LINE that proves the fallback measure now agrees with the owner's — grep
+    /// <c>DOCK MEASURE</c>. It prints the three numbers the equivalence rests on (the visible union,
+    /// the committed rect, and the frame that bounded it), so "his row is a different size than
+    /// mine" stays answerable from a hardware log without a screenshot. Change-gated to the pixel,
+    /// and only ever emitted on the union path — the converted-host-rect path is exact by
+    /// construction and says so in the fit line.
+    /// </summary>
+    private void LogDockMeasure(Vector2 union, Vector2 committed, bool framed, Vector2 frame)
+    {
+        string state = $"{union.x:F0}x{union.y:F0}|{committed.x:F0}x{committed.y:F0}|" +
+                       $"{(framed ? $"{frame.x:F0}x{frame.y:F0}" : "none")}";
+        if (_loggedDockMeasure == state)
+            return;
+        _loggedDockMeasure = state;
+        VRLog.Info("Net", $"DOCK MEASURE '{_name}': visible union {union.x:F0}x{union.y:F0} px " +
+                          $"+ 2x{WorldUI.CanvasConversion.FitContentPaddingPx:F0} px fit padding per axis " +
+                          (framed
+                              ? $"clamped to the source's own {frame.x:F0}x{frame.y:F0} px frame "
+                              : "with NO frame clamp (the source root's rect is degenerate — the union is the frame) ") +
+                          $"⇒ {committed.x:F0}x{committed.y:F0} px. This is term for term what " +
+                          "CanvasConversion.TryMeasureContent produces for the OWNER's Panel.HostRect.rect, " +
+                          "so the mirrored panel and the owner's dock fit the SAME rect at the same " +
+                          "density — the fallback used to commit the bare union and came out narrow " +
+                          "(708x48 instead of 720x48 on his ModBuild 137 decision row).");
     }
 
     /// <summary>

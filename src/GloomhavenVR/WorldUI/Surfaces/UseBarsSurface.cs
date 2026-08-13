@@ -818,14 +818,79 @@ internal sealed class UseBarsSurface
 
     /// <summary>
     /// ONE CHARACTER OWNS A DECISION, bar edition (see the class doc). For every DOCKED bar:
-    /// resolve the owners from the game's model and render-hide the bar while the player has
-    /// FOCUSED somebody who is not among them.
+    /// resolve the owners from the game's model and render-hide the bar unless one of them is the
+    /// character THIS BOARD IS PRESENTING.
     ///
-    /// <para>Both clauses are required, and each on purpose. <c>Focused</c> non-null means the
-    /// player has taken an explicit focus override — merely following the game is never "looking
-    /// elsewhere", so a player who never touches the feature can never lose sight of a bar. A
-    /// non-empty owner set means the bar's attribution is KNOWN; an empty one (bar raised for an
-    /// enemy/object, or not raised at all yet) fails open and stays visible.</para>
+    /// ─── THE MULTIPLAYER HALF (user, hardware ModBuild 137) ───────────────────────────────────
+    /// Verbatim: „Die Stiefel-Entscheidungen waren im Test nur bei einem Character zu tun, aber mein
+    /// Mitspieler hat die die selbe Entscheidung bei einem anderen Character angezeigt, obwohl er
+    /// der character sie nicht hat und diese Entscheidung auch nicht treffen muss. Warum wurde sie
+    /// fälschlicherweise auch noch bei einem anderen Character angezeigt der das item gar nicht
+    /// hatte?"
+    ///
+    /// <para>ROOT CAUSE. The boots prompt is not a decision-dock prompt at all — it is the ACTIVE-
+    /// BONUS bar. <c>Choreographer.CheckForInitiativeAdjustments</c> calls
+    /// <c>UIActiveBonusBar.ShowActiveBonus(…)</c> on EVERY client and gates only the ready BUTTON on
+    /// <c>IsUnderMyControl</c>; the bar itself is not gated at all. So a teammate's client raises
+    /// Cryonaris's bar as a local HUD singleton and this surface docked it on THAT machine's own
+    /// board, which was presenting Hilde Die 2Te — both lines a second apart in his peer log:
+    /// <c>USE BARS: 'UseBarActiveBonus' VISIBLE — owner 'Cryonaris' is the character in view</c> and
+    /// <c>Board: CONFIRM/UNDO keycaps … owner 'Hilde Die 2Te' is in view</c>. The rule that is meant
+    /// to stop exactly this compared the owners against <see cref="Board.CharacterFocus.Focused"/> —
+    /// the EXPLICIT focus override, which is <b>null whenever the player simply follows the game</b>,
+    /// i.e. almost always — so it never fired. The wire half shipped with the same report
+    /// (<c>Net.NetAvatarDriver</c> withholds record 25 when every visible bar is foreign); this is
+    /// the local half, and it is the one that decides what the OWNER of the machine sees.
+    ///
+    /// ─── THE PREDICATE, CLAUSE BY CLAUSE ──────────────────────────────────────────────────────
+    /// <list type="bullet">
+    /// <item><b>Attributable</b> — a non-empty owner set means the bar's attribution is KNOWN. An
+    ///   empty one (raised for an enemy/object, or a half-torn bar whose resolver threw) FAILS OPEN
+    ///   and stays visible: an unanswerable decision nobody can see is the worse failure, and it is
+    ///   the failure this whole surface exists to prevent.</item>
+    /// <item><b>Not the character in view</b> — <see cref="Board.CharacterFocus.PresentedActor"/>,
+    ///   with the explicit override as fallback while the card pipeline has not resolved a hand yet.
+    ///   PRESENTED, not FOCUSED, is the fix: it is the character the board is actually showing,
+    ///   whether the player picked it or the game did, and since the selection floor landed
+    ///   (CharacterFocus.LocalFloorHand, same round) "presenting nobody" is no longer a state a
+    ///   local client can sit in. Null (spectator / whole party exhausted) disarms the OVERRIDE
+    ///   clause — there is nothing to compare against — but not the foreign one, which does not need
+    ///   a character in view to know that nobody here can answer.</item>
+    /// <item><b>…AND one of two reasons to look away.</b> Either the player took an explicit focus
+    ///   override (<c>Focused != null</c> — the 2026-08-08 ruling, unchanged: merely following the
+    ///   game is never "looking elsewhere"), OR <b>every owner of the bar is a character under
+    ///   ANOTHER player's control</b> (<see cref="Board.CharacterFocus.IsForeign"/>), in which case
+    ///   nobody on this machine can answer it and it has no business being docked here. That second
+    ///   clause is term for term the one <c>NetAvatarDriver.AllVisibleUseBarsAreForeign</c> applies
+    ///   to the wire, which is what makes the two halves agree by construction instead of by
+    ///   inspection.</item>
+    /// </list>
+    ///
+    /// <para>WHAT MUST STILL SHOW, and does. (1) A bar for a character the local client controls,
+    /// while the board presents a DIFFERENT one of his characters and he has taken no override:
+    /// <c>IsForeign</c> is false, <c>Focused</c> is null ⇒ VISIBLE. The player must be able to
+    /// answer his own decision without first clicking a portrait — that case is why the foreign
+    /// clause is a disjunct and not a replacement. (2) The take-damage prompt: not a use bar at all
+    /// (<see cref="DecisionDockSurface"/>), and its own owner is always local while the panel is
+    /// open — the game routes a remote player's damage through <c>TakeDamagePanel.ShowOtherPlayer</c>,
+    /// which ends in <c>myWindow.Hide(instant: true)</c> (TakeDamagePanel.cs:1133). (3) A bar the
+    /// player is deliberately watching on a teammate (portrait-focused): the presented actor IS that
+    /// teammate, so the owner test matches and it stays visible, read-only, exactly as the focus
+    /// feature intends.</para>
+    ///
+    /// <para>SINGLE PLAYER IS UNCHANGED. <c>IsForeign</c> is <c>FFSNetwork.IsOnline &amp;&amp;
+    /// !IsUnderMyControl</c> — false offline for every actor — so the new clause is inert and the
+    /// surviving rule is the 2026-08-08 one. The only offline difference is a strict improvement:
+    /// while a focus override is live but its hand widget is not built yet, the comparison now runs
+    /// against the character the board is REALLY drawing instead of the one it is about to draw.</para>
+    ///
+    /// <para>REJECTED: (a) hiding whenever the owners do not include the presented actor, without
+    /// the two-reason gate — that hides a local character's own live decision the moment the game
+    /// points the board at somebody else, and the player has no way of knowing to go looking for it;
+    /// (b) hiding on <c>IsForeign</c> alone, without the owner/presented test — that would blank the
+    /// bar a player is deliberately watching on a focused teammate, which is the focus feature's
+    /// whole point; (c) doing this on the wire only — the machine that raised the bogus bar would
+    /// still show it to its own player, which is half of what he reported.</para>
     ///
     /// <para>Interaction with the requirement-C items split, verified: the split keys on
     /// <c>_itemsDock.Docked != null</c> and on slot <c>activeSelf</c>, and this hide writes
@@ -837,6 +902,10 @@ internal sealed class UseBarsSurface
     private void UpdateFocusVisibility()
     {
         CPlayerActor? focused = Board.CharacterFocus.Focused;
+        // THE CHARACTER THIS BOARD PRESENTS. The override is only the fallback: it is what the view
+        // will become while ResolveHand's hand widget is still being built (CharacterFocus latches
+        // PresentedActor from the RESOLVED hand, so it lags a focus click by at most one rebuild).
+        CPlayerActor? inView = Board.CharacterFocus.PresentedActor ?? focused;
         for (int i = 0; i < _docks.Length; i++)
         {
             BarDock dock = _docks[i];
@@ -845,20 +914,120 @@ internal sealed class UseBarsSurface
 
             OwnerScratch.Clear();
             dock.ResolveOwners(OwnerScratch);
-            bool owned = false;
-            for (int o = 0; o < OwnerScratch.Count && !owned; o++)
-                owned = ReferenceEquals(OwnerScratch[o], focused);
-            bool hide = focused != null && OwnerScratch.Count > 0 && !owned;
+            bool owned = false;      // one of the owners IS the character on this board
+            bool answerable = false; // …and at least one owner can be driven from this machine
+            for (int o = 0; o < OwnerScratch.Count; o++)
+            {
+                CPlayerActor owner = OwnerScratch[o];
+                owned |= ReferenceEquals(owner, inView);
+                answerable |= !Board.CharacterFocus.IsForeign(owner);
+            }
+            // The override clause needs a character in view to compare against (null ⇒ fail open);
+            // the foreign clause does not — a bar every one of whose owners belongs to another
+            // player cannot be answered on this machine whatever the board happens to present,
+            // which is exactly the term NetAvatarDriver.AllVisibleUseBarsAreForeign applies to the
+            // wire. Keeping the two halves textually identical is what stops them drifting apart.
+            bool lookingElsewhere = focused != null && inView != null; // the 2026-08-08 rule
+            bool foreignOnly = OwnerScratch.Count > 0 && !answerable;  // MP only; inert offline
+            bool hide = OwnerScratch.Count > 0 && !owned && (lookingElsewhere || foreignOnly);
 
             if (hide)
-                dock.ApplyFocusHide(OwnerScratch, focused);
+                dock.ApplyFocusHide(OwnerScratch, inView);
             else
-                dock.NoteFocusVisible(OwnerScratch, focused);
+                dock.NoteFocusVisible(OwnerScratch, inView);
             // Contribute to the cross-surface roll-up so ONE grep names every piece of the decision
             // display and what each switched off (DecisionDockSurface.PromptFocus).
             dock.ReportFocus();
+            // BAR FOCUS bookkeeping: integers only, no string (see FlushBarFocus).
+            _barFocusHash = _barFocusHash * 31 + BarFocusKey(i, OwnerScratch, hide, foreignOnly);
+            _barFocusDocked++;
             OwnerScratch.Clear();
         }
+        FlushBarFocus(inView, focused);
+    }
+
+    /// <summary>This tick's <c>BAR FOCUS</c> state, folded to one integer while the docks are
+    /// walked — the whole point is that the steady state costs no string and no allocation, the
+    /// same discipline <see cref="BarDock.FocusStateChanged"/> already follows.</summary>
+    private int _barFocusHash;
+
+    /// <summary>How many bars contributed to <see cref="_barFocusHash"/> this tick.</summary>
+    private int _barFocusDocked;
+
+    /// <summary>Change gate for the <c>BAR FOCUS</c> line — the last hash actually logged.</summary>
+    private int _loggedBarFocusHash;
+
+    /// <summary>One bar's contribution to the roll-up key. <c>CActor.ID</c> is the game's own actor
+    /// identity, so this needs no string and no reference to survive the tick.</summary>
+    private static int BarFocusKey(int index, List<CPlayerActor> owners, bool hide, bool foreignOnly)
+    {
+        int key = (index * 4) + (hide ? 2 : 0) + (foreignOnly ? 1 : 0);
+        for (int o = 0; o < owners.Count; o++)
+            key = key * 31 + owners[o].ID;
+        return key;
+    }
+
+    /// <summary>
+    /// THE ONE LINE that proves which character each docked bar was measured against — grep
+    /// <c>BAR FOCUS</c>. It exists because the boots defect was invisible in the old logs: they
+    /// stated the bar's owner and the (null) focus override, but never the character the board was
+    /// actually presenting, so "owner 'Cryonaris' is the character in view" read as a verdict when
+    /// it was only the absence of an override.
+    ///
+    /// <para>Change-gated on the folded integer key, so a steady state costs nothing at all and a
+    /// flip costs exactly one line. The owners are re-resolved HERE, on the change tick only, which
+    /// is what keeps the per-tick path free of strings (the same reason
+    /// <see cref="DescribeOwners"/> is only ever called from an emitting branch).</para>
+    /// </summary>
+    private void FlushBarFocus(CPlayerActor? inView, CPlayerActor? focused)
+    {
+        int hash = _barFocusDocked == 0 ? 0 : _barFocusHash;
+        hash = hash * 31 + (inView != null ? inView.ID : 0);
+        hash = hash * 31 + (focused != null ? focused.ID : 0);
+        int docked = _barFocusDocked;
+        _barFocusHash = 0;
+        _barFocusDocked = 0;
+        if (docked == 0)
+        {
+            _loggedBarFocusHash = 0; // no bar docked — the next one announces itself
+            return;
+        }
+        if (_loggedBarFocusHash == hash)
+            return;
+        _loggedBarFocusHash = hash;
+
+        var sb = new System.Text.StringBuilder(200);
+        for (int i = 0; i < _docks.Length; i++)
+        {
+            BarDock dock = _docks[i];
+            if (dock.Docked == null)
+                continue;
+            OwnerScratch.Clear();
+            dock.ResolveOwners(OwnerScratch);
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append('\'').Append(dock.Name).Append("' owners '").Append(DescribeOwners(OwnerScratch))
+              .Append("' ⇒ ").Append(dock.FocusHidden ? "HIDDEN" : "shown");
+            if (!dock.FocusHidden && OwnerScratch.Count == 0)
+                sb.Append(" (not attributable — fails open)");
+            OwnerScratch.Clear();
+        }
+
+        VRLog.Info("WorldUI", $"BAR FOCUS: this board presents '{Board.CharacterFocus.Describe(inView)}' " +
+                              "(explicit focus override: " +
+                              (focused != null
+                                  ? $"'{Board.CharacterFocus.Describe(focused)}'"
+                                  : "none — following the game") + "). " + sb +
+                              ". A bar is hidden only when it is attributable AND its owners do not " +
+                              "include the presented character AND either the player took an explicit " +
+                              "override or every owner is under ANOTHER player's control — the use " +
+                              "bars are per-client HUD singletons the game raises on EVERY machine " +
+                              "(Choreographer.CheckForInitiativeAdjustments → " +
+                              "UIActiveBonusBar.ShowActiveBonus, which gates only the ready button), " +
+                              "which is how a teammate's boots decision ended up docked on a board " +
+                              "showing somebody else (user report 2026-08-13). PRESENTED, not focused: " +
+                              "the old rule compared against the explicit override alone and therefore " +
+                              "never fired while the player simply followed the game.");
     }
 
     /// <summary>Log-safe owner list — built ONLY when a line is actually emitted (the callers

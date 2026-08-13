@@ -1914,12 +1914,50 @@ internal sealed class DecisionDockSurface : WorldSurface
         /// is NOT looking at, i.e. while every surface drawing a piece of it must be render-hidden.
         /// Owner attribution is delegated to the single <see cref="PromptOwner"/> switch on the live
         /// surface instance; no caller may re-derive it.
+        ///
+        /// ─── WHAT CHANGED (boots report, ModBuild 137) AND WHAT DELIBERATELY DID NOT ──────────
+        /// <para>The character in view is <see cref="Board.CharacterFocus.PresentedActor"/> — what
+        /// the board is ACTUALLY drawing — with the explicit override as fallback while the card
+        /// pipeline has not resolved a hand yet. It used to be the override ALONE, which is the same
+        /// latent hole the use bars were reported for: <c>Focused</c> is null whenever the player
+        /// simply follows the game, and when it is non-null it can still name a character whose hand
+        /// widget has not been built, so the comparison ran against a view that was not on screen.
+        /// Both are now compared against the truth (<c>USE BARS</c>' <c>BAR FOCUS</c> line is the
+        /// twin of this one).</para>
+        ///
+        /// <para>THE MULTIPLAYER CLAUSE THE USE BARS NEEDED IS NOT HERE, ON PURPOSE — the hole is
+        /// not real for this surface, and adding a dead guard would cost a deadlock the day it fired
+        /// on a misattribution. The bars are HUD singletons the game raises on EVERY client
+        /// (<c>Choreographer.CheckForInitiativeAdjustments</c> → <c>UIActiveBonusBar.ShowActiveBonus</c>,
+        /// gated only on the ready button); none of the three prompts this dock attributes behaves
+        /// that way, verified one by one:</para>
+        /// <list type="bullet">
+        /// <item><b>TakeDamagePanel</b> — <c>UIScenarioMultiplayerController.RefreshDamagePhase</c>
+        ///   (:212-242) computes the very same actor <see cref="PromptOwner"/> resolves and routes a
+        ///   non-controlling client to <c>ShowOtherPlayer</c>, which ends in
+        ///   <c>myWindow.Hide(instant: true)</c> (TakeDamagePanel.cs:1133). So the panel is OPEN only
+        ///   where the owner is <c>IsUnderMyControl</c> (or the attacked actor is an enemy, where the
+        ///   host owns it and <c>CardsGameApi.TakeDamageSubject</c> answers null ⇒ fail open). A
+        ///   foreign owner with an open panel does not exist.</item>
+        /// <item><b>YesNoDialog</b> (short-rest confirm) — instantiated per hand and shown only from
+        ///   <c>ShortRest.Select</c> ← <c>MouseClick</c> (ShortRest.cs:202-250). No network path shows
+        ///   it; a peer's rest never raises it here.</item>
+        /// <item><b>DialogPopup</b> — the burn/redraw confirm is raised inside
+        ///   <c>CardsHandUI.PerformShortRest</c>, which is the local <c>yesNoDialog</c> callback
+        ///   (CardsHandUI.cs:1810), and the pick confirm belongs to the hand whose modal pick THIS
+        ///   client opened. Both are local by construction.</item>
+        /// </list>
+        /// <para>Its fail-open contract rides along unchanged: no owner, or no character in view at
+        /// all, ⇒ SHOWN — an invisible prompt nobody can answer is the deadlock this surface exists
+        /// to prevent, and the take-damage prompt of the local player must always be answerable.</para>
         /// </summary>
-        internal static bool ShouldHide(out CPlayerActor? owner, out CPlayerActor? focused)
+        internal static bool ShouldHide(out CPlayerActor? owner, out CPlayerActor? inView)
         {
             owner = Instance != null ? Instance.PromptOwner() : null;
-            focused = Board.CharacterFocus.Focused;
-            return focused != null && owner != null && !ReferenceEquals(focused, owner);
+            CPlayerActor? focused = Board.CharacterFocus.Focused;
+            inView = Board.CharacterFocus.PresentedActor ?? focused;
+            return focused != null && owner != null && inView != null
+                   && !ReferenceEquals(inView, owner);
         }
 
         /// <summary>The prompt/owner/looked-at context for the roll-up line (written by the dock,
