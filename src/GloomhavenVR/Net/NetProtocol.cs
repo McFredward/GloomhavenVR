@@ -416,7 +416,35 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 137;
+    public const ushort ModBuild = 138;
+    // Build 138: the big multiplayer round — 16 reported items, most of them fixed at a cause
+    // nobody had guessed. Wire GAINS record 31 (shared environment clock). Bundle rebuilt.
+    //
+    // LOCOMOTION IS LOCAL: a peer's targeting froze EVERYONE's snap-turn and strafe, because
+    // the gate read VRMode BoardTargeting — a Choreographer state the lockstep stream sets on
+    // every client. Now gated on the game's own acting-seat predicate. NO EMPTY SELECTION: the
+    // game re-points its presented hand at whoever acts, teammates included, and the mod's
+    // 'not my hand' null was latched as 'nobody'; CharacterFocus now has a floor.
+    // CAPES: Unity Cloth caches world-unit constants at spawn, so a scaled figure kept the old
+    // body's freedom — suspended during the resize, coefficients rescaled after.
+    // PEER CARD FRONTS: FullAbilityCardAction's skin refs carry no [SerializeField], so
+    // Instantiate cannot copy them and the clone streams nothing — a null sprite draws Unity's
+    // WHITE texture. SetSkin is replayed before activation. ITEM CHIPS: the punch-out ran fine;
+    // the BOX was a hand-written 1.15 taller-than-wide guess for a card that measures 270x258.
+    // BOARD MIRROR: the overlay plank (a punch-out backdrop with no job left) deleted; the round
+    // readout's font literal was 3x small AND below the auto-size floor; the item-pile cue and
+    // the skip caps were dark because a cap-state byte was sampled, logged 46 times and never
+    // assigned into the packet. The peer's 'box' was never the decision dock — it is a use-bar
+    // tile, anonymous by design, now resolved LOCALLY from the bars the game raises on every
+    // client. Which is also WHY a boots prompt appeared on a character without the item.
+    // BARS: the min/max size dials bounded an invisible intermediate that is exactly 1.0 at the
+    // shipped zoom — unreachable, removed, guarantee kept in code. SLIDERS: the game's controls
+    // carry SEVERAL value labels; only one was ever bound, hence '50/50' on some rows.
+    // ENVIRONMENT: the moonbeam's hull was wound against its cull mode (zero pixels from inside)
+    // and its density was point-sampled on an axis singularity; the sky branch took the head's
+    // yaw while the shafts took the board's; and both are now on one shared clock in MP.
+    // Flight speed maximum is 3.
+    //
     // Build 137: the user's tuned setup becomes the shipped default. No code change beyond
     // Defaults/, no wire change, same bundle as 136.
     //

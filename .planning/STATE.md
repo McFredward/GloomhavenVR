@@ -2,9 +2,9 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 137`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 138`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
-- **Last update:** 2026-08-13
+- **Last update:** 2026-08-14
 
 ---
 
@@ -126,6 +126,49 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 138** — the big multiplayer round: 16 reported items. **Wire gains record 31.**
+  Bundle 64,474,086 bytes — 138 NEEDS it. Root causes worth carrying:
+  **Locomotion is local.** A peer's targeting froze everyone's snap-turn AND stick strafe:
+  `SnapTurn.cs:88` / `Flight.cs:303` gated on `VRMode.BoardTargeting`, which
+  `VRModeStateMachine` derives from `Choreographer` state that `ProcessMessage` sets on EVERY
+  client (ownership is decided *after* the assignment). Matched log pairs from both machines on
+  the same NetworkAction event prove it. New `Rig/LocalTurnControl` uses the game's own
+  `ThisPlayerHasTurnControl` (true offline ⇒ SP bit-identical). RULE: another actor's turn may
+  gate GAME actions, never the local player's locomotion or view.
+  **Empty selection** was MP-only: `CardsHandManager.SwitchHand` has no ownership test, so the
+  presented hand follows whoever acts; `CurrentHand()` correctly answers null for a foreign
+  hand and `CharacterFocus` latched that as 'nobody' (and `Hide()` never clears `currentHand`,
+  hence through the whole enemy phase). Selection floor added.
+  **Capes**: Unity `Cloth` (no custom solver exists in the game), coefficients are absolute
+  metres cached at spawn and never re-seeded; suspend during resize → rescale → resume.
+  **Peer card fronts**: `FullAbilityCardAction`'s skin refs lack `[SerializeField]`, so
+  `Instantiate` cannot copy them, the clone's `ApplyImage` early-returns, and a null sprite
+  draws Unity's built-in WHITE texture. `SetSkin` replayed pre-activation. **Item chips**: the
+  punch-out was fine — `CardH = CardW*1.15` was a guess for a card that measures 270x258.
+  **The peer's 'box' was never the decision dock** (record 12 published nothing outside the
+  damage prompt) — it is a use-bar slot tile, anonymous BY DESIGN. Resolved locally instead:
+  the bars are per-client singletons the game raises from replicated messages. Same fact
+  answers finding 8 — `CheckForInitiativeAdjustments` raises the bar on every client and gates
+  only the ready button, so a teammate's client docked it on ITS board showing another
+  character; the guard compared against the EXPLICIT focus override, null while following the
+  game. Both halves closed (sender withholds, local dock refuses foreign-only bars).
+  **The cap-state byte** was sampled, logged 46x and never assigned into `PresenceState` — one
+  line; it made the pile cue dead and every mirrored skip cap paint through the DISABLED path.
+  **Bar size dials** bounded an intermediate that is exactly 1.000 at the shipped zoom
+  (his drop 3.368283 vs shipped 3.3683) — unreachable, removed; the band lives in code.
+  **'50/50'**: `UISliderBar.amountTexts` is a LIST and the placed control also carries an
+  inactive gamepad key-tip label; only ONE was bound. All are now.
+  **Moonbeam**: hull wound against `Cull Front` (a debug pass measured ZERO hull pixels from
+  inside) + a point sample on an axis singularity → analytic line integral, `t0 = max(0,…)` IS
+  the inside case. **Sky yaw**: sky branch took the head yaw, room branch `boardYaw` — that
+  difference WAS the moon/shaft mismatch and made two players see different moons.
+  **MP env clock**: record 31 `[style][u32 ms]`, 7 bytes only while a shell stands, owner =
+  lowest player id on the same style, followers walk 0.2 s/s. Style is a comparison key, never
+  an instruction. Rat/drip/flicker/sway/shimmer and (integrator addition to both sky shaders)
+  star rotation now share one epoch. NOT synced: shooting stars, fireflies, motes, fog.
+  Flight max 3. Wire tests 1504 → 1520 (+16 for record 31's vectors).
+  NOT DONE / next: the per-card gold pulse on usable item chips in the open fan is still
+  unsynced; a deliberate PING (marker at a hex every peer sees) is written up as its own round.
 - **ModBuild 137** — his tuned setup is the shipped default. 31 values taken over VERBATIM from
   the cfg drop via `python3 scripts/rebase-defaults.py apply` (standing rule: a dropped cfg is
   always against the NEWEST build — never re-express it, see memory tuned-cfg-drops-are-current).
