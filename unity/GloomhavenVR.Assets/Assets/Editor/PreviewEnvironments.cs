@@ -33,23 +33,51 @@ namespace GloomhavenVR
         // LOW pass that is the only way to catch a prop hovering a centimetre
         // over the floor, a shot from the clearing edge looking back across the
         // play space, and a sky-only frame with the room hidden.
-        private static readonly (string name, Vector3 pos, Vector3 euler, bool skyOnly)[] Views =
+        //
+        // The moon bears 40.0 deg azimuth at 40.0 deg altitude
+        // (EnvironmentsBuilder.MoonDir) — the Moon/MoonWide/TreeLine views are
+        // aimed off that constant, so they follow it if it ever moves.
+        private static readonly float MoonAz =
+            Mathf.Atan2(EnvironmentsBuilder.MoonDir.x, EnvironmentsBuilder.MoonDir.z) * Mathf.Rad2Deg;
+        private static readonly float MoonAlt =
+            Mathf.Asin(EnvironmentsBuilder.MoonDir.y) * Mathf.Rad2Deg;
+
+        private static readonly (string name, Vector3 pos, Vector3 euler, bool skyOnly, float fov)[] Views =
         {
-            ("N", Eye, new Vector3(0, 0, 0), false),
-            ("E", Eye, new Vector3(0, 90, 0), false),
-            ("S", Eye, new Vector3(0, 180, 0), false),
-            ("W", Eye, new Vector3(0, 270, 0), false),
-            ("Corner", Eye, new Vector3(8, 48, 0), false),   // cellar: candle table NE; forest: toward the moon
-            ("Up", Eye, new Vector3(-30, 45, 0), false),
-            ("Canopy", Eye, new Vector3(-58, 20, 0), false),
-            ("Zenith", Eye, new Vector3(-88, 0, 0), false),
+            ("N", Eye, new Vector3(0, 0, 0), false, 60f),
+            ("E", Eye, new Vector3(0, 90, 0), false, 60f),
+            ("S", Eye, new Vector3(0, 180, 0), false, 60f),
+            ("W", Eye, new Vector3(0, 270, 0), false, 60f),
+            ("Corner", Eye, new Vector3(8, 48, 0), false, 60f),   // cellar: candle table NE; forest: toward the moon
+            ("Up", Eye, new Vector3(-30, 45, 0), false, 60f),
+            ("Canopy", Eye, new Vector3(-58, 20, 0), false, 60f),
+            ("Zenith", Eye, new Vector3(-88, 0, 0), false, 60f),
             // low camera: floaters are invisible from 1.4 m and obvious from 0.45 m
-            ("LowS", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 195, 0), false),
-            ("LowN", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 25, 0), false),
-            ("LowW", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 285, 0), false),
+            ("LowS", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 195, 0), false, 60f),
+            ("LowN", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 25, 0), false, 60f),
+            ("LowW", new Vector3(0f, 0.45f, 0f), new Vector3(-4, 285, 0), false, 60f),
             // from the edge of the clearing, looking back over the play space
-            ("Edge", new Vector3(3.6f, 1.4f, -3.6f), new Vector3(2, 315, 0), false),
-            ("SkyOnly", Eye, new Vector3(-34, 40, 0), true),
+            ("Edge", new Vector3(3.6f, 1.4f, -3.6f), new Vector3(2, 315, 0), false, 60f),
+            ("SkyOnly", Eye, new Vector3(-34, 40, 0), true, 60f),
+            // ---- ModBuild 134 review set ----
+            // sky-only wide, straight at the Milky Way's own half of the dome
+            ("SkyBand", Eye, new Vector3(-42, 200, 0), true, 75f),
+            // the moon, close: does the disc OCCLUDE the stars behind it?
+            ("Moon", Eye, new Vector3(-MoonAlt, MoonAz, 0), false, 14f),
+            ("MoonWide", Eye, new Vector3(-MoonAlt, MoonAz, 0), false, 45f),
+            // ...and the same close-up with the room hidden, which is the only
+            // frame in which the occlusion can actually be judged: from inside
+            // the clearing the crowns cover most of the moon.
+            ("MoonSky", Eye, new Vector3(-MoonAlt, MoonAz, 0), true, 11f),
+            // straight INTO the tree line on the side AWAY from the moon — this
+            // is the frame the "so dark you would not dare walk there" ruling is
+            // judged on, and the one that shows a lifted horizon band if any is left
+            ("TreeLine", Eye, new Vector3(-2, MoonAz + 180f, 0), false, 60f),
+            ("TreeLineLow", new Vector3(0f, 0.9f, 0f), new Vector3(3, MoonAz + 140f, 0), false, 60f),
+            // cellar: the two corners furthest from any candle (SW and the stair
+            // alcove behind the W doorway)
+            ("DarkCornerSW", Eye, new Vector3(6, 232, 0), false, 60f),
+            ("DarkCornerNW", Eye, new Vector3(4, 300, 0), false, 60f),
         };
 
         [MenuItem("GloomhavenVR/Render Environment Previews")]
@@ -125,9 +153,10 @@ namespace GloomhavenVR
                 // (iteration-2 lesson — mid-tones crushed to black).
                 var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
                 var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
-                foreach (var (name, pos, euler, skyOnly) in Views)
+                foreach (var (name, pos, euler, skyOnly, fov) in Views)
                 {
                     if (roomGeo != null) roomGeo.gameObject.SetActive(!skyOnly);
+                    cam.fieldOfView = fov;
                     cam.transform.position = pos;
                     cam.transform.rotation = Quaternion.Euler(euler);
                     cam.targetTexture = rt;

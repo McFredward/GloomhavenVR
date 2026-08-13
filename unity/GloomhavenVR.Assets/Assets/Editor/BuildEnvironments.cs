@@ -11,11 +11,10 @@
 //        (do NOT pass -quit; BuildAll exits itself. Does NOT build the game bundle.)
 //
 // Produces, deterministically (re-run => identical output):
-//   Assets/Bundle/Environments/Env_Swamp.prefab  — night-sky FX shell: PHOTO
-//       star dome (real night-sky panorama, see NIGHT SKY below; EnvStars shader
-//       with painterly moon sprite + subtle star twinkle + slow drift — style
-//       ruling round 3: procedurally generated skies were rejected twice, the
-//       sky must be a real high-resolution photograph),
+//   Assets/Bundle/Environments/Env_Swamp.prefab  — night-sky FX shell: the
+//       FULLY DYNAMIC star dome (user ruling, ModBuild 133: "entferne das
+//       statische Bild und gehe voll zu einem dynamischen Sternenhimmel
+//       (ausschließlich)") — see NIGHT SKY below and the two sky shaders;
 //       comet-tail shooting stars, two bokeh firefly swarms, ground-fog donut;
 //       PLUS (custom-asset round, user ruling 2026-08-13: "nicht low-poly
 //       sondern zum Styl des Spiels passendes") a 'RoomGeo' night-marsh
@@ -70,7 +69,21 @@ namespace GloomhavenVR
         // raked so flat they never reached the clearing. At 40 deg it is seen
         // through the tear in the canopy and the shafts cross the play space.
         // EnvRoomBuilder.MoonDir MUST match (shafts, rim light, water glints).
+        // ModBuild 134: this is ALSO the anchor of the sky now — the moon sprite
+        // in EnvStars and the star-occlusion disc in EnvStarPoints both read it,
+        // which is why the moon is the one celestial object that does NOT ride
+        // the sky's rotation. Move it and the shafts, the canopy tear, the rim
+        // light and the moon in the sky all move together, by construction.
         public static readonly Vector3 MoonDir = new Vector3(0.49262f, 0.64279f, 0.58686f).normalized;
+
+        // Moon sprite half-extent in gnomonic tan units (EnvStars/_MoonExtent).
+        // Env_Moon.png paints the disc out to r=0.22 of the sprite's 0.5 half-size
+        // (MakeMoon), and the sprite spans +-_MoonExtent in tan units, so the
+        // DISC's angular radius is atan(0.44 * _MoonExtent) — everything outside
+        // that is halo. Both the sprite draw and the star cull derive from here,
+        // so they can never disagree about where the moon's edge is.
+        private const float MoonExtent = 0.055f;
+        private static float MoonDiscRad => Mathf.Atan(0.44f * MoonExtent);   // ~1.4 deg
 
         // ------------------------------------------------------------ star sky
         // Yale Bright Star Catalogue (public domain) -> real star point sprites.
@@ -78,8 +91,13 @@ namespace GloomhavenVR
         // CSV lives in Assets/Editor (editor-only: never in the player build or
         // the bundle), only the derived MESH ships.
         private const string StarCsv = "Assets/Editor/bsc5_stars.csv";
-        private const float StarMagLimit = 6.0f;   // full naked-eye sky (~5000 stars)
-        private const float StarRadius = 44f;      // just inside the 45 m photo dome
+        // ModBuild 134: was 6.0 (5080 stars). With the photographic backdrop
+        // deleted the sky between the catalogue stars read empty, so the cut goes
+        // to the catalogue's own completeness limit — every star the naked eye
+        // can reach, 8404 of them, +65% for 3324 * 2 = 6648 extra triangles.
+        // Everything fainter than this is the procedural dust in EnvStars.
+        private const float StarMagLimit = 6.5f;
+        private const float StarRadius = 44f;      // just inside the 45 m dome
         private const float ObserverLatDeg = 48f;  // central-European sky: Polaris at 48 deg
 
         // ------------------------------------------------------------------ entry
@@ -147,9 +165,45 @@ namespace GloomhavenVR
         }
 
         // ---------------------------------------------------------------- NIGHT SKY
-        // The sky texture is NOT generated: it is a processed REAL photograph
-        // (style ruling round 3 — two procedural skies were rejected for banding /
-        // low resolution / synthetic look; user demanded a sourced photo).
+        // USER RULING, ModBuild 133: "Die Skybox sind immer noch die fixen Sterne
+        // UND ein Mond der dahinter ist, entferne das statische Bild und gehe voll
+        // zu einem dynamischen Sternenhimmel (ausschließlich)."
+        //
+        // The 8192x2560 processed photograph (Poly Haven 'Rogland Clear Night',
+        // ~21 MB of BC7 in the bundle), its import step and the python pipeline
+        // that baked it are DELETED. Nothing in this sky is a picture any more.
+        // What the sky is made of now, in one rotating celestial frame:
+        //   * 8404 Yale Bright Star Catalogue stars at their true RA/Dec, with
+        //     catalogue magnitudes and B-V colours (BuildStarField below,
+        //     EnvStarPoints.shader) — the backbone.
+        //   * a procedural MILKY WAY evaluated in real galactic coordinates
+        //     (GalacticBasis below, EnvStars.shader) so the band lies where it
+        //     belongs among those constellations and turns with them.
+        //   * procedural sub-visual STAR DUST in the same frame, denser inside
+        //     the band, which is physically what the Milky Way is.
+        //   * the moon: a sprite fixed in the ROOM frame (it anchors the baked
+        //     moonlight shafts and rim light) that occludes the stars behind it.
+        // Extinction, per-star scintillation, rise/set and the wrapped _Time
+        // clock are unchanged. Still script-free: all of it is _Time in shaders.
+        //
+        // ------------------------------------------------------------ GALACTIC FRAME
+        // Derived, not eyeballed. IAU (Blaauw et al. 1960) galactic pole and
+        // centre, in J2000 equatorial coordinates:
+        //     north galactic pole  RA 192.85948 deg, Dec +27.12825 deg
+        //     galactic centre      RA 266.40510 deg, Dec -28.936175 deg
+        //     position angle of the NCP  l = 122.93192 deg
+        // GalacticBasis() builds the orthonormal triple (x = centre, y = z x x,
+        // z = pole) from the first two, ASSERTS that they are perpendicular to
+        // 1e-3 rad (they are two independently published numbers describing one
+        // rotation — if the assert fired, one of them would be wrong), and
+        // ASSERTS that the recovered galactic longitude of the celestial pole
+        // comes back as 122.93192 deg. Then it maps that triple through the very
+        // same equatorial -> object basis BuildStarField uses for the stars, so
+        // band and constellations cannot drift apart by construction.
+        //
+        // Historic note — the photographic era (kept because the style ruling it
+        // came from is still on the record, and because a future round asking for
+        // a photo again should not have to re-derive the pipeline):
         //
         //   Source   : "Rogland Clear Night" by Greg Zaal, Poly Haven — CC0.
         //              https://polyhaven.com/a/rogland_clear_night
@@ -183,19 +237,14 @@ namespace GloomhavenVR
         //                   the mist;
         //                6. 2x box downsample, sRGB encode, TPDF +-0.5 LSB dither,
         //                   write RGBA PNG 8192x2560.
-        //
-        // The dome mesh maps ONLY that -20..+90 deg band onto V (see
-        // GenerateMeshes): no texture memory is wasted on the never-visible lower
-        // hemisphere, so 8192x2560 delivers the full angular resolution of an
-        // 8192x4096 equirect (~23 px/deg, ~4x the rejected 2048 sky in each axis).
-        private const string NightSkyPng = TexDir + "/Env_NightSky.png";
-        private const float SkyBandMinDeg = -20f;   // texture V=0 elevation
-        private const float SkyBandMaxDeg = 90f;    // texture V=1 elevation
+        //   The full processing script used to be embedded at the end of this
+        //   file; it went with the texture. Recover it from git history
+        //   (BuildEnvironments.cs before ModBuild 134) if a photo is ever wanted
+        //   again — but note it is a STATIC sky and was rejected as such.
 
         // ================================================================ textures
-        // Sprites are procedural, seeded => deterministic. The night sky is a
-        // shipped processed photograph (see NIGHT SKY above) — only its import
-        // settings are enforced here.
+        // All sprites are procedural and seeded => deterministic. Nothing here is
+        // a photograph any more.
         private static void GenerateTextures()
         {
             Directory.CreateDirectory(TexDir);
@@ -205,11 +254,12 @@ namespace GloomhavenVR
             WritePng(TexDir + "/Env_Streak.png", MakeStreak(256, 64), 256, 64, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_FogPuff.png", MakeFogPuff(256), 256, 256, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Moon.png", MakeMoon(512), 512, 512, sRGB: true, clamp: true);
-            // haze veil for the sky dome — tiles in BOTH axes (torus blend), so
-            // the two scrolling octaves never show a seam as they cross.
+            // Tiling noise, in BOTH axes (torus blend), so no octave can ever
+            // show a seam. Used twice by EnvStars: as the horizon haze veil and
+            // — sampled at integer multiples of a full galactic turn — as the
+            // Milky Way's mottling and dust lanes.
             WritePng(TexDir + "/Env_Haze.png", MakeHaze(256), 256, 256, sRGB: false, clamp: false,
                 comp: TextureImporterCompression.Compressed, alphaDilate: false);
-            ImportNightSky();
             AssetDatabase.Refresh();
         }
 
@@ -229,34 +279,6 @@ namespace GloomhavenVR
                     px[y * n + x] = new Color(h, h, h, 1f);
                 }
             return px;
-        }
-
-        private static void ImportNightSky()
-        {
-            if (!File.Exists(NightSkyPng))
-                throw new Exception(NightSkyPng + " missing — it is a shipped asset (see NIGHT SKY comment), not generated.");
-            AssetDatabase.ImportAsset(NightSkyPng);
-            var ti = (TextureImporter)AssetImporter.GetAtPath(NightSkyPng);
-            // sRGB=TRUE (unlike the old linear-encoded painted sky): the photo is
-            // stored gamma-encoded, which spends the 8-bit codes perceptually —
-            // the dark end gets ~4x the precision, killing gradient banding.
-            ti.sRGBTexture = true;
-            ti.alphaIsTransparency = false;         // alpha is a twinkle MASK
-            ti.mipmapEnabled = false;               // dome never minifies it
-            ti.wrapModeU = TextureWrapMode.Repeat;  // sky drift wraps U
-            ti.wrapModeV = TextureWrapMode.Clamp;
-            ti.filterMode = FilterMode.Bilinear;
-            ti.maxTextureSize = 8192;               // default cap 2048 would crush it
-            // 8192x2560 is NPOT in height — the default npotScale=ToNearest silently
-            // resampled it to 8192x2048 (caught in review). 2560 is a multiple of 4,
-            // which is all BC7 needs.
-            ti.npotScale = TextureImporterNPOTScale.None;
-            ti.textureCompression = TextureImporterCompression.CompressedHQ; // BC7
-            ti.SaveAndReimport();
-            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(NightSkyPng);
-            if (tex == null || tex.width != 8192 || tex.height != 2560)
-                throw new Exception($"Env_NightSky import lost resolution: {(tex ? tex.width : 0)}x{(tex ? tex.height : 0)}, expected 8192x2560.");
-            Debug.Log($"[GloomhavenVR][Env] Night sky imported {tex.width}x{tex.height} format={tex.format}");
         }
 
         private static Color[] MakeSpark(int n)
@@ -356,7 +378,7 @@ namespace GloomhavenVR
             // barely-there accents, shading is a hint of form only.
             var px = new Color[n * n];
             var ivory = new Vector3(1.00f, 0.955f, 0.86f);
-            var mareCol = new Vector3(0.66f, 0.685f, 0.70f); // grey-teal seas
+            var mareCol = new Vector3(0.56f, 0.585f, 0.61f); // grey-teal seas (deeper: the maria are the only face detail left at 2.8 deg)
             var lightDir = new Vector3(0.42f, 0.30f, 0.855f).normalized;
             const float R = 0.22f; // small disc => plenty of sprite left for the halo
             for (int y = 0; y < n; y++)
@@ -378,18 +400,27 @@ namespace GloomhavenVR
                     float shade = 0.80f + 0.20f * lam;            // hint of form only
                     float limb = 1f - 0.16f * Mathf.Pow(f, 3f);
                     float m = Fbm3(new Vector3(u * 4.6f, v * 4.6f, 3.3f), 5, 2222);
-                    float mare = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.48f, 0.74f, m)) * 0.42f;
+                    float mare = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.46f, 0.72f, m)) * 0.58f;
                     float c1 = Mathf.Exp(-((u - 0.44f) * (u - 0.44f) + (v - 0.57f) * (v - 0.57f)) / 0.0011f);
                     float c2 = Mathf.Exp(-((u - 0.56f) * (u - 0.56f) + (v - 0.455f) * (v - 0.455f)) / 0.0006f);
                     var discRgb = Vector3.Lerp(ivory, mareCol, Mathf.Clamp01(mare + 0.14f * c1 + 0.11f * c2))
                                   * (limb * shade);
 
                     // ---- halo paint: warm inner veil cooling outward, uneven rim ----
+                    // ModBuild 134 rebuild. The old profile had a slow second lobe
+                    // (exp(-xr*3.8)) and painted it at FULL brightness, so once the
+                    // moon shrank to its real-ish 2.8 deg the sprite read as a grey
+                    // donut with a golden ring welded to the limb. Now: one monotone
+                    // falloff, and the halo colour is deliberately DIMMER than the
+                    // disc surface (~0.85 of it), so the limb has nothing to step up
+                    // to and the disc simply melts outward.
                     float xr = Mathf.Max(0f, r - Rw);
-                    float halo = 0.34f * Mathf.Exp(-xr * 13f) + 0.18f * Mathf.Exp(-xr * 3.8f);
-                    halo *= 0.82f + 0.18f * Noise3(Mathf.Cos(ang) * 3.1f, Mathf.Sin(ang) * 3.1f, 1.9f, 2233);
-                    var haloRgb = Vector3.Lerp(new Vector3(1.00f, 0.94f, 0.80f),
-                                               new Vector3(0.74f, 0.81f, 0.93f), Mathf.Clamp01(xr * 3.5f));
+                    float halo = 0.62f * Mathf.Exp(-xr * 38f)
+                               + 0.13f * Mathf.Exp(-xr * 11f)
+                               + 0.028f * Mathf.Exp(-xr * 3.2f);
+                    halo *= 0.86f + 0.14f * Noise3(Mathf.Cos(ang) * 3.1f, Mathf.Sin(ang) * 3.1f, 1.9f, 2233);
+                    var haloRgb = Vector3.Lerp(new Vector3(0.88f, 0.83f, 0.70f),
+                                               new Vector3(0.60f, 0.67f, 0.80f), Mathf.Clamp01(xr * 4.0f));
 
                     // ---- continuous blend ----
                     var rgb = Vector3.Lerp(haloRgb, discRgb, inside);
@@ -476,11 +507,10 @@ namespace GloomhavenVR
             Directory.CreateDirectory(MeshDir);
             // 64x32: at 45 m radius the silhouette must never read faceted (style
             // complaint round 2 — "low-poly"). ~4k tris, still trivial for the dome.
-            // The dome UVs map ONLY the SkyBand elevation range onto V (the photo
-            // texture covers -20..+90 deg; below the band V clamps to the black
-            // bottom row) — full angular resolution, no wasted texture memory.
-            SaveMesh(MeshDir + "/Env_Dome.asset",
-                BuildSphere(64, 32, inward: true, bandMinDeg: SkyBandMinDeg, bandMaxDeg: SkyBandMaxDeg));
+            // The UVs are vestigial now: with the photo gone EnvStars derives
+            // EVERYTHING from the object-space vertex direction, which is also the
+            // only space in which it cannot slide against the star geometry.
+            SaveMesh(MeshDir + "/Env_Dome.asset", BuildSphere(64, 32, inward: true));
             SaveMesh(MeshDir + "/Env_GlowSphere.asset", BuildSphere(16, 8, inward: false));
             SaveMesh(MeshDir + "/Env_StarField.asset", BuildStarField());
         }
@@ -501,6 +531,69 @@ namespace GloomhavenVR
         // rising): the hour angle runs the right way, so the constellations come
         // out un-mirrored and Rodrigues rotation about P with a POSITIVE angle
         // carries them east -> meridian -> west, as the real sky does.
+        /// <summary>The equatorial -> object mapping this whole sky is built on.
+        /// A celestial unit vector is given by its standard components
+        /// (cos dec cos RA, cos dec sin RA, sin dec); this turns those into a
+        /// direction in the star mesh's object frame at LST 0.
+        /// Derivation: the star loop below places a star at hour angle H = -RA as
+        /// sin(dec) P + cos(dec) cos(H) M + cos(dec) sin(H) W, and cos(-RA) = cos RA,
+        /// sin(-RA) = -sin RA — so the basis is exactly (M, -W, P).</summary>
+        private static Vector3 EquatorialToObject(Vector3 eq)
+        {
+            float lat = ObserverLatDeg * Mathf.Deg2Rad;
+            var P = new Vector3(0f, Mathf.Sin(lat), Mathf.Cos(lat));   // celestial north pole
+            var M = new Vector3(0f, Mathf.Cos(lat), -Mathf.Sin(lat));  // RA 0, Dec 0 at LST 0 (due south)
+            var W = new Vector3(-1f, 0f, 0f);                          // due west
+            return M * eq.x + (-W) * eq.y + P * eq.z;
+        }
+
+        private static Vector3 RaDecToEq(double raDeg, double decDeg)
+        {
+            double ra = raDeg * Math.PI / 180.0, dc = decDeg * Math.PI / 180.0;
+            return new Vector3((float)(Math.Cos(dc) * Math.Cos(ra)),
+                               (float)(Math.Cos(dc) * Math.Sin(ra)),
+                               (float)Math.Sin(dc));
+        }
+
+        /// <summary>Galactic basis (x = galactic centre, y = z x x, z = north
+        /// galactic pole), expressed in the star mesh's OBJECT frame at LST 0 —
+        /// which is the frame EnvStars un-rotates a fragment direction back into.
+        /// See GALACTIC FRAME in the NIGHT SKY comment; both self-checks below are
+        /// hard failures, because a silently wrong matrix would put the Milky Way
+        /// through the wrong constellations and nobody would notice for months.</summary>
+        private static (Vector3 x, Vector3 y, Vector3 z) GalacticBasis()
+        {
+            // IAU 1958 galactic frame, J2000 equatorial coordinates.
+            var zg = RaDecToEq(192.85948, 27.12825);      // north galactic pole
+            var xg = RaDecToEq(266.40510, -28.936175);    // galactic centre, l=0 b=0
+
+            float perp = Vector3.Dot(zg, xg);
+            if (Mathf.Abs(perp) > 1e-3f)
+                throw new Exception($"Galactic pole and centre are not perpendicular (dot={perp:E3}) — one of the IAU constants is wrong.");
+            xg = (xg - zg * perp).normalized;             // orthogonalize the 1e-4 residue away
+            // right-handed cross in EQUATORIAL component space (NOT Unity's
+            // left-handed cross in object space: that would mirror the sense of
+            // galactic longitude and put Cygnus where Carina belongs).
+            var yg = new Vector3(zg.y * xg.z - zg.z * xg.y,
+                                 zg.z * xg.x - zg.x * xg.z,
+                                 zg.x * xg.y - zg.y * xg.x).normalized;
+
+            // independent check: the galactic longitude of the CELESTIAL pole must
+            // come back as the third IAU constant, 122.93192 deg.
+            var ncp = new Vector3(0f, 0f, 1f);
+            float lNcp = Mathf.Atan2(Vector3.Dot(yg, ncp), Vector3.Dot(xg, ncp)) * Mathf.Rad2Deg;
+            if (lNcp < 0f) lNcp += 360f;
+            if (Mathf.Abs(lNcp - 122.93192f) > 0.01f)
+                throw new Exception($"Galactic basis wrong: l(NCP) = {lNcp:F5} deg, expected 122.93192 deg.");
+
+            var ox = EquatorialToObject(xg).normalized;
+            var oy = EquatorialToObject(yg).normalized;
+            var oz = EquatorialToObject(zg).normalized;
+            Debug.Log($"[GloomhavenVR][Env] Galactic frame OK: l(NCP)={lNcp:F5} deg, pole.centre dot={perp:E2}; "
+                      + $"in object space centre={ox:F4} (alt {Mathf.Asin(ox.y) * Mathf.Rad2Deg:F1} deg at LST 0), NGP={oz:F4}.");
+            return (ox, oy, oz);
+        }
+
         private static Mesh BuildStarField()
         {
             string[] lines = File.Exists(StarCsv)
@@ -537,9 +630,12 @@ namespace GloomhavenVR
                 // white blob and 5000 invisible dots — compress it, and let the
                 // bright ones grow a bigger point-spread instead (as a real one
                 // does in the eye).
-                float flux = Mathf.Pow(10f, -0.4f * (mag - StarMagLimit) / 3.0f);
-                float bright = 0.055f * flux;
-                float size = 0.028f + 0.0055f * Mathf.Max(0f, StarMagLimit - mag);
+                // /2.6 (was /3.0): the cut moved half a magnitude fainter, and at
+                // /3.0 the new mag-6.0..6.5 stars sat within 6% of each other —
+                // a flat carpet of identical dots instead of a fading tail.
+                float flux = Mathf.Pow(10f, -0.4f * (mag - StarMagLimit) / 2.6f);
+                float bright = 0.048f * flux;
+                float size = 0.026f + 0.0052f * Mathf.Max(0f, StarMagLimit - mag);
                 var c = BvToRgb(bv);
                 float phase = Hash3(hr, 17, 3, 6101) * 6.2831853f;
 
@@ -616,8 +712,7 @@ namespace GloomhavenVR
             }
         }
 
-        private static Mesh BuildSphere(int lon, int lat, bool inward,
-            float bandMinDeg = -90f, float bandMaxDeg = 90f)
+        private static Mesh BuildSphere(int lon, int lat, bool inward)
         {
             var v = new List<Vector3>(); var uv = new List<Vector2>(); var t = new List<int>();
             for (int y = 0; y <= lat; y++)
@@ -625,20 +720,12 @@ namespace GloomhavenVR
                 float vv = y / (float)lat;
                 float latAng = (vv - 0.5f) * Mathf.PI; // -90..+90
                 float r = Mathf.Cos(latAng), py = Mathf.Sin(latAng);
-                // V maps the [bandMinDeg..bandMaxDeg] elevation band (default:
-                // whole sphere — then use vv EXACTLY, the deg round-trip added
-                // 1-ulp noise to otherwise identical meshes). Linear in latitude,
-                // so interpolation across the uniform-latitude rings stays exact;
-                // below the band V clamps to 0.
-                float bandV = (bandMinDeg == -90f && bandMaxDeg == 90f)
-                    ? vv
-                    : Mathf.Clamp01((latAng * Mathf.Rad2Deg - bandMinDeg) / (bandMaxDeg - bandMinDeg));
                 for (int x = 0; x <= lon; x++)
                 {
                     float uu = x / (float)lon;
                     float lonAng = uu * Mathf.PI * 2f;
                     v.Add(new Vector3(Mathf.Sin(lonAng) * r, py, Mathf.Cos(lonAng) * r));
-                    uv.Add(new Vector2(uu, bandV));
+                    uv.Add(new Vector2(uu, vv));
                 }
             }
             for (int y = 0; y < lat; y++)
@@ -697,51 +784,74 @@ namespace GloomhavenVR
             glowWarm.SetColor("_Tint", new Color(1f, 0.55f, 0.20f, 0.65f));
             glowWarm.SetFloat("_Falloff", 2.2f);
 
-            // ---- sky backdrop: photographic Milky Way + moon + haze veil ----
-            // The moon is baked into this shader (a separate blended quad left a
-            // visible seam against the sky gradient).
+            // ---- the sky's continuous layer: gradient + Milky Way + dust + moon ----
+            // Everything below is procedural and lives in ONE celestial frame with
+            // the catalogue stars (see NIGHT SKY). Numbers a future round tunes:
+            //   _MwGain     Milky Way peak, LINEAR. The band peaks near 1.7 of its
+            //               own profile, so peak luminance ~ 1.7 * _MwGain: at
+            //               0.016 that is ~0.027, about 2-3x the zenith sky —
+            //               which is the real contrast ratio, and the ceiling
+            //               above which it reads as a "bright smear".
+            //   _DustGain   brightest sub-visual dot; must stay well under the
+            //               faintest catalogue star (0.048 * _Gain).
+            //   _Extinct    mag/airmass. THE horizon-darkness knob: it is what
+            //               kills the lifted band above the ridge.
+            const float rotSpeed = 2f * Mathf.PI / 2880f;
+            const float extinct = 0.24f;
+            var lat = ObserverLatDeg * Mathf.Deg2Rad;
+            var pole = new Vector4(0f, Mathf.Sin(lat), Mathf.Cos(lat), 0f);
+            var (galX, galY, galZ) = GalacticBasis();
+
             var stars = LoadOrNewMat(MatDir + "/Swamp_StarDome.mat", "GloomhavenVR/EnvStars");
-            stars.SetTexture("_MainTex", T("Env_NightSky.png")); // real photo sky (see NIGHT SKY)
-            // gradient is now only a faint backstop UNDER the photo (the photo
-            // carries its own airglow/haze) — the old brighter horizon colour
-            // stacked with the photo's mist into a washed-out band
-            stars.SetColor("_TopCol", new Color(0.004f, 0.006f, 0.014f));
-            stars.SetColor("_HorizonCol", new Color(0.008f, 0.012f, 0.021f));
-            stars.SetFloat("_SkyBoost", 0.78f);
-            // the photo's own star cores are pushed down: the catalogue layer
-            // (EnvStarPoints) owns the point stars now, and two unaligned
-            // starfields would read as a double exposure
-            stars.SetFloat("_CoreSuppress", 0.88f);
-            stars.SetColor("_StarCol", new Color(0.85f, 0.90f, 1.0f));
-            stars.SetFloat("_TwinkleSpeed", 1.2f);
-            stars.SetFloat("_TwinkleAmp", 0.30f);
-            // one full turn per 2880 s — the SAME period the star layer rotates
-            // in, so backdrop and stars read as ONE turning sky
-            stars.SetFloat("_DriftSpeed", 1f / 2880f);
+            // zenith slightly blue, horizon nearly black — the INVERSE of a real
+            // light-polluted sky, on purpose (user, ModBuild 133: it must be so
+            // dark behind the trees that you would not dare walk there).
+            stars.SetColor("_TopCol", new Color(0.0092f, 0.0120f, 0.0212f));
+            stars.SetColor("_HorizonCol", new Color(0.0030f, 0.0039f, 0.0068f));
+            stars.SetVector("_Pole", pole);
+            stars.SetFloat("_RotSpeed", rotSpeed);
+            stars.SetVector("_GalX", galX);
+            stars.SetVector("_GalY", galY);
+            stars.SetVector("_GalZ", galZ);
+            stars.SetFloat("_MwGain", 0.040f);
+            stars.SetFloat("_MwThin", 5.0f);
+            stars.SetFloat("_MwThick", 17.0f);
+            stars.SetFloat("_MwBulge", 1.35f);
+            stars.SetFloat("_MwDust", 0.80f);
+            stars.SetColor("_MwWarm", new Color(1.00f, 0.86f, 0.70f));
+            stars.SetColor("_MwCool", new Color(0.78f, 0.85f, 1.00f));
+            stars.SetFloat("_DustGain", 0.085f);
+            stars.SetFloat("_DustDens", 0.20f);
+            stars.SetFloat("_DustScale", 330f);
+            stars.SetFloat("_DustCore", 24f);
+            stars.SetFloat("_Extinct", extinct);
             stars.SetTexture("_HazeTex", T("Env_Haze.png"));
-            stars.SetColor("_HazeCol", new Color(0.038f, 0.048f, 0.072f));
-            stars.SetFloat("_HazeAmt", 0.42f);
-            // dim the lowest ~10 deg so a treeline never silhouettes on a bright band
-            stars.SetFloat("_HorizonDim", 0.14f);
+            stars.SetColor("_HazeCol", new Color(0.010f, 0.013f, 0.019f));
+            stars.SetFloat("_HazeAmt", 0.40f);
             stars.SetTexture("_MoonTex", T("Env_Moon.png"));
             stars.SetVector("_MoonDir", MoonDir);
             stars.SetColor("_MoonCol", new Color(1f, 0.98f, 0.92f));
-            // disc fills only 0.44 of the sprite (R=0.22/0.5) — extent sized so the
-            // disc stays ~3.3° radius while the halo gets real room to breathe
-            stars.SetFloat("_MoonExtent", 0.13f);
+            stars.SetFloat("_MoonExtent", MoonExtent);
 
             // ---- real catalogue stars (see BuildStarField / EnvStarPoints) ----
             var pts = LoadOrNewMat(MatDir + "/Sky_StarPoints.mat", "GloomhavenVR/EnvStarPoints");
-            float lat = ObserverLatDeg * Mathf.Deg2Rad;
-            pts.SetVector("_Pole", new Vector4(0f, Mathf.Sin(lat), Mathf.Cos(lat), 0f));
+            pts.SetVector("_Pole", pole);
             // 2*pi / 2880 s = 0.125 deg/s ~= 30x sidereal. Real 15 deg/h is
             // imperceptible; games run 20-70x (Skyrim 20x, Minecraft 72x). Above
             // ~100x a rotating sky starts to induce vection in VR.
-            pts.SetFloat("_RotSpeed", 2f * Mathf.PI / 2880f);
-            pts.SetFloat("_Gain", 2.1f);
+            pts.SetFloat("_RotSpeed", rotSpeed);
+            pts.SetFloat("_Gain", 2.6f);
             pts.SetFloat("_TwinkleAmp", 0.80f);
             pts.SetFloat("_TwinkleSpeed", 1.9f);
             pts.SetFloat("_Core", 34f);
+            pts.SetFloat("_Extinct", extinct);
+            // the moon OCCLUDES: same direction, same disc, so no star can shine
+            // through it (user finding, ModBuild 133 — "ein Mond der dahinter ist")
+            pts.SetVector("_MoonDir", MoonDir);
+            pts.SetFloat("_MoonCos", Mathf.Cos(MoonDiscRad * 1.04f));
+            Debug.Log($"[GloomhavenVR][Env] Moon: dir={MoonDir:F4} (az {Mathf.Atan2(MoonDir.x, MoonDir.z) * Mathf.Rad2Deg:F1} deg, "
+                      + $"alt {Mathf.Asin(MoonDir.y) * Mathf.Rad2Deg:F1} deg), disc radius {MoonDiscRad * Mathf.Rad2Deg:F2} deg, "
+                      + $"stars culled inside {Mathf.Acos(Mathf.Cos(MoonDiscRad * 1.04f)) * Mathf.Rad2Deg:F2} deg.");
 
             AssetDatabase.SaveAssets();
         }
@@ -794,9 +904,9 @@ namespace GloomhavenVR
         }
 
         // Night-sky dome shared by every night shell (swamp + cellar). One
-        // inward-facing photo dome; the painted moon is baked into the EnvStars
-        // shader (a separate blended quad left a visible seam against the sky
-        // gradient), so this single node IS dome + moon.
+        // inward-facing sphere carrying the sky's continuous layer (gradient,
+        // Milky Way, star dust, moon — all procedural, see NIGHT SKY), plus the
+        // catalogue star geometry as its child.
         // The node NAME 'StarDome' is a CONTRACT with src/ (runtime splits shell
         // children onto sky/room branches BY NODE NAME) — never rename it.
         private static void AddNightSky(Transform parent)
@@ -812,6 +922,34 @@ namespace GloomhavenVR
                 Mat("Sky_StarPoints.mat"), Vector3.zero, Vector3.zero, Vector3.one / 45f);
             field.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             field.GetComponent<MeshRenderer>().receiveShadows = false;
+        }
+
+        // ------------------------------------------------------------ PLAY SPACE
+        // CONTRACT with src/ (ModBuild 134): every environment prefab carries an
+        // empty child named exactly 'PlaySpace' whose localScale.x is the
+        // AUTHORED DIAMETER, in authored metres, of the usable open area — the
+        // forest clearing, the cellar's free floor. The runtime normalizes the
+        // whole prefab so that this diameter becomes ~4.5x the game board's world
+        // extent, i.e. the board floats as a small diorama in the middle of it and
+        // everything beyond (tree bands, walls) lands far outside.
+        //
+        // Consequences the author owns, enforced at build time by
+        // EnvRoomBuilder.AssertPlaySpaceClear: NOTHING may intrude into that disc
+        // — no prop, root, trunk, mist emitter. The board and the players' hands
+        // live there. The environment OUTSIDE it may be any size; it no longer
+        // sets the scale of anything.
+        //
+        // No renderer, no collider, no script: it is pure metadata, and its
+        // localScale is the only thing about it that means anything (y and z are
+        // set to the same value so a stray uniform read cannot be surprised).
+        private static void AddPlaySpace(Transform parent, float diameter)
+        {
+            var go = new GameObject("PlaySpace");
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = Vector3.zero;
+            go.transform.localRotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one * diameter;
+            Debug.Log($"[GloomhavenVR][Env] PlaySpace on {parent.name}: authored diameter {diameter:F2} m.");
         }
 
         private static void LogStats(GameObject root, string label)
@@ -835,6 +973,7 @@ namespace GloomhavenVR
             try
             {
                 var t = root.transform;
+                AddPlaySpace(t, EnvRoomBuilder.CellarPlaySpaceDia);
 
                 // ---- sky: same star dome as the swamp (user finding, ModBuild 129
                 // round — with the game's sky sphere hidden, the void above the
@@ -889,8 +1028,9 @@ namespace GloomhavenVR
             try
             {
                 var t = root.transform;
+                AddPlaySpace(t, EnvRoomBuilder.ForestPlaySpaceDia);
 
-                // ---- sky: photo dome + real Yale-catalogue stars (children) ----
+                // ---- sky: procedural celestial dome + real Yale-catalogue stars ----
                 AddNightSky(t);
 
                 // ---- ground mist, layer 1: drifting between the near trunks ----
@@ -902,13 +1042,18 @@ namespace GloomhavenVR
                 fm.startSpeed = 0f;
                 fm.startSize = new ParticleSystem.MinMaxCurve(6f, 11f); // bigger + dimmer = softer overlap
                 fm.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-                // cold and thin: mist BETWEEN the trunks, so the first row of
-                // trees is sharp and the second is already half-dissolved
-                fm.startColor = new Color(0.20f, 0.25f, 0.33f, 0.045f);
+                // Cold and thin: mist BETWEEN the trunks, so the first row of
+                // trees is sharp and the second is already half-dissolved.
+                // ModBuild 134: darker and thinner (was 0.20,0.25,0.33 @ 0.045) —
+                // an alpha-blended lit puff over black IS a raised floor, and the
+                // wood beyond the clearing has to read as black, not blue-grey.
+                fm.startColor = new Color(0.12f, 0.15f, 0.20f, 0.026f);
                 fm.maxParticles = 34;
                 var fe = fog.emission; fe.rateOverTime = 1.7f;
                 var fsh = fog.shape; fsh.enabled = true; fsh.shapeType = ParticleSystemShapeType.Donut;
-                fsh.radius = 8.0f; fsh.donutRadius = 3.8f; fsh.radiusThickness = 1f;
+                // inner rim 8.4-3.6 = 4.8 m, i.e. OUTSIDE the 9.0 m play-space
+                // disc (radius 4.5): no mist emitter may intrude on the board.
+                fsh.radius = 8.4f; fsh.donutRadius = 3.6f; fsh.radiusThickness = 1f;
                 var fv = fog.velocityOverLifetime; fv.enabled = true;
                 fv.space = ParticleSystemSimulationSpace.World;
                 fv.x = new ParticleSystem.MinMaxCurve(0.06f, 0.16f);
@@ -942,8 +1087,12 @@ namespace GloomhavenVR
                 ffm.startSpeed = 0f;
                 ffm.startSize = new ParticleSystem.MinMaxCurve(15f, 26f);
                 ffm.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-                ffm.startColor = new Color(0.17f, 0.21f, 0.29f, 0.055f);
-                ffm.maxParticles = 22;
+                // ModBuild 134: this layer WAS the "blue-grey haze floor" behind
+                // the trees (0.17,0.21,0.29 @ 0.055). It stays, because without it
+                // the far wood has no depth at all, but at a third of the density
+                // and much darker: it should suggest, never illuminate.
+                ffm.startColor = new Color(0.070f, 0.086f, 0.112f, 0.012f);
+                ffm.maxParticles = 18;
                 var ffe = farFog.emission; ffe.rateOverTime = 0.95f;
                 var ffsh = farFog.shape; ffsh.enabled = true; ffsh.shapeType = ParticleSystemShapeType.Donut;
                 ffsh.radius = 18f; ffsh.donutRadius = 5.5f; ffsh.radiusThickness = 1f;
@@ -1037,154 +1186,3 @@ namespace GloomhavenVR
         }
     }
 }
-
-// ===========================================================================
-// NIGHT-SKY PROCESSING SCRIPT (verbatim, reproducible) — run with python3 +
-// numpy + opencv (pip install opencv-python-headless numpy) on the CC0 source
-// HDR named in the NIGHT SKY comment above:
-//   python3 process_sky.py rogland_clear_night_16k.hdr Env_NightSky.png 8192 2560
-// ---------------------------------------------------------------------------
-// #!/usr/bin/env python3
-// """GloomhavenVR night-sky panorama processing.
-//
-// Source: Poly Haven 'Rogland Clear Night' (CC0), equirectangular .hdr (linear).
-// Output: sky-band texture (elevation EL_MIN..90 deg), sRGB PNG with:
-//   RGB = tone-mapped night sky (terrain replaced by horizon haze)
-//   A   = star-core twinkle mask
-// Run: venv/bin/python process_sky.py <input.hdr> <out.png> <outW> <outH> [--preview]
-// """
-// import sys, numpy as np, cv2
-//
-// EL_MIN = -20.0     # band bottom (deg)
-// EL_MAX = 90.0
-// SKY_BG = 0.30      # source luminance of the empty sky background
-// BG_TARGET = 0.055  # target linear luminance for the sky background (pre-boost)
-// CONTRAST = 1.6     # log-space contrast around the background pivot
-// KNEE = 0.75        # highlight soft-clip knee
-// SAT = 1.12         # slight saturation recovery (night photos are flat)
-//
-// def lum(x):
-//     return 0.2126*x[...,0] + 0.7152*x[...,1] + 0.0722*x[...,2]
-//
-// def srgb_encode(x):
-//     x = np.clip(x, 0.0, 1.0)
-//     return np.where(x <= 0.0031308, x*12.92, 1.055*np.power(x, 1/2.4) - 0.055)
-//
-// def terrain_profile(img):
-//     """Per-column terrain-top elevation (deg, >=0) from silhouette luminance."""
-//     H, W, _ = img.shape
-//     L = lum(img)
-//     horizon = H // 2
-//     scan_top = int(H*0.25)              # +45 deg — no terrain higher than that
-//     sky_mask = L[scan_top:horizon] > 0.16   # True = sky
-//     # first row (from the top) where the next 12 rows are all terrain
-//     terr = ~sky_mask
-//     run = np.zeros_like(terr[0], dtype=np.int32)
-//     top_row = np.full(W, horizon, dtype=np.int32)
-//     found = np.zeros(W, dtype=bool)
-//     consec = np.zeros(W, dtype=np.int32)
-//     for r in range(terr.shape[0]):
-//         consec = np.where(terr[r], consec+1, 0)
-//         newly = (~found) & (consec >= 12)
-//         top_row[newly] = scan_top + r - 11
-//         found |= newly
-//     elev = (horizon - top_row) / (H/2) * 90.0   # deg above horizon
-//     elev[~found] = 0.0
-//     return elev
-//
-// def smooth_wrap(x, sigma_px):
-//     k = int(sigma_px*3)*2+1
-//     xw = np.concatenate([x[-k:], x, x[:k]])
-//     xs = cv2.GaussianBlur(xw.reshape(1,-1).astype(np.float32), (k,1), sigma_px).ravel()
-//     return xs[k:-k]
-//
-// def main():
-//     src, out, outW, outH = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
-//     img = cv2.imread(src, cv2.IMREAD_UNCHANGED)[:, :, ::-1].astype(np.float32)
-//     H, W, _ = img.shape
-//     print(f'source {W}x{H}')
-//
-//     # ---------------- terrain silhouette -> haze top profile ----------------
-//     prof = terrain_profile(img)                     # deg, at source W
-//     prof_s = smooth_wrap(prof, W/256) + 2.5         # smoothed + margin (deg)
-//     prof_s = np.maximum(prof_s, 5.0)                # minimum haze height
-//     print(f'terrain profile: max {prof.max():.1f} deg, haze top max {prof_s.max():.1f} deg')
-//
-//     # ---------------- resample to output band (supersample 2x) ----------------
-//     ssW, ssH = outW*2, outH*2
-//     el = EL_MIN + (EL_MAX-EL_MIN) * ((ssH-0.5-np.arange(ssH))+0.5)/ssH  # row -> elevation
-//     # source row for elevation: srcRow = (90-el)/180*H
-//     map_y = ((90.0-el)/180.0*H - 0.5).astype(np.float32)
-//     map_x = ((np.arange(ssW)+0.5)/ssW*W - 0.5).astype(np.float32)
-//     mx, my = np.meshgrid(map_x, map_y)
-//     band = cv2.remap(img[:,:,::-1], mx, my, cv2.INTER_LINEAR, borderMode=cv2.BORDER_WRAP)[:,:,::-1]
-//     band = np.ascontiguousarray(band)
-//
-//     # ---------------- tone map ----------------
-//     x = band / SKY_BG                                # sky background == 1.0
-//     L0 = np.maximum(lum(x), 1e-6)
-//     Lc = np.power(L0, CONTRAST)                      # contrast around pivot 1.0
-//     y = x * (Lc/L0)[...,None] * BG_TARGET
-//     # highlight soft clip (Reinhard-ish shoulder above the knee)
-//     Ly = np.maximum(lum(y), 1e-9)
-//     Ls = np.where(Ly > KNEE, KNEE + (1.0-KNEE)*(Ly-KNEE)/(Ly-KNEE+ (1.0-KNEE)), Ly)
-//     y *= (Ls/Ly)[...,None]
-//     # saturation
-//     Lg = lum(y)[...,None]
-//     y = np.clip(Lg + (y-Lg)*SAT, 0.0, None)
-//
-//     # ---------------- haze band over terrain ----------------
-//     elev_col = el[:,None]                            # ssH x 1
-//     prof_ss = np.interp((np.arange(ssW)+0.5)/ssW, (np.arange(len(prof_s))+0.5)/len(prof_s), prof_s)
-//     # haze factor: 0 above (profile+9deg), 1 below profile
-//     t = np.clip((prof_ss[None,:]+9.0 - elev_col)/9.0, 0.0, 1.0)
-//     t = t*t*(3-2*t)
-//     # haze colour: per-column MEDIAN of the sky just above the haze top (median
-//     # rejects stars), then wrap-smoothed hard so no column-rate detail survives
-//     r0 = np.clip(((EL_MAX-(prof_ss+16.0))/(EL_MAX-EL_MIN)*ssH).astype(int), 0, ssH-1)
-//     r1 = np.clip(((EL_MAX-(prof_ss+7.0))/(EL_MAX-EL_MIN)*ssH).astype(int), 0, ssH-1)
-//     sky_ref = np.empty((ssW,3), np.float32)
-//     band_h = int(np.max(r1-r0))+1
-//     rows = (r0[None,:] + np.arange(band_h)[:,None]).clip(0, ssH-1)   # band_h x ssW
-//     cols = np.broadcast_to(np.arange(ssW), (band_h, ssW))
-//     sky_ref = np.median(y[rows, cols], axis=0)       # ssW x 3
-//     for c in range(3):
-//         sky_ref[:,c] = smooth_wrap(sky_ref[:,c], ssW/64)
-//     # cap over-bright columns (milky-way limb) so the mist never glows
-//     refL = 0.2126*sky_ref[:,0]+0.7152*sky_ref[:,1]+0.0722*sky_ref[:,2]
-//     cap = 1.25*np.median(refL)
-//     sky_ref *= np.minimum(1.0, cap/np.maximum(refL,1e-6))[:,None]
-//     # cool + desaturate the mist slightly (starlit fog, not glowing smoke)
-//     refL = (0.2126*sky_ref[:,0]+0.7152*sky_ref[:,1]+0.0722*sky_ref[:,2])[:,None]
-//     sky_ref = (0.65*sky_ref + 0.35*refL) * np.array([0.88,0.95,1.06], np.float32)
-//     # vertical shading inside the haze: dimmer toward the horizon (mist, not a wall)
-//     vshade = np.clip((elev_col - 0.0) / np.maximum(prof_ss[None,:]+9.0, 1e-3), 0.0, 1.0)
-//     vshade = 0.30 + 0.38*vshade
-//     haze = sky_ref[None,:,:] * vshade[...,None]
-//     y = y*(1-t[...,None]) + haze*t[...,None]
-//     # fade everything to black below the horizon (dome shows the water rim there)
-//     fade = np.clip((elev_col - EL_MIN) / (0.0 - EL_MIN), 0.0, 1.0)  # 0 at band bottom, 1 at horizon
-//     fade = fade*fade*(3-2*fade)
-//     y *= fade[...,None]
-//
-//     # ---------------- star-core twinkle mask ----------------
-//     Ly = lum(y).astype(np.float32)
-//     bgL = cv2.GaussianBlur(Ly, (0,0), 6.0)
-//     stars = np.clip((Ly - bgL - 0.10)*4.0, 0.0, 1.0)
-//     stars *= (elev_col > prof_ss[None,:]+4.0)        # no twinkle in the haze
-//     alpha = stars
-//
-//     # ---------------- downsample 2x, encode, dither ----------------
-//     rgba = np.dstack([y, alpha[...,None]])
-//     rgba = cv2.resize(rgba, (outW, outH), interpolation=cv2.INTER_AREA)
-//     outp = np.empty((outH, outW, 4), np.float32)
-//     outp[...,:3] = srgb_encode(rgba[...,:3])
-//     outp[...,3] = np.clip(rgba[...,3], 0, 1)
-//     rng = np.random.default_rng(4404)
-//     dith = (rng.random((outH,outW,1), np.float32) - rng.random((outH,outW,1), np.float32))  # TPDF +-1 LSB
-//     q = np.clip(np.round(outp*255.0 + dith), 0, 255).astype(np.uint8)
-//     cv2.imwrite(out, q[:,:,[2,1,0,3]])
-//     print('wrote', out, q.shape)
-//
-// if __name__ == '__main__':
-//     main()

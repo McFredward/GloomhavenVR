@@ -22,7 +22,7 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _Falloff: 2
+    - _Falloff: 2.2
     m_Colors:
-    - _Tint: {r: 1, g: 0.6, b: 0.24, a: 0.2}
+    - _Tint: {r: 1, g: 0.6, b: 0.24, a: 0.17}
   m_BuildTextureStacks: []

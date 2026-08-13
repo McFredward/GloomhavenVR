@@ -26,5 +26,5 @@ Material:
     - _ShimmerSpeed: 0.2
     - _Softness: 6.5
     m_Colors:
-    - _Tint: {r: 0.54, g: 0.64, b: 0.9, a: 0.3}
+    - _Tint: {r: 0.56, g: 0.66, b: 0.92, a: 0.34}
   m_BuildTextureStacks: []

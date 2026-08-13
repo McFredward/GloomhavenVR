@@ -3,6 +3,14 @@
 // User finding, ModBuild 132: "Der Sternenhimmel sollte auch ein animierte
 // 'echter' Sternenhimmel sein, recharchier da was du findest statt einfach nur
 // ein Bild."
+// User finding, ModBuild 133: "... ein Mond der dahinter ist" — the moon sat
+// BEHIND the stars, because this layer blends additively over the dome that
+// carries it. Fixed here, not with a depth trick: a star inside the moon's disc
+// (_MoonDir / _MoonCos, the very same disc EnvStars paints) collapses to a
+// point and contributes nothing. Culling per star is exact — a star IS a point
+// — costs three ALU, and needs no assumption about the game camera's depth
+// buffer, its clear flags, or the runtime rescaling of the sky branch, all of
+// which a ZWrite'd moon quad in the Background queue would depend on.
 //
 // The mesh (built by BuildEnvironments.BuildStarField from bsc5_stars.csv —
 // Yale Bright Star Catalogue, public domain) is one camera-independent quad per
@@ -33,6 +41,9 @@ Shader "GloomhavenVR/EnvStarPoints"
         _TwinkleAmp ("Twinkle amount", Range(0,2)) = 0.75
         _TwinkleSpeed ("Twinkle speed", Range(0,10)) = 1.9
         _Core ("Core hardness", Range(1,80)) = 34
+        _Extinct ("Extinction (mag per airmass)", Range(0,1)) = 0.26
+        _MoonDir ("Moon direction (object space)", Vector) = (0,1,0,0)
+        _MoonCos ("cos(moon disc radius) — stars inside are culled", Range(0.9,1)) = 1.0
     }
     SubShader
     {
@@ -50,8 +61,8 @@ Shader "GloomhavenVR/EnvStarPoints"
             #pragma fragment frag
             #include "UnityCG.cginc"
 
-            float _Gain, _RotSpeed, _TwinkleAmp, _TwinkleSpeed, _Core;
-            float4 _Pole;
+            float _Gain, _RotSpeed, _TwinkleAmp, _TwinkleSpeed, _Core, _Extinct, _MoonCos;
+            float4 _Pole, _MoonDir;
 
             struct appdata
             {
@@ -83,15 +94,22 @@ Shader "GloomhavenVR/EnvStarPoints"
                 float c = cos(th), s = sin(th);
                 float3 dr = d * c + cross(P, d) * s + P * dot(P, d) * (1.0 - c);
 
-                // extinction + hard horizon: stars set, and a set star costs
-                // nothing (its quad degenerates to a point).
-                float ext = smoothstep(-0.015, 0.10, dr.y);
-
                 // Rozenberg (1966) airmass — finite at the horizon (X -> 40),
-                // unlike sec(z). Log-compressed so the horizon shimmers instead
-                // of strobing.
+                // unlike sec(z). Drives BOTH the extinction and the twinkle.
                 float a = max(dr.y, 0.0);
                 float X = 1.0 / (a + 0.025 * exp(-11.0 * a));
+
+                // Bouguer extinction, normalized to the zenith, on the same
+                // constant the dome uses (EnvStars/_Extinct) so the two layers
+                // fade into the horizon together. A hard cut just below the
+                // horizon makes a set star cost nothing (its quad degenerates).
+                float ext = exp(-_Extinct * 0.921034 * X) / exp(-_Extinct * 0.921034)
+                          * smoothstep(-0.015, 0.02, dr.y);
+
+                // MOON OCCLUSION (see header): a star behind the disc is gone.
+                ext *= step(dot(dr, normalize(_MoonDir.xyz)), _MoonCos);
+
+                // Log-compressed so the horizon shimmers instead of strobing.
                 float amp = _TwinkleAmp * saturate(log(X) / log(40.0));
                 float ph = v.uv1.y;
                 float tw = 1.0 + amp * (0.62 * sin(t * _TwinkleSpeed + ph)

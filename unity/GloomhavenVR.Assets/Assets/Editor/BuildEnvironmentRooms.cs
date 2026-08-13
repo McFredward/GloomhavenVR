@@ -33,6 +33,23 @@ namespace GloomhavenVR
         private const string ImpModels = Root + "/Imported/Models";
         private const string ImpTex = Root + "/Imported/Textures";
 
+        // ============================================================ PLAY SPACE
+        // The authored DIAMETER of each room's usable open area, in authored
+        // metres — see EnvironmentsBuilder.AddPlaySpace for the contract. These
+        // are measured values, not wishes: AssertPlaySpaceClear() re-derives the
+        // real clearance from the built geometry's own vertices at the end of
+        // every room and FAILS the build if anything reaches inside.
+        //
+        //   Forest — the clearing. ClearR is 5.4 m of open ground, the first
+        //   trunk band starts at 6.2 m, and the understory/deadfall ring is
+        //   authored to stay outside 4.5 m. 9.0 m it is.
+        //   Cellar — the free floor in the middle of a 10.5 x 9.0 m room. The
+        //   props line the walls; the closest (the stool) stands at 3.44 m. NOT
+        //   the room's own 9.0 m: that would put the board's diorama scale on a
+        //   circle that the table, stool and crates all stand inside of.
+        public const float ForestPlaySpaceDia = 9.0f;
+        public const float CellarPlaySpaceDia = 6.5f;
+
         // Moon bearing — taken FROM the star-dome shader's own constant so the
         // forest's directional light, trunk rim and moon shafts can never drift
         // out of agreement with the moon you can actually see in the sky.
@@ -202,8 +219,16 @@ namespace GloomhavenVR
         {
             m.SetColor("_AmbUp", rig.ambUp);
             m.SetColor("_AmbDown", rig.ambDown);
-            m.SetVector("_DirDir", xf.InverseTransformDirection(rig.dirWorld.normalized));
+            var dirObj = xf.InverseTransformDirection(rig.dirWorld.normalized);
+            m.SetVector("_DirDir", dirObj);
             m.SetColor("_DirCol", rig.dirCol);
+            // The rim gate ("only the moonlit SIDE catches the rim") was reading
+            // EnvRoom's _RimDir DEFAULT of (0,1,0) — straight up — because nothing
+            // ever set it, so every trunk got the same flat 0.55 gate all the way
+            // round. Caught in the ModBuild 134 darkening pass: with the ambient
+            // pulled out from under it, a rim that ignores the moon is the
+            // difference between a volume and a glowing tube.
+            m.SetVector("_RimDir", dirObj);
             float s = (xf.lossyScale.x + xf.lossyScale.y + xf.lossyScale.z) / 3f;
             for (int i = 0; i < 3; i++)
             {
@@ -530,6 +555,46 @@ namespace GloomhavenVR
             floor.GetComponent<MeshRenderer>().sharedMaterial.SetFloat("_VCol", 1f);
             Debug.Log($"[GloomhavenVR][Env] Contact shading painted under {Contacts.Count} props.");
             Contacts.Clear();
+        }
+
+        /// <summary>Prove that the play-space disc is empty (see PLAY SPACE
+        /// above). Walks the REAL vertices of every mesh under the room — not
+        /// bounds boxes, which would both over- and under-report on the rotated
+        /// props and the welded forest — and fails the build on the first
+        /// intruder, naming it and the radius it reached. `exempt` is for the
+        /// things that MUST be there: the floor/ground the board stands on, and
+        /// the moonlight shafts, which are light, not matter.</summary>
+        private static void AssertPlaySpaceClear(Transform room, string label, float diameter,
+            params string[] exempt)
+        {
+            float r = diameter * 0.5f;
+            var ex = new HashSet<string>(exempt);
+            var bad = new List<string>();
+            string worstName = null; float worst = float.MaxValue;
+            foreach (var mf in room.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf.sharedMesh == null || ex.Contains(mf.gameObject.name)) continue;
+                float near = float.MaxValue;
+                foreach (var p in WorldVerts(mf.gameObject))
+                {
+                    // ignore anything overhead: crowns, canopy and beams pass over
+                    // the disc by design — the constraint is on the space the
+                    // board and the players' hands occupy.
+                    if (p.y > 2.2f) continue;
+                    float d = Mathf.Sqrt(p.x * p.x + p.z * p.z);
+                    if (d < near) near = d;
+                }
+                if (near < worst) { worst = near; worstName = mf.gameObject.name; }
+                // report EVERY intruder, not just the first: fixing them one build
+                // at a time costs a full Unity batch run each
+                if (near < r) bad.Add($"'{mf.gameObject.name}' reaches {near:F2} m");
+            }
+            if (bad.Count > 0)
+                throw new Exception($"{label}: {bad.Count} object(s) intrude into the {diameter:F1} m PlaySpace " +
+                                    $"(limit {r:F2} m from the centre): {string.Join(", ", bad)}. " +
+                                    "Move them out, or lower the authored PlaySpace diameter.");
+            Debug.Log($"[GloomhavenVR][Env] {label} PlaySpace {diameter:F2} m clear: nearest geometry is "
+                      + $"'{worstName}' at {worst:F2} m (needs >= {r:F2} m).");
         }
 
         private static void ReportGrounding(string room)
@@ -869,19 +934,32 @@ namespace GloomhavenVR
             // candles sit ON the props — bounds-derived); see rig fixup below.
             var rig = new LightRig
             {
-                // iteration 4: cooler + more contrast — 3 was uniformly amber
-                // (candle pool covered the whole room); sky ambient cooled, floor
-                // bounce warmed (lifts beam sides/undersides out of pure black),
-                // window moonlight strengthened for a cool counter-tone.
-                ambUp = new Color(0.058f, 0.064f, 0.086f),
-                ambDown = new Color(0.048f, 0.040f, 0.032f),
+                // User finding, ModBuild 133: "Die Lichtstimmungen können noch
+                // dunkler 'Grusiliger' sein, mit dunklen ecken die man kaum
+                // erkennt." — iteration 5 halves the ambient in both hemispheres
+                // and pulls every candle range in by ~1 m. The room is no longer
+                // lit; it is three pools of candlelight with a cellar around them,
+                // and the corners between the pools fall to almost nothing.
+                //
+                // TUNING NOTES for a future round, in order of effect:
+                //   ambUp/ambDown  the floor under everything. Halving them is
+                //                  what makes the corners unreadable; they cannot
+                //                  go much lower without the stone losing its
+                //                  normal-map relief entirely.
+                //   PLight.range   the SIZE of each candle pool (falloff is
+                //                  (1-(d/range)^2)^2). This is the knob that
+                //                  separates "dark room, lit table" from "amber
+                //                  everywhere" — round 3's mistake.
+                //   dirCol         the cold counter-tone through the N window.
+                ambUp = new Color(0.026f, 0.029f, 0.040f),
+                ambDown = new Color(0.021f, 0.017f, 0.013f),
                 dirWorld = new Vector3(0.25f, 0.62f, 0.74f), // in through the N window
-                dirCol = new Color(0.060f, 0.075f, 0.110f),
+                dirCol = new Color(0.040f, 0.050f, 0.076f),
                 points = new[]
                 {
-                    new PLight(new Vector3(3.55f, 1.06f, 3.10f), 6.0f, new Color(1f, 0.62f, 0.33f) * 1.35f, 0.30f), // table candles
-                    new PLight(new Vector3(4.72f, 2.00f, 0.70f), 5.5f, new Color(1f, 0.58f, 0.28f) * 1.0f, 0.35f), // shelf candle
-                    new PLight(new Vector3(-1.55f, 1.30f, -3.95f), 6.5f, new Color(1f, 0.58f, 0.28f) * 1.15f, 0.35f), // crate candle
+                    new PLight(new Vector3(3.55f, 1.06f, 3.10f), 4.6f, new Color(1f, 0.62f, 0.33f) * 1.45f, 0.30f), // table candles
+                    new PLight(new Vector3(4.72f, 2.00f, 0.70f), 4.0f, new Color(1f, 0.58f, 0.28f) * 1.10f, 0.35f), // shelf candle
+                    new PLight(new Vector3(-1.55f, 1.30f, -3.95f), 4.6f, new Color(1f, 0.58f, 0.28f) * 1.25f, 0.35f), // crate candle
                 },
             };
 
@@ -970,15 +1048,18 @@ namespace GloomhavenVR
                 var s = Place(root, "Step" + i, stepMesh,
                     new Vector3(-hw - 0.17f - 0.30f * i, 0.19f * i, -hd + StairHole.xMin + StairHole.width / 2f),
                     new Vector3(0, 90, 0), Vector3.one, null);
+                // the steps darken as they climb: by the top one they are barely
+                // there (was 0.9 -> 0.4; the far end of the alcove has to be
+                // unreadable, user finding ModBuild 133)
                 s.GetComponent<MeshRenderer>().sharedMaterial =
-                    SurfMat($"C_Step{i}.mat", "monastery_stone_floor", 1.9f, s.transform, 1.0f, Mathf.Lerp(0.9f, 0.4f, i / 5f));
+                    SurfMat($"C_Step{i}.mat", "monastery_stone_floor", 1.9f, s.transform, 1.0f, Mathf.Lerp(0.85f, 0.12f, i / 5f));
             }
             // alcove shaft (walls + ceiling + pitch-black end cap)
             var shaftMesh = SaveMesh("Env_C_Shaft.asset", BuildShaft(2.2f, 2.6f, StairHole.width));
             var shaftGo = Place(root, "StairShaft", shaftMesh,
                 new Vector3(-hw, 0, -hd + StairHole.xMin), Vector3.zero, Vector3.one, null);
             shaftGo.GetComponent<MeshRenderer>().sharedMaterial =
-                SurfMat("C_Shaft.mat", "medieval_blocks_05", 3.4f, shaftGo.transform, 1.0f, 0.6f);
+                SurfMat("C_Shaft.mat", "medieval_blocks_05", 3.4f, shaftGo.transform, 1.0f, 0.28f);
             var capMat = NewRoomMat("C_ShaftCap.mat", "GloomhavenVR/EnvRoom");
             capMat.SetColor("_Tint", Color.black);
             var capMesh = SaveMesh("Env_C_ShaftCap.asset", BoxMesh(StairHole.width, 2.6f, 0.05f, 1f));
@@ -1050,6 +1131,7 @@ namespace GloomhavenVR
             PaintContactAO(floorGo, 0.40f, 0.30f);
             FlushRig(rig);
             ReportGrounding("Cellar");
+            AssertPlaySpaceClear(root, "Cellar", CellarPlaySpaceDia, "Floor");
             Debug.Log("[GloomhavenVR][Env] Cellar room geometry assembled.");
         }
 
@@ -1384,27 +1466,45 @@ namespace GloomhavenVR
 
             var rig = new LightRig
             {
-                // A forest at night is darker than the old marsh clearing, but VR
-                // headsets render darker than these gamma-encoded previews — the
-                // ambient carries the cold moon bounce, the ground term is nearly
-                // black so the space between the trunks really is black.
-                ambUp = new Color(0.072f, 0.086f, 0.118f),
-                ambDown = new Color(0.017f, 0.020f, 0.016f),
+                // User finding, ModBuild 133 (tested ON HARDWARE, so it outranks
+                // the previews, which render brighter than the headset): "Hinter
+                // den Bäumen außerhalb der Lichtung soll es so dunkel sein das man
+                // sich nicht traut dahinter hinweg zu gehen."
+                //
+                // THE RECIPE, and what each number does:
+                //  * ambUp 0.072 -> 0.024. This is THE number. Ambient is the only
+                //    term that reaches surfaces the moon cannot, so it is exactly
+                //    the "blue-grey haze floor" that stopped the wood going black.
+                //    Everything not moonlit now sits at a third of what it was.
+                //  * ambDown 0.017 -> 0.005: downward-facing surfaces (the
+                //    undersides of the deadfall, the far ground) go to nothing.
+                //  * dirCol 0.62 -> 0.70: the moon gets STRONGER while everything
+                //    else falls away. Contrast is the tool, not brightness — the
+                //    clearing must stay readable and the shafts must still land.
+                //  * the far lantern's range 10 -> 6.5 and its colour halved: it
+                //    was lighting a whole quadrant of the wood. It should be a
+                //    point you notice, not a light source.
+                // Beyond these, the wood's darkness is carried by the per-vertex
+                // Depth() fade and GroundColor() below.
+                ambUp = new Color(0.024f, 0.029f, 0.040f),
+                ambDown = new Color(0.005f, 0.006f, 0.005f),
                 dirWorld = MoonDir,
                 // The moon does most of the work: a flat ambient made every trunk
                 // the same shade of blue-grey, which is exactly the "assembled
                 // assets" look. High key on the moonlit side, near black behind.
-                dirCol = new Color(0.62f, 0.71f, 0.86f),
+                dirCol = new Color(0.70f, 0.79f, 0.94f),
                 points = new[]
                 {
                     // will-o'-the-wisp over the hollow by the path — cold green
-                    new PLight(new Vector3(-4.6f, 0.85f, -6.2f), 7.0f, new Color(0.13f, 0.30f, 0.19f), 0.22f),
+                    new PLight(new Vector3(-4.6f, 0.85f, -6.2f), 5.5f, new Color(0.11f, 0.26f, 0.16f), 0.22f),
                     // a far lantern burning somewhere off among the trunks — the
                     // only warm light in the wood, and the reason to look that way
-                    new PLight(new Vector3(9.2f, 1.35f, -7.4f), 10.0f, new Color(0.52f, 0.29f, 0.11f), 0.30f),
-                    // the pool where the moon shafts land on the clearing floor
+                    new PLight(new Vector3(9.2f, 1.35f, -7.4f), 6.5f, new Color(0.26f, 0.145f, 0.055f), 0.30f),
+                    // the pool where the moon shafts land on the clearing floor —
+                    // KEPT at full strength: this is the light the players read the
+                    // board by, and it is the last thing that may be taken away.
                     new PLight(new Vector3(moonHoriz.x * 2.3f, 0.55f, moonHoriz.z * 2.3f), 6.0f,
-                               new Color(0.14f, 0.17f, 0.24f), 0.0f),
+                               new Color(0.15f, 0.18f, 0.26f), 0.0f),
                 },
             };
 
@@ -1419,11 +1519,14 @@ namespace GloomhavenVR
                 float onPath = Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(0.45f, 1.35f, PathDist(x, z)))
                                * PathFade(x, z);
                 litter *= 1f - 0.92f * onPath;
-                // darkness: the clearing floor is the brightest thing down here,
-                // everything under the canopy falls away into black
-                float fade = Mathf.SmoothStep(1f, 0.09f, Mathf.InverseLerp(8f, 22f, r));
-                float open = Mathf.Lerp(0.58f, 1f, Mathf.SmoothStep(1f, 0f,
-                                        Mathf.InverseLerp(ClearR - 2.0f, ClearR + 3.5f, r)));
+                // Darkness: the clearing floor is the brightest thing down here,
+                // everything under the canopy falls away into black.
+                // ModBuild 134: the fall-off starts inside the tree ring (6.5 m,
+                // was 8) and bottoms out at 2% (was 9%) by 16 m (was 22) — walk
+                // past the first trunks and there is no ground left to see.
+                float fade = Mathf.SmoothStep(1f, 0.015f, Mathf.InverseLerp(5.2f, 11.5f, r));
+                float open = Mathf.Lerp(0.20f, 1f, Mathf.SmoothStep(1f, 0f,
+                                        Mathf.InverseLerp(ClearR - 2.0f, ClearR + 2.5f, r)));
                 // a slightly brighter pool where the shafts strike
                 var pl = new Vector2(moonHoriz.x * 2.3f, moonHoriz.z * 2.3f);
                 float pool = 0.55f * Mathf.Exp(-(new Vector2(x, z) - pl).sqrMagnitude / 5.5f);
@@ -1450,10 +1553,16 @@ namespace GloomhavenVR
             var trunkA = new Acc();   // near bands: pine bark, full detail
             var trunkB = new Acc();   // far bands: a second species, coarser
             var canopy = new Acc();   // every crown + the canopy shell, one mesh
-            // depth fade baked per vertex: the wood must dissolve, never end
+            // Depth fade baked per vertex: the wood must dissolve, never end.
+            // ModBuild 134: 6.5..22 m -> 0.055 became 5.5..15 m -> 0.012. The
+            // FIRST ring of trunks (6.2-10 m) is what the player sees against the
+            // sky, and it now reads as a silhouette with a moon rim, not as a
+            // described object; behind it there is effectively nothing left. This
+            // one curve does more for "I would not walk back there" than the
+            // ambient does, because it also darkens the moonlit side.
             Color Depth(float r, float mul = 1f)
             {
-                float f = Mathf.SmoothStep(1f, 0.055f, Mathf.InverseLerp(6.5f, 22f, r)) * mul;
+                float f = Mathf.SmoothStep(1f, 0.010f, Mathf.InverseLerp(3.0f, 10.5f, r)) * mul;
                 return new Color(f, f, f, 1f);
             }
 
@@ -1474,7 +1583,12 @@ namespace GloomhavenVR
                 }
                 bool near = t.band <= 1;
                 var acc = (t.band % 2 == 0) ? trunkA : trunkB;
-                AddTrunk(acc, t, near ? 12 : 8, near ? 9 : 6, 1.6f, tint);
+                // The far bands (15.5-28.5 m) went from 8x6 to 7x4 rings in
+                // ModBuild 134: the extra 6.6k triangles the fainter star cut
+                // costs had to come from somewhere, and after this round's
+                // darkening those trunks sit at 1-5% brightness — a 7-sided
+                // silhouette out there is not resolvable at any distance.
+                AddTrunk(acc, t, near ? 12 : 7, near ? 9 : 4, 1.6f, tint);
                 if (t.dead)
                 {
                     // a snag keeps a few bare branches and nothing else
@@ -1513,7 +1627,8 @@ namespace GloomhavenVR
                     Vector3 right = Vector3.Cross(up, Vector3.up).normalized;
                     float halfW = len * 0.6f * (rect.width / Mathf.Max(rect.height, 1e-3f));
                     // brighter near the tear (moonlit rim), black deep in the mass
-                    float lit = Mathf.Lerp(1.20f, 0.10f, Mathf.InverseLerp(7f, 21f, r));
+                    // (ModBuild 134: bottoms out at 0.025 by 16 m, was 0.10 at 21)
+                    float lit = Mathf.Lerp(1.15f, 0.020f, Mathf.InverseLerp(5.5f, 13f, r));
                     AddCard(canopy, c, right * halfW, up * (len * 0.55f),
                             (Vector3.down * 0.7f + up * 0.3f).normalized, rect,
                             new Color(lit, lit, lit, 1f));
@@ -1537,11 +1652,15 @@ namespace GloomhavenVR
                 // the cold moon rim — the single most important lighting cue in
                 // the whole room: it gives the trunks volume and separates them
                 // from the black behind them.
-                m.SetColor("_RimCol", new Color(0.17f, 0.22f, 0.33f));
-                m.SetFloat("_RimPow", 3.8f);
+                // ModBuild 134: the rim is the ONLY thing raised in this round —
+                // with the ambient gone it is all that separates a trunk from the
+                // black behind it, and a silhouette with a cold edge is much more
+                // frightening than a described trunk.
+                m.SetColor("_RimCol", new Color(0.21f, 0.27f, 0.40f));
+                m.SetFloat("_RimPow", 4.2f);
                 // night bark is desaturated and cold, not the warm pink of the
                 // daylight photoscan
-                m.SetColor("_Tint", new Color(0.60f, 0.61f, 0.66f));
+                m.SetColor("_Tint", new Color(0.52f, 0.53f, 0.58f));
             }
             var foliage = NewRoomMat("S_Foliage.mat", "GloomhavenVR/EnvRoomCutout");
             foliage.SetTexture("_MainTex", Imp("fir_twig_alb"));
@@ -1550,8 +1669,8 @@ namespace GloomhavenVR
             foliage.SetFloat("_VCol", 1f);
             // Needles at night are almost black. The bright fir green of the raw
             // photoscan under a lit ambient was the single most cartoon-looking
-            // thing in the first pass.
-            foliage.SetColor("_Tint", new Color(0.30f, 0.35f, 0.28f));
+            // thing in the first pass. (ModBuild 134: darker again.)
+            foliage.SetColor("_Tint", new Color(0.21f, 0.25f, 0.20f));
 
             void Weld(Acc acc, string asset, string node, Material mat)
             {
@@ -1588,7 +1707,10 @@ namespace GloomhavenVR
                     AddShaft(sh, top, dir, len, w0, w1, amp, across);
                 }
                 var shaftMat = NewRoomMat("S_Shaft.mat", "GloomhavenVR/EnvShaft");
-                shaftMat.SetColor("_Tint", new Color(0.54f, 0.64f, 0.90f, 0.30f));
+                // a touch stronger than ModBuild 133 (alpha 0.30): with the wood
+                // around them darker the blades are now the brightest thing in the
+                // room, which is exactly what should draw the eye to the clearing
+                shaftMat.SetColor("_Tint", new Color(0.56f, 0.66f, 0.92f, 0.34f));
                 shaftMat.SetFloat("_Softness", 6.5f);
                 shaftMat.SetFloat("_Shimmer", 0.30f);
                 shaftMat.SetFloat("_ShimmerSpeed", 0.20f);
@@ -1597,8 +1719,11 @@ namespace GloomhavenVR
             }
 
             // ---------------------------------------------------- ground props
+            // ModBuild 134: props fade out with the same urgency the trunks do —
+            // a lit fern at 12 m is a described object where there should be
+            // nothing but a suggestion.
             float Fade(Vector3 pos) =>
-                Mathf.SmoothStep(1f, 0.18f, Mathf.InverseLerp(8f, 20f, new Vector2(pos.x, pos.z).magnitude));
+                Mathf.SmoothStep(1f, 0.04f, Mathf.InverseLerp(5.5f, 12f, new Vector2(pos.x, pos.z).magnitude));
             GameObject SProp(string n, string mesh, string tex, Vector3 pos, float yaw, float scale,
                 Vector3? e3 = null, Vector3? s3 = null, bool cutout = false, float bump = 1f,
                 float sink = 0.05f, float tintExtra = 1f, GameObject support = null)
@@ -1609,21 +1734,24 @@ namespace GloomhavenVR
             }
 
             // deadfall: one log across the path, one at the clearing edge
-            SProp("Log0", "dead_tree_trunk", "dead_tree_trunk", new Vector3(-2.2f, 0, -4.6f), 62, 1.0f, sink: 0.10f);
-            SProp("Log1", "dead_tree_trunk", "dead_tree_trunk", new Vector3(6.3f, 0, 4.4f), 128, 1.15f, sink: 0.12f);
+            // both were pulled outward for the 9.0 m PlaySpace: a 3 m log lying
+            // across the path reached 4.28 m from the centre at its near end
+            SProp("Log0", "dead_tree_trunk", "dead_tree_trunk", new Vector3(-3.1f, 0, -6.1f), 62, 1.0f, sink: 0.10f);
+            SProp("Log1", "dead_tree_trunk", "dead_tree_trunk", new Vector3(6.9f, 0, 5.0f), 128, 1.15f, sink: 0.12f);
             // THE leaning dead tree — caught in its neighbour's crown and never
             // fell. Rest() grounds it vertex-exactly despite the 62° tilt.
             SProp("LeanTree", "dead_tree_trunk_02", "dead_tree_trunk_02", new Vector3(-6.4f, 0, 5.9f),
                 0, 1.35f, e3: new Vector3(0f, 24f, 62f), sink: 0.05f);
             // stumps; the axe is left in the near one
-            var stump0 = SProp("Stump0", "tree_stump_01", "tree_stump_01", new Vector3(3.9f, 0, -3.6f), 60, 1.05f);
+            var stump0 = SProp("Stump0", "tree_stump_01", "tree_stump_01", new Vector3(4.4f, 0, -4.1f), 60, 1.05f);
             SProp("Stump1", "tree_stump_02", "tree_stump_02", new Vector3(-7.2f, 0, -2.1f), 200, 1.0f);
-            SProp("Axe", "wooden_axe_02", "wooden_axe_02", new Vector3(3.98f, 0, -3.62f), 108, 1.0f,
+            SProp("Axe", "wooden_axe_02", "wooden_axe_02", new Vector3(4.48f, 0, -4.12f), 108, 1.0f,
                 e3: new Vector3(-64f, 108f, 0f), sink: -0.02f, support: stump0);
             // roots breaking the floor, mostly at the trunk feet and the path rim
             SProp("Roots0", "root_cluster_02", "root_cluster_02", new Vector3(5.4f, 0, 2.3f), 190, 0.95f, sink: 0.14f);
-            SProp("Roots1", "root_cluster_02", "root_cluster_02", new Vector3(-4.9f, 0, -2.6f), 55, 0.85f, sink: 0.16f);
-            SProp("Root2", "single_root", "single_root", new Vector3(-1.9f, 0, -3.1f), 300, 1.0f, sink: 0.12f);
+            SProp("Roots1", "root_cluster_02", "root_cluster_02", new Vector3(-5.7f, 0, -3.1f), 55, 0.85f, sink: 0.16f);
+            // was (-1.9,-3.1): that reached 3.6 m into the 9.0 m PlaySpace disc
+            SProp("Root2", "single_root", "single_root", new Vector3(-3.6f, 0, -4.5f), 300, 1.0f, sink: 0.12f);
             SProp("Root3", "single_root", "single_root", new Vector3(2.6f, 0, 4.9f), 130, 0.9f, sink: 0.12f);
             // mossy rock outcrops
             SProp("Rocks0", "rock_moss_set_01", "rock_moss_set_01", new Vector3(-6.4f, 0, 3.4f), 30, 0.42f, sink: 0.12f);
@@ -1636,8 +1764,8 @@ namespace GloomhavenVR
             SProp("Crate", "wooden_crate_01", "wooden_crate_01", new Vector3(-4.1f, 0, -7.0f), 24, 0.95f,
                 e3: new Vector3(-14f, 24f, 78f), sink: 0.06f, tintExtra: 0.85f);
             // understory
-            SProp("Fern0", "fern_02", "fern_02", new Vector3(4.3f, 0, 3.1f), 0, 1.8f, cutout: true, sink: 0.05f, tintExtra: 0.72f);
-            SProp("Fern1", "fern_02", "fern_02", new Vector3(-5.0f, 0, 4.1f), 200, 1.6f, cutout: true, sink: 0.05f, tintExtra: 0.72f);
+            SProp("Fern0", "fern_02", "fern_02", new Vector3(5.9f, 0, 4.3f), 0, 1.8f, cutout: true, sink: 0.05f, tintExtra: 0.72f);
+            SProp("Fern1", "fern_02", "fern_02", new Vector3(-5.9f, 0, 4.8f), 200, 1.6f, cutout: true, sink: 0.05f, tintExtra: 0.72f);
             SProp("Fern2", "fern_02", "fern_02", new Vector3(-2.4f, 0, -6.1f), 95, 1.5f, cutout: true, sink: 0.05f, tintExtra: 0.72f);
             SProp("Grass0", "grass_medium_02", "grass_medium_02", new Vector3(2.8f, 0, 5.6f), 0, 1.9f, cutout: true, sink: 0.05f);
             SProp("Grass1", "grass_medium_02", "grass_medium_02", new Vector3(-6.4f, 0, -3.4f), 260, 2.0f, cutout: true, sink: 0.05f);
@@ -1662,8 +1790,13 @@ namespace GloomhavenVR
                 m.SetFloat("_Falloff", falloff);
                 Place(root, "Wisp" + n, glowMesh, p, Vector3.zero, Vector3.one * r, m);
             }
+            // ModBuild 134: the halos keep their brightness while everything
+            // around them loses two thirds of its own. They are the "occasional
+            // wisp, glint of eyes" the user asked to be the ONLY thing readable
+            // out there, so they are left alone deliberately — the contrast they
+            // gain is the point.
             Glow("Wisp", new Vector3(-4.6f, 0.95f, -6.2f), 0.55f, new Color(0.42f, 1f, 0.60f, 0.16f), 2.4f);
-            Glow("Lantern", new Vector3(9.2f, 1.45f, -7.4f), 0.85f, new Color(1f, 0.60f, 0.24f, 0.20f), 2.0f);
+            Glow("Lantern", new Vector3(9.2f, 1.45f, -7.4f), 0.75f, new Color(1f, 0.60f, 0.24f, 0.17f), 2.2f);
             Glow("Far", new Vector3(-11.5f, 1.1f, 8.2f), 0.7f, new Color(0.55f, 0.95f, 0.70f, 0.10f), 2.6f);
             // eyes: two tiny cold points at head height, deep between the trunks,
             // 12 cm apart. They never move — that is the point.
@@ -1676,6 +1809,9 @@ namespace GloomhavenVR
             PaintContactAO(g, 0.45f, 0.55f);
             FlushRig(rig);
             ReportGrounding("Forest");
+            // 'Ground' is the floor the board stands on and 'MoonShafts' are
+            // light, not matter — everything else must stay outside the clearing.
+            AssertPlaySpaceClear(root, "Forest", ForestPlaySpaceDia, "Ground", "MoonShafts");
             Debug.Log("[GloomhavenVR][Env] Night-forest room geometry assembled.");
         }
 

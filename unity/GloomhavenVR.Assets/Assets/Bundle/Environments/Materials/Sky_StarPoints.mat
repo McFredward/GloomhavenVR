@@ -23,10 +23,13 @@ Material:
     m_Ints: []
     m_Floats:
     - _Core: 34
-    - _Gain: 2.1
+    - _Extinct: 0.24
+    - _Gain: 2.6
+    - _MoonCos: 0.99968344
     - _RotSpeed: 0.0021816615
     - _TwinkleAmp: 0.8
     - _TwinkleSpeed: 1.9
     m_Colors:
+    - _MoonDir: {r: 0.4925564, g: 0.64270705, b: 0.58678424, a: 0}
     - _Pole: {r: 0, g: 0.74314487, b: 0.66913056, a: 0}
   m_BuildTextureStacks: []

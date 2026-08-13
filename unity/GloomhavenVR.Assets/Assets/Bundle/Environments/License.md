@@ -48,22 +48,27 @@ is the `flame_diff` map of Poly Haven's brass_candleholders.
 - **Modifications**: diffuse and alpha merged into one RGBA PNG; sub-rects cut
   by connected-component analysis of the alpha channel.
 
-## Night-sky panorama (`Textures/Env_NightSky.png`)
+## Night-sky panorama — REMOVED in ModBuild 134
 
-- **Asset**: *Rogland Clear Night* HDRI
-- **Author**: Greg Zaal (Poly Haven)
-- **Source**: <https://polyhaven.com/a/rogland_clear_night>
-  (16k unclipped linear equirect HDR,
-  <https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/16k%2B/rogland_clear_night_16k.hdr>)
-- **License**: CC0 1.0 (public domain, <https://polyhaven.com/license>) — no
-  attribution required; credited here with thanks anyway.
-- **Modifications**: tone-mapped to LDR night exposure, terrain silhouette
-  replaced by a starlit mist band, cropped to the -20..+90° elevation band,
-  star-core mask synthesized into the alpha channel. The exact processing
-  script is embedded as a comment at the end of `Assets/Editor/BuildEnvironments.cs`.
-  Since the ModBuild 132 round this layer is used as the **Milky-Way backdrop
-  only**: `EnvStars.shader` suppresses its own star cores against that alpha
-  mask, so the point stars all come from the catalogue layer below.
+The environments used to ship a processed *Rogland Clear Night* HDRI panorama
+(Greg Zaal, Poly Haven, CC0 1.0, <https://polyhaven.com/a/rogland_clear_night>)
+as `Textures/Env_NightSky.png`. The user rejected it as a static image
+("entferne das statische Bild und gehe voll zu einem dynamischen Sternenhimmel
+(ausschließlich)"), so the texture, its import step and its processing script
+are gone and **no third-party sky asset ships any more**. Everything continuous
+in the sky — gradient, Milky Way, sub-visual star dust, moon — is now generated
+in `EnvStars.shader` from the galactic frame derived in `BuildEnvironments.cs`;
+the point stars are the catalogue below. The note is kept because the asset was
+once distributed in the bundle.
+
+## Galactic coordinate frame (`EnvStars.shader` Milky Way)
+
+- **Constants**: IAU 1958 galactic frame in J2000 equatorial coordinates —
+  north galactic pole RA 192.85948°, Dec +27.12825°; galactic centre
+  RA 266.40510°, Dec −28.936175°; position angle of the celestial pole
+  l = 122.93192°. Published astronomical constants (facts, not copyrightable);
+  `EnvironmentsBuilder.GalacticBasis` builds the rotation from them and asserts
+  the third against the first two.
 
 ## Star catalogue (`Assets/Editor/bsc5_stars.csv` → the star-field mesh)
 
@@ -76,9 +81,10 @@ is the `flame_diff` map of Poly Haven's brass_candleholders.
   case. No attribution required; credited here.
 - **Use**: fetched and reduced by `Assets/Editor/star_catalogue.py` to
   right ascension / declination / V magnitude / B−V for the 8404 stars down to
-  V=6.5. `BuildEnvironments.BuildStarField` turns the 5080 stars brighter than
-  V=6.0 into one camera-independent quad each; `EnvStarPoints.shader` rotates
-  them about the celestial pole and twinkles them. The raw CSV lives under
+  V=6.5. Since ModBuild 134 `BuildEnvironments.BuildStarField` uses ALL of them
+  (it was V≤6.0, 5080 stars, until the photographic backdrop was deleted and the
+  sky between them read empty); `EnvStarPoints.shader` rotates them about the
+  celestial pole and twinkles them. The raw CSV lives under
   `Assets/Editor/` and is therefore editor-only — it never enters the bundle or
   the player build; only the derived mesh ships.
 - **B−V → colour**: Ballesteros' blackbody fit (Ballesteros, F. J., 2012,
