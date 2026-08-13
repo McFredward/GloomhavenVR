@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using ScenarioRuleLibrary;
 using UnityEngine;
 
 namespace GloomhavenVR.Net;
@@ -276,6 +277,78 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private readonly byte[] _useBarCountSample = new byte[NetProtocol.UseBarsCount];
     private readonly byte[] _useBarSlotSample =
         new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
+
+    /// <summary>Owner scratch for <see cref="AllVisibleUseBarsAreForeign"/> (one call per packet,
+    /// single-threaded).</summary>
+    private static readonly System.Collections.Generic.List<CActor> UseBarOwnerScratch = new(4);
+
+    /// <summary>
+    /// True when EVERY bar in <paramref name="mask"/> belongs exclusively to characters under
+    /// another player's control — see the long note at the call site for the boots defect this
+    /// guards and for why withholding such a bar cannot deadlock anyone.
+    ///
+    /// <para>Read straight off the game's own bar singletons (the same fields
+    /// <c>UseBarsSurface</c>'s own owner resolvers read) rather than through that surface, because
+    /// this half of the fix lives on the NET side of the file boundary. A summon maps to its
+    /// <c>Summoner</c>, the same mapping every other owner test in this mod uses. FAIL-OPEN: a bar
+    /// whose owner cannot be resolved at all counts as NOT foreign, so an unknown future bar keeps
+    /// riding exactly as it does today.</para>
+    /// </summary>
+    private static bool AllVisibleUseBarsAreForeign(byte mask)
+    {
+        try
+        {
+            bool anyOwnerSeen = false;
+            for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+            {
+                if ((mask & (1 << b)) == 0)
+                    continue;
+                UseBarOwnerScratch.Clear();
+                switch (b)
+                {
+                    case 0 when Singleton<UIActiveBonusBar>.IsInitialized:
+                    {
+                        System.Collections.Generic.List<CActor>? actors =
+                            Singleton<UIActiveBonusBar>.Instance.actors;
+                        if (actors != null)
+                        {
+                            for (int i = 0; i < actors.Count; i++)
+                                UseBarOwnerScratch.Add(actors[i]);
+                        }
+                        break;
+                    }
+                    case 1 when Singleton<UIUseAbilitiesBar>.IsInitialized:
+                        UseBarOwnerScratch.Add(Singleton<UIUseAbilitiesBar>.Instance.actor);
+                        break;
+                    case 2 when Singleton<UIUseAugmentationsBar>.IsInitialized:
+                        UseBarOwnerScratch.Add(Singleton<UIUseAugmentationsBar>.Instance.actor);
+                        break;
+                    case 3 when Singleton<UIUseItemsBar>.IsInitialized:
+                        UseBarOwnerScratch.Add(Singleton<UIUseItemsBar>.Instance.actor);
+                        break;
+                }
+                for (int i = 0; i < UseBarOwnerScratch.Count; i++)
+                {
+                    CPlayerActor? owner = UseBarOwnerScratch[i] switch
+                    {
+                        CPlayerActor player => player,
+                        CHeroSummonActor summon => summon.Summoner,
+                        _ => null,
+                    };
+                    if (owner == null)
+                        continue;
+                    anyOwnerSeen = true;
+                    if (!Board.CharacterFocus.IsForeign(owner))
+                        return false; // one bar this player can actually answer ⇒ publish everything
+                }
+            }
+            return anyOwnerSeen;
+        }
+        catch (System.Exception)
+        {
+            return false; // attribution is presentation: never withhold on a half-torn model
+        }
+    }
 
     /// <summary>The USE-BAR drawer last put on the wire (extension record 25): the mask (−1 = no
     /// record was written yet) plus a byte-for-byte copy of what went out. A slot toggling on, a
@@ -1271,6 +1344,51 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // surface publishes, so the hide travels with the drawer. Sampled before the rate gate: a
         // slot click is exactly the human-paced edge the decision records already pre-empt for.
         byte useBarMask = WorldUI.Surfaces.UseBarsSurface.WireBarMask;
+        // …AND A BAR THAT BELONGS ONLY TO SOMEBODY ELSE'S CHARACTERS NEVER LEAVES THIS MACHINE.
+        //
+        // USER REPORT 2026-08-13, verbatim: "Die Stiefel-Entscheidungen waren im Test nur bei einem
+        // Character zu tun, aber mein Mitspieler hat die die selbe Entscheidung bei einem anderen
+        // Character angezeigt, obwohl er der character sie nicht hat und diese Entscheidung auch
+        // nicht treffen muss. Warum wurde sie fälschlicherweise auch noch bei einem anderen
+        // Character angezeigt der das item gar nicht hatte?"
+        //
+        // WARUM (proven from the game's own code and both ModBuild-137 logs): the boots prompt is
+        // not a decision-dock prompt at all — it is the ACTIVE-BONUS bar for Boots of Speed's
+        // initiative adjustment. Choreographer.CheckForInitiativeAdjustments calls
+        // UIActiveBonusBar.ShowActiveBonus(msg.m_ActorSpawningMessage, …) on EVERY client and gates
+        // only the ready BUTTON on IsUnderMyControl — the bar itself is not gated at all. So the
+        // teammate's client raised Cryonaris's bar as a local HUD singleton, the mod docked it on
+        // THAT machine's own board (which was showing Hilde Die 2Te), and their log says both
+        // things in the same second:
+        //     "USE BARS: bonus-bar split KEPT the decision-area row for 'ITEM_NAME_BootsofSpeed'"
+        //     "USE BARS: 'UseBarActiveBonus' VISIBLE — owner 'Cryonaris' is the character in view"
+        //     "Board: CONFIRM/UNDO keycaps … owner 'Hilde Die 2Te' is in view"
+        // The rule that is supposed to stop this (one character owns a decision) compares the bar's
+        // owners against Board.CharacterFocus.Focused — the EXPLICIT focus override, which is null
+        // whenever the player is simply following the game, i.e. almost always. It is a
+        // single-client rule with no multiplayer half, and the take-damage prompt only escapes it by
+        // accident (the game hides its own window on non-controlling clients; UIActiveBonusBar does
+        // not).
+        //
+        // THIS GUARD IS THE HALF THAT LIVES ON MY SIDE OF THE FILE FENCE, and it is worth having on
+        // its own merits: it stops the bogus bar from being BROADCAST, which is the copy the user
+        // himself saw ("bei einem anderen Character angezeigt" on his mirrored view of the
+        // teammate's board). A bar every one of whose owners is a foreign character can never be
+        // answered here — the peer's own log proves it, the slot arrived "#0=greyed+dim" there and
+        // "#0=OFFERED" on its real owner's machine — so withholding it cannot deadlock anybody, and
+        // single player is untouched (IsForeign is false whenever the game is offline).
+        // The REMAINING half — the bar must not be docked on the local board either — is one
+        // predicate in WorldUI/Surfaces/UseBarsSurface.cs, which this lane does not own. REPORTED.
+        if (useBarMask != 0 && AllVisibleUseBarsAreForeign(useBarMask))
+        {
+            if (_lastSentUseBarMask != 0)
+                VRLog.Info("Net", "USE BARS withheld: every visible bar on this board belongs to a " +
+                                  "character under ANOTHER player's control, so record 25 stops " +
+                                  "riding — a peer must not see somebody else's decision drawn a " +
+                                  "second time on this player's board. See the boots report of " +
+                                  "2026-08-13.");
+            useBarMask = 0;
+        }
         if (useBarMask != 0)
             WorldUI.Surfaces.UseBarsSurface.CopyWireBars(
                 _useBarFlagsSample, _useBarCountSample, _useBarSlotSample);
@@ -1497,6 +1615,35 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HasBoardUi = true;
             extras.BoardButtonsMask = (byte)(boardUiNow & 0xFF);
             extras.BoardOverlayMask = (byte)((boardUiNow >> 8) & 0xFF);
+            // BYTE 2 WAS SAMPLED, LOGGED — AND NEVER COPIED OUT. This line is the whole of two
+            // hardware defects.
+            //
+            // The sampler above packs the cap-state byte into bits 16..23 of boardUiNow and the
+            // "Board UI SENT" diagnostic prints it ("CAP STATES (byte 2) = 0x…", "ITEM-PILE CUE =
+            // BEATING") — the ModBuild 137 logs show 0x14 / 0x41 / 0x80 / 0xC0 going past that
+            // line on both machines. But the only two bytes ever handed to PresenceState were 0 and
+            // 1, so the serializer (PresenceState: "[buttons][overlays][cap states]") wrote a THIRD
+            // byte of 0 on every packet, with the record LENGTH still saying "byte 2 is valid".
+            // Both receivers therefore latched HasCapStates = true, mask = 0x00, once, and never
+            // logged a change again — exactly what the two ModBuild-137 logs show, symmetrically:
+            //   "Cap states RECEIVED from player 2: 0x00"   (host, one line, whole session)
+            //   "Cap states RECEIVED from player 1: 0x00"   (peer, one line, whole session)
+            // A DIAGNOSTIC THAT READS THE SAMPLE RATHER THAN THE PACKET CANNOT SEE THIS — the send
+            // line was truthful about what was measured and silent about what was transmitted.
+            //
+            // What the missing byte cost, both user-reported this round:
+            //   • bit 7 = the closed items pile's "something in here is playable" heartbeat. The
+            //     receiver's ItemsPileUsableCue could only ever be false, so RemoteControlBoard's
+            //     ember/ring emitters were never asked to run — "Die Item-Animation auf dem Pile …
+            //     wird nicht synchronisiert". The mirror code for it has shipped since ModBuild 121
+            //     and had simply never been reachable.
+            //   • bits 0..6 = the cap STATE colours. mask 0x00 reads as "skip DISABLED, rests
+            //     DISABLED, confirm un-accented", so every mirrored SKIP cap was painted through
+            //     the disabled path — wood-lerped face and label alpha 0.35 — while the owner's was
+            //     enabled at alpha 1. That is "die Überspringen Knöpfe … der Text ist etwas
+            //     transparenter", measured: 0.35 vs 1.0.
+            extras.BoardCapStateMask =
+                (byte)((boardUiNow >> 16) & NetProtocol.BoardUiCapStateDefinedMask);
         }
         // SLOT-CARD SIZE (extension record 11): written only while a live tray exists AND either
         // width differs from the legacy assumption every pre-record receiver hardcodes

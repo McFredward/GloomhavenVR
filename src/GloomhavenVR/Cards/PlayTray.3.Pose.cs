@@ -46,15 +46,11 @@ internal sealed partial class PlayTray
                     new Vector3(offset.x + xSpread, offset.y, WantedGlowBaseZ + offset.z);
                 _wantedHighlights[i]!.transform.localScale = new Vector3(w * wanted, h * wanted, 1f);
             }
-            // Round 13: the recess SEAT LINER marks the same seat the card and the glows share —
-            // the Overlays element must move all three together or the wood pad drifts off the
-            // card it exists to back. (Scale is a mesh, not a transform scale — a size change
-            // needs the board rebuild, which every board switch already does.)
-            if (_slotLiners[i] != null)
-            {
-                _slotLiners[i]!.transform.localPosition =
-                    new Vector3(offset.x + xSpread, offset.y, SlotLinerZ + offset.z);
-            }
+            // (The round-13 SEAT LINER used to be re-seated here as a third member of the overlay
+            // group. It is GONE — user report 2026-08-13, verbatim: "Uns ist aufgefallen das unter
+            // den Kartenoverlays noch so ein weiteres Brett liegt. Verschiebt man die Kartenoverlays
+            // geht dieses Brett mit. … Dieses Brett das zu den overlays gehört soll komplett weg."
+            // The overlay group is now exactly what its name says: the two glows and the card seat.)
             // Item B: the placed card's resting spot follows the SAME overlay offset/spread — the
             // glow AND the physical card move together. Re-home any resting (non-held) occupant now;
             // freshly placed cards read the coupled offset via SlotHomeOffsetFor.

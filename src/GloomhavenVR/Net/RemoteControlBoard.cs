@@ -1651,11 +1651,28 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         /// collider strip but neither creates a collider — the ring quads and the particle renderer
         /// are collider-free by construction).</para>
         /// </summary>
+        /// <summary>
+        /// Run (or stop) the mirrored "something in this pile is playable" heartbeat.
+        ///
+        /// <para>UNREACHABLE UNTIL ModBuild 137+1 — user report 2026-08-13, verbatim: "Die
+        /// Item-Animation auf dem Pile bei der Spieler sieht, dass Gegenstände nutzbar sind, wird
+        /// nicht synchronisiert - auch diese soll voll synchronisiert werden so wie alle anderen
+        /// Animationen auch." Every line below shipped in ModBuild 121 and is term-for-term the
+        /// local recipe, but the boolean that drives it could only ever be false: the sender packed
+        /// the cue into board-UI byte 2 and then never copied that byte into the packet (see the
+        /// BoardCapStateMask note in <c>NetAvatarDriver</c>). The two ModBuild-137 logs prove both
+        /// halves — the owners' own "ITEM highlight: 3/7 item(s) usable now … stack cue ON" against
+        /// the receivers' "item-cue=off" on every single content tick.</para>
+        /// </summary>
         public void SetUsableCue(bool on)
         {
             if (on == _usableCueOn)
                 return;
             _usableCueOn = on;
+            Core.VRLog.Info("Net", $"PILE ANIM: mirrored items stack cue {(on ? "ON" : "off")} — " +
+                                   "the owner's own edge (board-UI byte 2 bit 7), running the ember " +
+                                   "puffs and outward rings on this client's clock at the owner's " +
+                                   "tuned beat. No item identity rides that bit.");
 
             if (_usableEmbers == null && on)
                 _usableEmbers = BuildUsableEmbers(); // null in a shader-less environment: degrade, never crash

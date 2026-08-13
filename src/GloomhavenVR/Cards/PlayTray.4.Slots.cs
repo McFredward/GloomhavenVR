@@ -413,153 +413,46 @@ internal sealed partial class PlayTray
         }
     }
 
-    // ------------------------------------------------------------------ recess seat liner --
+    // --------------------------------------------------- recess seat liner: RETIRED (137+1) --
 
     /// <summary>
-    /// ROUND 14 — SUPERSEDED for the LOCAL build by <see cref="SlotLinerSeatRatio"/>; kept only
-    /// because <c>Net.RemoteBoardFurniture.BuildSlotLiner</c> (READ-ONLY this round) still reads it.
+    /// THE SEAT LINER IS GONE. User report 2026-08-13, verbatim: "Uns ist aufgefallen das unter den
+    /// Kartenoverlays noch so ein weiteres Brett liegt. Verschiebt man die Kartenoverlays geht
+    /// dieses Brett mit. Es ist nie aufgefallen weil die overlays im Controllbaordasset so
+    /// positioniert waren, dass es perfekt drinen lag. Dieses Brett das zu den overlays gehört soll
+    /// komplett weg, das brauchen wir nicht. Die overlays reichen und können auf dem asset des
+    /// controllboards ohne etwas zugehöriges positioniert werden."
     ///
-    /// <para>WHY IT WAS WRONG (the ModBuild-117 hardware run, user verbatim: "Das Problem mit den
-    /// schwarzen Hintergründen ist unverändert"): this is a factor of the BASE card box
-    /// (CardWidth × 1.78 under the slot's inherited 1.3× SlotScale) — but the SEATED card is NOT
-    /// the base card box. It seats at <see cref="SlotCardScale"/>, which is the LIVE per-board
-    /// <c>[Cards] SlotOverlayScale_{board}</c> dial (seeded 1.45, and tuned — the 117 inventory
-    /// measured the liner at x −0.05..1.05 of the seated face, i.e. only ≈1.10× the seated card,
-    /// which back-solves to a dial near 1.7 on that rig). A constant can never track a dial: the
-    /// liner must be sized off the SEATED card's own factor, which is what
-    /// <see cref="BuildSlotLiners"/> now does.</para>
+    /// <para>WHAT IT WAS: rounds 13/14 built a rounded <c>CardMesh</c> slab of grain wood
+    /// (<c>SlotSeatLiner</c>, 1.45x the seated card) on the recess floor behind each tray card,
+    /// because every pixel the card's punch-out erased rendered as the bundled tray's own near-black
+    /// AO-baked recess floor and read as "schwarze Ränder". It was a BACKDROP for a card that had
+    /// holes in it.</para>
+    ///
+    /// <para>WHY IT MAY GO: the card-border saga was solved at the source (mesh-contour punch-out) —
+    /// the seated card no longer erases a frame band it needs something warm behind. What remained
+    /// was a third member of the "Overlays" element that silently travelled with the two glows
+    /// (<see cref="SetOverlayOffset"/> re-seated it in the same loop), invisible only as long as the
+    /// tuned offsets kept it buried inside the control-board asset. The ModBuild-137 rebase moved
+    /// the overlays and the plank came out from under the board. The user's ruling settles it: the
+    /// overlays are the whole element, and they seat directly on the board asset.</para>
+    ///
+    /// <para>NOTHING WAS ANCHORED TO IT — verified before deletion: no child was ever parented to
+    /// <c>SlotSeatLiner</c>, no code looked it up by name, nothing read its renderer or bounds, it
+    /// was never handed to <c>AdoptFurniture</c>/<c>CanvasConversion.RegisterFurniture</c>, and
+    /// <see cref="SlotHoldsCard"/> counts only children carrying a <c>VRCard</c>, so
+    /// <c>OccupiedSlotMask</c> cannot move. Its three constants (SlotLinerSeatRatio 1.45,
+    /// SlotLinerColor (0.46,0.37,0.26), SlotLinerZ) had exactly two readers — this builder and the
+    /// peer mirror's <c>Net.RemoteBoardFurniture.BuildSlotLiner</c> — and both are deleted in the
+    /// same change, so a peer's board loses the same plank in the same build. There is no config
+    /// dial to retire: the liner never had one.</para>
+    ///
+    /// <para>REJECTED: hiding it behind a new [Cards] toggle. A dial the user has ruled OFF is a
+    /// dial that has to be explained in the options tree forever, and the settings audits of
+    /// ModBuild 136 removed twenty of exactly that kind.</para>
     /// </summary>
-    // (The superseded round-13 constant SlotLinerScale = 1.78 — a factor of the BASE card box —
-    // is DELETED: the Net mirror now builds from the owner's SlotOverlayScale (tuning field 171)
-    // × SlotLinerSeatRatio, same product as BuildSlotLiners, so the unit error cannot recur on
-    // either side of the wire.)
-
-    /// <summary>
-    /// ROUND 14 — the liner's size as a factor of the SEATED CARD's box, the metric the recess
-    /// well was actually measured in. Derivation: karten2.png (2026-08-10) measured the bundled
-    /// Oak recess well at ≈15–20 % of the card width per side around the SEATED card, i.e. the
-    /// well is ≈1.30–1.40× the seated card box; 1.45 covers the widest measured extent with a
-    /// margin, and any overhang past the well is harmlessly hidden by the raised tray surround
-    /// (opaque, nearer the viewer, depth-tested away). The liner therefore always reaches the
-    /// base of the recess walls no matter where the <c>SlotOverlayScale</c> dial stands, because
-    /// it multiplies the very same live factor the seated card renders at
-    /// (<see cref="SlotCardScale"/>) instead of freezing its own copy of it.
-    /// </summary>
-    internal const float SlotLinerSeatRatio = 1.45f;
-
-    /// <summary>Liner tint under the keycap grain texture (BoardLit: alb = tex × color). Chosen
-    /// against the karten2/karten3 measurements: the tray's lit mid-wood reads ≈(42,33,23)/255
-    /// and the recess floor ≈(25,21,18) — this lands the liner near the MID-WOOD, clearly not
-    /// black, without a bright pad that would fight the keycap cream (1, 0.92, 0.72).</summary>
-    internal static readonly Color SlotLinerColor = new(0.46f, 0.37f, 0.26f);
-
-    /// <summary>Fallback liner front-face local Z when the card-derived midpoint (see
-    /// <see cref="BuildSlotLiners"/>) degenerates under an extreme tuning: a hair proud of the
-    /// recess floor (slot origin, z 0), behind any sanely seated card. The Z ORDERING IS VERIFIED
-    /// ON HARDWARE (ModBuild-117 tray inventory, face-space z, +z = behind the face): card back
-    /// 14.7 &lt; liner front 15.7 &lt; recess floor ≈18.0 — the liner renders in front of the
-    /// floor (karten4.png confirms: its margin reads warm ≈(53,35,23) against the floor's
-    /// ≈(34,24,17)) and behind the card. The tray 'Board' mesh AABB spanning z −40..33 is the
-    /// whole tray (walls proud toward the viewer, underside far behind), not the floor plane.</summary>
-    private const float SlotLinerZ = -0.0008f;
-
-    /// <summary>The two seat liners (defensive rebuild guard, same shape as the glow arrays).</summary>
-    private readonly GameObject?[] _slotLiners = new GameObject?[2];
-
-    /// <summary>
-    /// ROUND 13 (2026-08-10, karten2.png/karten3.png) — the black rim was NEVER the card.
-    ///
-    /// <para>USER REPORT, verbatim: "Leider sind die Hintergrund Probleme nach wie vor da. Die
-    /// Unterseite der Karten ist immer noch kaputt, wenn auch besser geworden nach deinem letzten
-    /// fix." The ModBuild-116 CARD BAND PAINTER inventory ran on his rig and returned "no active
-    /// dark band painter" for the very state the photos show — and both were RIGHT. Measured on
-    /// the screenshots: the black rim around a seated tray card is ≈15–20 % of the card width per
-    /// side (well ≈1.20× the card), far beyond the printed-frame bands (1.4–5.3 %), beyond the
-    /// backing slab (0.94 of the face) and beyond every uGUI layer (all ≤ 1.06 of the face). Its
-    /// pixels are WARM (r−b ≈ +7..+21, matching the tray wood's +19) while every card layer is
-    /// COOL (−11..−18): the "border" is the bundled tray's own AUTHORED RECESS FLOOR — dark
-    /// AO-baked wood, an ANCESTOR mesh no under-the-card inventory could ever reach.</para>
-    ///
-    /// <para>THE REFRAME THAT FOLLOWS: the punch/crop/silhouette machinery has been WORKING for
-    /// rounds. Every pixel it erases is genuinely transparent — and renders in the tone of
-    /// whatever stands behind it, which in a recess is near-black floor. So the erased frame band
-    /// read as an unchanged black rim, and the crop's bottom notch plus the kept bright bottom
-    /// ornaments (designed protrusions, correctly inside the outline's extent) read as "Unterseite
-    /// kaputt" — silver flourishes floating in blackness. Eleven texture rounds could not have
-    /// fixed this from inside the card.</para>
-    ///
-    /// <para>THE FIX IS THE BACKDROP: a card-shaped SEAT LINER on the recess floor — the rounded
-    /// CardMesh slab at <see cref="SlotLinerSeatRatio"/> × the seated card, wearing the keycaps' carved-grain BoardLit
-    /// wood (<see cref="NewKeycapMaterial"/>) so it reads as part of the board's furniture, not a
-    /// sticker. Opaque, depth-written, always on (no state machinery, no pops, nothing per
-    /// frame). With it, every punched/cropped pixel and the floor margin around the card render
-    /// as warm board wood: the black rim and the "broken" bottom band disappear without touching
-    /// the card, its proportions ("Ich möchte gerne an den aktuellen Proportionen festehalten...
-    /// nur eben ohne die schwarzen Ränder") or any of the punch/crop/silhouette machinery.</para>
-    ///
-    /// <para>BUNDLED BOARDS ONLY: the procedural fallback board's recess visuals (Frame 1.12 +
-    /// FrameInner 1.04) are both SMALLER than the seated card (1.45) and therefore fully covered
-    /// by it — that board never had this defect, and a 1.78 liner would bury its authored frame
-    /// quads instead.</para>
-    /// </summary>
-    private void BuildSlotLiners()
-    {
-        if (_visual == null)
-            return; // procedural fallback board — see the class doc above
-        float w = CardsConfig.CardWidth.Value;
-        float h = CardsConfig.CardHeight;
-        Shader? shader = BoxCapShader();
-        if (shader == null)
-            return; // no drawable shader at all — keep today's look rather than a magenta plate
-        Material liner = NewKeycapMaterial(shader, SlotLinerColor);
-        // ROUND 14 — SIZE OFF THE SEATED CARD, NOT THE BASE CARD BOX. SlotCardScale is the live
-        // per-board dial the seated card itself renders at (SetHome takes exactly this factor),
-        // so liner/card stay in a fixed ratio (SlotLinerSeatRatio) at every dial setting. The old
-        // constant 1.78× base box was only 1.78/dial of the seated card — ≈1.10× on the tuned
-        // ModBuild-117 rig, smaller than the ≈1.30–1.40× recess well it exists to cover.
-        float seat = SlotCardScale;
-        float linerFactor = seat * SlotLinerSeatRatio;
-        // Z — front of the recess floor (slot origin, z 0), behind the seated card's BACK face.
-        // The card's back sits at −SlotCardInset + slabThickness×seat (the slab thickens with the
-        // seat scale), so the midpoint tracks the tuning instead of assuming the seeded 1.45.
-        // Hardware-verified ordering on the 117 rig (face-space z): card back 14.7 < liner front
-        // 15.7 < floor ≈18.0. Falls back to the proven constant if a degenerate tuning pushes the
-        // card back to (or through) the floor.
-        float cardBackZ = -CardsConfig.SlotCardInset.Value + CardMesh.Thickness * seat;
-        float linerZ = cardBackZ < -0.001f ? cardBackZ * 0.5f : SlotLinerZ;
-        for (int i = 0; i < 2; i++)
-        {
-            Transform? slot = _slots[i];
-            if (slot == null || _slotLiners[i] != null)
-                continue;
-            Vector3 ov = CardsConfig.SlotOverlayOffset(CardsConfig.CurrentBoard).Value;
-            float xSpread = (i == 0 ? -0.5f : 0.5f) * CardsConfig.SlotOverlaySpacing(CardsConfig.CurrentBoard).Value;
-            var go = new GameObject("SlotSeatLiner");
-            go.transform.SetParent(slot, worldPositionStays: false);
-            // The card's seat center exactly (SlotHomeOffsetFor's X/Y), floor-proud Z: the liner
-            // must sit UNDER the card wherever the Overlays element moves the pair.
-            go.transform.localPosition = new Vector3(ov.x + xSpread, ov.y, linerZ + ov.z);
-            go.AddComponent<MeshFilter>().sharedMesh = CardMesh.Get(w * linerFactor, h * linerFactor);
-            var renderer = go.AddComponent<MeshRenderer>();
-            // Same material asset on both submeshes (front+rim / back): the liner is one solid
-            // piece of board wood. NEVER the shared CardBodyKind pairs — those are silhouette-
-            // clipped to the card art and this must stay a full rounded rectangle.
-            renderer.sharedMaterials = new[] { liner, liner };
-            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            // Opaque and depth-written like the round-readout plate — no furniture order group
-            // needed ("the opaque plate needs nothing"); the transparent glows draw over it by
-            // queue, the card by depth.
-            _slotLiners[i] = go;
-        }
-        VRLog.Info("Cards", $"Board: SLOT SEAT LINERS built (round 14: {SlotLinerSeatRatio:F2}× the SEATED " +
-                            $"card box = seat dial {seat:F2} × {SlotLinerSeatRatio:F2} = {linerFactor:F2}× base " +
-                            $"card box, front z {linerZ * 1000f:F2} mm slot-local — card back at " +
-                            $"{cardBackZ * 1000f:F2} mm, floor at 0; grain wood " +
-                            $"rgba({SlotLinerColor.r:F2},{SlotLinerColor.g:F2},{SlotLinerColor.b:F2})) — the " +
-                            "liner now tracks the SlotOverlayScale dial, so it covers the ≈1.30–1.40× recess " +
-                            "well at every tuning instead of the fixed 1.78× base box that measured only " +
-                            "≈1.10× of the seated card on the ModBuild-117 rig.");
-    }
+    // (No member here. This block is the record of a deletion — do NOT rebuild the liner without
+    // re-reading the ruling above.)
 
     // ------------------------------------------------------------------ item-use slot --
 

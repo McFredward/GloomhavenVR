@@ -565,7 +565,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                 slot.localScale *= SlotScale;
         }
 
-        BuildSlotLiners(); // round 13: cover the authored near-black recess floor BEFORE the glows
+        // (The round-13 SLOT SEAT LINER used to be built here, ahead of the glows. It is GONE —
+        // see the retirement note above BuildSlotHighlights in PlayTray.4.Slots.cs.)
         BuildSlotHighlights();
         BuildWantedHighlights();
         BuildButtons(confirmAnchor, undoAnchor);

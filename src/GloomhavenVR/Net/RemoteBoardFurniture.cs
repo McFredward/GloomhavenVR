@@ -715,18 +715,25 @@ internal sealed class RemoteBoardFurniture
     /// slot toggling on, the game re-asserting a gate) repaints instead of rebuilding.</summary>
     private readonly struct UseBarRow
     {
-        public UseBarRow(Transform root, Material[] tiles, GameObject[] chosenRims, GameObject picker)
+        public UseBarRow(Transform root, Material[] tiles, GameObject[] chosenRims, GameObject picker,
+                         SpriteRenderer[] symbols)
         {
             Root = root;
             Tiles = tiles;
             ChosenRims = chosenRims;
             Picker = picker;
+            Symbols = symbols;
         }
 
         public readonly Transform Root;
         public readonly Material[] Tiles;
         public readonly GameObject[] ChosenRims;
         public readonly GameObject Picker;
+
+        /// <summary>One per slot: THE GAME'S OWN ICON for that slot, resolved locally by
+        /// <see cref="RemoteUseBarSymbols"/> and never received. Disabled while it cannot be
+        /// resolved, which leaves the anonymous tile every build before this one drew.</summary>
+        public readonly SpriteRenderer[] Symbols;
     }
 
     /// <summary>The mirrored bar rows currently built, in the owner's own stack order (top to
@@ -1031,15 +1038,34 @@ internal sealed class RemoteBoardFurniture
                            + tuning.ClusterOffset
                            + new Vector3(tuning.RoundOffsetX, tuning.RoundOffsetY, 0f)
                            + new Vector3(0f, 0f, -(ClusterProudLift * clusterScale + tuning.RoundOffsetZ));
+        // …AND THE SHAPE ITSELF IS THE CLUSTER'S NOW, not the board keycaps' (user 2026-08-13:
+        // "Die Überspringen Knöpfe sehen nicht 1:1 genauso aus, wie auf dem echten board, etwas
+        // andere Form und der Text ist etwas transparenter"). clusterScale is handed down so
+        // InertCap can express ButtonCluster's own unscaled constants — see InertCap.Square.
         _skip = tuning.RoundCapShape == Cards.ButtonShape.Round
             ? InertCap.Round(_root, "TurnFlowSkip", skipSeat,
                 _transientCapR * 2f * clusterScale, _transientCapD * clusterScale, SkipColor,
                 ClusterCapTint, labels,
-                travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true)
+                travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true,
+                clusterScale: clusterScale)
             : InertCap.Square(_root, "TurnFlowSkip", skipSeat,
                 new Vector2(_transientCapW, _transientCapH) * clusterScale,
                 _transientCapD * clusterScale, SkipColor, ClusterCapTint, labels,
-                travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true);
+                travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true,
+                clusterScale: clusterScale);
+        Core.VRLog.Info("Net", "SKIP CAP: mirrored turn-flow cap built as a " +
+            (tuning.RoundCapShape == Cards.ButtonShape.Round
+                ? $"ButtonCluster ROUND disc — diameter {_transientCapR * 2f * clusterScale * 1000f:F1} mm, " +
+                  "height the original's own hard-coded 18 mm x the cluster scale (its round branch " +
+                  "ignores RoundCapDepth, so this one must too)"
+                : $"ButtonCluster SQUARE cube — {_transientCapW * clusterScale * 1000f:F1} x " +
+                  $"{_transientCapH * clusterScale * 1000f:F1} x {_transientCapD * clusterScale * 1000f:F1} mm, " +
+                  "FLAT top, sharp edges, ONE material, no chamfer and no 12 mm thickness floor") +
+            $" at the owner's cluster scale x{clusterScale:F2}. Label: the harvested game HUD font " +
+            "(ApplyFont) on a depth-honest material, sortingOrder 3, fitted in the original's own " +
+            "docked box — was TMP's default font, no sorting order and roughly half the point size, " +
+            "which is what read as 'der Text ist etwas transparenter'. Its ENABLED/dimmed state now " +
+            "arrives too (see NetAvatarDriver's BoardCapStateMask note).");
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
         // The owner's own berth dials FIRST (record 28, ids 80 / 166..169): BuildItemUseRecess reads
@@ -1185,7 +1211,8 @@ internal sealed class RemoteBoardFurniture
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
             _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, wantedScale * Cards.PlayTray.SnapGlowRatio, -0.005f,
                 new Color(1f, 0.85f, 0.30f, 0.95f), pulse: false);
-            BuildSlotLiner(i, card, tuning.SlotOverlayScale);
+            // (The mirrored SlotSeatLiner used to be built here. RETIRED with the owner's own —
+            //  see Cards/PlayTray.4.Slots.cs 'recess seat liner: RETIRED'.)
         }
 
         ApplyLabels();
@@ -1365,6 +1392,11 @@ internal sealed class RemoteBoardFurniture
         //      another character and a bar render-hides on their own board.
         SetUseBars(owner);
         ApplyUseBarStates(owner);
+        // …AND THE SLOT SYMBOLS (user 2026-08-13: "alle anderen Dinge wie entscheidungen wegen
+        // Gegenständen etc. sieht man nur eine box … das gleiche Symbol vom Spiel"). A THIRD pass,
+        // for the same reason the states are a second one: the game re-decorates a slot in place
+        // while the bar structure stands still.
+        ApplyUseBarSymbols(actor, owner);
 
         // ---- FOLLOW / PIN toggle (defect (a)) -------------------------------------------------
         // The owner's tray anchor mode now rides the board-UI record (byte 1 bit 2), so this cap
@@ -2525,6 +2557,12 @@ internal sealed class RemoteBoardFurniture
     /// <summary>Side of one mirrored slot tile.</summary>
     private const float UseBarTile = 0.026f;
 
+    /// <summary>How much of a mirrored slot tile the game's own icon fills, measured on its longer
+    /// side. 0.86 leaves the tile's own plate reading as the slot frame around the symbol, which is
+    /// what the game's slot does with its icon inside its button background — a symbol drawn edge to
+    /// edge would read as a sticker on the drawer instead of a widget in it.</summary>
+    private const float UseBarSymbolFill = 0.86f;
+
     /// <summary>Gap between two tiles in a row.</summary>
     private const float UseBarTileGap = 0.006f;
 
@@ -2697,6 +2735,7 @@ internal sealed class RemoteBoardFurniture
 
             var tiles = new Material[n];
             var rims = new GameObject[n];
+            var symbols = new SpriteRenderer[n];
             float tile = UseBarTile * scale;
             float tileGap = UseBarTileGap * scale;
             float tilesW = n > 0 ? n * tile + (n - 1) * tileGap : 0f;
@@ -2731,11 +2770,24 @@ internal sealed class RemoteBoardFurniture
                 BoardVisual.Quad(cell, "Face", new Vector2(tile, tile), face)
                     .transform.localPosition = new Vector3(0f, 0f, -0.001f);
 
+                // THE SYMBOL (user 2026-08-13: "das gleiche Symbol vom Spiel"). Built EMPTY and
+                // disabled; ApplyUseBarSymbols lights it the moment this client can prove which
+                // icon the owner's slot is wearing — see RemoteUseBarSymbols for the three-way gate.
+                // A SpriteRenderer rather than a quad + material: the game's icons are Sprites, and
+                // a SpriteRenderer honours their pivot, border and packing without a second atlas
+                // lookup. Inert like everything in this drawer; StripColliders sweeps it anyway.
+                var symbolGo = new GameObject($"Symbol{s}");
+                symbolGo.transform.SetParent(cell, worldPositionStays: false);
+                symbolGo.transform.localPosition = new Vector3(0f, 0f, -0.0015f);
+                var symbol = symbolGo.AddComponent<SpriteRenderer>();
+                symbol.enabled = false;
+                symbols[s] = symbol;
+
                 tiles[s] = face;
                 rims[s] = rim;
             }
             totalSlots += n;
-            _useBarRows.Add(new UseBarRow(row, tiles, rims, picker));
+            _useBarRows.Add(new UseBarRow(row, tiles, rims, picker, symbols));
             _useBarRowIndices.Add(b);
             rows++;
         }
@@ -2749,9 +2801,93 @@ internal sealed class RemoteBoardFurniture
                           $"{_useBars.localPosition.y + top:F3} downward, {budget:F3} m wide at the " +
                           $"authored ×{scale:F2} dock scale, " +
                           $"{(_shownDecisionLines != null ? "hung below the mirrored decision row" : "at the drawer zone top (no decision row up)")}. " +
-                          "Bar captions are composed HERE from the bar bit; the SLOTS are anonymous " +
-                          "by construction — the game's use slots carry no label, only card art, " +
-                          "which never rides this wire. Display-only: colliderless.");
+                          "Bar captions are composed HERE from the bar bit; the SLOT SYMBOLS are " +
+                          "resolved locally by RemoteUseBarSymbols against this client's own copy " +
+                          "of the same bar — nothing about the art rides this wire. Display-only: " +
+                          "colliderless.");
+    }
+
+    /// <summary>Slot-symbol scratch (max slots per bar), so the 4 Hz pass allocates nothing.</summary>
+    private readonly Sprite?[] _symbolScratch = new Sprite?[NetProtocol.UseBarsMaxSlots];
+
+    /// <summary>Last (barIndex, resolved-count) pair the symbol pass logged, so a steady bar costs
+    /// one line and not four a second.</summary>
+    private int _shownSymbolKey = -1;
+
+    /// <summary>
+    /// Put THE GAME'S OWN ICON on each mirrored slot tile — the answer to "das gleiche Symbol vom
+    /// Spiel", and the reason it needs no wire field is written once in
+    /// <see cref="RemoteUseBarSymbols"/>: the four use bars are per-client singletons that the game
+    /// raises from REPLICATED messages, so a peer's own copy of the owner's bar is already standing
+    /// there with the same rows, in the same order, wearing the same art.
+    ///
+    /// <para>Refused unless the local bar is provably the owner's (its owner set contains this
+    /// board's actor) AND its visible slot count equals the one record 25 carried, walked by the
+    /// sender's own rule. On a refusal every symbol is switched OFF and the tile shows exactly what
+    /// it showed in every build before this one — an anonymous plate — because a symbol from
+    /// somebody else's decision would be worse than none.</para>
+    ///
+    /// <para>Runs on the content cadence beside <see cref="ApplyUseBarStates"/> rather than at build
+    /// time: the game re-decorates a slot in place (an item is spent, a bonus is consumed) without
+    /// the bar's STRUCTURE changing, and the structure key is what gates the rebuild.</para>
+    /// </summary>
+    private void ApplyUseBarSymbols(CPlayerActor? actor, RemoteAvatar owner)
+    {
+        if (_useBarRows.Count == 0)
+            return;
+        int lit = 0;
+        int litBar = -1;
+        for (int r = 0; r < _useBarRows.Count; r++)
+        {
+            UseBarRow row = _useBarRows[r];
+            SpriteRenderer[] symbols = row.Symbols;
+            if (symbols == null || symbols.Length == 0)
+                continue;
+            int bar = r < _useBarRowIndices.Count ? _useBarRowIndices[r] : -1;
+            System.Array.Clear(_symbolScratch, 0, _symbolScratch.Length);
+            int resolved = bar >= 0
+                ? RemoteUseBarSymbols.Resolve(bar, actor, symbols.Length, _symbolScratch)
+                : 0;
+            for (int s = 0; s < symbols.Length; s++)
+            {
+                SpriteRenderer sr = symbols[s];
+                if (sr == null)
+                    continue;
+                Sprite? sprite = s < resolved ? _symbolScratch[s] : null;
+                bool on = sprite != null;
+                if (on && !ReferenceEquals(sr.sprite, sprite))
+                    sr.sprite = sprite;
+                if (sr.enabled != on)
+                    sr.enabled = on;
+                if (!on)
+                    continue;
+                lit++;
+                litBar = bar;
+                // FIT THE TILE, KEEP THE ASPECT. The tile is the drawer's own square cell (the seat
+                // and pitch the user has already tuned); the sprite is scaled into it by its longer
+                // side so a wide icon is never stretched — a squashed symbol is not the same symbol.
+                Bounds b = sprite!.bounds;
+                float longest = Mathf.Max(b.size.x, b.size.y);
+                float k = longest > 0.0001f ? UseBarTile * _decisionTuning.DecisionScale * UseBarSymbolFill / longest : 1f;
+                var want = new Vector3(k, k, 1f);
+                if (sr.transform.localScale != want)
+                    sr.transform.localScale = want;
+            }
+        }
+        int key = lit == 0 ? 0 : (litBar + 1) * 1000 + lit;
+        if (key == _shownSymbolKey)
+            return;
+        _shownSymbolKey = key;
+        VRLog.Info("Net", lit > 0
+            ? $"DOCK MIRROR: {lit} mirrored use-bar slot(s) now wear THE GAME'S OWN symbol " +
+              $"(bar {litBar}, owner '{Board.CharacterFocus.Describe(actor)}') — taken off this " +
+              "client's own copy of that bar, gated on the bar's owner being this board's character " +
+              "and on its visible slot count matching record 25's. Nothing about the art travelled; " +
+              "the tiles are still inert."
+            : "DOCK MIRROR: no mirrored use-bar symbol resolved — this client's own copy of the " +
+              "owner's bar is absent, belongs to another character, or shows a different number of " +
+              "slots than record 25 reported. The tiles stay anonymous, which is what every build " +
+              "before this one drew. The wire carried no art either way.");
     }
 
     /// <summary>
@@ -2849,40 +2985,14 @@ internal sealed class RemoteBoardFurniture
         return sb.ToString();
     }
 
-    /// <summary>
-    /// The peer-side mirror of the local board's <c>SlotSeatLiner</c> (round 13, 1:1 board rule):
-    /// the bundled tray's authored recess floor is near-black, so a mirrored card's punched
-    /// transparent frame pixels — and the floor margin around the card — read as a black band on
-    /// the peer's board exactly as they did on the owner's. Same cure, same numbers: an opaque
-    /// rounded <c>CardMesh</c> slab at seated-card size × <c>PlayTray.SlotLinerSeatRatio</c> of the remote card
-    /// box, wearing the keycaps' carved-grain wood (<c>PlayTray.NewKeycapMaterial</c>,
-    /// <c>PlayTray.SlotLinerColor</c>) — deliberately NEVER the shared CardBodyKind pairs, which
-    /// are silhouette-clipped to the card art while this must stay a full rounded rectangle. Front
-    /// face 3.2 mm behind the card plane (the local liner's own card-to-liner gap: card front
-    /// −0.004, liner −0.0008), always on — the liner is furniture, not state, so there is nothing
-    /// to sync beyond its existence. Sized from <c>_slotFrameW/H</c> (the OWNER's card metric via
-    /// record 11) × the owner's <paramref name="slotOverlayScale"/> (tuning field 171 — the SEATED
-    /// card's own scale, the round-14 unit-error fix) × <c>PlayTray.SlotLinerSeatRatio</c>, so a
-    /// peer who tuned the slot sees liner and card in register, exactly like the glows above.
-    /// </summary>
-    private void BuildSlotLiner(int index, Vector3 cardLocal, float slotOverlayScale)
-    {
-        Shader? shader = Cards.PlayTray.BoardLitShader()
-            ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse")
-            ?? Shader.Find("Sprites/Default");
-        if (shader == null)
-            return; // nothing drawable — keep the recess look rather than a magenta plate
-        Material liner = Cards.PlayTray.NewKeycapMaterial(shader, Cards.PlayTray.SlotLinerColor);
-        var go = new GameObject($"SlotSeatLiner{index}");
-        go.transform.SetParent(_root, worldPositionStays: false);
-        go.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z + 0.0032f);
-        go.AddComponent<MeshFilter>().sharedMesh = Cards.CardMesh.Get(
-            _slotFrameW * slotOverlayScale * Cards.PlayTray.SlotLinerSeatRatio,
-            _slotFrameH * slotOverlayScale * Cards.PlayTray.SlotLinerSeatRatio);
-        var renderer = go.AddComponent<MeshRenderer>();
-        renderer.sharedMaterials = new[] { liner, liner }; // one solid piece of board wood
-        renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-    }
+    // THE MIRRORED SEAT LINER IS GONE, in the same build as the owner's own. User report
+    // 2026-08-13, verbatim: "Dieses Brett das zu den overlays gehört soll komplett weg, das
+    // brauchen wir nicht. Die overlays reichen und können auf dem asset des controllboards ohne
+    // etwas zugehöriges positioniert werden." A remote board is a picture of its owner's board, so
+    // a plank the owner no longer has may not survive here either — that is the 1:1 rule read in
+    // the only direction it can be read. The old builder took no field and had no children, so its
+    // removal is the deletion of one call and one method; the two constants it borrowed
+    // (PlayTray.SlotLinerSeatRatio / SlotLinerColor) went with the local builder.
 
     /// <summary>A collider-free glow rim behind a round-card slot (the teal "wanted" pulse and the
     /// gold snap flash share this shape, exactly as on the local board — different hue, different
@@ -3006,8 +3116,44 @@ internal sealed class RemoteBoardFurniture
         /// <summary>Mirror of PlayTray.BoardButton.CapRestZ — the cap's seat toward the viewer.</summary>
         private const float CapRestZ = -0.004f;
 
-        /// <summary>Mirror of PlayTray.SquareCapBevel — the lit 45° chamfer width.</summary>
+        /// <summary>Mirror of PlayTray.SquareCapBevel — the lit 45° chamfer width. BOARD KEYCAPS
+        /// ONLY: the turn-flow SKIP cap mirrors a ButtonCluster.PhysicalButton, which has no
+        /// chamfer at all (see <see cref="Square"/>).</summary>
         private const float CapBevel = 0.007f;
+
+        // ---- ButtonCluster.PhysicalButton's own geometry constants, mirrored verbatim ----------
+        // Stated in the ORIGINAL's unscaled frame (its cluster root carries the 0.7 dock scale), so
+        // every one of them is multiplied by the mirror's clusterScale at the call site. Named
+        // rather than inlined because the originals are INLINE LITERALS inside ButtonCluster's own
+        // BuildProcedural — there is nothing for check-mirrors.sh to pair them with, so the only
+        // defence a retune has is that each one here says exactly which line it copies.
+
+        /// <summary>Mirror of ButtonCluster's square base plate thickness (its Cube's Y).</summary>
+        private const float ClusterWellThickness = 0.012f;
+
+        /// <summary>Mirror of ButtonCluster's square base-plate footprint factor (capW x 1.2,
+        /// capH x 1.2). The board keycaps use an additive +8 mm margin instead — a different
+        /// original, a different rule.</summary>
+        private const float ClusterWellMargin = 1.2f;
+
+        /// <summary>Mirror of the gap ButtonCluster leaves between its well top (y 0.012) and its
+        /// cap bottom (y 0.015).</summary>
+        private const float ClusterCapStandoff = 0.003f;
+
+        /// <summary>Mirror of ButtonCluster.DockedLabelProud — the 2 mm the docked label stands off
+        /// the cap top, the constant its per-eye z-fight fix introduced.</summary>
+        private const float ClusterLabelProud = 0.002f;
+
+        /// <summary>Mirror of the docked fit box ButtonCluster gives its label
+        /// (<c>TmpFit.Fit(_label, 0.105f, 0.045f, maxFontSize: 0.30f)</c>).</summary>
+        private const float ClusterLabelBoxW = 0.105f;
+        private const float ClusterLabelBoxH = 0.045f;
+        private const float ClusterLabelMaxFont = 0.30f;
+
+        /// <summary>Mirror of the ROUND branch's hard-coded disc height
+        /// (<c>GetRoundCap(capW, 2f * 0.009f)</c>) — see <see cref="Round"/> for why the dial is
+        /// deliberately not used here either.</summary>
+        private const float ClusterRoundCapHeight = 0.018f;
 
         // Mirrors of PlayTray.BoardButton's wall/bevel tint recipe (checked by check-mirrors.sh).
         private const float WallTintFactor = 0.50f;
@@ -3086,49 +3232,118 @@ internal sealed class RemoteBoardFurniture
             _label = label;
         }
 
-        /// <summary>The square beveled keycap (Confirm/Undo/Use/Pin): dark base plate + the
-        /// 3-submesh chamfered cap mesh (state top / bright bevel / dark warm walls).</summary>
+        /// <summary>
+        /// The square keycap. TWO SHAPES, because the two originals are two different objects and
+        /// the 1:1 rule is about what the player sees, not about code reuse:
+        /// <list type="bullet">
+        ///   <item>BOARD keycaps (Confirm/Undo/Use/Pin) mirror <c>PlayTray.BoardButton</c> — dark
+        ///     base plate + the 3-submesh CHAMFERED cap mesh (state top / bright bevel / dark warm
+        ///     walls), <c>capThick = Max(0.012, depth)</c>, bevel <see cref="CapBevel"/>. That is
+        ///     term-for-term what PlayTray.7.Nested builds, and it is untouched here.</item>
+        ///   <item>The turn-flow SKIP cap (<paramref name="clusterStyle"/>) mirrors a
+        ///     <c>WorldUI.ButtonCluster.PhysicalButton</c>, which is NOT that object: it is a plain
+        ///     <c>PrimitiveType.Cube</c> — one material, flat top, sharp 90-degree edges, no bevel
+        ///     ring — scaled (capW, capD, capH) with NO thickness clamp, over a base plate of
+        ///     (capW x 1.2) x 0.012 x (capH x 1.2).</item>
+        /// </list>
+        ///
+        /// <para>USER REPORT 2026-08-13, verbatim: "Die Überspringen Knöpfe sehen nicht 1:1 genauso
+        /// aus, wie auf dem echten board, etwas andere Form und der Text ist etwas transparenter."
+        /// The FORM half is this branch. Measured against the shipped tuning (cluster root x0.7):
+        /// the mirror wore a 7 mm chamfer the original does not have at all; its cap was 0.012
+        /// instead of 0.0105 thick, because the <c>Max(0.012, ...)</c> floor silently overrode the
+        /// owner's own RoundCapDepth dial by +14 %; and its well read 0.0703 x 0.0325 x 0.006
+        /// against the original's 0.0748 x 0.0294 x 0.0084 — narrower, taller, half as thick. The
+        /// TEXT half of the report is in <see cref="BuildLabel"/> and in the cap-state byte the
+        /// sender never packed (see <c>NetAvatarDriver</c>'s BoardCapStateMask note).</para>
+        ///
+        /// <para><paramref name="clusterScale"/> is the factor the ORIGINAL's cluster root carries
+        /// (<c>ClusterDockScale x tuning.ClusterScale</c>). The mirror has no such root — every cap
+        /// is seated directly in board-local metres — so the constants the original states in its
+        /// own unscaled frame (the 0.012 well, its 3 mm standoff, the 2 mm label proud, the
+        /// 0.105 x 0.045 fit box) are multiplied by it here. Board keycaps pass 1 and see none of
+        /// this.</para>
+        /// </summary>
         public static InertCap Square(Transform parent, string name, Vector3 localPos, Vector2 size,
             float depth, Color color, Color capTint, in CapLabelStyle labels,
-            float travel = 0f, Color? accent = null, bool clusterStyle = false)
+            float travel = 0f, Color? accent = null, bool clusterStyle = false,
+            float clusterScale = 1f)
         {
             GameObject go = NewRoot(parent, name, localPos);
             // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
             // colour in this mod (2026-08-09 round 3): the build writes this straight onto the
             // materials, so it must clear the WELL behind it before SetTint ever runs.
             Color face = WorldUI.ButtonTuning.SeatedCapColor(color * capTint);
+            float cs = clusterScale > 0f ? clusterScale : 1f;
 
-            // Base plate: the recessed well the cap sits in (BoardButton's non-round branch).
+            // Base plate: the recessed well the cap sits in — BoardButton's non-round branch for a
+            // board keycap, ButtonCluster's own proportions for the skip cap.
             var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
             basePlate.name = "Base";
             Object.Destroy(basePlate.GetComponent<Collider>());
             basePlate.transform.SetParent(go.transform, worldPositionStays: false);
-            basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
-            basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+            float wellThick = clusterStyle ? ClusterWellThickness * cs : 0.006f;
+            basePlate.transform.localScale = clusterStyle
+                ? new Vector3(size.x * ClusterWellMargin, size.y * ClusterWellMargin, wellThick)
+                : new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
+            basePlate.transform.localPosition = new Vector3(0f, 0f, clusterStyle
+                ? CapRestZ + ClusterCapStandoff * cs + wellThick * 0.5f
+                : 0.004f);
             TintLit(basePlate, WorldUI.ButtonTuning.CapWellColor); // the colour SeatedCapColor floors against
 
-            float capThick = Mathf.Max(0.012f, depth);
+            // NO THICKNESS FLOOR ON THE CLUSTER CAP: the original applies none, and the floor was
+            // overriding the owner's own RoundCapDepth dial — which record 28 already carries, so
+            // the clamp was quietly discarding a value that had travelled correctly.
+            float capThick = clusterStyle ? Mathf.Max(0.001f, depth) : Mathf.Max(0.012f, depth);
             var capMesh = new GameObject("CapMesh");
             capMesh.transform.SetParent(go.transform, worldPositionStays: false);
             capMesh.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
-            capMesh.AddComponent<MeshFilter>().sharedMesh =
-                Cards.CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, CapBevel);
-            var mr = capMesh.AddComponent<MeshRenderer>();
             Shader? shader = CapShader();
             Material? top = null, bevel = null, wall = null;
-            if (shader != null)
+            MeshRenderer mr;
+            if (clusterStyle)
             {
-                top = Cards.PlayTray.NewKeycapMaterial(shader, face);            // [0] top plateau
-                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face)); // [1] bright bevel
-                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face));   // [2] dark warm wall
-                mr.sharedMaterials = new[] { top, bevel, wall };
+                // ONE material, one flat box. Unity's cube mesh is centred on its origin and spans
+                // one unit, so this child is SCALED — and the holder above is what RemoteCapFx dips,
+                // exactly as in the beveled branch, so the press animation is unchanged. Offsetting
+                // the child by half the thickness puts the FRONT face at -capThick in the holder's
+                // frame, i.e. precisely where BuildBeveledKeycap authors its plateau, which keeps
+                // the label seat and the FX travel ONE formula for both shapes.
+                var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.name = "Cap";
+                Object.Destroy(cube.GetComponent<Collider>());
+                cube.transform.SetParent(capMesh.transform, worldPositionStays: false);
+                cube.transform.localScale = new Vector3(size.x, size.y, capThick);
+                cube.transform.localPosition = new Vector3(0f, 0f, -capThick * 0.5f);
+                mr = cube.GetComponent<MeshRenderer>();
+                if (shader != null)
+                {
+                    top = Cards.PlayTray.NewKeycapMaterial(shader, face);
+                    mr.sharedMaterial = top;
+                }
+            }
+            else
+            {
+                capMesh.AddComponent<MeshFilter>().sharedMesh =
+                    Cards.CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, CapBevel);
+                mr = capMesh.AddComponent<MeshRenderer>();
+                if (shader != null)
+                {
+                    top = Cards.PlayTray.NewKeycapMaterial(shader, face);            // [0] top plateau
+                    bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face)); // [1] bright bevel
+                    wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face));   // [2] dark warm wall
+                    mr.sharedMaterials = new[] { top, bevel, wall };
+                }
             }
 
             // The LABEL hangs off the CAP holder on the local board precisely so it travels with
             // the cap on a press ("it used to hang off the static root while only the cap sank,
             // reading as detached"). Same parenting here, so the mirrored dip moves the same parts.
+            // The standoff is the ORIGINAL's own: ButtonCluster.DockedLabelProud (2 mm, the constant
+            // its per-eye z-fight fix introduced) for a cluster cap, 1 mm for a board keycap.
             TextMeshPro label = BuildLabel(capMesh.transform, size,
-                new Vector3(0f, 0f, -capThick - 0.001f), in labels);
+                new Vector3(0f, 0f, -capThick - (clusterStyle ? ClusterLabelProud * cs : 0.001f)),
+                in labels, clusterStyle ? cs : 0f);
             var cap = new InertCap(go, label)
             {
                 _topMat = top,
@@ -3146,10 +3361,19 @@ internal sealed class RemoteBoardFurniture
         }
 
         /// <summary>The round disc cap (rest discs, turn-flow Skip): recessed well ring + smooth
-        /// generated disc, in the same carved-grain keycap material family.</summary>
+        /// generated disc, in the same carved-grain keycap material family.
+        ///
+        /// <para>CLUSTER-STYLE DEPTH (the skip cap under [WorldUI] RoundCapShape = Round): the
+        /// ORIGINAL's round branch does NOT use its RoundCapDepth dial at all — ButtonCluster builds
+        /// <c>CardMesh.GetRoundCap(capW, 2f * 0.009f)</c>, a hard-coded 18 mm disc height in its own
+        /// unscaled frame. Mirroring the dial instead drew a disc ~42 % thinner than the original.
+        /// This is copied rather than corrected on purpose: 1:1 means "what the owner sees", and
+        /// what the owner sees is the constant. If the local branch ever starts honouring the dial,
+        /// this is the line that follows it (there is no lint pairing them: the original is an inline literal).</para></summary>
         public static InertCap Round(Transform parent, string name, Vector3 localPos, float diameter,
             float thickness, Color color, Color capTint, in CapLabelStyle labels,
-            float travel = 0f, Color? accent = null, bool clusterStyle = false)
+            float travel = 0f, Color? accent = null, bool clusterStyle = false,
+            float clusterScale = 1f)
         {
             GameObject go = NewRoot(parent, name, localPos);
             // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
@@ -3164,7 +3388,10 @@ internal sealed class RemoteBoardFurniture
                 Cards.CardMesh.GetRoundCap(diameter + 0.006f, 0.006f);
             var baseMr = basePlate.AddComponent<MeshRenderer>();
 
-            float capThick = Mathf.Max(0.002f, thickness);
+            float cs = clusterScale > 0f ? clusterScale : 1f;
+            float capThick = clusterStyle
+                ? ClusterRoundCapHeight * cs   // the original's own constant — see the method doc
+                : Mathf.Max(0.002f, thickness);
             var capDisc = new GameObject("CapMesh");
             capDisc.transform.SetParent(go.transform, worldPositionStays: false);
             capDisc.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
@@ -3182,7 +3409,9 @@ internal sealed class RemoteBoardFurniture
             }
 
             TextMeshPro label = BuildLabel(capDisc.transform, new Vector2(diameter, diameter),
-                new Vector3(0f, 0f, -capThick * 0.5f - 0.001f), in labels);
+                new Vector3(0f, 0f, -capThick * 0.5f
+                                    - (clusterStyle ? ClusterLabelProud * cs : 0.001f)),
+                in labels, clusterStyle ? cs : 0f);
             var cap = new InertCap(go, label)
             {
                 // A disc has ONE cap material (no bevel/wall submeshes) — exactly like the local
@@ -3224,8 +3453,36 @@ internal sealed class RemoteBoardFurniture
         /// per-label font-material instance, which only exists once a font is assigned, and TmpFit's
         /// auto-size is what the label is finally measured at.</para>
         /// </summary>
+        /// <summary>
+        /// A mirrored cap's engraved label. <paramref name="clusterScale"/> &gt; 0 means "this is a
+        /// ButtonCluster cap" and switches the FIT BOX to the original's docked one.
+        ///
+        /// <para>THE OTHER HALF OF THE SKIP REPORT (user 2026-08-13: "der Text ist etwas
+        /// transparenter"). Three causes, all of them here, none of them a colour constant — the
+        /// fill alpha was already 1.0 on both sides:</para>
+        /// <list type="number">
+        ///   <item><b>No <c>ApplyFont</c>.</b> Every original — <c>PlayTray.BoardButton</c>
+        ///     (PlayTray.7.Nested) and <c>ButtonCluster.PhysicalButton</c> alike — calls
+        ///     <c>NativeButtonSkin.ApplyFont</c>, which swaps in the HARVESTED GAME HUD FONT and
+        ///     then makes its material depth-honest (renderQueue 3000, ZTest LEqual). This mirror
+        ///     did not, so it kept TMP's default face and default material: a different SDF with a
+        ///     different gradient scale, thinner stems, and — worse — <c>StyleEngravedLabel</c> then
+        ///     wrote the keyline and underlay onto THAT material, where the same numbers buy much
+        ///     less coverage. Washed-out glyphs are exactly what that produces.</item>
+        ///   <item><b>No sorting order.</b> The originals set <c>sortingOrder = 3</c> on the label
+        ///     renderer so it always resolves in front of the cap face; without it the label
+        ///     arbitrates by depth alone against an opaque plateau one or two millimetres away.</item>
+        ///   <item><b>Half the point size, on the skip cap.</b> The docked original fits into
+        ///     0.105 x 0.045 at maxFont 0.30; this mirror fitted every cap into
+        ///     <c>size x (0.92, 0.85)</c> at 0.40 — which is right for a BOARD keycap (PlayTray uses
+        ///     those very numbers) and wrong for a cluster cap, whose own size is much smaller than
+        ///     its authored label box. A German "Bewegen überspringen" then auto-shrank to roughly
+        ///     half the original's point size, and an SDF glyph at half size with an unchanged
+        ///     outline width simply has less ink.</item>
+        /// </list>
+        /// </summary>
         private static TextMeshPro BuildLabel(Transform parent, Vector2 size, Vector3 localPos,
-                                              in CapLabelStyle labels)
+                                              in CapLabelStyle labels, float clusterScale = 0f)
         {
             var labelGo = new GameObject("Label");
             labelGo.transform.SetParent(parent, worldPositionStays: false);
@@ -3236,9 +3493,21 @@ internal sealed class RemoteBoardFurniture
             // the parchment fill is only legible on the skinned face — same ladder here, so the two
             // boards agree in the un-skinned case as well as the skinned one.
             tmp.color = WorldUI.NativeButtonSkin.HasFont ? labels.Fill : Color.white;
+            // FONT FIRST, ENGRAVING SECOND — the order both originals use. StyleEngravedLabel
+            // writes onto the label's CURRENT material, so a font swap after it would discard the
+            // keyline; a font swap before it is what makes the two boards' glyphs the same object.
+            WorldUI.NativeButtonSkin.ApplyFont(tmp);
+            tmp.color = WorldUI.NativeButtonSkin.HasFont ? labels.Fill : Color.white; // ApplyFont must not undo the fill
             WorldUI.NativeButtonSkin.StyleEngravedLabel(tmp, labels.OutlineColor, labels.OutlineWidth,
                                                         labels.OutlineOn, labels.UnderlayOn);
-            TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
+            var labelRenderer = tmp.GetComponent<MeshRenderer>();
+            if (labelRenderer != null)
+                labelRenderer.sortingOrder = 3; // the originals' own order, above the cap face
+            if (clusterScale > 0f)
+                TmpFit.Fit(tmp, ClusterLabelBoxW * clusterScale, ClusterLabelBoxH * clusterScale,
+                    maxFontSize: ClusterLabelMaxFont * clusterScale);
+            else
+                TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
             return tmp;
         }
 

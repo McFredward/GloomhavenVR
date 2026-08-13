@@ -54,6 +54,12 @@ internal sealed class RemoteStatusReadouts
     private int _roundShown = int.MinValue;
     private string _langShown = string.Empty;
 
+    /// <summary>The round label's preferred font size — VERBATIM the owner's own literal
+    /// (<c>Cards.PlayTray.BuildRoundReadout</c> passes 0.32f to the same <c>Core.TmpFit.Fit</c>).
+    /// Named rather than repeated so the next person who changes one changes both, and so the
+    /// grep for "0.32" lands on a constant with this doc on it.</summary>
+    private const float RoundLabelMaxFont = 0.32f;
+
     /// <summary>Last rendered values, for the change-gated diagnostic line.</summary>
     public string InitiativeText { get; private set; } = "?";
     public string RestText { get; private set; } = string.Empty;
@@ -84,10 +90,37 @@ internal sealed class RemoteStatusReadouts
         BoardVisual.Quad(roundRoot, "Plate", new Vector2(0.13f, 0.036f),
             RemoteBoardContent.BoardLit(new Color(0.12f, 0.11f, 0.10f, 1f)))
             .transform.localPosition = new Vector3(0f, 0f, 0.006f);
+        // THE GLYPH SIZE IS THE OWNER'S OWN NUMBER, NOT A SECOND ONE. User report 2026-08-13,
+        // verbatim: "Die Rundenanzeige beim remote board ist unter Umständen super klein und
+        // skalliert nicht richtig. Auf dem eigenen board ist alles ok."
+        //
+        // ROOT CAUSE — one literal, twice, and the two disagreed. The plate (0.13 x 0.036), the
+        // rect (0.12 x 0.028) and the seat (layout.ReadoutMount = PlayTray.ReadoutBase + the
+        // owner's tuned ReadoutOffset off record 28) were already identical to
+        // PlayTray.BuildRoundReadout. Only the maxFontSize handed to TmpFit differed: the owner
+        // passes 0.32 (TmpFit clamps it to the height cap 0.028 x 6.5 = 0.182), this copy passed
+        // 0.06. Two separate defects fall out of that one number:
+        //   • 0.182 / 0.06 = 3.03x — the mirrored "Runde N" was a third of the owner's height at
+        //     every board scale, which is the "super klein";
+        //   • 0.06 is BELOW TmpFit.MinFontSize (0.08), so the auto-size band came out INVERTED
+        //     (fontSizeMax < fontSizeMin). TMP's grow and shrink branches are both gated on that
+        //     band, so the label stopped responding to its box at all and its rendered size
+        //     depended on which side of the quantiser the string landed — which is exactly the
+        //     "unter Umständen" and "skalliert nicht richtig".
+        // The fix is to pass the OWNER'S literal, so there is one number rather than two agreeing.
+        // There is no round-readout SIZE dial anywhere (config, record 28, BoardTunePages) — this
+        // was never a tuning that failed to travel, so no wire field is needed or added.
         _round = RemoteBoardContent.Label(roundRoot, "Text", Vector3.zero,
-            new Vector2(0.12f, 0.028f), 0.06f,
+            new Vector2(0.12f, 0.028f), RoundLabelMaxFont,
             new Color(1f, 0.9f, 0.6f), TextAlignmentOptions.Center);
         RemoteBoardContent.SetText(_round, "-");
+        Core.VRLog.Info("Net", "ROUND MIRROR: round readout label fitted at maxFont " +
+                               $"{RoundLabelMaxFont:F2} (the owner's own PlayTray.BuildRoundReadout " +
+                               $"literal) into a {0.12f:F3} x {0.028f:F3} m rect — TmpFit clamps it " +
+                               $"to the height cap {0.028f * 6.5f:F3}, which is above the 0.08 " +
+                               "auto-size floor, so the band is valid and the glyphs are the same " +
+                               "size the owner reads. Was 0.06: 3.03x too small AND below the " +
+                               "floor (inverted band = the 'skalliert nicht richtig').");
 
         // --- initiative: top-centre, in the strip between the round-card tops (y 0.104) and the
         //     board's top edge (y 0.16) — where the local board's docked initiative track sits.
