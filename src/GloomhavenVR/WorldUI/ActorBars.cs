@@ -18,8 +18,8 @@ namespace GloomhavenVR.WorldUI;
 /// <c>WorldspacePanelUIController</c> (per-actor panel holding HealthBar/EffectsBar/
 /// ShieldBar/AttackModBar/InfoBar), moves it onto its own world-space host canvas
 /// above the miniature and billboards it to the HMD. Size is measured in REAL MILLIMETRES AT
-/// THE EYE and tuned by [WorldUI] BarSizeScale, following the table zoom between the
-/// [WorldUI] BarZoomMinScale / BarZoomMaxScale bounds (see <see cref="ResolveZoomFollow"/>);
+/// THE EYE and tuned by [WorldUI] BarSizeScale, following the table zoom inside the fixed
+/// <see cref="ZoomFollowMin"/>–<see cref="ZoomFollowMax"/> band (see <see cref="ResolveZoomFollow"/>);
 /// the legacy distance-growth is opt-in ([WorldUI] BarFixedSize, test #14 item 4).
 /// The DATA flow (UpdateHealth/UpdateEffects/ShowDamage/...) is untouched — the game
 /// keeps feeding the very same components.
@@ -103,6 +103,36 @@ internal static class ActorBars
     /// from it or who touches the dials.
     /// </summary>
     private const float ReferenceScaleMultiplier = Defaults.SavedScaleMultiplier;
+
+    /// <summary>
+    /// How far the table zoom may carry a bar BELOW / ABOVE the size <c>[WorldUI] BarSizeScale</c>
+    /// asks for. Constants, not dials — this pair used to be <c>[WorldUI] BarZoomMinScale</c> and
+    /// <c>BarZoomMaxScale</c>, and they are REMOVED (user ruling 2026-08-13: "Mindest und
+    /// Maximalgröße der Lebensbalken haben keinen sehbaren einfluss. Es macht irgendwas, aber man
+    /// versteht nicht wirklich was - ziemlich unintuitiv").
+    ///
+    /// <para>WHY THEY COULD NOT WORK AS DIALS. They never clamped a SIZE; they clamped the
+    /// intermediate FOLLOW factor of <see cref="ResolveZoomFollow"/>, which is
+    /// <c>ReferenceScaleMultiplier ÷ live pinch multiplier</c> and therefore exactly 1.0 whenever
+    /// the player sits at the shipped table zoom — strictly inside 0.7…1.5. At that zoom NEITHER
+    /// bound is reachable, so moving either dial changed nothing whatsoever; his own tuned cfg has
+    /// <c>SavedScaleMultiplier = 3.368283</c> against a shipped reference of 3.3683, i.e. a follow
+    /// of 1.000. He would have had to pinch past 4.81× (floor) or below 2.25× (ceiling) before a
+    /// single pixel moved. A dial whose effect is invisible at the setting it ships at is not a
+    /// setting, and the standing settings ruling only allows optional content and comfort.</para>
+    ///
+    /// <para>WHAT IS KEPT. The GUARANTEE he asked for ("ein minimum und maximum der Größe, damit
+    /// sie sich trotz zoomen nie über die Grenzen hinaus skalieren können") is exactly this band,
+    /// and it stays — unconditionally, on BOTH size paths, at the two values that shipped. At the
+    /// widest zoom the mod allows (0.1×…12× of base while [Comfort] FreeMovement is on) the raw
+    /// follow runs 0.28…33.7; without the band the bars would be 3.6× too small when the table is
+    /// pushed away and 33× too large when it is pulled in. The band is what keeps them readable at
+    /// every zoom, which is why it is code and not configuration.</para>
+    /// </summary>
+    private const float ZoomFollowMin = 0.7f;
+
+    /// <summary>Ceiling of the zoom-follow band; see <see cref="ZoomFollowMin"/>.</summary>
+    private const float ZoomFollowMax = 1.5f;
 
     private sealed class Adopted
     {
@@ -360,15 +390,12 @@ internal static class ActorBars
 
         // ---- SIZE (user: "Größe der Healthbars sollen einstellbar sein - sowie ein minimum und
         // maximum der Größe, damit sie sich trotz zoomen nie über die Grenzen hinaus skalieren
-        // können"). Three more frame-constant reads, hoisted for the same reason as the three above.
+        // können"). ONE dial and a FIXED band: the two bound dials are gone (see ZoomFollowMin),
+        // the band they configured is now constant, so there is nothing left to sort or validate —
+        // a hand-edited cfg can no longer put the floor above the ceiling.
         float barSizeScale = Mathf.Max(0.01f, WorldUIConfig.BarSizeScale.Value);
-        float rawLo = WorldUIConfig.BarZoomMinScale.Value;
-        float rawHi = WorldUIConfig.BarZoomMaxScale.Value;
-        // A hand-edited cfg can put the floor above the ceiling. Sorting them is the only reading
-        // that keeps BOTH numbers meaningful; Mathf.Clamp with min > max would silently return the
-        // min for every input and turn the pair into one value.
-        float sizeLo = Mathf.Min(rawLo, rawHi);
-        float sizeHi = Mathf.Max(rawLo, rawHi);
+        const float sizeLo = ZoomFollowMin;
+        const float sizeHi = ZoomFollowMax;
         float zoomFollow = ResolveZoomFollow(worldScale);
         // The default path's factor is frame-constant, so it is resolved once here rather than per
         // bar; the legacy distance path re-clamps per bar because its growth term is per bar.
@@ -520,7 +547,7 @@ internal static class ActorBars
             Quaternion rot = Quaternion.LookRotation(fromHead.normalized, Vector3.up);
 
             // Bar size — real millimetres at the eye, tuned by [WorldUI] BarSizeScale and following
-            // the table zoom inside the Min/Max bounds (ResolveZoomFollow). The default path's
+            // the table zoom inside the fixed band (ResolveZoomFollow). The default path's
             // factor is the hoisted frame constant; only the opt-in legacy path (BarFixedSize off,
             // test #14 item 4: bars grow up to 2.5x with head distance) is per bar — and its growth
             // goes THROUGH THE SAME CLAMP, so the min/max guarantee holds on that path too rather
@@ -592,7 +619,7 @@ internal static class ActorBars
 
     /// <summary>
     /// How far the TABLE ZOOM is allowed to carry the bars away from the size the player set — the
-    /// raw follow factor, before <c>[WorldUI] BarZoomMinScale</c>/<c>BarZoomMaxScale</c> clamp it.
+    /// raw follow factor, before <see cref="ZoomFollowMin"/>/<see cref="ZoomFollowMax"/> clamp it.
     ///
     /// <para>WHICH SIZE IS "THE SIZE". The mod's zoom is a scale on the RIG, not on the board
     /// (<c>VRRigDriver</c>: <c>rigRoot.localScale = baseScale × ClampedSavedMultiplier</c>), so a
@@ -601,7 +628,7 @@ internal static class ActorBars
     /// READABILITY OVERLAY, so the size that matters is the one at the EYE, in real millimetres —
     /// it is the number the player judges ("too big"), the number this class logs, and the only one
     /// a minimum and a maximum can be stated in without the bound itself moving when the player
-    /// zooms. Every dial and every bound here is therefore a factor of a REAL-MILLIMETRE base
+    /// zooms. The dial and both bounds here are therefore factors of a REAL-MILLIMETRE base
     /// (<see cref="BarPixelSize"/>), and the existing <c>× worldScale</c> in the scale term is
     /// exactly the real-metres→world-units conversion, not a size decision.</para>
     ///
@@ -614,12 +641,13 @@ internal static class ActorBars
     /// is purely <c>reference ÷ live pinch multiplier</c>, i.e. it does not care which scenario's
     /// tile size set the base scale.</para>
     ///
-    /// <para>THE GUARANTEE the bounds then give, in the same unit as the size: at ANY zoom the bar
-    /// is between <c>BarSizeScale × Min</c> and <c>BarSizeScale × Max</c> of its shipped
-    /// millimetres. With the shipped 0.7/1.5 that is 0.25 mm/px at the far end of zooming out and
-    /// 0.53 mm/px at the near end, never more, never less — and setting Min = Max pins the bar to
-    /// one real size at every zoom, which is the behaviour that shipped before this dial existed.
-    /// </para>
+    /// <para>THE GUARANTEE the band then gives, in the same unit as the size: at ANY zoom the bar
+    /// is between 0.7× and 1.5× of <c>BarSizeScale</c> of its shipped millimetres — 0.25 mm/px at
+    /// the far end of zooming out and 0.53 mm/px at the near end, never more, never less. THIS IS
+    /// THE ZOOM-READABILITY CHECK: the mod's pinch runs 0.1×…12× of the base scale while [Comfort]
+    /// FreeMovement is on, i.e. a raw follow of 33.7 down to 0.28, so it is the band and nothing
+    /// else that stops a pushed-away table from shrinking the bars to a quarter of legibility and a
+    /// pulled-in one from letting them swallow the board. It is therefore code, not a setting.</para>
     ///
     /// <para>Returns 1 (no follow) while no rig has published a base scale — the menu rig, the dev
     /// harness, the frames before <c>BuildRig</c>. A zoom factor derived from a scale nobody has
@@ -681,9 +709,11 @@ internal static class ActorBars
             : "no bar rect measured this frame";
 
         VRLog.Info("WorldUI",
-            $"bar size: {mmPerPixel:F3} mm per uGUI px at the eye (shipped {shippedMmPerPixel:F3}) — " +
-            $"{sample}. Size dial {dial:F2}x, zoom follow {follow:F2} clamped into " +
-            $"[{lo:F2}, {hi:F2}]{bound} ⇒ resolved {sizeFactor:F2}x. World scale {worldScale:F2} " +
+            $"BAR SIZE: {mmPerPixel:F3} mm per uGUI px at the eye (shipped {shippedMmPerPixel:F3}) — " +
+            $"{sample}. Size dial [WorldUI] BarSizeScale {dial:F2}x, zoom follow {follow:F2} clamped " +
+            $"into the FIXED band [{lo:F2}, {hi:F2}]{bound} — the band is no longer configurable " +
+            $"(BarZoomMin/MaxScale removed 2026-08-13: at the shipped zoom the follow is 1.00 and " +
+            $"neither bound was ever reachable) ⇒ resolved {sizeFactor:F2}x. World scale {worldScale:F2} " +
             $"(base {baseScale:F2}, table zoom {liveMultiplier:F2}x, reference " +
             $"{ReferenceScaleMultiplier:F2}x), {Adoptions.Count} bars." +
             (barFixedSize

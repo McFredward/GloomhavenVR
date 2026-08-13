@@ -484,13 +484,11 @@ internal static partial class Loc
         ["vr_o_circle"] = Pair("Free seat around the board", "Freier Platz am Brett"),
         ["vr_o_gfxjobs"] = Pair("Threaded submission", "Parallele Bildabgabe"),
         ["vr_o_autorestart"] = Pair("Restart automatically", "Automatisch neu starten"),
-        // ONE family, ONE object name (2026-08 naming pass, audit 05 §3): the size trio used to
-        // read "Größe der Lebensbalken" / "Balken: Mindestgröße" / "Balken: Maximalgröße" —
-        // three name forms for one family on ONE screen. All on "Lebensbalken: …" now, matching
-        // the Loc.ConfigNames table's own wording for the same keys.
+        // ONE family, ONE object name (2026-08 naming pass, audit 05 §3) — and since 2026-08-13 one
+        // ROW: "vr_o_barsizemin"/"vr_o_barsizemax" ("Lebensbalken: Mindestgröße"/"Maximalgröße")
+        // are gone with their dials, because the pair clamped a factor that is 1.0 at the shipped
+        // zoom and therefore did nothing a player could see (ActorBars.ZoomFollowMin has the proof).
         ["vr_o_barsize"] = Pair("Health bars: size", "Lebensbalken: Größe"),
-        ["vr_o_barsizemin"] = Pair("Health bars: minimum size", "Lebensbalken: Mindestgröße"),
-        ["vr_o_barsizemax"] = Pair("Health bars: maximum size", "Lebensbalken: Maximalgröße"),
         ["vr_o_buttoncluster"] = Pair("Wrist buttons", "Handgelenk-Tasten"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
         ["vr_o_decisiondock"] = Pair("Decision dock", "Entscheidungsleiste"),
@@ -650,9 +648,9 @@ internal static partial class Loc
         ["h_mixed_reality"] = Pair("Clears the sky to one colour so your room can show through it.", "Färbt den Himmel einfarbig, damit dein Zimmer durchscheinen kann."),
         ["h_key_color"] = Pair("The colour your headset replaces with the room. Black keeps it simply dark.", "Die Farbe, die dein Headset durch das Zimmer ersetzt. Schwarz lässt es einfach dunkel."),
         ["h_show_combat_log"] = Pair("A floating panel listing what just happened.", "Eine schwebende Tafel mit dem, was gerade passiert ist."),
-        ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten."),
-        ["h_vr_o_barsizemin"] = Pair("The bars follow the table zoom. However far you zoom out, they never get smaller than this share of the size above.", "Die Balken folgen dem Tischzoom. Wie weit du auch herauszoomst, kleiner als dieser Anteil der Größe darüber werden sie nie."),
-        ["h_vr_o_barsizemax"] = Pair("However far you zoom in, the bars never get larger than this share of the size above.", "Wie weit du auch hineinzoomst, größer als dieser Anteil der Größe darüber werden die Balken nie."),
+        // The hint now carries what the two removed bound-dials used to claim to configure: the
+        // bars follow the table zoom only inside a fixed band, so this one number is the whole size.
+        ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had, and it holds however far you zoom the table.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten — und sie bleibt es, wie weit du den Tisch auch zoomst."),
         ["h_vr_o_buttoncluster"] = Pair("Buttons on your wrist for the things you press most.", "Tasten am Handgelenk für das, was du am häufigsten drückst."),
         ["h_vr_o_dialogs"] = Pair("Show the game's dialogs as panels in front of you.", "Zeigt die Dialoge des Spiels als Tafeln vor dir."),
         ["h_vr_o_decisiondock"] = Pair("A bar within reach for choices you have to make.", "Eine Leiste in Reichweite für Entscheidungen."),

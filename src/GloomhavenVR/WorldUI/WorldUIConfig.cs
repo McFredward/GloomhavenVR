@@ -69,21 +69,22 @@ internal static class WorldUIConfig
     /// them. 1.0 = the shipped size, which is <see cref="CanvasScaleMm"/> × 0.35 mm per uGUI pixel
     /// at the eye (see <see cref="WorldUI.ActorBars"/>); 2.0 is a bar twice as tall and twice as
     /// wide in front of your face at any table zoom.</para>
+    ///
+    /// <para>THE ONLY BAR-SIZE DIAL THERE IS. The zoom band the bars are allowed to move inside is
+    /// a CONSTANT now (<c>ActorBars.ZoomFollowMin/Max</c>, still 0.7–1.5), not two more sliders —
+    /// see the tombstone at the bind site.</para>
     /// </summary>
     internal static ConfigEntry<float> BarSizeScale = null!;
 
-    /// <summary>
-    /// Lower end of the zoom clamp (user: "ein minimum und maximum der Größe, damit sie sich trotz
-    /// zoomen nie über die Grenzen hinaus skalieren können"). The bars FOLLOW the table zoom — they
-    /// grow with the miniature when the table is pinched larger and shrink with it when it is
-    /// pinched away — and this is the floor of that following, as a factor of
-    /// <see cref="BarSizeScale"/>. See <see cref="WorldUI.ActorBars"/> for the arithmetic and the
-    /// guarantee.
-    /// </summary>
-    internal static ConfigEntry<float> BarZoomMinScale = null!;
-
-    /// <summary>Upper end of the zoom clamp; see <see cref="BarZoomMinScale"/>.</summary>
-    internal static ConfigEntry<float> BarZoomMaxScale = null!;
+    // [WorldUI] BarZoomMinScale / BarZoomMaxScale are GONE (user ruling 2026-08-13: "Mindest und
+    // Maximalgröße der Lebensbalken haben keinen sehbaren einfluss. Es macht irgendwas, aber man
+    // versteht nicht wirklich was - ziemlich unintuitiv."). They clamped an INTERMEDIATE quantity —
+    // the table-zoom FOLLOW factor, which is 1.0 at the shipped zoom by construction — so at the
+    // zoom the player actually sits at, neither bound was reachable and moving either dial changed
+    // nothing at all. The GUARANTEE he originally asked for ("ein minimum und maximum der Größe,
+    // damit sie sich trotz zoomen nie über die Grenzen hinaus skalieren können") is not lost: it is
+    // now the fixed 0.7–1.5 band in ActorBars, applied unconditionally on both size paths. What is
+    // gone is the ability to type numbers into a factor whose effect no player can see.
     internal static ConfigEntry<bool> WristHud = null!;
 
     /// <summary>Aliasing follow-up to [Cards] FaceMipBake: mip-bake the mipless game textures the
@@ -346,9 +347,9 @@ internal static class WorldUIConfig
             "Actor HP/effect bars ignore the HEAD DISTANCE — a bar the same size whether you " +
             "lean in or step back (test #14: the old distance compensation grew bars up to 2.5x " +
             "when stepping away, which read as the bars 'growing'). Off = legacy behavior: bars " +
-            "gently grow with head distance to stay readable, bounded by the same " +
-            "BarZoomMinScale/BarZoomMaxScale clamp as the table zoom. This dial says nothing " +
-            "about the TABLE zoom — that is BarSizeScale and its clamp.");
+            "gently grow with head distance to stay readable, bounded by the same fixed 0.7-1.5 " +
+            "band the table zoom is bounded by. This dial says nothing about the TABLE zoom — " +
+            "that is BarSizeScale.");
         BarSizeScale = _file.Bind("WorldUI", "BarSizeScale", Defaults.BarSizeScale,
             new ConfigDescription(
                 "SIZE of the actor HP/effect bars above the miniatures, as a factor of the size " +
@@ -359,25 +360,15 @@ internal static class WorldUIConfig
                 "a scale on the RIG - a size expressed in world units would mean a different " +
                 "apparent size at every zoom level. Default 1.0 = exactly the size before this " +
                 "dial existed (at the shipped table zoom), so nothing changes until you tune it. " +
-                "Live: the next frame is drawn at the new size. Range 0.25-3.",
+                "Whatever you set here HOLDS while you pinch-zoom the table: the bars follow the " +
+                "zoom only inside a fixed 0.7-1.5 band around the size you chose, so they can " +
+                "neither shrink away nor swallow the board. Live: the next frame is drawn at the " +
+                "new size. Range 0.25-3.",
                 new AcceptableValueRange<float>(0.25f, 3f)));
-        BarZoomMinScale = _file.Bind("WorldUI", "BarZoomMinScale", Defaults.BarZoomMinScale,
-            new ConfigDescription(
-                "MINIMUM size of the actor bars, as a factor of BarSizeScale. The bars follow the " +
-                "TABLE ZOOM - pinch the table larger and a bar grows with the miniature it belongs " +
-                "to, pinch it away and the bar shrinks with it - and this is the floor of that " +
-                "following: however far you zoom out, a bar is never smaller than " +
-                "BarSizeScale x this. 0.7 = at most 30 % smaller than the size you set. Set it " +
-                "equal to BarZoomMaxScale to switch the following off entirely and get one fixed " +
-                "real size at every zoom. Range 0.1-1.",
-                new AcceptableValueRange<float>(0.1f, 1f)));
-        BarZoomMaxScale = _file.Bind("WorldUI", "BarZoomMaxScale", Defaults.BarZoomMaxScale,
-            new ConfigDescription(
-                "MAXIMUM size of the actor bars, as a factor of BarSizeScale - the ceiling of the " +
-                "table-zoom following described at BarZoomMinScale. However far you zoom in, a bar " +
-                "is never larger than BarSizeScale x this, so a zoomed-in table can never let the " +
-                "bars swallow the board. 1.5 = at most 50 % larger than the size you set. Range 1-3.",
-                new AcceptableValueRange<float>(1f, 3f)));
+        // BarZoomMinScale / BarZoomMaxScale were bound HERE. REMOVED (user ruling 2026-08-13 —
+        // see the tombstone at the fields above). The band they configured is the constant pair
+        // ActorBars.ZoomFollowMin/Max, still 0.7 and 1.5, so nothing about the look changed; the
+        // stale lines in an existing worldui.cfg bind to nothing and are dropped on the next save.
         WristHud = _file.Bind("WorldUI", "WristHud", Defaults.WristHud,
             "Compact character status (HP/XP/conditions/gold) on the non-dominant wrist, look-at activated.");
         // Tooltips / ActionElementHints: always on — user ruling 2026-08-13. The flat game raises

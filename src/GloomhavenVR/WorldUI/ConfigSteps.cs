@@ -78,15 +78,18 @@ internal static class ConfigSteps
         ["WorldUI/ScreenDistance"] = 0.1d,
 
         // ---- Tafeln ▸ Lebensbalken ---------------------------------------------------------
-        // All three are factors of one size, so all three move by the same 5 % — a size dial whose
-        // two bounds stepped differently from it would read as three unrelated controls. The unit
-        // rule already answers 0.05 for every one of them ("Scale"); it is written down because
-        // these are curated everyday rows, where the step is a decision rather than a derivation,
-        // and because a bound that steps differently from the value it bounds is exactly the class
-        // of defect this file exists for.
+        // The size is a factor, so it moves by 5 %. The unit rule already answers 0.05 for it
+        // ("Scale"); it is written down because this is a curated everyday row, where the step is a
+        // decision rather than a derivation.
         ["WorldUI/BarSizeScale"] = 0.05d,
-        ["WorldUI/BarZoomMinScale"] = 0.05d,
-        ["WorldUI/BarZoomMaxScale"] = 0.05d,
+        // [WorldUI] BarZoomMinScale / BarZoomMaxScale had rows here. GONE with their dials
+        // (removed 2026-08-13 — the band they configured is the constant pair
+        // ActorBars.ZoomFollowMin/Max). Left in place they would be DEAD rows, and the wire
+        // suite's `configsteps/explicit-table-has-not-drifted` sweep says so by name: a written-down
+        // step must name a key that still ships a Defaults line. Their NAMES survive one file over,
+        // as pure resolver vectors in tests/GloomhavenVR.WireTests/ConfigStepVectors.cs — the
+        // "Min/Max qualifier BEHIND the unit word" shape has shipped a dead dial before and must
+        // keep resolving correctly for the day such a key comes back.
 
         // ---- Avatar & Mehrspieler ▸ Dein Auftritt (hand size promoted, overhaul ruling 4) --
         ["Hands/GloveScale"] = 0.05d,

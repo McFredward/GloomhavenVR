@@ -935,17 +935,11 @@ internal static partial class VROptionsTab
         slider.onValueChanged.AddListener(v => Apply(item, () => WriteNumber(item, v)));
 
         // The bar alone does not say what the value IS, and several of these settings are only
-        // meaningful as a number (turn degrees, hold seconds). The donor row ALREADY has a label
-        // for exactly that — the volume row's "50/50" — so it is rebound rather than joined by a
-        // second one. Adding one left the donor's stale text sitting next to ours — and finding
-        // the RIGHT one depends on PlaceControl clearing the old option contents IMMEDIATELY:
-        // with the deferred clear, this rebind landed on the dying toggle label and every bar
-        // showed the donor's literal "50/50" (user report 2026-08-11, item 3). The readout uses
-        // the same formatter as the stepper rows (ConfigCatalog.ValueText) and repaints on every
-        // slider tick through Apply, so it follows the drag live.
-        TMP_Text value = ExistingValueLabel(row, title) ?? BuildValueLabel(row.transform);
-        value.text = ConfigCatalog.ValueText(item, 0);
-        ValueLabels.Add((value, () => ConfigCatalog.ValueText(item, 0)));
+        // meaningful as a number (turn degrees, hold seconds). The donor row ALREADY carries the
+        // label for exactly that — the volume row's "50/50" — so it is rebound rather than joined
+        // by a second one. See BindValueLabels for why it is now EVERY such label and not the
+        // first one; that is the fix for the "50/50" report's SECOND occurrence (2026-08-13).
+        BindValueLabels(row, title, item, component: 0);
 
         AttachTooltip(row, item, title, hintKey);
         return true;
@@ -1200,6 +1194,87 @@ internal static partial class VROptionsTab
             return candidate;
         }
         return null;
+    }
+
+    /// <summary>Scratch for <see cref="BindValueLabels"/>; one list, reused, never handed out.</summary>
+    private static readonly System.Collections.Generic.List<TMP_Text> ValueLabelScratch = new(8);
+
+    /// <summary>True once the multi-label line below has been logged — one line, not one per row.</summary>
+    private static bool _multiValueLabelLogged;
+
+    /// <summary>
+    /// Bind EVERY label a row carries that is not its caption to the setting's live value.
+    ///
+    /// <para>THIS IS THE SECOND "50/50" REPORT (user, 2026-08-13: "Wenn ein balken in den VR
+    /// Einstellungen auf maximum gestellt wird steht da immer noch bei manchen Einstellungen 50/50
+    /// statt der eigentliche echte Wert"). The FIRST one (2026-08-11) was the deferred clear in
+    /// <see cref="PlaceControl"/>, which made <see cref="ExistingValueLabel"/> answer with the
+    /// dying toggle label; that fix stands and is not the cause here.</para>
+    ///
+    /// <para>WHAT IS LEFT, PROVEN BY ELIMINATION rather than by guessing at the donor prefab:
+    /// <see cref="Apply"/> repaints EVERY label in <see cref="ValueLabels"/> after EVERY edit of
+    /// ANY row — so a label still reading the donor's baked "50/50" AFTER the player has dragged
+    /// that very slider to its maximum cannot be a label this class ever bound. It is a SECOND (or
+    /// third) TMP inside the placed control that nothing writes and nothing repaints, and
+    /// <c>ExistingValueLabel</c> — "the FIRST label that is not the Title" — binds exactly one.
+    /// The donor is built for several: <c>UISliderBar.amountTexts</c> is a
+    /// <c>List&lt;TextMeshProUGUI&gt;</c> that its <c>SetAmountText</c> fills with the SAME
+    /// "{0}/{1}" string, and the menu's controls also carry an inactive gamepad key-tip label of
+    /// their own (the probe dump names one under the dropdown archetype: 'UI Controller Key Tip
+    /// (inactive)' → 'Text (TMP)'). Which of them the mod happened to bind decided whether a row
+    /// read right — hence "manche".</para>
+    ///
+    /// <para>THE FIX IS TO STOP CHOOSING. Every non-caption label in the row becomes the readout:
+    /// whichever one the prefab actually shows now carries the live value, a hidden one costs
+    /// nothing, and no baked donor string can survive anywhere in the row. All of them go into
+    /// <see cref="ValueLabels"/>, so all of them follow the drag. The toggle rows are deliberately
+    /// NOT routed through here — their single label is a STATE caption ("Ein"/"Aus"), the probe
+    /// dump shows the switch carries exactly one, and painting a number into it would be wrong.</para>
+    /// </summary>
+    private static void BindValueLabels(GameObject row, TMP_Text? title, ConfigCatalog.ConfigItem item,
+                                        int component)
+    {
+        ValueLabelScratch.Clear();
+        foreach (TMP_Text candidate in row.GetComponentsInChildren<TMP_Text>(true))
+        {
+            if (candidate == null || ReferenceEquals(candidate, title))
+                continue;
+            ValueLabelScratch.Add(candidate);
+        }
+
+        // A donor that carries none at all (a game update that moves the readout out of the
+        // control) still gets a readout — the same fallback the single-label version had.
+        if (ValueLabelScratch.Count == 0)
+            ValueLabelScratch.Add(BuildValueLabel(row.transform));
+
+        string text = ConfigCatalog.ValueText(item, component);
+        int shown = 0;
+        for (int i = 0; i < ValueLabelScratch.Count; i++)
+        {
+            TMP_Text label = ValueLabelScratch[i];
+            label.text = text;
+            ValueLabels.Add((label, () => ConfigCatalog.ValueText(item, component)));
+            if (label.gameObject.activeInHierarchy)
+                shown++;
+        }
+
+        // ONE line, always — not only when the count is >1. If the next hardware log says ONE
+        // label and the row STILL reads "50/50", then the stale text is not inside the row at all
+        // and the search has to widen; that is exactly the fact this line exists to settle, and it
+        // is worth more than a line that stays silent in the case it cannot explain.
+        if (!_multiValueLabelLogged)
+        {
+            _multiValueLabelLogged = true;
+            VRLog.Info("WorldUI",
+                $"SLIDER VALUE: the game's slider control brings {ValueLabelScratch.Count} text "
+                + $"label(s) into a row, {shown} of them visible (first seen on "
+                + $"{item.Section}/{item.Key}); ALL of them are now bound to the live value and "
+                + "repainted on every edit. Binding only the FIRST is what left the donor's baked "
+                + "'50/50' standing on the rows whose visible label was not the first one — and an "
+                + "unbound label is never repainted either, so no edit could ever clear it.");
+        }
+
+        ValueLabelScratch.Clear();
     }
 
     private static TMP_Text BuildValueLabel(Transform parent)

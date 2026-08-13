@@ -118,15 +118,26 @@ internal static class ConfigStepVectors
         // Min/Max qualifier sits BEHIND the unit word in two of the three keys — the shape that
         // shipped the asset rotation at 0.01°. Asserted through the resolver, not by reading the
         // written-down table, so a future change to either answer has to face this.
+        //
+        // 2026-08-13: [WorldUI] BarZoomMinScale/BarZoomMaxScale are NO LONGER SHIPPED DIALS (user:
+        // "Mindest und Maximalgröße der Lebensbalken haben keinen sehbaren einfluss … ziemlich
+        // unintuitiv" — they clamped a follow factor that is 1.0 at the shipped zoom, so neither
+        // bound was reachable where the player sits; the band is the constant pair
+        // ActorBars.ZoomFollowMin/Max now). Their two NAMES stay here as pure RESOLVER VECTORS —
+        // this half of the file tests the name→step rule, not the shipped key list, and the
+        // qualifier-behind-the-unit-word shape is exactly the defect class the file exists for, so
+        // it must keep answering correctly for the day such a key comes back. What could NOT stay
+        // is a written-down step for a key with no Defaults line: the explicit-table sweep below
+        // rejects that by name, which is why the family check now runs through the resolver.
         t.Case("configsteps/bar-size-family");
         Unit(t, "BarSizeScale", 0.05d, ConfigSteps.UnitScope.Value);
         Unit(t, "BarZoomMinScale", 0.05d, ConfigSteps.UnitScope.Value);
         Unit(t, "BarZoomMaxScale", 0.05d, ConfigSteps.UnitScope.Value);
-        t.True(ConfigSteps.TryExplicit("WorldUI", "BarSizeScale", out double barStep)
-               && ConfigSteps.TryExplicit("WorldUI", "BarZoomMinScale", out double barLoStep)
-               && ConfigSteps.TryExplicit("WorldUI", "BarZoomMaxScale", out double barHiStep)
+        t.True(ConfigSteps.TryUnit("BarSizeScale", out double barStep, out _)
+               && ConfigSteps.TryUnit("BarZoomMinScale", out double barLoStep, out _)
+               && ConfigSteps.TryUnit("BarZoomMaxScale", out double barHiStep, out _)
                && barStep == barLoStep && barStep == barHiStep,
-               "the health-bar size and both of its bounds must carry the SAME written-down step — "
+               "the health-bar size and both of its bounds must resolve to the SAME step — "
                + "a bound that steps more coarsely than the value it bounds cannot be set to it");
 
         // ---- an angle that is NOT one axis of an orientation ------------------------------------

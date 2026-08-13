@@ -399,8 +399,8 @@ internal static partial class Loc
             ["WorldUI/TrayNativeControls"] = Pair("Real buttons on board", "Echte Tasten am Brett"),
             ["WorldUI/BarFixedSize"] = Pair("Health bars: ignore distance", "Balken: Abstand ignorieren"),
             ["WorldUI/BarSizeScale"] = Pair("Health bars: size", "Lebensbalken: Größe"),
-            ["WorldUI/BarZoomMinScale"] = Pair("Health bars: minimum size", "Lebensbalken: Mindestgröße"),
-            ["WorldUI/BarZoomMaxScale"] = Pair("Health bars: maximum size", "Lebensbalken: Maximalgröße"),
+            // "WorldUI/BarZoomMinScale" / "WorldUI/BarZoomMaxScale" ("Mindestgröße"/"Maximalgröße")
+            // stood here. GONE with their dials (user ruling 2026-08-13, see ActorBars.ZoomFollowMin).
             ["WorldUI/BarsOccluded"] = Pair("Health bars behind walls", "Balken hinter Wänden"),
             ["WorldUI/PanelMipBake"] = Pair("Smooth panel textures", "Tafeltexturen glätten"),
             ["WorldUI/CanvasScaleMm"] = Pair("Panel scale (mm/px)", "Tafel-Maßstab (mm/px)"),

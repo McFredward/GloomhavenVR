@@ -409,13 +409,14 @@ internal static partial class VROptionsTab
                         // The bars themselves are no longer switchable ([WorldUI] ActorBars,
                         // removed 2026-08-13) — only how big they are and whether walls hide
                         // them. HP is not optional content.
-                        // User request: the health bars' SIZE, plus the two ends of the clamp
-                        // that keeps the table zoom from carrying that size away ("sowie ein
-                        // minimum und maximum der Größe, damit sie sich trotz zoomen nie über
-                        // die Grenzen hinaus skalieren können").
+                        // ONE size dial. The clamp's two ends were rows here too until
+                        // 2026-08-13 ("Mindest und Maximalgröße der Lebensbalken haben keinen
+                        // sehbaren einfluss … ziemlich unintuitiv"): they bounded the table-zoom
+                        // FOLLOW factor, which is 1.0 at the shipped zoom, so neither row could
+                        // move a pixel where the player stands. The clamp itself is kept — as the
+                        // constants ActorBars.ZoomFollowMin/Max — so the size below still holds at
+                        // every zoom, which is what the original request actually asked for.
                         new("WorldUI", "BarSizeScale", "vr_o_barsize"),
-                        new("WorldUI", "BarZoomMinScale", "vr_o_barsizemin"),
-                        new("WorldUI", "BarZoomMaxScale", "vr_o_barsizemax"),
                         new("WorldUI", "BarsOccluded", "vr_o_barsoccluded"),
                     },
                 },

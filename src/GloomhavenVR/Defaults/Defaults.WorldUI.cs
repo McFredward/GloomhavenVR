@@ -117,8 +117,10 @@ internal static partial class Defaults
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
     internal const bool BarFixedSize = true;                 // => [WorldUI] BarFixedSize
     internal const float BarSizeScale = 1.0f;                // => [WorldUI] BarSizeScale
-    internal const float BarZoomMinScale = 0.7f;             // => [WorldUI] BarZoomMinScale
-    internal const float BarZoomMaxScale = 1.5f;             // => [WorldUI] BarZoomMaxScale
+    // BarZoomMinScale (0.7) and BarZoomMaxScale (1.5) stood here. GONE (user ruling 2026-08-13:
+    // "Mindest und Maximalgröße der Lebensbalken haben keinen sehbaren einfluss … ziemlich
+    // unintuitiv"). The two numbers survive as the CONSTANTS ActorBars.ZoomFollowMin/Max, so the
+    // shipped look is bit-identical; only the two menu rows and the two cfg keys are gone.
     internal const bool WristHud = true;                     // => [WorldUI] WristHud
     internal const bool PanelMipBake = true;                 // => [WorldUI] PanelMipBake
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm

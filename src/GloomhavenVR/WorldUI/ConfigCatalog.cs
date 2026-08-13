@@ -31,7 +31,7 @@ namespace GloomhavenVR.WorldUI;
 /// handful of per-key overrides, so it costs one table line per module, not one per entry.</item>
 /// <item>GROUP (<see cref="ConfigGroup"/>) — inside a topic, the section when the section is small
 /// enough to read in one go, otherwise the key's own leading word (<c>FanArcSweepDegrees</c> →
-/// "Fan", <c>BarZoomMinScale</c> → "Bar"). That second rule is what keeps a 90-entry section
+/// "Fan", <c>BarSizeScale</c> → "Bar"). That second rule is what keeps a 90-entry section
 /// navigable without anyone naming the clusters by hand.</item>
 /// </list>
 ///
@@ -1089,7 +1089,7 @@ internal static class ConfigCatalog
 
     /// <summary>
     /// The key's leading word — the automatic cluster name inside an oversized section
-    /// ("FanArcSweepDegrees" → "Fan", "BarZoomMinScale" → "Bar", "VRSettingsOffset" → "VR").
+    /// ("FanArcSweepDegrees" → "Fan", "BarSizeScale" → "Bar", "VRSettingsOffset" → "VR").
     /// Bounded by the key length; never returns empty for a non-empty key.
     /// </summary>
     /// <summary>

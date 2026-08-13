@@ -106,8 +106,8 @@ internal static partial class VROptionsTab
                     Entries = new[]
                     {
                         new BoardRef("WorldUI", "BarSizeScale", perBoard: false),
-                        new BoardRef("WorldUI", "BarZoomMinScale", perBoard: false),
-                        new BoardRef("WorldUI", "BarZoomMaxScale", perBoard: false),
+                        // BarZoomMinScale / BarZoomMaxScale stood here. Removed 2026-08-13 with
+                        // their bindings — the band is a constant now (ActorBars.ZoomFollowMin).
                         new BoardRef("WorldUI", "BarFixedSize", perBoard: false),
                         new BoardRef("WorldUI", "BarsOccluded", perBoard: false),
                     },
