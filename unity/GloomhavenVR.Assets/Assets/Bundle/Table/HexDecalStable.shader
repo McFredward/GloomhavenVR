@@ -96,6 +96,78 @@
 // _VRZTest stays material-driven so on-device experiments (8 = vanilla
 // draw-through) need no bundle rebuild; HexHighlightFix sets and logs it.
 //
+// RECEIVING-SURFACE BAND TEST (ModBuild 132, user finding 5: "das Hex feld …
+// ist auch UNTER dem Spielbrett auf dem Boden drauf zu sehen"). The occlusion
+// scheme above is ONE-SIDED: exporting depth(P) with ZTest LEqual rejects
+// pixels whose real surface is NEARER than the tile plane (walls, figures) but
+// happily keeps every pixel whose real surface is FARTHER. Until ModBuild 132
+// "farther" meant the game's black sky sphere and the leak was invisible; the
+// mod now spawns a room whose FLOOR sits ~1 m below the board, so wherever the
+// decal box's screen footprint sees past the board (its overhang at a board
+// edge, gaps between tiles, grazing views under the slab) the hex pattern —
+// most visibly its outline ring — is painted onto that floor. This is inherent
+// to shading the ray∩plane point: for such a pixel P is still a perfectly good
+// point inside the hex; only the surface the player actually SEES there is
+// wrong, and the shader has no way to know that from geometry alone.
+//
+// The missing datum is the SCENE DEPTH at the pixel, and the required predicate
+// is a BAND, not a half-space:
+//     keep  iff   depth(P) - tol  <=  sceneDepth  <=  depth(P)      (view-ray metric)
+//                 └── far bound (new) ──┘          └ near bound (today's ZTest) ┘
+// Two comparisons; the output merger offers exactly one per pass. Both possible
+// sources were weighed:
+//   * _CameraDepthTexture (a software compare, single pass) — REJECTED. This
+//     project's head camera runs FORWARD with depthTextureMode driven by
+//     [Optimize] HeadDepthPrepass, whose default is FALSE
+//     (Defaults.Core.cs: `HeadDepthPrepass = false`), i.e. NO depth texture is
+//     generated in a default install; an unbound sampler would make the test
+//     read garbage. Turning it on is not a free flag either: on the forward
+//     path Unity builds that texture by re-rendering every opaque object
+//     through its shadow-caster pass — a full extra scene submission PER EYE
+//     PASS (four per frame under MultiPass). Paying a whole scene submission to
+//     fix a decal is the wrong trade, and it would re-introduce exactly the
+//     depth-texture dependency this port was written to remove.
+//   * The DEPTH BUFFER itself, via a second hardware test — CHOSEN. It always
+//     exists, it already contains the tile plane (that is precisely why
+//     _VRDepthBias has to exist), and it costs one extra ColorMask-0 draw per
+//     decal instead of a scene submission.
+// So the far bound runs as a stencil-only PREPASS (pass "SurfaceBand"): same
+// mesh, same Cull Front, same vertex program → pixel-identical coverage, but it
+// exports the depth of P pushed AWAY from the camera along the view ray by
+// [_VRSurfaceTolerance] metres and runs ZTest GEqual. That passes iff the
+// pushed point is at or behind the real surface, i.e. iff the real surface is
+// no more than the tolerance behind the tile plane. Where it passes the pass
+// SETS [_VRStencilBit]; on z-fail it CLEARS it (so no stale bit survives from
+// the previous frame), and the colour pass then draws only where the bit is set
+// and clears it again on the way out, leaving the stencil buffer exactly as it
+// found it. Net effect: fragments landing on the tile paint exactly as before;
+// fragments landing on the room floor, on a wall metres behind, or in a gap
+// between rooms are gone.
+// Properties, both live-tunable so an on-device bisect needs no bundle rebuild:
+//   _VRSurfaceTolerance — metres of slack, default 0.25. It must exceed the
+//     mismatch between the analytic y=0 plane and the tile mesh actually
+//     rasterised there (a few cm of authoring offset plus depth quantisation,
+//     amplified by 1/sin(view angle) at grazing angles — ~4x at 15°, so ~0.12 m
+//     worst case) and must stay well under the board-to-room-floor drop (~1 m),
+//     which 0.25 does with a 4x margin at both ends. Measured in the offline rig
+//     (below): at a 29° view a 0.05 m tile drop still paints, 0.20 m no longer
+//     does — i.e. the metric is VERTICAL slack = tolerance * sin(elevation), and
+//     the real tile's mismatch against its own decal plane is sub-centimetre.
+//     Do NOT set it to 0: that pins the pushed point on the plane itself and the
+//     prepass then z-fights the tile exactly as the colour pass would without
+//     _VRDepthBias (speckled stencil). Use _VRStencilBit = 0 to disable instead.
+//   _VRStencilBit — which stencil bit the prepass borrows, default 128 (the top
+//     bit; the built-in FORWARD path this camera uses does not reserve it).
+//     Setting it to 0 makes ReadMask/WriteMask 0, so the compare degenerates to
+//     "always" and the whole band test switches OFF — a rebuild-free kill
+//     switch back to ModBuild 131 behaviour. If a target ever has no stencil
+//     attachment at all the compare likewise degenerates to a pass, so the
+//     failure direction is the old leak, never a vanished highlight.
+// What the band test deliberately does NOT do: it is indifferent to WHERE
+// inside the hex a fragment sits, so it cannot inset the outline from the tile
+// edge, and two neighbouring decals resting on the same tile plane get the same
+// verdict for every shared-border pixel — multi-hex ranges stay continuous.
+//
 // Property NAMES match the original exactly: HexSelect_Control keeps calling
 // ProjectorMaterialAdjustment() (SetColor/SetFloat/SetInt on these names) after
 // the runtime shader swap, and Unity carries all matching property values
@@ -140,10 +212,163 @@ Shader "GloomhavenVR/HexDecalStable"
         // the decal never z-fights the tile floor it lies on. ~2e-4 ≈ a few mm
         // at typical viewing distance under reversed-Z; runtime-tunable.
         _VRDepthBias ("Depth bias", Float) = 0.0002
+        // Receiving-surface band test (see header). How far BEHIND the tile
+        // plane, in metres along the view ray, the real surface may lie and
+        // still receive the pattern. 0.25 clears the tile's own authoring /
+        // quantisation slack even at grazing angles while staying far under the
+        // ~1 m drop to the environment room's floor. Never 0 (the prepass would
+        // z-fight the tile) — disable via _VRStencilBit = 0 instead.
+        _VRSurfaceTolerance ("Surface tolerance (m)", Float) = 0.25
+        // Stencil bit the band prepass borrows to hand its verdict to the
+        // colour pass. 0 = disable the band test entirely (kill switch).
+        _VRStencilBit ("Surface-test stencil bit", Float) = 128
     }
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
+
+        // Shared between the band prepass and the colour pass: identical vertex
+        // program (so both rasterise pixel-identical coverage) and the identical
+        // ray∩plane reconstruction (so both talk about the same point P).
+        CGINCLUDE
+        #include "UnityCG.cginc"
+
+        struct appdata
+        {
+            float4 vertex : POSITION;
+        };
+        struct v2f
+        {
+            float4 pos    : SV_POSITION;
+            float3 objPos : TEXCOORD0; // interpolated object-space surface position
+        };
+
+        sampler2D _HexMask;
+        sampler2D _MainTex;
+        sampler2D _HexTargetFrame;
+        fixed4 _HexColour;
+        float4 _Offset;
+        float4 _BorderStep;
+        float _Scale, _ScaleB;
+        float _BorderFlameIntensity, _BorderLineIntensity, _HexIntensity;
+        float _OmniMin, _OmniMax;
+        float _NW_On, _NE_On, _E_On, _SE_On, _SW_On, _W_On;
+        float _TargetFrameIntensity, _CrossHair, _HexRotation;
+        float _VRDepthBias;
+        float _VRSurfaceTolerance;
+
+        v2f vert (appdata v)
+        {
+            v2f o;
+            o.pos = UnityObjectToClipPos(v.vertex); // per-eye VP: stereo-correct
+            o.objPos = v.vertex.xyz;
+            return o;
+        }
+
+        // ---- stable stand-in for the original's depth reconstruction ----
+        // Per-pixel view ray ∩ decal-local plane y=0 (the tile floor plane).
+        // _WorldSpaceCameraPos is per-eye in multipass; objPos is the exact
+        // rasterized surface point — no screen-space inputs anywhere.
+        // Returns P in object space and hands back the object-space ray direction
+        // (unnormalised, camera → surface) for callers that need to walk along it.
+        float3 HexPlanePoint (float3 objPos, out float3 dirObj)
+        {
+            float3 camObj = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0)).xyz;
+            dirObj = objPos - camObj;
+            float denom = dirObj.y;
+            // Guard the horizontal-ray singularity; sign-preserving epsilon.
+            if (abs(denom) < 1e-5)
+                denom = (denom < 0.0) ? -1e-5 : 1e-5;
+            float3 P = camObj + dirObj * (-camObj.y / denom);
+            P.y = 0.0; // exact plane; original reconstructed y≈0 (floor) here
+            // Rays that leave the box before reaching the plane land outside the
+            // hex footprint — exactly like the original when the depth buffer held
+            // floor beyond the box — and are killed by the same radial falloff.
+            return P;
+        }
+
+        // clip.z/w in the platform's DEPTH-BUFFER convention. On UNITY_REVERSED_Z
+        // (D3D11, our target) that raw value is already depth-buffer space (1 = near);
+        // on GL-style platforms it is NDC [-1,1] and gets remapped to [0,1].
+        // `nearBias` is always applied TOWARD the camera, whatever the convention.
+        float HexDeviceDepth (float4 clipPos, float nearBias)
+        {
+#if defined(UNITY_REVERSED_Z)
+            return saturate(clipPos.z / clipPos.w + nearBias);
+#else
+            return saturate((clipPos.z / clipPos.w) * 0.5 + 0.5 - nearBias);
+#endif
+        }
+        ENDCG
+
+        // ---------------------------------------------------------------------
+        // Pass 0 — RECEIVING-SURFACE BAND PREPASS (see header). Colour-less and
+        // depth-write-less: its only product is the stencil bit that tells the
+        // colour pass "the surface this pixel really shows is close enough to the
+        // tile plane to be the tile". It exports the depth of P pushed AWAY from
+        // the camera by _VRSurfaceTolerance metres along the view ray and runs
+        // ZTest GEqual, so it passes exactly when the real surface is at most
+        // that far behind the plane. Cull/vertex program match the colour pass,
+        // so its coverage is pixel-identical.
+        // ---------------------------------------------------------------------
+        Pass
+        {
+            Name "SurfaceBand"
+            Cull Front
+            ZWrite Off
+            ZTest GEqual
+            ColorMask 0
+            Blend Off
+            Stencil
+            {
+                Ref       [_VRStencilBit]
+                ReadMask  [_VRStencilBit]
+                WriteMask [_VRStencilBit]
+                Comp  Always
+                Pass  Replace   // inside the band  -> set the bit
+                ZFail Zero      // behind the band  -> clear it (no stale frame-N-1 bit)
+            }
+
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragBand
+            #pragma target 3.0
+
+            float4 fragBand (v2f i, out float oDepth : SV_Depth) : SV_Target
+            {
+                float3 dirObj;
+                float3 P = HexPlanePoint(i.objPos, dirObj);
+
+                // Push P away from the camera by the tolerance, measured in WORLD
+                // metres along the view ray. The decal box is non-uniformly scaled
+                // (2, 0.3, 2), so object space is not metric — normalise in world
+                // space and bring the offset back with unity_WorldToObject, keeping
+                // the whole computation on per-draw / per-eye-correct inputs only.
+                float3 dirW = mul((float3x3)unity_ObjectToWorld, dirObj);
+                float lenW = max(length(dirW), 1e-6);
+                float3 pushObj = mul((float3x3)unity_WorldToObject,
+                                     dirW * (max(_VRSurfaceTolerance, 0.0) / lenW));
+                float4 clipFar = UnityObjectToClipPos(float4(P + pushObj, 1.0));
+
+                // Degenerate rays (intersection behind the camera) must FAIL the
+                // GEqual test rather than pass it, so pin them at the NEAR plane.
+#if defined(UNITY_REVERSED_Z)
+                float nearValue = 1.0;
+#else
+                float nearValue = 0.0;
+#endif
+                oDepth = (clipFar.w <= 1e-6) ? nearValue : HexDeviceDepth(clipFar, 0.0);
+                return 0.0; // ColorMask 0 — never reaches the render target
+            }
+            ENDCG
+        }
+
+        // ---------------------------------------------------------------------
+        // Pass 1 — COLOUR. Unchanged except for the stencil gate: draw only where
+        // the prepass certified the receiving surface, and clear the bit again on
+        // every rasterised pixel (Pass/ZFail/Fail all Zero) so the stencil buffer
+        // is handed back to the rest of the frame exactly as it was found.
+        // ---------------------------------------------------------------------
         Pass
         {
             Name "Unlit"
@@ -151,61 +376,26 @@ Shader "GloomhavenVR/HexDecalStable"
             ZWrite Off
             ZTest [_VRZTest]
             Blend SrcAlpha OneMinusSrcAlpha
+            Stencil
+            {
+                Ref      [_VRStencilBit]
+                ReadMask [_VRStencilBit]
+                WriteMask [_VRStencilBit]
+                Comp  Equal
+                Pass  Zero
+                Fail  Zero
+                ZFail Zero
+            }
 
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 3.0
-            #include "UnityCG.cginc"
-
-            struct appdata
-            {
-                float4 vertex : POSITION;
-            };
-            struct v2f
-            {
-                float4 pos    : SV_POSITION;
-                float3 objPos : TEXCOORD0; // interpolated object-space surface position
-            };
-
-            sampler2D _HexMask;
-            sampler2D _MainTex;
-            sampler2D _HexTargetFrame;
-            fixed4 _HexColour;
-            float4 _Offset;
-            float4 _BorderStep;
-            float _Scale, _ScaleB;
-            float _BorderFlameIntensity, _BorderLineIntensity, _HexIntensity;
-            float _OmniMin, _OmniMax;
-            float _NW_On, _NE_On, _E_On, _SE_On, _SW_On, _W_On;
-            float _TargetFrameIntensity, _CrossHair, _HexRotation;
-            float _VRDepthBias;
-
-            v2f vert (appdata v)
-            {
-                v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex); // per-eye VP: stereo-correct
-                o.objPos = v.vertex.xyz;
-                return o;
-            }
 
             fixed4 frag (v2f i, out float oDepth : SV_Depth) : SV_Target
             {
-                // ---- stable stand-in for the original's depth reconstruction ----
-                // Per-pixel view ray ∩ decal-local plane y=0 (the tile floor plane).
-                // _WorldSpaceCameraPos is per-eye in multipass; i.objPos is the exact
-                // rasterized surface point — no screen-space inputs anywhere.
-                float3 camObj = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0)).xyz;
-                float3 dirObj = i.objPos - camObj;
-                float denom = dirObj.y;
-                // Guard the horizontal-ray singularity; sign-preserving epsilon.
-                if (abs(denom) < 1e-5)
-                    denom = (denom < 0.0) ? -1e-5 : 1e-5;
-                float3 P = camObj + dirObj * (-camObj.y / denom);
-                P.y = 0.0; // exact plane; original reconstructed y≈0 (floor) here
-                // Rays that leave the box before reaching the plane land outside the
-                // hex footprint — exactly like the original when the depth buffer held
-                // floor beyond the box — and are killed by the same radial falloff.
+                float3 dirObj;
+                float3 P = HexPlanePoint(i.objPos, dirObj);
 
                 // ---- per-pixel depth of the TRUE shaded point (occlusion) ----
                 // The rasterized fragment sits on the box's far/side faces, but the
@@ -215,20 +405,11 @@ Shader "GloomhavenVR/HexDecalStable"
                 // before this queue-4000 decal) and walls then occlude the highlight;
                 // ZWrite Off keeps the buffer untouched (SV_Depth feeds the TEST, the
                 // masked WRITE stays off — see header).
-                float4 clipP = UnityObjectToClipPos(float4(P, 1.0));
-                float depthP = clipP.z / clipP.w;
-#if defined(UNITY_REVERSED_Z)
-                // D3D11-style reversed-Z: clip.z/w is already in depth-buffer space
-                // (1 = near); bias TOWARD the camera = larger value.
-                depthP += _VRDepthBias;
-#else
-                // GL-style: clip.z/w is NDC [-1,1] → remap to [0,1]; closer = smaller.
-                depthP = depthP * 0.5 + 0.5 - _VRDepthBias;
-#endif
                 // Degenerate rays (plane intersection behind the camera → clipP.w<=0)
                 // yield garbage depth, but their color is already killed by the radial
-                // falloff below; clamp so the export stays well-defined regardless.
-                oDepth = saturate(depthP);
+                // falloff below; HexDeviceDepth clamps so the export stays well-defined.
+                float4 clipP = UnityObjectToClipPos(float4(P, 1.0));
+                oDepth = HexDeviceDepth(clipP, _VRDepthBias);
 
                 // ---- flipbook frame (asm lines 39-63): 8x8 grid, ~20 cells/s ----
                 // frame = round(frac(_Time.y * 0.3125) * 64); u = col/8, v = (7-row)/8.
