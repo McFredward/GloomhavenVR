@@ -305,6 +305,27 @@ internal struct PresenceState
     public ushort HeldStretchSecondaryCode;
 
     /// <summary>
+    /// True when this packet carries the SHARED ENVIRONMENT CLOCK (extension record
+    /// <see cref="NetProtocol.ExtIdEnvClock"/>): the sender's environment style and the reading of
+    /// the clock every <c>_Time</c>-driven effect of that environment runs on. Written ONLY while a
+    /// shell with animated content really stands (Cellar/SwampNight), so a player on the game's own
+    /// sky, on OffBlack, or in MR emits the exact bytes previous builds emitted — absence is
+    /// "I have no shared environment", which is precisely the case in which there is nothing to
+    /// agree about.
+    /// </summary>
+    public bool HasEnvClock;
+
+    /// <summary>The sender's environment style code (<c>SkyStyle</c> value, 1 = Cellar,
+    /// 2 = SwampNight). A COMPARISON KEY, never an instruction: a peer's choice never overrides the
+    /// local dial. Meaningful only when <see cref="HasEnvClock"/>; a code above
+    /// <see cref="NetProtocol.EnvClockMaxStyleCode"/> is dropped on read.</summary>
+    public byte EnvClockStyle;
+
+    /// <summary>The sender's environment clock in milliseconds — what its shaders currently read as
+    /// <c>_Time.y + _GhvrTimeOfs</c>. Meaningful only when <see cref="HasEnvClock"/>.</summary>
+    public uint EnvClockMillis;
+
+    /// <summary>
     /// True when this packet carries the BOARD TOOLTIP the sender is reading (extension record
     /// <see cref="NetProtocol.ExtIdBoardTooltip"/>) — the game's hover tooltip while it is parked
     /// in their control board's tooltip area. Written only while such a tooltip is really shown
@@ -909,6 +930,14 @@ internal struct PresenceState
 ///                        held-figure block and record 8. Written only while a factor is
 ///                        non-neutral; absence = both 1.0, and out-of-envelope codes decode to
 ///                        neutral, see NetProtocol.ExtIdHeldStretch)
+///                        31 SHARED ENVIRONMENT CLOCK ([style][u32 clockMillis LE] — the sender's
+///                        environment style as a COMPARISON KEY (never an instruction) and the
+///                        reading every _Time-driven effect of that environment runs on. Receivers
+///                        follow the lowest player id reporting the SAME style, which makes the rat,
+///                        the drip, the candle flicker and the shafts' shimmer happen at the same
+///                        moment for everyone. Written only while such an environment really stands
+///                        — never on the game's own sky, OffBlack or MR, see
+///                        NetProtocol.ExtIdEnvClock)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -1124,7 +1153,12 @@ internal static class PresenceSerializer
                           || (state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel))
                           || (state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel))
                           || (state.HasUndoCapLabel && !string.IsNullOrEmpty(state.UndoCapLabel))
-                          || (state.HasItemUseCapLabel && !string.IsNullOrEmpty(state.ItemUseCapLabel));
+                          || (state.HasItemUseCapLabel && !string.IsNullOrEmpty(state.ItemUseCapLabel))
+                          // A player with no animated environment (the game's own sky, OffBlack, MR,
+                          // or an older bundle) writes NO clock record, so it must not open the tail
+                          // either — that is what keeps every such packet byte-identical to the
+                          // previous build's, and it is the whole economic case for record 31.
+                          || (state.HasEnvClock && state.EnvClockStyle != 0);
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -1769,6 +1803,29 @@ internal static class PresenceSerializer
                     buffer[i++] = (byte)(state.HeldStretchPrimaryCode >> 8);
                     buffer[i++] = (byte)(state.HeldStretchSecondaryCode & 0xFF);
                     buffer[i++] = (byte)(state.HeldStretchSecondaryCode >> 8);
+                    records++;
+                }
+                if (state.HasEnvClock && state.EnvClockStyle != 0
+                    && i + 2 + NetProtocol.EnvClockRecordBytes <= buffer.Length)
+                {
+                    // SHARED ENVIRONMENT CLOCK (31): [style][u32 clockMillis LE] — the sender's
+                    // environment and the reading every _Time-driven effect of it runs on (the rat,
+                    // the drip and its rings, the candle flicker, the canopy sway, the shafts'
+                    // shimmer). The receiver adopts it only from the LOWEST player id that reports
+                    // the SAME style, which is the same election on every machine — see the record
+                    // doc and Core/SkyAlternative.EnvClockSeconds.
+                    //
+                    // Written ONLY while such an environment really stands, so the game's own sky,
+                    // OffBlack and MR emit exactly the bytes previous builds emitted, and absence is
+                    // the "nothing to synchronise" signal — no sentinel value exists.
+                    // Appended LAST, in id order behind record 30, per the tail's id-order contract.
+                    buffer[i++] = NetProtocol.ExtIdEnvClock;
+                    buffer[i++] = (byte)NetProtocol.EnvClockRecordBytes;
+                    buffer[i++] = state.EnvClockStyle;
+                    buffer[i++] = (byte)(state.EnvClockMillis & 0xFF);
+                    buffer[i++] = (byte)((state.EnvClockMillis >> 8) & 0xFF);
+                    buffer[i++] = (byte)((state.EnvClockMillis >> 16) & 0xFF);
+                    buffer[i++] = (byte)((state.EnvClockMillis >> 24) & 0xFF);
                     records++;
                 }
                 buffer[countAt] = records;
@@ -2854,6 +2911,29 @@ internal static class PresenceSerializer
                         // is "the recess is empty", i.e. the pre-record rendering.
                         state.HasItemUseClip = true;
                         state.ItemUseClipIndex = buffer[i];
+                    }
+                    else if (id == NetProtocol.ExtIdEnvClock
+                             && len >= NetProtocol.EnvClockRecordBytes)
+                    {
+                        // SHARED ENVIRONMENT CLOCK: [style][u32 ms LE]. Validation is FAIL-CLOSED TO
+                        // ABSENCE (never trust the wire): a style code of 0 or above
+                        // EnvClockMaxStyleCode is a sender this build cannot name, and "the same
+                        // environment" must never be decided by a code we do not understand — the
+                        // record is dropped whole, which leaves the receiver exactly where a peer
+                        // predating record 31 leaves it (its own clock, its own offset 0). The
+                        // millisecond value needs no range check: the consumer treats it as a
+                        // DIFFERENCE and its own jump/walk band already bounds the correction, and
+                        // a NaN cannot arrive from four integer bytes.
+                        byte envStyle = buffer[i];
+                        if (envStyle != 0 && envStyle <= NetProtocol.EnvClockMaxStyleCode)
+                        {
+                            state.HasEnvClock = true;
+                            state.EnvClockStyle = envStyle;
+                            state.EnvClockMillis = (uint)(buffer[i + 1]
+                                                          | (buffer[i + 2] << 8)
+                                                          | (buffer[i + 3] << 16)
+                                                          | (buffer[i + 4] << 24));
+                        }
                     }
                     else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
                     {

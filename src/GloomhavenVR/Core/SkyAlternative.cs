@@ -584,6 +584,47 @@ internal static class SkyAlternative
     // ROOM branch state. _roomPlaced latches the ONE placement: while it is false the room root
     // is hidden and the probe retries on the scan cadence; once true nothing ever writes the
     // room transform again for the life of this activation.
+    /// <summary>
+    /// True once the SKY branch's yaw came from the BOARD (and not from the player's head).
+    ///
+    /// <para>USER REPORT (ModBuild 137 round, verbatim): "Mond und Lichtstrahlen sollen im
+    /// Multiplayer (falls beide Spieler die selbe Umgebung ausgewählt haben) auch synchronisiert
+    /// werden." — and before multiplayer can even be discussed the two had to agree on ONE
+    /// machine, which they did not.</para>
+    ///
+    /// <para>ROOT CAUSE. Every consumer of the moon reads ONE authored constant
+    /// (<c>EnvironmentsBuilder.MoonDir</c>, <c>Editor/BuildEnvironments.cs:77</c>, re-exported as
+    /// <c>EnvRoomBuilder.MoonDir</c>): the moon sprite in <c>EnvStars.shader</c>, the star
+    /// occlusion in <c>EnvStarPoints.shader</c>, both baked light rigs, the canopy tear, the shaft
+    /// axes and the cellar's window beam. The asset is therefore self-consistent by construction.
+    /// The RUNTIME then split the shell over two roots and gave them DIFFERENT yaws:
+    /// <see cref="PlaceSky"/> rotated the sky branch (StarDome/StarField — the moon) by the
+    /// player's HEAD yaw at spawn, while <see cref="TryPlaceRoom"/> rotated the room branch
+    /// (RoomGeo — shafts, canopy tear, rim-lit trunks, window beam) by the BOARD yaw. In game the
+    /// moon stood at <c>headYawAtSpawn + 40°</c> and the shafts at <c>boardYaw + 40°</c>; the error
+    /// was exactly the difference, i.e. wherever the player happened to be looking on the frame the
+    /// sky was seated. It also meant two players in one scenario saw the moon in two directions,
+    /// because each derived it from his own head.</para>
+    ///
+    /// <para>THE FIX, and why it is this one. The sky takes the ROOM's yaw. The board hierarchy is
+    /// identical on every client, so a board-derived yaw is the same number everywhere — which is
+    /// why this single change also makes the moon agree ACROSS players, with no wire field at all
+    /// (see the ENV SYNC table in <see cref="EnvClockSeconds"/>). The sky is normally seated BEFORE
+    /// the board is measurable (the room waits for hex tiles, the sky does not wait for anything),
+    /// so the head yaw survives as the FALLBACK for that window and this latch records that the
+    /// debt is outstanding; <see cref="TryPlaceRoom"/> pays it the moment the room lands, by
+    /// re-yawing the sky about its own origin.</para>
+    ///
+    /// <para>REJECTED: re-seating the SKY on every room placement unconditionally (a second
+    /// transform write per activation for nothing, and it would have to run before the first frame
+    /// the player can see); moving the moon into the room branch (it is a 5 km dome — parenting it
+    /// to a board-scaled, board-positioned frame makes it a small object hanging over the table,
+    /// and it would lose <see cref="NotifyRigScaled"/>'s perceived-constant guarantee); re-seating
+    /// the ROOM to the sky (the ModBuild-131 ruling: re-seating a room the player stands in reads
+    /// as an unprompted teleport).</para>
+    /// </summary>
+    private static bool _skyYawFromBoard;
+
     private static bool _roomPlaced;
     private static float _roomAuthoredExtent;      // prefab's TOTAL horizontal extent, meters (measured)
     private static float _roomAuthoredPlayExtent;  // the usable open area's authored diameter, meters
@@ -782,6 +823,7 @@ internal static class SkyAlternative
 
         HideGameSphere();
         EnsureEnvironment(style, anchor);
+        TickEnvClock(); // the shared-clock walk — one float compare once settled (EnvClockSeconds)
 
         if (!_active || !_loggedActive)
         {
@@ -1211,20 +1253,50 @@ internal static class SkyAlternative
         Vector3 floorPos;
         Quaternion yaw;
         bool tracked = head != null && head.transform.localPosition.sqrMagnitude > 1e-6f;
-        if (tracked)
+        floorPos = tracked
+            ? anchor.TransformPoint(new Vector3(head!.transform.localPosition.x, 0f,
+                                                head.transform.localPosition.z))
+            : anchor.position;
+
+        // THE YAW IS THE BOARD'S, NOT THE HEAD'S (see _skyYawFromBoard for the whole root cause).
+        // The moon is a fixed authored direction inside this branch, and the shafts that the same
+        // constant aims live in the ROOM branch, which is yawed by the board — so the ONLY yaw at
+        // which moon and shafts can agree is the board's. The head yaw survives ONLY for the window
+        // in which no board is measurable yet (which is the normal case at spawn: the room itself
+        // is waiting for the same tiles), and TryPlaceRoom re-yaws this branch the moment it lands.
+        string yawSource;
+        if (_roomPlaced && _roomGo != null)
         {
-            Vector3 headLocal = head!.transform.localPosition;
-            floorPos = anchor.TransformPoint(new Vector3(headLocal.x, 0f, headLocal.z));
-            Vector3 fwd = head.transform.forward;
+            // A RE-SEAT AFTER THE ROOM STANDS (recenter, rig rebuild, ring seat). Take the yaw the
+            // room is ACTUALLY wearing, not a fresh measurement: it is the same number by
+            // construction and it cannot fail, whereas a measurement can (a teardown mid-read) —
+            // and a failure here would drop the sky back onto the head yaw with no second chance,
+            // because TryPlaceRoom never runs again for this activation.
+            yaw = VRRigDriver.YawOnly(_roomGo.transform.rotation);
+            _skyYawFromBoard = true;
+            yawSource = "the PLACED ROOM's own yaw (exact, and immune to a failed re-measurement)";
+        }
+        else if (TryMeasureBoardYaw(out Quaternion boardYaw))
+        {
+            yaw = boardYaw;
+            _skyYawFromBoard = true;
+            yawSource = "BOARD yaw (agrees with the room branch, and with every other client)";
+        }
+        else if (tracked)
+        {
+            Vector3 fwd = head!.transform.forward;
             fwd.y = 0f; // world-horizon yaw — the sky stays upright in the world
             yaw = fwd.sqrMagnitude > 1e-6f
                 ? Quaternion.LookRotation(fwd)
                 : VRRigDriver.YawOnly(anchor.rotation); // looking straight up/down: seat yaw
+            _skyYawFromBoard = false;
+            yawSource = "head yaw, PROVISIONAL — no board measurable yet; the room's placement re-yaws it";
         }
         else
         {
-            floorPos = anchor.position;
             yaw = VRRigDriver.YawOnly(anchor.rotation);
+            _skyYawFromBoard = false;
+            yawSource = "rig yaw, PROVISIONAL — no board and no tracked head yet; the room's placement re-yaws it";
         }
 
         if (_skyGo != null)
@@ -1234,9 +1306,10 @@ internal static class SkyAlternative
         }
 
         _placedPoseVersion = VRRigDriver.RigPoseVersion;
-        VRLog.Info("Core", $"Sky alternative: SKY placed ({why}) — origin {floorPos} scale " +
+        VRLog.Info("Core", $"SKY YAW: SKY placed ({why}) — origin {floorPos} scale " +
                            $"{rigScale:F2} (rig-tracked, perceived-constant), yaw {yaw.eulerAngles.y:F1}deg " +
-                           $"({(tracked ? "tracked head pose" : "rig pose fallback, head not tracked yet")}). " +
+                           $"from {yawSource}" +
+                           $"; head is {(tracked ? "tracked" : "not tracked yet")}. " +
                            "The room branch is board-anchored and is NOT touched by this.");
     }
 
@@ -1306,6 +1379,44 @@ internal static class SkyAlternative
 
         room.transform.SetPositionAndRotation(new Vector3(center.x, floorY, center.z), boardYaw);
         room.transform.localScale = Vector3.one * roomScale;
+
+        // PAY THE SKY'S OUTSTANDING YAW DEBT (see _skyYawFromBoard). The sky is normally seated
+        // several seconds before this — no hex tile exists at rig-build time — so it is standing at
+        // the provisional head/rig yaw right now, which is exactly the ModBuild-137 defect: moon
+        // over there, its own shafts over here. One rotation write, once per activation, about the
+        // sky's OWN origin: a dome is rotationally symmetric about its centre, so nothing moves,
+        // nothing pops, and NotifyRigScaled's position/scale invariant is untouched (it writes
+        // position and scale, never rotation). This is also the only reason a peer's moon can agree
+        // with mine: boardYaw is read from the board hierarchy, which is identical on every client.
+        // THE TEST IS THE VALUE, NOT THE LATCH: the sky may already have taken a board yaw of its
+        // own, and both readings walk a HashSet of tiles to find the hierarchy root. All tiles of a
+        // board share that root, so the two agree — but "agree by argument" is not "agree by
+        // measurement", and the room's number is the authoritative one because the shafts are IN it.
+        if (_skyGo != null
+            && Mathf.Abs(Mathf.DeltaAngle(_skyGo.transform.rotation.eulerAngles.y,
+                                          boardYaw.eulerAngles.y)) > 0.01f)
+        {
+            Quaternion had = _skyGo.transform.rotation;
+            _skyGo.transform.rotation = boardYaw;
+            bool wasProvisional = !_skyYawFromBoard;
+            _skyYawFromBoard = true;
+            VRLog.Info("Core", $"SKY YAW: room landed and the sky was on " +
+                               $"{(wasProvisional ? "its provisional" : "a DIFFERENT board")} yaw " +
+                               $"{had.eulerAngles.y:F1}deg — RE-YAWED to the board's " +
+                               $"{boardYaw.eulerAngles.y:F1}deg (delta " +
+                               $"{Mathf.DeltaAngle(had.eulerAngles.y, boardYaw.eulerAngles.y):F1}deg). " +
+                               "Moon and light shafts now stand on the same authored MoonDir, and every " +
+                               "client that measures this board resolves the same number. Rotation only: " +
+                               "the dome's origin, scale and rig-scale tracking are not touched.");
+        }
+        else if (_skyGo != null)
+        {
+            _skyYawFromBoard = true;
+            VRLog.Info("Core", $"SKY YAW: room landed at {boardYaw.eulerAngles.y:F1}deg and the sky was " +
+                               $"ALREADY on that yaw — no re-yaw needed (the board was measurable when " +
+                               "the sky was placed). Moon and light shafts stand on the same authored " +
+                               "MoonDir.");
+        }
         _roomWorldExtent = roomTotalWorld;
         _roomPlaced = true;
         if (!room.activeSelf)
@@ -1330,6 +1441,46 @@ internal static class SkyAlternative
                            "per-frame writes, no rig-scale tracking, no re-seat of any kind — the board can " +
                            "never move inside the room again.");
         return true;
+    }
+
+    /// <summary>
+    /// The board's world YAW alone — the cheap half of <see cref="TryMeasureBoardWorld"/>, for the
+    /// SKY branch, which needs the rotation and nothing else (its origin is the player's floor
+    /// point and its scale is the rig's). One dictionary-free walk that stops at the FIRST live hex
+    /// tile and reads its hierarchy root, because every tile of a board shares that root — the same
+    /// source, and therefore provably the same number, as the room's <c>boardYaw</c>.
+    ///
+    /// <para>False while no tile exists, which is the normal state on the frame the rig is built:
+    /// the caller then seats the sky provisionally and <see cref="TryPlaceRoom"/> re-yaws it. Called
+    /// only on the sky's placement events (spawn, rig rebuild/recenter/ring seat) — never per
+    /// frame.</para>
+    /// </summary>
+    private static bool TryMeasureBoardYaw(out Quaternion yaw)
+    {
+        yaw = Quaternion.identity;
+        try
+        {
+            if (!Singleton<ObjectCacheService>.IsInitialized)
+                return false;
+            ObjectCacheService cache = Singleton<ObjectCacheService>.Instance;
+            if (cache == null)
+                return false;
+            HashSet<TileBehaviour> tiles = cache.GetTileBehaviors();
+            if (tiles == null || tiles.Count == 0)
+                return false;
+            foreach (TileBehaviour tile in tiles)
+            {
+                if (tile == null)
+                    continue;
+                yaw = VRRigDriver.YawOnly(tile.transform.root.rotation);
+                return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false; // scenario tearing down mid-read — the caller falls back and retries
+        }
     }
 
     /// <summary>
@@ -1540,6 +1691,214 @@ internal static class SkyAlternative
         t.localScale = Vector3.one * scaleAfter; // absolute, not multiplied: no float-error creep
     }
 
+    // ---- the shared environment clock (multiplayer) --------------------------------------------
+
+    /// <summary>
+    /// USER REQUEST (ModBuild 137 round, verbatim): "Mond und Lichtstrahlen sollen im Multiplayer
+    /// (falls beide Spieler die selbe Umgebung ausgewählt haben) auch synchronisiert werden. Das
+    /// gilt generell für alle Effekt zB auch die Maus. Ich will das alle Spieler sie gleichzeitig
+    /// sehen (wenn die spieler es an haben)."
+    ///
+    /// <para>WHAT "die Maus" IS. It is the cellar's RAT — <c>EnvCritter.shader</c>, the ModBuild-134
+    /// ruling "eine Ratte huscht durch den Raum": a real lit animal that runs a fixed Bézier across
+    /// the floor every <c>_Period</c> seconds and is invisible in between. It is the clearest
+    /// example of the class he is actually describing: an EVENT, something a player says "look" at.
+    /// (It is not a mouse cursor; the mod has no world mouse cursor, and the laser pointer's hit
+    /// marker is per-viewer aiming feedback, not an event — see the report.)</para>
+    ///
+    /// <para>WHY ONE NUMBER FIXES ALL OF THEM. The environment bundle ships with NO MonoBehaviours
+    /// (<c>Editor/BuildEnvironments.cs:35</c>): every animation in it is either Shuriken or
+    /// <c>_Time</c> in a shader. And every <c>_Time</c>-reading Env* shader already reads it as
+    /// <c>_Time.y + _GhvrTimeOfs</c> — a global float that the runtime has never written (it exists
+    /// for the editor's still-frame preview, <c>EnvRoom.shader:63</c>). So a single
+    /// <c>Shader.SetGlobalFloat</c> moves the rat, the drip and its puddle rings, the candle
+    /// flicker and glow, the canopy sway, the water glints and the shafts'/beam's shimmer onto one
+    /// clock — for zero per-effect traffic and zero per-frame cost. The offset is chosen so that
+    /// <c>_Time.y + _GhvrTimeOfs</c> equals the SAME number on every client that shows the same
+    /// environment; the sum is by construction the clock OWNER's own <c>_Time.y</c>, which is ≥ 0,
+    /// so no shader's <c>fmod</c> can ever see a negative argument no matter which client joined
+    /// first.</para>
+    ///
+    /// <para>WHAT IS DELIBERATELY NOT SYNCHRONISED, and why (the full table is in the round's
+    /// report):
+    /// <list type="bullet">
+    /// <item>THE MOON — already identical, and not by this clock: it does not ride the celestial
+    /// rotation at all (<c>EnvStars.shader:28</c> — "it does NOT ride the celestial rotation"), it
+    /// is the authored <c>_MoonDir</c> constant. Item A's board yaw is what makes it agree.</item>
+    /// <item>CELESTIAL ROTATION AND PER-STAR TWINKLE — cannot be reached from here: <c>EnvStars</c>
+    /// and <c>EnvStarPoints</c> build their sky clock from raw <c>fmod(_Time.y, SKY_PERIOD)</c>
+    /// without the offset (EnvStars.shader:119, EnvStarPoints.shader:88), so a bundle change would
+    /// be required. Left alone on purpose: nobody can point at a twinkle, the moon does not move
+    /// with it, and the shafts' use of the sky clock is a mote SHIMMER, not a direction.</item>
+    /// <item>SHOOTING STARS, FIREFLIES, DUST MOTES, FOG — Shuriken, per-client seeded. Meteors are
+    /// the one arguable "event", but syncing them needs either a per-event packet or a
+    /// deterministic re-seed plus a <c>Simulate</c> catch-up on a system whose emission is a rate,
+    /// not a burst; at ~one every eight seconds, in a random direction, over a sky that no two
+    /// players are looking at anyway, that is a byte and a risk spent on a coincidence.</item>
+    /// </list></para>
+    ///
+    /// <para>ACCURACY. The owner's reading is applied on arrival, so a follower runs one one-way
+    /// latency behind (tens of milliseconds on the side channel) — three orders below the rat's
+    /// period and below a frame at 90 Hz for the flicker. Both clocks then advance on the same
+    /// real-time base, so there is nothing left to drift; the correction below exists for the
+    /// re-election and scene-reload cases, not for oscillator drift.</para>
+    /// </summary>
+    internal static float EnvClockSeconds => Time.timeSinceLevelLoad + _timeOfs;
+
+    /// <summary>The live global shader offset — the number that makes <c>_Time.y + _GhvrTimeOfs</c>
+    /// read the same on every client showing this environment. 0 = we are the clock owner, or there
+    /// is nobody to agree with (single player, MR, a peer on another style).</summary>
+    private static float _timeOfs;
+
+    /// <summary>Where <see cref="_timeOfs"/> is heading. Set by the net layer, walked to by
+    /// <see cref="TickEnvClock"/> so a correction is frame-rate-correct and never a pop.</summary>
+    private static float _timeOfsTarget;
+
+    /// <summary>The player id whose clock we follow; 0 = ours (we are the lowest id present, or
+    /// alone). Purely diagnostic bookkeeping plus the "owner changed ⇒ jump, do not slew" test.</summary>
+    private static int _clockOwner;
+    private static int _loggedClockOwner = int.MinValue;
+    private static bool _timeOfsWritten;   // the uniform has been written at least once
+    private static readonly int GhvrTimeOfsId = Shader.PropertyToID("_GhvrTimeOfs");
+
+    /// <summary>Above this error the correction is a JUMP, not a walk: at that size the two clocks
+    /// were never the same clock (a fresh adoption, a re-election, a scene reload that reset
+    /// <c>_Time.y</c>), and walking there would take minutes of visibly wrong phase.</summary>
+    private const float ClockJumpSeconds = 1.5f;
+
+    /// <summary>Below this the offset is left alone — a packet-rate ±ms jitter must not produce a
+    /// per-packet shader write.</summary>
+    private const float ClockDeadbandSeconds = 0.02f;
+
+    /// <summary>How fast a sub-jump correction is walked off, in seconds of clock per second of
+    /// wall time. Slow enough that the rat's gait and the candle flicker cannot be seen to
+    /// stretch, fast enough to close the deadband-to-jump band in under ten seconds.</summary>
+    private const float ClockSlewRate = 0.2f;
+
+    /// <summary>
+    /// The style code this client puts on the wire: 0 = nothing to share, else the
+    /// <see cref="SkyStyle"/> value. Non-zero ONLY while a shell with animated content is really
+    /// standing (Cellar/SwampNight) — Default shares the game's own sky and OffBlack shares an empty
+    /// black void, and neither has a single <c>_Time</c>-driven effect to agree about. MR forces
+    /// the whole feature off locally, so an MR player automatically reports 0.
+    /// </summary>
+    internal static byte WireStyleCode =>
+        _active && _skyGo != null && (_appliedStyle == SkyStyle.Cellar
+                                      || _appliedStyle == SkyStyle.SwampNight)
+            ? (byte)_appliedStyle
+            : (byte)0;
+
+    /// <summary>This client's current shared-environment clock in milliseconds — the value that
+    /// goes on the wire. Wraps at 2^32 ms (49.7 days of level time); no session survives that, and
+    /// the follower's offset is a DIFFERENCE, so even a wrap would cost one jump and heal.</summary>
+    internal static uint EnvClockMillis
+    {
+        get
+        {
+            double s = EnvClockSeconds;
+            if (!(s > 0d))
+                return 0u;
+            return (uint)((long)System.Math.Round(s * 1000d) & 0xFFFFFFFFL);
+        }
+    }
+
+    /// <summary>
+    /// Follow <paramref name="ownerPlayerId"/>'s environment clock. The net layer elects the owner
+    /// (the lowest player id among everyone showing this same style, self included) and calls this
+    /// with that peer's last reading; when the local player IS the lowest, it calls
+    /// <see cref="OwnEnvClock"/> instead. Election by lowest id is what makes the result the same
+    /// on every machine without a host concept and without a handshake.
+    ///
+    /// <para><paramref name="localClockAtArrival"/> is <c>Time.timeSinceLevelLoad</c> AS IT WAS when
+    /// that reading arrived, and pairing the two is the whole correctness of this: the caller is
+    /// re-evaluated every frame with the same (unreliable, ≤5 Hz) reading, and pairing an old
+    /// reading with the CURRENT local time would drag the target backwards by a second per second
+    /// between packets. Both clocks advance at the same rate, so the offset computed from the pair
+    /// is constant and re-computing it every frame is a no-op.</para>
+    /// </summary>
+    internal static void FollowEnvClock(int ownerPlayerId, uint ownerClockMillis,
+                                        float localClockAtArrival)
+    {
+        float target = (float)(ownerClockMillis * 0.001d) - localClockAtArrival;
+        bool ownerChanged = _clockOwner != ownerPlayerId;
+        _clockOwner = ownerPlayerId;
+        _timeOfsTarget = target;
+        if (ownerChanged || Mathf.Abs(target - _timeOfs) > ClockJumpSeconds)
+            ApplyTimeOfs(target, ownerChanged ? "new clock owner" : "resync (error beyond the walk band)");
+    }
+
+    /// <summary>We are the clock: the offset is 0 by definition and everyone else walks to us.
+    /// Also the state a lone player, an MR player and a player whose peers chose another
+    /// environment are in — which is why it is the same call.</summary>
+    internal static void OwnEnvClock()
+    {
+        bool ownerChanged = _clockOwner != 0;
+        _clockOwner = 0;
+        _timeOfsTarget = 0f;
+        if (ownerChanged || Mathf.Abs(_timeOfs) > ClockJumpSeconds)
+            ApplyTimeOfs(0f, ownerChanged ? "clock owner gone — this client is the reference again" : "reference reset");
+    }
+
+    /// <summary>Walk <see cref="_timeOfs"/> to its target and push the uniform when it moved.
+    /// Called once per <see cref="Tick"/> while an environment stands; costs one float compare in
+    /// the settled case, which is every frame after the first packet.</summary>
+    private static void TickEnvClock()
+    {
+        float err = _timeOfsTarget - _timeOfs;
+        if (Mathf.Abs(err) <= ClockDeadbandSeconds)
+        {
+            if (!_timeOfsWritten)
+                ApplyTimeOfs(_timeOfs, "first write");
+            return;
+        }
+        if (Mathf.Abs(err) > ClockJumpSeconds)
+        {
+            ApplyTimeOfs(_timeOfsTarget, "walk band exceeded");
+            return;
+        }
+        float step = ClockSlewRate * Mathf.Max(Time.unscaledDeltaTime, 0f);
+        ApplyTimeOfs(_timeOfs + Mathf.Clamp(err, -step, step), null);
+    }
+
+    /// <summary>The ONE writer of the global <c>_GhvrTimeOfs</c> uniform (and the reason nothing
+    /// else in the mod may write it: it is a global, and the whole room has to move together — the
+    /// shader's own note). Logs only when the reason is worth a line, never per walked frame.</summary>
+    private static void ApplyTimeOfs(float value, string? why)
+    {
+        if (float.IsNaN(value) || float.IsInfinity(value))
+            return; // a poisoned wire value must never reach a shader global
+        _timeOfs = value;
+        _timeOfsWritten = true;
+        Shader.SetGlobalFloat(GhvrTimeOfsId, value);
+        if (why == null && _clockOwner == _loggedClockOwner)
+            return;
+        _loggedClockOwner = _clockOwner;
+        VRLog.Info("Core", $"ENV SYNC: environment clock offset {value:F3}s applied " +
+                           $"({why ?? "walked"}) — " +
+                           (_clockOwner == 0
+                               ? "this client OWNS the clock (lowest player id, or nobody else shows this environment)"
+                               : $"following player {_clockOwner}") +
+                           $". Shared clock now {EnvClockSeconds:F2}s; the rat, the drip and its puddle " +
+                           "rings, the candle flicker, the canopy sway and the shafts' shimmer run on it. " +
+                           "The moon does not need it (fixed _MoonDir, board yaw) and the star rotation " +
+                           "cannot use it (no _GhvrTimeOfs in EnvStars/EnvStarPoints).");
+    }
+
+    /// <summary>Drop the shared clock back to the local one. Called from the teardown path: a
+    /// leftover global offset must not survive into a session that shows no environment, or into
+    /// the editor-preview contract the uniform was originally built for.</summary>
+    private static void ResetEnvClock()
+    {
+        _timeOfsTarget = 0f;
+        _clockOwner = 0;
+        _loggedClockOwner = int.MinValue;
+        if (_timeOfs == 0f && !_timeOfsWritten)
+            return;
+        _timeOfs = 0f;
+        _timeOfsWritten = false;
+        Shader.SetGlobalFloat(GhvrTimeOfsId, 0f);
+    }
+
     // ---- deactivate ---------------------------------------------------------------------------
 
     /// <summary>Clear the room branch's placement bookkeeping (spawn, style switch, teardown).</summary>
@@ -1552,6 +1911,7 @@ internal static class SkyAlternative
         _roomWorldExtent = 0f;
         _nextRoomProbeFrame = 0;
         _implausibleWarned = false;
+        _skyYawFromBoard = false; // a fresh activation owes the sky a board yaw again
     }
 
     /// <summary>
@@ -1585,6 +1945,7 @@ internal static class SkyAlternative
         _placedPoseVersion = int.MinValue; // a fresh activation always places fresh
         _nextHealLogTime = 0f;
         ResetRoomState();
+        ResetEnvClock(); // no environment ⇒ no shared clock; the global goes back to the shipped 0
         _active = false;
         _loggedActive = false;
     }

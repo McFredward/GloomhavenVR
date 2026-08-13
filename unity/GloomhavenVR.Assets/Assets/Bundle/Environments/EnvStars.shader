@@ -99,6 +99,9 @@ Shader "GloomhavenVR/EnvStars"
             #pragma fragment frag
             #pragma target 3.0
             #include "UnityCG.cginc"
+    // Shared with every other Env* shader that reads _Time: in multiplayer the elected
+    // owner's epoch arrives on Net record 31 so both skies stand at the same hour; 0 offline.
+    float _GhvrTimeOfs;
 
             sampler2D _MoonTex, _HazeTex;
             fixed4 _TopCol, _HorizonCol, _MoonCol, _HazeCol, _MwWarm, _MwCool;
@@ -116,7 +119,10 @@ Shader "GloomhavenVR/EnvStars"
             // wrap equals the sky's own revolution period, so the rotation
             // crosses it without a jump.
             #define SKY_PERIOD 2880.0
-            float SkyTime() { return fmod(_Time.y, SKY_PERIOD); }
+            // MP-SHARED CLOCK: _GhvrTimeOfs carries the elected owner's epoch (Net record 31,
+            // ExtIdEnvClock) so every player's sky stands at the same hour; it is 0 offline and
+            // in single player, which is the shipped behaviour bit-for-bit.
+            float SkyTime() { return fmod(_Time.y + _GhvrTimeOfs, SKY_PERIOD); }
 
             // Interleaved gradient noise (Jimenez) — 1 LSB of dither on the
             // near-black sky gradient. Without it a hemisphere spanning ~6 of

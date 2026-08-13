@@ -1473,6 +1473,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         var extras = default(PresenceState);
 
+        // SHARED ENVIRONMENT CLOCK (extension record 31). USER REQUEST, verbatim: "Mond und
+        // Lichtstrahlen sollen im Multiplayer (falls beide Spieler die selbe Umgebung ausgewählt
+        // haben) auch synchronisiert werden. Das gilt generell für alle Effekt zB auch die Maus.
+        // Ich will das alle Spieler sie gleichzeitig sehen (wenn die spieler es an haben)."
+        //
+        // NO EDGE DETECTOR AND NO EXTRA PACKET: the clock is a monotone reading, so it simply rides
+        // whatever extras packet the cadence above already sends — five bytes at ≤5 Hz, and only
+        // while an environment with animated content really stands. SkyAlternative reports style 0
+        // for the game's own sky, for OffBlack and under MR, and a 0 writes no record at all, so
+        // every player who is not in the cellar or the swamp emits the exact bytes previous builds
+        // emitted. The two reads are a bool/enum compare and one float add (SkyAlternative).
+        byte envStyle = Core.SkyAlternative.WireStyleCode;
+        if (envStyle != 0)
+        {
+            extras.HasEnvClock = true;
+            extras.EnvClockStyle = envStyle;
+            extras.EnvClockMillis = Core.SkyAlternative.EnvClockMillis;
+        }
+
         if (board != null)
         {
             extras.HasBoard = true;
@@ -2646,11 +2665,147 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     Board.CharacterFocus.ApplyPeer(kv.Key, p.HasCharFocus, p.CharFocusActorId,
                                                    p.CharFocusOwnsAttention,
                                                    p.CharFocusAttentionActorId);
+
+                    // SHARED ENVIRONMENT CLOCK (record 31). The reading is kept HERE and not on the
+                    // RemoteAvatar for the same reason CharacterFocus is: its consumer is a static
+                    // world-wide effect (the local environment's shader clock), not a property of
+                    // the peer's body. A packet WITHOUT the record forgets the peer's entry, which
+                    // is what a player who switched to the game's own sky, to OffBlack, to MR or to
+                    // an older build transmits — and "forgotten" is exactly "has nothing to share".
+                    if (p.HasEnvClock)
+                        _peerEnv[kv.Key] = new PeerEnvClock(p.EnvClockStyle, p.EnvClockMillis,
+                                                            Time.unscaledTime,
+                                                            Time.timeSinceLevelLoad);
+                    else
+                        _peerEnv.Remove(kv.Key);
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
             _pendingExtras.Clear();
         }
+
+        ResolveEnvClock();
+    }
+
+    /// <summary>A peer's last environment-clock reading (extension record 31) and when it
+    /// arrived.</summary>
+    private readonly struct PeerEnvClock
+    {
+        public PeerEnvClock(byte style, uint millis, float at, float localAt)
+        {
+            Style = style;
+            Millis = millis;
+            At = at;
+            LocalAt = localAt;
+        }
+
+        public readonly byte Style;
+        public readonly uint Millis;
+
+        /// <summary>Unscaled arrival time — the staleness clock, which must keep running when the
+        /// game's own time does not.</summary>
+        public readonly float At;
+
+        /// <summary>The LOCAL shader clock (<c>Time.timeSinceLevelLoad</c>, i.e. what <c>_Time.y</c>
+        /// reads) at the same instant. The offset the follower wants is
+        /// <c>Millis/1000 − LocalAt</c>, and it must be computed from THIS pair and not from the
+        /// live clock: both readings advance at one second per second, so the difference is
+        /// constant — but pairing an OLD reading with the CURRENT local time would drag the target
+        /// backwards by one second per second between packets.</summary>
+        public readonly float LocalAt;
+    }
+
+    private readonly Dictionary<int, PeerEnvClock> _peerEnv = new();
+
+    /// <summary>Seconds after which a peer's environment-clock reading is treated as gone. Extras
+    /// go out at ≤5 Hz, so this is a dozen missed packets — long enough that a hitch or a dropped
+    /// unreliable packet cannot cost a clock owner, short enough that a peer who quits the
+    /// environment (or the game) hands the clock back within a breath.</summary>
+    private const float EnvClockStaleSeconds = 3f;
+
+    private int _loggedEnvOwner = int.MinValue;
+    private byte _loggedEnvStyle = 255;
+
+    /// <summary>
+    /// Elect the environment clock owner and hand the local environment its offset.
+    ///
+    /// <para>THE RULE, and why it needs no host and no handshake: the owner is the LOWEST player id
+    /// among everyone who currently reports the SAME environment style, the local player included.
+    /// Every client evaluates that over the same set and therefore reaches the same answer; the
+    /// lowest id keeps offset 0 and is the reference, everyone else walks to its reading. A peer on
+    /// a DIFFERENT style is not a candidate at all — "falls beide Spieler die selbe Umgebung
+    /// ausgewählt haben" is the user's own condition, and a peer's choice must never override the
+    /// local dial (it is local presentation, and MR has to be able to force it off regardless).</para>
+    ///
+    /// <para>Runs once per frame over a dictionary that is empty in single player and has one entry
+    /// in a 1:1 game.</para>
+    /// </summary>
+    private void ResolveEnvClock()
+    {
+        byte localStyle = Core.SkyAlternative.WireStyleCode;
+        if (localStyle == 0)
+        {
+            // Nothing shown here (the game's own sky, OffBlack, MR, no scenario): there is nothing
+            // to synchronise. SkyAlternative's own teardown already returns the shader global to 0;
+            // this keeps the bookkeeping honest while an environment is merely paused.
+            if (_loggedEnvOwner != int.MinValue)
+            {
+                _loggedEnvOwner = int.MinValue;
+                _loggedEnvStyle = 255;
+                VRLog.Info("Net", "ENV SYNC: no environment shown locally — nothing to synchronise " +
+                                  "(the peer's choice never overrides the local one).");
+            }
+            return;
+        }
+
+        int localId = _transport != null ? _transport.LocalPlayerId : 0;
+        int owner = 0;                 // 0 = us
+        uint ownerMillis = 0;
+        float ownerLocalAt = 0f;
+        int matching = 0, differing = 0;
+        float now = Time.unscaledTime;
+        foreach (KeyValuePair<int, PeerEnvClock> kv in _peerEnv)
+        {
+            if (now - kv.Value.At > EnvClockStaleSeconds)
+                continue;
+            if (kv.Value.Style != localStyle)
+            {
+                differing++;
+                continue;
+            }
+            matching++;
+            // Lowest id wins. A peer only beats us if its id is BELOW ours, and beats another peer
+            // the same way — so the winner is the same on every machine that sees the same set.
+            if (kv.Key >= localId && localId > 0)
+                continue;
+            if (owner != 0 && kv.Key >= owner)
+                continue;
+            owner = kv.Key;
+            ownerMillis = kv.Value.Millis;
+            ownerLocalAt = kv.Value.LocalAt;
+        }
+
+        if (owner != 0)
+            Core.SkyAlternative.FollowEnvClock(owner, ownerMillis, ownerLocalAt);
+        else
+            Core.SkyAlternative.OwnEnvClock();
+
+        if (owner == _loggedEnvOwner && localStyle == _loggedEnvStyle)
+            return;
+        _loggedEnvOwner = owner;
+        _loggedEnvStyle = localStyle;
+        VRLog.Info("Net", $"ENV SYNC: local style {localStyle} as player {localId} — " +
+                          $"{matching} peer(s) on the SAME environment, {differing} on another " +
+                          $"(they are left alone, by the user's own condition). " +
+                          (owner != 0
+                              ? $"Clock owner is player {owner} (lowest id): this client follows its " +
+                                $"reading {ownerMillis / 1000f:F2}s."
+                              : "This client OWNS the clock (lowest id present) and runs at offset 0.") +
+                          " Shared: the rat, the drip and its puddle rings, the candle flicker and " +
+                          "glow, the canopy sway, the water glints, the shafts'/beam shimmer. Already " +
+                          "identical without the wire: the moon (fixed _MoonDir on a board-derived " +
+                          "yaw). Deliberately unsynchronised: star rotation and twinkle, shooting " +
+                          "stars, fireflies, dust, fog.");
     }
 
     /// <summary>Seconds before re-attempting a FAILED avatar construction for the same player.
@@ -2729,6 +2884,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     {
         _pending.Remove(playerId);
         _pendingExtras.Remove(playerId);
+        _peerEnv.Remove(playerId); // a departed peer must not keep owning the environment clock
         if (_avatars.TryGetValue(playerId, out RemoteAvatar avatar))
         {
             avatar.Destroy();

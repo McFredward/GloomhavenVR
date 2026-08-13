@@ -1234,6 +1234,91 @@ internal static class GoldenVectors
                && NetProtocol.DecodeHeldStretch(NetProtocol.HeldStretchCodeMax + 1) == 1f,
                "either side of the envelope decodes to neutral, never to a clamped extreme");
 
+        // -- 7i3. SHARED ENVIRONMENT CLOCK (extension record 31) ---------------------------
+        // USER REQUEST, verbatim: "Mond und Lichtstrahlen sollen im Multiplayer (falls beide
+        // Spieler die selbe Umgebung ausgewählt haben) auch synchronisiert werden. Das gilt
+        // generell für alle Effekt zB auch die Maus. Ich will das alle Spieler sie gleichzeitig
+        // sehen (wenn die spieler es an haben)." — [style][u32 clockMillis LE]: the sender's
+        // environment as a COMPARISON KEY plus the clock every _Time-driven effect of it runs on
+        // (the rat = "die Maus", the drip and its puddle rings, the candle flicker, the canopy
+        // sway, the shafts' shimmer). Written only while such an environment really stands.
+        t.Case("7i3. extras, shared environment clock record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasEnvClock = true,
+            EnvClockStyle = 1,          // SkyStyle.Cellar
+            EnvClockMillis = 1234567u,  // 1234.567 s of shared clock
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            1F 05            // record: id 31 (shared environment clock), len 5
+            01               // style 1 = Cellar
+            87 D6 12 00      // clock 1234567 ms, u32 LE
+            "), ext, m, "the clock record is [id 31][len 5][style][u32 millis LE]");
+        t.Equal(18, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 5 = 18 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState env1), "and it parses");
+        t.True(env1.HasEnvClock, "the clock record is delivered");
+        t.Equal(1, (int)env1.EnvClockStyle, "with the style key intact");
+        t.Equal(1234567L, (long)env1.EnvClockMillis, "and the millisecond reading intact");
+
+        // The swamp, with every bit of the u32 set: the reading is an unsigned wall clock, so the
+        // top byte must survive the round trip unsigned (a signed read would deliver -1 and the
+        // follower would jump backwards by 49.7 days' worth of offset).
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasEnvClock = true,
+            EnvClockStyle = 2,               // SkyStyle.SwampNight
+            EnvClockMillis = 0xFFFFFFFFu,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1F 05
+            02               // style 2 = SwampNight
+            FF FF FF FF      // clock 4294967295 ms — the u32 ceiling
+            "), ext, m, "the swamp's clock rides the same 5-byte record");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState env2), "and it parses");
+        t.Equal(2, (int)env2.EnvClockStyle, "the swamp style key is delivered");
+        t.Equal(4294967295L, (long)env2.EnvClockMillis, "and the full u32 survives UNSIGNED");
+
+        // ABSENT WHEN THERE IS NO ENVIRONMENT — the backward-compatibility argument for the sender
+        // side: the game's own sky, OffBlack and MR all report style 0, and a 0 writes no record,
+        // no tail and no block. Such a packet is byte-for-byte a pre-record-31 sender's.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasEnvClock = true,
+            EnvClockStyle = 0,
+            EnvClockMillis = 999u,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), ext, m,
+               "style 0 -> no record, no tail, no block: byte-identical to build 137");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noEnv), "and it parses");
+        t.True(!noEnv.HasEnvClock, "with HasEnvClock false (nothing to synchronise)");
+
+        // FAIL-CLOSED TO ABSENCE on the receiver. A style code this build cannot name (here 3 —
+        // OffBlack, which by design never writes; equally a future style from a newer peer) is
+        // dropped WHOLE. "The same environment" — the user's own condition — must never be decided
+        // by a code we do not understand, and the fallback is exactly the pre-record behaviour:
+        // this client keeps its own clock. The record is still stepped over by its length, so the
+        // records after it in the same tail arrive untouched.
+        byte[] unknownEnv = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 02         // two records in the tail
+            1F 05 03 87 D6 12 00   // id 31, len 5, style 3 = unknown to this build
+            1E 04 DC 05 E8 03      // id 30, len 4: a held stretch BEHIND the dropped record
+            ");
+        t.True(PresenceSerializer.TryRead(unknownEnv, unknownEnv.Length, out PresenceState badEnv),
+               "a packet carrying an unknown environment style still parses");
+        t.True(!badEnv.HasEnvClock,
+               "the unknown style is dropped whole — the receiver keeps its own clock");
+        t.True(badEnv.HasHeldStretch && badEnv.HeldStretchPrimaryCode == 1500,
+               "and the record BEHIND it in the same tail is unharmed (skipped by length)");
+
         // READER SANITIZATION IS PER SLOT: a poisoned secondary must not cost the primary its
         // real factor. Hand-built packet: primary 0 (garbage), secondary 1500 (real).
         byte[] dirtyHs = Hex.Bytes(@"

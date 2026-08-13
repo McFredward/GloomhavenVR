@@ -60,6 +60,9 @@ Shader "GloomhavenVR/EnvStarPoints"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+    // Shared with every other Env* shader that reads _Time: in multiplayer the elected
+    // owner's epoch arrives on Net record 31 so both skies stand at the same hour; 0 offline.
+    float _GhvrTimeOfs;
 
             float _Gain, _RotSpeed, _TwinkleAmp, _TwinkleSpeed, _Core, _Extinct, _MoonCos;
             float4 _Pole, _MoonDir;
@@ -85,7 +88,8 @@ Shader "GloomhavenVR/EnvStarPoints"
             v2f vert (appdata v)
             {
                 v2f o;
-                float t = fmod(_Time.y, SKY_PERIOD);
+                // MP-SHARED CLOCK: see EnvStars.SkyTime — one epoch for both sky layers, 0 offline.
+                float t = fmod(_Time.y + _GhvrTimeOfs, SKY_PERIOD);
                 float th = _RotSpeed * t;
 
                 float3 P = normalize(_Pole.xyz);

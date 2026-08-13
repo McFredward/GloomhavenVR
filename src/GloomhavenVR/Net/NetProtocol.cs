@@ -2331,6 +2331,55 @@ internal static class NetProtocol
     /// requires at least this much before it trusts the record.</summary>
     public const int HeldStretchRecordBytes = 4;
 
+    /// <summary>
+    /// Extension record: THE SHARED ENVIRONMENT CLOCK — <c>[style][u32 clockMillis LE]</c>.
+    ///
+    /// <para>USER REQUEST (verbatim): "Mond und Lichtstrahlen sollen im Multiplayer (falls beide
+    /// Spieler die selbe Umgebung ausgewählt haben) auch synchronisiert werden. Das gilt generell
+    /// für alle Effekt zB auch die Maus. Ich will das alle Spieler sie gleichzeitig sehen (wenn die
+    /// spieler es an haben)." — "die Maus" is the cellar's RAT (<c>EnvCritter.shader</c>, the
+    /// ModBuild-134 "eine Ratte huscht durch den Raum" ruling), the clearest member of the class he
+    /// means: an EVENT, not ambience.</para>
+    ///
+    /// <para>WHY A CLOCK AND NOT EVENTS. The environment bundle ships with no MonoBehaviours; every
+    /// animation in it is <c>_Time</c> in a shader, read as <c>_Time.y + _GhvrTimeOfs</c>. One
+    /// shared clock value therefore aligns the rat, the drip and its puddle rings, the candle
+    /// flicker and glow, the canopy sway, the water glints and the shafts'/beam's shimmer — all of
+    /// them, exactly, forever, for FIVE BYTES sent at most 5 Hz by a player who has an environment
+    /// on. Per-event packets would have cost more, drifted between events, and had to be invented
+    /// again for every new effect. See <c>Core/SkyAlternative.EnvClockSeconds</c> for the consumer
+    /// and for the table of what is deliberately left alone.</para>
+    ///
+    /// <para>NO OWNER FIELD IS NEEDED. The sender's player id already identifies the reading, and
+    /// every client elects the same owner from the same rule — the LOWEST player id among everyone
+    /// reporting this same style, self included — so no host concept, no handshake and no extra
+    /// byte. A client that is itself the lowest keeps offset 0 and everyone walks to it.</para>
+    ///
+    /// <para>ABSENCE IS MEANINGFUL and is the common case: the record is written ONLY while a shell
+    /// with animated content really stands (Cellar/SwampNight). Default shares the game's own sky
+    /// and OffBlack shares an empty void — neither has a <c>_Time</c>-driven effect to agree about —
+    /// and MR forces the whole feature off locally. So every player who is not in one of the two
+    /// environments emits the exact bytes previous builds emitted, and a peer with a DIFFERENT
+    /// style is filtered by the style byte rather than by a second record.</para>
+    ///
+    /// <para>THE STYLE BYTE IS NOT A STYLE ORDER. It is a comparison key only: a peer's environment
+    /// choice never overrides the local one (that dial is local presentation, and MR must be able to
+    /// force it off no matter what a peer sends). It answers exactly the question his sentence asks —
+    /// "falls beide Spieler die selbe Umgebung ausgewählt haben".</para>
+    /// </summary>
+    public const byte ExtIdEnvClock = 31;
+
+    /// <summary>Payload length of <see cref="ExtIdEnvClock"/>: one style byte + u32 milliseconds
+    /// LE. A reader requires at least this much before it trusts the record.</summary>
+    public const int EnvClockRecordBytes = 5;
+
+    /// <summary>The largest <see cref="ExtIdEnvClock"/> style code a reader will believe. It is
+    /// <c>SkyStyle.SwampNight</c> = 2, the last style that has animated content; a higher value is a
+    /// newer (or corrupt) sender and is dropped rather than matched, because "the same environment"
+    /// must never be decided by a code this build cannot name. Default (0) and OffBlack (3) are not
+    /// written at all — see the record doc.</summary>
+    public const byte EnvClockMaxStyleCode = 2;
+
     /// <summary>The neutral held-stretch milli-factor: 1000 = 1.0× = "no manual stretch". The
     /// writer omits the record when both slots quantize to this, so absence and neutrality are the
     /// same statement.</summary>
