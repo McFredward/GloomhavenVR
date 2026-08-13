@@ -16,13 +16,17 @@
 //       with painterly moon sprite + subtle star twinkle + slow drift — style
 //       ruling round 3: procedurally generated skies were rejected twice, the
 //       sky must be a real high-resolution photograph),
-//       comet-tail shooting stars, two bokeh firefly swarms, ground-fog donut.
-//       NO ground plane / trees / water — the game's marsh tiles provide those.
-//   Assets/Bundle/Environments/Env_Cellar.prefab — indoor FX shell: the SAME
+//       comet-tail shooting stars, two bokeh firefly swarms, ground-fog donut;
+//       PLUS (custom-asset round, user ruling 2026-08-13: "nicht low-poly
+//       sondern zum Styl des Spiels passendes") a 'RoomGeo' night-marsh
+//       clearing built from CC0 photoscans — see BuildEnvironmentRooms.cs.
+//   Assets/Bundle/Environments/Env_Cellar.prefab — indoor shell: the SAME
 //       night-sky star dome as the swamp (user finding, ModBuild 129 round:
 //       with the game's sky sphere hidden, everything above the generated
-//       room was pure black), drifting dust motes + an INACTIVE 'GlowTemplate'
-//       torch-halo child (runtime may clone it onto game torches later).
+//       room was pure black — the dome shows through the barred window),
+//       drifting dust motes + an INACTIVE 'GlowTemplate' torch-halo child
+//       (runtime may clone it onto light sources later);
+//       PLUS a 'RoomGeo' candle-lit stone cellar (BuildEnvironmentRooms.cs).
 //       NO shooting stars / fireflies / ground fog — those are swamp-flavor.
 // plus the procedural textures/meshes/materials those FX reference.
 //
@@ -87,6 +91,8 @@ namespace GloomhavenVR
         {
             AssetDatabase.Refresh();
             GenerateTextures();
+            EnvRoomBuilder.GenerateRippleTexture();   // water ripple normal (swamp ponds)
+            EnvRoomBuilder.EnforceImports();          // CC0 photoscan models/textures (Imported/)
             GenerateMeshes();
             BuildMaterials();
             AssetDatabase.SaveAssets();
@@ -647,6 +653,10 @@ namespace GloomhavenVR
                     Vector3.zero, Vector3.zero, Vector3.one * 0.30f);
                 glow.SetActive(false);
 
+                // ---- room interior (custom-asset round, 2026-08-13): stone cellar
+                // assembled from CC0 photoscans under the 'RoomGeo' node ----
+                EnvRoomBuilder.BuildCellarRoom(t);
+
                 LogStats(root, "Env_Cellar");
                 PrefabUtility.SaveAsPrefabAsset(root, Root + "/Env_Cellar.prefab", out bool ok);
                 if (!ok) throw new Exception("SaveAsPrefabAsset failed for Env_Cellar");
@@ -705,6 +715,36 @@ namespace GloomhavenVR
                 fr.maxParticleSize = 2.5f; // don't clamp big close puffs
                 fr.sortMode = ParticleSystemSortMode.Distance;
 
+                // ---- far fog ring (custom-asset round): a second, larger donut
+                // of mist over the 16–26 m band — veils the ground disc's faded
+                // rim + berm treeline so the world dissolves into night instead
+                // of ending at an edge. Same HorizontalBillboard constraint. ----
+                var farFog = NewPS(t, "GroundFogFar", new Vector3(0, 1.1f, 0), new Vector3(-90, 0, 0), Mat("FX_Fog.mat"));
+                var ffm = farFog.main;
+                ffm.simulationSpace = ParticleSystemSimulationSpace.World;
+                ffm.duration = 40f;
+                ffm.startLifetime = new ParticleSystem.MinMaxCurve(16f, 26f);
+                ffm.startSpeed = 0f;
+                ffm.startSize = new ParticleSystem.MinMaxCurve(14f, 24f);
+                ffm.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+                ffm.startColor = new Color(0.50f, 0.58f, 0.72f, 0.085f);
+                ffm.maxParticles = 30;
+                var ffe = farFog.emission; ffe.rateOverTime = 1.3f;
+                var ffsh = farFog.shape; ffsh.enabled = true; ffsh.shapeType = ParticleSystemShapeType.Donut;
+                ffsh.radius = 20f; ffsh.donutRadius = 5.5f; ffsh.radiusThickness = 1f;
+                var ffv = farFog.velocityOverLifetime; ffv.enabled = true;
+                ffv.space = ParticleSystemSimulationSpace.World;
+                ffv.x = new ParticleSystem.MinMaxCurve(0.04f, 0.12f);
+                ffv.z = new ParticleSystem.MinMaxCurve(0.02f, 0.08f);
+                var ffcol = farFog.colorOverLifetime; ffcol.enabled = true;
+                ffcol.color = new ParticleSystem.MinMaxGradient(Grad(
+                    (0f, new Color(1, 1, 1, 0f)), (0.18f, new Color(1, 1, 1, 1f)),
+                    (0.75f, new Color(1, 1, 1, 1f)), (1f, new Color(1, 1, 1, 0f))));
+                var ffr = farFog.GetComponent<ParticleSystemRenderer>();
+                ffr.renderMode = ParticleSystemRenderMode.HorizontalBillboard;
+                ffr.maxParticleSize = 2.5f;
+                ffr.sortMode = ParticleSystemSortMode.Distance;
+
                 // ---- fireflies: two swarms flanking the play space ----
                 FireflyPS(t, new Vector3(2.6f, 0.55f, -2.4f));
                 FireflyPS(t, new Vector3(-3.6f, 0.6f, 3.4f));
@@ -737,6 +777,10 @@ namespace GloomhavenVR
                 mr.velocityScale = 0.11f;
                 mr.lengthScale = 1f;
                 mr.cameraVelocityScale = 0f;
+
+                // ---- room interior (custom-asset round, 2026-08-13): night marsh
+                // clearing assembled from CC0 photoscans under 'RoomGeo' ----
+                EnvRoomBuilder.BuildSwampRoom(t);
 
                 LogStats(root, "Env_Swamp");
                 PrefabUtility.SaveAsPrefabAsset(root, Root + "/Env_Swamp.prefab", out bool ok);

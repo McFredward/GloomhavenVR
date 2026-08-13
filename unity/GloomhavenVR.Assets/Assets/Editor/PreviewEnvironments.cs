@@ -23,13 +23,18 @@ namespace GloomhavenVR
         private const string Root = "Assets/Bundle/Environments";
         private const int W = 1280, H = 720;
 
+        // 4 yaws + the most detailed corner of each room + zenith (cellar
+        // ceiling check / swamp sky) — the mandatory self-review set for the
+        // custom-asset room round.
         private static readonly (string name, Vector3 euler)[] Views =
         {
             ("N", new Vector3(0, 0, 0)),
             ("E", new Vector3(0, 90, 0)),
             ("S", new Vector3(0, 180, 0)),
             ("W", new Vector3(0, 270, 0)),
+            ("Corner", new Vector3(8, 48, 0)),   // cellar: candle table NE; swamp: pond+menhirs
             ("Up", new Vector3(-30, 45, 0)),
+            ("Zenith", new Vector3(-88, 0, 0)),
         };
 
         [MenuItem("GloomhavenVR/Render Environment Previews")]
