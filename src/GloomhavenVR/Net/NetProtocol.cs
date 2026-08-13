@@ -416,7 +416,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 131;
+    public const ushort ModBuild = 132;
+    // Build 132: game-asset environments DELETED by ruling; custom photoscan rooms instead.
+    // No wire change. Bundle rebuilt (65.8 MB) — 132 NEEDS it.
+    //
+    // ("lösche bitte das alles wieder was mit der nutzung der Spileeigenen Räume und assets zu
+    // tun hat ... Gehe wieder dazu über mit custom assets etwas zu bauen. Aber nicht low-poly")
+    // (1) THE TELEPORT ("Das darf unter keinen Umständen passien"): attributed to 131's
+    // scale-settle re-seat (five events in his log) — re-seating a room the player stands IN
+    // reads as a player teleport and displaces the board. The whole MapGen machinery is
+    // deleted (3,450 lines); SkyAlternative is back to the hardware-proven 128 FX-shell model;
+    // the ONLY re-seat trigger is the recenter chord / rig rebuild. Standing ruling in the
+    // class doc: NEVER re-seat an occupied room. Saga: .planning/game-env-postmortem.md.
+    // (2) CUSTOM ROOMS from Poly Haven CC0 photoscans (ready-made CC rooms researched — all
+    // stylized/low-poly/paid): Cellar = stone room with candlelight, barred star window,
+    // barrels/table/shelf (105k tris); Swamp = moonlit mud clearing with ponds, snags, mossy
+    // rocks, standing stones, far fog ring (150k tris). All lighting BAKED per material —
+    // zero real Lights, zero scripts; fog stays HorizontalBillboard.
+    //
     // Build 131: the environment is LIFE-SIZE around the player — one room, alive, floor-tight.
     // No wire change; same bundle as 130.
     //

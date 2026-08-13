@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 131`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 132`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-12
 
@@ -126,6 +126,25 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 132** — game-asset environments DELETED (user ruling 2026-08-13); custom photoscan
+  rooms; teleport killed. THE TELEPORT ("darf unter keinen Umständen passien"): 131's
+  scale-settle re-seat fired 5× in his log — re-seating a room the player stands IN reads as a
+  player teleport + board displacement. MapGen deleted whole (3,450 lines); SkyAlternative back
+  to the 128 FX-shell model (scenario gate, MR precedence, one world-anchored perceived-constant
+  frame, recenter-chord-only re-seat). STANDING RULING: never re-seat an occupied room. Full
+  saga + all Apparance/Addressables knowledge preserved in .planning/game-env-postmortem.md +
+  memory game-env-rooms-abandoned. CUSTOM ROOMS (Poly Haven CC0 photoscans; ready-made CC rooms
+  researched and rejected as stylized/low-poly/paid/login-gated): Env_Cellar = 10.5×9 m stone
+  room, candle groups w/ animated flame cards, barred star window, stair alcove, barrels/table/
+  shelf, 105k tris; Env_Swamp = 30 m moonlit clearing, mud/leaf heightfield, 3 ponds w/ moon
+  glint, snags/logs/mossy rocks/standing stones/reeds, treeline berm, far fog ring
+  (HorizontalBillboard), 150k tris. Five new baked-lighting shaders (EnvRoom/Cutout/Ground/
+  Water/Flame) — ZERO real Lights, zero scripts in prefabs; closed opaque floors. Assets under
+  Environments/Imported/ (~50 MB srcs, polyhaven_pipeline.py reproduces). Bundle 65,8xx,xxx
+  bytes — 132 NEEDS it. KNOWN OPEN: perceived-constant model means extreme zoom-out can put the
+  board below the cellar floor line (the old finding-3 tension, documented in the postmortem) —
+  if reported again, solve in CONTENT (softer floor edge), never with re-seats. Cellar leans
+  warm-amber; light constants in BuildEnvironmentRooms.cs rig blocks for one-line tuning.
 - **ModBuild 131** — LIFE-SIZE single-room environment, alive, floor-tight. Same bundle as 130.
   130 verdict: 'Map ABHM' LOADED (dual route works) but as a 7 cm miniature next to the board —
   the 130 board-relative sizing was the bug (board extent is world-tiny at diorama zoom; log:
