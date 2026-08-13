@@ -119,7 +119,15 @@ internal sealed class RemoteCardArt
             HideFront();
             return false;
         }
-        return ShowFront(source.gameObject, source.GetInstanceID(), source);
+        // …plus the SKIN FIXUP (2026-08-13, report "weiße vierecke mit manchen symbolen drin"): the
+        // two FullAbilityCardAction halves keep their skin + action-sprite references in PLAIN
+        // private runtime fields, which Object.Instantiate cannot copy, so a clone streamed no
+        // action backgrounds at all and drew uGUI's built-in white texture. RemoteAbilityCardSource
+        // replays the game's own SetSkin on the clone through the beforeActivate seam — the whole
+        // derivation, and why it is not a call to FullAbilityCard.SetSkin itself, is documented
+        // there. Null (= no skin to hand over) leaves this call byte-for-byte as it was.
+        return ShowFront(source.gameObject, source.GetInstanceID(), source,
+                         RemoteAbilityCardSource.SkinFixup(source));
     }
 
     /// <summary>

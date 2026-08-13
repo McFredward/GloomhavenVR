@@ -93,6 +93,217 @@ internal static class RemoteAbilityCardSource
     /// two paths alternate across cards.</summary>
     private static readonly bool[] s_loggedPath = new bool[3];
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //  THE SKIN FIXUP — the one thing Object.Instantiate cannot carry onto a cloned card face
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // USER REPORT (MP hardware round, ModBuild 137, verbatim): "Die Vorderseite der Handkarten von
+    // den Mitspielern sehen kaput aus. Falsche Farbe und weiße vierecke mit manchen symbolen drin -
+    // das symbol hatte ich schon einmal gemeldet." (screenshot remote_handkarten.jpg: the peer's
+    // three hand cards show a correct name banner, initiative band and level number inside a
+    // magenta/gold frame, while BOTH action halves are blank WHITE boxes carrying only a couple of
+    // stray icons.)
+    //
+    // "das symbol hatte ich schon einmal gemeldet" is exact: this is pixel-for-pixel the LOCAL
+    // decision-phase failure of 2026-08-07 that <see cref="Cards.CardArtGuard"/> was written for —
+    // white action halves, missing action content, everything OUTSIDE the halves fine. Same pixels,
+    // DIFFERENT cause, which is why the guard never healed it: the guard only knows faces the mod
+    // ADOPTED (CardFace.Adopt → CardArtGuard.NoteAdopted), and a peer's face is never adopted, it is
+    // a throwaway CLONE.
+    //
+    // ─── ROOT CAUSE, read from the game's own decompiled source ───────────────────────────────────
+    //
+    //  1. The action half's background is `FullAbilityCardAction.actionButton.image`. Its sprite is
+    //     NOT authored on the prefab — it is streamed by
+    //     `FullAbilityCardAction.Show() → ApplyImage() → ButtonSpritesAddressableLoader
+    //     .AddReferenceToSprites(actionButton, _referenceForImageActionButton, …)`
+    //     (FullAbilityCardAction.cs:529-539). `ApplyImage` returns immediately when
+    //     `_referenceForImageActionButton` is null.
+    //
+    //  2. That field — and its two siblings `_stateReferencesForActionButton` and `skin` — are
+    //     PLAIN PRIVATE RUNTIME FIELDS (FullAbilityCardAction.cs:69-73: no [SerializeField], unlike
+    //     every field above them in that same class). They are populated exactly once, by
+    //     `FullAbilityCardAction.SetSkin(skin, topAction, longRest)` (FullAbilityCardAction.cs:511),
+    //     whose only caller is `FullAbilityCard.SetSkin(skin)` (FullAbilityCard.cs:239-251), whose
+    //     only caller is `AbilityCardUI.Init` → `SetSkin(ClassModel, ClassCharacterConfig)`
+    //     (AbilityCardUI.cs:549-559).
+    //
+    //  3. `Object.Instantiate` copies SERIALIZED state only. So a clone of a `FullAbilityCard` is
+    //     born with `skin`/`_referenceForImageActionButton`/`_stateReferencesForActionButton` = null
+    //     on BOTH halves, and its own `OnEnable → ShowCard() → topActionButton.Show()` therefore
+    //     loads nothing at all. `RemoteCardArt.TryReapplySkin` re-hands ONLY the ROOT's private
+    //     `FullAbilityCard._skin` — which is why the header/title art (the one thing `ShowCard`
+    //     loads off `_skin` directly, FullAbilityCard.cs:442) comes out RIGHT while the halves stay
+    //     empty. Half the fix has been in place since the class was written; this is the other half.
+    //
+    //  4. …and the sprite the clone was copied WITH is null: a peer's hand widget lives in a hidden
+    //     2D `CardsHandUI` whose `fullAbilityCard` GameObject the game keeps DEACTIVATED
+    //     (`AbilityCardUI.ToggleFullCard(false)`), so its own `OnEnable/ShowCard` never ran and its
+    //     action backgrounds were never streamed either. A uGUI `Image` with a null sprite draws
+    //     Unity's built-in WHITE texture — the reported white boxes. The action CONTENT vanishes
+    //     with it because `ImageAddressableLoader` alpha-0s its `_objectsToHideWhileLoad` groups
+    //     around a load and only restores them when the load lands (ImageAddressableLoader.cs:60-71)
+    //     — the identical two-symptom signature CardArtGuard documents.
+    //
+    //  5. "Falsche Farbe": `FullAbilityCard.SetSkin` is ALSO the only writer of
+    //     `buttonsHolderImage.sprite = skin.buttonsHolderSprite` (the card FRAME) and of
+    //     `initiativeText.color = skin.initiativeColor`. Never called on a clone ⇒ the peer's card
+    //     wears whatever the PREFAB shipped instead of that character class's frame and initiative
+    //     colour. Nothing here is Unity's missing-shader magenta: every material on the clone is the
+    //     game's own, and no shader is ever looked up on this path.
+    //
+    // ─── THE FIX ──────────────────────────────────────────────────────────────────────────────────
+    // Replay `FullAbilityCard.SetSkin` on the CLONE while it is still INACTIVE, from
+    // <see cref="RemoteCardArt"/>'s `beforeActivate` seam — the same seam an ITEM card already uses
+    // to re-plant its model reference. Because it runs before activation, the clone's own
+    // `OnEnable → ShowCard → Show → ApplyImage` then streams the halves exactly as the owner's card
+    // does, and the frame/initiative colour are correct on the FIRST drawn frame: there is no window
+    // in which a peer's card is white, and none in which it wears the wrong frame.
+    //
+    // WHY THIS IS NOT A CALL TO `FullAbilityCard.SetSkin(skin)` ITSELF. That method opens with
+    // `cardEffects.HasEffect(FXTask.BurnCard)` (FullAbilityCard.cs:242) and
+    // <see cref="RemoteCardArt"/> has already `DestroyImmediate`d the clone's `CardEffects` by the
+    // time `beforeActivate` runs (it must — the screen-space `_PosAndBounds` material is the known
+    // "card renders DEEP BLACK" hazard on a detached world-space clone). Calling it would NRE on
+    // every single face. The body below is that method verbatim MINUS that one deref, whose only
+    // purpose is "do not repaint the initiative of a card that is mid-burn" — a state a stripped,
+    // effect-less clone can never be in.
+    //
+    // REJECTED — "load the sprites on the SOURCE widget instead, so Instantiate copies them": it
+    // mutates a game-owned widget in a peer's hidden hand, and the load is ASYNC, so the clone (made
+    // in the same call, and dedup-latched by instance id afterwards) would copy the still-null
+    // sprite and stay white for the card's whole life. REJECTED — "heal it afterwards from the
+    // maintenance cadence, like CardArtGuard": that is a repair after the player has already seen
+    // the white frame, and the standing rule is that a peer's card must never look worse than the
+    // owner's for even one frame.
+    //
+    // ZERO WIRE, unchanged: the skin comes off the SOURCE widget's own runtime `_skin`, which the
+    // game set from the host-replicated `CAbilityCard.ClassModel`. No identity, no art reference and
+    // no packet is involved — see the CLASSIFICATION remark on this class.
+
+    /// <summary>One-shot latch for the <c>REMOTE FRONT</c> diagnostic (per session, not per card).</summary>
+    private static bool s_loggedSkinFixup;
+
+    /// <summary>
+    /// One cached hook per SKIN. <see cref="RemoteCardArt.ShowFront(FullAbilityCard)"/> is called
+    /// EVERY FRAME by <c>RemoteHandFan</c> while a front is up (its dedup lives one call deeper), so
+    /// building the closure on each call would be a steady-state allocation per card per peer per
+    /// frame — precisely the cost that file is written to avoid. Bounded by construction: one entry
+    /// per character-class skin (~a dozen), and the skins are long-lived game data.
+    /// </summary>
+    private static readonly Dictionary<AbilityCardUISkin, System.Action<GameObject>> s_skinHooks = new(8);
+
+    /// <summary>
+    /// The <c>beforeActivate</c> hook that gives a cloned ability-card face the class SKIN its two
+    /// action halves need — see the block comment above for the whole derivation. Returns null when
+    /// there is no skin to hand over (then the clone behaves exactly as it did before this existed:
+    /// copied visuals, no streamed halves — degrade to today, never to something worse).
+    /// </summary>
+    internal static System.Action<GameObject>? SkinFixup(FullAbilityCard? source)
+    {
+        AbilityCardUISkin? skin;
+        try
+        {
+            skin = source != null ? source._skin : null;   // publicized runtime field
+        }
+        catch (System.Exception)
+        {
+            return null;
+        }
+        if (skin == null)
+            return null;
+        if (s_skinHooks.TryGetValue(skin, out System.Action<GameObject> hook))
+            return hook;
+        hook = clone => ApplySkin(clone, skin);
+        s_skinHooks[skin] = hook;
+        return hook;
+    }
+
+    /// <summary>
+    /// <c>FullAbilityCard.SetSkin(skin)</c> replayed on a mod-owned clone (see the block comment):
+    /// the frame sprite, the initiative colour and — the part that fixes the white halves — the two
+    /// <c>FullAbilityCardAction.SetSkin</c> calls that repopulate the non-serialized sprite
+    /// references `ApplyImage()` needs. Every deref is guarded and any surprise leaves the clone
+    /// exactly as it would have been without this method.
+    /// </summary>
+    private static void ApplySkin(GameObject clone, AbilityCardUISkin skin)
+    {
+        if (clone == null)
+            return;
+        try
+        {
+            var full = clone.GetComponent<FullAbilityCard>();
+            if (full == null)
+                return;
+
+            // Provenance for the diagnostic: was this really the null-reference state the report
+            // describes? Captured BEFORE we write, so the log states the defect, not our fix.
+            bool topWasBlind = full.topActionButton == null
+                               || full.topActionButton._referenceForImageActionButton == null;
+            bool bottomWasBlind = full.bottomActionButton == null
+                                  || full.bottomActionButton._referenceForImageActionButton == null;
+
+            full._skin = skin;
+            bool longRest = full.isLongRestCard;   // [SerializeField] ⇒ carried by Instantiate
+            if (!longRest)
+            {
+                if (full.buttonsHolderImage != null)
+                    full.buttonsHolderImage.sprite = skin.buttonsHolderSprite;
+                if (full.initiativeText != null)
+                    full.initiativeText.color = skin.initiativeColor;
+            }
+            ApplyHalfSkin(full.topActionButton, skin, topAction: true, longRest);
+            ApplyHalfSkin(full.bottomActionButton, skin, topAction: false, longRest);
+
+            if (s_loggedSkinFixup)
+                return;
+            s_loggedSkinFixup = true;
+            VRLog.Info("Net", "REMOTE FRONT: applied the class skin " +
+                              $"'{(string.IsNullOrEmpty(skin.ID) ? "(unnamed)" : skin.ID)}' to a peer's " +
+                              "CLONED ability-card face, resolved from the SOURCE widget's own runtime " +
+                              "FullAbilityCard._skin (host-replicated CAbilityCard.ClassModel — zero wire, " +
+                              "zero card identity). On arrival the clone's halves were " +
+                              $"{(topWasBlind ? "BLIND" : "already set")}/" +
+                              $"{(bottomWasBlind ? "BLIND" : "already set")} (top/bottom): " +
+                              "FullAbilityCardAction.skin/_referenceForImageActionButton/" +
+                              "_stateReferencesForActionButton carry NO [SerializeField], so " +
+                              "Object.Instantiate cannot copy them and ApplyImage() streamed nothing — " +
+                              "the peer's action halves stayed on a NULL sprite, which uGUI draws as its " +
+                              "built-in WHITE texture (report 2026-08-13 'weiße vierecke', the same pixels " +
+                              "as the local decision-phase bug CardArtGuard fixed). The frame sprite and " +
+                              "the initiative colour come from the same SetSkin call, which is the " +
+                              "'falsche Farbe' half of the report.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Net", $"REMOTE FRONT: skin fixup skipped ({ex.GetType().Name}: {ex.Message}) — " +
+                              "the peer's card keeps the clone's copied visuals (the pre-2026-08-13 look).");
+        }
+    }
+
+    /// <summary>
+    /// One action half. <c>SetSkin</c> is the game's own; the extra step after it covers the LONG
+    /// REST card, whose reference is built with <c>new ReferenceToSprite(sprite)</c> — an
+    /// "InitializedWithSpecialSprite" reference that <c>ButtonLoadingContext</c> deliberately does
+    /// NOT stream (ButtonLoadingContext.cs:52), so on that one card the background would stay null
+    /// (i.e. white) even with the references restored. Assigning the sprite it already holds costs
+    /// nothing on the normal path (there `GetSprite()` is null) and closes that case.
+    /// </summary>
+    private static void ApplyHalfSkin(FullAbilityCardAction? half, AbilityCardUISkin skin,
+                                      bool topAction, bool longRest)
+    {
+        if (half == null)
+            return;
+        half.SetSkin(skin, topAction, longRest);
+        Sprite? ready = half._referenceForImageActionButton != null
+            ? half._referenceForImageActionButton.GetSprite()
+            : null;
+        UnityEngine.UI.Button? button = half.actionButton;
+        UnityEngine.UI.Image? image = button != null ? button.image : null;
+        if (ready != null && image != null && image.sprite == null)
+            image.sprite = ready;
+    }
+
     /// <summary>
     /// Show <paramref name="card"/>'s REAL, fully detailed face on <paramref name="art"/>, trying the
     /// live-widget path first and the pooled borrow second. Returns which path succeeded (or

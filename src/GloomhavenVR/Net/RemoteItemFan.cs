@@ -74,6 +74,7 @@ internal sealed class RemoteItemFan
     private const int MaxCards = 12;
     private const float CardW = 0.075f;                  // item cards read near-square…
     private const float CardH = CardW * 1.15f;           // …so this is NOT the 88/63.5 ability ratio
+                                                         // (a GUESS — superseded at runtime, see _cardH)
     private const float MaxArcDegrees = 110f;            // ItemsPile.MaxArcDegrees
     private const float ZStagger = 0.004f;               // ItemsPile.ZStagger (draw order)
     private const float HandPalmOffset = 0.16f;          // ItemsPile.HandPalmOffset
@@ -89,6 +90,76 @@ internal sealed class RemoteItemFan
     /// gated on <see cref="RevealGate.ShowRoundCardFronts"/> and fed from the peer's own replicated
     /// inventory. Owned here, destroyed with the fan.</summary>
     private readonly RemotePileFronts _fronts;
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //  THE ITEM CARD'S REAL SHAPE — why this fan showed "Ränder" where the owner's chips do not
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // USER REPORT (MP hardware round, ModBuild 137, verbatim): "Die Gegenstand-Karten im Fächer vom
+    // Mitspieler auf dem remote-board haben noch Ränder statt richtig ausgeschnitten zu sein! Sie
+    // sollen genau so für mich sichtbar sein wie für den Mitspieler (1:1 Regel)."
+    //
+    // NOT a missing punch-out. This fan has gone through <c>CardMesh.AttachBody(…, CardBodyKind.Item,
+    // …)</c> since round 17, and the hardware log of this very round proves the mesh is cut:
+    //   "CARD BODY (Item): punched-out mesh built for 75,0x86,3 mm — 10 contour vertices".
+    // The defect is the BOX that mesh is cut to. 75.0 x 86.3 mm comes from <see cref="CardW"/> x
+    // <see cref="CardH"/>, and CardH is the hand-written guess `CardW * 1.15` — a card TALLER than it
+    // is wide. A Gloomhaven item card is the opposite: the same log's silhouette capture measures its
+    // face at 270 x 258 px (footprint 224 x 214), i.e. WIDER than tall. Two consequences, both
+    // visible as a border:
+    //
+    //   1. LETTERBOX. <see cref="RemotePileFronts"/> fits the cloned item-card face into the slab box
+    //      keeping aspect, so a 1.047-aspect card inside a 0.869-aspect box renders 75.0 x 71.7 mm
+    //      inside an 86.3 mm tall slab — ~7 mm of bare slab above and below every card. That slab
+    //      wears the card-BACK material on both submeshes, so the leftover reads as a decorative
+    //      frame around the art. This is the exact defect the LOCAL fan fixed long ago and wrote
+    //      down: "#1: item cards are NEAR-SQUARE, not the tall ability rect — fitting them into the
+    //      w×h ability box left black backing bars top/bottom" (<c>Cards.ItemsPile.ItemChip.Create</c>,
+    //      which measures the hosted card's native rect into _faceWidth/_faceHeight and sizes the
+    //      body to THAT). The mirror never got the same treatment.
+    //   2. STRETCHED SILHOUETTE. The Item contour is derived once, in footprint space, and mapped
+    //      onto whatever box the body is built at — so a wrong-aspect box also distorts the outline
+    //      the punch-out is supposed to reproduce.
+    //
+    // THE FIX. Take the aspect from the one place that already knows it and that both players
+    // compute identically: the applied Item FOOTPRINT (<c>CardMesh.Footprint(CardBodyKind.Item)</c>),
+    // whose grid is proportional to the measured item-card face rect. No wire field, no per-card
+    // measurement, no second cache: the footprint is the cache (persisted, CacheVersion-stamped, art
+    // -asset provenance), and <c>AttachBody</c> keys its shaped meshes on (kind, w, h), so every slab
+    // of every peer shares ONE mesh — a fan of twelve chips costs a single dictionary hit.
+    //
+    // DEGRADATION (explicit requirement): with no footprint yet — first run for this shape, or a
+    // capture that was refused — <see cref="ResolvedCardH"/> returns the historical <see cref="CardH"/>
+    // and <c>AttachBody</c> hands out the plain rounded slab, i.e. EXACTLY today's look. There is no
+    // state in which a wrong silhouette is drawn: the aspect and the contour come from the same
+    // measurement, so either both are known or neither is.
+    //
+    // NO POP WHEN IT ARRIVES MID-SESSION (cold cache): <see cref="EnsureCardHeight"/> re-attaches the
+    // body meshes on the EXISTING slabs and re-binds the front overlays in the same frame, the same
+    // "swap when learned" step CardMesh already performs on its own body registry — the slabs
+    // themselves are never destroyed, so the arc does not blink.
+
+    /// <summary>The card-box height the slabs are currently built at — <see cref="ResolvedCardH"/> at
+    /// the time of the last (re)build. Starts on the legacy guess so a cold cache is bit-identical to
+    /// the previous build.</summary>
+    private float _cardH = CardH;
+
+    /// <summary>
+    /// <c>RemoteCardArt.BorderFraction</c>, mirrored (it is private there). The front overlay fits a
+    /// cloned face to <c>(1 − BorderFraction)</c> of the box it is handed, which is right for an
+    /// ABILITY card — the local <c>CardFace</c> insets its face inside the slab the same way — but
+    /// wrong for an item chip: <c>ItemsPile</c> sizes the chip body to the card's rendered rect
+    /// EXACTLY, with no inset at all, so the peer's copy must not sit a border's width inside its own
+    /// punched-out silhouette. Cancelled by handing the overlay a box scaled up by the same factor,
+    /// so the face lands flush on the body edge — the body itself is untouched.
+    /// </summary>
+    private const float FrontBorderFraction = 0.06f;
+
+    /// <summary>Change key for the <c>REMOTE ITEM CUT</c> diagnostic — the box height it last
+    /// reported. Change-gated rather than one-shot so a fan that is built on a COLD cache (rounded
+    /// slab, legacy box) and corrects itself when the footprint lands says so both times; in the
+    /// normal warm-cache session it is exactly one line per peer fan.</summary>
+    private float _loggedCutH = float.NaN;
 
     private int _builtCount = -1;
     private bool _poseInit;
@@ -372,6 +443,12 @@ internal sealed class RemoteItemFan
             return;
         if (count != _builtCount)
             Rebuild(count);
+        else
+            // Cold cache only: the Item footprint can land AFTER these slabs were built (the local
+            // capture needs a real item card to have been hosted once). Two static array reads per
+            // frame, and it upgrades the bodies in place rather than rebuilding the arc — see
+            // EnsureCardHeight.
+            EnsureCardHeight();
         // Scale lives on the root (the fan is NOT parented under a scaled holder) and re-applies
         // every frame (one compare). It reproduces WHICHEVER transform the LOCAL fan hangs under
         // — the same rule RemoteBrowserFan documents: a HELD fan rides the palm (rig scale), a
@@ -890,9 +967,12 @@ internal sealed class RemoteItemFan
     /// card rather than from the fan's chip scale, which is what stops a near-square item face
     /// hanging over the tall card-shaped frame on either side.
     /// </summary>
-    private static float RecessFitScale() =>
+    /// <remarks>Instance-scoped since 2026-08-13: the fit is against the slab's REAL height
+    /// (<see cref="_cardH"/>, measured from the item footprint), not the old constant guess — the
+    /// local twin fits the chip's measured face for exactly the same reason.</remarks>
+    private float RecessFitScale() =>
         Mathf.Min(RemoteBoardFurniture.ItemUseInnerWidth / CardW,
-                  RemoteBoardFurniture.ItemUseInnerHeight / CardH) * UseSlotFillFraction;
+                  RemoteBoardFurniture.ItemUseInnerHeight / _cardH) * UseSlotFillFraction;
 
     /// <summary>
     /// Per-frame service of the slab left LYING IN the mirrored recess after the owner's arc folded
@@ -1260,8 +1340,89 @@ internal sealed class RemoteItemFan
         VRLayers.Apply(_root);
     }
 
+    /// <summary>
+    /// The item card's real box height for <see cref="CardW"/>, taken from the applied Item
+    /// FOOTPRINT — see the block comment at <see cref="_cardH"/>. Returns the historical
+    /// <see cref="CardH"/> guess while no footprint exists (cold cache / refused capture), so the
+    /// degraded look is exactly the previous build's. Cheap: two static array reads.
+    /// </summary>
+    private static float ResolvedCardH()
+    {
+        byte[]? foot = CardMesh.Footprint(CardBodyKind.Item, out int fw, out int fh);
+        if (foot == null || fw <= 1 || fh <= 1)
+            return CardH;
+        // Sanity band. A footprint is a measurement of a game widget and could in principle come
+        // back degenerate; a card box outside 0.5x..2x the card width is not an item card, and the
+        // standing rule is to degrade to the previous look rather than to a wrong shape.
+        float h = CardW * (fh / (float)fw);
+        return h < CardW * 0.5f || h > CardW * 2f ? CardH : h;
+    }
+
+    /// <summary>The box handed to the front overlays: the slab box grown by the overlay's own inset
+    /// so the cloned face lands FLUSH on the punched-out body edge — see <see cref="FrontBorderFraction"/>.</summary>
+    private float FrontBoxW => CardW / (1f - FrontBorderFraction);
+
+    private float FrontBoxH => _cardH / (1f - FrontBorderFraction);
+
+    /// <summary>
+    /// Adopt the item card's real aspect the moment it becomes known (warm cache: before the first
+    /// slab exists; cold cache: the frame the local capture lands). Re-attaches the shared shaped
+    /// body mesh on the EXISTING slabs and re-binds the front overlays — no slab is destroyed, so the
+    /// arc never blinks, and <see cref="RemotePileFronts.Rebuild"/>'s reset makes the next
+    /// <c>Tick</c> re-resolve the faces in the same frame rather than on the 4 Hz cadence.
+    /// </summary>
+    private void EnsureCardHeight()
+    {
+        float want = ResolvedCardH();
+        if (Mathf.Approximately(want, _cardH))
+            return;
+        float was = _cardH;
+        _cardH = want;
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            GameObject slab = _cards[i];
+            MeshFilter? mf = slab != null ? slab.GetComponent<MeshFilter>() : null;
+            if (mf != null)
+                CardMesh.AttachBody(mf, CardBodyKind.Item, CardW, _cardH);
+        }
+        if (_cards.Count > 0)
+            _fronts.Rebuild(_cards, FrontBoxW, FrontBoxH);
+        _clipFitScale = RecessFitScale();
+        LogCut(was);
+    }
+
+    /// <summary>The one <c>REMOTE ITEM CUT</c> line per session: what the peer's item chips are cut
+    /// to, and which measurement it came from — so the next MP log proves the shape without a
+    /// screenshot.</summary>
+    private void LogCut(float previousH)
+    {
+        if (Mathf.Approximately(_loggedCutH, _cardH))
+            return;
+        _loggedCutH = _cardH;
+        CardMesh.Footprint(CardBodyKind.Item, out int fw, out int fh);
+        VRLog.Info("Net", "REMOTE ITEM CUT: a peer's item chips are now cut to the ITEM card's own " +
+                          $"box {CardW * 1000f:F1}x{_cardH * 1000f:F1} mm (was {CardW * 1000f:F1}x" +
+                          $"{previousH * 1000f:F1} mm, the hand-written CardW*1.15 guess), aspect taken " +
+                          $"from the applied Item footprint {fw}x{fh} captured from " +
+                          $"'{CardMesh.FootprintSource(CardBodyKind.Item) ?? "n/a"}' — the SAME persisted, " +
+                          "CacheVersion-stamped mask the owner's own chips are punched out with, so no " +
+                          "silhouette is recomputed per remote card and every slab of every peer shares " +
+                          "CardMesh's one cached shaped mesh per (kind, w, h). Punched out: " +
+                          $"{CardMesh.SilhouetteApplied(CardBodyKind.Item)}. The front overlay box is " +
+                          $"grown to {FrontBoxW * 1000f:F1}x{FrontBoxH * 1000f:F1} mm to cancel " +
+                          "RemoteCardArt's 6 % inset, so the cloned card face lands FLUSH on that " +
+                          "outline instead of leaving a ring of card-back slab around it (user, " +
+                          "2026-08-13: 'haben noch Ränder statt richtig ausgeschnitten zu sein').");
+    }
+
     private void Rebuild(int count)
     {
+        // The slabs about to be built take the item card's REAL box (see the _cardH block comment);
+        // on a cold cache this is still the legacy guess and the bodies stay rounded rects, exactly
+        // as before, until EnsureCardHeight upgrades them in place.
+        float previousH = _cardH;
+        _cardH = ResolvedCardH();
+
         // THE RECESS SURVIVOR IS CARRIED ACROSS (see _clipDetached): the owner re-opened their fan
         // while their card is still lying in the recess, so the slab that IS that card must come
         // through this rebuild as the same object at whatever arc position record 26 now names.
@@ -1308,7 +1469,10 @@ internal sealed class RemoteItemFan
             // Round 17 (1:1 board rule): ITEM kind — this fan mirrors the owner's item chips, so
             // the chip adopts the same punched-out Item body via CardMesh.AttachBody (shared cached
             // mesh, never ours to destroy; upgraded in place when the Item contour is learned).
-            CardMesh.AttachBody(mf, CardBodyKind.Item, CardW, CardH);
+            // …at the item card's REAL box, not the old CardW*1.15 guess: a wrong-aspect box both
+            // letterboxes the face (the reported "Ränder") and stretches the very outline the
+            // punch-out reproduces. See the _cardH block comment.
+            CardMesh.AttachBody(mf, CardBodyKind.Item, CardW, _cardH);
             var mr = card.AddComponent<MeshRenderer>();
             // Two submeshes (front+rim | back), both wearing the shared Item back material: the
             // arc deliberately shows the BACK on both faces, exactly like the old two-quad slab.
@@ -1347,7 +1511,8 @@ internal sealed class RemoteItemFan
         // Re-bind the front overlays onto the NEW slabs (the old ones died with their hosts above).
         // The card size handed over is the UNSCALED slab size: the overlay is a child of the slab, so
         // it inherits the emerge seed scale and the pop enlargement for free, like the slab's own mesh.
-        _fronts.Rebuild(_cards, CardW, CardH);
+        _fronts.Rebuild(_cards, FrontBoxW, FrontBoxH);
+        LogCut(previousH);
     }
 
     private void Hide()
