@@ -512,7 +512,17 @@ internal static class EnvSound
                    () => 0.80f + 0.20f * Lfo(13.77f));
 
         // THE WISP. Barely there on purpose — the thing you only notice when it stops.
-        Transform? wisp = Find(room.transform, "Wisp");
+        //
+        // "WispWisp" IS NOT A TYPO, and the plain "Wisp" behind it is not a spare. The bake builds
+        // these halos through one helper that prefixes its own family name:
+        // `Place(root, "Wisp" + n, ...)` with n in { "Wisp", "Lantern", "Far" }
+        // (BuildEnvironmentRooms.cs:10362), so the marsh light's node is literally called WispWisp,
+        // the lantern's WispLantern and the far one WispFar. `Find` is an EXACT ordinal match, so
+        // the shipped lookup for "Wisp" resolved to null and THIS BED HAS NEVER PLAYED — silently,
+        // because a missing node is the same "no emitter" path as an environment that has no wisp.
+        // Found by reading the bake, not by listening. The old name is kept as a second candidate so
+        // that a future bake which drops the prefix does not break it again in the other direction.
+        Transform? wisp = Find(room.transform, "WispWisp", "Wisp");
         if (wisp != null)
             AddBed("Wisp", wisp, EnvSoundBank.Bank(EnvSoundClip.Hum), 0.030f, 0.8f, 7f,
                    () => 0.60f + 0.40f * Lfo(5.19f));

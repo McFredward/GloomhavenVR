@@ -272,8 +272,24 @@ internal static partial class Haunt
     /// three times. The per-slot jitter and the Ice stretch are correctly NOT applied — the shader
     /// pins <c>durMul = 1</c> for a forced event, so the authored length is the exact length.</para>
     /// </summary>
-    internal static float ForceLoopSeconds(SkyStyle style, int card) =>
-        Mathf.Max(CardSeconds(style, card) + ForceLoopGapSeconds, ForceLoopMinSeconds);
+    internal static float ForceLoopSeconds(SkyStyle style, int card)
+    {
+        // THE LENGTH OF THE THING THAT IS ACTUALLY DRAWN, which is not always the shader's.
+        // CardSeconds is the BAKE catalogue's reveal+hold+fade for the shader-drawn apparition. For a
+        // card that HauntFigures has taken over, the shader draws nothing at all and the figure runs
+        // on its own, unrelated envelope — the forest's card 3 is 0.34 s in the catalogue and 4.2 s
+        // as a figure. Looping on the catalogue number therefore re-anchored a forced test roughly
+        // twelve times per walk, and the ModBuild 146 hardware log shows exactly that: nine `armed
+        // at` lines 2.5 s apart on one card, none of which ever finished. The single tool the user
+        // has for inspecting these events could not show him a whole one.
+        //
+        // FigureSeconds returns 0 when this card is not a figure card ON THIS MACHINE — the takeover
+        // is conditional on the creature's assets actually resolving here — so the fallback is the
+        // catalogue number, which is correct precisely when the shader is what draws.
+        float own = HauntFigures.FigureSeconds(style, card);
+        float len = own > 0f ? own : CardSeconds(style, card);
+        return Mathf.Max(len + ForceLoopGapSeconds, ForceLoopMinSeconds);
+    }
 
     /// <summary>Latched event id, or -1 for none. STILL A SINGLE INT: the shader channel carries one
     /// card id and this lane may not widen it — see the rejection above.</summary>

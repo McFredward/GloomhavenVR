@@ -285,6 +285,26 @@ internal static partial class HauntFigures
     private static bool IsMine(SkyStyle style, int card) =>
         IsMineByDesign(style, card) && Roster.CanCast(EventFor(style, card).Cast);
 
+    /// <summary>
+    /// How long this card's event actually LASTS when a figure plays it, in shared-clock seconds —
+    /// or 0 when the card is not a figure card on this machine.
+    ///
+    /// <para>WHY IT IS PUBLIC. <c>Haunt.ForceLoopSeconds</c> decides how often a LATCHED test trigger
+    /// re-anchors, and it derives that from <c>CardSeconds</c> — the SHADER card's authored
+    /// reveal+hold+fade. For a card a figure has taken over, those two numbers are unrelated: the
+    /// shader's forest card 3 is 0.34 s while the figure's crossing runs 4.2 s. The result, visible
+    /// in the ModBuild 146 hardware log, is a forced test that re-anchors NINE TIMES without the
+    /// figure ever finishing its walk — i.e. the one tool the user has for looking at these events
+    /// could not show him a whole one. The loop has to be the length of the thing that is actually
+    /// drawn, so the side that knows it has to say.</para>
+    /// </summary>
+    internal static float FigureSeconds(SkyStyle style, int card)
+    {
+        if (!IsMine(style, card))
+            return 0f;
+        return EventFor(style, card).Seconds;
+    }
+
     /// <summary>The bitmask published as <c>_GhvrHauntFigures.x</c> — derived from
     /// <see cref="IsMine"/> rather than typed, for the reason above.</summary>
     private static float MaskFor(SkyStyle style)
