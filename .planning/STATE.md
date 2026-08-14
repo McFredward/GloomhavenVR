@@ -126,7 +126,13 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 144** — 22 reported items plus environment SOUND. No wire change.
+- **ModBuild 144** — TWENTY of 22 reported items, plus environment SOUND. No wire change.
+  **NOT IN THIS BUILD: the two fire items** (the cellar fire still reads as candle flames; the
+  forest still has no burning trees). The lane was stopped before it landed. The RECEIVING half of
+  the fire wash did land — `EnvRoom`/`EnvGround` carry `_FirePos0/1/2`, `_FireCol`, `_FireRate` —
+  and sits unread and black until a sending half arrives.
+  **KNOWN BUG shipped in 144:** the candles and the fire standing ON the bookshelf do not tip with
+  it (their wax, flame and halo are separate meshes/shaders). The user has ruled it must be fixed.
   **Bundle 65,681,683 bytes.**
   **"Keine 2D-Pappaufsteller" — said seven times in one message.** Every apparition is now real
   geometry, posed at bake time from the MakeHuman CC0 base mesh by a new pipeline script. Assets

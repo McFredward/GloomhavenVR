@@ -417,7 +417,12 @@ internal static class NetProtocol
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 144;
-    // Build 144: 22 reported items plus a new feature. No wire change; the bump is the handshake
+    // Build 144: TWENTY of 22 reported items, plus a new feature. THE TWO FIRE ITEMS ARE NOT IN
+    // THIS BUILD — the lane rebuilding them was stopped before it landed, so the cellar fire still
+    // reads as "viele Kerzenflammen" and the forest still has no burning trees. The RECEIVING half
+    // of the fire wash did land (EnvRoom/EnvGround carry _FirePos0/1/2, _FireCol, _FireRate) and
+    // sits unread and black until the sending half arrives; that is harmless and deliberate.
+    // No wire change; the bump is the handshake
     // key, and the BUNDLE IS REBUILT (65,681,683 bytes).
     //
     // NO MORE CARDBOARD. The user said it seven times in one message: every apparition read as a
