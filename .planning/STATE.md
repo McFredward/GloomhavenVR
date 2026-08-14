@@ -126,6 +126,36 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 146** — **HOTFIX: 145 froze on the loading screen.** No wire change, **bundle
+  UNCHANGED from 145** (C#-only — reinstall the plugin, keep the bundle).
+  Reported on entering a forest scenario, but it is neither the forest nor the environment: the
+  clip bank is style-independent, so the cellar would have frozen identically.
+  **Root cause — a `while` condition tested against a convergent series.**
+  `EnvSoundBank.MakeCreak` scheduled its stick-slip bursts as `while (t < 1.20f) { …; gap *= 0.90f;
+  t += gap * jitter; }`. Those times are a **geometric series that sums to ≈1.09 s against a 1.20 s
+  window**, so the condition could never go false; after ~800 passes `gap` underflowed to a
+  denormal and `t` stopped moving at all. Infinite loop on the main thread, inside the first
+  `EnvSoundBank.Build()` — which runs on the ONE frame the room is first placed, i.e. at the end of
+  scenario loading. Verified by re-running the loop's arithmetic outside the game at 48000/44100/
+  24000 Hz: `t` converges to 1.02–1.11 and never reaches 1.20.
+  **Why the log said nothing.** A spin throws no exception, so the generator's own `try/catch` was
+  blind, and the bank logged nothing on the way through. `Player.log` therefore ends on
+  `SkyAlternative`'s "ROOM placed" — a line written by a *different* subsystem a few statements
+  earlier. **GENERAL RULE:** the last line in the log names the last thing that *finished*, not the
+  thing that hung; on a silent freeze, enumerate everything that starts on that frame.
+  **Fix — structural, not a bigger constant.** `Core/EnvSoundSchedule.cs` owns the burst train: the
+  caller states how many bursts, the loop is a `for` over that count, and the gaps are normalised
+  *afterwards* so the last lands exactly on the end of the window whatever the shrink does. **The
+  span is an input now, not an outcome of a series.** Free of everything but `Mathf` so it links
+  into the wire tests — 37 new assertions (1520 → **1557**) pin termination, the span at six shrink
+  factors, monotonicity, determinism and every degenerate input, and a regression **hangs the test
+  run**, which is louder than a red line. The bank also logs one line when it finishes, with clip
+  count, rate, size and milliseconds.
+  **The bug class to watch for:** a float accumulator whose step shrinks multiplicatively, compared
+  against a fixed bound. Audited the rest of `src/` — every other `while` is bounded by a count or a
+  hierarchy walk; `MakeSkitter` had a constant step floor and was safe, and was moved onto the same
+  schedule anyway so the pattern is gone from the file.
+
 - **ModBuild 145** — the shelf riders and the fire, the two things 144 owed. No wire change.
   **Bundle 65,793,726 bytes.**
   **Shelf riders** (a bug the user ruled on). `GhvrShelfTip` moved into its own header and **the

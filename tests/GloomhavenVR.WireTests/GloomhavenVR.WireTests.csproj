@@ -88,6 +88,18 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Rig\ScrollTurnGate.cs" Link="rig\ScrollTurnGate.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file either, and the sharpest case on this list. It schedules the bursts inside
+       two synthesized one-shots, and its failure mode is not a wrong sound but NO FRAME AT ALL:
+       ModBuild 145 drove the creak from a `while` whose geometric step summed SHORT of the window
+       it tested against, so the loop never ended and the game froze on the loading screen — no
+       exception, no warning, and the last line in Player.log written a few statements earlier by
+       something else entirely. A test that HANGS is the loudest possible regression signal for
+       that, which is why the schedule was pulled out of EnvSound.Bank.cs (AudioClip, AudioSettings
+       — the whole Unity audio module) into a file free of everything but Mathf. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\EnvSoundSchedule.cs" Link="core\EnvSoundSchedule.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
@@ -95,6 +107,7 @@
     <Compile Include="RelaunchVectors.cs" />
     <Compile Include="ConfigStepVectors.cs" />
     <Compile Include="ScrollTurnGateVectors.cs" />
+    <Compile Include="EnvSoundScheduleVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

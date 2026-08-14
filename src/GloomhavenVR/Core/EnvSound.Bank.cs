@@ -1,5 +1,11 @@
 using UnityEngine;
 
+// The generator draws below are written `new Rng(...)`, and they stay that way: the struct moved to
+// Core/EnvSoundSchedule.cs so the one part of this file with a TERMINATION property could be
+// compiled into the wire tests without the Unity audio module, and an alias keeps every call site —
+// and therefore every draw sequence, and therefore every clip — exactly as it was.
+using Rng = GloomhavenVR.Core.EnvSoundRng;
+
 namespace GloomhavenVR.Core;
 
 /// <summary>
@@ -211,6 +217,7 @@ internal static class EnvSoundBank
             return;
         _built = true;
 
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             int rate = Rate;
@@ -230,6 +237,19 @@ internal static class EnvSoundBank
             Fly = MakeFly(rate);
             Fall = MakeFall(rate);
             Settle = MakeSettle(rate);
+
+            // ONE LINE, ONCE PER SESSION, AND IT EARNED ITS PLACE. This synthesis runs on the main
+            // thread on the frame the room is first placed, and until ModBuild 146 it wrote nothing
+            // at all on the way through — so when MakeCreak spun forever there (see
+            // EnvSoundSchedule), Player.log ended on the environment's "ROOM placed" and the next
+            // suspect was every one of the dozen things that also start on that frame. A bank that
+            // says it finished, and how long it took, turns that whole class of report into one
+            // glance: the line is there and the freeze is elsewhere, or the line is missing and it
+            // is here.
+            VRLog.Info("Core", $"ENV SOUND bank synthesized in {watch.Elapsed.TotalMilliseconds:F0} ms — " +
+                               $"{_made.Count} clip(s) at {rate} Hz, ~{TotalBytes() / 1024f / 1024f:F1} MB, " +
+                               "built once per session on the frame the room is first placed and reused by " +
+                               "every emitter and every cue from then on.");
         }
         catch (System.Exception ex)
         {
@@ -269,30 +289,22 @@ internal static class EnvSoundBank
 
     private static readonly System.Collections.Generic.List<AudioClip?> _made = new();
 
+    /// <summary>Bytes of PCM the bank holds, for the one build log line. Mono 32-bit float, which is
+    /// what <see cref="Finish"/> creates.</summary>
+    private static long TotalBytes()
+    {
+        long total = 0;
+        foreach (AudioClip? c in _made)
+        {
+            if (c != null)
+                total += (long)c.samples * c.channels * 4;
+        }
+        return total;
+    }
+
     // =============================================================================================
     //  THE GENERATORS
     // =============================================================================================
-
-    /// <summary>
-    /// Deterministic xorshift32. NOT <c>UnityEngine.Random</c>: that is process-global state which
-    /// any other subsystem can reseed between two of our calls, which would make the bank differ
-    /// between two runs of the same build for reasons nobody could trace. Returns -1..1.
-    /// </summary>
-    private struct Rng
-    {
-        private uint _s;
-
-        internal Rng(uint seed) => _s = seed == 0u ? 0x9E3779B9u : seed;
-
-        internal float Next()
-        {
-            _s ^= _s << 13;
-            _s ^= _s >> 17;
-            _s ^= _s << 5;
-            // 2^-31 scaling into -1..1; the cast is to int first so the sign bit is used.
-            return (int)_s * 4.656613e-10f;
-        }
-    }
 
     /// <summary>
     /// Wrap a finished float buffer into a clip and remember it for <see cref="Release"/>.
@@ -477,23 +489,25 @@ internal static class EnvSoundBank
         return Finish("Squeak", d, rate);
     }
 
-    /// <summary>Small claws on stone: a run of ~14 dry ticks, irregularly spaced (a real gait is
-    /// not a metronome) and getting quieter as the animal goes.</summary>
+    /// <summary>Small claws on stone: a run of 15 dry ticks, irregularly spaced (a real gait is
+    /// not a metronome) and getting quieter as the animal goes. An even beat
+    /// (<c>shrink = 1</c>) — an animal crossing a room does not accelerate.</summary>
     private static AudioClip MakeSkitter(int rate)
     {
         int n = (int)(rate * 0.55f);
         var d = new float[n];
         var r = new Rng(0x5C177E2u);
 
-        float t = 0.01f;
-        while (t < 0.52f)
+        var steps = new float[15];
+        EnvSoundSchedule.SlipTrain(steps, 0.01f, 0.52f, shrink: 1f, jitter: 0.28f, seed: 0x5C177E2u);
+        for (int s = 0; s < steps.Length; s++)
         {
+            float t = steps[s];
             int at = (int)(t * rate);
             float amp = (1f - t / 0.55f) * (0.55f + 0.45f * Mathf.Abs(r.Next()));
             int len = (int)(rate * 0.006f);
             for (int i = 0; i < len && at + i < n; i++)
                 d[at + i] += r.Next() * amp * Mathf.Exp(-i / (float)len * 5f);
-            t += 0.026f + 0.020f * Mathf.Abs(r.Next());
         }
 
         HighPass(d, rate, 1400f);
@@ -603,6 +617,11 @@ internal static class EnvSoundBank
     /// a little, it builds again. So this is a train of short filtered bursts whose spacing
     /// SHORTENS as the load settles, under a slow swell — never one continuous groan, which is what
     /// makes a synthetic creak sound like a synthesizer.
+    ///
+    /// <para>The 0.90 shrink is what makes it a creak rather than a knock-knock-knock, and it is
+    /// also what froze the game on the loading screen in ModBuild 145 when it drove a
+    /// <c>while</c> condition instead of a fixed count — see <see cref="EnvSoundSchedule"/>, which
+    /// now owns the schedule and cannot fail to reach the end of its window.</para>
     /// </summary>
     private static AudioClip MakeCreak(int rate)
     {
@@ -610,10 +629,11 @@ internal static class EnvSoundBank
         var d = new float[n];
         var r = new Rng(0xC2EA00u);
 
-        float t = 0.05f;
-        float gap = 0.115f;
-        while (t < 1.20f)
+        var slips = new float[16];
+        EnvSoundSchedule.SlipTrain(slips, 0.05f, 1.20f, shrink: 0.90f, jitter: 0.25f, seed: 0xC2EA00u);
+        for (int s = 0; s < slips.Length; s++)
         {
+            float t = slips[s];
             int at = (int)(t * rate);
             float f = 210f + 130f * Mathf.Abs(r.Next());
             float amp = 0.35f + 0.65f * Mathf.Sin(Mathf.PI * Mathf.Clamp01(t / 1.2f));
@@ -623,8 +643,6 @@ internal static class EnvSoundBank
                 d[at + i] += Mathf.Sin(2f * Mathf.PI * f * tt) * Mathf.Exp(-24f * tt) * amp * 0.5f;
                 d[at + i] += r.Next() * Mathf.Exp(-70f * tt) * amp * 0.25f;
             }
-            gap *= 0.90f;                       // the slips come closer together as it settles
-            t += gap * (0.75f + 0.5f * Mathf.Abs(r.Next()));
         }
 
         LowPass(d, rate, 2400f);

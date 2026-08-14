@@ -416,7 +416,42 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 145;
+    public const ushort ModBuild = 146;
+    // Build 146: HOTFIX — 145 froze on the loading screen. Reported as "vollständig beim Ladescreen
+    // aufgehängt" on entering a forest scenario; it is not the forest, it is not the environment,
+    // and it would have happened in the cellar too. No wire change, and the BUNDLE IS UNCHANGED
+    // from 145 (this is a C#-only fix — reinstall the plugin, keep the bundle).
+    //
+    // WHAT HAPPENED. EnvSoundBank.MakeCreak scheduled its stick-slip bursts with
+    //     float t = 0.05f, gap = 0.115f;
+    //     while (t < 1.20f) { ...; gap *= 0.90f; t += gap * (0.75f + 0.5f * |rand|); }
+    // The times that generates are a GEOMETRIC SERIES, and the series SUMS TO ABOUT 1.09 s against
+    // the 1.20 s window it was testing against — so the condition could never go false. After ~800
+    // passes `gap` underflowed to a denormal and `t` stopped moving at all: an infinite loop on the
+    // main thread. It sits inside the first EnvSoundBank.Build(), which runs on the ONE frame the
+    // environment room is first placed, i.e. exactly at the end of scenario loading. The generator's
+    // own try/catch was blind to it — a spin throws nothing — so Player.log ends on the mod's
+    // "ROOM placed" line, written a few statements earlier by SkyAlternative, with no exception, no
+    // warning and no further output of any kind. Confirmed by re-running the loop's arithmetic
+    // outside the game at 48000/44100/24000 Hz: t converges to 1.02-1.11 and never reaches 1.20.
+    //
+    // THE FIX IS STRUCTURAL, not a bigger constant. Core/EnvSoundSchedule.cs now owns the burst
+    // train: the caller states HOW MANY bursts it wants, the loop is a `for` over that count, and
+    // the gaps are normalised AFTERWARDS so the first lands on the start of the window and the last
+    // ON its end — whatever the shrink factor does in between. The span is an INPUT now, not an
+    // outcome of a series, so there is no window a shrink factor can fail to reach. Both trains use
+    // it: the creak (16 slips, shrink 0.90 — it still accelerates as the timber settles, and the
+    // last gap is under half the first) and the rat's claws (15 ticks, even beat). The schedule is
+    // free of everything but Mathf precisely so it could be linked into the wire tests, where 37 new
+    // assertions pin termination, the span at six shrink factors, monotonicity, determinism and
+    // every degenerate input — and where a regression HANGS the test run, which is a louder failure
+    // than a red line. 1520 -> 1557 assertions.
+    //
+    // AND ONE LINE OF LOG. The bank now says it finished, with its clip count, sample rate, size and
+    // the milliseconds it took. Until now it wrote nothing on the way through, which is why a freeze
+    // inside it looked exactly like a freeze in any of the dozen other things that start on that
+    // frame. The line is there and the freeze is elsewhere; the line is missing and it is here.
+    //
     // Build 145: the shelf riders and the fire, both of which 144 owed. No wire change; the bump is
     // the handshake key, and the BUNDLE IS REBUILT (65,793,726 bytes).
     //
