@@ -419,6 +419,29 @@ internal static partial class Loc
                 + "Rechner zeigt — wer niedriger stellt, sieht weniger von genau denselben Ereignissen "
                 + "an genau denselben Stellen, niemals andere. Ohne jede Wirkung, solange "
                 + "„Grusel-Easter-Eggs“ aus ist. Wirkt sofort.",
+            // ---- [EnvSound] ----
+            ["EnvSound/Enabled"] =
+                "Gibt der 3D-Umgebung KLANG: ein Tropfen, der in seine Pfütze fällt, die Kerzenflammen, "
+                + "der Luftzug am Fenster, die Ratte, wenn sie durch den Raum huscht, die Nacht im Sumpf "
+                + "— und einen leisen Hinweis auf die Grusel-Easter-Eggs. Jedes Geräusch kommt von dem "
+                + "Objekt, das es macht, und ist im Raum verortet: ein Tropfen in der Ecke ist auch in "
+                + "der Ecke zu hören. Alles hängt an dem, was wirklich passiert, nicht an einem Timer — "
+                + "der Tropfen klingt, wenn er auftrifft, das Feuer antwortet auf eine Feuer-Infusion, "
+                + "Frost auf Eis, der Wind auf Luft. Bewusst LEISE und immer zweitrangig gegenüber dem "
+                + "Spiel: die ganze Kulisse senkt sich automatisch ab, sobald das Spiel selbst einen Ton "
+                + "macht, und sie richtet sich nach der Gesamt- und der Effektlautstärke, die du in den "
+                + "Audio-Optionen des Spiels bereits eingestellt hast. AUS entfernt sie vollständig und "
+                + "kostet nichts. Rein lokal — ändert NICHTS am Spielstand und erzeugt KEINEN "
+                + "Netzwerkverkehr, weil jedes Ereignis ohnehin auf der gemeinsamen Umgebungszeit läuft "
+                + "und alle Spieler es dadurch gleichzeitig hören. Nur im laufenden Szenario, wie die "
+                + "Umgebung selbst; Mixed Reality schaltet den Klang zusammen mit der Umgebung ab. "
+                + "Wirkt sofort.",
+            ["EnvSound/Gain"] =
+                "Wie laut die Umgebung ist. 1 = wie vorgesehen, und das ist bereits bewusst leise. "
+                + "Kleiner ist dezenter, 0 entspricht genau dem Ausschalten des Klangs. Das Maximum ist "
+                + "absichtlich weit unter der Lautstärke des Spiels gedeckelt: die Umgebung darf nie mit "
+                + "Sprache oder den Hinweistönen des Spiels konkurrieren. Ohne jede Wirkung, solange "
+                + "„Umgebungsgeräusche“ aus ist. Wirkt sofort.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "

@@ -189,6 +189,9 @@ Shader "GloomhavenVR/EnvRoomCutout"
                     // height-above-the-mesh's-own-base on the photoscans
                     float wgt = lerp(saturate((v.vertex.y - _ElemWind.y) * _ElemWind.z),
                                      v.color.a, _ElemWind.w);
+                    // ...and the weight the WIND uses, which is the same number
+                    // except on a growth mesh — see the fold below.
+                    float wwind = wgt;
                     if (_ElemGrow > 1e-5)
                     {
                         // The frontier, evaluated on the CARD's own position: the
@@ -206,15 +209,47 @@ Shader "GloomhavenVR/EnvRoomCutout"
                         // no fragments at all, which is what makes a mesh of
                         // grass that has not grown yet bit-identical to no mesh.
                         p.y -= _ElemWindDir.w * wgt * (1.0 - g);
+                        // A BLADE THAT HAS NOT COME UP DOES NOT WAVE — and this
+                        // line is load-bearing rather than decorative now that
+                        // the wind is permanent. The fold lands a card's top
+                        // edge EXACTLY on its bottom edge (see AddGrowthCard on
+                        // why "exactly" is achievable at all); the wind's offset
+                        // depends on the vertex WEIGHT, so a folded quad whose
+                        // two edges got different offsets would have area again
+                        // — the grass that is not there yet would come back as a
+                        // shimmer of slivers, with Earth down, forever. g = 0
+                        // makes the weight exactly 0 and GhvrWind's offset
+                        // exactly (0,0,0). It is also simply true: grass grows
+                        // into the wind, it does not wave its way out of the
+                        // ground.
+                        wwind = wgt * g;
                     }
-                    if (_ElemWind.x > 1e-5 && e.air > 0.0)
+                    // ...and a GROWTH mesh pays for the wind only once it has
+                    // grown. Both halves of the test are uniform (a material
+                    // constant and an element global), so the branch stays
+                    // coherent across the whole draw — which is the only reason
+                    // it is worth having: the forest's two growth meshes are
+                    // 11.5k vertices that are folded to nothing in every
+                    // scenario without Earth, and a permanent breeze must not
+                    // charge them 35 ALU each for an offset of exactly zero.
+                    if (_ElemWind.x > 1e-5 && (_ElemGrow < 1e-5 || e.earth > 0.0))
                     {
+                        // NOT GATED ON AIR ANY MORE (user verdict, ModBuild 143:
+                        // "so wie du es gemacht hast sollte der Normalzustand
+                        // sein und immer sichtbar"). The amplitude is now the
+                        // standing breeze and e.air is the STORM multiplier
+                        // inside GhvrWind — read THE STORM in EnvGrowth.cginc
+                        // for what the storm actually escalates and for the
+                        // shadow-map budget that rations it. With the element
+                        // channel unset e.air is 0 and this is exactly the
+                        // ModBuild 143 breeze, which is what he approved.
+                        //
                         // `side` from object UP: every material that carries a
                         // wind is placed by yaw alone, so object up is world up
                         // and the flutter really is across the wind.
                         float3 side = normalize(cross(_ElemWindDir.xyz, float3(0, 1, 0)));
-                        p.xyz += GhvrWind(p.xyz, wgt, t, _ElemWindDir.xyz, side,
-                                          _ElemWind.x * e.air);
+                        p.xyz += GhvrWind(p.xyz, wwind, t, _ElemWindDir.xyz, side,
+                                          _ElemWind.x, e.air);
                     }
                 }
                 o.pos = UnityObjectToClipPos(p);
@@ -270,7 +305,7 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 // canopy 7 m up.
                 GhvrElem e = GhvrHauntElems();
                 float eLive = _GhvrElemB.w * _GhvrElemB.z;
-                float frost = 0.0, moss = 0.0;
+                float frost = 0.0, moss = 0.0, mthk = 0.0;
                 if (eLive > 0.0 && (_ElemFrost > 0.0 || _ElemMoss > 0.0))
                 {
                     float gt = _Time.y + _GhvrTimeOfs;
@@ -292,26 +327,50 @@ Shader "GloomhavenVR/EnvRoomCutout"
                                           saturate(0.58 * sky + 0.42 * low),
                                           ice * (0.25 + 1.20 * rr), creep);
                     }
+                    // MOSS REAL — the same surface treatment the walls and the
+                    // floor get (EnvGrowth.cginc), and a card wants it more than
+                    // either: a fern has no normal map at all, so before this
+                    // round a mossed frond was a FLAT green shape on a flat
+                    // green shape, which is "grüne Flecken" in its purest form.
+                    // Here the moss's own relief is the only relief there is.
                     float ea = e.earth * _ElemMoss;
+                    float4 mrel = float4(0, 0, 0, 0);
                     if (ea > 0.0)
                     {
-                        moss = GhvrGrown(GhvrGrowField(q + 37.1), grain,
-                                         saturate(0.62 * low + 0.38 * sky),
-                                         ea * (0.20 + 1.55 * rr), -creep);
+                        float mfld = GhvrGrowField(q + 37.1);
+                        moss = GhvrGrow(GhvrGrowA(mfld, grain,
+                                                  saturate(0.62 * low + 0.38 * sky)),
+                                        ea * (0.20 + 1.55 * rr), -creep);
+                        mrel = GhvrMossRelief(q, mfld);
+                        mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
                     }
                     float lum = GhvrGrowLum(alb.rgb);
                     alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss);
+                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x);
+                    n_ts.xy -= float2(dot(mrel.yzw, i.t), dot(mrel.yzw, i.b)) * mthk;
                 }
                 // =============================================================
 
                 float3 N = normalize(i.t * n_ts.x + i.b * n_ts.y + i.n * n_ts.z);
                 N *= face >= 0 ? 1.0 : -1.0;
 
+                // ====================================== LIGHT AND DARK ========
+                // The wood's foliage answers the moon exactly as its floor and
+                // its trunks do — see the LIGHT AND DARK block in
+                // EnvGround.shader for the user verdict and for why the pools
+                // below are deliberately NOT in this. Both gains are exactly 1
+                // with nothing up, so the branch is for cost only.
+                float ambGain = 1.0, dirGain = 1.0;
+                if (eLive > 0.0)
+                {
+                    ambGain = GhvrAmbGain(e);
+                    dirGain = GhvrDirGain(e) * GhvrMoonLight();
+                }
+
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
                 float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5)
-                               * (1.0 + 0.30 * frost);
-                light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz)));
+                               * (ambGain + 0.30 * frost - 0.12 * mthk);
+                light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz))) * dirGain;
                 light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00);
                 light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83);
                 light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19);

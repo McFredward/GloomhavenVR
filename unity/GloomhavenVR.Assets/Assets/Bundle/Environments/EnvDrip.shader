@@ -125,19 +125,52 @@ Shader "GloomhavenVR/EnvDrip"
                     float tf = s - _Hang - sqrt(max(2.0 * (_Y0 - _Y1) / 9.81, 1e-5));
                     float sp = 0.45 + 0.55 * v.color.b;
                     float a = v.color.g * 6.2831853;
-                    // ELEMENT ART: under Ice the splash dies. The drop still
-                    // falls and the puddle still takes it, but the water it lands
-                    // in has glazed over (EnvPuddle's Ice term) and a drop on ice
-                    // does not throw a crown. Nothing else in this shader changes:
-                    // the CLOCK is shared with the puddle's rings, so slowing or
-                    // stopping the fall here would break the one event those two
-                    // shaders exist to tell together.
+                    // ELEMENT ART — A DROP ON ICE DOES NOT SPLASH, IT SKITTERS.
+                    // This is the cheapest strong statement in the room that the
+                    // puddle has become a SOLID, and it is the drip's whole share
+                    // of the ModBuild 143 verdict ("es sollte mehr wie Eis
+                    // rüberkommen"): the player already knows, from 2.85 s ago,
+                    // exactly what this drop does when it lands in water.
+                    //
+                    // A crown needs a liquid to draw itself out of. On a hard
+                    // surface the drop shatters flat instead: the fragments go
+                    // OUT rather than UP, faster, and they are gone almost at
+                    // once. So under Ice the upward speed collapses (x0.10),
+                    // the outward speed nearly doubles (x1.9), the lifetime is
+                    // cut to a third and the fragments shrink — the same five
+                    // quads, telling a different physics.
+                    //
+                    // Nothing about the FALL changes. The clock is shared with the
+                    // puddle's rings, so slowing or stopping it here would break
+                    // the one event those two shaders exist to tell together.
+                    //
+                    // THE WATER PATH IS UNTOUCHED, written out first and exactly
+                    // as it was, and the ice case is a separate assignment inside
+                    // a branch. Rewriting the shared expression with lerp(1,k,ice)
+                    // factors would have been shorter and would have re-associated
+                    // three float multiplies — arithmetically the identity at
+                    // ice = 0, but not necessarily the same last bit, and the zero
+                    // state here is an acceptance test rather than an aspiration.
                     GhvrElem e = GhvrElems();
                     float vy = _SplashUp * sp;
                     float y = _Y1 + vy * tf - 4.905 * tf * tf;
                     base = float3(cos(a) * _SplashOut * sp * tf, y, sin(a) * _SplashOut * sp * tf);
-                    off *= (0.55 + 0.45 * v.color.b) * max(1.0 - 0.75 * e.ice, 0.0);
-                    alive = step(0.0, tf) * step(tf, _SplashLife) * step(_Y1 - 0.004, y);
+                    off *= (0.55 + 0.45 * v.color.b);
+                    float life = _SplashLife;
+                    if (e.ice > 0.0)
+                    {
+                        float ice = saturate(e.ice);
+                        vy = _SplashUp * sp * lerp(1.0, 0.10, ice);
+                        float outSp = _SplashOut * sp * lerp(1.0, 1.90, ice);
+                        y = _Y1 + vy * tf - 4.905 * tf * tf;
+                        base = float3(cos(a) * outSp * tf, y, sin(a) * outSp * tf);
+                        off *= max(1.0 - 0.55 * ice, 0.0);
+                        // ...and it is over in a third of the time: a skitter is
+                        // a TICK, where a splash is an event with a rise and a
+                        // fall. (The lifetime is what the eye reads as hardness.)
+                        life = _SplashLife * lerp(1.0, 0.34, ice);
+                    }
+                    alive = step(0.0, tf) * step(tf, life) * step(_Y1 - 0.004, y);
                 }
 
                 v2f o;

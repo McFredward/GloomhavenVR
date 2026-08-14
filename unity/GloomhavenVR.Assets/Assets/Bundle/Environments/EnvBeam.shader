@@ -110,11 +110,22 @@
 // screen-space term is the sub-LSB dither, which is below one 8-bit step and
 // therefore below the fusion threshold), no depth-texture read.
 //
-// COST. _Steps taps of ~4 transcendentals each, over the hull's screen
-// footprint, once per eye. The hull is a 1.2 m-radius cylinder in one corner of
-// one room. It is a deliberate choice against the alternative — a cheap closed
-// form — because every closed form for this integral has a singularity
-// somewhere, and this shader exists because of one.
+// ELEMENT ART (ModBuild 144), two terms and both of them earn their place:
+//  * MOONLIGHT. The beam IS the moon, so it scales by the contract's own
+//    GhvrDirGain(e) * GhvrMoonLight() — 2.55x under Light, 0.0275x under the
+//    held blood moon. Under Dark it stops being a light source and the room is
+//    left to its candles, which is exactly what the user asked for.
+//  * WIND. Under Air the density streams: fine filaments lying ALONG the
+//    draught and travelling with it, evaluated per sample inside the integral.
+//    See THE WIND, CARRIED BY THE ONLY LIT AIR in frag for why it has to be a
+//    ridge and cannot be a speck.
+//
+// COST. _Steps taps of ~4 transcendentals each (+3 sines under Air, on a
+// uniform branch), over the hull's screen footprint, once per eye. The hull is
+// a 1.2 m-radius cylinder in one corner of one room. It is a deliberate choice
+// against the alternative — a cheap closed form — because every closed form for
+// this integral has a singularity somewhere, and this shader exists because of
+// one.
 Shader "GloomhavenVR/EnvBeam"
 {
     Properties
@@ -198,14 +209,14 @@ Shader "GloomhavenVR/EnvBeam"
             #pragma fragment frag
             #pragma target 3.0
             #include "UnityCG.cginc"
-            // EnvHaunt.cginc, and NOT EnvElement.cginc beside it. The two cannot
-            // be included together today: EnvHaunt re-declares _GhvrElemA/B and
-            // — worse — defines a STRUCT called `GhvrElems`, which is the name of
-            // EnvElement's accessor FUNCTION. Including both is a redefinition
-            // error, proven by trying it. EnvHaunt publishes the same mood under
-            // its own name (GhvrHauntElems, already folded with the master), so
-            // this shader reads the elements through that. Both files belong to
-            // other lanes; the merge that gives them one channel is theirs.
+            // EnvHaunt.cginc, which now INCLUDES EnvElement.cginc — so this one
+            // line brings both the haunt schedule and the element channel, and
+            // GhvrMoonLight() is callable here. (It was not, for one round: the
+            // two headers each declared _GhvrElemA/B and each used the name
+            // `GhvrElems`, once for a struct and once for a function, and any
+            // shader wanting both failed to compile. EnvHaunt's own note records
+            // the accident and the fix. This shader was the one that wanted both,
+            // which is why the moon hook below sat stubbed at 1.0.)
             #include "EnvHaunt.cginc"
 
             fixed4 _Tint;
@@ -297,6 +308,52 @@ Shader "GloomhavenVR/EnvBeam"
                 t0 = max(t0, 0.0);                    // never integrate behind the head
                 if (t1 <= t0) return fixed4(0, 0, 0, 1);
 
+                // ============ THE WIND, CARRIED BY THE ONLY LIT AIR ==========
+                // USER VERDICT, ModBuild 143 (verbatim): "Bei der Luft finde ich
+                // die Idee gut, dass es aus dem Fenster kommt, sollte aber auch
+                // wirklich mehr wie Wind wirken, aktuell diese Pünktchen erinnern
+                // eher an weiße Funken, das ist nicht immersiv oder realistisch."
+                //
+                // He is describing the PARTICLES, and those are being rebuilt in
+                // the builder — but the deeper answer is that air is invisible
+                // and is only ever seen through what it carries AND through
+                // where light falls on it. This beam is the one lit volume in the
+                // cellar, so this is where dust in a sunbeam can actually be
+                // drawn: not as sprites with outlines, but as the density of the
+                // air itself, streaming.
+                //
+                // WHY A PLANE-WAVE STRIATION AND NOT A MOTE FIELD. Every pixel
+                // here is a LINE INTEGRAL, and an isotropic high-frequency field
+                // averages to its mean along the ray: individual specks would
+                // integrate away to a uniform grey and cost 24 taps to do it. A
+                // wave whose crests are LONG RIDGES running along the draught
+                // survives, because a ray crossing the beam broadside lies in one
+                // ridge for its whole length. So what the beam carries is a set
+                // of fine filaments lying along the wind and travelling with it
+                // — which is what dust in a shaft of light actually looks like,
+                // and is the exact opposite of a dot.
+                //
+                // COST: three sines per sample, and ONLY under Air. `air` comes
+                // from a global uniform, so this is a uniform branch — every lane
+                // of every wave takes the same side of it and the cost with the
+                // feature inert is one scalar compare per iteration (which the
+                // compiler is free to hoist, and does). Nothing here runs, and
+                // nothing here can change a bit, when the room is quiet.
+                GhvrElem e = GhvrHauntElems();
+                float air = e.air;
+                // the wind's own frame: along the draught, and the two axes
+                // across it. _DraftDir is authored horizontal, so `wUp` is up.
+                float3 wDir = normalize(_DraftDir.xyz + float3(0, 1e-5, 0));
+                float3 wSide = normalize(cross(float3(0, 1, 0), wDir) + 1e-6);
+                float3 wUp = cross(wDir, wSide);
+                // 1.35 m/s, the draught's own speed. It is not a free parameter:
+                // the mouth emitter's motes leave at 0.45-1.00 m/s and carry a
+                // shared 0.55-0.95 m/s along DraftDir on top, so they cross the
+                // room at about 1.4 m/s — and if the air INSIDE the beam moved at
+                // a different speed from the matter drifting through it, the two
+                // would read as two different winds in the same room.
+                float wPhase = t * 1.35;
+
                 // ---- the integral itself, midpoint rule ----
                 // clamped, not trusted: a material that somehow arrives with
                 // _Steps 0 would divide by zero and paint the whole hull NaN
@@ -322,36 +379,66 @@ Shader "GloomhavenVR/EnvBeam"
                     float dbar = abs(frac(ph + 0.5) - 0.5) * _BarPitch;
                     float sig = _BarSig + _BarBlur * s;
                     dens *= 1.0 - _BarDepth * exp(-s / _BarFade - (dbar * dbar) / (sig * sig));
+                    if (air > 0.0)
+                    {
+                        // p is the sample in the wind's frame, in metres, with
+                        // the DOWNWIND coordinate already carried backwards by
+                        // the clock: the whole pattern translates along the
+                        // draught at wPhase m/s and does not merely wobble.
+                        float pa = dot(P, wDir) - wPhase;      // along the wind
+                        float pv = dot(P, wUp);                // vertical
+                        float pc = dot(P, wSide);              // across
+                        // Fine across (17 rad/m ~ 37 cm crest spacing, i.e. a
+                        // filament you can see rather than a speckle that
+                        // integrates away), slow along (2.1 rad/m), and the
+                        // along-term PHASE-MODULATES the across-term so the
+                        // ridges snake instead of running dead straight. Straight
+                        // ridges are corrugated iron; snaking ones are dust.
+                        float f = sin(pv * 17.0 + sin(pa * 2.1) * 2.3)
+                                * sin(pc * 11.0 - sin(pa * 1.3) * 1.7);
+                        // 0.95 at full Air: the beam BREAKS UP into streaming
+                        // filaments rather than merely mottling. This is the
+                        // draught's MAIN visible statement, deliberately — the
+                        // particles outside are dimmer than the first bake's
+                        // because a mote glowing in unlit air reads as a spark,
+                        // and the one place light really falls is in here. It may
+                        // not go negative: that would be a hole in the air.
+                        dens *= max(1.0 + 0.95 * air * f, 0.0);
+                    }
                     acc += dens; sAcc += dens * s; tAcc += dens * tk;
                 }
 
                 // ================================================ ELEMENT ART
-                // AIR, and this is the cellar's most legible draught cue because
-                // it is the ONLY lit air in the room: the shaft is where the wind
-                // comes in, so the wind can be seen in it.
+                // AIR, second half: the shimmer is stirred harder and faster. The
+                // FIRST half — the streaming filaments the beam actually carries —
+                // is up in the integral, because it has to be per sample.
                 //
-                // No "is anything up" branch, deliberately — GhvrHauntElems has
-                // already folded in the master, so with the feature off or the
-                // room inert `air` is exactly 0, `1.0 + 2.4*0` is exactly 1.0,
-                // and the multiply below is the identity. That is the same
-                // argument EnvHaunt.cginc's own element block makes, and it keeps
-                // the zero state bit-identical without a compare.
-                float air = GhvrHauntElems().air;
+                // No "is anything up" branch on these two, deliberately: `air` is
+                // already folded with the master, so with the feature off it is
+                // exactly 0, `1.0 + 2.4*0` is exactly 1.0, and both lines are the
+                // identity. That is the same argument EnvHaunt.cginc's own element
+                // block makes, and it keeps the zero state bit-identical without
+                // a compare.
                 float shimAmt = _Shimmer * (1.0 + 2.4 * air);
                 float shimSpd = _ShimmerSpeed * (1.0 + 3.2 * air);
 
-                // MOON-LIGHT HOOK. A parallel lane is adding `GhvrMoonLight()` to
-                // EnvElement.cginc this round: 1.0 at rest, below 1 while a lunar
-                // eclipse crosses the moon under Dark, above 1 while Light swells
-                // it. This beam IS that moon and must follow it.
+                // MOON-LIGHT HOOK, now connected. GhvrMoonLight() is 1.0 at rest,
+                // 0.05 under full Dark (the held blood moon) and 1.34 under full
+                // Light; multiplied by GhvrDirGain it is the contract's own
+                // call-site form and the SAME expression EnvShaft and the room
+                // surfaces use, so the beam, the pool it lands in and the disc in
+                // the sky are one event.
                 //
-                // It is NOT called yet, for two reasons and neither is laziness:
-                // the function is not in the include as of this build, and this
-                // shader cannot include EnvElement.cginc at all while
-                // EnvHaunt.cginc redeclares the same channel (see the include
-                // above). The one-line change when both are settled: replace the
-                // 1.0 below with GhvrMoonLight(). Nothing else here moves.
-                float moonGain = 1.0;   // <-- GhvrMoonLight()
+                // USER VERDICT, ModBuild 143, both halves: "Bei Licht sollte auch
+                // der Mondschein aus dem Fenster viel intensiver sein" and "bei
+                // Dunkelheit ... den Mondschein extrem zu reduzieren, so dass der
+                // Raum insgesamt deutlich dunkler wird". Full Light is 2.55x here
+                // (the Reinhard knee eats some of it, which is the point of the
+                // knee); full Dark is 0.0275x, i.e. the beam stops being a light
+                // source and the three candles are the only ones left. The room
+                // is ALLOWED to be that dark now — it is what was asked for.
+                float moonGain = 1.0;
+                if (e.live > 0.0) moonGain = GhvrDirGain(e) * GhvrMoonLight();
 
                 // slow drifting density — motes and mist crossing the beam,
                 // taken at the density-weighted centroid of this ray's samples

@@ -77,7 +77,7 @@ namespace GloomhavenVR.Core;
 /// <remarks>CLASSIFICATION: LOCAL — a presentation setting, ZERO wire. The CONTENT it gates is
 /// GLOBAL by construction (a pure function of the shared environment clock), which is why no wire
 /// field exists for either. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
-internal static class Haunt
+internal static partial class Haunt
 {
     // ---- the contract, as identifiers -----------------------------------------------------------
 

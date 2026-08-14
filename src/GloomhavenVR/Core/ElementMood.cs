@@ -421,6 +421,33 @@ internal static class ElementMood
     /// than trusting that nothing else ever wrote these globals.</summary>
     private static bool _zeroed;
 
+    /// <summary>
+    /// One element's live intensity AS THE SHADERS SEE IT: the smoothed 0..1 value already
+    /// multiplied by the published master, so a caller needs no "is the feature on" branch — with
+    /// the feature off, or outside a scenario, every element reads 0 and every expression built on
+    /// it collapses.
+    ///
+    /// <para>WHY THIS ACCESSOR EXISTS AT ALL, when the class doc says the channel IS the two shader
+    /// globals. Because a C# consumer appeared that is not a material: <see cref="Haunt.Resolve"/>
+    /// has to reproduce the GPU's haunt schedule bit-for-bit, and that schedule bends on Dark, Light
+    /// and Ice (<c>EnvHaunt.cginc</c>'s <c>GhvrHauntElems()</c>). Its C# mirror must read the SAME
+    /// numbers from the SAME place — <c>Shader.GetGlobalVector</c> would read them back out of the
+    /// graphics device a frame late and is not free, and a second smoothing pass would be a second
+    /// source of truth. So the one writer hands its own values out directly.</para>
+    ///
+    /// <para>MULTIPLIED BY MASTER, NOT RAW, because that is what <c>GhvrElems()</c> returns on the
+    /// GPU side. Handing out the raw value would make every caller responsible for remembering the
+    /// multiply, and the first one to forget would have a schedule that disagreed with the picture.</para>
+    /// </summary>
+    /// <param name="element">Element index, 0..5 in the game's own EElement order
+    /// (Fire, Ice, Air, Earth, Light, Dark). Anything else reads 0.</param>
+    internal static float Live(int element)
+    {
+        if (element < 0 || element >= Count || !_live)
+            return 0f;
+        return Value[element] * Mathf.Max(0f, ResponseStrength.Value);
+    }
+
     // ---- per-frame driver -------------------------------------------------------------------------
 
     /// <summary>

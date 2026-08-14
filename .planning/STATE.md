@@ -126,6 +126,50 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 144** — 22 reported items plus environment SOUND. No wire change.
+  **Bundle 65,681,683 bytes.**
+  **"Keine 2D-Pappaufsteller" — said seven times in one message.** Every apparition is now real
+  geometry, posed at bake time from the MakeHuman CC0 base mesh by a new pipeline script. Assets
+  were searched first, per the user's standing instruction: Smithsonian Open Access IS usable
+  (unauthenticated CC0 OBJ/glTF) and was rejected on non-technical grounds — its human forms are
+  identifiable historical people, and **an apparition you can recognise is a statue, not a
+  fright.** GENERAL RULE that came out of this: the earlier "no rigged FBX, so build it yourself"
+  finding was about ANIMATION, not geometry — apparitions that barely move need no skeleton, and a
+  600k-triangle museum scan is good SOURCE for a decimation step this project already has.
+  **Three apparitions were invisible, and the cause generalises**: they were authored as "a hole in
+  the scene" — coverage with almost no light. That works against a lit window or a candle-lit wall
+  and is nothing against a wood whose 95th percentile is 0.005. **A hole cut in nothing is
+  nothing.** Value plans must name the background they are cut against.
+  **THE PUDDLE HAS BEEN INVISIBLE SINCE MODBUILD 134** — `PuddleMesh` wound face-down against
+  `EnvPuddle`'s `Cull Back`; ~600 triangles discarded from every camera above the floor. It hid for
+  ten builds because the moonbeam's pool lands 35 cm away and a bright wet patch in roughly the
+  right place was taken for it; the tell was ModBuild 143's own note that tripling the ripple
+  "moved a measured maximum of 3/255". **Fourth instance of the winding bug class.** Found by a
+  LOCATE pass — paint it magenta, count pixels with `Cull Back` (0) vs `Cull Off` (134,000).
+  **Ice could not have been tuned into ice**: two of its three terms were wrong in principle. A
+  sheet of ice is NOT a better mirror than water — it is a rough scattering dielectric, duller and
+  broader, and bright from straight above where water is a black hole. Sharpening the lobe made a
+  stiller puddle, which is exactly what the user reported.
+  **Moss stopped being a stain** by getting the five things a stain cannot have: micro-relief with
+  an analytic gradient, its own normal that DESTROYS the one underneath, two greens mixed by the
+  relief, a contact lip, and gloss only on the thin frontier. Two failed bakes on the way are
+  instructive: an analytic pattern at frond scale has no mip chain (moiré), and four fixed axes are
+  quasi-periodic (honeycomb) — fixed by warping the lattice with the patch field itself.
+  **`EnvGround` had NO element response at all** — it belonged to another lane the round the
+  channel landed, so the forest floor, which is what "die Lichtung" mostly IS, never read Light or
+  Dark. Measured 1.00× before, 1.71×/0.60× now. In the cellar the candles are provably untouched
+  (+1.3% / −1.1%) while the moon moves 2.09×/0.45×.
+  **Environment sound (new)** — spatialised, synthesized (BBC's library is RemArc, NOT
+  redistributable in a public mod), switchable, on the shared clock. It exposed that **there was no
+  AudioListener on the VR head**: the ear sat at the parked flat-screen camera, so every positional
+  game sound has come from the wrong place. The room runs at 21–26× scale and Unity's rolloff is in
+  WORLD units, so all distances are stored in PERCEIVED metres with exactly one conversion site.
+  **The frequency dial and multiplayer** — worth carrying because the user asked: no value "wins"
+  and none has to. The dial is a monotone gate on a setting-independent hash, so a player at 0.9
+  sees a strict SUPERSET of a player at 0.4 — same apparition, same place, same second, the lower
+  setting simply misses some. A host-wins rule would need a wire record AND would override a
+  comfort setting the player chose.
+
 - **ModBuild 143** — seven reported items, all environment craft. No wire change.
   **Bundle 65,331,900 bytes.**
   **The rat: two one-line defects, both instructive.** Its entire albedo was a lerp between two

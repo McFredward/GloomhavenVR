@@ -260,6 +260,15 @@ internal static partial class VROptionsTab
                         // frequency dial folds under the toggle (VROptionsTab.8.Dependencies).
                         new("Haunt", "EasterEggs", "vr_o_haunt"),
                         new("Haunt", "Frequency", "vr_o_haunt_freq"),
+                        // ENV SOUND — the environment HEARD (user request, 2026-08-14). Last of the
+                        // environment block and directly under the easter eggs, because the user's
+                        // correction the same day put the apparitions' cues on THIS toggle rather
+                        // than giving them one of their own: a player who has just read the easter
+                        // egg rows is exactly the player who needs to see which switch makes them
+                        // audible. The volume dial folds under the toggle
+                        // (VROptionsTab.8.Dependencies).
+                        new("EnvSound", "Enabled", "vr_o_envsound"),
+                        new("EnvSound", "Gain", "vr_o_envsound_amt"),
                         new("Rig", "ForwardRendering", "vr_o_forward"),
                         // "Hauptmenü in VR" ([Rig] MenuRig) is GONE with its dial (user ruling
                         // 2026-08-13): off built no rig at all outside a scenario — the main

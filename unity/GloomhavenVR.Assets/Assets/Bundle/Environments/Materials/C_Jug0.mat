@@ -39,6 +39,7 @@ Material:
     - _ElemRad: 5
     - _ElemScl: 1
     - _ElemWarm: 0.7
+    - _FireRate: 6
     - _PtHard: 16
     - _RimPow: 3
     - _VCol: 0
@@ -48,6 +49,10 @@ Material:
     - _DirCol: {r: 0.048, g: 0.07, b: 0.128, a: 1}
     - _DirDir: {r: -0.32364386, g: 0.6427071, b: 0.69439346, a: 0}
     - _ElemCentre: {r: 1.5150898, g: -0.5698139, b: -4.590385, a: 0}
+    - _FireCol: {r: 0, g: 0, b: 0, a: 0}
+    - _FirePos0: {r: 0, g: 0, b: 0, a: 1}
+    - _FirePos1: {r: 0, g: 0, b: 0, a: 1}
+    - _FirePos2: {r: 0, g: 0, b: 0, a: 1}
     - _L0Col: {r: 2.1, g: 1.26, b: 0.63, a: 0.9}
     - _L0Pos: {r: 0.4136212, g: 0.21844476, b: 0.027803838, a: 0.32258067}
     - _L1Col: {r: 1.75, g: 0.98, b: 0.45499998, a: 0.95}

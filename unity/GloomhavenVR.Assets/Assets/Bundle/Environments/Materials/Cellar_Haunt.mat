@@ -14,7 +14,7 @@ Material:
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
-  m_CustomRenderQueue: -1
+  m_CustomRenderQueue: 3002
   stringTagMap: {}
   disabledShaderPasses: []
   m_SavedProperties:
@@ -24,15 +24,41 @@ Material:
         m_Texture: {fileID: 2800000, guid: 78de8ebf25dfb2f2fab0d40fcd903ecf, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _BumpMap:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _BumpScale: 1
     - _Cards: 6
+    - _Cull: 2
+    - _DstBlend: 10
     - _Edge: 0.016
     - _Period: 83
-    - _Rim: 0.08
+    - _PtHard: 0
+    - _Rim: 0.02
     - _RimWidth: 0.09
+    - _SrcBlend: 5
+    - _ZWrite: 0
     m_Colors:
+    - _AmbDown: {r: 0.015, g: 0.015, b: 0.015, a: 1}
+    - _AmbUp: {r: 0.049999982, g: 0.059999965, b: 0.079999976, a: 1}
+    - _DirCol: {r: 0, g: 0, b: 0, a: 1}
+    - _DirDir: {r: 0, g: 1, b: 0, a: 0}
     - _Fill: {r: 0.1, g: 0.13, b: 0.21, a: 1}
+    - _L0Col: {r: 0, g: 0, b: 0, a: 0}
+    - _L0Pos: {r: 0, g: 0, b: 0, a: 1}
+    - _L1Col: {r: 0, g: 0, b: 0, a: 0}
+    - _L1Pos: {r: 0, g: 0, b: 0, a: 1}
+    - _L2Col: {r: 0, g: 0, b: 0, a: 0}
+    - _L2Pos: {r: 0, g: 0, b: 0, a: 1}
     - _RimCold: {r: 0.42, g: 0.56, b: 0.78, a: 1}
+    - _RimDir: {r: 0, g: 1, b: 0, a: 0}
     - _RimWarm: {r: 0.95, g: 0.48, b: 0.16, a: 1}
+    - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

@@ -109,6 +109,13 @@ internal static partial class VROptionsTab
         //      apparition's card is collapsed to a point before the dial is ever read.
         ["Haunt/Frequency"] = new("Haunt", "EasterEggs", On),
 
+        // ---- Grafik ▸ Darstellung: the environment volume is the tuning OF its toggle, and the
+        //      same literal truth holds a third time — its bound description says "Has no effect at
+        //      all while 'Enabled' is off", and Core/EnvSound.Tick stands the whole feature down on
+        //      its first line when the toggle is off: every AudioSource is destroyed and the dial is
+        //      never read, so there is nothing left for it to be the volume of.
+        ["EnvSound/Gain"] = new("EnvSound", "Enabled", On),
+
         // ---- Brett & Karten: THE NAMED CASE — the pitch window only exists in the
         //      "Begrenzt mit Neigung" scheme (BoardMoveMode.LimitedPitch, whose own enum doc names
         //      BoardPitchMin/Max as the window it clamps to). All six per-board keys, so the pair

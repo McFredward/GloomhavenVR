@@ -66,14 +66,16 @@
 //  THE MOON IS A CONTRACT, not a picture — read MOON PHASE at the bottom
 //  ---------------------------------------------------------------------
 //     float GhvrMoonLight();   // 1.0 = the moon is unobstructed and at its
-//                              // authored size; below 1 during the Dark
+//                              // authored size; below 1 under the HELD Dark
 //                              // eclipse, above 1 while Light swells it.
 //                              // Multiply any MOONLIGHT term by this:
 //                              //   dirGain = GhvrDirGain(e) * GhvrMoonLight();
-//  Dark slides the Earth's umbra across the disc and Light swells it, and both
+//  Dark holds the Earth's umbra over the disc and Light swells it, and both
 //  have to reach the ROOMS — the cellar's beam, the wood's shafts, the moon rim
 //  on the trunks — or the eclipse is a picture of an eclipse. One multiply buys
 //  the whole coupling: no uniform, no timing and no state at the call site.
+//  RANGE: 0.05 at full Dark .. 1.0 at rest .. 1.34 at full Light. The floor is
+//  deep on purpose and the argument for it is under THE FLOOR IS 0.05 below.
 // ============================================================================
 #ifndef GHVR_ENV_ELEMENT_INCLUDED
 #define GHVR_ENV_ELEMENT_INCLUDED
@@ -183,7 +185,19 @@ float GhvrEmberBreath (float t, float phase)
 }
 
 // ============================================================== MOON PHASE
-//  THE MOON MOVES NOW. User finding, ModBuild 142 (verbatim):
+//  MOON HELD. The moon does NOT move any more. User verdict, ModBuild 143
+//  (verbatim): "6) Mir gefällt der Blutmond sehr, aber lass ihn statisch, das
+//  'Vorbeiziehen' gefällt mir nicht gut, lass einen Blutmond statisch solange
+//  das aktiv ist."
+//
+//  The picture was right and the ANIMATION was wrong, so the animation is gone
+//  and the picture is held: while Dark is up the moon simply IS a blood moon,
+//  at one fixed, composed geometry. It arrives and leaves by FADING with the
+//  element's own intensity — which is the only thing that was ever allowed to
+//  drive it in the first place (there is no start time to be had; see WHAT
+//  COULD NOT BE DONE below, which is now moot rather than merely unsolved).
+//
+//  ...over the top of the previous round's finding, which is unchanged:
 //    "6) Bei Dunkelheit sollte sich etwas vor den Mond Schieben - eher wie eine
 //        Mondfinsternis die auch das Licht beeinflusst.
 //     7) Bei der Helligkeit sollte der Mond anwachsen und mehr Licht abgeben."
@@ -206,20 +220,48 @@ float GhvrEmberBreath (float t, float phase)
 //  covered — cause and effect, in one glance.
 //
 //  SEMANTICS, exactly:
-//   * A pure function of _GhvrElemB and the shared clock. No extra uniform, no
-//     material property, nothing a consumer has to remember to set.
+//   * A pure function of _GhvrElemB. No extra uniform, no material property,
+//     nothing a consumer has to remember to set — and, since MOON HELD, no
+//     dependence on the clock either (the argument survives; see the macro).
 //   * EXACTLY 1.0 whenever the master is 0, or Light and Dark are both 0 —
 //     including with the other four elements at full strength. It is safe to
 //     call unconditionally and the zero state stays bit-identical (rule 2).
-//   * DARK: 1.0 -> GHVR_ECL_FLOOR (0.34) as the umbra covers the disc, scaled
-//     by how far Dark is up. The driver is the disc's COVERED FRACTION, so the
-//     room dims on the very curve the shadow eats the moon on.
+//   * DARK: 1.0 -> GHVR_ECL_FLOOR as the element rises, i.e. the disc is held
+//     TOTALLY eclipsed and only the STRENGTH of Dark decides how far the light
+//     has fallen. The covered fraction is a constant 1 by construction (the
+//     held umbra swallows the whole disc, see THE HELD GEOMETRY), so it is now
+//     Dark itself that drives the room, on ElementMood's own smoothed ramp.
 //   * LIGHT: x (1 + GHVR_MOON_SWELL * light) = 1.34 at full Light — the same
 //     number the sprite grows by, NOT the disc's area (1.8x). The caller
 //     already multiplies GhvrDirGain (1.90x at full Light) and 1.90 * 1.80 is a
 //     headlight that flattens the night into a grey day; 1.90 * 1.34 = 2.55 is
 //     a moon you would call bright with a tree line that is still black.
-//   * The two compose: a swollen moon still gets eaten (1.34 * 0.34 = 0.46).
+//   * The two compose: a swollen moon still gets eaten (1.34 * 0.05 = 0.067).
+//
+//  THE FLOOR IS 0.05 AND IT USED TO BE 0.34 — the second half of this round's
+//  verdict, and the reason is that 0.34 could not deliver either room's ruling.
+//    Forest: "Bei Dunkelheit soll auch entsprechend die Lichtung dunkler
+//    werden, also der angeleuchtete Boden und DIE LICHTSTRAHLEN VERSCHWINDEN."
+//    Cellar: "bei Dunkelheit ... den Mondschein extrem zu reduzieren, so dass
+//    der Raum insgesamt deutlich dunkler wird."
+//  A shaft at a third of its brightness is a dimmed shaft, not an absent one:
+//  the eye reads a blade of lit mist over a black wood at anything down to a
+//  few per cent. The composite a room actually sees is
+//      GhvrDirGain(e) * GhvrMoonLight() = 0.55 * 0.05 = 0.0275
+//  at full Dark — one thirty-sixth of the authored moonlight, which is under
+//  the 8-bit floor for every shaft term in the forest and takes the cellar's
+//  beam below its own candles. That is the intended reading and it is now
+//  allowed to be dark: in the cellar the beam is the only light BESIDES the
+//  candles, and "the room goes very dark and the candles are what is left" is
+//  precisely the picture the user asked for. Dark does not touch the candles
+//  at all (GhvrSrcGain), it only HARDENS them (GhvrSrcHard), so what is left
+//  standing is three small fierce pools — the split's own promise, finally
+//  paid, because the one competing source has stopped competing.
+//    It is still NOT 0. A totally eclipsed moon is genuinely still there (a
+//  real one loses ~10 magnitudes, i.e. far more than this), the copper disc is
+//  still painted in the sky at full strength, and a beam that went to exactly
+//  nothing would read as the effect being switched off rather than as the moon
+//  being covered.
 //
 //  WHY THE ECLIPSE DIMS A SOURCE, when the split says Dark never dims sources:
 //  because this is not a dimming. It is an OCCLUSION — a shadow crosses in
@@ -239,57 +281,85 @@ float GhvrEmberBreath (float t, float phase)
 //  hard black edge — a soft curved terminator crossing the disc, and a colour
 //  nothing else in this sky can make. It is also the cheaper of the two.
 //
-//  THE PHASE IS ON THE SHARED CLOCK. EnvStars/EnvStarPoints once built their
-//  sky clock from raw _Time.y on purpose (the celestial hour angle is allowed
-//  to differ per client — see SkyAlternative's table); both now fold
-//  _GhvrTimeOfs in, and the eclipse would have to whatever they did. It is an
-//  EVENT: two players in one cellar must watch the same limb go dark at the
-//  same second, and the room dimming it drives is shared by construction.
-//    The sky's wrapped clock (SKY_PERIOD 2880 s) is an EXACT 96 eclipse
-//    periods, so a caller that hands over the wrapped clock and a caller that
-//    hands over the raw one compute the same phase. Change neither period
-//    without checking that one still divides the other.
+//  THE HELD GEOMETRY, and why it is composed the way it is.
 //
-//  WHAT COULD NOT BE DONE, and therefore why the transit repeats: a one-shot
-//  eclipse that BEGINS when Dark rises needs a start time — either a uniform
-//  ElementMood would have to publish (exactly the "extra uniform the consumers
-//  must set" this contract forbids) or per-client state (rule 4). So the
-//  transit free-runs on absolute phase, the way ElementMood's own Waning breath
-//  does and for the same reason, and Dark controls its DEPTH. The consequence,
-//  stated rather than hidden: if Dark comes up while the umbra is already
-//  centred, the first thing a player sees is a moon going copper without
-//  moving, and the slide off begins a second or two later. The umbra is clear
-//  of the disc for only 1.5 s of every 30, so the overwhelmingly likely first
-//  sight is a shadow already part-way across.
+//  A blood moon is a TOTAL eclipse — that is what makes it copper. A partial
+//  one is a bite taken out of a white disc, which is a different (and, once it
+//  has stopped moving, a much duller) picture. So the held state is totality,
+//  and the whole disc has to sit inside the umbra with the soft terminator
+//  clear of the limb, or a stationary shadow edge would be frozen across the
+//  face like a scratch on the lens.
+//
+//  THAT FREES THE UMBRA TO BE THE REAL SIZE. 1.35 moon radii was a TRANSIT
+//  number and its comment said so: a small umbra keeps totality short and the
+//  curved terminator on the disc for longer, both of which are properties of a
+//  shadow that is going somewhere. Nothing is going anywhere now, so the umbra
+//  goes to 2.60 R, which is what the Earth's shadow actually measures at the
+//  moon's distance. It buys the composition below.
+//
+//  THE CENTRE IS OFFSET, AND THAT IS THE WHOLE COMPOSITION. With the umbra
+//  centred on the disc, the Danjon gradient below is RADIALLY SYMMETRIC about
+//  the middle of the moon: dark core, bright rim, all the way round. Held
+//  still, that reads as a vignette — as a coloured filter laid over the moon,
+//  which is exactly the failure the Danjon note further down was written to
+//  avoid. Pushed off-centre by 1.15 R the same gradient becomes a MONOTONE RAMP
+//  ACROSS THE FACE: one limb deep grey-brown, the opposite limb bright copper,
+//  the terminator nowhere. That is what a photograph of totality looks like,
+//  and it is the only arrangement in which a still image still says "there is a
+//  shadow here, and it has a near side and a far side".
+//
+//  The two constraints that fix the number:
+//    coverage 1.0  needs |c| <= UMBRA - 1     = 1.60
+//    no terminator needs |c| <= UMBRA - 1 - EDGE = 1.515
+//  and the gradient wants |c| as large as it can get. 1.15 R takes ~72% of the
+//  available offset and leaves 0.37 R of clearance — enough that the swell
+//  under Light, which scales the sprite and NOT this offset (both are in moon
+//  radii, so the geometry is size-invariant), cannot walk the terminator onto
+//  the disc. The direction is arbitrary in physics and not in composition: down
+//  and to the right, so the copper limb is the upper left one, away from the
+//  horizon and toward the part of the disc a player looking up at it sees first.
+//
+//  WHAT THE TRANSIT MACHINERY WAS, and it is DELETED rather than switched off:
+//  GHVR_ECL_PERIOD, GHVR_ECL_MISS, GHVR_ECL_TRACK, the frac() that swept the
+//  centre along the track, the exact 96-periods-per-sky-revolution divisibility
+//  argument, EnvStars' penumbra wash, and the "WHAT COULD NOT BE DONE" note
+//  that explained why a one-shot eclipse needed a start time nothing could
+//  publish. None of it has a meaning any more: there is no phase, so there is
+//  nothing for two clients to disagree about and nothing for a clock to drive.
+//  The shared-clock rule is not weakened by this, it is satisfied vacuously —
+//  and GhvrMoonLight() still takes the clock (see the macro) so that a shader
+//  which is NOT on the shared epoch still fails to compile on _GhvrTimeOfs.
 // -----------------------------------------------------------------------------
 // The geometry is in units of the MOON'S OWN DISC RADIUS, so nothing here knows
 // the sprite's size, the sprite's extent or the moon's bearing. EnvStars is the
 // single place those meet, and it converts once.
-#define GHVR_ECL_PERIOD 30.0    // s, one full transit; 2880 / 30 = 96 exactly
-#define GHVR_ECL_UMBRA  1.35    // umbra radius, in moon radii. Earth's is ~2.6
-                                // at the moon's distance; 1.35 keeps totality
-                                // short and the curved terminator ON the disc
-                                // for longer, which is the half a player reads.
-#define GHVR_ECL_MISS   0.18    // perpendicular miss distance: the shadow does
-                                // NOT pass dead centre, so the bite is visibly
-                                // off-axis and totality stays brief
-#define GHVR_ECL_TRACK  2.47    // half-track = 1 + UMBRA + 0.12 clearance, so
-                                // the cycle starts and ends with the umbra
-                                // entirely off the disc and the wrap is silent
-#define GHVR_ECL_EDGE   0.085   // terminator softness, in moon radii — an
-                                // umbra cast through an atmosphere has no edge
-#define GHVR_ECL_FLOOR  0.34    // moonlight left at totality under full Dark.
-                                // NOT 0: a totally eclipsed moon is still there
-                                // and still coppery, and in the cellar the
-                                // moonbeam is the only light in the room.
+#define GHVR_ECL_UMBRA  2.60    // umbra radius in moon radii — the Earth's real
+                                // one at the moon's distance. See THE HELD
+                                // GEOMETRY: a static eclipse has no reason to
+                                // shrink it and every reason not to.
+#define GHVR_ECL_CX     0.862   // the HELD umbra centre, in moon radii, on the
+#define GHVR_ECL_CY    -0.759   // sprite's own (right, up) axes. |c| = 1.148,
+                                // i.e. inside 1.515 with 0.37 R to spare, so
+                                // the disc is wholly umbral and the Danjon ramp
+                                // runs straight across it.
+#define GHVR_ECL_EDGE   0.085   // terminator softness, in moon radii — an umbra
+                                // cast through an atmosphere has no edge. Held
+                                // still it is a CLEARANCE rather than a look:
+                                // the centre above is chosen so no part of it
+                                // reaches the limb.
+#define GHVR_ECL_FLOOR  0.05    // moonlight left under full Dark. See THE FLOOR
+                                // IS 0.05 above for where the number comes from
+                                // and why it is not 0.
 #define GHVR_MOON_SWELL 0.34    // disc radius gain at full Light
 
-/// The umbra's centre at time `t`, in moon-radius units from the disc's centre:
-/// x runs along the track, y is the fixed miss distance.
-float2 GhvrEclipseCentre (float t)
+/// The umbra's centre, in moon-radius units from the disc's centre. A CONSTANT
+/// since MOON HELD — kept as a function, and kept in this header, because
+/// EnvStars paints the shadow from it and GhvrMoonLightAt weighs the room's
+/// light by it: two readers, one number, no chance of the sky and the light
+/// standing at different eclipses.
+float2 GhvrEclipseCentre ()
 {
-    float u = frac(t * (1.0 / GHVR_ECL_PERIOD));
-    return float2((u * 2.0 - 1.0) * GHVR_ECL_TRACK, GHVR_ECL_MISS);
+    return float2(GHVR_ECL_CX, GHVR_ECL_CY);
 }
 
 /// Covered fraction of the disc, 0 (clear) .. 1 (total), from the separation of
@@ -297,6 +367,13 @@ float2 GhvrEclipseCentre (float t)
 /// exact circle-circle lens area: the two curves differ by a few percent in the
 /// middle of the partial phase — far below what an eye can read off a disc 2.8
 /// deg wide — and this is a term every lit pixel in two rooms pays for.
+///
+/// It survives MOON HELD even though its answer is now the constant 1.0 (|c| =
+/// 1.148 is below UMBRA - 1 = 1.60, so the smoothstep clamps to 0 and this
+/// returns exactly 1, which the compiler folds away). Deleting it and writing
+/// the 1 in by hand would be one more place the held centre and the held
+/// coverage could be moved out of step; this way a future round can shift the
+/// centre and BOTH the picture and the light follow it, including off totality.
 float GhvrEclipseCover (float2 c)
 {
     return 1.0 - smoothstep(GHVR_ECL_UMBRA - 1.0, GHVR_ECL_UMBRA + 1.0, length(c));
@@ -311,11 +388,20 @@ float GhvrMoonSize (GhvrElem e)
 
 /// THE CONTRACT (see the block above). `t` is the shared clock; the
 /// GhvrMoonLight() macro below supplies it, and that is the form to call.
+///
+/// `t` IS DELIBERATELY UNUSED SINCE MOON HELD, and the parameter stays anyway.
+/// Three reasons, none of them inertia: the SIGNATURE is what two other lanes
+/// are multiplying into their moon terms this round and it must not move under
+/// them; the macro that supplies it is what forces every caller to have
+/// _GhvrTimeOfs in scope, which is this header's only compile-time proof that a
+/// shader is on the shared epoch; and the day a future round wants the moon to
+/// do anything at all again, the clock is already threaded through every call
+/// site in the bundle. (The compiler drops the argument; it costs nothing.)
 float GhvrMoonLightAt (float t)
 {
     GhvrElem e = GhvrElems();
     if (e.live <= 0.0) return 1.0;
-    float cov = GhvrEclipseCover(GhvrEclipseCentre(t));
+    float cov = GhvrEclipseCover(GhvrEclipseCentre());
     return GhvrMoonSize(e) * (1.0 - cov * e.dark * (1.0 - GHVR_ECL_FLOOR));
 }
 

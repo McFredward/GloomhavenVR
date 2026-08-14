@@ -24,6 +24,11 @@
 // Additive, no depth write, Transparent queue: trunks and canopy occlude the
 // beams correctly (ZTest LEqual against the opaque pass), and additive blending
 // is order-independent so overlapping shafts never sort wrong.
+//
+// ELEMENT ART (ModBuild 144): a shaft is MOONLIGHT and therefore scales with
+// GhvrDirGain(e) * GhvrMoonLight() — see the block at the bottom of frag. Under
+// Dark the shafts go out with the eclipsed moon; under Light they brighten with
+// the swollen one. There is no other element term in this shader, on purpose.
 Shader "GloomhavenVR/EnvShaft"
 {
     Properties
@@ -64,6 +69,7 @@ Shader "GloomhavenVR/EnvShaft"
             #pragma fragment frag
             #pragma target 3.0        // eight dependent texture reads in the frag
             #include "UnityCG.cginc"
+            #include "EnvElement.cginc"
 
             fixed4 _Tint;
             float _Softness, _Shimmer, _ShimmerSpeed;
@@ -309,7 +315,39 @@ Shader "GloomhavenVR/EnvShaft"
                 // wrong, and no existing term is touched. The blade simply stops
                 // being lit air on the stretches where a trunk or a bough stands
                 // between it and the moon.
-                float a = across * along * sh * facing * _Tint.a * i.col.a * CsVisible(i.cs);
+                // ================================ ELEMENT ART ================
+                // THE SHAFTS ARE MOONLIGHT, so they follow the moon and nothing
+                // else. USER VERDICT, ModBuild 143: "Licht und Dunkelheit
+                // beeinflussen zwar den Mond aber nicht die Lichtverhältnisse in
+                // der Lichtung. Bei Dunkelheit soll auch entsprechend die
+                // Lichtung dunkler werden, also der angeleuchtete Boden und DIE
+                // LICHTSTRAHLEN VERSCHWINDEN. Bei Helligkeit sollten diese Dinge
+                // intensiver werden."
+                //
+                // ONE MULTIPLY, and it is the contract's own call-site form:
+                //     GhvrDirGain(e) * GhvrMoonLight()
+                // — exactly what EnvGround puts on the lit floor these shafts
+                // land on, so the blades and the pools they make cannot move
+                // apart. That is the whole design: the player is meant to read
+                // ONE cause (the moon has been covered / has swelled), not two
+                // effects, and two shaders sharing one expression is the only
+                // way to guarantee it without a uniform between them.
+                //
+                //   full Light  1.90 * 1.34 = 2.55x — the wood is moonlit
+                //   full Dark   0.55 * 0.05 = 0.0275 — under one 8-bit step over
+                //               everything in this room, i.e. GONE. "Verschwinden"
+                //               is a strong word and 0.34 could not honour it;
+                //               the floor moved for this (EnvElement.cginc).
+                //
+                // The branch is for COST, not for correctness: both functions
+                // return exactly 1.0 with nothing up, so the zero state is
+                // bit-identical either way, and this way an inert room pays one
+                // uniform compare instead of eight ALU per shaft pixel.
+                float moon = 1.0;
+                GhvrElem e = GhvrElems();
+                if (e.live > 0.0) moon = GhvrDirGain(e) * GhvrMoonLight();
+
+                float a = across * along * sh * facing * _Tint.a * i.col.a * CsVisible(i.cs) * moon;
                 return fixed4(_Tint.rgb * a, 1.0);   // col.rgb is data, see header
             }
             ENDCG

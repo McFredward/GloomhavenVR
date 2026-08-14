@@ -115,24 +115,28 @@ namespace GloomhavenVR
         // MIRRORS EnvElement.cginc's GHVR_ECL_* / GHVR_MOON_SWELL. These live in
         // the shader because GhvrMoonLight() must be callable from any room
         // shader without a uniform to set (that is the contract); the copies
-        // here exist only so the bake LOG can state the eclipse's timing and
+        // here exist only so the bake LOG can state the eclipse's geometry and
         // size, which is the only way to check them without opening Unity.
         // CHANGE ONE, CHANGE BOTH — the log below prints the numbers it derives,
         // so a disagreement shows up as a log that does not match the picture.
-        public const float EclipsePeriod = 30f;   // s, one full transit
-        private const float EclipseUmbra = 1.35f; // umbra radius, in moon radii
-        private const float EclipseMiss = 0.18f;  // perpendicular miss distance
-        private const float EclipseTrack = 2.47f; // half-track, in moon radii
-        private const float EclipseFloor = 0.34f; // moonlight left at totality
-        private const float MoonSwell = 0.34f;    // disc radius gain at full Light
+        //
+        // MOON HELD (ModBuild 144). EclipsePeriod, EclipseMiss and EclipseTrack
+        // are DELETED with the transit they described. The user kept the blood
+        // moon and threw out the crossing, so there is no period to state, no
+        // contact times to solve for and no divisibility against the sky's own
+        // 2880 s wrap to check: the shadow is where it is, and Dark's own ramp
+        // is the only thing that changes.
+        private const float EclipseUmbra = 2.60f;  // umbra radius, in moon radii
+        private const float EclipseCx = 0.862f;    // the HELD umbra centre,
+        private const float EclipseCy = -0.759f;   // in moon radii
+        private const float EclipseFloor = 0.05f;  // moonlight left under full Dark
+        private const float MoonSwell = 0.34f;     // disc radius gain at full Light
 
-        /// <summary>The C# mirror of EnvElement.cginc's GhvrMoonLight(), for the bake log.</summary>
-        private static float MoonLightAt(float t, float light, float dark)
+        /// <summary>The C# mirror of EnvElement.cginc's GhvrMoonLight(), for the bake log.
+        /// No time argument any more — see MOON HELD above.</summary>
+        private static float MoonLightAt(float light, float dark)
         {
-            float u = t / EclipsePeriod;
-            u -= Mathf.Floor(u);
-            float x = (u * 2f - 1f) * EclipseTrack;
-            float d = Mathf.Sqrt(x * x + EclipseMiss * EclipseMiss);
+            float d = Mathf.Sqrt(EclipseCx * EclipseCx + EclipseCy * EclipseCy);
             // HLSL smoothstep(edge0, edge1, x) written out — Mathf.SmoothStep is
             // a different function (it interpolates BETWEEN its first two
             // arguments), and using it here would quietly mis-state the log.
@@ -141,54 +145,63 @@ namespace GloomhavenVR
             return (1f + MoonSwell * light) * (1f - cov * dark * (1f - EclipseFloor));
         }
 
-        /// <summary>The eclipse and the swell, in numbers, in the bake log. This is the
-        /// only way to check the event's TIMING and SIZE without opening Unity: a still
-        /// preview shows the shadow somewhere on the disc but cannot show how fast it
-        /// got there, and nothing in the bundle carries the schedule at runtime.</summary>
+        /// <summary>The held eclipse and the swell, in numbers, in the bake log. A still
+        /// preview shows the shadow ON the disc but cannot show that it is wholly inside
+        /// the umbra, that the terminator clears the limb, or how far the room's light
+        /// has actually fallen — and nothing in the bundle carries any of it at runtime.
+        ///
+        /// <para>The two CLEARANCES below are the acceptance test for the composition and
+        /// the reason they are computed rather than asserted: move the centre and this
+        /// log says immediately whether the disc is still wholly umbral. A negative
+        /// number here is a terminator frozen across the moon's face.</para></summary>
         private static void LogMoonPhase()
         {
             float discDeg = MoonDiscRad * Mathf.Rad2Deg;
-            float speed = 2f * EclipseTrack / EclipsePeriod;         // moon radii per second
-            // contacts: the centres are (U+1) apart at first/last contact and
-            // (U-1) apart at the edges of totality, and the track is offset by
-            // the miss distance, so each contact is a right triangle away.
-            float xFirst = Mathf.Sqrt(Mathf.Max((EclipseUmbra + 1f) * (EclipseUmbra + 1f)
-                                                - EclipseMiss * EclipseMiss, 0f));
-            float totArg = (EclipseUmbra - 1f) * (EclipseUmbra - 1f) - EclipseMiss * EclipseMiss;
-            float tFirst = (EclipseTrack - xFirst) / speed;
-            string totality = totArg <= 0f
-                ? "none (the umbra never covers the whole disc — partial phases only)"
-                : $"{(EclipseTrack - Mathf.Sqrt(totArg)) / speed:F2}..{EclipsePeriod - (EclipseTrack - Mathf.Sqrt(totArg)) / speed:F2} s "
-                  + $"({2f * Mathf.Sqrt(totArg) / speed:F2} s)";
-
-            var tbl = new System.Text.StringBuilder();
-            for (int k = 0; k < 8; k++)
+            float off = Mathf.Sqrt(EclipseCx * EclipseCx + EclipseCy * EclipseCy);
+            const float eclEdge = 0.085f;                  // GHVR_ECL_EDGE
+            float covClear = (EclipseUmbra - 1f) - off;             // >= 0 => coverage is 1
+            float termClear = (EclipseUmbra - 1f - eclEdge) - off;  // >= 0 => no terminator
+            // the Danjon ramp across the face: how far the nearest and the farthest
+            // point of the disc lie from the shadow's core, in umbra radii
+            float ddNear = Mathf.Abs(off - 1f), ddFar = off + 1f;
+            float CoreAt(float dd)
             {
-                float t = k * EclipsePeriod / 8f;
-                tbl.Append($" t={t:F2}s {MoonLightAt(t, 0f, 1f):F3}");
+                float s = Mathf.Clamp01(dd / EclipseUmbra);
+                return 1f - s * s * (3f - 2f * s);
             }
+            // the covered fraction the LIGHT is driven by — GhvrEclipseCover, written out
+            float cs = Mathf.Clamp01((off - (EclipseUmbra - 1f)) * 0.5f);
+            float cover = 1f - cs * cs * (3f - 2f * cs);
 
-            Debug.Log("[GloomhavenVR][Env] Moon eclipse (Dark) — these MIRROR EnvElement.cginc's "
-                      + "GHVR_ECL_* constants; if they disagree, the shader wins and this log is a lie.\n"
-                      + $"   period {EclipsePeriod:F1} s (sky wrap 2880 s = {2880f / EclipsePeriod:F1} periods exactly, "
-                      + "so the wrapped and the raw shared clock give the same phase)\n"
-                      + $"   umbra {EclipseUmbra:F2} moon radii = {EclipseUmbra * discDeg:F2} deg, "
-                      + $"miss {EclipseMiss:F2} R, track +-{EclipseTrack:F2} R\n"
-                      + $"   shadow speed {speed:F3} R/s = {speed * discDeg:F3} deg/s "
-                      + $"(it crosses the disc's own diameter in {2f / speed:F1} s)\n"
-                      + $"   first contact t={tFirst:F2} s, totality {totality}, "
-                      + $"last contact t={EclipsePeriod - tFirst:F2} s, "
-                      + $"disc entirely clear for {2f * tFirst:F2} s per cycle\n"
-                      + $"   GhvrMoonLight() at full Dark:{tbl} (floor {EclipseFloor:F2})");
+            Debug.Log("[GloomhavenVR][Env] Moon eclipse (Dark), HELD — these MIRROR "
+                      + "EnvElement.cginc's GHVR_ECL_* constants; if they disagree, the shader "
+                      + "wins and this log is a lie.\n"
+                      + "   STATIC: no period, no transit, no phase. The umbra sits at one place "
+                      + "and Dark's own ramp fades the blood moon in and out (user, ModBuild 143: "
+                      + "\"lass einen Blutmond statisch solange das aktiv ist\").\n"
+                      + $"   umbra {EclipseUmbra:F2} moon radii = {EclipseUmbra * discDeg:F2} deg "
+                      + $"(the Earth's real shadow at the moon's distance)\n"
+                      + $"   held centre ({EclipseCx:F3},{EclipseCy:F3}) R, offset {off:F3} R\n"
+                      + $"   coverage {cover:F3}"
+                      + $"{(covClear >= 0f ? " TOTAL" : " PARTIAL — THE DISC IS NOT WHOLLY COVERED")}, "
+                      + $"clearance {covClear:F3} R; terminator clearance {termClear:F3} R"
+                      + $"{(termClear >= 0f ? " (the soft edge never touches the limb)" : " *** THE TERMINATOR IS ON THE DISC ***")}\n"
+                      + $"   Danjon ramp across the face: near limb {ddNear:F2} R from the core "
+                      + $"(core weight {CoreAt(ddNear):F2}, grey-brown) -> far limb {ddFar:F2} R "
+                      + $"(core weight {CoreAt(ddFar):F2}, bright copper)\n"
+                      + $"   GhvrMoonLight() at full Dark {MoonLightAt(0f, 1f):F3} "
+                      + $"(floor {EclipseFloor:F2}); x GhvrDirGain's 0.55 a room sees "
+                      + $"{MoonLightAt(0f, 1f) * 0.55f:F4} of the authored moonlight — the shafts "
+                      + "and the beam go out and the candles are what is left.");
             Debug.Log($"[GloomhavenVR][Env] Moon swell (Light): radius x{1f + MoonSwell:F2} — disc "
                       + $"{discDeg:F2} -> {Mathf.Atan(2f * MoonSpriteDiscR * MoonExtent * (1f + MoonSwell)) * Mathf.Rad2Deg:F2} deg, "
                       + $"star cull {Mathf.Acos(Mathf.Cos(MoonDiscRad * 1.04f)) * Mathf.Rad2Deg:F2} -> "
                       + $"{Mathf.Acos(1f - (1f - Mathf.Cos(MoonDiscRad * 1.04f)) * (1f + MoonSwell) * (1f + MoonSwell)) * Mathf.Rad2Deg:F2} deg. "
-                      + $"GhvrMoonLight() {MoonLightAt(0f, 1f, 0f):F3}; with GhvrDirGain's 1.90 a room sees "
-                      + $"{MoonLightAt(0f, 1f, 0f) * 1.90f:F2}x the authored moonlight, and the sprite itself "
+                      + $"GhvrMoonLight() {MoonLightAt(1f, 0f):F3}; with GhvrDirGain's 1.90 a room sees "
+                      + $"{MoonLightAt(1f, 0f) * 1.90f:F2}x the authored moonlight, and the sprite itself "
                       + "is x GhvrSrcGain = 2.10 on top of that.\n"
-                      + $"   Light AND Dark at once: GhvrMoonLight() at mid-eclipse "
-                      + $"{MoonLightAt(EclipsePeriod * 0.5f, 1f, 1f):F3} — a swollen moon still gets eaten.");
+                      + $"   Light AND Dark at once: GhvrMoonLight() {MoonLightAt(1f, 1f):F3} "
+                      + "— a swollen moon still gets eaten.");
         }
 
         // ------------------------------------------------------------ star sky
@@ -358,6 +371,9 @@ namespace GloomhavenVR
             WritePng(TexDir + "/Env_Spark.png", MakeSpark(64), 64, 64, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Glow.png", MakeGlow(128), 128, 128, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Streak.png", MakeStreak(256, 64), 256, 64, sRGB: true, clamp: true);
+            // THE DRAUGHT'S CARRIED MATTER. See MakeWisp for why the cellar's
+            // wind could not go on using Env_Spark.
+            WritePng(TexDir + "/Env_Wisp.png", MakeWisp(256, 32), 256, 32, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_FogPuff.png", MakeFogPuff(256), 256, 256, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Moon.png", MakeMoon(512), 512, 512, sRGB: true, clamp: true);
             // The ORB WEB itself is no longer drawn here — it is a real CC0
@@ -464,6 +480,21 @@ namespace GloomhavenVR
         /// <summary>Tile indices in Env_Haunt.png. EnvHaunt.shader is handed one
         /// of these per card in TEXCOORD1.w, and BuildEnvironmentRooms names them
         /// in its catalogues — so this is the one place the numbering lives.</summary>
+        // HAUNT SOLID, ModBuild 144 — ONLY HTileHands IS STILL DRAWN. The user's
+        // verdict ("generell keine 2D Pappaufsteller") moved every apparition onto
+        // real geometry (haunt_figures_pipeline.py, EnvHaunt.shader), and a
+        // CPU-rendered likeness on a quad is exactly the thing that had to go. What
+        // survives is the one card that is honestly flat: a HANDPRINT is
+        // two-dimensional, it lies IN the wall's own plane, and its parallax there
+        // is correct.
+        //
+        // THE OTHER NINE TILES ARE STILL BAKED, and that is a decision rather than
+        // an oversight. They cost ~1 MiB of a mostly-transparent PNG, the code that
+        // draws them is the only CPU renderer in this project and took a whole
+        // round to get right, and the geometry that replaced them has to survive a
+        // hardware test first. If ModBuild 144 comes back clean, the eight unused
+        // generators below and their tile constants are the next thing to delete —
+        // and this comment is the note that says so.
         public const int HTileFaceCellar = 0;   // gaunt head, lit from below by a candle
         public const int HTileFaceForest = 1;   // the same species of head, moon-rimmed
         public const int HTileBust = 2;         // head and shoulders filling an opening
@@ -1434,6 +1465,66 @@ namespace GloomhavenVR
             return px;
         }
 
+        /// <summary>THE DRAUGHT'S CARRIED MATTER — a soft, irregular filament.
+        ///
+        /// <para>USER VERDICT, ModBuild 143 (verbatim): "Bei der Luft finde ich die
+        /// Idee gut, dass es aus dem Fenster kommt, sollte aber auch wirklich mehr
+        /// wie Wind wirken, aktuell diese Pünktchen erinnern eher an weiße Funken,
+        /// das ist nicht immersiv oder realistisch."</para>
+        ///
+        /// <para>He is describing Env_Spark, and he is right about it. That sprite
+        /// is a tight gaussian CORE with a soft skirt — a point of light. Stretched
+        /// along a 1.3 m/s velocity it elongates by about eight centimetres, which
+        /// at four metres is under a sprite width: it stays a dot, it stays bright
+        /// in the middle, and a bright dot on black in a dark room is a spark. No
+        /// amount of tinting or dimming fixes that, because what reads as "spark"
+        /// is the CONCENTRATION, not the colour.</para>
+        ///
+        /// <para>So this is the opposite sprite by construction. There is no core:
+        /// the profile along the filament is a broad, flat-topped hump with the
+        /// peak alpha barely over half, torn by two octaves of noise so no two
+        /// motes are the same shape, and it tapers to nothing at BOTH ends. It is
+        /// four times as long as it is wide before the renderer stretches it at
+        /// all, so a mote in the cellar's draught is a 20-40 cm hair of dust
+        /// rather than a point — extent and irregularity, which is what the eye
+        /// separates carried matter from sparks by.</para>
+        ///
+        /// <para>SYMMETRIC ABOUT v = 0.5, exactly as MakeStreak is and for the same
+        /// reason: in Stretch render mode the sprite may roll about its own
+        /// velocity axis, and a filament that is symmetric about that axis cannot
+        /// show the roll. (It is deliberately NOT symmetric along u — a real mote
+        /// is lopsided — but u-asymmetry is invisible under roll.)</para></summary>
+        private static Color[] MakeWisp(int w, int h)
+        {
+            var px = new Color[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    float u = (x + 0.5f) / w, v = (y + 0.5f) / h;
+                    float sy = (v - 0.5f) * 2f;                       // -1..1
+                    // ALONG the filament: a wide flat hump, not a head. The
+                    // exponent 0.55 on the sine is what flattens the top — a
+                    // plain sin would peak in the middle and read as a bead.
+                    float along = Mathf.Pow(Mathf.Max(Mathf.Sin(u * Mathf.PI), 0f), 0.55f);
+                    // ...torn: two octaves of noise on the length, so the mote is
+                    // uneven and no two are alike (the noise is seeded, so every
+                    // client bakes the same sprite).
+                    float tear = 0.62f + 0.38f * Noise3(u * 6.5f, 1.7f, 0.4f, 4471)
+                                       + 0.22f * (Noise3(u * 17f, 5.1f, 2.3f, 4472) - 0.5f);
+                    along *= Mathf.Clamp01(tear);
+                    // ACROSS it: soft, and it THINS toward the ends, so the thing
+                    // has a shape instead of being a bar with rounded caps.
+                    float wdt = Mathf.Lerp(0.34f, 1.0f, along);
+                    float across = Mathf.Exp(-(sy * sy) / (wdt * wdt));
+                    // 0.55 peak, not 1.0: this is dust seen by a moonbeam, and it
+                    // is meant to be at the edge of legibility. The emitter's own
+                    // start colour dims it further.
+                    float a = 0.55f * along * across;
+                    px[y * w + x] = new Color(1, 1, 1, Mathf.Clamp01(a));
+                }
+            return px;
+        }
+
         private static Color[] MakeFogPuff(int n)
         {
             // wispy marsh-mist puff: domain-warped fBM inside a soft round falloff —
@@ -1979,9 +2070,25 @@ namespace GloomhavenVR
             sift.SetColor("_Tint", new Color(0.72f, 0.63f, 0.50f, 1f));
             ElemFX(sift, own: new Vector4(0f, 0f, 0f, 1f));
 
+            // THE CELLAR'S DRAUGHT — rebuilt after the ModBuild 143 verdict
+            // ("aktuell diese Pünktchen erinnern eher an weiße Funken"). Three
+            // changes, and all three are about the same thing, which is that a
+            // bright concentrated dot is a spark whatever colour it is:
+            //   * Env_Wisp, not Env_Spark: a torn filament with no core, four
+            //     times as long as it is wide before the stretch (see MakeWisp);
+            //   * the tint goes from 0.80/0.74/0.62 — a warm near-white, i.e. the
+            //     colour of an ember — to a cold, dark grey-blue at 0.42 of the
+            //     brightness. Dust in a moonbeam is not white, it is the moon's
+            //     own colour at a fraction of its intensity;
+            //   * and it stays ALPHA-blended, which for once matters: an additive
+            //     mote can only ever add light, so it always reads as glowing.
+            //     Carried dust OCCLUDES as much as it scatters.
+            // The emitters that use it (EnvRoomBuilder.AddElementFX and
+            // AddCellarDraught) carry the other half: many more, much longer,
+            // much slower to line up, and tumbling.
             var draught = LoadOrNewMat(MatDir + "/FX_ElemDraught.mat", "GloomhavenVR/EnvParticleAlpha");
-            draught.SetTexture("_MainTex", T("Env_Spark.png"));   // see FX_ElemGust
-            draught.SetColor("_Tint", new Color(0.80f, 0.74f, 0.62f, 1f));
+            draught.SetTexture("_MainTex", T("Env_Wisp.png"));
+            draught.SetColor("_Tint", new Color(0.46f, 0.52f, 0.62f, 1f));
             ElemFX(draught, own: new Vector4(0f, 0f, 1f, 0f));
 
             // warm torch halo — used by the cellar shell's inactive GlowTemplate

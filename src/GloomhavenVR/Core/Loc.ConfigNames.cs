@@ -356,6 +356,8 @@ internal static partial class Loc
             ["Elements/ResponseStrength"] = Pair("Element effect strength", "Stärke der Elementwirkung"),
             ["Haunt/EasterEggs"] = Pair("Creepy easter eggs", "Grusel-Easter-Eggs"),
             ["Haunt/Frequency"] = Pair("Easter egg frequency", "Häufigkeit der Easter-Eggs"),
+            ["EnvSound/Enabled"] = Pair("Environment sounds", "Umgebungsgeräusche"),
+            ["EnvSound/Gain"] = Pair("Environment volume", "Lautstärke der Umgebung"),
 
             // ---- [WallFade] — see-through wall tuning ---------------------------------------
             ["WallFade/OnFraction"] = Pair("Fade at coverage", "Ausblenden ab Deckung"),

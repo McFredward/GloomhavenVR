@@ -841,6 +841,22 @@ internal static class SkyAlternative
         EnsureEnvironment(style, anchor);
         TickEnvClock(); // the shared-clock walk — one float compare once settled (EnvClockSeconds)
 
+        // ENV SOUND — the environment HEARD. Ticked here, after TickEnvClock, and the order matters:
+        // every sound it schedules (the drip landing, the rat crossing, an apparition's cue) is a
+        // function of EnvClockSeconds, so it must run on the clock value for THIS frame rather than
+        // the last one, or every cue would be systematically one frame stale.
+        //
+        // The four arguments are the four things it needs and NONE of them has an accessor, which is
+        // deliberate: the branch roots are private with no getter (see ElementMood's class doc on why
+        // that is a design fact rather than an oversight), so handing them in keeps the encapsulation
+        // intact instead of opening the environment up to the whole mod. The room is passed only once
+        // it is PLACED — before that it is hidden at an unresolved pose, and a spatialised sound at an
+        // unresolved pose would come from the wrong corner of the room.
+        //
+        // Like the haunt above and unlike the element mood, this is attached to GEOMETRY: it is only
+        // reached on the MR-OFF branch, which is exactly the gating it wants.
+        EnvSound.Tick(_roomPlaced ? _roomGo : null, style, anchor.lossyScale.x);
+
         if (!_active || !_loggedActive)
         {
             _active = true;
@@ -878,6 +894,13 @@ internal static class SkyAlternative
         // room that is being torn down, and the standing MR ruling is that the mod puts no
         // occluding surface over passthrough. A mood is a number; a face is not.
         Haunt.StandDown("the environment stood down (mixed reality, or the style changed)");
+
+        // ENV SOUND GOES DOWN HERE TOO, for exactly the haunt's reason and not the mood's: its
+        // sources are components ON the room's nodes, and with the room gone there is nothing left
+        // for a sound to come from. An ambience playing over passthrough with no visible source
+        // would also be precisely the disembodied stereo bed the user ruled out when he asked for
+        // sounds that are "verortbar von seinen entsprechenden Quellen".
+        EnvSound.StandDown("the environment stood down (mixed reality, or the style changed)");
         Deactivate();
     }
 
@@ -888,6 +911,11 @@ internal static class SkyAlternative
         // Same reason as StandDown: a teardown must leave nothing standing in a shader global.
         ElementMood.StandDown("the environment was torn down (VR stopped, or the rig was destroyed)");
         Haunt.StandDown("the environment was torn down (VR stopped, or the rig was destroyed)");
+        // ReleaseAll, not StandDown: this is the FULL teardown, so the synthesized clips go too.
+        // An ordinary stand-down keeps them (a clip nobody plays is inert, and re-synthesizing ~2 MB
+        // of noise on every mixed-reality toggle would be pure waste) — but a rig that is gone must
+        // leave nothing at all behind, audio buffers included.
+        EnvSound.ReleaseAll("the environment was torn down (VR stopped, or the rig was destroyed)");
         Deactivate();
         _missingWarned = false;
         _scanNextFrame = 0;

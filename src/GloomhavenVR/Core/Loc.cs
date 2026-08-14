@@ -583,6 +583,13 @@ internal static partial class Loc
         ["h_vr_o_haunt"] = Pair("Rare, quiet apparitions in the cellar and the night forest: a pale face behind a tree, eyes that blink once, something at the window while the moonlight dims. No sound, never over the board, never two at once — and every player sees the same one in the same place at the same moment.", "Seltene, leise Erscheinungen im Keller und im Nachtwald: eine bleiche Fratze hinter einem Baum, Augen, die einmal blinzeln, etwas am Fenster, während der Mondschein schwächer wird. Kein Ton, nie über dem Brett, nie zwei gleichzeitig — und alle Spieler sehen dieselbe an derselben Stelle im selben Moment."),
         ["vr_o_haunt_freq"] = Pair("Easter egg frequency", "Häufigkeit der Easter-Eggs"),
         ["h_vr_o_haunt_freq"] = Pair("How often they happen. 0.5 is about one every three minutes, 1 shows every one there is. Lower only means you see fewer of the same events — never different ones, so it stays in step with the other players.", "Wie oft sie auftreten. 0,5 ist etwa eines alle drei Minuten, 1 zeigt alle. Kleiner heißt nur, dass du weniger derselben Ereignisse siehst — nie andere, es bleibt also mit den Mitspielern im Gleichklang."),
+        // Grafik ▸ Darstellung: the environment HEARD (ENV SOUND, Core/EnvSound.cs). The hint says
+        // what the player will HEAR and where from, and it names the easter eggs explicitly —
+        // because this one toggle also governs their cues and there is no second switch to find.
+        ["vr_o_envsound"] = Pair("Environment sounds", "Umgebungsgeräusche"),
+        ["h_vr_o_envsound"] = Pair("The surroundings get sound, placed where it comes from: the drip into its puddle, the candles, the draught at the window, the rat as it crosses, the night in the swamp — and a quiet cue for the creepy easter eggs. Deliberately quiet, and it steps aside automatically whenever the game itself makes a sound. Off with mixed reality, and only inside a scenario.", "Die Umgebung bekommt Klang, und zwar genau dort, wo er herkommt: der Tropfen in seine Pfütze, die Kerzen, der Luftzug am Fenster, die Ratte, wenn sie vorbeihuscht, die Nacht im Sumpf — und ein leiser Hinweis auf die Grusel-Easter-Eggs. Bewusst leise, und tritt automatisch zurück, sobald das Spiel selbst einen Ton macht. Bei Mixed Reality aus, und nur im Szenario."),
+        ["vr_o_envsound_amt"] = Pair("Environment volume", "Lautstärke der Umgebung"),
+        ["h_vr_o_envsound_amt"] = Pair("How loud the surroundings are. 1 is as designed and already quiet, lower is subtler, 0 is the same as switching it off. The maximum stays well below the game's own sounds on purpose. Your master and effects volumes from the game's audio options apply on top.", "Wie laut die Umgebung ist. 1 ist wie vorgesehen und bereits leise, kleiner ist dezenter, 0 entspricht dem Ausschalten. Das Maximum bleibt bewusst deutlich unter den Tönen des Spiels. Deine Gesamt- und Effektlautstärke aus den Audio-Optionen des Spiels wirken zusätzlich."),
         // ---- Erweitert ▸ Test-Auslöser (user request, hardware ModBuild 141: "ich brauche zum
         // Testen im Erweitert Menu die möglichkeit die Elemente und Easter eggs einzeln auf
         // Knopfdruck auslösen zu können"). EVERY line here has to read as a TEST AID rather than as
@@ -1225,6 +1232,10 @@ internal static partial class Loc
         // a brand-new cfg section needs a heading or the generic browser prints the raw English
         // section word in a German menu.
         ["cfg_sec_haunt"] = Pair("Creepy easter eggs", "Grusel-Easter-Eggs"),
+        // [EnvSound] — the environment heard (ENV SOUND, Core/EnvSound.cs). Same reason as the two
+        // lines above: a brand-new cfg section needs a heading or the generic browser prints the raw
+        // English section word in a German menu.
+        ["cfg_sec_envsound"] = Pair("Environment sounds", "Umgebungsgeräusche"),
 
         // ---- SettingsPanel: Leistung — the VR render trade (2026-07 GPU pass) ----
         // Wording rule for this block, from the user ("super verwirrend für den User"): every

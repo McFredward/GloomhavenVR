@@ -31,11 +31,14 @@
 //      away from its own shafts would be a far worse lie than a moon that hangs
 //      still. It is drawn LAST here, so it covers band and dust; the catalogue
 //      stars behind it are killed in EnvStarPoints (see _MoonCos there).
-//      ModBuild 143: it is also the only thing in this sky that CHANGES on its
-//      own. Under Dark the Earth's umbra crosses it (30 s, coppery, soft-edged)
-//      and under Light it swells; both are painted from EnvElement.cginc's MOON
-//      PHASE helpers, the same ones GhvrMoonLight() hands the rooms, so the
-//      moon you see and the moonlight you stand in can never disagree.
+//      ModBuild 144, MOON HELD: under Dark it is a BLOOD MOON, held — the
+//      Earth's umbra sits over it at one fixed offset and the disc goes copper,
+//      and the only thing that moves is how far Dark is up. (It used to cross
+//      in 30 s; the user liked the blood moon and rejected the crossing.) Under
+//      Light it swells. Both are painted from EnvElement.cginc's MOON PHASE
+//      helpers, the same ones GhvrMoonLight() hands the rooms, so the moon you
+//      see and the moonlight you stand in can never disagree. Nothing in this
+//      sky changes on its own any more except the celestial rotation.
 //
 // Directions are taken in OBJECT space (normalize of the dome vertex), NOT from
 // the camera-relative world vector: the catalogue stars are real geometry in
@@ -366,22 +369,27 @@ Shader "GloomhavenVR/EnvStars"
                             float3 mcol = _MoonCol.rgb * lerp(src, 1.0 + 0.35 * (src - 1.0), inDisc);
                             mcol = lerp(mcol, mcol * float3(0.74, 0.88, 1.22), saturate(e.ice));
 
-                            // ---- THE ECLIPSE ---------------------------------
-                            // `t` is SkyTime(): the SHARED clock, wrapped at
-                            // SKY_PERIOD. That wrap is exactly 96 eclipse
-                            // periods, so this sky and a room shader handing
-                            // GhvrMoonLight() the unwrapped clock stand at the
-                            // same phase — the disc you see and the light you
-                            // stand in are the same instant of the same event.
-                            float2 ec = GhvrEclipseCentre(t);
+                            // ---- THE ECLIPSE, HELD --------------------------
+                            // MOON HELD (ModBuild 144). The umbra does not move
+                            // and there is no phase to be in: the centre is a
+                            // constant in EnvElement.cginc, chosen so the whole
+                            // disc lies inside the shadow with the terminator
+                            // clear of the limb. What is left to animate is the
+                            // element itself — `e.dark` — so the blood moon
+                            // FADES in and out with Dark instead of sliding
+                            // across the sky. That is the user's own ruling:
+                            // "lass ihn statisch ... lass einen Blutmond
+                            // statisch solange das aktiv ist".
+                            //
+                            // `t` no longer enters here at all, and neither does
+                            // the divisibility argument that used to justify
+                            // SkyTime()'s wrap against the transit period. The
+                            // sky and the rooms cannot disagree because there is
+                            // nothing left for them to disagree ABOUT.
+                            float2 ec = GhvrEclipseCentre();
                             float dd = length(q - ec);
                             float umb = (1.0 - smoothstep(GHVR_ECL_UMBRA - GHVR_ECL_EDGE,
                                                           GHVR_ECL_UMBRA + GHVR_ECL_EDGE, dd)) * e.dark;
-                            // the penumbra: a wide, weak grey wash ahead of the
-                            // umbra. It is what makes the shadow read as ARRIVING
-                            // rather than switching on at first contact.
-                            float pen = (1.0 - smoothstep(GHVR_ECL_UMBRA,
-                                                          GHVR_ECL_UMBRA * 1.8, dd)) * e.dark;
                             // Danjon: an eclipsed moon is NOT a flat red disc.
                             // The umbral edge is bright copper and the core is a
                             // much darker grey-brown, and the gradient between
@@ -394,16 +402,37 @@ Shader "GloomhavenVR/EnvStars"
                             // of its luminance, and only then does the colour
                             // read as the little light that bent around an
                             // atmosphere to get there.
+                            //
+                            // HELD, THIS GRADIENT IS THE WHOLE PICTURE. With the
+                            // umbra centred it would be a ring — dark middle,
+                            // bright rim, symmetric — which is a vignette and
+                            // reads as a filter. Off-centre by 1.15 R it is a
+                            // ramp running clean across the face: the lower-right
+                            // limb sits 0.15 R from the shadow's core and goes
+                            // grey-brown, the upper-left limb sits 2.15 R out and
+                            // goes bright copper. Nothing moves and it still has
+                            // a near side and a far side.
                             float core = 1.0 - smoothstep(0.0, GHVR_ECL_UMBRA, dd);
                             float3 umbCol = lerp(float3(0.46, 0.170, 0.085),
                                                  float3(0.155, 0.052, 0.040), core);
                             float3 tint = lerp(float3(1, 1, 1), umbCol, umb);
-                            tint *= 1.0 - 0.18 * pen * (1.0 - umb);
+                            // DELETED WITH THE TRANSIT: the penumbral wash. It
+                            // existed to make the shadow read as ARRIVING rather
+                            // than switching on at first contact, and with the
+                            // umbra held over the whole disc it is a constant 1
+                            // everywhere — i.e. an 18% flat dim during the ramp,
+                            // doing nothing the tint lerp above is not already
+                            // doing better. Arrival is now the element's own
+                            // envelope and belongs to ElementMood, not here.
+                            //
                             // ...and the HALO is scattered moonlight, so it dies
                             // with the disc AS A WHOLE — one global coverage term
                             // outside the limb, not a shadow painted on the glow
                             // (a halo with a bite out of it is a sprite with a
-                            // hole in it, which is the tell of a fake).
+                            // hole in it, which is the tell of a fake). The
+                            // coverage is a constant 1 now, so this is simply
+                            // "the halo goes to 15% at full Dark", on the
+                            // element's ramp.
                             float halo = 1.0 - 0.85 * GhvrEclipseCover(ec) * e.dark;
                             tint = lerp(float3(halo, halo, halo), tint, inDisc);
 

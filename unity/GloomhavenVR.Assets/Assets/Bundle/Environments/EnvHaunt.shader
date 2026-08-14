@@ -1,4 +1,4 @@
-// GloomhavenVR — THE HAUNTS. HAUNT: the creepy easter eggs, drawn.
+// GloomhavenVR — THE HAUNTS. HAUNT: the creepy easter eggs, as SOLIDS.
 //
 // USER REQUEST, 2026-08-14 (verbatim, abridged): "'Grusel-Easter-Eggs' in den
 // Umgebungen. Also grusilige Animationen (ohne sound) die ab und zu auftreten
@@ -6,37 +6,82 @@
 // einen ordnelichen Gruselfaktor auslösen - wie zB eine lächelnde fratze die
 // hinter einem Baum hervorguckt etc. ... sollen niemals den Spielfluss stören
 // ... sollen sie synchron von allen Spielern an den selben Stellen sichtbar
-// sein. Weiterhin sollen sie sich auch mit den aktuellen Elementen nicht im weg
-// stehen oder deswegen ihren gruselfaktor verlieren."
-//
-// USER VERDICT ON THE FIRST BUILD OF IT (hardware, ModBuild 141): "Ich habe nur
-// einmal ein Easter Egg im Keller gesehen, das war so ein lächelndes 2D Gesicht
-// im Schrank - das ist weit entfernt von echtem Horror - das sah eher Lächerlich
-// aus. Die Easter eggs sollen echten Horror verbreiten, kein Kindergeburtstag
-// sein." And: "Prüfe alle Easter eggs auf den horror faktor. Der soll hoch sein!"
+// sein."
 //
 // WHEN anything happens is EnvHaunt.cginc's problem — read that first; this
-// file is only WHAT it looks like. The two halves meet at exactly one place:
-// the vertex shader asks the schedule whether THIS card is this slot's event
-// and how far into it we are.
+// file is only WHAT it looks like.
 //
 // ============================================================================
-// ONE MESH, ONE MATERIAL, ONE DRAW CALL, SIX EVENTS.
+// HAUNT SOLID — THE RULING THIS FILE WAS REWRITTEN FOR.
 //
-// A room's whole catalogue is four vertices per event welded into a single
-// mesh. Every vertex of a card carries the same room-space CENTRE, and the quad
-// is expanded in the vertex shader out of two extent vectors the bake stored in
-// TANGENT (right * halfWidth) and NORMAL (up * halfHeight). A card that is not
-// this slot's event is simply never expanded: all four vertices stay on the
-// centre point, the triangles are degenerate, nothing rasterises. That is the
-// rat's trick (EnvCritter's `vis`), and it is what makes "the feature is off"
-// cost one uniform read and nothing else.
+// USER VERDICT, hardware, ModBuild 143. He says it SEVEN times, so it is quoted
+// at length rather than paraphrased:
+//   forest 6  "Die Fratzenidee hinter Baum ist gut, aber mach keine 2D Fratzen,
+//              das sieht man, dass es 2D ist."
+//   forest 7  "Auch die Beobachter Idee ist gut aber auch ein 2D Pappaufsteller,
+//              lieber wirklich eine Horrorgestalt die einfach da steht."
+//   forest 8  "Genauso das 'etwas huscht herbei' — generell keine 2D
+//              Pappaufsteller."
+//   forest 9  "Dunkle Masse sehe ich gar nichts."
+//   forest 10 "Auch hängender Körper sehe ich nichts, aber auch die Idee hier
+//              ist gut, dass man jemanden/eine Silhouette erkennt von jemandem
+//              der sich erhängt hat an einem Baum."
+//   cellar 7  "Die Fratze sieht man deutlich, dass sie 2D ist, bitte keine 2D
+//              Effekte, lieber einen 3D Kopf und Silhouette die durch Fenster
+//              schaut — gruselig wäre auch wenn sie beim Mondlicht einen
+//              Schatten wirft wenn sie durchs Fenster schaut."
+//   cellar 9  "Gesicht am Boden sehe ich gar nicht."
+//   cellar 10 "Auch die Treppenerscheinung ist offensichtlich 2D."
 //
-// NORMAL IS NOT A SHADING NORMAL HERE and that is deliberate, not lazy: these
-// cards are never lit BY THE SCENE — they carry their own baked lighting, and
-// the two light COLOURS the card mixes it with come from the vertex stream. The
-// channel was free, it is exactly the right size, and using it keeps the vertex
-// layout to what Unity already ships in every mesh.
+// THE PREVIOUS ROUND FIXED THE WRONG HALF. It replaced signed-distance drawing
+// with a CPU-baked likeness atlas, which cured the emoji problem — the faces
+// stopped being pictograms — and left the cardboard problem exactly where it
+// was, because a baked likeness on a quad is still a quad. In stereo the two
+// eyes disagree about a flat card's depth in a way they never disagree about a
+// solid's, and at 8-16 m the player walks around the room and the card does not
+// change. He caught every single one.
+//
+// So the apparitions are MESHES now. A head is a head-shaped mesh; a standing
+// figure is a body; the hanged man is a body with a rope. Leaning changes what
+// you see of them, the trunk and the barrels occlude them honestly, and the
+// thing at the window casts a real shadow because there is a real occluder in
+// the opening. The geometry comes from a CC0 human base mesh, decimated and
+// posed at bake time — see haunt_figures_pipeline.py for the licence, the
+// search that preceded it, and what was rejected.
+//
+// WHAT WAS KEPT FROM THE ATLAS ROUND:
+//   * the SCHEDULE, whole and unchanged (EnvHaunt.cginc);
+//   * the ENVELOPE with its asymmetric fade and its instant vanish;
+//   * the ELEMENT compensation, both directions, and the element flavours;
+//   * the COLLAPSE-TO-A-POINT trick, which is what makes five idle apparitions
+//     cost one uniform read — it now collapses a whole body instead of a quad;
+//   * the ATLAS ITSELF, for the one card that is honestly flat: the handprints
+//     on the wet wall. A print IS two-dimensional, it lies IN the wall plane,
+//     and its parallax is therefore correct. "Keine 2D Pappaufsteller" is about
+//     things that stand up in the air, and a print does not.
+// What went is the quad, the tile-space UV transform, and the micro-motion
+// expressed as a UV shear — all three are now rigid-body motion of real
+// geometry, which is the same effect with a shape behind it.
+// ============================================================================
+//
+// ============================================================================
+// WHY THE LIGHTING IS BAKED INTO THE VERTEX COLOUR, and why that is not a
+// compromise.
+//
+// Each apparition carries its own key light — the moon for the wood, the
+// candle it is nearest for the cellar — and diffuse shading N·L is
+// VIEW-INDEPENDENT, so evaluating it per vertex at bake time is not an
+// approximation of evaluating it per fragment, it is the same number. The
+// builder knows every apparition's position and its key direction, so it
+// computes key·N + a hemispherical fill per vertex and writes it into COLOR.
+// What the fragment then does is what actually has to be live: the envelope,
+// the element compensation and the rim.
+//
+// The one thing this gives up is that an apparition's baked light TURNS WITH IT
+// when it rotates. The largest rotation in either catalogue is the hanged
+// body's slow turn; at 9 m, in a wood whose ambient is 0.024, nobody can see
+// that the moon turned twenty degrees with the corpse. It is written down
+// because the next person to add a spinning apparition needs to know the limit.
 // ============================================================================
 //
 // ============================================================================
@@ -46,167 +91,123 @@
 // zu einem gerichtet. ... versichere dich das er nicht dieses Verhlaten hat."
 // Nothing in this mod may re-orient with the head.
 //
-// A face that looks AT you is the one thing that most wants to be a billboard,
-// and a billboard is exactly what is forbidden — it would also break stereo,
-// because a camera-facing quad is at a different angle in each eye. So the
-// cards do not face the camera. They face the BOARD / ROOM CENTRE, which is
-// world-fixed, is baked once, and is within a metre or so of where the player's
-// head actually is. A card facing the board is legal; a card facing the head is
-// not. GREP TEST FOR A REVIEWER: there is no _WorldSpaceCameraPos, no
-// UNITY_MATRIX_V, no unity_CameraToWorld and no ComputeScreenPos anywhere below
-// this line. The picture is a pure function of (room-space position, shared
-// clock, element board) — identical in both eyes, and identical on every client.
+// With solids this stops being a temptation as well as a rule: a mesh does not
+// need to face anybody. GREP TEST FOR A REVIEWER: there is no
+// _WorldSpaceCameraPos, no UNITY_MATRIX_V, no unity_CameraToWorld, no
+// ObjSpaceViewDir and no ComputeScreenPos anywhere below this line in the
+// apparition path. The picture is a pure function of (room-space geometry,
+// shared clock, element board) — identical in both eyes and on every client.
+// Even the RIM, which is a view-dependent quantity in every other shader in
+// this bundle, is baked here against the direction of the ROOM CENTRE instead
+// of the camera, for exactly that reason.
 // ============================================================================
 //
 // ============================================================================
-// WHY THE APPARITIONS ARE SAMPLED AND NO LONGER DRAWN.
+// THE KINDS. One material, one mesh, one draw call per room.
+//   0 SOLID  — a placed body or head. It may slide out from behind a real edge
+//              along `move`, and rotate once about `rotAxis` through a pivot on
+//              its own vertical (a lean, a head tilt, a slow turn), plus a
+//              damped sway on the same axis.
+//   1 DECAL  — a flat mark lying IN a real surface: the handprints (atlas) and
+//              the shadow the thing at the window throws on the floor (no
+//              texture; its softness is per-vertex alpha).
+//   2 CROSS  — a solid that travels the whole span of `move` across the event.
+//   3 NONE   — never emitted; the card exists only to occupy a schedule slot
+//              for an event another shader draws (the cobwebs' tremble).
+//   5 EYES   — a solid with a blink: two eyeshines that do not close together.
 //
-// THIS FILE USED TO BUILD THEM OUT OF SIGNED-DISTANCE PRIMITIVES, on the
-// argument that SDFs are crisp at any distance, cost no memory and can MORPH (a
-// grin that widens while it watches). All three claims are true. The pictures
-// were still cartoons, and the user's verdict above is the proof: the cellar's
-// "grinning face" rendered as a flat uniform white oval with two round dots and
-// a symmetric smile arc — an emoji, at furniture height, on a candle-lit wall,
-// as the brightest object in the frame. The crouching thing rendered as two
-// glowing blobs; the forest's watcher as a chess pawn; the handprints as three
-// copies of the waving-hand emoji.
-//
-// The failure is structural, not a matter of tuning. A handful of SDF
-// primitives can only produce A SILHOUETTE WITH FEATURES DRAWN ON IT, and a
-// silhouette with features drawn on it IS the grammar of a pictogram. What
-// makes a face in the dark frightening is not its outline: it is VALUE. Most of
-// it must be indistinguishable from the dark, with a cheekbone, a jaw edge and
-// one wet gleam coming out of it. Value needs shading; shading needs a modelled
-// surface with cast shadows and cavity occlusion; and none of that fits in a
-// fragment program that also has to run six of these.
-//
-// So the likenesses are RENDERED ON THE CPU AT BAKE TIME
-// (BuildEnvironments.MakeHauntAtlas) — a real depth field, a grazing key light,
-// a 40-tap heightfield shadow march, cavity occlusion, noise-broken skin,
-// chewed outlines, hair. What this shader kept is everything that has to be
-// live: the schedule, the envelope, the element compensation, the occlusion
-// against real geometry, and the MICRO-MOTION. The one thing given up is the
-// morph — and losing it is a gain, because a widening grin is precisely the
-// cartoon element the user rejected. A slow head TILT, a damped sway and a
-// per-eye blink replaced it, and all three are UV transforms.
-//
-// THE ATLAS FORMAT (Env_Haunt.png, 1024x1024, 4x4 cells of 256, uncompressed):
-//   R = KEY value    what the room's key light puts on the surface
-//   G = RIM band     1 on the outline, falling inward — the element compensation
-//   B = FILL value   a second, opposing light
-//   A = COVERAGE     the occlusion; a dark apparition is A ~ 1, R,B ~ 0, i.e. a
-//                    HOLE in the scene. That is why the blend is ordinary alpha
-//                    and not additive: half this catalogue is DARKER than what
-//                    is behind it, and additive cannot darken.
+//   4 PROP   — THE ODD ONE, and it is on the OPAQUE material. See below.
 // ============================================================================
 //
 // ============================================================================
-// THE KINDS. There are now four, not eight — the variety moved into the atlas,
-// where it can be LOOKED AT. WHERE each apparition is placed, and which tile it
-// uses, is in BuildEnvironmentRooms's two catalogues, next to the coordinates.
-//   0 TILE  — one apparition, sampled, optionally sliding out from behind a real
-//             edge, with a slow tilt or a damped sway.
-//   1 EYES  — the eye tile placed TWICE, at two sizes, two heights and two blink
-//             times. Nothing about the pair matches.
-//   2 CROSS — a tile that crosses the card, optionally smeared along its travel.
-//   3 NONE  — draws nothing. The card exists only to OCCUPY a schedule slot for
-//             an event that happens in another shader (the cobwebs shivering as
-//             if something large had just passed behind them). Being a real card
-//             is what puts it under the same "never twice running" and "never
-//             two at once" rules as the visible events.
-// ============================================================================
+// KIND 4, THE PROP — why a bookshelf is compiled into an apparition shader.
 //
-// ============================================================================
-// THE ELEMENTS — "sollen sich mit den aktuellen Elementen nicht im weg stehen
-// oder deswegen ihren gruselfaktor verlieren."
+// USER, cellar 11: "Genauso wie beim Bücherregal. Statt da auch ne Fratze zu
+// machen: Wie wär es wenn das Bücherregal umkippt, und sich dann nach ner Zeit
+// wieder von selbst aufstellt."
 //
-// SEPARATE CHANNELS, so they cannot fight: the elements own COLOUR CAST and
-// particles, the haunt owns SILHOUETTE and brief motion. Then, rather than
-// merely not-breaking, each element FLAVOURS it — and the two that could
-// destroy the effect are COMPENSATED, in opposite directions:
-//   LIGHT  the room is bright: a dark apparition would wash out. So its unlit
-//          parts go BLACKER (x0.40) and it gains a dark CONTOUR along the baked
-//          rim band. It also becomes rarer (x0.65 at full Light).
-//   DARK   the room went black: a black apparition would be invisible. So the
-//          rim band lights up (0.30 -> 0.85) and it becomes more frequent
-//          (x1.60 at full Dark).
-//   FIRE   the rim becomes unsteady and warm — lit by something that is not
-//          there.
-//   ICE    it HOLDS LONGER (duration x1.35) and its motion freezes (x0.35).
-//   AIR    it DRIFTS sideways over the hold, as if something moved it.
-//   EARTH  it sits LOWER and its bottom edge is eaten by the ground.
-// Frequency changes are deterministic and stay client-identical: they are a
-// hash of the slot compared against an element-derived threshold, and the
-// element board is scenario-wide state the game itself desync-checks every
-// round (Core/ElementMood.cs, "MULTIPLAYER: ZERO NEW WIRE BYTES").
+// That is a furniture animation, and this mod ships SCRIPT-FREE PREFABS: the
+// only thing that can move a vertex at runtime is a vertex shader, so whatever
+// moves the shelf has to be the shader the shelf is drawn with. It cannot be
+// EnvRoom — that shader is shared by every prop in both rooms and has no
+// business knowing the haunt schedule — so the shelf is drawn HERE, by the one
+// shader that already owns the clock it has to obey.
+//
+// Two materials, one shader. The apparitions' material is transparent
+// (Blend SrcAlpha OneMinusSrcAlpha, ZWrite Off, Queue Transparent+2); the
+// shelf's is opaque (Blend One Zero, ZWrite On, Queue Geometry). The render
+// state is therefore material-controlled — [_SrcBlend]/[_DstBlend]/[_ZWrite]/
+// [_Cull] — which is the standard Unity way to put two render states on one
+// program and is what lets the shelf keep its normal map and the room's real
+// point lights while the apparitions keep their baked ones.
+//
+// THE POSE IS A PURE FUNCTION OF THE CLOCK. angle = maxAngle * curve(phase),
+// nothing accumulates, nothing integrates, and outside the event phase is 0 and
+// the shelf stands. An interrupted event therefore cannot leave the shelf on
+// its face: there is no state to be left in. That was the explicit requirement.
 // ============================================================================
 Shader "GloomhavenVR/EnvHaunt"
 {
     Properties
     {
-        // The apparition atlas. NOT a colour map: see the channel packing above.
-        [NoScaleOffset] _Atlas ("Apparition atlas (R key, G rim, B fill, A cover)", 2D) = "black" {}
+        // The apparition atlas — now used by ONE card, the handprints. See the
+        // HAUNT SOLID block: a print is flat because a print is flat.
+        [NoScaleOffset] _Atlas ("Flat-mark atlas (R key, G rim, B fill, A cover)", 2D) = "black" {}
         _Period ("Slot beat (s) — one event at most per slot", Float) = 83
         _Cards ("Event count in this room (a multiple of 3)", Float) = 6
-        // THE RIM IS THE PRIMARY READ FOR EVERY DARK KIND, and that is a finding
-        // and not a preference. The first bake gave the silhouettes a body colour
-        // of 0.020 linear, on the reasoning that "nearly black" is nearly black.
-        // It is not: the night forest's own blacks sit around 0.002-0.005 linear
-        // and the cellar's stair recess is 0.000, so 0.020 came out as a PALE GREY
-        // FIGURE — three to ten times brighter than everything around it, i.e. the
-        // brightest object in the frame, which is the exact opposite of "eher im
-        // Hintergrund". The previews are what caught it (env_swamp_HauntWatcher,
-        // env_cellar_HauntStair), and the mistake is worth writing down because the
-        // gamma encode makes it invisible in a colour picker: linear 0.020 is sRGB
-        // 0.13, i.e. 34/255, against a background of 0.
-        //
-        // So the bodies are a HOLE in the scene rather than an object in it — the
-        // atlas gives them coverage and almost no value — and the thing that makes
-        // a hole findable is its edge. Every dark card carries its own rim
-        // multiplier (par.w), because how much edge a shape needs depends entirely
-        // on what is behind it: the thing at the window is backlit by the moon and
-        // needs almost none, while the figure crossing the stair doorway is a black
-        // shape on a black recess and is nothing at all without one.
-        // The room's FILL light — one colour for the whole room, scaled per card
-        // by uv0.z. What it multiplies is the atlas's B channel, a second baked
-        // lighting solution from the side the key does not come from.
+        // The room's FILL light — one colour for the whole room. The solids have
+        // their fill baked into COLOR already; this is what the DECAL kind
+        // multiplies the atlas's B channel with.
         _Fill ("Room fill light", Color) = (0.06,0.08,0.13,1)
         _Rim ("Self-lit rim, base amount", Range(0,1)) = 0.08
         _RimCold ("Rim colour (cold)", Color) = (0.42,0.56,0.78,1)
         _RimWarm ("Rim colour under Fire", Color) = (0.95,0.48,0.16,1)
+
+        // ---- KIND 4, THE PROP (the tipping bookshelf) ----
+        _MainTex ("Prop albedo", 2D) = "white" {}
+        _BumpMap ("Prop normal map", 2D) = "bump" {}
+        _BumpScale ("Prop normal strength", Range(0,2)) = 1
+        _Tint ("Tint", Color) = (1,1,1,1)
+        // The baked rig, written by EnvRoomBuilder.ApplyRig exactly as it is for
+        // every EnvRoom material — same names, same object-space contract, so a
+        // prop drawn here is lit by the same three candles as the prop beside it.
+        _AmbUp ("Hemisphere ambient - sky", Color) = (0.05,0.06,0.08,1)
+        _AmbDown ("Hemisphere ambient - ground", Color) = (0.015,0.015,0.015,1)
+        _DirDir ("Directional dir (OBJECT space, toward light)", Vector) = (0,1,0,0)
+        _DirCol ("Directional color", Color) = (0,0,0,1)
+        _L0Pos ("Light0 pos (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _L0Col ("Light0 color (a=flicker)", Color) = (0,0,0,0)
+        _L1Pos ("Light1 pos (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _L1Col ("Light1 color (a=flicker)", Color) = (0,0,0,0)
+        _L2Pos ("Light2 pos (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _L2Col ("Light2 color (a=flicker)", Color) = (0,0,0,0)
+        _PtHard ("Point falloff hardness", Range(0,64)) = 0
+        _RimDir ("Rim gate: light dir (OBJECT space)", Vector) = (0,1,0,0)
+
+        // ---- render state, so two materials can share one program ----
+        [HideInInspector] _SrcBlend ("src blend", Float) = 5   // SrcAlpha
+        [HideInInspector] _DstBlend ("dst blend", Float) = 10  // OneMinusSrcAlpha
+        [HideInInspector] _ZWrite ("zwrite", Float) = 0
+        [HideInInspector] _Cull ("cull", Float) = 2            // Back
     }
 
     SubShader
     {
-        // Transparent+2: BEFORE the moonbeam (Transparent+10) and the halos
-        // (+5), so the beam's additive light falls ON the thing at the window
-        // rather than under it — which is what makes a head that interrupts the
-        // beam read as being IN the beam. Ordinary alpha, not additive: half
-        // this catalogue is DARKER than what is behind it, and additive cannot
-        // darken.
+        // Transparent+2 for the apparitions: BEFORE the moonbeam (Transparent+10)
+        // and the halos (+5), so the beam's additive light falls ON the thing at
+        // the window rather than under it. The opaque prop material overrides the
+        // queue to Geometry from C# (Material.renderQueue).
         Tags { "Queue"="Transparent+2" "RenderType"="Transparent" "IgnoreProjector"="True" }
-        Blend SrcAlpha OneMinusSrcAlpha
-        ZWrite Off
-        // ZTest LEqual (the default) is LOAD-BEARING and is how the user's own
-        // example is built: the forest face card sits just BEHIND the trunk's
-        // axis, so the trunk's real opaque geometry depth-rejects whatever part
-        // of the face has not come out from behind it yet. The face is occluded
-        // by the tree because it IS behind the tree, not because anything was
-        // masked.
-        //
-        // Cull Off, and here that is a decision rather than a default. This
-        // project has been bitten three times by geometry wound against the side
-        // it is seen from (most recently the rat, which now has a
-        // closed-and-outward build gate). A flat card has no inside to be wrong
-        // about and its atlas lookup is in its own uv, so drawing both faces
-        // removes that entire class of bug at a cost of exactly zero: five of
-        // the six cards in a room are collapsed to a point at any instant, and
-        // the sixth is a few hundred pixels. The bake still ASSERTS that every
-        // card's normal points at the room centre (AssertHauntCards) — not
-        // because the shader needs it, but because a card facing away is a card
-        // whose apparition is mirrored, and these apparitions are asymmetric on
-        // purpose, so mirroring one is visible.
-        Cull Off
+        Blend [_SrcBlend] [_DstBlend]
+        ZWrite [_ZWrite]
+        // CULL BACK, and unlike the card round this is now load-bearing rather
+        // than free. The apparitions are CLOSED SOLIDS: the builder proves every
+        // one of them is watertight and outward-wound before it welds it
+        // (AssertClosedAndOutward), because this project has shipped inward-wound
+        // geometry three times — the window bars, the moonbeam blades, and the
+        // rat you could see the inside of. Culling the back faces is also what
+        // keeps an alpha-blended solid from compositing itself twice.
+        Cull [_Cull]
         Fog { Mode Off }
 
         Pass
@@ -219,8 +220,12 @@ Shader "GloomhavenVR/EnvHaunt"
             #include "EnvHaunt.cginc"
 
             sampler2D _Atlas;
-            float _Period, _Cards, _Rim;
-            fixed4 _RimCold, _RimWarm, _Fill;
+            sampler2D _MainTex; float4 _MainTex_ST;
+            sampler2D _BumpMap;
+            float _Period, _Cards, _Rim, _BumpScale, _PtHard;
+            fixed4 _RimCold, _RimWarm, _Fill, _Tint;
+            fixed4 _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col;
+            float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _RimDir;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             #define GHVR_PI 3.14159265
@@ -228,56 +233,67 @@ Shader "GloomhavenVR/EnvHaunt"
             // HauntTile) — change one, change both.
             #define GHVR_ATLAS_COLS 4.0
             #define GHVR_ATLAS_CELL 0.25
-            // Half a mip-2 texel, as a fraction of a cell. The bake already
-            // clears a five-texel guard band round every cell, so this is the
-            // second of two independent defences against a trilinear tap
-            // wandering into the neighbouring apparition at distance.
             #define GHVR_ATLAS_INSET 0.016
+
+            #define KIND_SOLID 0
+            #define KIND_DECAL 1
+            #define KIND_CROSS 2
+            #define KIND_PROP  4
+            #define KIND_EYES  5
 
             struct appdata
             {
-                float4 vertex  : POSITION;   // the card CENTRE, room space (all 4 verts)
-                float3 normal  : NORMAL;     // card UP    * halfHeight (NOT a shading normal)
-                float4 tangent : TANGENT;    // card RIGHT * halfWidth
-                float4 uv      : TEXCOORD0;  // xy = corner (+-1,+-1), z = fill share, w unused
-                float4 id      : TEXCOORD1;  // x card index, y kind, z aspect (hw/hh), w ATLAS TILE
-                float4 env     : TEXCOORD2;  // reveal, hold, fade, sway (or blink lag)
-                float4 par     : TEXCOORD3;  // slide-u / travel, tilt, slide-v / smear, rim mul
-                fixed4 color   : COLOR;      // rgb = the KEY light's colour, a = base opacity
                 // EIGHT VERTEX ATTRIBUTES IS THE CEILING, and it is a hard one:
                 // POSITION, NORMAL, TANGENT, COLOR and UV0..UV3 is exactly eight.
-                // A round of this file carried the per-card fill COLOUR in a ninth
-                // (TEXCOORD4) and it did not fail loudly — the streams aliased, the
-                // fragment read the `par` vector as a colour, and every apparition
-                // in both rooms came out with a bright red outline. Anything new
-                // goes into the spare lanes above, never into a ninth channel.
+                // A round of the card version carried a ninth (TEXCOORD4) and it
+                // did NOT fail loudly — the streams aliased, the fragment read a
+                // parameter vector as a colour, and every apparition in both rooms
+                // came out with a bright red outline. Anything new goes into the
+                // spare lanes below, never into a ninth channel. Which is why
+                // three kinds REINTERPRET the same lanes; each one says so.
+                float4 vertex  : POSITION;   // room-space vertex, in its ACTIVE pose
+                float3 normal  : NORMAL;     // shading normal (read by PROP only)
+                float4 tangent : TANGENT;    // SOLID/DECAL: anchor.xyz, w = pivot height
+                                             // PROP: the real tangent + sign
+                float4 uv      : TEXCOORD0;  // x card index, y kind,
+                                             // SOLID/DECAL: z rim, w atlas tile (<0 = none)
+                                             // PROP: zw = albedo uv
+                float4 env     : TEXCOORD1;  // reveal, hold, fade, sway (or blink lag)
+                float4 mv      : TEXCOORD2;  // SOLID/CROSS: move dir.xyz, metres
+                                             // DECAL: xy = atlas tile-space uv
+                                             // PROP: xyz = the tipping pivot
+                float4 rot     : TEXCOORD3;  // rotation axis.xyz, angle (rad)
+                fixed4 color   : COLOR;      // SOLID: BAKED lit colour, a = opacity
+                                             // DECAL: colour, a = per-vertex softness
+                                             // PROP: tint
             };
 
             struct v2f
             {
                 float4 pos   : SV_POSITION;
-                float4 uv    : TEXCOORD0;   // xy card uv, z presence, w phase
-                float4 id    : TEXCOORD1;
-                float4 par   : TEXCOORD2;
-                // Only .w (the sway / blink lag) is read in the fragment — the
-                // three durations are consumed in the vertex shader. Carried whole
-                // anyway: splitting one float out of an authored vector so that a
-                // reader has to look in two places to find "the event's shape" is
-                // a false economy on a mesh with twenty-four vertices.
-                // REPACKED by the vertex shader: (fill share, 0, 0, sway). The
-                // three durations are consumed up there and the fragment never
-                // needs them, so the lane carries what the fragment does need.
-                float4 env   : TEXCOORD3;
+                float4 uv    : TEXCOORD0;   // x rim, y presence, z phase, w atlas tile
+                float4 mv    : TEXCOORD1;   // xy atlas/albedo uv, z height over anchor, w kind
+                float3 opos  : TEXCOORD2;   // object-space position (PROP lighting)
+                float3 n     : TEXCOORD3;
+                float3 t     : TEXCOORD4;
+                float3 b     : TEXCOORD5;
                 fixed4 color : COLOR;
             };
 
-            /// Sample one apparition out of the atlas. `t` is TILE SPACE: the tile
-            /// is a SQUARE IN METRES of side 2 * the card's half-height, centred on
-            /// the card, so a head is a head whatever proportions the card has.
-            /// Anything outside the tile returns zero rather than the neighbouring
-            /// cell — with Clamp wrap an atlas is not self-clamping, and a card
-            /// that is wider than its tile (every sliding one is) samples outside
-            /// on every frame.
+            /// Rodrigues, about `axis` through `pivot`. The apparitions rotate
+            /// RIGIDLY — no per-vertex weight — because they are solids and a
+            /// solid that bends while it leans is a solid with a rig, which is
+            /// the thing this feature is built to do without.
+            float3 GhvrHauntRot (float3 p, float3 pivot, float3 axis, float ang)
+            {
+                float3 q = p - pivot;
+                float s, c; sincos(ang, s, c);
+                return pivot + q * c + cross(axis, q) * s + axis * dot(axis, q) * (1.0 - c);
+            }
+
+            /// Sample the flat-mark atlas. `t` is TILE SPACE, [-1,1] square;
+            /// outside it the lookup returns zero rather than the neighbouring
+            /// cell, because with Clamp wrap an atlas is not self-clamping.
             float4 GhvrHauntSample (float2 t, float tile)
             {
                 float inside = step(max(abs(t.x), abs(t.y)), 1.0);
@@ -286,36 +302,66 @@ Shader "GloomhavenVR/EnvHaunt"
                 // ROUND FIRST. `tile` is a small integer that has been through a
                 // perspective-correct interpolator, and that is not exact: the GPU
                 // divides two interpolated quantities, so a constant 4.0 arrives
-                // as 4.0 +- an ulp. floor(3.9999998 / 4) is 0 and
-                // fmod(3.9999998, 4) is 3.9999998, so a single last-bit wobble
-                // does not shift the lookup by a texel — it lands in a DIFFERENT
-                // APPARITION and, because the u coordinate then leaves the atlas
-                // and clamps, smears one column of it across the card. The preview
-                // that caught it (env_swamp_HauntWatcher) looked like a corrupted
-                // scanline effect over the figure, per row, which is exactly what
-                // a per-pixel wobble across a quad produces.
-                //
-                // This file already carries the same warning for the card index
-                // ("an exact float compare on a value that has been through an
-                // interpolator is a bug waiting for a driver"); floor() and fmod()
-                // are the same hazard with a louder failure.
+                // as 4.0 +- an ulp. floor(3.9999998 / 4) is 0, so a single
+                // last-bit wobble lands in a DIFFERENT tile and, because u then
+                // leaves the atlas and clamps, smears one column of it across the
+                // card. That bug shipped once (env_swamp_HauntWatcher looked like
+                // a corrupted scanline effect) and is cheap to make impossible.
                 float ti = floor(tile + 0.5);
                 float2 cell = float2(fmod(ti, GHVR_ATLAS_COLS),
                                      floor(ti / GHVR_ATLAS_COLS));
                 return tex2D(_Atlas, (uv + cell) * GHVR_ATLAS_CELL) * inside;
             }
 
-            /// Rotate tile space about a pivot. THE MICRO-MOTION LIVES HERE, and
-            /// it is deliberately the only motion most of these events have: "a
-            /// three-degree head tilt over four seconds, a single blink, a tremor.
-            /// Nothing should sweep or wave." A monotone tilt is also unfalsifiable
-            /// in the way that matters — you cannot tell afterwards whether the
-            /// head moved or you did.
-            float2 GhvrHauntTurn (float2 t, float ang, float pivotY)
+            // Candle flicker — EnvRoom's, term for term, because the shelf stands
+            // in the same candle pool as the crates beside it and the two may not
+            // disagree about how that candle breathes.
+            float GhvrHauntFlicker (float amt, float phase, float rate)
             {
-                float2 q = t - float2(0.0, pivotY);
-                float s, c; sincos(ang, s, c);
-                return float2(q.x * c - q.y * s, q.x * s + q.y * c) + float2(0.0, pivotY);
+                float t = (_Time.y + _GhvrTimeOfs) * rate;
+                float f = 0.42 * sin(t * 11.3 + phase)
+                        + 0.33 * sin(t *  6.1 + 1.7 + phase * 1.3)
+                        + 0.25 * sin(t * 19.7 + 4.2 + phase * 0.7);
+                f = f * 0.70 + 0.30 * sin(t * 1.9 + phase * 0.5);
+                return 1.0 + amt * 0.35 * f;
+            }
+
+            float3 GhvrHauntPoint (float4 lpos, fixed4 lcol, float3 opos, float3 N,
+                                   float phase, float rate, float flickMul, float hardMul)
+            {
+                float3 lv = lpos.xyz - opos;
+                float d2 = max(dot(lv, lv), 1e-8);
+                float q = d2 * lpos.w * lpos.w;
+                float x = saturate(1.0 - q);
+                float atten = x * x / (1.0 + _PtHard * hardMul * q);
+                float ndl = saturate(dot(N, lv / sqrt(d2)));
+                return lcol.rgb * (atten * ndl * GhvrHauntFlicker(lcol.a * flickMul, phase, rate));
+            }
+
+            /// The bookshelf's tip-over, as a pure function of the event phase.
+            ///
+            /// IT FALLS FAST AND GETS UP SLOWLY, which is the whole picture: a
+            /// shelf goes over in about a second under gravity and then stands
+            /// itself back up over five, against nothing, which is the part that
+            /// is wrong. Both halves are shaped curves of `phase` and NOTHING IS
+            /// INTEGRATED — the schedule is the only thing that decides where the
+            /// shelf is at time t, so a player who joins mid-event, or an event
+            /// cut off by the slot ending, cannot leave it lying down.
+            float GhvrShelfTip (float ph)
+            {
+                // 0.00-0.18  the topple: a quadratic, i.e. constant angular
+                //            acceleration, which is what a falling body does
+                // 0.18-0.24  the landing, held flat with one small bounce
+                // 0.24-0.62  it lies there. This is the part that has to be long
+                //            enough for somebody to walk over and look at it.
+                // 0.62-1.00  it comes back up, slowly and evenly, and eases into
+                //            standing so the last degree is not a snap.
+                float fall  = saturate(ph / 0.18);
+                float down  = fall * fall;
+                float bounce = -0.055 * sin(saturate((ph - 0.18) / 0.06) * GHVR_PI)
+                             * step(0.18, ph) * step(ph, 0.24);
+                float rise  = smoothstep(0.62, 1.00, ph);
+                return saturate(down - rise) + bounce * step(ph, 0.62);
             }
 
             // ------------------------------------------------------------ vertex
@@ -323,28 +369,117 @@ Shader "GloomhavenVR/EnvHaunt"
             {
                 float t = _Time.y + _GhvrTimeOfs;
                 GhvrHaunt h = GhvrHauntAt(t, _Period, _Cards);
+                int kind = (int)(v.uv.y + 0.5);
 
                 float phase;
                 float a = GhvrHauntEnvelope(h.sIn, h.start, v.env.x, v.env.y, v.env.z,
                                             h.durMul, phase);
                 // abs()<0.5, not ==: see GhvrHauntPresence.
-                float mine = step(abs(h.card - v.id.x), 0.5);
+                float mine = step(abs(h.card - v.uv.x), 0.5);
                 float vis = a * h.live * mine;
+                // A card that is not this slot's event never runs at all, so its
+                // phase must not be read either — a prop whose event is not
+                // happening has to sit at phase 0, not at whatever the ACTIVE
+                // card's phase happens to be.
+                phase *= mine * h.live;
 
-                // COLLAPSE OR FULL SIZE — never in between. Scaling the quad by
-                // `vis` would shrink the apparition as it faded, and a face that
-                // gets smaller while it goes is a completely different (and much
-                // sillier) effect than one that goes.
+                GhvrElem e = GhvrHauntElems();
+                float still = 1.0 - 0.65 * e.ice;   // ICE freezes what moves
+
+                float3 P = v.vertex.xyz;
+                float3 N = v.normal;
+                float3 anchor = v.tangent.xyz;
+
+                if (kind == KIND_PROP)
+                {
+                    // ---- the tipping bookshelf. Always drawn; the schedule only
+                    // decides the angle, and outside the event that angle is 0.
+                    float ang = v.rot.w * GhvrShelfTip(phase);
+                    float3 ax = normalize(v.rot.xyz + float3(0, 1e-6, 0));
+                    P = GhvrHauntRot(P, v.mv.xyz, ax, ang);
+                    N = GhvrHauntRot(N, float3(0, 0, 0), ax, ang);
+                    // the tangent has to turn with it or the normal map shears
+                    float3 T = GhvrHauntRot(v.tangent.xyz, float3(0, 0, 0), ax, ang);
+                    v2f o;
+                    o.pos = UnityObjectToClipPos(float4(P, 1.0));
+                    o.uv = float4(0, 1, phase, -1);
+                    o.mv = float4(v.uv.zw, 0, (float)kind);
+                    o.opos = P;
+                    o.n = N;
+                    o.t = T;
+                    o.b = cross(N, T) * v.tangent.w;
+                    o.color = v.color;
+                    return o;
+                }
+
+                // COLLAPSE OR FULL SIZE — never in between. Scaling an apparition
+                // by `vis` would shrink it as it faded, and a figure that gets
+                // smaller as it goes is a completely different (and much sillier)
+                // effect than one that goes. Every vertex of an idle apparition
+                // sits on its anchor, so its triangles are degenerate and nothing
+                // rasterises: five of six cost one uniform read.
                 float on = step(1e-4, vis);
-                float3 P = v.vertex.xyz
-                         + on * (v.uv.x * v.tangent.xyz + v.uv.y * v.normal.xyz);
+
+                if (kind == KIND_CROSS)
+                {
+                    // travels the whole span across the event
+                    P += v.mv.xyz * (v.mv.w * (phase - 0.5));
+                }
+                else
+                {
+                    // eases OUT from behind the edge it hides behind, and
+                    // withdraws the same way. `vis` is already the smoothstep in
+                    // and out, so the motion and the envelope cannot disagree.
+                    float outAmt = vis * still + (1.0 - still) * 0.75;
+                    P += v.mv.xyz * (v.mv.w * outAmt);
+                }
+                // AIR drifts it sideways over the hold, as if something moved it;
+                // EARTH sits it lower and the ground eats its foot.
+                P.x -= 0.22 * e.air * still * sin(phase * GHVR_PI);
+                P.y -= 0.15 * e.earth;
+
+                // the one-shot rotation (a lean, a head tilt, a slow turn) plus a
+                // damped sway on the same axis. The pivot is on the apparition's
+                // own vertical, `pivot height` above its anchor — which is how a
+                // head pivots at the neck below it and a hanged body at the branch
+                // above it, out of one number.
+                float ang = v.rot.w * smoothstep(0.10, 0.90, phase) * still
+                          + v.env.w * sin(phase * 6.0) * exp(-phase * 2.2) * still;
+                float3 axis = normalize(v.rot.xyz + float3(0, 1e-6, 0));
+                float3 pivot = anchor + float3(0, v.tangent.w, 0);
+                P = GhvrHauntRot(P, pivot, axis, ang);
+
+                float alpha = v.color.a;
+                if (kind == KIND_EYES)
+                {
+                    // two eyeshines that do not blink together: env.w lags the
+                    // second one, and which one this vertex belongs to rides in
+                    // the sign of the sway lane. A matched pair belongs to a face;
+                    // a mismatched pair belongs to something that is not built
+                    // like one.
+                    float lag = max(v.env.w, 0.0) * step(0.0, v.tangent.w);
+                    // x*x and not pow(x,2): pow() of a negative base is
+                    // undefined in HLSL and this base is negative for the whole
+                    // first half of the event.
+                    // the blink sits at 0.66 of the event and not at 0.55: 0.55
+                    // is the middle, which is exactly where every preview and
+                    // every screenshot of this feature is taken, so the eyes were
+                    // photographed SHUT every single time. Late is also the better
+                    // place for it — you have already decided they are eyes by
+                    // then, and the blink is the confirmation.
+                    float x = (phase - 0.66 - lag) / 0.048;
+                    float lid = 1.0 - 0.97 * exp(-x * x);
+                    alpha *= smoothstep(0.0, 0.18, phase) * lid;
+                }
 
                 v2f o;
-                o.pos = UnityObjectToClipPos(float4(P, 1.0));
-                o.uv = float4(v.uv.xy, vis, phase);
-                o.id = v.id;
-                o.par = v.par;
-                o.env = float4(v.uv.z, 0.0, 0.0, v.env.w);
+                o.pos = UnityObjectToClipPos(float4(lerp(anchor, P, on), 1.0));
+                o.uv = float4(v.uv.z, vis * alpha, phase, v.uv.w);
+                o.mv = float4(v.mv.xy, P.y - anchor.y, (float)kind);
+                o.opos = P;
+                o.n = N;
+                o.t = float3(1, 0, 0);
+                o.b = float3(0, 0, 1);
                 o.color = v.color;
                 return o;
             }
@@ -352,126 +487,76 @@ Shader "GloomhavenVR/EnvHaunt"
             // ---------------------------------------------------------- fragment
             fixed4 frag (v2f i) : SV_Target
             {
-                // vis == 0 => the card collapsed to a point; nothing may flash.
-                clip(i.uv.z - 1e-4);
-
-                float t = _Time.y + _GhvrTimeOfs;
+                int kind = (int)(i.mv.w + 0.5);
                 GhvrElem e = GhvrHauntElems();
 
-                float kind   = i.id.y;
-                float aspect = max(i.id.z, 1e-3);
-                float tile   = i.id.w;
-                float pres   = i.uv.z;      // 0..1 presence (the envelope)
-                float phase  = i.uv.w;      // 0..1 through the whole event
-
-                // isotropic card space: y in [-1,1], x in [-aspect,+aspect], so a
-                // metre is a metre whatever the card's proportions are — and so the
-                // tile, which is authored as a square in metres, is sampled as one.
-                float2 p = float2(i.uv.x * aspect, i.uv.y);
-
-                // ---- ELEMENT DISPLACEMENT (see the header) ----
-                // AIR: it drifts over the hold. ICE freezes the drift with
-                // everything else that moves.
-                float still = 1.0 - 0.65 * e.ice;
-                p.x -= 0.22 * e.air * still * sin(phase * GHVR_PI);
-                // EARTH: it sits lower, and the ground eats its bottom edge.
-                p.y += 0.15 * e.earth;
-
-                float4 T = 0.0;             // the sampled apparition
-                float alpha = i.color.a;
-
-                if (kind < 0.5)
+                if (kind == KIND_PROP)
                 {
-                    // ---------------------------------------------------- TILE
-                    // It eases OUT from behind the edge it is hiding behind, and
-                    // withdraws the same way. `pres` is already the smoothstep
-                    // in/out, so the motion and the envelope cannot disagree.
-                    float outAmt = pres * still + (1.0 - still) * 0.75;
-                    float2 q = p - float2(i.par.x, i.par.z) * outAmt;
-                    // MICRO-MOTION. A head pivots at the NECK, below it; a thing
-                    // hung by the feet pivots at the BRANCH, above it — which is
-                    // why the pivot follows whether this card sways at all.
-                    float pivotY = (abs(i.env.w) > 1e-4) ? 1.0 : -1.0;
-                    float ang = i.par.y * smoothstep(0.10, 0.90, phase) * still
-                              + i.env.w * sin(phase * 6.0) * exp(-phase * 2.2) * still;
-                    q = GhvrHauntTurn(q, ang, pivotY);
-                    T = GhvrHauntSample(q, tile);
-                    // the alpha ramps FASTER than the slide, so it is mostly there
-                    // by the time it clears the edge rather than fading in in the
-                    // open where the eye can catch it arriving
-                    alpha *= smoothstep(0.08, 0.48, pres);
-                }
-                else if (kind < 1.5)
-                {
-                    // ---------------------------------------------------- EYES
-                    // ONE tile, placed TWICE. par.x is the half-separation, par.y
-                    // the second eye's size ratio and par.z its height offset —
-                    // so the pair is asymmetric by construction. env.w lags the
-                    // second blink behind the first: two eyes that close together
-                    // belong to a face, two that do not belong to something that
-                    // is not built like a face.
-                    float lidA = 1.0 - 0.97 * exp(-pow((phase - 0.55) / 0.045, 2.0));
-                    float lidB = 1.0 - 0.97 * exp(-pow((phase - 0.55 - i.env.w) / 0.052, 2.0));
-                    float openA = smoothstep(0.0, 0.18, phase) * lidA;
-                    float openB = smoothstep(0.0, 0.26, phase) * lidB;
+                    // ---- the tipping bookshelf: an ordinary lit prop, in the one
+                    // shader that knows when it has to fall over.
+                    fixed4 alb = tex2D(_MainTex, i.mv.xy) * _Tint;
+                    float3 n_ts = UnpackNormal(tex2D(_BumpMap, i.mv.xy));
+                    n_ts.xy *= _BumpScale;
+                    float3 N = normalize(i.t * n_ts.x + i.b * n_ts.y + normalize(i.n) * n_ts.z);
+                    float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
 
-                    float2 ca = float2(-i.par.x, 0.0);
-                    float2 cb = float2(i.par.x * 0.86, i.par.z);
-                    float4 A = GhvrHauntSample((p - ca) / float2(0.62, 0.62 * max(openA, 0.05)),
-                                               tile) * openA;
-                    float4 B = GhvrHauntSample((p - cb) / float2(0.62 * i.par.y,
-                                                                 0.62 * i.par.y * max(openB, 0.05)),
-                                               tile) * openB;
-                    T = max(A, B);
-                    alpha *= smoothstep(0.02, 0.20, pres);
-                }
-                else if (kind < 2.5)
-                {
-                    // --------------------------------------------------- CROSS
-                    // Something goes past — a few tenths of a second, so you get
-                    // the motion and not the shape. Smeared along its own travel:
-                    // that is what a thing seen for 0.3 s actually looks like, and
-                    // it costs one divide.
-                    float x0 = lerp(-1.25, 1.25, phase) * aspect * i.par.x;
-                    float2 q = float2((p.x - x0) / (1.0 + i.par.z), p.y);
-                    T = GhvrHauntSample(q, tile);
-                    alpha *= smoothstep(0.0, 0.22, pres);
-                }
-                else
-                {
-                    // ---------------------------------------------------- NONE
-                    // An event that happens somewhere else (the cobwebs shiver;
-                    // see EnvRoomCutout). Occupying a card is what keeps it inside
-                    // the schedule's no-repeat and no-collision rules.
-                    discard;
+                    // ELEMENT ART — the same three gains every EnvRoom material
+                    // takes, so a frosted room does not leave one prop unfrosted.
+                    // The GROWN frost/moss patches (EnvGrowth) are not here: they
+                    // need the growth field and a second noise, and this shader
+                    // exists to tip a shelf over, not to re-implement a surface.
+                    float ambGain = 1.0, srcGain = 1.0, dirGain = 1.0;
+                    float hardMul = 1.0, flickMul = 1.0;
+                    if (e.live > 0.0)
+                    {
+                        ambGain = GhvrAmbGain(e); srcGain = GhvrSrcGain(e);
+                        dirGain = GhvrDirGain(e); hardMul = GhvrSrcHard(e);
+                        flickMul = 1.0 + 1.20 * e.air;
+                    }
+                    float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5) * ambGain;
+                    light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz))) * dirGain;
+                    light += GhvrHauntPoint(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00, flickMul, hardMul) * srcGain;
+                    light += GhvrHauntPoint(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83, flickMul, hardMul) * srcGain;
+                    light += GhvrHauntPoint(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19, flickMul, hardMul) * srcGain;
+                    return fixed4(alb.rgb * light, 1.0);
                 }
 
-                // ---- THE COMPOSITE ----
-                // Two coloured lights per card: the card's vertex COLOR is the key
-                // (the cellar's candles are warm; the forest's moon is cold) and
-                // TEXCOORD4 is the fill. One baked head can therefore stand in a
-                // warm room and a cold one without being baked twice.
-                float3 col = i.color.rgb * T.r + _Fill.rgb * i.env.x * T.b;
-                alpha *= T.a * pres;
+                // vis == 0 => the apparition collapsed to a point; nothing may flash.
+                float pres = i.uv.y;
+                clip(pres - 1e-4);
 
-                // ---- ELEMENT COMPENSATION (the half that keeps it frightening) ----
-                // LIGHT: what is NOT lit goes blacker rather than washing out, and
-                // the whole apparition gains a dark contour along its baked rim.
-                col *= lerp(1.0, 1.0 - 0.60 * e.light, saturate(1.0 - T.r));
-                col = lerp(col, col * 0.10, e.light * T.g * 0.85);
+                float t = _Time.y + _GhvrTimeOfs;
+                float rim = i.uv.x;
+                float3 col = i.color.rgb;     // BAKED key + fill (see the header)
+                float alpha = pres;
+
+                if (kind == KIND_DECAL && i.uv.w >= 0.0)
+                {
+                    // the handprints — the one honestly flat card left. Its value
+                    // comes out of the atlas the way the whole catalogue used to.
+                    float4 T = GhvrHauntSample(i.mv.xy, i.uv.w);
+                    col = i.color.rgb * T.r + _Fill.rgb * T.b;
+                    rim *= T.g;
+                    alpha *= T.a;
+                }
+
+                // ---- ELEMENT COMPENSATION (the half that keeps it frightening) --
+                // LIGHT: the room is bright, so a dark apparition would wash out.
+                // What is NOT lit goes blacker rather than fading, and the whole
+                // shape gains a dark contour along its rim.
+                float lum = saturate(dot(col, float3(0.30, 0.59, 0.11)) * 3.0);
+                col *= lerp(1.0, 1.0 - 0.60 * e.light, 1.0 - lum);
+                col = lerp(col, col * 0.10, e.light * rim * 0.85);
 
                 // DARK: a faint self-lit rim, or the shape is a black hole in a
-                // black room. FIRE makes that rim unsteady and warm. par.w is the
-                // per-card rim multiplier — clamped at 0 rather than defaulted, so
-                // a card that leaves it unset simply has no rim, which is right for
-                // the pale kinds whose read is their own brightness.
-                float rimAmt = (_Rim + 0.55 * e.dark) * max(i.par.w, 0.0)
-                             * (1.0 + 0.32 * e.fire * sin(t * 9.3 + i.id.x * 2.1));
+                // black room. FIRE makes that rim unsteady and warm.
+                float rimAmt = (_Rim + 0.16 * e.dark)
+                             * (1.0 + 0.32 * e.fire * sin(t * 9.3 + i.uv.z * 6.3));
                 float3 rimCol = lerp(_RimCold.rgb, _RimWarm.rgb, saturate(e.fire));
-                col += rimCol * (T.g * rimAmt);
+                col += rimCol * (rim * rimAmt);
 
-                // EARTH: the ground eats the lower edge.
-                alpha *= 1.0 - 0.85 * e.earth * smoothstep(-0.55, -0.98, p.y);
+                // EARTH: the ground eats the lower edge of whatever stands in it.
+                alpha *= 1.0 - 0.85 * e.earth * smoothstep(0.10, -0.05, i.mv.z);
 
                 clip(alpha - 0.004);
                 return fixed4(col, saturate(alpha));

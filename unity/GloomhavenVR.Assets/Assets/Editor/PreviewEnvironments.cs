@@ -138,6 +138,22 @@ namespace GloomhavenVR
             ("BeamLow", new Vector3(-1.00f, 0.35f, 0.90f), new Vector3(-3, 300, 0), false, 60f),
             ("BeamGraze", new Vector3(-3.05f, 1.62f, 3.05f), new Vector3(1, 262, 0), false, 60f),
             ("PoolClose", new Vector3(-2.20f, 1.05f, 0.90f), new Vector3(31, 321, 0), false, 50f),
+            // ---- ModBuild 144 review set --------------------------------
+            // THE PUDDLE, ON ITS OWN AND FILLING THE FRAME. Every existing
+            // puddle view also contains the moon pool, which is drawn
+            // additively on top of it and swamps everything the multiply pass
+            // does — that is written down in the builder next to _DraftWave as
+            // the reason the wind ripple could not be judged from a preview at
+            // all. "Es sollte mehr wie Eis rüberkommen" cannot be judged from a
+            // frame where the puddle is eighty pixels across either. This is
+            // aimed at PuddleAt (-3.60, 0, 2.35) from 1.8 m at kneeling height,
+            // off to one side so the sheet's relief has a grazing angle to
+            // catch and its dome is not looked at dead-on.
+            ("IceClose", new Vector3(-2.30f, 0.85f, 1.05f), new Vector3(25, 315, 0), false, 45f),
+            // ...and from ABOVE, which is the pose the whole ice rebuild turns
+            // on: water seen from overhead is a dark hole in the floor and ice
+            // is bright, so this is where "solid, not a puddle" is decided.
+            ("IceTop", new Vector3(-3.55f, 1.55f, 1.95f), new Vector3(68, 350, 0), false, 45f),
             ("SillClose", new Vector3(-1.35f, 2.00f, 2.60f), new Vector3(-6, 0, 0), false, 40f),
             // right under the aperture, looking back into it: the only frame in
             // which the bar shadows are supposed to be visible at all
@@ -218,13 +234,28 @@ namespace GloomhavenVR
             // the only place "eher im Hintergrund" can be checked at all.
             //
             // CELLAR. Cards, in order: Window, Hands, Floor, Tremble, Stair, Shelf.
+            //
+            // AND EVERY APPARITION IS SHOT FROM TWO ANGLES, which is new this
+            // round and is the whole point of it. A flat card and a solid are
+            // indistinguishable head-on; the standee reads as a standee the moment
+            // you are off its axis, which is what the user was doing when he
+            // caught all seven of them. A "*Off" view is the same event from 35-60
+            // degrees round, and if a picture still looks like a picture there,
+            // the fix did not work.
             ("HauntWindow", new Vector3(0.20f, 1.50f, 1.00f), new Vector3(-13, 338, 0), false, 45f),
+            ("HauntWindowOff", new Vector3(-2.90f, 1.55f, 1.60f), new Vector3(-11, 25, 0), false, 40f),
             // the prints moved down to 0.85 m, so this looks DOWN at the wall
             ("HauntHands", new Vector3(-3.20f, 1.40f, 1.30f), new Vector3(12, 272, 0), false, 45f),
-            // ...and the face on the floor of the SW corner is looked down at too
-            ("HauntFloor", new Vector3(-2.60f, 1.35f, -1.90f), new Vector3(15, 228, 0), false, 38f),
+            // ...and the head on the floor is at the edge of the moon pool now
+            ("HauntFloor", new Vector3(-1.30f, 1.35f, 0.60f), new Vector3(24, 306, 0), false, 40f),
+            ("HauntFloorOff", new Vector3(-4.30f, 1.20f, 0.15f), new Vector3(20, 8, 0), false, 40f),
             ("HauntStair", new Vector3(-2.20f, 1.40f, 2.45f), new Vector3(4, 271, 0), false, 50f),
-            ("HauntShelf", new Vector3(1.80f, 1.60f, 1.05f), new Vector3(-6, 80, 0), false, 32f),
+            ("HauntStairOff", new Vector3(-1.60f, 1.45f, 4.10f), new Vector3(3, 244, 0), false, 50f),
+            // THE BOOKSHELF GOING OVER. Two viewpoints and, unlike everything else
+            // here, four PHASES rather than three, because the event is a
+            // trajectory: standing, falling, down, and back up again.
+            ("HauntShelf", new Vector3(0.60f, 2.10f, -1.30f), new Vector3(14, 48, 0), false, 62f),
+            ("HauntShelfOff", new Vector3(2.30f, 1.75f, 3.60f), new Vector3(8, 150, 0), false, 58f),
             // ...and the tremble draws nothing at all: it is judged on the WEBS,
             // so its frames are the two web close-ups, shot at its own instants.
             ("HauntWeb", new Vector3(2.90f, 2.05f, 1.35f), new Vector3(-25, 91, 0), false, 38f),
@@ -234,17 +265,21 @@ namespace GloomhavenVR
             // where the player is, and therefore the only place the framing of a
             // background easter egg can honestly be judged.
             ("HauntFace", Eye, new Vector3(-1, 250, 0), false, 25f),
-            ("HauntEyes", Eye, new Vector3(2, 288, 0), false, 22f),
+            ("HauntFaceOff", new Vector3(-1.50f, 1.45f, 3.00f), new Vector3(-1, 222, 0), false, 25f),
+            ("HauntEyes", Eye, new Vector3(-1, 288, 0), false, 16f),
             ("HauntWatcher", Eye, new Vector3(1, 162, 0), false, 25f),
+            ("HauntWatcherOff", new Vector3(1.60f, 1.45f, -1.20f), new Vector3(1, 166, 0), false, 25f),
             ("HauntCross", Eye, new Vector3(2, 190, 0), false, 40f),
-            ("HauntLoom", Eye, new Vector3(6, 219, 0), false, 45f),
-            ("HauntHang", Eye, new Vector3(-4, 118, 0), false, 28f),
+            ("HauntLoom", Eye, new Vector3(4, 138, 0), false, 34f),
+            ("HauntLoomOff", new Vector3(-2.80f, 1.45f, -2.20f), new Vector3(4, 120, 0), false, 34f),
+            ("HauntHang", Eye, new Vector3(-1, 96, 0), false, 32f),
+            ("HauntHangOff", new Vector3(-2.00f, 1.45f, 2.20f), new Vector3(4, 106, 0), false, 32f),
             // ...and one wide frame per room at the same instants: the brief is
             // "eher im Hintergrund", and the only way to check that an apparition
             // is NOT intrusive is to look at the room the way a player would and
             // see whether it pulls the eye.
             ("HauntWide", Eye, new Vector3(0, 250, 0), false, 78f),
-            ("HauntWideL", Eye, new Vector3(2, 219, 0), false, 78f),
+            ("HauntWideL", Eye, new Vector3(2, 138, 0), false, 78f),
             ("HauntWideC", Eye, new Vector3(-4, 320, 0), false, 78f),
             // ...and the cellar's shelf face from the BOARD, which is the distance
             // a player actually meets it at.
@@ -254,7 +289,13 @@ namespace GloomhavenVR
             // it completely and the frame is a picture of an empty shelf. Where an
             // apparition can be seen from is part of its placement, and a preview
             // that does not show that is a preview that cannot check it.
-            ("HauntFarC", new Vector3(0f, 1.45f, 3.10f), new Vector3(-3, 111, 0), false, 55f),
+            ("HauntFarC", new Vector3(0f, 1.45f, 0.0f), new Vector3(-3, 96, 0), false, 62f),
+            // THE SHADOW. User, cellar 7: "gruselig wäre auch wenn sie beim
+            // Mondlicht einen Schatten wirft wenn sie durchs Fenster schaut."
+            // It lands at (-3.19, 2.76) — computed from the bust's own vertices
+            // along MoonDir — so this looks DOWN at the moon pool from the board
+            // and has the window in the top of the frame at the same time.
+            ("HauntShadow", new Vector3(-1.20f, 1.20f, 1.20f), new Vector3(27, 303, 0), false, 35f),
         };
 
         // ================================================================ HAUNT
@@ -271,30 +312,47 @@ namespace GloomhavenVR
         // withdrawal (does it leave the way it came, or vanish?).
         private static readonly float[] HauntPhases = { 0.25f, 0.55f, 0.88f };
 
+        // ...except the bookshelf, whose event is a TRAJECTORY and not an
+        // envelope. GhvrShelfTip() puts the topple in 0.00-0.18, the landing at
+        // 0.18-0.24, the lie-down in 0.24-0.62 and the recovery in 0.62-1.00, so
+        // three evenly spaced phases would photograph "down, down, up" and miss
+        // the fall entirely.
+        private static readonly float[] HauntShelfPhases = { 0.08f, 0.30f, 0.72f, 0.97f };
+
         // view name, card index, and that card's authored (reveal, hold, fade) —
         // which must match the builder's catalogue, because the phase is a
         // fraction of the whole run.
         private static readonly (string view, int card, Vector3 env)[] CellarHaunts =
         {
             ("HauntWindow", 0, new Vector3(3.2f, 2.6f, 1.8f)),
+            ("HauntWindowOff", 0, new Vector3(3.2f, 2.6f, 1.8f)),
+            ("HauntShadow", 0, new Vector3(3.2f, 2.6f, 1.8f)),
             ("HauntHands", 1, new Vector3(2.8f, 2.2f, 3.0f)),
             ("HauntFloor", 2, new Vector3(4.0f, 3.4f, 0.0f)),
+            ("HauntFloorOff", 2, new Vector3(4.0f, 3.4f, 0.0f)),
             ("HauntWeb", 3, new Vector3(0.0f, 1.1f, 0.9f)),
             ("HauntStair", 4, new Vector3(0.18f, 0.34f, 0.18f)),
-            ("HauntShelf", 5, new Vector3(3.6f, 2.0f, 2.6f)),
-            ("HauntWideC", 5, new Vector3(3.6f, 2.0f, 2.6f)),
-            // ...and the same face from the BOARD, which is where a player meets it
-            ("HauntFarC", 5, new Vector3(3.6f, 2.0f, 2.6f)),
+            ("HauntStairOff", 4, new Vector3(0.18f, 0.34f, 0.18f)),
+            // the bookshelf: 0.001 + 26 + 0.001 s, the whole of it hold
+            ("HauntShelf", 5, new Vector3(0.001f, 26f, 0.001f)),
+            ("HauntShelfOff", 5, new Vector3(0.001f, 26f, 0.001f)),
+            ("HauntWideC", 5, new Vector3(0.001f, 26f, 0.001f)),
+            // ...and the shelf from the BOARD, which is where a player meets it
+            ("HauntFarC", 5, new Vector3(0.001f, 26f, 0.001f)),
         };
 
         private static readonly (string view, int card, Vector3 env)[] ForestHaunts =
         {
             ("HauntFace", 0, new Vector3(3.4f, 2.4f, 2.8f)),
-            ("HauntEyes", 1, new Vector3(1.1f, 1.4f, 0.5f)),
+            ("HauntFaceOff", 0, new Vector3(3.4f, 2.4f, 2.8f)),
+            ("HauntEyes", 1, new Vector3(1.6f, 3.0f, 0.8f)),
             ("HauntWatcher", 2, new Vector3(3.5f, 5.0f, 0.0f)),
+            ("HauntWatcherOff", 2, new Vector3(3.5f, 5.0f, 0.0f)),
             ("HauntCross", 3, new Vector3(0.06f, 0.22f, 0.06f)),
             ("HauntLoom", 4, new Vector3(4.2f, 2.6f, 0.0f)),
-            ("HauntHang", 5, new Vector3(2.6f, 2.0f, 2.2f)),
+            ("HauntLoomOff", 4, new Vector3(4.2f, 2.6f, 0.0f)),
+            ("HauntHang", 5, new Vector3(2.6f, 3.2f, 2.2f)),
+            ("HauntHangOff", 5, new Vector3(2.6f, 3.2f, 2.2f)),
             ("HauntWide", 0, new Vector3(3.4f, 2.4f, 2.8f)),
             ("HauntWideL", 4, new Vector3(4.2f, 2.6f, 0.0f)),
         };
@@ -368,10 +426,20 @@ namespace GloomhavenVR
         // EMITTERS live in a ring at the periphery, and none of the four framed
         // views above looks along that ring. The first element pass could not
         // tell "the embers are too small" from "the embers are behind me".
+        //
+        // ModBuild 144 adds four, and each of them is a frame in which a
+        // specific line of the last verdict is either honoured or not:
+        //   IceClose/IceTop  "es sollte mehr wie Eis rüberkommen" — the puddle
+        //                    filling the frame, from the side and from above.
+        //   BeamSide         "bei Licht viel intensiver / bei Dunkelheit extrem
+        //                    reduziert" and the draught inside the lit volume.
+        //   ShaftMoon        "die Lichtstrahlen verschwinden" — the shafts and
+        //                    the moon that casts them, in one picture, so the
+        //                    cause and the effect are judged together.
         private static readonly string[] CellarElementViews =
-        { "Corner", "DarkCornerSW", "Puddle", "Window", "S" };
+        { "Corner", "DarkCornerSW", "Puddle", "Window", "S", "IceClose", "IceTop", "BeamSide" };
         private static readonly string[] ForestElementViews =
-        { "TreeLine", "FloorToMoon", "Fireflies", "SkyBand", "N" };
+        { "TreeLine", "FloorToMoon", "Fireflies", "SkyBand", "N", "ShaftMoon" };
 
         // The animated things only exist in motion, so the review set below is
         // ALSO rendered at these offsets of the shared shader clock
@@ -644,7 +712,10 @@ namespace GloomhavenVR
                         if (v.name == null)
                             throw new Exception($"A haunt shot names an unknown view '{vn}'.");
                         if (!WantView(v.name)) continue;
-                        foreach (float ph in HauntPhases)
+                        // the bookshelf gets its own four, because its event is a
+                        // trajectory rather than an envelope
+                        bool shelf = env == "Env_Cellar" && card == 5;
+                        foreach (float ph in shelf ? HauntShelfPhases : HauntPhases)
                         {
                             float ofs = EnvRoomBuilder.HauntPreviewClock(
                                 card, cards, envv.x, envv.y, envv.z, ph);

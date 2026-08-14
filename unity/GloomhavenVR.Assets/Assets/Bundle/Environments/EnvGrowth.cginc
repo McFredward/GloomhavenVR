@@ -314,18 +314,218 @@ float3 GhvrFrostOn (float3 alb, float lum, float m)
     return lerp(alb, float3(0.66, 0.76, 0.94) * (0.34 + 0.95 * lum), m);
 }
 
+// ============================================================================
+//  MOSS REAL — moss as a SURFACE and not as a colour.
+//
+//  USER VERDICT, ModBuild 143 (hardware, both rooms, verbatim):
+//    forest: "Erde sind einfach grüne Flecken die hier und da zu sehen sind und
+//             nicht wirklich wie Moos, das musst du überarbeiten"
+//    cellar: "Bei Erde ist ähnlich wie im Wald einfach grüne Flecken statt
+//             wirklich 'Moos' und Bewachsung, nicht sehr glaubwürdig"
+//
+//  He is NOT complaining about where it grows. ModBuild 143's frontier put the
+//  patches at the foot of the wall, in the mortar courses and in the wet
+//  hollows, and none of that is in the verdict. He is complaining that a patch
+//  is a FLAT GREEN SHAPE — which it was, exactly: `lerp(alb, oneGreen, m)`.
+//  A single chroma with the stone's own luminance showing through it is the
+//  definition of a stain, and no amount of moving it or reshaping its outline
+//  can make a stain read as a plant.
+//
+//  So the attack is on the SURFACE, and it is five things a stain cannot have.
+//  Every one of them is a property of moss that survives being seen at three
+//  metres in a room lit at 0.03, which is the only test that counts here:
+//
+//   1. ITS OWN MICRO-TEXTURE. Moss is a mat of fronds a few millimetres across;
+//      at arm's length you see the fronds, at three metres you see the mottling
+//      they make. GhvrMossRelief below is that mottling, at ~4 cm and ~14 cm.
+//   2. ITS OWN NORMAL. A stain is as flat as what it is on; a cushion has
+//      relief, and it also DESTROYS the relief underneath (the mortar course
+//      under 2 cm of moss is gone). Both halves matter — the consumers scale
+//      the material's own normal DOWN by the coverage and add the moss's own.
+//      The gradient is analytic (see GhvrTri4), so this costs no extra fetch
+//      and no second noise octave.
+//   3. COLOUR THAT VARIES WITHIN ONE PATCH. Two greens, mixed by the relief:
+//      near-black in the gaps between the fronds, a yellow-green on the tips.
+//      This is the single biggest difference in the picture, and it is what
+//      makes the patch look GRANULAR instead of poured.
+//   4. A SOFT RAISED EDGE. A cushion stands proud of the stone, so its border
+//      is a crease with an occlusion line in it, not a cut. GhvrMossOn's `band`
+//      is three instructions and it is the cue that reads as "raised" — the
+//      first render with the colours in and the lip out still looked painted.
+//   5. IT KILLS THE SPECULAR AND SWALLOWS LIGHT. ModBuild 143 gave the moss a
+//      wet GRAZING SHEEN, which is precisely a varnish: it made the patches
+//      look like paint that had not dried. It is now weighted by (1 - thick),
+//      so only the thin frontier — where the stone really is wet — is glossy,
+//      and the deep middle of a cushion is matt and slightly darker than the
+//      room around it.
+//
+//  ...and one thing that is NOT in this file, because a shader cannot do it:
+//  where a patch is thick enough to be a CUSHION rather than a film, it needs a
+//  silhouette. That is real geometry, and it is the growth cards — see the
+//  SURFACE GROWTH block in BuildEnvironmentRooms.cs, where the cellar now grows
+//  cushions up the wall face as well as along its foot and the forest floor
+//  gets half as many tufts again.
+//
+//  REJECTED:
+//   * a second value-noise octave for the micro-texture (8 more hashes, ~40
+//     ALU, on the one path that already runs a full octave). The corrugation
+//     below is quasi-periodic rather than random, which for a 4 cm frond mat
+//     under moonlight is a distinction without a difference — and it hands
+//     over an exact derivative, which a value noise would charge two more
+//     evaluations for.
+//   * a moss NORMAL MAP. There is no second UV set on any of these meshes
+//     (walls, welded trunk bands, the forest floor), so it would have to be
+//     triplanar: three fetches where this is one ALU block.
+//   * screen-space derivatives of the albedo as a cheap bump (ddx/ddy). It is
+//     two instructions and it looks right in a screenshot — and it is
+//     per-EYE, so the two eyes get different relief on the same pixel. That is
+//     the stereo-rivalry trap this project has already been bitten by once
+//     (the masonry wall fade); it is not being walked into for a moss.
+// ============================================================================
+
+/// The cubic-smoothed triangle wave AND its exact derivative, four at a time.
+/// Same wave as GhvrWave4 (see there for the SpeedTree/Crytek provenance and
+/// for why it is not a sine); this form additionally returns d/dx, which is
+/// what buys the moss a normal for free.
+///
+///   g(v) = 2*(3v^2 - 2v^3) - 1   with  v = |frac(x + 0.5)*2 - 1|
+///   dg/dx = dg/dv * dv/dx = 12v(1-v) * 2*sign(...) = 24 v(1-v) sign(...)
+/// so |value| <= 1 and |derivative| <= 6, both by construction rather than by
+/// measurement — which is what lets the bump strength below be a constant.
+void GhvrTri4 (float4 x, out float4 v, out float4 d)
+{
+    float4 s = frac(x + 0.5) * 2.0 - 1.0;
+    float4 a = abs(s);
+    v = (a * a * (3.0 - 2.0 * a) - 0.5) * 2.0;
+    // sign(), and the s = 0 case needs no thought: a is 0 there too, so the
+    // product is 0 whatever sign(0) returns.
+    d = 24.0 * a * (1.0 - a) * sign(s);
+}
+
+/// The moss's own micro-relief: value in [-1,1] in .x, and its GRADIENT in the
+/// same frame `q` is measured in, in .yzw.
+///
+/// Four incommensurate corrugations: two fine, one middling and one coarse, and
+/// the WEIGHTS lean hard on the coarse ones. None of the four axes is parallel
+/// to another and no two lengths are in a small integer ratio, so the sum does
+/// not repeat anywhere a player can walk to; it is the same trick the flicker
+/// uses on three sines, done in one float4.
+///
+/// THE SCALES ARE WHAT THE FIRST RENDER GOT WRONG, and it is worth recording
+/// because it is a trap this kind of function walks into every time. The first
+/// pass put all four between 3.5 and 14 cm, which is the physical size of a
+/// moss frond and is therefore "correct" — and the picture came out as a green
+/// CHECKERBOARD. Two reasons, both fatal:
+///   * ALIASING. This is an analytic pattern, so it has no mip chain and
+///     nothing filters it. A 4 cm feature at four metres is well under a pixel,
+///     and an unfiltered sub-pixel pattern does not become smooth, it becomes
+///     a moiré — which is exactly the regular speckle the render showed.
+///     (fwidth-based fading was rejected: it is a SCREEN-space quantity, i.e.
+///     per-eye, and this project has already lost a round to stereo rivalry on
+///     the masonry wall fade. A pattern coarse enough not to need filtering is
+///     the answer that has no per-eye term in it at all.)
+///   * REGULARITY. Four waves at roughly equal weights and roughly equal
+///     lengths read as a lattice however incommensurate the axes are. Moss is
+///     CLUMPY: big soft lumps with fine texture riding on them, not a weave.
+/// So the coarse pair carries two thirds of the weight and the sizes span
+/// 7 cm to 25 cm — the band that survives being seen from across a room, which
+/// is the only distance this is ever judged at.
+///
+/// THE WARP is the third thing the first render taught, and it is the one that
+/// finally killed the weave. Four waves with fixed axes are QUASI-PERIODIC
+/// however carefully the lengths are chosen: on a lit floor the eye finds the
+/// repeat in about a second, and what it found was a honeycomb. `warp` is the
+/// patch field the frontier already computed — an organic value that varies
+/// over ~33 cm — and offsetting the whole lattice by it drags the corrugation
+/// about by a wavelength or two per patch. Three adds, no extra evaluation, and
+/// the result has no repeat at all because the thing displacing it has none.
+/// (The gradient does not carry the warp's own derivative and is therefore
+/// approximate. It is a bump on a moss cushion; being a few degrees off the
+/// exact normal of a fictional height field is not a defect anybody can name.)
+///
+/// It is evaluated in `q` — GhvrGrowQ's coordinate, i.e. the room's own metric
+/// frame relative to the room centre — so it obeys the same rule the patch
+/// field does: two identical walls in two yaws grow two different mosses, and
+/// two clients compute the same one.
+float4 GhvrMossRelief (float3 qIn, float warp)
+{
+    float3 q = qIn + warp * float3(3.71, -2.93, 5.27);
+    const float3 M0 = float3( 3.41,  1.62, -1.10);   // |M| 3.93 ->  8.5 cm
+    const float3 M1 = float3(-1.23,  3.05,  3.26);   // |M| 4.63 ->  7.2 cm
+    const float3 M2 = float3( 1.79, -1.06,  1.31);   // |M| 2.46 -> 13.6 cm
+    const float3 M3 = float3( 0.71,  0.94, -0.62);   // |M| 1.33 -> 25.1 cm
+    float4 v, d;
+    GhvrTri4(float4(dot(q, M0), dot(q, M1), dot(q, M2), dot(q, M3)), v, d);
+    const float4 W = float4(0.18, 0.16, 0.28, 0.38); // sums to 1 => |value| <= 1
+    float3 g = M0 * (d.x * W.x) + M1 * (d.y * W.y)
+             + M2 * (d.z * W.z) + M3 * (d.w * W.w);
+    // 0.022 puts the RMS slope of the sum near 0.11 in tangent-space units,
+    // which is a moss cushion and not a rock face. The bound is
+    // 0.022 * 6 * sum(|M| * W) = 0.35, so a consumer adding this to n_ts.xy
+    // tilts the normal by at most 19 deg and can never invert it. (0.030 was
+    // the first render's number and it made a candle-lit floor of moss boil:
+    // a relief this size only has to be FELT, and the moment it can be read
+    // as a shape it is a pattern again.)
+    return float4(v.x * W.x + v.y * W.y + v.z * W.z + v.w * W.w, g * 0.022);
+}
+
+/// How DEEP the cushion is here, 0..1 — the number that separates a film from a
+/// cushion, and the one every "is this paint?" cue is weighted by.
+///
+/// m*m is the taper: a cushion has no vertical wall at its frontier, it thins
+/// to nothing, and the square is what stops the whole patch reading as one
+/// slab of uniform thickness (which is what ModBuild 143's single `m` did).
+/// `field` is how long this pixel has been covered — the same patch field the
+/// frontier advanced through, so the middle of an old patch is the deep part.
+/// `grain` is the surface's own relief: moss is deeper in the mortar course and
+/// in the fissure than on the face of the stone, because that is where it had
+/// somewhere to sit.
+float GhvrMossThick (float m, float field, float grain, float relief)
+{
+    return m * m * saturate(0.26 + 0.52 * field + 0.34 * grain)
+             * (0.72 + 0.28 * (relief * 0.5 + 0.5));
+}
+
 /// Moss, laid on. A PIGMENT and not a light (an additive green over dark bark
-/// glows like a screen), and — unlike ModBuild 142's tint-toward-green — a
-/// REPLACEMENT where it covers: at m = 1 the pixel is moss, not greenish stone.
+/// glows like a screen), and a REPLACEMENT where it covers: at m = 1 the pixel
+/// is moss, not greenish stone.
 ///
 /// CHROMA, NOT VALUE, is what makes this readable, and the night wood is the
 /// reason. Everything there is a dark blue-grey; a moss that is merely a darker
 /// grey-green disappears into it, and a moss that is BRIGHTER is a lamp. So the
 /// colour is strongly green and only slightly dark: the patch reads as a hue
 /// against the moonlight without adding a single photon to the room.
-float3 GhvrMossOn (float3 alb, float lum, float m)
+///
+/// TWO greens and not one — see MOSS REAL point 3. The gaps between the fronds
+/// are nearly black and the tips are yellow-green; mixed by the micro-relief,
+/// that is a granular surface rather than a poured one, and it is the single
+/// change that most moves the picture away from "grüne Flecken".
+///
+/// EXACT AT ZERO: m = 0 gives lerp(alb, .., 0) = alb and band = 0, so the
+/// return is alb * 1.0 — the same bits, which is what the zero-state rule in
+/// EnvElement.cginc requires of every consumer.
+float3 GhvrMossOn (float3 alb, float lum, float m, float thick, float relief)
 {
-    return lerp(alb, float3(0.14, 0.30, 0.115) * (0.50 + 1.00 * lum), m);
+    // The SPREAD between the two is a tuning, and it was halved after the first
+    // render: near-black to bright green over a 4 cm cell is not a granular
+    // surface, it is a pattern, and it made the moss read as printed fabric.
+    // What is wanted is a patch that is visibly UNEVEN, not one that is visibly
+    // PATTERNED — 3:1 in value across the mottle, which on a wall lit at 0.03
+    // is about as much variation as the eye can still call one material.
+    float3 c = lerp(float3(0.048, 0.090, 0.038),   // in the gaps: deep and dull
+                    float3(0.175, 0.315, 0.110),   // on the lumps: yellow-green
+                    saturate(relief * 0.85 + 0.5));
+    // The stone shows through the THIN edge of the cushion and not through its
+    // middle: 2 cm of moss does not carry the mortar course under it, a film
+    // does. (ModBuild 143 carried the surface's luminance at full strength
+    // everywhere, which is exactly how a patch stays legible AS the stone.)
+    c *= lerp(0.50 + 1.00 * lum, 0.94, thick);
+    // THE LIP. A cushion stands proud of what it grew on, so its border is a
+    // crease and not a cut: a narrow occlusion band right through the frontier.
+    // Three instructions, no geometry, and without it the patch still reads as
+    // paint no matter how good its interior is.
+    float band = m * (1.0 - m) * 4.0;
+    return lerp(alb, c, m) * (1.0 - 0.34 * band * band);
 }
 
 /// The one channel of the albedo the two look functions need. Green, not a
@@ -402,12 +602,75 @@ float GhvrGrowLum (float3 alb) { return alb.g; }
 //      photoscans), so the anchored end is not merely nearly still, it is still.
 //    * disagree with the canopy shadow map, which another lane bakes against
 //      the STATIC geometry. Because GhvrWave4 is bounded, the budget is exact:
-//      the offset below never exceeds 1.06 * amp. See the amplitudes chosen in
+//      the offset below never exceeds 1.06 * amp at rest and 2.04 * amp in the
+//      storm. See THE STORM below and the amplitudes chosen in
 //      BuildEnvironmentRooms (SURFACE GROWTH), which are set against that map's
 //      5.5 x 4.4 cm texel and the blades' 0.22 m penumbra.
 //    * differ between two players. Only frac/abs/mad, phase from position, time
 //      from the shared clock: two clients render the same bough in the same
 //      place at the same instant, by construction.
+//
+//  ------------------------------------------------------------- THE STORM
+//  USER VERDICT, ModBuild 143 (hardware, verbatim): "Mir gefallen die
+//  Bewegungen der Bäume gut, so wie du es gemacht hast sollte der Normalzustand
+//  sein und immer sichtbar! (Nur die Bewegungen der Blätter, nicht der sichtbare
+//  Wind). Wenn Wind aktiv ist sollte es deutlich heftiger sein mit den
+//  Bewegungen der Blätter, so dass wirklich Starkwind bzw. ein aufkommender
+//  Sturm zu bemerken ist."
+//
+//  Two separate instructions, and the second is not "more of the first".
+//
+//  (1) THE BASELINE IS NOT GATED ANY MORE. `amp` is now the STANDING breeze and
+//      it runs with no element up at all — a wood in which nothing moves is a
+//      photograph, and he is right that it should never have needed an
+//      infusion. The parenthesis is a boundary he drew himself: only the LEAVES
+//      are permanent. The visible airborne streaks are another lane's emitters
+//      and stay element-gated; nothing in this file draws them.
+//      The price is that the per-vertex cost below is now PERMANENT, on every
+//      foliage vertex in the wood, in every scenario, forever. That is why this
+//      function is still frac/abs/mad only, why it is still ONE float4 of
+//      independent work, and why the storm adds not one carrier: the whole
+//      escalation below is four extra mads on constants that were already
+//      there.
+//
+//  (2) THE STORM IS NOT A BIGGER BREEZE. `storm` (Air's own strength) escalates
+//      three DIFFERENT things, and only one of them is amplitude:
+//        * the GUST gets deep. At rest the envelope is 0.62..1.00, i.e. the
+//          motion never really stops; at full Air it is 0.26..1.00, so the
+//          canopy goes half-still and is then shoved. Intermittency is what
+//          reads as "aufkommender Sturm" — a uniformly larger wobble reads as
+//          a bigger fan, and the gust also travels down-wind faster (2.9 m/s
+//          against 1.36), so you SEE it arrive across the clearing.
+//        * the FLUTTER gets fast. The leaf's own carrier goes from 1.6 s to
+//          0.6 s. This is the term that costs the shadow map nothing at all
+//          (see below) and it is the one the eye reads as wind SPEED.
+//        * the BEND gets deeper, and only by 1.85x.
+//
+//  WHY THE STORM'S EXTRA AMPLITUDE IS RATIONED, and the number that rations it.
+//  The canopy shadow map is baked from the STATIC canopy at 5.5 x 4.4 cm per
+//  texel, and it is worth being exact about what actually reads it:
+//    * the TRUNK layer casts the crisp shadows the user asked for on the floor
+//      — and no trunk moves. Trunks are EnvRoom materials with no wind at all,
+//      so the one part of the bake with a hard edge is animated by nothing.
+//    * the CROWN layer reaches the floor through a 4x4-box-filtered COVERAGE at
+//      a seventh of the blades' strength, and reaches the shafts through a
+//      0.22 m penumbra. Its footprint on the floor is half-metre-scale mush.
+//  So the question is not "is the displacement under a texel" but "can a
+//  half-metre penumbra see it". At rest the tip moves 1.06 * amp = 4.8 cm on
+//  the canopy, under one texel — the ModBuild 143 argument, unchanged. In the
+//  storm it moves 2.04 * amp = 9.2 cm, which is 1.7 texels and 42% of the
+//  penumbra: still inside the blur that the only animated layer is read
+//  through, and the layer with the sharp edges did not move.
+//  The understory (ferns, grass, the growth tufts) is in NO shadow bake, so its
+//  amplitude is bounded by taste alone and it gets the full 1.85x.
+//
+//  REJECTED: giving the storm a MEAN LEAN down-wind, which is what a real gale
+//  does to a tree. The baked shadow is the mean position; a zero-mean
+//  oscillation disagrees with it for half of each cycle and agrees on average,
+//  while a constant lean disagrees with it permanently and in one direction —
+//  i.e. the cheap-looking option is also the one that breaks the bake. Every
+//  term below is zero-mean in the bend and the flutter, and the gust envelope
+//  only scales them.
 
 /// The wind offset for one vertex, in OBJECT units.
 ///   p     object-space vertex position
@@ -415,9 +678,11 @@ float GhvrGrowLum (float3 alb) { return alb.g; }
 ///   t     the shared clock
 ///   dir   wind bearing in OBJECT space (unit)
 ///   side  a unit vector across the wind, for the flutter
-///   amp   tip amplitude in object units
-/// The returned offset has magnitude <= 1.06 * amp, always (GhvrWave4).
-float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp)
+///   amp   tip amplitude in object units — the STANDING breeze, always on
+///   storm Air's strength, 0..1. 0 is exactly the ModBuild 143 breeze.
+/// The returned offset has magnitude <= 1.06 * amp at storm 0 and <= 2.04 * amp
+/// at storm 1, always (GhvrWave4 is bounded and so is every factor below).
+float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp, float storm)
 {
     // Phase in CYCLES from the vertex's own position, on a bearing that is not
     // the wind's: a constant with all three components means two boughs one
@@ -425,21 +690,27 @@ float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp)
     // 0.12 cycles/m, an 8.3 m wave — see WITHIN-CARD SHEAR above.
     float ph = dot(p, float3(0.062, 0.041, 0.094));
     // THE GUST: a swell travelling DOWN-WIND at 1.36 m/s (0.075 cycles/s over
-    // 0.055 cycles/m), never fully still and never twice as strong.
-    float gust = dot(p, dir) * 0.055 - t * 0.075;
+    // 0.055 cycles/m) at rest and 2.9 m/s in the storm — you see it cross the
+    // clearing before it reaches you.
+    float gust = dot(p, dir) * 0.055 - t * (0.075 + 0.085 * storm);
     // Three carriers and the gust, one float4, all independent. 4.3 s and 6.1 s
     // for the bend — a bough leans, it does not buzz — and 1.6 s for the leaf's
-    // own flutter.
-    float4 s = GhvrWave4(float4(t * float3(0.235, 0.163, 0.612) + ph, gust));
+    // own flutter, falling to 0.6 s at full Air.
+    float4 s = GhvrWave4(float4(t * float3(0.235, 0.163, 0.612 + 1.05 * storm) + ph, gust));
     float bend = s.x * 0.62 + s.y * 0.38;                 // exactly [-1, 1]
-    float env = 0.62 + 0.38 * (s.w * 0.5 + 0.5);          // exactly [0.62, 1]
+    // [0.62, 1] at rest, [0.26, 1] in the storm: the canopy half-stills and is
+    // then shoved, which is the whole difference between wind and vibration.
+    float env = lerp(0.62, 0.26, storm) + lerp(0.38, 0.74, storm) * (s.w * 0.5 + 0.5);
     // w*w, not w: the stiff half of a bough hardly moves and only the last
     // quarter really flies, which is what a conifer does and what keeps the
     // shear at the attachment invisible.
     float a = amp * w * w * env;
     // Across the wind and a little up: a card that only slid down-wind reads as
     // a sheet on a rail. Never along the NORMAL (see the Tree Creator note).
-    return dir * (bend * a) + side * (s.z * a * 0.30) + float3(0.0, s.z * a * 0.16, 0.0);
+    float bendA = a * (1.0 + 0.85 * storm);
+    float sideA = a * (0.30 + 0.45 * storm);
+    float upA   = a * (0.16 + 0.24 * storm);
+    return dir * (bend * bendA) + side * (s.z * sideA) + float3(0.0, s.z * upA, 0.0);
 }
 
 /// The GROW-IN of a whole card, for the grass and moss that Earth brings up.

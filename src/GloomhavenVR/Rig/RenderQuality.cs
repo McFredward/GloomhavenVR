@@ -275,6 +275,13 @@ internal static class RenderQuality
         // same reason: the creepy easter eggs exist only inside the two bundled environments, so
         // the switch belongs beside the switch that chooses one. Runtime stays in Core/Haunt.cs.
         Haunt.BindConfig(_file);
+
+        // ENV SOUND ([EnvSound] Enabled / Gain) rides the same file for the fourth time and the
+        // same reason: it is the environment HEARD, it is meaningless without the environment the
+        // [Sky] Style row above chooses, and it also governs the easter-egg cues bound just before
+        // it (user correction 2026-08-14 — the apparitions are no longer silent, and they are on
+        // THIS toggle rather than getting a second one). Runtime stays in Core/EnvSound.cs.
+        EnvSound.BindConfig(_file);
     }
 
     /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>

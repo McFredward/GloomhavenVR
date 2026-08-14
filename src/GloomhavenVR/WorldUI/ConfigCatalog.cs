@@ -1046,6 +1046,7 @@ internal static class ConfigCatalog
         "RenderQuality" => Loc.Mod("cfg_sec_renderquality"),
         "Elements" => Loc.Mod("cfg_sec_elements"),
         "Haunt" => Loc.Mod("cfg_sec_haunt"),
+        "EnvSound" => Loc.Mod("cfg_sec_envsound"),
         "FigureGrab" => Loc.Mod("figure_offsets"),
         // Reached since per-variant keys group by SECTION rather than by the hand style in their
         // name; without it a German menu would head the block with the English "Hands".

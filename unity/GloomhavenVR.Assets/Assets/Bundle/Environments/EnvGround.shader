@@ -77,6 +77,17 @@ Shader "GloomhavenVR/EnvGround"
         _ElemFrost ("Element: ice frost susceptibility", Range(0,2)) = 0
         _ElemMoss ("Element: earth moss susceptibility", Range(0,2)) = 0
         _ElemGrowFreq ("Element: growth cells per metre", Float) = 3.0
+
+        // ---- FIRE SEATS (the receiving half of the fire lane's contract) ----
+        // Identical to EnvRoom's — see the block there. The floor is the other
+        // surface a seated fire has to light, and in the wood it is the only
+        // one: a fire in a clearing throws its wash on the ground around it and
+        // on nothing else within ten metres.
+        _FirePos0 ("Fire seat 0 (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _FirePos1 ("Fire seat 1 (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _FirePos2 ("Fire seat 2 (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _FireCol ("Fire wash colour (a = flicker depth)", Color) = (0,0,0,0)
+        _FireRate ("Fire flicker rate (Hz)", Float) = 6
     }
     SubShader
     {
@@ -93,6 +104,8 @@ Shader "GloomhavenVR/EnvGround"
 
             float4 _ElemCentre;
             float _ElemRad, _ElemScl, _ElemFrost, _ElemMoss, _ElemGrowFreq;
+            float4 _FirePos0, _FirePos1, _FirePos2;
+            fixed4 _FireCol; float _FireRate;
 
             sampler2D _MainTex; float4 _MainTex_ST;
             sampler2D _BumpMap;
@@ -308,6 +321,36 @@ Shader "GloomhavenVR/EnvGround"
                 return lcol.rgb * (atten * ndl * Flicker(lcol.a, phase, rate));
             }
 
+            // ---- FIRE SEATS: the receiving half of the fire lane's contract --
+            // Character for character EnvRoom.shader's — read the block there
+            // for why the near-field _PtHard divisor is deliberately left out
+            // and why one GhvrWave4 serves all three seats. Copied rather than
+            // #included for the same reason Flicker and PointLight above are:
+            // the bundle ships shaders and nothing else.
+            float3 FireSeats (float3 opos, float3 N, float t)
+            {
+                float3 w;
+                {
+                    float3 lv = _FirePos0.xyz - opos; float q = dot(lv, lv) * _FirePos0.w * _FirePos0.w;
+                    float x = saturate(1.0 - q);
+                    w.x = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
+                }
+                {
+                    float3 lv = _FirePos1.xyz - opos; float q = dot(lv, lv) * _FirePos1.w * _FirePos1.w;
+                    float x = saturate(1.0 - q);
+                    w.y = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
+                }
+                {
+                    float3 lv = _FirePos2.xyz - opos; float q = dot(lv, lv) * _FirePos2.w * _FirePos2.w;
+                    float x = saturate(1.0 - q);
+                    w.z = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
+                }
+                float4 f = GhvrWave4(t * _FireRate * float4(1.00, 0.83, 1.19, 0.0)
+                                     + float4(0.0, 0.37, 0.71, 0.0));
+                w *= 1.0 + _FireCol.a * f.xyz;
+                return _FireCol.rgb * (w.x + w.y + w.z);
+            }
+
             fixed4 frag (v2f i) : SV_Target
             {
                 float blend = i.vcol.a;
@@ -330,7 +373,9 @@ Shader "GloomhavenVR/EnvGround"
                 // mud/litter blend, painted wet-hollows-first, so `blend` IS the
                 // damp map and moss can simply be told to follow it.
                 GhvrElem e = GhvrElems();
-                float frost = 0.0, moss = 0.0;
+                float frost = 0.0, moss = 0.0, mthk = 0.0;
+                float ambGain = 1.0, dirGain = 1.0, poolGain = 1.0;
+                float3 elemAdd = float3(0, 0, 0);
                 if (e.live > 0.0)
                 {
                     float gt = _Time.y + _GhvrTimeOfs;
@@ -355,17 +400,77 @@ Shader "GloomhavenVR/EnvGround"
                     // outward. The board sits on the lit middle of the clearing,
                     // which is the driest and most open ground there is, so this
                     // ordering keeps it clear for a second reason beyond `rr`.
+                    // MOSS REAL — see EnvGrowth.cginc for what makes it a
+                    // surface rather than a green patch; what is chosen here is
+                    // only where it starts on a forest floor.
                     float ea = e.earth * _ElemMoss;
+                    float4 mrel = float4(0, 0, 0, 0);
                     if (ea > 0.0)
                     {
-                        moss = GhvrGrown(GhvrGrowField(q + 37.1), grain,
-                                         saturate(0.55 * blend + 0.25 * (1.0 - vis) + 0.20 * rr),
-                                         ea * (0.16 + 1.60 * rr), -creep);
+                        // the frontier without GhvrGrown's depth factor: moss
+                        // owns its own thickness now (GhvrMossThick), which
+                        // wants the frontier and the field separately.
+                        float mfld = GhvrGrowField(q + 37.1);
+                        moss = GhvrGrow(GhvrGrowA(mfld, grain,
+                                                  saturate(0.55 * blend + 0.25 * (1.0 - vis) + 0.20 * rr)),
+                                        ea * (0.16 + 1.60 * rr), -creep);
+                        mrel = GhvrMossRelief(q, mfld);
+                        mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
                     }
                     float lum = GhvrGrowLum(alb.rgb);
                     alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss);
-                    n_ts.xy *= 1.0 - 0.62 * frost - 0.30 * moss;
+                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x);
+                    n_ts.xy *= 1.0 - 0.62 * frost - 0.78 * moss;
+                    n_ts.xy -= float2(dot(mrel.yzw, i.t), dot(mrel.yzw, i.b)) * mthk;
+
+                    // ================================== LIGHT AND DARK ======
+                    // USER VERDICT, ModBuild 143 (forest, verbatim): "Licht und
+                    // Dunkelheit beeinflussen zwar den Mond aber nicht die
+                    // Lichtverhältnisse in der Lichtung. Bei Dunkelheit soll
+                    // auch entsprechend die Lichtung dunkler werden, also der
+                    // angeleuchtete Boden und die Lichtstrahlen verschwinden.
+                    // Bei Helligkeit sollten diese Dinge intensiver werden."
+                    //
+                    // He is exactly right and the reason is embarrassing: this
+                    // shader was in a different lane the round the element
+                    // channel landed, so the forest FLOOR — the largest lit
+                    // surface in the room and the one "die Lichtung" mostly IS —
+                    // never read the channel at all. The three gains below are
+                    // the whole of the fix, and they are deliberately the same
+                    // three EnvRoom applies, so the wood and the cellar answer
+                    // Light and Dark with one rule rather than two:
+                    //
+                    //  * THE MOON is what Light and Dark move. dirGain is
+                    //    GhvrDirGain folded with GhvrMoonLight — the eclipse
+                    //    contract another lane scales the shafts by — so the
+                    //    lit floor and the shafts standing on it darken on the
+                    //    same curve, out of one cause. 0.55 * 0.34 = 0.19 at
+                    //    totality under full Dark; 1.90 * 1.34 = 2.55 at Light.
+                    //  * THE AMBIENT is the room's own floor of light and Dark
+                    //    crushes it to a fifth. That is what makes the whole
+                    //    clearing fall away rather than just its lit patches.
+                    //  * THE POOLS — the wisp, the far lantern and the place the
+                    //    shafts LAND — are the forest's candles, and the cellar
+                    //    ruling ("die Kerzenscheine sollten identisch bleiben")
+                    //    applies to them by the same argument: a pool of light
+                    //    is a source you can point at. They are clamped rather
+                    //    than left alone for ONE reason, and it is the permanent
+                    //    board ruling: the landing pool is the light the players
+                    //    read the board by, so it may follow the moon down to
+                    //    0.45 and up to 1.60 and no further. At full Dark the
+                    //    floor around the board goes to 0.19 and the ambient to
+                    //    0.20 while the pool holds 0.45 — the clearing collapses
+                    //    onto the board, which is the picture asked for AND the
+                    //    one thing that may never become unreadable.
+                    ambGain = GhvrAmbGain(e);
+                    dirGain = GhvrDirGain(e) * GhvrMoonLight();
+                    poolGain = clamp(dirGain, 0.45, 1.60);
+                    // ...and the seated fires, if the fire lane has written any.
+                    // Against the GEOMETRIC normal, not the mapped one, and not
+                    // by accident: this is a wash from a fire two metres away
+                    // over leaf litter with a strong normal map, and taking it
+                    // per-texel would make the ground around a campfire boil.
+                    if (e.fire > 0.0) elemAdd = FireSeats(i.opos, normalize(i.n), gt) * e.fire;
                 }
                 // =============================================================
 
@@ -373,22 +478,24 @@ Shader "GloomhavenVR/EnvGround"
 
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
                 // frost answers the ambient more strongly than wet leaf litter,
-                // exactly as it does on EnvRoom's stone. Exactly 1.0 with no ice.
+                // exactly as it does on EnvRoom's stone; a moss cushion swallows
+                // it. Exactly 1.0 with no ice, no moss and no element.
                 float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5)
-                               * (1.0 + 0.30 * frost);
+                               * (ambGain + 0.30 * frost - 0.12 * mthk);
                 // USER FINDING, ModBuild 137 (hardware): "... ich würde hier
                 // gerne das die Bäume entsprechende Schatten werfen." Half of
                 // "the trees cast shadows" is the trunk shadows lying across the
                 // clearing floor, and this is it: a pure multiply on the MOON
                 // term. It can only subtract — see the _CsMap block in the
-                // Properties for why nothing here can get brighter.
+                // Properties for why nothing here can get brighter. (dirGain is
+                // a separate factor and is exactly 1 with no element up.)
                 light += _DirCol.rgb * (_DirScale * saturate(dot(N, normalize(_DirDir.xyz)))
-                                        * vis);
-                light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00);
-                light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83);
-                light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19);
+                                        * vis * dirGain);
+                light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00) * poolGain;
+                light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83) * poolGain;
+                light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19) * poolGain;
 
-                float3 col = alb.rgb * light * i.vcol.rgb;
+                float3 col = (alb.rgb * light + elemAdd * alb.rgb) * i.vcol.rgb;
                 return fixed4(col, 1.0);
             }
             ENDCG

@@ -416,7 +416,50 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 143;
+    public const ushort ModBuild = 144;
+    // Build 144: 22 reported items plus a new feature. No wire change; the bump is the handshake
+    // key, and the BUNDLE IS REBUILT (65,681,683 bytes).
+    //
+    // NO MORE CARDBOARD. The user said it seven times in one message: every apparition read as a
+    // flat standee. They are now REAL GEOMETRY posed at bake time from the MakeHuman CC0 base mesh
+    // (haunt_figures_pipeline.py) — a head behind a trunk shows a different half from each side, a
+    // 2.7 m watcher stands, a body hangs BY THE NECK from a real rope, and the head at the barred
+    // window CASTS A SHADOW into the room. Assets were searched first per the user's instruction:
+    // Smithsonian Open Access is genuinely usable and was REJECTED on non-technical grounds — its
+    // human forms are identifiable historical people, and an apparition you can recognise is a
+    // statue, not a fright.
+    // THREE APPARITIONS WERE INVISIBLE, and not because a tile was missing: they were authored as
+    // "a hole in the scene" — coverage with almost no light — which works against a lit window or a
+    // candle-lit wall and is NOTHING against a wood whose 95th percentile is 0.005. A hole cut in
+    // nothing is nothing. Fixed by geometry (a real body has an internal gradient) plus moving them
+    // where a background exists.
+    // THE BOOKSHELF now tips over and rights itself, as a pure function of the shared clock, so an
+    // interrupted event cannot leave it on its face. It falls DIAGONALLY because straight forward
+    // lands inside the play space, and the bake errors if that ever changes.
+    // THE PUDDLE HAS BEEN INVISIBLE SINCE MODBUILD 134 — wound face-down against Cull Back, ~600
+    // triangles discarded from every camera above the floor. It hid because the moonbeam's pool
+    // lands 35 cm away and a bright wet patch in the right place was taken for it. FOURTH instance
+    // of this bug class in this project. The cellar now has a visible puddle at rest.
+    // ICE: the old model could not have been tuned into ice — two of its three terms were wrong. A
+    // sheet of ice is not a BETTER mirror than water, it is a rough scattering dielectric: duller,
+    // broader, and bright from straight above where water is a black hole. It now grows from the
+    // rim inward, has a lip, is domed, is STATIC (a patch that stopped breathing reads as frozen
+    // before any colour does) and carries bubbles and cracks.
+    // MOSS stopped being a stain: its own micro-relief with an analytic gradient, its own normal
+    // which DESTROYS the one underneath, two greens mixed by the relief, a contact lip, and no
+    // gloss except on the thin frontier. Plus real cushions and 367 grass clumps.
+    // LEAF SWAY IS NOW PERMANENT (the user asked for it as the resting state) and Air escalates it
+    // into a storm by making the gusts INTERMITTENT rather than merely bigger.
+    // THE CLEARING FINALLY ANSWERS Light and Dark: EnvGround had no element response at all — it
+    // belonged to a different lane the round the channel landed, so the forest floor, which is what
+    // "die Lichtung" mostly IS, never read it. Measured 1.00x before, 1.71x/0.60x now. In the
+    // cellar the candles are provably untouched (+1.3% / -1.1%) while the moon moves 2.09x/0.45x.
+    // THE BLOOD MOON IS HELD, not transiting, at total coverage with the umbra offset so the Danjon
+    // gradient runs ACROSS the face instead of vignetting it.
+    // ENVIRONMENT SOUND (new feature): spatialised, synthesized, switchable, and it exposed that
+    // THERE WAS NO AUDIOLISTENER ON THE VR HEAD — the ear has been at a parked flat-screen camera
+    // all along, so every positional game sound came from the wrong place. Fixed.
+    //
     // Build 143: seven reported items, all environment craft. No wire change; the bump is the
     // handshake key, and the BUNDLE IS REBUILT (65,331,900 bytes).
     //

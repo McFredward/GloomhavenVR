@@ -28,6 +28,8 @@ Material:
     - _CandRate: 1.19
     - _DraftWave: 0.18
     - _Fresnel: 0.5
+    - _IceBody: 0.12
+    - _IceRelief: 0.45
     - _Impact: 2.363244
     - _MoonPow: 45
     - _Period: 2.85
@@ -41,6 +43,7 @@ Material:
     - _CandPos: {r: -1.55, g: 0.7822111, b: -3.95, a: 0}
     - _Center: {r: -3.6, g: 0, b: 2.35, a: 0}
     - _DraftDir: {r: -0.89, g: 0, b: -0.456, a: 0}
+    - _IceCol: {r: 0.66, g: 0.76, b: 0.92, a: 1}
     - _MoonCol: {r: 0.78, g: 0.92, b: 1.25, a: 1}
     - _MoonDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
     - _SkyCol: {r: 0.16, g: 0.2, b: 0.31, a: 1}

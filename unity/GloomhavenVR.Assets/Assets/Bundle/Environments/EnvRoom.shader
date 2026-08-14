@@ -69,6 +69,23 @@ Shader "GloomhavenVR/EnvRoom"
         // both rooms were tuned at.
         _ElemScl ("Element: object units in metres", Float) = 1
         _ElemGrowFreq ("Element: growth cells per metre", Float) = 3.0
+
+        // ---- FIRE SEATS (the receiving half of the fire lane's contract) ----
+        // A real fire standing in the room has to light the wall behind it, and
+        // the wall is this shader. The FIRE lane writes, per material and in
+        // THAT material's object space, up to three seats (xyz, w = 1/range),
+        // one wash colour (a = flicker depth) and one flicker rate; this side
+        // owns nothing but the receiving term.
+        //
+        // The defaults are a hard off in two independent ways — a black colour
+        // and a zero flicker — so a build in which the other half does not exist
+        // yet simply leaves them unread, and the zero state is untouched either
+        // way (the whole term is inside `if (e.fire > 0)`).
+        _FirePos0 ("Fire seat 0 (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _FirePos1 ("Fire seat 1 (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _FirePos2 ("Fire seat 2 (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
+        _FireCol ("Fire wash colour (a = flicker depth)", Color) = (0,0,0,0)
+        _FireRate ("Fire flicker rate (Hz)", Float) = 6
     }
 
     CGINCLUDE
@@ -83,6 +100,8 @@ Shader "GloomhavenVR/EnvRoom"
     float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _RimDir;
     float4 _ElemCentre;
     float _ElemRad, _ElemFrost, _ElemWarm, _ElemMoss, _ElemScl, _ElemGrowFreq;
+    float4 _FirePos0, _FirePos1, _FirePos2;
+    fixed4 _FireCol; float _FireRate;
 
     // PREVIEW-ONLY global clock offset. Never set at runtime (=> 0, the shipped
     // behaviour); EnvironmentsPreview sets it with Shader.SetGlobalFloat so a
@@ -148,25 +167,80 @@ Shader "GloomhavenVR/EnvRoom"
     // _PtHard > 0 collapses the lit pool toward the source, which is the only
     // way a candle can light its own table and leave the far wall black
     // (user finding, ModBuild 134: "die Kerzen beleuchten hier viel zu viel").
-    // ELEMENT ART: `flickMul` and `hardMul` are the two knobs the elements turn
-    // here. Both are exactly 1 when nothing is up (GhvrSrcHard's contract), so
-    // the expression below is the ModBuild-134 expression unchanged, term for
-    // term, in the shipped no-element state.
-    //   flickMul — Air works the flames, so the POOLS shiver, not just the
-    //              sprites. A draught you can see on the wall is a draught.
-    //   hardMul  — Dark collapses the pool toward its own flame (see the split
-    //              in EnvElement.cginc); Light opens it out again.
+    // THE CANDLES BELONG TO NOBODY. Exactly ONE element knob is left here, and
+    // which one that is, is a user ruling rather than a taste (ModBuild 143,
+    // cellar, verbatim):
+    //   "Bei Licht sollte auch der Mondschein aus dem Fenster viel intensiver
+    //    sein und den Raum mehr erhellen, anstatt die Kerzenscheine, die sollten
+    //    identisch bleiben."
+    //   "Auch bei Dunkelheit sollte es keinen Einfluss auf den Kerzenschein
+    //    haben - eine viel bessere Idee wäre hier den Mondschein extrem zu
+    //    reduzieren, so dass der Raum insgesamt deutlich dunkler wird und der
+    //    Kerzenschein einer der wenigen Stellen ist, die überhaupt noch gut
+    //    erkennbar sind."
+    // So ModBuild 142's two Light/Dark knobs on this function are GONE — the
+    // `* srcGain` on each accumulated slot (Light lifted the pools) and the
+    // `hardMul` inside the falloff (Dark collapsed them toward their flames).
+    // Both were defensible under EnvElement.cginc's split, and both are refused:
+    // a candle is not lit by the moon and is not put out by an eclipse. What
+    // Light and Dark do instead is move the MOON — see dirGain below — which is
+    // exactly the picture he asked for, because with the moonlight crushed and
+    // the candles untouched the candle pools are the only well-lit places left
+    // in the room without a single number on them having changed.
+    //
+    // `flickMul` stays, and it is not the same kind of thing: AIR works the
+    // flames, so the POOLS shiver and not just the sprites. A draught you can
+    // see on the wall is a draught. It is exactly 1 with Air down.
     float3 PointLight (float4 lpos, fixed4 lcol, float3 opos, float3 N, float phase, float rate,
-                       float flickMul, float hardMul)
+                       float flickMul)
     {
         float3 lv = lpos.xyz - opos;
         float d2 = max(dot(lv, lv), 1e-8);
         float d = sqrt(d2);
         float q = d2 * lpos.w * lpos.w;                  // (d/range)^2
         float x = saturate(1.0 - q);
-        float atten = x * x / (1.0 + _PtHard * hardMul * q);
+        float atten = x * x / (1.0 + _PtHard * q);
         float ndl = saturate(dot(N, lv / d));
         return lcol.rgb * (atten * ndl * Flicker(lcol.a * flickMul, phase, rate));
+    }
+
+    // ---- FIRE SEATS: the receiving half of the fire lane's contract --------
+    // Up to three seats, an ordinary point-light term each, with the SAME
+    // (1 - (d/r)^2)^2 window PointLight uses — but deliberately WITHOUT its
+    // near-field _PtHard divisor, which exists to shrink a candle's pool to its
+    // own table (user ruling, ModBuild 134) and would shrink a bonfire to the
+    // size of a candle with it.
+    //
+    // One GhvrWave4 gives all three flickers for the price of one: three
+    // incommensurate rates off the same call, so two fires in one room never
+    // pulse as a pair. No sin(), and the flicker is bounded, so `_FireCol.a` is
+    // a depth in the plain sense.
+    //
+    // EXACTLY ZERO WITH FIRE DOWN, three times over: the caller multiplies by
+    // e.fire, the caller only enters the block at all when e.fire > 0, and an
+    // unwritten _FireCol is black.
+    float3 FireSeats (float3 opos, float3 N, float t)
+    {
+        float3 w;
+        {
+            float3 lv = _FirePos0.xyz - opos; float q = dot(lv, lv) * _FirePos0.w * _FirePos0.w;
+            float x = saturate(1.0 - q);
+            w.x = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
+        }
+        {
+            float3 lv = _FirePos1.xyz - opos; float q = dot(lv, lv) * _FirePos1.w * _FirePos1.w;
+            float x = saturate(1.0 - q);
+            w.y = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
+        }
+        {
+            float3 lv = _FirePos2.xyz - opos; float q = dot(lv, lv) * _FirePos2.w * _FirePos2.w;
+            float x = saturate(1.0 - q);
+            w.z = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
+        }
+        float4 f = GhvrWave4(t * _FireRate * float4(1.00, 0.83, 1.19, 0.0)
+                             + float4(0.0, 0.37, 0.71, 0.0));
+        w *= 1.0 + _FireCol.a * f.xyz;
+        return _FireCol.rgb * (w.x + w.y + w.z);
     }
 
     fixed4 fragCore (v2f i, float face)
@@ -193,7 +267,7 @@ Shader "GloomhavenVR/EnvRoom"
         // behind one more per element: with only Fire or Light up, neither noise
         // is sampled at all.
         GhvrElem e = GhvrElems();
-        float frost = 0.0, moss = 0.0, rr = 0.0;
+        float frost = 0.0, moss = 0.0, rr = 0.0, mthk = 0.0;
         if (e.live > 0.0)
         {
             float gt = _Time.y + _GhvrTimeOfs;
@@ -240,7 +314,11 @@ Shader "GloomhavenVR/EnvRoom"
             // upward faces that catch what drips. A different noise offset from
             // the frost's, so the two do not occupy the same patches when Ice
             // and Earth are up together — moss under frost, not moss AS frost.
+            // MOSS REAL — the moss is a SURFACE here and not a tint; the five
+            // things that makes it are in EnvGrowth.cginc's MOSS REAL block.
+            // What is chosen on this side is only where it starts.
             float ea = e.earth * _ElemMoss;
+            float4 mrel = float4(0, 0, 0, 0);
             if (ea > 0.0)
             {
                 // 0.10 in the middle against frost's 0.15, and a steeper ramp:
@@ -248,17 +326,33 @@ Shader "GloomhavenVR/EnvRoom"
                 // must stay barer for it than for ice while the walls it starts
                 // from get more. The creep runs the OTHER WAY, so a frontier of
                 // moss and a frontier of frost never breathe in step.
-                moss = GhvrGrown(GhvrGrowField(q + 37.1), grain,
-                                 saturate(0.52 * foot + 0.28 * shade + 0.20 * sky),
-                                 ea * (0.10 + 1.90 * rr), -creep);
+                //
+                // The frontier is now taken WITHOUT GhvrGrown's depth factor:
+                // moss owns its own thickness (GhvrMossThick), which needs the
+                // frontier and the field separately. Frost keeps GhvrGrown.
+                float mfld = GhvrGrowField(q + 37.1);
+                moss = GhvrGrow(GhvrGrowA(mfld, grain,
+                                          saturate(0.52 * foot + 0.28 * shade + 0.20 * sky)),
+                                ea * (0.10 + 1.90 * rr), -creep);
+                mrel = GhvrMossRelief(q, mfld);
+                mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
             }
 
             float lum = GhvrGrowLum(alb.rgb);
             alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-            alb.rgb = GhvrMossOn(alb.rgb, lum, moss);
+            alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x);
             // the crust fills what it grew into. Exactly 1.0 where nothing grew,
-            // so a lit-but-ungrown pixel is untouched.
-            n_ts.xy *= 1.0 - 0.62 * frost - 0.30 * moss;
+            // so a lit-but-ungrown pixel is untouched. The moss takes far more
+            // of the stone's relief than ModBuild 143's 0.30 did — a cushion
+            // 2 cm deep does not have the mortar course showing through it, and
+            // leaving the joint visible under the green was half of why the
+            // patch read as a stain ON the stone rather than as a thing growing.
+            n_ts.xy *= 1.0 - 0.62 * frost - 0.78 * moss;
+            // ...and puts its OWN relief back. A height field's normal is
+            // (-dh/du, -dh/dv, 1), hence the subtraction; the tangent frame is
+            // in object space, which is the frame GhvrMossRelief's gradient is
+            // already in, so this is two dots and no change of basis.
+            n_ts.xy -= float2(dot(mrel.yzw, i.t), dot(mrel.yzw, i.b)) * mthk;
         }
         // =====================================================================
 
@@ -276,7 +370,7 @@ Shader "GloomhavenVR/EnvRoom"
         // See EnvElement.cginc for the contract and for the Light/Dark split.
         // (`e` and the periphery ramp `rr` are hoisted above, where SURFACE
         // GROWTH needs them; the mood is read once for the whole shader.)
-        float ambGain = 1.0, srcGain = 1.0, dirGain = 1.0, hardMul = 1.0, flickMul = 1.0;
+        float ambGain = 1.0, dirGain = 1.0, flickMul = 1.0;
         float3 elemAdd = float3(0, 0, 0);
         float3 rimTint = float3(1, 1, 1);
         if (e.live > 0.0)
@@ -284,9 +378,20 @@ Shader "GloomhavenVR/EnvRoom"
             float t = _Time.y + _GhvrTimeOfs;
 
             ambGain = GhvrAmbGain(e);
-            srcGain = GhvrSrcGain(e);
-            dirGain = GhvrDirGain(e);
-            hardMul = GhvrSrcHard(e);
+            // THE MOON, and it is the one thing Light and Dark are allowed to
+            // move in this shader (see PointLight for what they are no longer
+            // allowed to move). GhvrMoonLight is EnvElement.cginc's contract:
+            // 1.0 at rest, below 1 while the eclipse eats the disc under Dark,
+            // above 1 while Light swells it — and the SAME function scales the
+            // cellar's beam and the wood's shafts in another lane, so the light
+            // on the floor and the light in the air can never disagree about
+            // how much moon there is. Under full Dark at totality the product
+            // is 0.55 * 0.34 = 0.19: the room keeps a fifth of its moonlight,
+            // the ambient falls to a fifth with it (GhvrAmbGain), and the
+            // candles keep every photon they had. Under full Light it is
+            // 1.90 * 1.34 = 2.55, which is "viel intensiver ... und den Raum
+            // mehr erhellen" with the candles again untouched.
+            dirGain = GhvrDirGain(e) * GhvrMoonLight();
             // AIR: the draught works the candles (see PointLight). The forest's
             // three "points" are a wisp, a far lantern and the shafts' landing
             // pool, all with a flicker alpha near zero, so this is felt in the
@@ -313,6 +418,12 @@ Shader "GloomhavenVR/EnvRoom"
                      * (e.fire * _ElemWarm * 0.26 * inward * (0.30 + 0.70 * graze * graze)
                         * GhvrEmberBreath(t, rr * 5.3));
 
+            // ...and the SEATED fires, which are a different claim from the rim
+            // above: the rim says "there is fire in this room", a seat says
+            // "there is a fire HERE, and this is the wall it stands against".
+            // The fire lane writes the seats; this is the receiving term.
+            if (e.fire > 0.0) elemAdd += FireSeats(i.opos, N, t) * e.fire;
+
             // ---- EARTH: the moss is grown above; here is only its SHEEN.
             // A grazing-angle wet gloss, cold and very small, and now weighted
             // by the coverage rather than by the element — a wall that has not
@@ -326,7 +437,20 @@ Shader "GloomhavenVR/EnvRoom"
             // into the patches it now lit them like little lamps — the first
             // render of this round showed the moss on the near trunks reading
             // PALER than the bark, which is the exact opposite of moss.
-            elemAdd += float3(0.014, 0.026, 0.017) * (moss * graze * graze * (0.5 + 0.5 * rr));
+            //
+            // MOSS REAL — and (1 - mthk) is the whole of ModBuild 143's "grüne
+            // Flecken" verdict expressed as one factor. A gloss over a patch of
+            // moss is a VARNISH: it is the single strongest signal a surface can
+            // send that it has been painted rather than grown. Real moss is the
+            // matt-est thing in a cellar. So the sheen now lives only on the
+            // THIN frontier, where the stone genuinely is wet and the moss has
+            // barely taken, and the deep middle of a cushion has none at all.
+            elemAdd += float3(0.014, 0.026, 0.017)
+                     * (moss * (1.0 - mthk) * graze * graze * (0.5 + 0.5 * rr));
+            // ...and it swallows the ambient rather than answering it, which is
+            // the other half of "matt": a cushion of moss is the darkest thing
+            // on a moonlit wall. Frost is the opposite and is added above.
+            ambGain -= 0.12 * mthk;
         }
         // =====================================================================
 
@@ -336,14 +460,16 @@ Shader "GloomhavenVR/EnvRoom"
         // slot phases AND rates are incommensurate: the room breathes, it does
         // not pulse (user, ModBuild 134: "Eine flackernde Kerze sollte auch das
         // Licht drumrum zum flackern bekommen")
-        // Each slot is scaled and accumulated SEPARATELY, and that is not a
-        // style choice: summing the three first and scaling once would re-
-        // associate three floating-point additions, and a re-associated sum can
-        // differ in its last bit. The zero state has to be identical, not nearly
-        // identical, so the accumulation order stays exactly as it was.
-        light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00, flickMul, hardMul) * srcGain;
-        light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83, flickMul, hardMul) * srcGain;
-        light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19, flickMul, hardMul) * srcGain;
+        // Each slot is accumulated SEPARATELY, and that is not a style choice:
+        // summing the three first would re-associate three floating-point
+        // additions, and a re-associated sum can differ in its last bit. The
+        // zero state has to be identical, not nearly identical, so the
+        // accumulation order stays exactly as it was.
+        // The `* srcGain` that stood on each of these three lines in ModBuild
+        // 142/143 is gone: see the ruling quoted at PointLight.
+        light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00, flickMul);
+        light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83, flickMul);
+        light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19, flickMul);
 
         float3 col = alb.rgb * light + elemAdd * alb.rgb;
 
