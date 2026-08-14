@@ -583,6 +583,46 @@ internal static partial class Loc
         ["h_vr_o_haunt"] = Pair("Rare, quiet apparitions in the cellar and the night forest: a pale face behind a tree, eyes that blink once, something at the window while the moonlight dims. No sound, never over the board, never two at once — and every player sees the same one in the same place at the same moment.", "Seltene, leise Erscheinungen im Keller und im Nachtwald: eine bleiche Fratze hinter einem Baum, Augen, die einmal blinzeln, etwas am Fenster, während der Mondschein schwächer wird. Kein Ton, nie über dem Brett, nie zwei gleichzeitig — und alle Spieler sehen dieselbe an derselben Stelle im selben Moment."),
         ["vr_o_haunt_freq"] = Pair("Easter egg frequency", "Häufigkeit der Easter-Eggs"),
         ["h_vr_o_haunt_freq"] = Pair("How often they happen. 0.5 is about one every three minutes, 1 shows every one there is. Lower only means you see fewer of the same events — never different ones, so it stays in step with the other players.", "Wie oft sie auftreten. 0,5 ist etwa eines alle drei Minuten, 1 zeigt alle. Kleiner heißt nur, dass du weniger derselben Ereignisse siehst — nie andere, es bleibt also mit den Mitspielern im Gleichklang."),
+        // ---- Erweitert ▸ Test-Auslöser (user request, hardware ModBuild 141: "ich brauche zum
+        // Testen im Erweitert Menu die möglichkeit die Elemente und Easter eggs einzeln auf
+        // Knopfdruck auslösen zu können"). EVERY line here has to read as a TEST AID rather than as
+        // a game action — that is a requirement of the feature, not a tone choice, because the page
+        // sits in the same menu as the settings and a player who wandered in must not think they
+        // have just changed the game. So: the page name says "Test", the first note says what it
+        // does NOT touch, and every button names the effect plus the fact that it is temporary.
+        ["vr_tt_page"] = Pair("Test triggers", "Test-Auslöser"),
+        ["h_vr_tt_page"] = Pair("A test aid: show one element response or one apparition on demand instead of waiting for the game. Nothing here changes the game or your settings.", "Eine Testhilfe: eine Elementwirkung oder eine Erscheinung auf Knopfdruck zeigen, statt auf das Spiel zu warten. Nichts hier verändert das Spiel oder deine Einstellungen."),
+        ["vr_tt_local"] = Pair("Local only: nothing is sent, no game state changes — only what you see here.", "Nur lokal: nichts wird gesendet, kein Spielzustand ändert sich — nur was du selbst siehst."),
+        ["vr_tt_scope"] = Pair("Only inside a running scenario; apparitions also only in Cellar and Night forest.", "Nur im laufenden Szenario; Erscheinungen zusätzlich nur in Keller und Nachtwald."),
+        ["vr_tt_override"] = Pair("Works even when the effect is switched off — the switch is overridden for these seconds only, never changed.", "Wirkt auch bei ausgeschaltetem Effekt — der Schalter wird nur für diese Sekunden übergangen, nie verändert."),
+        ["vr_tt_elem_strong"] = Pair("Elements — strong (8 s)", "Elemente — stark (8 s)"),
+        ["h_vr_tt_elem_strong"] = Pair("Pretends this element is freshly infused: full strength, rock steady. Ramps in over a second and back to the real state afterwards.", "Tut so, als wäre dieses Element frisch infundiert: volle Stärke, völlig ruhig. Blendet in einer Sekunde ein und danach zum echten Zustand zurück."),
+        ["vr_tt_elem_waning"] = Pair("Elements — waning, breathing (8 s)", "Elemente — schwindend, atmend (8 s)"),
+        ["h_vr_tt_elem_waning"] = Pair("The state that breathes: about half strength, slowly swelling and ebbing — the one that shows an element is about to go out.", "Der atmende Zustand: etwa halbe Stärke, langsam an- und abschwellend — der zeigt, dass ein Element gleich erlischt."),
+        ["vr_tt_fire"] = Pair("Fire", "Feuer"),
+        ["vr_tt_ice"] = Pair("Ice", "Eis"),
+        ["vr_tt_air"] = Pair("Air", "Luft"),
+        ["vr_tt_earth"] = Pair("Earth", "Erde"),
+        ["vr_tt_light"] = Pair("Light", "Licht"),
+        ["vr_tt_dark"] = Pair("Dark", "Dunkelheit"),
+        ["vr_tt_haunts"] = Pair("Apparitions (easter eggs)", "Erscheinungen (Easter-Eggs)"),
+        ["h_vr_tt_haunts"] = Pair("Plays one apparition of the environment you are in right now and holds back all the others while it runs.", "Spielt eine Erscheinung der Umgebung ab, in der du gerade bist, und hält währenddessen alle anderen zurück."),
+        ["vr_tt_haunt_note"] = Pair("Numbered by the current environment: the same number is a different apparition in the cellar than in the forest.", "Nummeriert nach der aktuellen Umgebung: dieselbe Nummer ist im Keller eine andere Erscheinung als im Wald."),
+        ["vr_tt_haunt_n"] = Pair("Apparition {0}", "Erscheinung {0}"),
+        // One id, two apparitions: the cellar's card and the forest's card of the same index are
+        // different things, so each caption names both, cellar first. The authority for this table
+        // is the bundle (BuildEnvironmentRooms.cs, "HAUNT FORCE ID TABLE"); if the catalogues are
+        // reordered these strings go stale and only the log's id will still be right.
+        ["vr_tt_haunt_0"] = Pair("Window / Face", "Fenster / Fratze"),
+        ["vr_tt_haunt_1"] = Pair("Handprints / Eyes", "Handabdrücke / Augen"),
+        ["vr_tt_haunt_2"] = Pair("Face on the floor / Watcher", "Gesicht am Boden / Beobachter"),
+        // The cellar's id 3 draws NOTHING — it shivers the cobwebs. Said out loud, or a tester
+        // presses it, sees no apparition and reports a broken button.
+        ["vr_tt_haunt_3"] = Pair("Cobwebs shiver (no figure) / Something crosses",
+                                 "Spinnweben zittern (keine Gestalt) / Etwas huscht vorbei"),
+        ["vr_tt_haunt_4"] = Pair("Stairway / Looming mass", "Treppe / Dunkle Masse"),
+        ["vr_tt_haunt_5"] = Pair("Bookshelf / Hanging body", "Bücherregal / Hängender Körper"),
+        ["vr_tt_stop"] = Pair("Stop test triggers now", "Test-Auslöser sofort beenden"),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),

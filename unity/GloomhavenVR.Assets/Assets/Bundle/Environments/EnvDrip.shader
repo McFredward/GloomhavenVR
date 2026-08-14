@@ -52,6 +52,7 @@ Shader "GloomhavenVR/EnvDrip"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "EnvElement.cginc"
 
             sampler2D _MainTex; float4 _MainTex_ST;
             fixed4 _Tint;
@@ -99,10 +100,18 @@ Shader "GloomhavenVR/EnvDrip"
                     float tf = s - _Hang - sqrt(max(2.0 * (_Y0 - _Y1) / 9.81, 1e-5));
                     float sp = 0.45 + 0.55 * v.color.b;
                     float a = v.color.g * 6.2831853;
+                    // ELEMENT ART: under Ice the splash dies. The drop still
+                    // falls and the puddle still takes it, but the water it lands
+                    // in has glazed over (EnvPuddle's Ice term) and a drop on ice
+                    // does not throw a crown. Nothing else in this shader changes:
+                    // the CLOCK is shared with the puddle's rings, so slowing or
+                    // stopping the fall here would break the one event those two
+                    // shaders exist to tell together.
+                    GhvrElem e = GhvrElems();
                     float vy = _SplashUp * sp;
                     float y = _Y1 + vy * tf - 4.905 * tf * tf;
                     base = float3(cos(a) * _SplashOut * sp * tf, y, sin(a) * _SplashOut * sp * tf);
-                    off *= 0.55 + 0.45 * v.color.b;
+                    off *= (0.55 + 0.45 * v.color.b) * max(1.0 - 0.75 * e.ice, 0.0);
                     alive = step(0.0, tf) * step(tf, _SplashLife) * step(_Y1 - 0.004, y);
                 }
 
@@ -116,6 +125,10 @@ Shader "GloomhavenVR/EnvDrip"
             fixed4 frag (v2f i) : SV_Target
             {
                 fixed4 c = tex2D(_MainTex, i.uv) * _Tint;
+                // ELEMENT ART: the water goes ice-blue and picks up the split's
+                // source gain — it is a highlight, and highlights are sources.
+                GhvrElem e = GhvrElems();
+                c.rgb = lerp(c.rgb, float3(0.80, 0.92, 1.10), saturate(e.ice * 0.7)) * GhvrSrcGain(e);
                 c.a *= i.alive;
                 c.rgb *= c.a;      // premodulate: alpha drives the additive energy
                 return c;

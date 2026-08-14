@@ -239,6 +239,157 @@ internal static class ElementMood
                 new AcceptableValueRange<float>(0f, 2f)));
     }
 
+    // ---- TEST TRIGGER — the local debug override -------------------------------------------------
+    //
+    // USER REQUEST (hardware, ModBuild 141, verbatim): "ich brauche zum Testen im Erweitert Menu die
+    // möglichkeit die Elemente und Easter eggs einzeln auf Knopfdruck auslösen zu können." A tester
+    // cannot judge six element responses by waiting for a scenario to infuse them in the right order,
+    // so the Erweitert menu gets a page of buttons (WorldUI/VROptionsTab.9.TestTriggers.cs) that each
+    // pretend ONE element is up for a few seconds.
+    //
+    // WHY THE OVERRIDE SITS HERE, ON THE PUBLISHED SIDE, AND NOT ON THE GAME'S BOARD.
+    // ElementInfusionBoardManager.SetElementInstantly(EElement, EColumn)
+    // (ScenarioRuleLibrary/ElementInfusionBoardManager.cs:264) is the obvious call and it is the WRONG
+    // one: the element board is a MULTIPLAYER DESYNC INVARIANT. ScenarioState.ElementColumn is
+    // serialized (ScenarioState.cs:110/704/846), restored (:1374) and COMPARED between clients every
+    // round with its own mismatch codes 117/118 in CompareStates(…, isMPCompare: true) (:1992-2032),
+    // run from Choreographer.StartMPEndOfRoundCompare (GH.Runtime/Choreographer.cs:14320-14340). A
+    // test button that wrote the board would therefore desync the session at the next end-of-round
+    // compare — the one failure mode this project's standing "everything is synchronised 1:1" rule
+    // exists to prevent. The override instead lives between SENSING and PUBLISHING: the game's board
+    // is read exactly as before and never written, and only the number this file hands to the shaders
+    // is substituted. Nothing goes on the wire, nothing is game state, and a peer's client is
+    // bit-identical throughout — the only thing that differs is what THIS headset draws.
+    //
+    // REJECTED: forcing several elements at once. The user asked to trigger them "einzeln", and six
+    // overlapping responses are a lightshow rather than a test — you cannot attribute what you see.
+    // One force at a time; a second press simply replaces the first, which is also what makes the
+    // buttons feel like buttons.
+    //
+    // REJECTED: zeroing the OTHER five while one is forced. They keep their real sensed state, so the
+    // override adds a lie in exactly one place instead of six. In practice the other five are Inert
+    // anyway outside combat, and if they are not, the tester is seeing the truth beside the forcing.
+
+    /// <summary>
+    /// How long a forced element is held, in shared-clock seconds.
+    ///
+    /// <para>EIGHT, and the number is the WANING state's requirement rather than a round figure: the
+    /// force ramps in over <see cref="RampSeconds"/> (1 s), and what a tester has to be able to judge
+    /// is the breath — <see cref="WaningEbbPeriodSeconds"/> = 2.4 s per cycle. 1 s in plus two and a
+    /// half breaths is 7 s; 8 leaves the eye a moment at the plateau before the ramp back. Strong
+    /// does not move at all and would be judged in two seconds, but one duration for both states
+    /// means the button does the same thing whichever half of the page it is on.</para>
+    /// </summary>
+    internal const float ForceSeconds = 8f;
+
+    /// <summary>Element index currently forced, or -1 for none.</summary>
+    private static int _forceIndex = -1;
+
+    /// <summary>The state <see cref="_forceIndex"/> is being pretended into.</summary>
+    private static ElementInfusionBoardManager.EColumn _forceColumn = ElementInfusionBoardManager.EColumn.Inert;
+
+    /// <summary>Shared-clock time the force started; it ends <see cref="ForceSeconds"/> later.</summary>
+    private static float _forceSince;
+
+    /// <summary>
+    /// Whether a force could do anything at all right now. It deliberately does NOT include
+    /// <see cref="EnvironmentResponse"/>: the switch is a preference the button may override for its
+    /// few seconds (see <see cref="Force"/>), while these two are "there is no environment and no
+    /// board" — nothing to force, and nothing a button can conjure.
+    /// </summary>
+    internal static bool ForceReady => VRSession.IsRunning && Events.VRModeStateMachine.ScenarioBoardExists;
+
+    /// <summary>True while a forced element is standing.</summary>
+    internal static bool Forcing => _forceIndex >= 0;
+
+    /// <summary>
+    /// Pretend one element is Strong (or Waning) for <see cref="ForceSeconds"/>, then let the real
+    /// sensed state come back through the normal ramp. Returns false — and says so in the log — when
+    /// there is nothing to force, so a press outside a scenario is inert rather than an exception.
+    ///
+    /// <para>IT OVERRIDES THE FEATURE'S OWN ON/OFF SWITCH, deliberately, and the page says so in
+    /// German. The alternative (refuse while <see cref="EnvironmentResponse"/> is off) makes a button
+    /// that does nothing and looks broken — indistinguishable from the very fault this aid exists to
+    /// find, and with the switch two menu pages away the tester would have no way to tell which it
+    /// was. The override is bounded by the same few seconds, it is local, and it NEVER writes the
+    /// setting: the toggle still shows the player's own choice, and the moment the force expires that
+    /// choice is what stands again. The STRENGTH dial is NOT overridden — that one is a magnitude the
+    /// tester chose, and showing them an intensity they did not configure would be a different lie;
+    /// if it is at 0 the log below says the press will be invisible and why.</para>
+    /// </summary>
+    /// <param name="element">Element index, 0..5 in the game's own EElement order.</param>
+    /// <param name="waning">true = the breathing Waning plateau, false = Strong.</param>
+    internal static bool Force(int element, bool waning)
+    {
+        if (!_bound)
+            Rig.RenderQuality.Bind();
+
+        if (element < 0 || element >= Count)
+            return false;
+
+        var name = (ElementInfusionBoardManager.EElement)element;
+
+        if (!ForceReady)
+        {
+            VRLog.Info("Core", $"ELEMENT TEST TRIGGER ignored — {name} was not forced because "
+                               + (VRSession.IsRunning ? "there is no scenario board" : "VR is not running")
+                               + ". The element channel is not live outside a scenario, so there is no "
+                               + "environment to answer and nothing to see; the button is inert here on "
+                               + "purpose rather than arming an override that would fire later.");
+            return false;
+        }
+
+        _forceIndex = element;
+        _forceColumn = waning
+            ? ElementInfusionBoardManager.EColumn.Waning
+            : ElementInfusionBoardManager.EColumn.Strong;
+        _forceSince = SkyAlternative.EnvClockSeconds;
+
+        float master = Mathf.Max(0f, ResponseStrength.Value);
+        VRLog.Info("Core", $"ELEMENT TEST TRIGGER: {name} forced to {_forceColumn} for "
+                           + $"{ForceSeconds:F1}s of shared clock (from {_forceSince:F2}s to "
+                           + $"{_forceSince + ForceSeconds:F2}s), heading for {TargetLabel(_forceColumn)} "
+                           + $"over the usual {RampSeconds:F1}s ramp and ramping back to the real sensed "
+                           + $"state afterwards. Master factor {master:F2}"
+                           + (EnvironmentResponse.Value
+                                  ? " (the setting is on)"
+                                  : " — the 'EnvironmentResponse' setting is OFF and this press "
+                                    + "temporarily overrides it; the setting itself is untouched and "
+                                    + "stands again the moment the force expires")
+                           + (master <= 0f
+                                  ? ". NOTE: the strength dial is at 0, so every element effect "
+                                    + "multiplies by 0 and this press will be INVISIBLE — that is the "
+                                    + "dial, not a fault"
+                                  : string.Empty)
+                           + ". LOCAL TEST AID ONLY: the game's element board "
+                           + "(ElementInfusionBoardManager) is READ and never written, so nothing goes "
+                           + "on the wire, no game state changes and the end-of-round desync compare "
+                           + "(ScenarioState.CompareStates codes 117/118) has nothing to disagree "
+                           + "about. Only this headset draws differently.");
+        return true;
+    }
+
+    /// <summary>
+    /// Drop the override. Idempotent, and it re-anchors nothing by hand: the next tick reads the real
+    /// column, sees it differ from the forced one, and ramps back from wherever the eye last saw the
+    /// intensity — the same path a real Strong → Inert transition takes.
+    /// </summary>
+    internal static void ClearForce(string why)
+    {
+        if (_forceIndex < 0)
+            return;
+
+        var name = (ElementInfusionBoardManager.EElement)_forceIndex;
+        ElementInfusionBoardManager.EColumn column = _forceColumn;
+        _forceIndex = -1;
+        _forceColumn = ElementInfusionBoardManager.EColumn.Inert;
+        _forceSince = 0f;
+
+        VRLog.Info("Core", $"ELEMENT TEST TRIGGER over — {name} is no longer forced to {column} ({why}). "
+                           + "The real sensed state takes over on the next tick and ramps in over "
+                           + $"{RampSeconds:F1}s; nothing of the override is left standing.");
+    }
+
     // ---- live state ------------------------------------------------------------------------------
 
     /// <summary>Last observed column per element (the raw game state).</summary>
@@ -306,12 +457,18 @@ internal static class ElementMood
 
         // OFF ⇒ master 0 once, then nothing. This is the whole of requirement "costs nothing when
         // off": one bool read per frame and an early return.
-        if (!EnvironmentResponse.Value)
+        //
+        // …UNLESS A TEST TRIGGER IS STANDING. A press on the Erweitert page overrides the switch for
+        // its few seconds (the reasoning is at Force()), which is exactly one extra bool read on the
+        // off path — the field, not a property, so the "costs nothing when off" promise survives.
+        if (!EnvironmentResponse.Value && !Forcing)
         {
             StandDown("the setting is off");
             return;
         }
 
+        // A force may not outlive the thing it was drawn on — and it does not have to be dropped
+        // here by hand, because StandDown drops it on EVERY route, teardown included.
         if (!VRSession.IsRunning)
         {
             StandDown("VR is not running");
@@ -349,6 +506,27 @@ internal static class ElementMood
 
         float clock = SkyAlternative.EnvClockSeconds;
 
+        // THE FORCE EXPIRES HERE, once, before the sensing reads it — so the very same frame that
+        // ends the override already senses the real column and starts the ramp back. The second test
+        // is the shared clock having jumped BACKWARDS (a new clock owner, a scene reload): the
+        // elapsed time is then meaningless, and dropping the override is the honest answer — a force
+        // that silently restarted its eight seconds is exactly the "left standing" bug.
+        if (_forceIndex >= 0 && (clock - _forceSince >= ForceSeconds || clock < _forceSince))
+        {
+            ClearForce(clock < _forceSince
+                           ? "the shared clock jumped backwards"
+                           : $"the {ForceSeconds:F1}s test hold elapsed");
+
+            // The force was the ONLY reason this tick got past the off-switch. With it gone the
+            // switch decides again, and it has to decide THIS frame: falling through would publish
+            // one frame of live values on a feature the player has switched off.
+            if (!EnvironmentResponse.Value)
+            {
+                StandDown("the setting is off — the test hold had been overriding it");
+                return;
+            }
+        }
+
         // ---- SENSE ------------------------------------------------------------------------------
         // Six reads of a static array (ElementColumn, :92-95). try/catch per read, like
         // RemoteElementStrip: this is game state read from outside the game's own call order, and a
@@ -366,6 +544,14 @@ internal static class ElementMood
             {
                 column = ElementInfusionBoardManager.EColumn.Inert;
             }
+
+            // THE OVERRIDE, and it is one line because it is placed where a lie costs the least: the
+            // game's board has already been read (and never written), and everything downstream —
+            // the edge detector, the ramp anchoring, the breath, the peak, the log — treats the
+            // forced column exactly like a sensed one. So a force ramps IN like a real infusion and,
+            // when it expires, ramps OUT like a real one, with no second code path to keep in step.
+            if (i == _forceIndex)
+                column = _forceColumn;
 
             signature = signature * 3 + (int)column;
 
@@ -445,6 +631,11 @@ internal static class ElementMood
     /// turned it off" from "the scenario ended" without guessing.</param>
     internal static void StandDown(string why)
     {
+        // BEFORE the idempotence guard, on purpose: every route that drops this channel — teardown
+        // included (SkyAlternative.cs:889) — must also drop a test override, and the guard would
+        // otherwise let one survive a stand-down that had already published its zeros.
+        ClearForce(why);
+
         if (!_live && _zeroed)
             return;
 
@@ -525,8 +716,25 @@ internal static class ElementMood
               .Append(" now ").Append(Value[i].ToString("F2"))
               .Append(" -> ").Append(TargetLabel(Column[i]));
         }
+        // The forced element is NAMED in the same line as the values, because the whole point of the
+        // test page is that the reader of this log can tell "the environment answered the press"
+        // from "the environment answered the game" without correlating two timestamps.
+        if (_forceIndex >= 0)
+            sb.Append(" | TEST TRIGGER ACTIVE: ")
+              .Append((ElementInfusionBoardManager.EElement)_forceIndex).Append(" forced to ")
+              .Append(_forceColumn).Append(" until shared clock ")
+              .Append((_forceSince + ForceSeconds).ToString("F2")).Append("s (local only, no wire)");
+
         sb.Append(" | master ").Append(master.ToString("F2"))
-          .Append(" (setting on, strength ").Append(ResponseStrength.Value.ToString("F2")).Append(')')
+          // The setting can be OFF here while the channel publishes, because a test press overrides
+          // it for its hold — so the line states which it is instead of asserting "on". No brackets
+          // in either branch: scripts/patch-inventory.py's scanner walks string literals INTACT, so
+          // a bracket that opens in one branch of a ternary and closes outside it is unbalanced to
+          // the parser even though it is balanced at runtime.
+          .Append(EnvironmentResponse.Value
+                      ? ", setting on, strength "
+                      : ", SETTING OFF and overridden by a test trigger, strength ")
+          .Append(ResponseStrength.Value.ToString("F2"))
           .Append(", sig ").Append(signature)
           .Append(", shared clock ").Append(clock.ToString("F2")).Append('s');
         sb.Append(" | published as ").Append(ElemAName).Append("=(Fire,Ice,Air,Earth) ")

@@ -416,7 +416,46 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 141;
+    public const ushort ModBuild = 142;
+    // Build 142: four reported items. No wire change; the bump is the handshake key, and the
+    // BUNDLE IS REBUILT (65,226,455 bytes) — both players need the new plugin AND the new bundle.
+    //
+    // ELEMENT EFFECTS, the art half (140 shipped only the sensor, which is why the user saw
+    // nothing with Air up — his log proves the sensing worked: "Air=Waning now 0.00 -> 0.40+-0.12"
+    // with nothing reading it). All six elements now reach both rooms. THE ZERO STATE IS PROVEN
+    // BIT-IDENTICAL — md5-equal renders for channel-off vs all-six-Strong-with-master-0 vs
+    // master-on-all-inert — so the hand-tuned levels of ModBuild 133-139 are untouched whenever no
+    // element is up. Light and Dark are NOT one axis: ambient is lifted by Light only while Dark is
+    // down and crushed to 20% by Dark, while SOURCES are lifted by Light and HARDENED by Dark, so
+    // both strong gives a black room with small fierce candle pools instead of a grey average.
+    // HORROR REDESIGN. The user's verdict on 141 was "weit entfernt von echtem Horror ... eher
+    // lächerlich", and he was right: the render is literally an emoji. ROOT CAUSE, and it is a
+    // grammar problem, not a tuning one: a handful of SDF primitives in a fragment shader can only
+    // produce a silhouette with features drawn on it, which IS the grammar of a pictogram. What
+    // makes a face in the dark frightening is VALUE, and value needs a modelled surface with cast
+    // shadows. So the apparitions are now baked from a CPU-rendered atlas (real depth field,
+    // grazing key light, 40-tap heightfield shadow march, cavity occlusion, noise-broken skin) —
+    // impossible per-fragment, trivial at bake time. Two shipped-silently bugs found on the way:
+    // SaveMesh drops UV1-UV3 when overwriting an existing asset (so each re-bake kept the PREVIOUS
+    // catalogue's ids against the new positions), and floor() on an interpolated integer picked the
+    // wrong atlas tile at 4.0 minus one ulp.
+    // SHAFT STRIPING. The beams were combed into hard 5.5 cm vertical teeth. CAUSE: a shaft runs
+    // ALONG the light and both shadow-map axes are perpendicular to it, so the map coordinate is
+    // EXACTLY CONSTANT down a beam — a vertical strip of blade reads one texel column from canopy
+    // to floor, and one texel sideways swapped one of seven taps, which the bite ramp amplified to
+    // 0.375 of full shadow held over the whole length. The floor never showed it because a floor
+    // moves in u AND v AND depth at once. My own probe walked the beam AXIS — the one direction in
+    // which the comb is invisible — so the log reported a smooth profile while the picture showed a
+    // comb, and both were true. Fixed by splitting occluders by SCALE: trunks keep the crisp map
+    // and the bite ramp, needles get a separate 128^2 mass map (exact 4x4 area averages,
+    // bilinear, linear response) at 64 KiB. Worst across-beam step 2.03% -> 0.22%, while the
+    // beam's own across-contrast ROSE 5.4% -> 8.8%: one broad dapple instead of many teeth.
+    // "Shafts through trunks" is the necessary geometry of a beam parallel to the light and is not
+    // a bug — what WAS wrong is one shaft whose axis sat 0.21 m inside a trunk; only that is gated.
+    // TEST TRIGGERS: a new Advanced page fires each element (Strong and Waning) and each apparition
+    // on demand. LOCAL ONLY — the element board is a multiplayer desync invariant (ScenarioState
+    // codes 117/118), so the buttons override the PUBLISHED value and never the game's state.
+    //
     // Build 141: HORROR EASTER EGGS in the two bundled environments (user feature request). No
     // wire change; the bump is the handshake key, and the BUNDLE IS REBUILT (65,265,924 bytes).
     //

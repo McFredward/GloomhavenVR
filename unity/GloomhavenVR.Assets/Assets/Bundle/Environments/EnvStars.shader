@@ -99,6 +99,7 @@ Shader "GloomhavenVR/EnvStars"
             #pragma fragment frag
             #pragma target 3.0
             #include "UnityCG.cginc"
+            #include "EnvElement.cginc"
     // Shared with every other Env* shader that reads _Time: in multiplayer the elected
     // owner's epoch arrives on Net record 31 so both skies stand at the same hour; 0 offline.
     float _GhvrTimeOfs;
@@ -275,6 +276,49 @@ Shader "GloomhavenVR/EnvStars"
                     {
                         fixed4 mc = tex2D(_MoonTex, muv);
                         col = lerp(col, mc.rgb * _MoonCol.rgb, mc.a);
+                    }
+                }
+
+                // ================================ ELEMENT ART ================
+                // THE SKY IS THE PERIPHERY, and it is the same sky in both rooms
+                // (the cellar sees it through the barred window), so this is the
+                // one place an element can be read from anywhere without ever
+                // touching the board.
+                //
+                // The split, in the air: LIGHT lifts the whole continuous layer —
+                // the gradient, the Milky Way, the dust — so the night pales
+                // toward moonrise; DARK crushes it, and crushes it HARDER than
+                // Light lifts, so under both the field goes out and only the
+                // MOON is left standing (it is a source, so it takes the source
+                // gain and Dark never subtracts from it). The catalogue stars do
+                // the other half in EnvStarPoints: Dark eats the faint ones and
+                // leaves the bright ones brighter. Together: fewer, harder,
+                // brighter things in a blacker sky, which is what the brief means
+                // by "maximum contrast, not a grey average".
+                //
+                // ICE takes the moon cold — the forest's authored Ice channel is
+                // "a cold cast on the moon term", and the moon in the sky and the
+                // moon rim on the trunks (EnvRoom) must agree about its colour.
+                GhvrElem e = GhvrElems();
+                if (e.live > 0.0)
+                {
+                    col *= max(1.0 + 1.60 * e.light * (1.0 - e.dark) - 0.85 * e.dark, 0.0);
+                    if (mt > 0.5)
+                    {
+                        // re-apply the moon OVER the darkened field: it is drawn
+                        // last for exactly this reason, and under Dark it has to
+                        // survive at full strength or the split has no anchor.
+                        float3 right2 = normalize(cross(float3(0, 1, 0), md));
+                        float3 up2 = cross(md, right2);
+                        float3 p2 = u / mt;
+                        float2 muv2 = float2(dot(p2, right2), dot(p2, up2)) / (2.0 * _MoonExtent) + 0.5;
+                        if (all(muv2 > 0.0) && all(muv2 < 1.0))
+                        {
+                            fixed4 mc2 = tex2D(_MoonTex, muv2);
+                            float3 mcol = _MoonCol.rgb * GhvrSrcGain(e);
+                            mcol = lerp(mcol, mcol * float3(0.74, 0.88, 1.22), saturate(e.ice));
+                            col = lerp(col, mc2.rgb * mcol, mc2.a);
+                        }
                     }
                 }
 

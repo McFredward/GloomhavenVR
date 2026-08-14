@@ -53,6 +53,7 @@ Shader "GloomhavenVR/EnvPuddle"
 
     CGINCLUDE
     #include "UnityCG.cginc"
+    #include "EnvElement.cginc"
 
     fixed4 _Wet, _MoonCol, _CandCol, _SkyCol;
     float4 _Center, _MoonDir, _CandPos;
@@ -82,7 +83,25 @@ Shader "GloomhavenVR/EnvPuddle"
     /// Surface height of the ripple field at radius r, in metres of "slope
     /// units". One expanding train per drip plus a permanent, much slower
     /// breathing so the puddle is never a mirror-flat sheet of glass.
-    float RippleH (float r, float t)
+    // =============================================== ELEMENT ART ============
+    // The puddle is the cellar's Ice, and it is the best surface in the room to
+    // spend Ice on: it is the one thing the player has already watched MOVE
+    // (the drip rings it every 2.85 s), so freezing it is a change to something
+    // he knows the resting state of. Three effects, one number:
+    //   the rings DIE (amp -> 0.15) — a glazed puddle does not ripple;
+    //   the wet darkening goes pale and blue — ice is not water;
+    //   the moon's reflection SHARPENS — a flat sheet of ice is a better mirror
+    //   than a rippled puddle, and that is the give-away that it is frozen.
+    // Air does the opposite to the same term (the draught ruffles the surface),
+    // so Air+Ice reads as a half-frozen puddle with the wind still working the
+    // open water — a mixture, not an average.
+    /// Ripple amplitude multiplier. Exactly 1 when nothing is up.
+    float ElemRippleAmp (GhvrElem e)
+    {
+        return max((1.0 - 0.85 * e.ice) * (1.0 + 1.8 * e.air), 0.0);
+    }
+
+    float RippleH (float r, float t, float amp)
     {
         // 0 exactly when the drop from EnvDrip touches the water: same clock,
         // same period, same phase, minus the hang+fall the drop spends in the air
@@ -98,15 +117,15 @@ Shader "GloomhavenVR/EnvPuddle"
         float train2 = sin(rel2 * _RingFreq * 6.2831853) * exp(-abs(rel2) * 3.0)
                        * (1.0 - w2) * (1.0 - w2);
         float calm = sin(r * 9.0 - t * 1.1) * 0.5 + sin(r * 5.3 + t * 0.7) * 0.5;
-        return (train * decay + train2 * 0.55) * _RingAmp + calm * _Calm;
+        return ((train * decay + train2 * 0.55) * _RingAmp + calm * _Calm) * amp;
     }
 
-    float3 RippleN (float3 opos, float t)
+    float3 RippleN (float3 opos, float t, float amp)
     {
         float2 d = opos.xz - _Center.xz;
         float r = length(d);
-        float h0 = RippleH(r, t);
-        float h1 = RippleH(r + 0.012, t);
+        float h0 = RippleH(r, t, amp);
+        float h1 = RippleH(r + 0.012, t, amp);
         float slope = (h1 - h0) / 0.012;
         float2 dir = d / max(r, 1e-4);
         return normalize(float3(-dir.x * slope, 1.0, -dir.y * slope));
@@ -139,10 +158,15 @@ Shader "GloomhavenVR/EnvPuddle"
                 // tilting the surface between "you see the dark bottom" and "you
                 // see the sky".
                 float t = _Time.y + _GhvrTimeOfs;
+                GhvrElem e = GhvrElems();
                 float r = length(i.opos.xz - _Center.xz);
-                float h = RippleH(r, t);
+                float h = RippleH(r, t, ElemRippleAmp(e));
                 float m = saturate(i.vcol.a);
-                float3 wet = saturate(_Wet.rgb * (1.0 + _RingCon * h));
+                // ELEMENT ART: ice glaze. The multiply pass darkens the stone by
+                // _Wet; under Ice it stops darkening and starts PALING, which is
+                // the difference between a wet flagstone and a frozen one.
+                float3 wet = saturate(lerp(_Wet.rgb, float3(0.86, 0.92, 1.02), saturate(e.ice * 0.80))
+                                      * (1.0 + _RingCon * h));
                 return fixed4(lerp(float3(1,1,1), wet, m), 1.0);
             }
             ENDCG
@@ -158,7 +182,8 @@ Shader "GloomhavenVR/EnvPuddle"
             fixed4 frag (v2f i) : SV_Target
             {
                 float t = _Time.y + _GhvrTimeOfs;
-                float3 N = RippleN(i.opos, t);
+                GhvrElem e = GhvrElems();
+                float3 N = RippleN(i.opos, t, ElemRippleAmp(e));
                 float3 V = normalize(i.ov);
                 float3 R = reflect(-V, N);
 
@@ -171,8 +196,10 @@ Shader "GloomhavenVR/EnvPuddle"
                 // it; the broad one is the sky around the moon, which a rippled
                 // puddle scatters over most of the hemisphere — that is the term
                 // that makes the water read as water from anywhere in the room.
+                // ELEMENT ART: ice sharpens the mirror (a sheet of ice is flat
+                // where water is not), Light drives every reflected SOURCE.
                 float md = saturate(dot(R, normalize(_MoonDir.xyz)));
-                float moon = pow(md, _MoonPow) + 0.16 * pow(md, 3.0);
+                float moon = pow(md, _MoonPow * (1.0 + 2.5 * e.ice)) + 0.16 * pow(md, 3.0);
 
                 float3 toC = _CandPos.xyz - i.opos;
                 float cd2 = max(dot(toC, toC), 1e-4);
@@ -189,7 +216,13 @@ Shader "GloomhavenVR/EnvPuddle"
                 // ...plus the plain sheen of a wet surface: grazing angles see
                 // the sky, and the ripple slope decides which way each band tips
                 float sheen = fres * (0.65 + 0.35 * saturate(N.y * 4.0 - 3.0));
-                float3 col = _MoonCol.rgb * moon + _CandCol.rgb * cand + _SkyCol.rgb * sheen;
+                // the candle's shard warms and grows with Fire; every reflected
+                // source follows the split's source gain (Light lifts, Dark does
+                // not dim — see EnvElement.cginc)
+                float3 col = _MoonCol.rgb * moon
+                           + _CandCol.rgb * (cand * (1.0 + 0.85 * e.fire))
+                           + _SkyCol.rgb * sheen;
+                col *= GhvrSrcGain(e);
                 return fixed4(col * (fres * saturate(i.vcol.a)), 1.0);
             }
             ENDCG

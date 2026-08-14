@@ -29,6 +29,26 @@
 //       NO shooting stars / fireflies / ground fog — those are swamp-flavor.
 // plus the procedural textures/meshes/materials those FX reference.
 //
+// ELEMENT ART (ModBuild 141) — the six element infusions now reach the
+// environment. The sensing half is src/GloomhavenVR/Core/ElementMood.cs, which
+// publishes _GhvrElemA/_GhvrElemB; the art half is:
+//   * EnvElement.cginc — the channel, the Light/Dark SPLIT and the periphery
+//     ramp, quoted once for every shader that reads them;
+//   * EnvRoom / EnvFlame / EnvGlow / EnvPuddle / EnvDrip / EnvStars /
+//     EnvStarPoints — frost, the fire rim, the moss green, the flames' flare and
+//     lean, the glazed puddle, the sky;
+//   * the two particle shaders, which gained a GATE (an emitter that exists for
+//     one element collapses its quads while that element is down) and a
+//     MODULATION (the ground fog thickens under Dark, the fireflies turn to
+//     sparks under Fire) — see EnvParticleAdd.shader;
+//   * EnvRoomBuilder.AddElementFX — six gated emitters, hung under RoomGeo
+//     because the runtime's shell splitter would otherwise put them on the SKY
+//     branch. The bake log prints every one of them and what it costs standing.
+// Every effect is `element * _GhvrElemB.z`, so one uniform switches the whole
+// feature off, and every shader skips its element block entirely when nothing is
+// up — which is why the no-element render is bit-identical to the previous
+// round's, not merely close to it.
+//
 // Hard VR rules honoured throughout (user requirement):
 //  - everything is WORLD-anchored: world/local-simulated Shuriken particles on
 //    static anchors — nothing camera-attached, no screen-space effects.
@@ -269,7 +289,912 @@ namespace GloomhavenVR
             // Milky Way's mottling and dust lanes.
             WritePng(TexDir + "/Env_Haze.png", MakeHaze(256), 256, 256, sRGB: false, clamp: false,
                 comp: TextureImporterCompression.Compressed, alphaDilate: false);
+            // THE APPARITION ATLAS — the creepy easter eggs' actual likenesses.
+            // UNCOMPRESSED, deliberately: see the channel packing block below.
+            WritePng(TexDir + "/Env_Haunt.png", MakeHauntAtlas(),
+                HauntTile * HauntAtlasCols, HauntTile * HauntAtlasRows,
+                sRGB: true, clamp: true,
+                comp: TextureImporterCompression.Uncompressed);
             AssetDatabase.Refresh();
+        }
+
+        // ==================================================== APPARITION ATLAS
+        // HAUNT DREAD. The creepy easter eggs' likenesses, rendered on the CPU at
+        // bake time.
+        //
+        // WHY THIS REPLACED THE SIGNED-DISTANCE SHAPES IT USED TO DRAW IN THE
+        // FRAGMENT SHADER. The first pass argued that SDFs were right because
+        // they are crisp at any distance, cost no memory and can MORPH. All three
+        // are true and none of them mattered, because the pictures they produced
+        // were cartoons — the user's verdict on the shipped build, verbatim: "Ich
+        // habe nur einmal ein Easter Egg im Keller gesehen, das war so ein
+        // lächelndes 2D Gesicht im Schrank - das ist weit entfernt von echtem
+        // Horror - das sah eher Lächerlich aus. Die Easter eggs sollen echten
+        // Horror verbreiten, kein Kindergeburtstag sein." The previews confirm it
+        // exactly: env_cellar_HauntGrin was a flat white oval with two round dots
+        // and a symmetric smile arc — an emoji; the cellar's crouching thing was
+        // two glowing blobs; the forest's watcher was a chess pawn.
+        //
+        // The reason is structural rather than a matter of taste, and it is worth
+        // stating because it is the argument for everything below. A handful of
+        // SDF primitives can only produce a SILHOUETTE WITH FEATURES DRAWN ON IT,
+        // and a silhouette with features drawn on it is exactly the grammar of a
+        // pictogram. What makes a face in the dark frightening is not its outline;
+        // it is VALUE — most of it indistinguishable from the dark, with a
+        // cheekbone, a jaw edge and one wet gleam coming out of it. Value needs
+        // shading, shading needs a surface, and a surface needs either a mesh (the
+        // bundle forbids the rigs that would animate one) or a texture.
+        //
+        // A CPU renderer at bake time has no ALU budget, no instruction limit and
+        // no register pressure. What it buys, and what no plausible fragment
+        // program was going to buy:
+        //   * real Lambert shading off a modelled depth field, with a GRAZING key
+        //     light so only what is tilted toward it comes out of the black;
+        //   * HEIGHTFIELD SHADOWING — the brow's shadow falling on the forehead.
+        //     This is the single biggest contributor and it is a 40-step march
+        //     per pixel, i.e. unthinkable in the fragment shader;
+        //   * cavity occlusion, so an eye socket is a hole and not a dent;
+        //   * multi-octave noise on the skin, on the outline and on the value, so
+        //     nothing is uniform and no edge is an analytic curve;
+        //   * hair and rags, which are the things that stop a silhouette being a
+        //     closed convex shape.
+        // What was given up is the morph — the grin that widened. That loss is a
+        // gain: a widening grin is the cartoon element the user objected to. The
+        // micro-motion that replaced it (a slow head TILT, a damped sway, a
+        // per-eye blink) is a UV rotation and is still fully parametric.
+        //
+        // THE CHANNEL PACKING, and why the texture is UNCOMPRESSED.
+        //   R = KEY value    the light the room's own key source puts on it
+        //                    (the cellar candles from below; the moon from its
+        //                    real bearing in the forest).
+        //   G = RIM band     1 on the outline, falling inward. This is what the
+        //                    element compensation needs: under full Light it is
+        //                    multiplied in as a DARK CONTOUR, under full Dark as a
+        //                    faint self-lit edge. Baking it removes the whole
+        //                    _RimWidth/_Edge machinery from the shader and gives
+        //                    an edge that is irregular instead of analytic.
+        //   B = FILL value   a second, opposing light. The shader mixes R and B
+        //                    with two per-card COLOURS, so one tile can be lit by
+        //                    candlelight in the cellar and by the moon in the
+        //                    forest without being baked twice.
+        //   A = COVERAGE     the occlusion. Note that a dark apparition has A near
+        //                    1 and R,B near 0: it is a HOLE in the scene, which is
+        //                    what a real body in the dark is, and it is why the
+        //                    blend is ordinary alpha and not additive.
+        // Those three RGB channels are three unrelated masks. BC3/DXT5 encodes RGB
+        // as two endpoint colours per 4x4 block and assumes the channels move
+        // together; three independent masks are the worst case for it, and the
+        // artefact would land on the one asset in this feature that may not look
+        // cheap. So the atlas ships uncompressed: 1024x1024 RGBA32 = 4 MiB, 5.3
+        // MiB with mips. It is mostly transparent black and costs far less than
+        // that in the bundle stream.
+        //
+        // POWER OF TWO, and it has to be: the importer's default npotScale is
+        // ToNearest, so a 1024x768 atlas would be silently RESCALED and every tile
+        // would land off its cell. 4x4 cells of 256, ten of them used.
+        public const int HauntTile = 256;
+        public const int HauntAtlasCols = 4, HauntAtlasRows = 4;
+
+        /// <summary>Tile indices in Env_Haunt.png. EnvHaunt.shader is handed one
+        /// of these per card in TEXCOORD1.w, and BuildEnvironmentRooms names them
+        /// in its catalogues — so this is the one place the numbering lives.</summary>
+        public const int HTileFaceCellar = 0;   // gaunt head, lit from below by a candle
+        public const int HTileFaceForest = 1;   // the same species of head, moon-rimmed
+        public const int HTileBust = 2;         // head and shoulders filling an opening
+        public const int HTileLowFace = 3;      // a head at floor level, looking UP
+        public const int HTileWatcher = 4;      // too tall, too thin, standing still
+        public const int HTileTallFig = 5;      // crossing; its head is above the card
+        public const int HTileHang = 6;         // hung by the feet, head down
+        public const int HTileLoom = 7;         // a featureless mass, occlusion only
+        public const int HTileHands = 8;        // three prints, one per tile third
+        public const int HTileEye = 9;          // ONE eye; the shader places two
+
+        // ---------------------------------------------------------- tiny kit
+        // A tile is four float planes of HauntTile^2. Index [iy * T + ix] with
+        // iy = 0 at the BOTTOM, matching every other texture in this file.
+        private sealed class HauntPlane
+        {
+            public readonly float[] V;
+            public HauntPlane() { V = new float[HauntTile * HauntTile]; }
+            public float this[int i] { get { return V[i]; } set { V[i] = value; } }
+        }
+
+        private static float HSStep(float a, float b, float x)
+        {
+            float t = Mathf.Clamp01((x - a) / (b - a + 1e-9f));
+            return t * t * (3f - 2f * t);
+        }
+
+        private static float HGauss(float dx, float dy, float rx, float ry)
+        {
+            float u = dx / rx, v = dy / ry;
+            return Mathf.Exp(-(u * u + v * v));
+        }
+
+        /// <summary>fBm in the tile's own 2D space. Fbm3 with a fixed z — the
+        /// atlas needs no third dimension and reusing the file's own noise keeps
+        /// one hash in the builder.</summary>
+        private static float HFbm(float x, float y, int octaves, int seed)
+        {
+            return Fbm3(new Vector3(x, y, 0.5f), octaves, seed);
+        }
+
+        /// <summary>Distance from p to the segment a..b, and the parameter along
+        /// it. Every limb, torso, rag and finger below is one of these.</summary>
+        private static float HSegDist(float px, float py, float ax, float ay,
+                                      float bx, float by, out float t)
+        {
+            float dx = bx - ax, dy = by - ay;
+            float qx = px - ax, qy = py - ay;
+            t = Mathf.Clamp01((qx * dx + qy * dy) / (dx * dx + dy * dy + 1e-9f));
+            float ex = qx - dx * t, ey = qy - dy * t;
+            return Mathf.Sqrt(ex * ex + ey * ey);
+        }
+
+        /// <summary>Surface normal of a depth plane, by central difference.</summary>
+        private static void HNormals(HauntPlane z, out float[] nx, out float[] ny, out float[] nz)
+        {
+            int T = HauntTile;
+            nx = new float[T * T]; ny = new float[T * T]; nz = new float[T * T];
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    int xm = Mathf.Max(ix - 1, 0), xp = Mathf.Min(ix + 1, T - 1);
+                    int ym = Mathf.Max(iy - 1, 0), yp = Mathf.Min(iy + 1, T - 1);
+                    // d/dx and d/dy in TILE units (the tile spans 2 units), so the
+                    // normal's slope is comparable with the depth's own scale.
+                    float gx = (z[iy * T + xp] - z[iy * T + xm]) * (T / 4f);
+                    float gy = (z[yp * T + ix] - z[ym * T + ix]) * (T / 4f);
+                    float l = Mathf.Sqrt(gx * gx + gy * gy + 1f);
+                    nx[i] = -gx / l; ny[i] = -gy / l; nz[i] = 1f / l;
+                }
+        }
+
+        private static float HDot(float[] nx, float[] ny, float[] nz, int i, Vector3 L)
+        {
+            return Mathf.Max(0f, nx[i] * L.x + ny[i] * L.y + nz[i] * L.z);
+        }
+
+        /// <summary>A GRAZING/rim response: the surface must both face the light
+        /// and be turning away from the viewer. "Lit only along one edge", which
+        /// is what every distant silhouette in this catalogue is.</summary>
+        private static float HGraze(float[] nx, float[] ny, float[] nz, int i, Vector3 L, float p)
+        {
+            return HDot(nx, ny, nz, i, L) * Mathf.Pow(Mathf.Clamp01(1f - nz[i]), p);
+        }
+
+        /// <summary>HEIGHTFIELD SHADOWING. March along the light's screen-space
+        /// direction and ask whether anything on the way is high enough to block
+        /// it. Returns 1 = lit, 0 = shadowed.
+        ///
+        /// <para>This is what makes a face lit from below read as a face lit from
+        /// below. A Lambert term alone gives every patch with the same normal the
+        /// same value wherever it sits; only an occlusion march puts the brow's
+        /// shadow ON the forehead and the nose's shadow across the cheek — and
+        /// those two shadows are most of the picture. It is 40 taps per pixel,
+        /// which is why this belongs at bake time and could never have been the
+        /// fragment shader's job.</para></summary>
+        private static float[] HShadow(HauntPlane z, Vector3 L, int steps = 40, float reach = 0.55f)
+        {
+            int T = HauntTile;
+            var lit = new float[T * T];
+            for (int i = 0; i < lit.Length; i++) lit[i] = 1f;
+            float lxy = Mathf.Sqrt(L.x * L.x + L.y * L.y) + 1e-6f;
+            float dx = L.x / lxy, dy = L.y / lxy, slope = L.z / lxy;
+            for (int k = 1; k <= steps; k++)
+            {
+                float t = reach * k / steps;                 // travel, tile units
+                int px = Mathf.RoundToInt(dx * t * T * 0.5f);
+                int py = Mathf.RoundToInt(dy * t * T * 0.5f);
+                if (px == 0 && py == 0) continue;
+                for (int iy = 0; iy < T; iy++)
+                {
+                    int sy = iy + py; if (sy < 0 || sy >= T) continue;
+                    for (int ix = 0; ix < T; ix++)
+                    {
+                        int sx = ix + px; if (sx < 0 || sx >= T) continue;
+                        int i = iy * T + ix;
+                        float blocked = Mathf.Clamp01((z[sy * T + sx] - z[i] - slope * t) / 0.025f);
+                        if (1f - blocked < lit[i]) lit[i] = 1f - blocked;
+                    }
+                }
+            }
+            return lit;
+        }
+
+        /// <summary>Two-pass chamfer distance transform: for every pixel, the
+        /// distance in TILE UNITS to the nearest pixel where `inside` is true.
+        /// Deterministic, no allocation per pass, and exact enough for a rim band
+        /// that is six per cent of a tile wide.</summary>
+        private static float[] HDistanceTo(bool[] inside)
+        {
+            int T = HauntTile;
+            const float BIG = 1e6f, A = 1f, B = 1.41421356f;
+            var d = new float[T * T];
+            for (int i = 0; i < d.Length; i++) d[i] = inside[i] ? 0f : BIG;
+            for (int iy = 1; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix; float v = d[i];
+                    if (ix > 0) v = Mathf.Min(v, d[i - 1] + A);
+                    v = Mathf.Min(v, d[i - T] + A);
+                    if (ix > 0) v = Mathf.Min(v, d[i - T - 1] + B);
+                    if (ix < T - 1) v = Mathf.Min(v, d[i - T + 1] + B);
+                    d[i] = v;
+                }
+            for (int iy = T - 2; iy >= 0; iy--)
+                for (int ix = T - 1; ix >= 0; ix--)
+                {
+                    int i = iy * T + ix; float v = d[i];
+                    if (ix < T - 1) v = Mathf.Min(v, d[i + 1] + A);
+                    v = Mathf.Min(v, d[i + T] + A);
+                    if (ix < T - 1) v = Mathf.Min(v, d[i + T + 1] + B);
+                    if (ix > 0) v = Mathf.Min(v, d[i + T - 1] + B);
+                    d[i] = v;
+                }
+            for (int i = 0; i < d.Length; i++) d[i] *= 2f / T;
+            return d;
+        }
+
+        /// <summary>The G channel: 1 on the outline, falling inward over `reach`
+        /// tile units. Derived from the coverage's own DEPTH, so the band follows
+        /// every notch the noise chewed into the silhouette — which is the whole
+        /// reason it is baked rather than computed from an analytic distance.</summary>
+        private static float[] HRimBand(float[] cov, int seed, float reach = 0.135f)
+        {
+            int T = HauntTile;
+            var outside = new bool[cov.Length];
+            for (int i = 0; i < cov.Length; i++) outside[i] = cov[i] < 0.5f;
+            var depth = HDistanceTo(outside);
+            var rim = new float[cov.Length];
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    if (cov[i] <= 0.5f) continue;
+                    float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                    float f = Mathf.Clamp01(1f - depth[i] / reach);
+                    // WIDE AND UNEVEN. The first version was 0.055 of a tile with a
+                    // ^1.5 profile, which on a 2.7 m card is a 15 cm bright line
+                    // that traces the whole silhouette — and a shape with an even
+                    // bright line all the way round it is a STICKER. The previews
+                    // were unambiguous: the hanging figure came out as a neon
+                    // wireframe and the mass in the trees as an outlined cartoon.
+                    // Three times the reach and a cubic profile make it an inward
+                    // GLOW instead of an outline; the noise then breaks it, so the
+                    // edge is lit in some places and gone in others, the way an
+                    // edge catching a real light actually is.
+                    rim[i] = f * f * f * (0.20f + 1.15f * HFbm(x * 3.1f + 7f, y * 3.1f, 3, seed + 91));
+                }
+            return rim;
+        }
+
+        /// <summary>Blur a plane in place, five-tap, `n` times. Used only to get
+        /// the LARGE-SCALE surface, against which the small-scale relief becomes
+        /// a cavity-occlusion term.</summary>
+        private static HauntPlane HBlur(HauntPlane src, int n)
+        {
+            int T = HauntTile;
+            var a = new HauntPlane(); Array.Copy(src.V, a.V, src.V.Length);
+            var b = new HauntPlane();
+            for (int p = 0; p < n; p++)
+            {
+                for (int iy = 0; iy < T; iy++)
+                    for (int ix = 0; ix < T; ix++)
+                    {
+                        int i = iy * T + ix;
+                        int xm = Mathf.Max(ix - 1, 0), xp = Mathf.Min(ix + 1, T - 1);
+                        int ym = Mathf.Max(iy - 1, 0), yp = Mathf.Min(iy + 1, T - 1);
+                        b[i] = (a[i] + a[iy * T + xm] + a[iy * T + xp]
+                                + a[ym * T + ix] + a[yp * T + ix]) * 0.2f;
+                    }
+                var t = a; a = b; b = t;
+            }
+            return a;
+        }
+
+        /// <summary>One finished apparition: the four planes the atlas packs.</summary>
+        private struct HauntTileData
+        {
+            public float[] key, rim, fill, cov;
+        }
+
+        /// <summary>Every knob of the head renderer. Defaults are the cellar's.</summary>
+        private struct HauntFaceCfg
+        {
+            public int seed;
+            public float lean;        // the head leans off vertical
+            public float jaw;         // jaw length multiplier
+            public float hairSide;    // +1 hair down the right, -1 down the left
+            public float mouthOpen;   // half-height of the gap, tile units
+            public float scale, drop; // frame the head inside the tile
+            public float lookUp;      // foreshorten the cranium: it is looking UP
+            public float shoulders;   // >0 adds a shoulder line at this depth
+            public float hair;        // 0 = bald; scales the strand mass
+            public float shoulderTilt;
+            public Vector3 key, fill;
+            public float keyPow, keyGain, fillPow, fillGain;
+        }
+
+        /// <summary>THE HEAD. Rendered, not drawn: a depth field with a brow, two
+        /// pits, cheekbones, a broken nose and an opening for a mouth, shaded by a
+        /// grazing key with real cast shadows, then chewed at the edge and hung
+        /// with hair.
+        ///
+        /// <para>NOTHING IN IT IS SYMMETRIC, and that is a rule rather than a
+        /// flourish. The skull is rotated 4.5 degrees; one side of the outline is
+        /// 7 % wider than the other; the left socket is deeper, larger and sits
+        /// higher than the right; the brows differ; the mouth is wider on one
+        /// side and its line is bent; the single wet gleam is in ONE socket and
+        /// off its centre; the hair is on one side only. Symmetric ovals and
+        /// symmetric arcs are the grammar of a pictogram, and the pictogram is
+        /// exactly what the user rejected.</para>
+        ///
+        /// <para>THE KEY LIGHT GRAZES — |z| around 0.1 of a unit vector. A light
+        /// with any real z component lights the whole flat front of a face to ONE
+        /// value, and one value across a face is the flat printed-paper read that
+        /// the first version shipped. Grazing means only what is TILTED toward it
+        /// comes out of the dark at all: the underside of the brow, of a
+        /// cheekbone, of the nose, and the jaw line. Everything else stays in the
+        /// black and the player's own eye finishes the head.</para></summary>
+        private static HauntTileData HauntFace(HauntFaceCfg c)
+        {
+            int T = HauntTile;
+            var z = new HauntPlane();
+            var covH = new float[T * T];
+            var holes = new float[T * T];
+            var mouthM = new float[T * T];
+            // keep the frame coordinates: the shoulder pass needs them again
+            var fxA = new float[T * T]; var fyA = new float[T * T];
+            var xrA = new float[T * T]; var yrA = new float[T * T];
+
+            float ca = Mathf.Cos(4.5f * Mathf.Deg2Rad), sa = Mathf.Sin(4.5f * Mathf.Deg2Rad);
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    float x = ((ix + 0.5f) / T * 2f - 1f) / c.scale;
+                    float y = ((iy + 0.5f) / T * 2f - 1f + c.drop) / c.scale;
+                    fxA[i] = x; fyA[i] = y;
+                    float xr = x * ca - y * sa;
+                    float yr = x * sa + y * ca;
+                    xr += c.lean * yr;
+                    // LOOKING UP AT YOU: the cranium foreshortens away and the jaw
+                    // comes toward the viewer. A head at floor level drawn in
+                    // front elevation is a head lying on its back, which is a
+                    // corpse; a head that is looking up is a threat.
+                    if (c.lookUp > 0f)
+                        yr = yr * (1f - c.lookUp * HSStep(0f, 0.95f, yr)) + c.lookUp * 0.18f;
+                    xrA[i] = xr; yrA[i] = yr;
+
+                    // ---- outline. Cranium NARROW, jaw LONG and slab-sided: an
+                    // egg with a point is a grey alien, a different and sillier
+                    // monster, and it is what the first attempt produced.
+                    float ax = 0.355f * (1f + 0.10f * HSStep(0.55f, 0.05f, yr))
+                                      * (1f - 0.30f * Mathf.Pow(HSStep(-0.28f, -0.95f, yr), 1.6f))
+                                      * (1f - 0.20f * HSStep(0.30f, 0.95f, yr));
+                    ax *= xr < 0f ? 1.07f : 0.95f;
+                    float ayy = yr > 0f ? 0.62f : 0.95f * c.jaw;
+                    float s = 1f - Mathf.Pow(Mathf.Abs(xr / ax), 2.4f)
+                                 - Mathf.Pow(Mathf.Abs(yr / ayy), 2.6f);
+                    float edgeN = HFbm(xr * 3.4f + 5f, yr * 3.4f, 4, c.seed) - 0.5f;
+                    covH[i] = HSStep(-0.03f, 0.04f, s + 0.13f * edgeN);
+
+                    float d = Mathf.Pow(Mathf.Max(s, 0f), 0.45f) * 0.30f;
+
+                    const float ex = 0.165f;
+                    // SOCKETS, not eyes: pits. The left is deeper, larger, higher.
+                    d -= 0.190f * HGauss(xr + ex * 1.10f, yr - 0.190f, 0.135f, 0.115f);
+                    d -= 0.150f * HGauss(xr - ex * 0.92f, yr - 0.150f, 0.112f, 0.094f);
+                    // the brow shelf that casts the shadow which hides them
+                    d += 0.085f * HGauss(xr + 0.16f, yr - 0.345f, 0.23f, 0.075f);
+                    d += 0.062f * HGauss(xr - 0.15f, yr - 0.318f, 0.19f, 0.066f);
+                    d -= 0.060f * HGauss(Mathf.Abs(xr) - 0.33f, yr - 0.34f, 0.12f, 0.15f);
+                    // cheekbones high and sharp, cheeks sunken under them
+                    d += 0.062f * HGauss(xr + 0.245f, yr + 0.005f, 0.135f, 0.105f);
+                    d += 0.050f * HGauss(xr - 0.225f, yr + 0.045f, 0.120f, 0.098f);
+                    d -= 0.075f * HGauss(Mathf.Abs(xr) - 0.185f, yr + 0.245f, 0.115f, 0.165f);
+                    // nose: a narrow ridge that stops, then two slots, bent off axis
+                    float nx0 = xr - 0.015f + 0.05f * (yr + 0.1f);
+                    d += 0.046f * HGauss(nx0, yr - 0.02f, 0.034f, 0.17f);
+                    d -= 0.085f * HGauss(Mathf.Abs(nx0) - 0.050f, yr + 0.135f, 0.032f, 0.030f);
+
+                    // MOUTH. NOT a depression — a modelled slot has lit lips, and
+                    // a lit lip under a grazing key came out as a chrome bar
+                    // across the face two attempts running. It is an OPENING:
+                    // coverage stays, light does not.
+                    const float mw = 0.150f;
+                    float my = yr + 0.330f + 0.075f * xr + 0.055f * xr * xr;
+                    float mn = 0.030f * (HFbm(xr * 9f, yr * 9f + 3f, 3, c.seed + 5) - 0.5f);
+                    float mouth = HSStep(c.mouthOpen + 0.016f, c.mouthOpen - 0.012f, Mathf.Abs(my + mn))
+                                * HSStep(mw + 0.02f, mw - 0.05f,
+                                         Mathf.Abs(xr + 0.02f) * (xr < -0.02f ? 1.15f : 0.80f));
+                    mouthM[i] = mouth;
+                    d -= 0.020f * mouth;
+                    d += 0.028f * HGauss(xr + 0.02f, yr + 0.62f, 0.12f, 0.14f);
+                    z[i] = d;
+
+                    // CAVITIES ARE HOLES. No light reaches into a socket or into
+                    // an open mouth, and a shading model that lets one brighten
+                    // has drawn a mask.
+                    float h = Mathf.Clamp01(mouth * 1.6f);
+                    h = Mathf.Max(h, HSStep(c.mouthOpen + 0.085f, c.mouthOpen + 0.010f, Mathf.Abs(my + mn))
+                                     * HSStep(mw + 0.055f, mw - 0.02f, Mathf.Abs(xr + 0.02f)));
+                    h = Mathf.Max(h, HSStep(0.35f, 0.85f, HGauss(xr + ex * 1.10f, yr - 0.190f, 0.115f, 0.098f)));
+                    h = Mathf.Max(h, HSStep(0.40f, 0.88f, HGauss(xr - ex * 0.92f, yr - 0.150f, 0.095f, 0.080f)));
+                    holes[i] = h;
+                }
+
+            var zb = HBlur(z, 9);
+            HNormals(z, out var nx, out var ny, out var nz);
+            var shK = HShadow(z, c.key.normalized, 40, 0.55f);
+
+            var litK = new float[T * T];
+            var litF = new float[T * T];
+            var cov = new float[T * T];
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    float xr = xrA[i], yr = yrA[i];
+                    float ao = Mathf.Pow(Mathf.Clamp01(0.40f + (z[i] - zb[i]) * 30f), 1.7f);
+                    float k = Mathf.Pow(HDot(nx, ny, nz, i, c.key.normalized), c.keyPow)
+                              * c.keyGain * ao * (0.06f + 0.94f * shK[i]);
+                    float f = HGraze(nx, ny, nz, i, c.fill.normalized, c.fillPow)
+                              * c.fillGain * (0.25f + 0.75f * ao);
+                    k *= 1f - holes[i]; f *= 1f - holes[i];
+                    // ...and the key is CLOSE and LOW, so it falls off up the
+                    // head. The crown is not dim, it is GONE — most of an
+                    // apparition has to be indistinguishable from the dark.
+                    k *= 0.06f + 0.94f * HSStep(0.72f, -0.55f, yr);
+                    float vb = 0.35f + 1.05f * HFbm(xr * 1.9f + 2f, yr * 1.9f, 3, c.seed + 61);
+                    k *= vb; f *= 0.5f + 0.5f * vb;
+                    float skin = (0.60f + 0.66f * HFbm(xr * 5.5f, yr * 5.5f, 4, c.seed + 3))
+                               * (0.76f + 0.44f * HFbm(xr * 17f, yr * 17f, 3, c.seed + 9));
+                    k *= skin; f *= skin;
+                    // ONE wet gleam, in ONE socket, off its centre. A pair of
+                    // symmetric highlights is a pair of eyes; a single one is a
+                    // thing that is wet.
+                    k = Mathf.Max(k, HGauss(xr + 0.165f * 1.10f + 0.042f, yr - 0.215f, 0.014f, 0.011f));
+
+                    // ---- HAIR: strands hanging down ONE side and past the jaw,
+                    // so the silhouette stops being a closed curve. Confined to a
+                    // narrow band around the outline on that side — a full-tile
+                    // stripe field reads as a barcode, which the first attempt
+                    // duly produced.
+                    float hx = xr * c.hairSide;
+                    float warp = 0.14f * (HFbm(hx * 2.4f, yr * 1.5f + 4f, 3, c.seed + 41) - 0.5f);
+                    float u = hx + warp - 0.10f * (yr - 0.35f);
+                    float st = Mathf.Abs(Mathf.Sin(u * 34f + 5f * HFbm(hx * 3f, yr * 1.1f, 2, c.seed + 43)));
+                    st = HSStep(0.72f, 0.06f, st);
+                    float band = HSStep(0.13f, 0.21f, u) * HSStep(0.54f, 0.38f, u)
+                               * HSStep(-0.80f, -0.52f, yr) * HSStep(0.84f, 0.58f, yr);
+                    // A head TILTED BACK on the floor has its hair behind it, not
+                    // standing up beside its ear: the first bake of the
+                    // floor-level face put three bright strands over the
+                    // barrel it was behind and they read as CLAWS.
+                    float hair = Mathf.Clamp01(st * band
+                                 * (0.5f + 1.0f * HFbm(hx * 4f, yr * 3f, 3, c.seed + 47))
+                                 * 1.7f * c.hair);
+                    cov[i] = Mathf.Clamp01(covH[i] + hair);
+                    litK[i] = k * (1f - hair) + hair * 0.022f;
+                    litF[i] = f * (1f - hair) + hair * 0.10f * st;
+                }
+
+            // ---- SHOULDERS, for the cards that are a head AND a body in a frame.
+            if (c.shoulders > 0f)
+            {
+                var sz = new HauntPlane();
+                var sm = new float[T * T];
+                for (int i = 0; i < T * T; i++)
+                {
+                    float sd = HSegDist(fxA[i], fyA[i],
+                                        -1.60f, -c.shoulders - 0.22f * c.shoulderTilt,
+                                        1.60f, -c.shoulders + 0.72f * c.shoulderTilt, out _);
+                    sm[i] = HSStep(0.62f, 0.52f,
+                                   sd + 0.16f * (HFbm(fxA[i] * 3.2f, fyA[i] * 3.2f + 9f, 4, c.seed + 71) - 0.5f));
+                    float r = Mathf.Min(sd, 0.62f);
+                    sz[i] = Mathf.Sqrt(Mathf.Max(0.38f - r * r, 0f));
+                }
+                HNormals(sz, out var sx, out var sy, out var sn);
+                for (int i = 0; i < T * T; i++)
+                {
+                    float lk = HGraze(sx, sy, sn, i, c.key.normalized, 2.2f) * c.keyGain * 0.55f;
+                    float lf = HGraze(sx, sy, sn, i, c.fill.normalized, c.fillPow) * c.fillGain * 0.5f;
+                    cov[i] = Mathf.Clamp01(cov[i] + sm[i]);
+                    litK[i] = Mathf.Max(litK[i] * (1f - sm[i]), lk * sm[i]);
+                    litF[i] = Mathf.Max(litF[i] * (1f - sm[i]), lf * sm[i]);
+                }
+            }
+
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                    cov[i] *= HSStep(1.03f, 0.95f, Mathf.Sqrt(x * x + y * y));
+                    cov[i] = Mathf.Clamp01(cov[i]);
+                    litK[i] = Mathf.Clamp01(litK[i] * cov[i]);
+                    litF[i] = Mathf.Clamp01(litF[i] * cov[i]);
+                }
+            return new HauntTileData { key = litK, rim = HRimBand(cov, c.seed), fill = litF, cov = cov };
+        }
+
+        /// <summary>One tapered capsule of a body: a..b in tile units, radius r0
+        /// at a tapering to r1 at b.</summary>
+        private struct HauntLimb
+        {
+            public float ax, ay, bx, by, r0, r1;
+            public HauntLimb(float ax, float ay, float bx, float by, float r0, float r1)
+            { this.ax = ax; this.ay = ay; this.bx = bx; this.by = by; this.r0 = r0; this.r1 = r1; }
+        }
+
+        /// <summary>THE BODIES. A figure out of tapered capsules, given a depth so
+        /// that it can be LIT rather than merely outlined.
+        ///
+        /// <para>Every distant silhouette in this catalogue is drawn here, and its
+        /// content is not its features — at 13 to 17 m there are none. It is (a)
+        /// an outline that is irregular the way cloth and hair are irregular, and
+        /// (b) ONE edge that catches the room's light. `key` is therefore a
+        /// GRAZING direction: it produces a bright line down one side, and
+        /// nothing else at all.</para>
+        ///
+        /// <para>THE TILE IS A SQUARE IN METRES of side 2 * halfH, and the parts
+        /// below are in those units. This matters: the first version authored the
+        /// figures in the CARD's stretched space, and a 2 m card that is 0.8 m
+        /// wide turned every one of them into a pole. Radii here are real — 0.098
+        /// is a 20 cm skull on a 1 m half-height.</para></summary>
+        private static HauntTileData HauntFigure(HauntLimb[] parts, int seed,
+            Vector3 key, float keyGain, float keyPow,
+            Vector3 fill, float fillGain, float fillPow,
+            float ragged = 0.055f, float hem = 0f, float hemY = -0.80f, float hemDir = -1f,
+            float margin = 1.02f)
+        {
+            int T = HauntTile;
+            var z = new HauntPlane();
+            var zr = new HauntPlane();
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                    float best = 0f;
+                    foreach (var p in parts)
+                    {
+                        float d = HSegDist(x, y, p.ax, p.ay, p.bx, p.by, out float t);
+                        float r = p.r0 + (p.r1 - p.r0) * t;
+                        float h = Mathf.Sqrt(Mathf.Max(r * r - d * d, 0f));
+                        if (h > best) best = h;
+                    }
+                    z[i] = best;
+                }
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                    float n1 = HFbm(x * 4.5f + 3f, y * 4.5f, 4, seed) - 0.5f;
+                    float n2 = HFbm(x * 13f, y * 13f + 7f, 3, seed + 5) - 0.5f;
+                    zr[i] = z[i] + ragged * (n1 * 1.4f + n2 * 0.5f) * HSStep(0f, 0.06f, z[i]);
+                }
+
+            // A TORN BAND — rags, hair or roots reaching off the body from the
+            // line `hemY`. It may only exist WHERE THE BODY IS: the first attempt
+            // masked on the row alone and drew a dashed line straight across the
+            // tile, which is a fence and not a rag.
+            if (hem > 0f)
+            {
+                int row = Mathf.Clamp(Mathf.RoundToInt((hemY + 1f) * 0.5f * T), 0, T - 1);
+                var onBody = new bool[T];
+                for (int ix = 0; ix < T; ix++) onBody[ix] = z[row * T + ix] > 0.006f;
+                var wide = new bool[T];
+                for (int ix = 0; ix < T; ix++)
+                    for (int k = -3; k <= 3; k++)
+                    {
+                        int j = ix + k;
+                        if (j >= 0 && j < T && onBody[j]) { wide[ix] = true; break; }
+                    }
+                for (int iy = 0; iy < T; iy++)
+                    for (int ix = 0; ix < T; ix++)
+                    {
+                        if (!wide[ix]) continue;
+                        int i = iy * T + ix;
+                        float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                        float band = (hemY - y) * hemDir;
+                        if (band <= 0f) continue;
+                        float st = Mathf.Abs(Mathf.Sin(x * 47f + 7f * HFbm(x * 3f, y, 2, seed + 11)));
+                        st = HSStep(0.75f, 0.15f, st) * (0.4f + 1.2f * HFbm(x * 6f, y * 2f, 3, seed + 13));
+                        float v = 0.05f * st * HSStep(hem * st, 0f, band);
+                        if (v > zr[i]) zr[i] = v;
+                    }
+            }
+
+            var zs = new HauntPlane();
+            for (int i = 0; i < T * T; i++) zs[i] = zr[i] * 0.9f;
+            HNormals(zs, out var nx, out var ny, out var nz);
+
+            var litK = new float[T * T];
+            var litF = new float[T * T];
+            var cov = new float[T * T];
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                    float c = HSStep(0.004f, 0.020f, zr[i]);
+                    c *= HSStep(margin, margin - 0.08f, Mathf.Max(Mathf.Abs(x), Mathf.Abs(y)));
+                    float br = 0.45f + 1.05f * HFbm(x * 2.2f + 9f, y * 2.2f, 3, seed + 21);
+                    cov[i] = Mathf.Clamp01(c);
+                    litK[i] = Mathf.Clamp01(HGraze(nx, ny, nz, i, key.normalized, keyPow) * keyGain * br * c);
+                    litF[i] = Mathf.Clamp01(HGraze(nx, ny, nz, i, fill.normalized, fillPow) * fillGain * br * c);
+                }
+            return new HauntTileData { key = litK, rim = HRimBand(cov, seed), fill = litF, cov = cov };
+        }
+
+        /// <summary>THE HANDPRINTS. Three, in the tile's three vertical thirds, so
+        /// that the shader can bloom them one at a time with a floor() and needs
+        /// no extra channel to know the order.
+        ///
+        /// <para>They are NOT three copies of one print: the left one is DRAGGED
+        /// downward into a smear, the middle one has SIX fingers, and the right
+        /// one is small and half outside the card. A neat row of identical prints
+        /// is a stencil; a set where one is wrong is a set somebody made.</para></summary>
+        private static HauntTileData HauntHands(int seed = 31)
+        {
+            int T = HauntTile;
+            var cov = new float[T * T];
+            var lit = new float[T * T];
+            // cx, cy, scale, rotation, fingers, smear, sub-seed
+            var specs = new[]
+            {
+                new [] { -0.635f, -0.12f, 0.62f, -0.30f, 5f, 0.55f, 3f },
+                new [] {  0.005f,  0.18f, 0.70f,  0.16f, 6f, 0.00f, 9f },
+                new [] {  0.660f, -0.30f, 0.58f,  0.52f, 4f, 0.00f, 15f },
+            };
+            foreach (var sp in specs)
+            {
+                float cx = sp[0], cy = sp[1], sc = sp[2], rot = sp[3];
+                int nf = (int)sp[4]; float smear = sp[5]; int sd = (int)sp[6];
+                float cr = Mathf.Cos(rot), sr = Mathf.Sin(rot);
+                for (int iy = 0; iy < T; iy++)
+                    for (int ix = 0; ix < T; ix++)
+                    {
+                        int i = iy * T + ix;
+                        float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                        float qx = (x - cx) / sc, qy = (y - cy) / sc;
+                        float px = qx * cr - qy * sr, py = qx * sr + qy * cr;
+                        py += smear * Mathf.Pow(Mathf.Max(-py, 0f), 1.4f) * 1.2f;
+                        float d = HSegDist(px, py, 0f, -0.30f, 0f, 0.14f, out _) - 0.30f;  // palm pad
+                        for (int f = 0; f < nf; f++)
+                        {
+                            float a = (f - (nf - 1) * 0.5f) * 0.40f + 0.06f * Mathf.Sin(sd + f);
+                            float L = 0.62f + 0.16f * Mathf.Sin(sd * 1.7f + f * 2.1f);
+                            float dd = HSegDist(px, py, Mathf.Sin(a) * 0.12f, 0.02f,
+                                                Mathf.Sin(a) * L, 0.10f + Mathf.Cos(a) * L, out float t);
+                            d = Mathf.Min(d, dd - (0.12f - 0.055f * t));
+                        }
+                        float dt = HSegDist(px, py, -0.22f, -0.14f, -0.62f, 0.16f, out float tt);
+                        d = Mathf.Min(d, dt - (0.13f - 0.05f * tt));
+                        float n = HFbm(px * 5f + sd, py * 5f, 4, seed + sd) - 0.5f;
+                        float m = HSStep(0.02f, -0.03f, d + 0.10f * n);
+                        // a print is grease and damp, not paint: eaten through by
+                        // the stone it is on
+                        m *= 0.35f + 0.95f * HFbm(px * 9f, py * 9f + 2f, 4, seed + sd + 3);
+                        m = Mathf.Clamp01(m);
+                        cov[i] = Mathf.Max(cov[i], m * 0.92f);
+                        lit[i] = Mathf.Max(lit[i], m * (0.45f + 0.55f * HFbm(px * 14f, py * 14f, 3, seed + sd + 7)));
+                    }
+            }
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                    cov[i] *= HSStep(1.00f, 0.92f, Mathf.Max(Mathf.Abs(x), Mathf.Abs(y)));
+                    lit[i] = Mathf.Clamp01(lit[i] * cov[i]);
+                }
+            return new HauntTileData { key = lit, rim = HRimBand(cov, seed), fill = new float[T * T], cov = cov };
+        }
+
+        /// <summary>ONE EYE. The shader places it TWICE, at two different sizes,
+        /// two heights and two blink times, so the pair is asymmetric by
+        /// construction and one lid can lag the other.
+        ///
+        /// <para>EYESHINE IS NOT A WHITE DOT. It is the tapetum behind a slit
+        /// pupil: a lens-shaped sliver, pointed at both corners, brightest along
+        /// the lower rim where the wet lid catches, with the pupil cutting a dark
+        /// line up the middle. The previous pass used two round dots, which is the
+        /// single most cartoonish choice available — so nothing here is round and
+        /// nothing is level.</para></summary>
+        private static HauntTileData HauntEye(int seed = 53)
+        {
+            int T = HauntTile;
+            var cov = new float[T * T];
+            var lit = new float[T * T];
+            for (int iy = 0; iy < T; iy++)
+                for (int ix = 0; ix < T; ix++)
+                {
+                    int i = iy * T + ix;
+                    float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
+                    float xr = x + 0.16f * y;                    // canted, never level
+                    float q = 1f - (xr / 0.72f) * (xr / 0.72f);
+                    float top = 0.30f * q;
+                    float bot = -0.20f * Mathf.Pow(Mathf.Max(q, 0f), 0.75f);
+                    float inside = HSStep(0.02f, -0.02f, y - top)
+                                 * HSStep(-0.02f, 0.02f, y - bot)
+                                 * HSStep(0.76f, 0.68f, Mathf.Abs(xr));
+                    float sh = inside * (0.40f + 0.85f * HSStep(0.26f, -0.10f, y - bot * 0.2f));
+                    sh *= 0.55f + 0.85f * HFbm(xr * 5f, y * 5f, 3, seed);
+                    float slit = HSStep(0.075f, 0.020f, Mathf.Abs(xr + 0.06f - 0.12f * y));
+                    sh *= 1f - 0.92f * slit * inside;
+                    sh = Mathf.Clamp01(sh * 1.5f);
+                    float c = Mathf.Clamp01(inside * 0.95f + sh * 0.6f)
+                              * HSStep(1.00f, 0.90f, Mathf.Max(Mathf.Abs(x), Mathf.Abs(y)));
+                    cov[i] = c; lit[i] = sh * c;
+                }
+            var fill = new float[T * T];
+            for (int i = 0; i < fill.Length; i++) fill[i] = lit[i] * 0.25f;
+            return new HauntTileData { key = lit, rim = new float[T * T], fill = fill, cov = cov };
+        }
+
+        /// <summary>Bake all ten apparitions into one atlas.
+        ///
+        /// <para>THE PLACEMENTS THESE ARE LIT FOR are the reason each tile's key
+        /// direction is what it is. The cellar's candles are low and warm and sit
+        /// on the floor and the table, so its heads are lit from BELOW; the
+        /// forest's only light is the moon on MoonDir, so its figures carry a cold
+        /// rim down the side that faces it and are otherwise a hole in the wood.
+        /// The card supplies both light COLOURS at draw time (vertex COLOR for the
+        /// key, TEXCOORD4 for the fill), so a tile can serve a warm room and a
+        /// cold one without being baked twice.</para></summary>
+        private static Color[] MakeHauntAtlas()
+        {
+            int T = HauntTile, W = T * HauntAtlasCols, H = T * HauntAtlasRows;
+            var px = new Color[W * H];
+
+            var faceBase = new HauntFaceCfg
+            {
+                seed = 11, lean = 0.06f, jaw = 1f, hairSide = -1f, mouthOpen = 0.030f,
+                scale = 1f, drop = 0f, lookUp = 0f, shoulders = 0f, shoulderTilt = 0.05f,
+                // KEY FROM BELOW-RIGHT and HAIR ON THE LEFT, because of which side
+                // of the head comes out from behind the shelf. A card slides toward
+                // its +u, so the +x side of the tile is the side the player sees
+                // first — and the first bake lit the OTHER one, so what emerged was
+                // the back of a head with three strands of hair over it. The lit
+                // cheek has to be the part that clears the post.
+                key = new Vector3(0.50f, -0.85f, 0.13f), fill = new Vector3(-0.90f, 0.10f, 0.24f),
+                keyPow = 1.15f, keyGain = 2.30f, fillPow = 3.2f, fillGain = 3.4f,
+                hair = 1f,
+            };
+
+            var tiles = new HauntTileData[HauntAtlasCols * HauntAtlasRows];
+
+            // [0] the cellar's head: lit from BELOW-LEFT by a candle it is nowhere near.
+            tiles[HTileFaceCellar] = HauntFace(faceBase);
+
+            // [1] the forest's head: the moon RAKES it from the right, |z| = 0.055,
+            // so what you get is one bright edge and a black hole where a face is.
+            var ff = faceBase;
+            ff.seed = 77; ff.lean = -0.09f; ff.jaw = 1.10f; ff.hairSide = -1f;
+            ff.mouthOpen = 0.055f;
+            ff.key = new Vector3(0.93f, 0.34f, 0.055f); ff.keyPow = 1.9f; ff.keyGain = 3.4f;
+            ff.fill = new Vector3(-0.62f, -0.70f, 0.14f); ff.fillPow = 2.4f; ff.fillGain = 0.8f;
+            tiles[HTileFaceForest] = HauntFace(ff);
+
+            // [2] the thing at the barred window: head AND shoulders, backlit by
+            // the moon behind it, framed by the opening.
+            var bu = faceBase;
+            bu.seed = 97; bu.lean = -0.05f; bu.jaw = 0.92f; bu.hairSide = -1f;
+            bu.mouthOpen = 0.020f; bu.scale = 0.62f; bu.drop = -0.30f;
+            bu.key = new Vector3(0.62f, 0.34f, 0.10f); bu.keyPow = 2.6f; bu.keyGain = 3.2f;
+            bu.fill = new Vector3(-0.70f, -0.30f, 0.16f); bu.fillPow = 2.8f; bu.fillGain = 0.9f;
+            bu.shoulders = 0.62f; bu.shoulderTilt = 0.22f;
+            tiles[HTileBust] = HauntFace(bu);
+
+            // [3] the head at FLOOR level, looking up. Head height for a standing
+            // adult is the least frightening option available and it is what the
+            // first pass shipped; a face on the floor is not.
+            var lf = faceBase;
+            lf.seed = 131; lf.lean = 0.16f; lf.jaw = 0.78f; lf.hairSide = 1f;
+            lf.mouthOpen = 0.060f; lf.lookUp = 0.55f; lf.scale = 0.80f; lf.drop = 0.10f;
+            lf.key = new Vector3(-0.42f, 0.80f, 0.24f); lf.keyPow = 1.4f; lf.keyGain = 1.9f;
+            lf.hair = 0.20f;
+            lf.fill = new Vector3(0.88f, -0.24f, 0.18f); lf.fillPow = 2.8f; lf.fillGain = 1.4f;
+            tiles[HTileLowFace] = HauntFace(lf);
+
+            // [4] THE WATCHER — too tall, too thin, head turned, arms past the knee.
+            tiles[HTileWatcher] = HauntFigure(new[]
+            {
+                new HauntLimb(0.055f, 0.900f, 0.038f, 0.790f, 0.098f, 0.082f),   // head, narrow, turned
+                new HauntLimb(0.030f, 0.800f, 0.018f, 0.720f, 0.046f, 0.060f),   // a long neck
+                new HauntLimb(0.018f, 0.675f, -0.020f, 0.190f, 0.215f, 0.185f),  // shoulders -> waist
+                new HauntLimb(-0.020f, 0.200f, -0.050f, -0.955f, 0.190f, 0.310f),// robe to the ground
+                new HauntLimb(-0.185f, 0.690f, -0.290f, -0.340f, 0.062f, 0.034f),// arms, far too long
+                new HauntLimb(0.200f, 0.700f, 0.320f, -0.270f, 0.058f, 0.030f),
+            }, 41, new Vector3(0.90f, 0.24f, 0.12f), 2.4f, 3.0f,
+               new Vector3(-0.80f, -0.20f, 0.30f), 0.9f, 3.0f, hem: 0.16f, hemY: -0.72f);
+
+            // [5] the thing that crosses the stair doorway. ITS HEAD IS ABOVE THE
+            // CARD: what walks past is a body whose top you never see, which is a
+            // great deal worse than a body you can measure.
+            tiles[HTileTallFig] = HauntFigure(new[]
+            {
+                new HauntLimb(0.02f, 1.18f, 0.00f, 0.99f, 0.120f, 0.105f),       // head, cropped
+                new HauntLimb(0.00f, 1.00f, -0.03f, 0.34f, 0.235f, 0.205f),
+                new HauntLimb(-0.03f, 0.36f, -0.05f, -0.98f, 0.210f, 0.300f),
+                new HauntLimb(-0.235f, 0.92f, -0.330f, -0.360f, 0.066f, 0.036f),
+                new HauntLimb(0.245f, 0.94f, 0.355f, -0.300f, 0.062f, 0.034f),
+            }, 59, new Vector3(0.86f, 0.30f, 0.14f), 2.0f, 3.2f,
+               new Vector3(-0.80f, -0.20f, 0.30f), 0.6f, 3.0f,
+               hem: 0.12f, hemY: -0.80f, margin: 1.20f);
+
+            // [6] HUNG BY THE FEET. Head at the BOTTOM with hair falling off it —
+            // that hair is what reads as 'upside down' at 15 m when nothing else can.
+            tiles[HTileHang] = HauntFigure(new[]
+            {
+                new HauntLimb(0.02f, -0.58f, 0.00f, -0.76f, 0.098f, 0.112f),     // head, lowest
+                new HauntLimb(0.02f, -0.44f, 0.02f, -0.58f, 0.050f, 0.062f),     // neck: the narrow part
+                new HauntLimb(0.00f, 0.16f, 0.02f, -0.44f, 0.230f, 0.150f),      // shoulders -> waist
+                new HauntLimb(0.00f, 0.64f, 0.00f, 0.16f, 0.130f, 0.150f),       // hips
+                new HauntLimb(-0.070f, 0.62f, -0.105f, 1.02f, 0.088f, 0.055f),   // legs, up to the branch
+                new HauntLimb(0.075f, 0.62f, 0.110f, 1.02f, 0.086f, 0.053f),
+                new HauntLimb(-0.215f, -0.24f, -0.330f, -0.96f, 0.080f, 0.042f), // arms hanging PAST the head
+                new HauntLimb(0.225f, -0.20f, 0.360f, -0.90f, 0.078f, 0.040f),
+                new HauntLimb(-0.055f, -0.72f, -0.085f, -0.99f, 0.075f, 0.030f), // hair
+                new HauntLimb(0.060f, -0.70f, 0.095f, -0.99f, 0.070f, 0.028f),
+            }, 67, new Vector3(0.88f, -0.24f, 0.14f), 2.2f, 3.0f,
+               new Vector3(-0.80f, -0.20f, 0.30f), 0.9f, 3.0f,
+               hem: 0.30f, hemY: -0.66f, hemDir: 1f);
+
+            // [7] THE MASS. No features at all — one shoulder much higher than the
+            // other, a head that is barely one and far off centre. Its whole event
+            // is that it blots out what is behind it.
+            tiles[HTileLoom] = HauntFigure(new[]
+            {
+                // The head is SUNK into the shoulder line, not perched on it: the
+                // first attempt put a round bump between two round shoulders and
+                // the silhouette read as a bear. What is wanted is a mass with a
+                // slope on it that you only later realise has a head in it.
+                new HauntLimb(-0.34f, 0.56f, -0.24f, 0.40f, 0.150f, 0.230f),
+                new HauntLimb(-0.44f, 0.44f, 0.46f, 0.16f, 0.240f, 0.180f),
+                new HauntLimb(0.02f, 0.30f, -0.06f, -0.99f, 0.500f, 0.760f),
+            }, 83, new Vector3(0.92f, 0.18f, 0.10f), 0.55f, 4.5f,
+               new Vector3(-0.80f, -0.20f, 0.30f), 0.25f, 3.0f,
+               ragged: 0.085f, hem: 0.10f, hemY: -0.90f);
+
+            tiles[HTileHands] = HauntHands();
+            tiles[HTileEye] = HauntEye();
+
+            // ---- compose. Unused cells stay fully transparent black, which is
+            // also what a bilinear tap that strays over a tile border must find.
+            for (int t = 0; t < tiles.Length; t++)
+            {
+                if (tiles[t].cov == null) continue;
+                int cx = (t % HauntAtlasCols) * T, cy = (t / HauntAtlasCols) * T;
+                for (int iy = 0; iy < T; iy++)
+                    for (int ix = 0; ix < T; ix++)
+                    {
+                        int si = iy * T + ix;
+                        // A FIVE-TEXEL GUARD BAND round every cell, forced to zero.
+                        // Trilinear filtering at distance averages a neighbourhood
+                        // that is several texels wide at low mips, and an atlas is
+                        // not self-clamping: without this, a watcher seen at 16 m
+                        // would pick up a smear of whatever tile sits beside it.
+                        // The shader insets its lookup as well — two independent
+                        // defences, because the failure mode is subtle and would
+                        // only ever show up on hardware.
+                        float g = (ix < 5 || iy < 5 || ix >= T - 5 || iy >= T - 5) ? 0f : 1f;
+                        px[(cy + iy) * W + (cx + ix)] = new Color(
+                            tiles[t].key[si] * g, tiles[t].rim[si] * g,
+                            tiles[t].fill[si] * g, tiles[t].cov[si] * g);
+                    }
+            }
+            Debug.Log($"[GloomhavenVR][Env] HAUNT ATLAS baked — {W}x{H} RGBA32, {HauntAtlasCols}x{HauntAtlasRows} "
+                      + $"cells of {T}, 10 used. R = key value, G = rim band, B = fill value, A = coverage. "
+                      + "Uncompressed on purpose: the three RGB channels are independent masks and BC3 "
+                      + "encodes RGB as one interpolated pair per block.");
+            return px;
         }
 
         private static Color[] MakeHaze(int n)
@@ -842,6 +1767,41 @@ namespace GloomhavenVR
             return m;
         }
 
+        // ==================================================== ELEMENT ART =====
+        /// <summary>Write a particle material's element response (see
+        /// EnvParticleAdd.shader and EnvParticleElem.cginc for the two
+        /// mechanisms). EVERY argument defaults to the neutral value, so a
+        /// material that says nothing behaves exactly as it did before the
+        /// element feature existed — which is the property the zero-state proof
+        /// rests on.</summary>
+        /// <param name="own">Gate weights (fire, ice, air, earth): this emitter
+        /// EXISTS FOR that element and its quads collapse while it is down.</param>
+        /// <param name="ownLD">Gate weights (light, dark).</param>
+        /// <param name="mod">Modulation weights (fire, ice, air, earth): this
+        /// emitter exists anyway and merely answers. May be signed.</param>
+        /// <param name="modLD">Modulation weights (light, dark). May be signed.</param>
+        /// <param name="gain">Brightness response to the modulation.</param>
+        /// <param name="alpha">Alpha response to the modulation.</param>
+        /// <param name="col">Colour it moves toward under modulation.</param>
+        /// <param name="tint">How far it moves (1 = all the way at m = 1).</param>
+        /// <param name="spark">Fast positional twinkle amount.</param>
+        internal static void ElemFX(Material m,
+            Vector4 own = default, Vector2 ownLD = default,
+            Vector4 mod = default, Vector2 modLD = default,
+            float gain = 0f, float alpha = 0f, Color col = default, float tint = 0f,
+            float spark = 0f)
+        {
+            m.SetVector("_ElemOwn", own);
+            m.SetVector("_ElemOwn2", new Vector4(ownLD.x, ownLD.y, 0f, 0f));
+            m.SetVector("_ElemMod", mod);
+            m.SetVector("_ElemMod2", new Vector4(modLD.x, modLD.y, 0f, 0f));
+            m.SetFloat("_ElemGain", gain);
+            m.SetFloat("_ElemAlpha", alpha);
+            m.SetColor("_ElemCol", col == default ? Color.white : col);
+            m.SetFloat("_ElemTintAmt", tint);
+            m.SetFloat("_ElemSpark", spark);
+        }
+
         private static void BuildMaterials()
         {
             Directory.CreateDirectory(MatDir);
@@ -851,18 +1811,89 @@ namespace GloomhavenVR
             var fog = LoadOrNewMat(MatDir + "/FX_Fog.mat", "GloomhavenVR/EnvParticleAlpha");
             fog.SetTexture("_MainTex", T("Env_FogPuff.png"));
             fog.SetColor("_Tint", Color.white);
+            // ELEMENT ART — DARK: "ground fog rises and thickens". ONE signed dot
+            // product carries both halves of the split: dark - 0.5*light. Denser
+            // (alpha +1.7) and at the same time DARKER (brightness -0.55), because
+            // ModBuild 134 established that a lit puff over black IS a raised
+            // floor — Dark's fog has to swallow the far trunks, not veil them in
+            // grey. Under Light the same term goes negative and the air clears,
+            // which is what leaves the sources standing alone.
+            ElemFX(fog, modLD: new Vector2(-0.5f, 1f), gain: -0.55f, alpha: 1.7f,
+                   col: new Color(0.10f, 0.12f, 0.16f), tint: 0.5f);
 
             var dust = LoadOrNewMat(MatDir + "/FX_Dust.mat", "GloomhavenVR/EnvParticleAlpha");
             dust.SetTexture("_MainTex", T("Env_Spark.png"));
             dust.SetColor("_Tint", Color.white);
+            // ELEMENT ART — the cellar's motes already drift along the authored
+            // draught (DraftDir), so AIR only has to make them legible; ICE turns
+            // the same specks cold and hard, i.e. into what is hanging in the air
+            // of a room that has just frozen. No new emitter for either: this is
+            // the modulation half of the mechanism doing exactly its job.
+            ElemFX(dust, mod: new Vector4(0f, 1.0f, 0.55f, 0f), gain: 0.9f, alpha: 1.1f,
+                   col: new Color(0.74f, 0.86f, 1.00f), tint: 0.9f);
 
             var firefly = LoadOrNewMat(MatDir + "/FX_Firefly.mat", "GloomhavenVR/EnvParticleAdd");
             firefly.SetTexture("_MainTex", T("Env_Glow.png")); // soft bokeh, radially symmetric
             firefly.SetColor("_Tint", Color.white);
+            // ELEMENT ART — FIRE: "the fireflies turn to sparks". The swarm keeps
+            // its place, its motion and its slow breathing size curve; what
+            // changes is that a cold marsh-green bokeh becomes an ember with a
+            // fast twinkle on it. Same fourteen particles, no second emitter.
+            ElemFX(firefly, mod: new Vector4(1f, 0f, 0f, 0f), gain: 1.3f, alpha: 0.35f,
+                   col: new Color(1.00f, 0.45f, 0.12f), tint: 1.0f, spark: 0.55f);
 
             var streak = LoadOrNewMat(MatDir + "/FX_StarStreak.mat", "GloomhavenVR/EnvParticleAdd");
             streak.SetTexture("_MainTex", T("Env_Streak.png")); // comet head + tapering tail
             streak.SetColor("_Tint", Color.white);
+            // A shooting star belongs to the SKY, not to the room's mood, and the
+            // sky's own answer to Light/Dark is in EnvStars/EnvStarPoints. Left
+            // neutral on purpose.
+            ElemFX(streak);
+
+            // ---- ELEMENT ART: the six gated emitters --------------------------
+            // Each of these EXISTS FOR one element: while it is down every quad
+            // collapses to a point in the vertex shader and nothing is shaded.
+            // They are built here, with the other FX materials, and used by
+            // EnvRoomBuilder.AddElementFX, which hangs the emitters under RoomGeo
+            // — the runtime splits the shell by node name and only RoomGeo's
+            // branch is board-anchored (SkyAlternative.RoomBoundShellChildren),
+            // so an element emitter parented to the shell root would be scaled
+            // like the star dome.
+            var ember = LoadOrNewMat(MatDir + "/FX_ElemEmber.mat", "GloomhavenVR/EnvParticleAdd");
+            ember.SetTexture("_MainTex", T("Env_Glow.png"));
+            ember.SetColor("_Tint", new Color(1f, 0.42f, 0.13f, 1f));
+            ElemFX(ember, own: new Vector4(1f, 0f, 0f, 0f), spark: 0f);
+
+            var snow = LoadOrNewMat(MatDir + "/FX_ElemSnow.mat", "GloomhavenVR/EnvParticleAlpha");
+            snow.SetTexture("_MainTex", T("Env_Spark.png")); // radially symmetric: billboard-legal
+            snow.SetColor("_Tint", new Color(0.86f, 0.92f, 1f, 1f));
+            ElemFX(snow, own: new Vector4(0f, 1f, 0f, 0f));
+
+            // Env_Spark, NOT Env_Streak. The first bake used the comet sprite on
+            // the driven air and the previews showed exactly what that is: three
+            // shooting stars flying sideways through a forest. A radially
+            // symmetric DOT stretched along its own velocity is what a mote going
+            // past at three metres a second actually looks like — and it is the
+            // same sprite, and the same VR argument, as the dust motes.
+            var gust = LoadOrNewMat(MatDir + "/FX_ElemGust.mat", "GloomhavenVR/EnvParticleAdd");
+            gust.SetTexture("_MainTex", T("Env_Spark.png"));
+            gust.SetColor("_Tint", new Color(0.50f, 0.58f, 0.70f, 1f));
+            ElemFX(gust, own: new Vector4(0f, 0f, 1f, 0f));
+
+            var spore = LoadOrNewMat(MatDir + "/FX_ElemSpore.mat", "GloomhavenVR/EnvParticleAdd");
+            spore.SetTexture("_MainTex", T("Env_Glow.png"));
+            spore.SetColor("_Tint", new Color(0.52f, 0.86f, 0.42f, 1f));
+            ElemFX(spore, own: new Vector4(0f, 0f, 0f, 1f));
+
+            var sift = LoadOrNewMat(MatDir + "/FX_ElemSift.mat", "GloomhavenVR/EnvParticleAlpha");
+            sift.SetTexture("_MainTex", T("Env_Spark.png"));
+            sift.SetColor("_Tint", new Color(0.72f, 0.63f, 0.50f, 1f));
+            ElemFX(sift, own: new Vector4(0f, 0f, 0f, 1f));
+
+            var draught = LoadOrNewMat(MatDir + "/FX_ElemDraught.mat", "GloomhavenVR/EnvParticleAlpha");
+            draught.SetTexture("_MainTex", T("Env_Spark.png"));   // see FX_ElemGust
+            draught.SetColor("_Tint", new Color(0.80f, 0.74f, 0.62f, 1f));
+            ElemFX(draught, own: new Vector4(0f, 0f, 1f, 0f));
 
             // warm torch halo — used by the cellar shell's inactive GlowTemplate
             var glowWarm = LoadOrNewMat(MatDir + "/FX_GlowWarm.mat", "GloomhavenVR/EnvGlow");

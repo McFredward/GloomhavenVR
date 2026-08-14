@@ -187,39 +187,58 @@ namespace GloomhavenVR
             ("ShaftTop", new Vector3(0f, 13.5f, 0f), new Vector3(80, MoonAz, 0), false, 80f),
             // standing under the middle shaft, looking up along it at the moon
             ("ShaftUnder", new Vector3(3.35f, 1.40f, 4.36f), new Vector3(-MoonAlt, MoonAz, 0), false, 78f),
-            // ---- HAUNT review set (2026-08-14) ----
-            // One frame per apparition, aimed at the card the builder placed. These
-            // are only ever shot inside the HAUNT time series below (the schedule
-            // solved for an instant at which the event is really running); in the
-            // ordinary set the feature is off and every card is collapsed to a
-            // point, so shooting them there would produce six empty rooms.
+            // ---- HAUNT review set (rebuilt after the ModBuild 141 verdict) ----
+            // One frame per apparition, aimed at the card the builder placed, plus
+            // a WIDE frame per room at the same instants. These are only ever shot
+            // inside the HAUNT time series below (the schedule solved for an
+            // instant at which the event is really running); in the ordinary set
+            // the feature is off and every card is collapsed to a point, so
+            // shooting them there would produce six empty rooms.
             //
-            // CELLAR. Cards, in order: Window, Hands, Crouch, Tremble, Stair, Grin.
+            // TWO DISTANCES FOR EVERY EVENT, and that is a lesson rather than a
+            // preference. The first pass judged the apparitions on close frames
+            // only, reported intentions, and shipped a smiley: a face that is
+            // "unsettling" at 1.5 m can be an emoji at 5 m, and the wide frame is
+            // the only place "eher im Hintergrund" can be checked at all.
+            //
+            // CELLAR. Cards, in order: Window, Hands, Floor, Tremble, Stair, Shelf.
             ("HauntWindow", new Vector3(0.20f, 1.50f, 1.00f), new Vector3(-13, 338, 0), false, 45f),
-            ("HauntHands", new Vector3(-3.00f, 1.40f, 2.20f), new Vector3(3, 270, 0), false, 45f),
-            ("HauntCrouch", new Vector3(-2.00f, 1.30f, -1.50f), new Vector3(11, 228, 0), false, 45f),
+            // the prints moved down to 0.85 m, so this looks DOWN at the wall
+            ("HauntHands", new Vector3(-3.20f, 1.40f, 1.30f), new Vector3(12, 272, 0), false, 45f),
+            // ...and the face on the floor of the SW corner is looked down at too
+            ("HauntFloor", new Vector3(-2.60f, 1.35f, -1.90f), new Vector3(15, 228, 0), false, 38f),
             ("HauntStair", new Vector3(-2.20f, 1.40f, 2.45f), new Vector3(4, 271, 0), false, 50f),
-            ("HauntGrin", new Vector3(2.00f, 1.45f, 1.30f), new Vector3(1, 81, 0), false, 34f),
+            ("HauntShelf", new Vector3(1.80f, 1.60f, 1.05f), new Vector3(-6, 80, 0), false, 32f),
             // ...and the tremble draws nothing at all: it is judged on the WEBS,
             // so its frames are the two web close-ups, shot at its own instants.
             ("HauntWeb", new Vector3(2.90f, 2.05f, 1.35f), new Vector3(-25, 91, 0), false, 38f),
-            // FOREST. Cards: Face, Eyes, Watcher, Cross, Swarm, Hang. Aimed off the
+            // FOREST. Cards: Face, Eyes, Watcher, Cross, Loom, Hang. Aimed off the
             // same bearings the builder places them on (BuildForestRoom's haunt
             // block), from the seated eye at the middle of the clearing — which is
             // where the player is, and therefore the only place the framing of a
             // background easter egg can honestly be judged.
             ("HauntFace", Eye, new Vector3(-1, 250, 0), false, 25f),
-            ("HauntEyes", Eye, new Vector3(7, 302, 0), false, 22f),
+            ("HauntEyes", Eye, new Vector3(2, 288, 0), false, 22f),
             ("HauntWatcher", Eye, new Vector3(1, 162, 0), false, 25f),
             ("HauntCross", Eye, new Vector3(2, 190, 0), false, 40f),
-            ("HauntSwarm", Eye, new Vector3(0, 219, 0), false, 34f),
+            ("HauntLoom", Eye, new Vector3(6, 219, 0), false, 45f),
             ("HauntHang", Eye, new Vector3(-4, 118, 0), false, 28f),
             // ...and one wide frame per room at the same instants: the brief is
             // "eher im Hintergrund", and the only way to check that an apparition
             // is NOT intrusive is to look at the room the way a player would and
             // see whether it pulls the eye.
             ("HauntWide", Eye, new Vector3(0, 250, 0), false, 78f),
+            ("HauntWideL", Eye, new Vector3(2, 219, 0), false, 78f),
             ("HauntWideC", Eye, new Vector3(-4, 320, 0), false, 78f),
+            // ...and the cellar's shelf face from the BOARD, which is the distance
+            // a player actually meets it at.
+            // ...from 5.5 m, on the side the face comes out on. NOT from the
+            // middle of the board: the card sits at the shelf's BACK panel and
+            // emerges toward +z, so from dead centre the shelf's own front hides
+            // it completely and the frame is a picture of an empty shelf. Where an
+            // apparition can be seen from is part of its placement, and a preview
+            // that does not show that is a preview that cannot check it.
+            ("HauntFarC", new Vector3(0f, 1.45f, 3.10f), new Vector3(-3, 111, 0), false, 55f),
         };
 
         // ================================================================ HAUNT
@@ -243,11 +262,13 @@ namespace GloomhavenVR
         {
             ("HauntWindow", 0, new Vector3(3.2f, 2.6f, 1.8f)),
             ("HauntHands", 1, new Vector3(2.8f, 2.2f, 3.0f)),
-            ("HauntCrouch", 2, new Vector3(4.0f, 3.4f, 0.0f)),
+            ("HauntFloor", 2, new Vector3(4.0f, 3.4f, 0.0f)),
             ("HauntWeb", 3, new Vector3(0.0f, 1.1f, 0.9f)),
             ("HauntStair", 4, new Vector3(0.18f, 0.34f, 0.18f)),
-            ("HauntGrin", 5, new Vector3(3.6f, 2.0f, 2.6f)),
+            ("HauntShelf", 5, new Vector3(3.6f, 2.0f, 2.6f)),
             ("HauntWideC", 5, new Vector3(3.6f, 2.0f, 2.6f)),
+            // ...and the same face from the BOARD, which is where a player meets it
+            ("HauntFarC", 5, new Vector3(3.6f, 2.0f, 2.6f)),
         };
 
         private static readonly (string view, int card, Vector3 env)[] ForestHaunts =
@@ -256,9 +277,10 @@ namespace GloomhavenVR
             ("HauntEyes", 1, new Vector3(1.1f, 1.4f, 0.5f)),
             ("HauntWatcher", 2, new Vector3(3.5f, 5.0f, 0.0f)),
             ("HauntCross", 3, new Vector3(0.06f, 0.22f, 0.06f)),
-            ("HauntSwarm", 4, new Vector3(2.2f, 1.2f, 1.6f)),
+            ("HauntLoom", 4, new Vector3(4.2f, 2.6f, 0.0f)),
             ("HauntHang", 5, new Vector3(2.6f, 2.0f, 2.2f)),
             ("HauntWide", 0, new Vector3(3.4f, 2.4f, 2.8f)),
+            ("HauntWideL", 4, new Vector3(4.2f, 2.6f, 0.0f)),
         };
 
         // THE ELEMENT COMPENSATION, which is a requirement and therefore has to be
@@ -274,6 +296,66 @@ namespace GloomhavenVR
             ("fire", new Vector4(1f, 0f, 0f, 0f), new Vector4(0f, 0f, 1f, 1f)),
             ("earth", new Vector4(0f, 0f, 0f, 1f), new Vector4(0f, 0f, 1f, 1f)),
         };
+
+        // ============================================================ ELEMENT ART
+        // The element response cannot be reviewed from the ordinary set: with the
+        // channel unset every element term is skipped by construction, which is
+        // exactly what makes that set the ZERO-STATE BASELINE and exactly why it
+        // shows nothing. So the moods below are driven straight onto the two
+        // globals ElementMood publishes at runtime — no debug path, no forced
+        // material, the same uniforms the mod writes — and the room is shot again
+        // at each of them.
+        //
+        // WHAT EACH ROW IS FOR:
+        //  *S    Strong: the element ramped all the way to 1.0.
+        //  *W    Waning: ElementMood's 0.40 plateau. The published value BREATHES
+        //        0.28..0.52 on a 2.4 s cycle; a still frame cannot show a breath,
+        //        so these are shot at the plateau itself and the breath is what
+        //        the hardware round has to judge.
+        //  split Light AND Dark at once — the user's own example, and the one
+        //        mixture that is a requirement rather than a nicety.
+        //  fice  Fire+Ice, aiend Air+Earth: the two layered mixtures.
+        //  moff  THE ACCEPTANCE TEST. All six at full strength with the MASTER at
+        //        0. It must come out pixel-identical to the plain frame of the
+        //        same view: one uniform switches the whole feature off, and if it
+        //        does not, one of the shaders has forgotten to multiply.
+        //  live0 All six INERT with the master UP — the other half of the same
+        //        proof: the feature is on and nothing is up, so nothing may move.
+        //   _GhvrElemA = (Fire, Ice, Air, Earth), _GhvrElemB = (Light, Dark, Master, Peak)
+        private static readonly (string tag, Vector4 a, Vector4 b)[] ElementMoods =
+        {
+            ("fireS", new Vector4(1, 0, 0, 0), new Vector4(0, 0, 1, 1)),
+            ("fireW", new Vector4(0.40f, 0, 0, 0), new Vector4(0, 0, 1, 0.40f)),
+            ("iceS", new Vector4(0, 1, 0, 0), new Vector4(0, 0, 1, 1)),
+            ("iceW", new Vector4(0, 0.40f, 0, 0), new Vector4(0, 0, 1, 0.40f)),
+            ("airS", new Vector4(0, 0, 1, 0), new Vector4(0, 0, 1, 1)),
+            ("airW", new Vector4(0, 0, 0.40f, 0), new Vector4(0, 0, 1, 0.40f)),
+            ("earthS", new Vector4(0, 0, 0, 1), new Vector4(0, 0, 1, 1)),
+            ("earthW", new Vector4(0, 0, 0, 0.40f), new Vector4(0, 0, 1, 0.40f)),
+            ("lightS", Vector4.zero, new Vector4(1, 0, 1, 1)),
+            ("lightW", Vector4.zero, new Vector4(0.40f, 0, 1, 0.40f)),
+            ("darkS", Vector4.zero, new Vector4(0, 1, 1, 1)),
+            ("darkW", Vector4.zero, new Vector4(0, 0.40f, 1, 0.40f)),
+            ("split", Vector4.zero, new Vector4(1, 1, 1, 1)),
+            ("fice", new Vector4(1, 1, 0, 0), new Vector4(0, 0, 1, 1)),
+            ("aiend", new Vector4(0, 0, 1, 1), new Vector4(0, 0, 1, 1)),
+            ("moff", new Vector4(1, 1, 1, 1), new Vector4(1, 1, 0, 1)),
+            ("live0", Vector4.zero, new Vector4(0, 0, 1, 0)),
+        };
+
+        // Four frames per room, chosen for what they contain rather than for
+        // coverage: a lit corner (the candles / the moonlit clearing edge), the
+        // darkest corner there is (where Dark has to be visible AS a change), the
+        // one wet surface / the tree line, and a sky frame. Rendering the whole
+        // 40-view set at 17 moods would be 1400 PNGs nobody reads.
+        // ...plus one plain eye-height view straight across each room: the gated
+        // EMITTERS live in a ring at the periphery, and none of the four framed
+        // views above looks along that ring. The first element pass could not
+        // tell "the embers are too small" from "the embers are behind me".
+        private static readonly string[] CellarElementViews =
+        { "Corner", "DarkCornerSW", "Puddle", "Window", "S" };
+        private static readonly string[] ForestElementViews =
+        { "TreeLine", "FloorToMoon", "Fireflies", "SkyBand", "N" };
 
         // The animated things only exist in motion, so the review set below is
         // ALSO rendered at these offsets of the shared shader clock
@@ -376,9 +458,13 @@ namespace GloomhavenVR
                 }
 
                 // Fast-forward the particle systems so the still frame shows them alive.
-                foreach (var ps in inst.GetComponentsInChildren<ParticleSystem>(true))
-                    if (ps.transform.parent == null || ps.transform.parent.GetComponent<ParticleSystem>() == null)
-                        ps.Simulate(6f, true, true);
+                void FastForward(Transform under)
+                {
+                    foreach (var ps in under.GetComponentsInChildren<ParticleSystem>(true))
+                        if (ps.transform.parent == null || ps.transform.parent.GetComponent<ParticleSystem>() == null)
+                            ps.Simulate(6f, true, true);
+                }
+                FastForward(inst.transform);
 
                 var camGo = new GameObject("PreviewCam");
                 var cam = camGo.AddComponent<Camera>();
@@ -403,9 +489,26 @@ namespace GloomhavenVR
                 var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
                 var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
 
+                // A SKY-ONLY FRAME COSTS THE ROOM ITS PARTICLES, and until this
+                // round nothing noticed because RoomGeo held no emitters. Hiding
+                // the room deactivates its whole subtree; on re-activation every
+                // ParticleSystem under it restarts empty, and in batch mode there
+                // is no game loop to refill it — so EVERY frame after the first
+                // 'SkyOnly' view rendered the element emitters as if they emitted
+                // nothing. Two rounds of "the snow is too small" were this.
+                // The room is therefore fast-forwarded again whenever it comes
+                // back. It is a harness artefact and not a shipped one: nothing at
+                // runtime ever toggles RoomGeo (SkyAlternative places it once and
+                // never touches it again).
+                bool roomHidden = false;
                 void Shoot(string name, Vector3 pos, Vector3 euler, bool skyOnly, float fov, string suffix)
                 {
-                    if (roomGeo != null) roomGeo.gameObject.SetActive(!skyOnly);
+                    if (roomGeo != null)
+                    {
+                        roomGeo.gameObject.SetActive(!skyOnly);
+                        if (roomHidden && !skyOnly) FastForward(roomGeo);
+                        roomHidden = skyOnly;
+                    }
                     cam.fieldOfView = fov;
                     cam.transform.position = pos;
                     cam.transform.rotation = Quaternion.Euler(euler);
@@ -429,6 +532,7 @@ namespace GloomhavenVR
                 // look up. So every frame below is comparable, pixel for pixel,
                 // with the previous round's — which is the point of a review set.
                 Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+                Shader.SetGlobalVector("_GhvrHauntForce", Vector4.zero);
                 Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
                 Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
                 Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
@@ -501,7 +605,73 @@ namespace GloomhavenVR
                         Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
                         Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
                     }
+
+                    // ---- and the ON-DEMAND channel, photographed rather than
+                    // asserted. A parallel lane is adding the Advanced-menu
+                    // buttons; this is the reading half proving it works, and it
+                    // is a real requirement rather than a debug aid: the tester
+                    // must see EXACTLY the apparition they asked for, with the
+                    // room's normal schedule suppressed.
+                    //
+                    // The clock is parked at an instant where the SCHEDULE would
+                    // fire a DIFFERENT card, so a frame that shows the forced one
+                    // is proof that the override wins and that nothing else is
+                    // drawn beside it.
+                    foreach (var (vn, card, envv) in shots)
+                    {
+                        var v = Array.Find(Views, x => x.name == vn);
+                        if (!WantView(v.name)) continue;
+                        float dur = envv.x + envv.y + envv.z;
+                        // a slot in which some OTHER card is this slot's event
+                        float other = EnvRoomBuilder.HauntPreviewClock(
+                            (card + 1) % cards, cards, envv.x, envv.y, envv.z, 0.55f);
+                        Shader.SetGlobalFloat("_GhvrTimeOfs", other);
+                        Shader.SetGlobalVector("_GhvrHauntForce",
+                            new Vector4(card + 1, other - dur * 0.55f, 0f, 0f));
+                        Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_forced");
+                        Shader.SetGlobalVector("_GhvrHauntForce", Vector4.zero);
+                    }
+
                     Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+                }
+
+                // ---- ELEMENT ART: the six elements, their two levels and the
+                // mixtures (see ElementMoods). ENV_PREVIEW_NOELEM=1 skips it.
+                if (Environment.GetEnvironmentVariable("ENV_PREVIEW_NOELEM") != "1")
+                {
+                    var elemViews = env == "Env_Cellar" ? CellarElementViews : ForestElementViews;
+                    // A FIXED, NON-ZERO CLOCK. Half of what the elements do is
+                    // animated (the ember breath, the flames' gust, the twinkle
+                    // on the sparks), and at the clock's origin several of those
+                    // sines are at a zero crossing — a series shot there would
+                    // systematically under-report the effect. 3.7 s is not a
+                    // round number on purpose: it is not a period or a half
+                    // period of anything in either room.
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", 3.7f);
+                    foreach (var (tag, ea, eb) in ElementMoods)
+                    {
+                        Shader.SetGlobalVector("_GhvrElemA", ea);
+                        Shader.SetGlobalVector("_GhvrElemB", eb);
+                        foreach (var vn in elemViews)
+                        {
+                            var v = Array.Find(Views, x => x.name == vn);
+                            if (v.name == null)
+                                throw new Exception($"An element view names an unknown view '{vn}'.");
+                            if (WantView(v.name)) Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_e" + tag);
+                        }
+                    }
+                    // ...and the same four frames with the channel UNSET, at the
+                    // same instant. This is the frame the 'moff' and 'live0'
+                    // shots above are compared against, pixel for pixel: three
+                    // identical images are the whole zero-state proof.
+                    Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
+                    Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                    foreach (var vn in elemViews)
+                    {
+                        var v = Array.Find(Views, x => x.name == vn);
+                        if (WantView(v.name)) Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_ebase");
+                    }
                     Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 }
 

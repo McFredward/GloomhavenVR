@@ -37,6 +37,9 @@ namespace GloomhavenVR.Core;
 /// See "WHY THE DIAL IS A SUBSET" below; it is NOT an intensity.</item>
 /// <item><b>z, w</b> — reserved, published as 0.</item>
 /// </list>
+/// <para>A SECOND global, <c>_GhvrHauntForce</c>, carries the Erweitert menu's TEST TRIGGER — one
+/// button per apparition, so a tester does not have to wait out the schedule. Its contract is
+/// documented at <see cref="ForceChannelName"/>; it is local, bounded, and never on the wire.</para>
 ///
 /// <para><b>WHY THE DIAL IS A SUBSET AND NOT A RESHUFFLE — the one non-obvious thing in this
 /// feature.</b> The user asked for two things that pull against each other: a frequency setting,
@@ -82,6 +85,33 @@ internal static class Haunt
     internal const string ChannelName = "_GhvrHaunt";
 
     private static readonly int ChannelId = Shader.PropertyToID(ChannelName);
+
+    /// <summary>
+    /// Global <c>float4(forcedId + 1, startClock, 0, 0)</c> — the TEST TRIGGER channel. Quote this
+    /// name, not a literal.
+    ///
+    /// <para><b>THE CONTRACT (this doc is the ONE canonical place; the bundle's EnvHaunt.cginc quotes
+    /// it verbatim and nothing else in the mod may write it):</b></para>
+    /// <code>
+    ///   _GhvrHauntForce = float4(id + 1, startedAtSharedClock, 0, 0)
+    /// </code>
+    /// <list type="bullet">
+    /// <item><b>x — the forced event id PLUS ONE.</b> 0 means nothing is forced, which is what stands
+    /// whenever this channel is not live; the +1 is what makes id 0 expressible without a second
+    /// flag, and is why the shader tests <c>x &gt; 0.5</c> rather than <c>x != 0</c>.</item>
+    /// <item><b>y — the SHARED-CLOCK time at which the force started</b>
+    /// (<see cref="SkyAlternative.EnvClockSeconds"/>), so the shader plays the event from
+    /// <c>phase = (clock − y) / duration</c> and suppresses everything else in the room while
+    /// <c>x &gt; 0.5</c>.</item>
+    /// <item><b>z, w</b> — reserved, published as 0.</item>
+    /// </list>
+    /// <para>The id is the room's own card index (0..<see cref="EventCount"/>−1), i.e. the same index
+    /// the bake's catalogue prints, and it is per-room: which room it names is whichever of the two
+    /// haunted environments is being shown.</para>
+    /// </summary>
+    internal const string ForceChannelName = "_GhvrHauntForce";
+
+    private static readonly int ForceChannelId = Shader.PropertyToID(ForceChannelName);
 
     /// <summary>Below this, a change is not worth a uniform write.</summary>
     private const float WriteEpsilon = 0.002f;
@@ -140,6 +170,168 @@ internal static class Haunt
                 new AcceptableValueRange<float>(0f, 1f)));
     }
 
+    // ---- TEST TRIGGER — one button per apparition -------------------------------------------------
+    //
+    // USER REQUEST (hardware, ModBuild 141, verbatim): "ich brauche zum Testen im Erweitert Menu die
+    // möglichkeit die Elemente und Easter eggs einzeln auf Knopfdruck auslösen zu können." The
+    // schedule is one event every ~83 s slot at half frequency, which is a median of nearly two
+    // minutes of waiting per look at a random one of six — useless for judging them.
+    //
+    // THE TRIGGER HAS TO BE A GLOBAL, because there is no C# object per apparition to poke: the
+    // bundle ships NO MonoBehaviours, the events are geometry in two room prefabs and every decision
+    // about them is a hash of the shared clock inside EnvHaunt.cginc. So the trigger is published the
+    // way everything else about this feature is — one uniform, one writer, see ForceChannelName.
+    //
+    // MULTIPLAYER: ZERO WIRE, and here that is not even a decision to defend. A haunt is not state;
+    // the schedule is a pure function of the shared clock. Forcing one changes what THIS client's
+    // shader draws for a few seconds and nothing else — a peer keeps computing and showing the real
+    // schedule, and there is no value anywhere for the two to disagree about.
+
+    /// <summary>
+    /// How many forceable events a haunted room has — the card count both rooms are built with
+    /// (Editor/BuildEnvironmentRooms.cs, <c>HauntCellarCards = 6</c>, asserted to be a multiple of
+    /// the three schedule groups by <c>AssertHauntCards</c>). It is the number of BUTTONS the test
+    /// page draws, so a room that ever grew a seventh card would show six buttons until this constant
+    /// followed — which is why it is stated here, next to the channel, rather than counted in the UI.
+    /// </summary>
+    internal const int EventCount = 6;
+
+    /// <summary>
+    /// How long the forced flag is held up, in shared-clock seconds.
+    ///
+    /// <para>FOURTEEN, and it is an OVER-estimate on purpose. This side cannot know an event's length:
+    /// the per-card reveal/hold/fade envelopes live in the bundle, and there is no channel back from
+    /// the GPU. What the bake does state is the worst case — the longest authored event is 8.6 s
+    /// (AssertHauntCards prints every card's <c>reveal+hold+fade</c>), the per-slot jitter scales it
+    /// by up to 1.15 (<c>HauntDurLo + HauntDurSpan</c>) and Ice stretches it by a further 1.35, i.e.
+    /// at most ≈13.4 s. Cutting a forced apparition off in mid-fade would make the tester judge a
+    /// truncation instead of the effect, whereas holding too long costs only a few seconds in which
+    /// the room is quiet because the force suppresses the schedule. A press ends the previous force
+    /// immediately, so the tester never has to sit out the remainder.</para>
+    /// </summary>
+    internal const float ForceHoldSeconds = 14f;
+
+    /// <summary>Forced event id, or -1 for none.</summary>
+    private static int _forceId = -1;
+
+    /// <summary>Shared-clock time the force started — published as y, and the expiry anchor.</summary>
+    private static float _forceSince;
+
+    private static Vector4 _lastForce;
+
+    /// <summary>The force channel has been published as zero at least once. Same reason as
+    /// <see cref="_zeroed"/>: the first tick must assert the "nothing forced" 0 rather than trust
+    /// that no one ever wrote this global.</summary>
+    private static bool _forceZeroed;
+
+    /// <summary>
+    /// Whether a forced apparition could be seen at all right now: VR running, a scenario board, and
+    /// one of the two environments that HAS apparitions. It deliberately does NOT include
+    /// <see cref="EasterEggs"/> — the switch is a preference the button overrides for its few seconds
+    /// (see <see cref="Force"/>); these three are "there is no room to haunt".
+    /// </summary>
+    internal static bool ForceReady
+    {
+        get
+        {
+            if (!VRSession.IsRunning || !Events.VRModeStateMachine.ScenarioBoardExists)
+                return false;
+            SkyStyle style = SkyAlternative.Style.Value;
+            return style == SkyStyle.Cellar || style == SkyStyle.SwampNight;
+        }
+    }
+
+    /// <summary>True while an apparition is being forced.</summary>
+    internal static bool Forcing => _forceId >= 0;
+
+    /// <summary>
+    /// Play one apparition now and suppress the rest of the room for
+    /// <see cref="ForceHoldSeconds"/>. Returns false — and says why in the log — when there is no
+    /// haunted room to play it in, so a press on the main menu or in the default environment is inert
+    /// rather than an exception.
+    ///
+    /// <para>IT OVERRIDES <see cref="EasterEggs"/> FOR ITS DURATION, and the page says so in German.
+    /// The choice was between "does nothing and says so" and "overrides briefly", and the deciding
+    /// argument is that this is a TEST AID whose entire job is to put the apparition in front of the
+    /// tester's eyes: a button that refuses because a toggle two pages away is off is
+    /// indistinguishable from a button that is broken, which is precisely the failure this page
+    /// exists to rule out. The override is bounded by the same fourteen seconds, it is local, and it
+    /// never writes the setting — the toggle still reads the player's own choice, and that choice is
+    /// what stands again the moment the force expires. Technically the override is unavoidable
+    /// anyway: with the master at 0 the shader collapses every apparition's quad in the vertex
+    /// program (<c>h.live *= step(0.0001, _GhvrHaunt.x)</c>, EnvHaunt.cginc), so a forced event with
+    /// the feature off would be drawn nowhere.</para>
+    /// </summary>
+    /// <param name="id">Event id — the room's card index, 0..<see cref="EventCount"/>−1.</param>
+    internal static bool Force(int id)
+    {
+        if (!_bound)
+            Rig.RenderQuality.Bind();
+
+        if (id < 0 || id >= EventCount)
+            return false;
+
+        if (!ForceReady)
+        {
+            string why = !VRSession.IsRunning
+                ? "VR is not running"
+                : !Events.VRModeStateMachine.ScenarioBoardExists
+                    ? "there is no scenario board"
+                    : $"the environment is '{SkyAlternative.Style.Value}', which has no apparitions "
+                      + "(only Cellar and SwampNight do)";
+            VRLog.Info("Core", $"HAUNT TEST TRIGGER ignored — apparition {id} was not forced because "
+                               + why + ". There is no haunted room to draw it in, so the button is inert "
+                               + "here on purpose rather than arming a force that would fire later.");
+            return false;
+        }
+
+        _forceId = id;
+        _forceSince = SkyAlternative.EnvClockSeconds;
+
+        VRLog.Info("Core", $"HAUNT TEST TRIGGER: apparition {id} of the {SkyAlternative.Style.Value} room "
+                           + $"forced from shared clock {_forceSince:F2}s, held until "
+                           + $"{_forceSince + ForceHoldSeconds:F2}s ({ForceHoldSeconds:F0}s). "
+                           + $"{ForceChannelName} = ({id + 1:F1}, {_forceSince:F2}, 0, 0) and "
+                           + $"{ChannelName} = (master 1, frequency {Mathf.Clamp01(Frequency.Value):F2}, "
+                           + "0, 0) from the next tick; while the force stands, the shader plays this "
+                           + "one event from phase (clock - y) / duration and suppresses the scheduled "
+                           + "ones"
+                           + (EasterEggs.Value
+                                  ? " (the 'EasterEggs' setting is on)"
+                                  : " — the 'EasterEggs' setting is OFF and this press temporarily "
+                                    + "overrides it, because with the master at 0 the shader collapses "
+                                    + "every apparition to a point and there would be nothing to judge; "
+                                    + "the setting itself is untouched and stands again the moment the "
+                                    + "force expires")
+                           + ". LOCAL TEST AID ONLY: a haunt is not game state and not on the wire — a "
+                           + "peer keeps computing the real schedule from the same shared clock and is "
+                           + "unaffected. Only this headset draws differently.");
+        return true;
+    }
+
+    /// <summary>
+    /// Drop the override and publish the "nothing forced" zero. Idempotent.
+    /// </summary>
+    internal static void ClearForce(string why)
+    {
+        if (_forceId < 0)
+        {
+            // Still assert the zero once, so the very first frame of a session states "nothing is
+            // forced" instead of inheriting whatever the global happened to hold.
+            WriteForce(Vector4.zero);
+            return;
+        }
+
+        int id = _forceId;
+        _forceId = -1;
+        _forceSince = 0f;
+        WriteForce(Vector4.zero);
+
+        VRLog.Info("Core", $"HAUNT TEST TRIGGER over — apparition {id} is no longer forced ({why}). "
+                           + $"{ForceChannelName} published as zero, so the room goes back to its own "
+                           + "shared-clock schedule and nothing of the override is left standing.");
+    }
+
     // ---- live state ------------------------------------------------------------------------------
 
     private static Vector4 _last;
@@ -172,7 +364,10 @@ internal static class Haunt
         if (!_bound)
             Rig.RenderQuality.Bind();
 
-        if (!EasterEggs.Value)
+        // …UNLESS A TEST TRIGGER IS STANDING: a press overrides the switch for its few seconds (the
+        // reasoning is at Force()). One extra field read on the off path, so "costs nothing when off"
+        // still holds.
+        if (!EasterEggs.Value && !Forcing)
         {
             StandDown("the setting is off");
             return;
@@ -203,14 +398,51 @@ internal static class Haunt
             return;
         }
 
+        // THE FORCE EXPIRES HERE, before anything is published, so the frame that ends the hold
+        // already publishes the zero. The backwards test is the shared clock changing owner or a
+        // scene reload resetting it: the elapsed time is then meaningless and the honest answer is to
+        // drop the override rather than let it restart its fourteen seconds unseen.
+        float clock = SkyAlternative.EnvClockSeconds;
+        if (_forceId >= 0 && (clock - _forceSince >= ForceHoldSeconds || clock < _forceSince))
+        {
+            ClearForce(clock < _forceSince
+                           ? "the shared clock jumped backwards"
+                           : $"the {ForceHoldSeconds:F0}s test hold elapsed");
+
+            // The force was the ONLY reason this tick got past the off-switch. With it gone the
+            // switch decides again, and it has to decide THIS frame: falling through would publish
+            // one frame of master 1 on a feature the player has switched off.
+            if (!EasterEggs.Value)
+            {
+                StandDown("the setting is off — the test hold had been overriding it");
+                return;
+            }
+        }
+
         float freq = Mathf.Clamp01(Frequency.Value);
+
+        // MASTER IS 1 WHILE A FORCE STANDS even if the player's switch is off — see Force(): with 0
+        // the shader collapses every apparition's quad and the forced event would be drawn nowhere.
+        // The frequency dial is published UNCHANGED: it only selects which SCHEDULED slots fire, and
+        // the shader suppresses those for the duration of a force anyway, so overriding it would
+        // change nothing except what the log claims the player's settings are.
         Write(new Vector4(1f, freq, 0f, 0f));
+        WriteForce(_forceId >= 0 ? new Vector4(_forceId + 1f, _forceSince, 0f, 0f) : Vector4.zero);
 
         if (!_live)
         {
             _live = true;
             _zeroed = false;
-            VRLog.Info("Core", $"HAUNT on — {style} easter eggs live at frequency {freq:F2}. "
+            // "on" has to mean what it says even when the reason is a test press: the setting can be
+            // OFF here and the channel still live, which is a state a log reader must not have to
+            // deduce from a nearby TEST TRIGGER line that may be seconds away.
+            VRLog.Info("Core", $"HAUNT on — {style} easter eggs live at frequency {freq:F2}"
+                               + (EasterEggs.Value
+                                      ? string.Empty
+                                      : " BECAUSE A TEST TRIGGER IS FORCING ONE; the 'EasterEggs' "
+                                        + "setting itself is off and takes over again when the hold "
+                                        + "expires")
+                               + ". "
                                + $"{ChannelName} = (master 1, frequency {freq:F2}, 0, 0). Everything the "
                                + "apparitions do is a pure function of the SHARED environment clock "
                                + "(SkyAlternative.EnvClockSeconds), so every player in this scenario sees the "
@@ -237,6 +469,12 @@ internal static class Haunt
     /// turned it off" from "the scenario ended" without guessing.</param>
     internal static void StandDown(string why)
     {
+        // BEFORE the idempotence guard, on purpose: every route that drops this channel — teardown
+        // and the style change included (SkyAlternative.cs:880/890) — must also drop a test override,
+        // and the guard would otherwise let one survive a stand-down that had already published its
+        // zeros. ClearForce is itself idempotent and asserts the zero on the first call.
+        ClearForce(why);
+
         if (!_live && _zeroed)
             return;
 
@@ -273,5 +511,37 @@ internal static class Haunt
 
         _last = v;
         Shader.SetGlobalVector(ChannelId, v);
+    }
+
+    /// <summary>
+    /// The ONE writer of <see cref="ForceChannelName"/>, held to the same discipline as
+    /// <see cref="Write"/> — same NaN rejection, same write-only-on-change rule, same single-writer
+    /// rule. The NaN case matters more here than anywhere else in this file: x is floored into an
+    /// event INDEX and y is subtracted from the clock, so one poisoned value would either pick a card
+    /// that does not exist or freeze a phase at NaN — an apparition drawn nowhere, or one drawn
+    /// permanently, with the cause three lanes away.
+    /// </summary>
+    private static void WriteForce(Vector4 v)
+    {
+        if (float.IsNaN(v.x) || float.IsInfinity(v.x) || float.IsNaN(v.y) || float.IsInfinity(v.y))
+            return;
+
+        // "Nothing forced" is a STATE, not a value near zero: the id is published as id+1, so any
+        // x at or below 0 is the off case and gets written exactly once.
+        bool off = v.x <= 0f;
+        if (off)
+        {
+            if (_forceZeroed)
+                return;
+        }
+        else if (Mathf.Abs(v.x - _lastForce.x) <= WriteEpsilon
+                 && Mathf.Abs(v.y - _lastForce.y) <= WriteEpsilon)
+        {
+            return;
+        }
+
+        _forceZeroed = off;
+        _lastForce = off ? Vector4.zero : v;
+        Shader.SetGlobalVector(ForceChannelId, _lastForce);
     }
 }

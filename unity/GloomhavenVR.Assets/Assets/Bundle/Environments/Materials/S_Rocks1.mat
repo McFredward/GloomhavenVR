@@ -33,6 +33,10 @@ Material:
     - _BumpScale: 1
     - _Cutoff: 0.5
     - _Cutout: 0
+    - _ElemFrost: 1
+    - _ElemMoss: 1
+    - _ElemRad: 24.000002
+    - _ElemWarm: 1.8
     - _PtHard: 0
     - _RimPow: 3
     - _VCol: 0
@@ -41,6 +45,7 @@ Material:
     - _AmbUp: {r: 0.024, g: 0.029, b: 0.04, a: 1}
     - _DirCol: {r: 0.7, g: 0.79, b: 0.94, a: 1}
     - _DirDir: {r: 0.3236439, g: 0.6427071, b: -0.69439346, a: 0}
+    - _ElemCentre: {r: 8.290621, g: 0.16808449, b: 12.438187, a: 0}
     - _L0Col: {r: 0.11, g: 0.26, b: 0.16, a: 0.22}
     - _L0Pos: {r: 0.9404907, g: 1.8680845, b: 26.016682, a: 0.090909086}
     - _L1Col: {r: 0.26, g: 0.145, b: 0.055, a: 0.3}

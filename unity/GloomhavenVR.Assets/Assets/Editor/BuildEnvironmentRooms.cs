@@ -227,6 +227,25 @@ namespace GloomhavenVR
             // The cellar needs it high: a candle must light its own table and
             // leave the far wall black (user, ModBuild 134).
             public float ptHard = 0f;
+            // ELEMENT ART — the room's outer radius in authored metres, i.e. how
+            // far "the periphery" is (EnvRoom/_ElemRad, GhvrRim in
+            // EnvElement.cginc). It rides on the LIGHT RIG rather than being a
+            // constant per room because it goes out through ApplyRig, which is
+            // already the one place that knows every lit material AND its
+            // transform — an element frame written anywhere else would have to
+            // re-derive the object-space conversion and could disagree with the
+            // light positions about where the middle of the room is.
+            public float elemRad = 6f;
+            // ELEMENT ART — how hard Fire's warm rim pushes in THIS room
+            // (EnvRoom/_ElemWarm). It is a per-room number and it has to be,
+            // because the two rooms answer the same term at completely different
+            // levels: the cellar's ambient is 0.03 and its walls are two metres
+            // away, so a rim that reads there floods a wood whose moon term is
+            // 0.70 and whose trunks are eight metres out — and vice versa. The
+            // first bake proved both halves of that at once (the cellar's darkest
+            // corner was fully revealed at Fire; the forest's trunks barely
+            // moved). Measured, not guessed: see the renders in the report.
+            public float elemWarm = 1f;
         }
 
         // Flicker phases and RATES are baked into the shaders, one per light
@@ -265,7 +284,21 @@ namespace GloomhavenVR
             // difference between a volume and a glowing tube.
             m.SetVector("_RimDir", dirObj);
             if (m.HasProperty("_PtHard")) m.SetFloat("_PtHard", rig.ptHard);
+            // ELEMENT ART — the room's frame, in this material's OWN object
+            // space. Both rooms are authored around the origin, so the centre is
+            // world zero; a prop with its own transform gets that point pulled
+            // back into its space here, which is why a barrel three metres out
+            // frosts on its outward side and warms on the side that faces the
+            // table. Guarded by HasProperty: EnvGround and EnvRoomCutout go
+            // through this same flush and belong to other lanes this round.
             float s = (xf.lossyScale.x + xf.lossyScale.y + xf.lossyScale.z) / 3f;
+            if (m.HasProperty("_ElemCentre"))
+            {
+                var cObj = xf.InverseTransformPoint(Vector3.zero);
+                m.SetVector("_ElemCentre", new Vector4(cObj.x, cObj.y, cObj.z, 0f));
+                m.SetFloat("_ElemRad", rig.elemRad / Mathf.Max(s, 1e-4f));
+                m.SetFloat("_ElemWarm", rig.elemWarm);
+            }
             for (int i = 0; i < 3; i++)
             {
                 string pn = "_L" + i + "Pos", cn = "_L" + i + "Col";
@@ -1193,6 +1226,354 @@ namespace GloomhavenVR
             Cap(c[n - 1], axis1, rt1, uu1, r[n - 1], col[n - 1], along[n - 1], true);
         }
 
+        // ============================================================ ELEMENT ART
+        // The four emitters the elements OWN, plus the two the cellar owns. Every
+        // one of them is gated in its material (EnvParticleAdd/_ElemOwn): while
+        // its element is down each quad collapses to a point in the vertex shader
+        // and nothing is shaded. What that does NOT buy is the Shuriken
+        // simulation or the draw call — the bundle ships no MonoBehaviours, so
+        // nothing can enable or disable a particle system at runtime — and that
+        // is why the counts below are small and why the bake log prints them.
+        //
+        // WHY THEY HANG UNDER RoomGeo AND NOT ON THE SHELL ROOT. The runtime
+        // splits a spawned shell into a board-anchored ROOM branch and a
+        // perceived-size-constant SKY branch BY NODE NAME, and the room list is a
+        // closed contract owned by src/ (SkyAlternative.RoomBoundShellChildren =
+        // RoomGeo, GroundFog, GroundFogFar, Fireflies): "any node a future content
+        // round adds" rides the SKY. An ember ring parented to the shell root
+        // would therefore be scaled like the star dome — 45 m away and growing as
+        // the player zooms out. Under RoomGeo they are room geometry, which is
+        // what they are. It also means no name has to be added on the src/ side.
+        //
+        // WHERE THEY MAY BE. Nothing here is allowed inside the play space: every
+        // shape below is a DONUT or a box whose near edge clears the authored
+        // PlaySpace radius, so an element blooms at the walls and the tree line
+        // and the board keeps its own air. (AssertPlaySpaceClear cannot check
+        // this for us — it walks MeshFilters, and an emitter has none.)
+        //
+        // ORIENTATION, which is a permanent VR ruling and not a preference:
+        // nothing may visibly re-orient with the head. Every sprite used here is
+        // radially symmetric (Env_Glow, Env_Spark) or symmetric about its long
+        // axis and stretched along its own WORLD velocity (Env_Streak, Stretch
+        // mode with cameraVelocityScale = 0) — the same two escape hatches the
+        // fog, the motes and the shooting stars already use.
+        //
+        // SIMULATION SPACE matches the FX that ship today (World, default scaling
+        // mode), deliberately: the ground fog and the fireflies are room-bound
+        // and world-simulated, they have been judged on hardware in that state,
+        // and an emitter that scaled differently from the fog beside it would be
+        // a new question in a round that is not about that.
+
+        /// <summary>An element emitter: world-simulated, shadowless, looping,
+        /// prewarmed (a still preview frame has to show it populated).</summary>
+        private static ParticleSystem ElemPS(Transform parent, string name, Vector3 pos,
+            string matFile, int maxAlive)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = pos;
+            var ps = go.AddComponent<ParticleSystem>();
+            var r = go.GetComponent<ParticleSystemRenderer>();
+            r.sharedMaterial = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/" + matFile)
+                               ?? throw new Exception("Element FX material missing: " + matFile);
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            r.receiveShadows = false;
+            var m = ps.main;
+            m.loop = true;
+            m.prewarm = true;
+            m.playOnAwake = true;
+            m.simulationSpace = ParticleSystemSimulationSpace.World;
+            m.maxParticles = maxAlive;
+            return ps;
+        }
+
+        /// <summary>Fade in, hold, fade out — every element emitter uses the same
+        /// envelope, so a particle never pops into or out of existence.</summary>
+        private static void ElemFade(ParticleSystem ps, float inAt, float outAt)
+        {
+            var g = new Gradient();
+            g.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[]
+                {
+                    new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, inAt),
+                    new GradientAlphaKey(1f, outAt), new GradientAlphaKey(0f, 1f),
+                });
+            var col = ps.colorOverLifetime; col.enabled = true;
+            col.color = new ParticleSystem.MinMaxGradient(g);
+        }
+
+        /// <summary>A ring emitter clear of the play space: inner edge at
+        /// `inner` metres, outer at `outer`. Written as a donut rather than as a
+        /// sphere-minus-hole because a donut's radiusThickness = 1 fills the
+        /// whole tube, which is the only shape in Shuriken that can promise an
+        /// empty middle.</summary>
+        private static void ElemRing(ParticleSystem ps, float inner, float outer)
+        {
+            var sh = ps.shape; sh.enabled = true;
+            sh.shapeType = ParticleSystemShapeType.Donut;
+            sh.radius = (inner + outer) * 0.5f;
+            sh.donutRadius = (outer - inner) * 0.5f;
+            sh.radiusThickness = 1f;
+            // THE RING IS LAID FLAT BY THE TRANSFORM, not by the shape module's
+            // own rotation. Shuriken authors a donut in the XY plane, and the
+            // first bake tried to lay it down with shape.rotation = (90,0,0):
+            // the previews then showed embers only at the far right of the frame
+            // and no snow or spores at all, i.e. a ring standing on edge in a
+            // plane through the camera. The environments already had the right
+            // answer — GroundFog and GroundFogFar are built with the EMITTER
+            // rotated (-90,0,0) — so this uses the mechanism that has been on
+            // hardware for six rounds instead of the one that reads better.
+            ps.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+        }
+
+        /// <summary>The wind the forest's Air blows along. Same sense as the
+        /// cellar's authored draught (DraftDir): the moon stands in the
+        /// north-east, so in both rooms the weather comes from the light. One
+        /// constant, so anything a later round adds can lean the same way — which
+        /// is the whole reason DraftDir exists on the cellar side.</summary>
+        private static readonly Vector3 ForestWind = new Vector3(-0.822f, 0f, -0.570f);
+
+        /// <summary>One component of a wind velocity as an ORDERED two-constant
+        /// range. Both rooms' winds have negative components, so `w*lo, w*hi`
+        /// comes out with min &gt; max — Shuriken's two-constant mode takes (min,
+        /// max) and an inverted pair is a trap that costs a bake to notice.</summary>
+        private static ParticleSystem.MinMaxCurve WindRange(float w, float lo, float hi)
+        {
+            float a = w * lo, b = w * hi;
+            return new ParticleSystem.MinMaxCurve(Mathf.Min(a, b), Mathf.Max(a, b));
+        }
+
+        /// <summary>Build one room's element emitters. `cellar` picks the
+        /// authored geometry (the two rooms are different sizes and have
+        /// different draughts); everything else is shared on purpose, so Fire
+        /// looks like Fire in both places.</summary>
+        private static void AddElementFX(Transform root, bool cellar)
+        {
+            var wind = cellar ? DraftDir : ForestWind;
+            // inner radius of every ring: outside the authored play space, with a
+            // little margin so a particle's own size cannot reach in
+            float playR = (cellar ? CellarPlaySpaceDia : ForestPlaySpaceDia) * 0.5f + 0.15f;
+            int total = 0, systems = 0;
+
+            // DENSITY IS THE WHOLE EFFECT, and the first two bakes both got it
+            // wrong in the same way. The arithmetic that decides it:
+            //   alive = rate x mean lifetime, spread over a RING, of which a
+            //   60 deg view holds a sixth, of which the visible height band holds
+            //   maybe half. Twenty particles in a nine-metre ring is therefore
+            //   ONE particle in frame — which is what the previews showed, and it
+            //   reads as a bug rather than as weather.
+            // Two consequences are baked into every emitter below: lifetimes are
+            // short (they must also reach their steady state inside the preview's
+            // six-second fast-forward, or the review set lies about the density),
+            // and the rings are as tight as the play space allows.
+            void Note(ParticleSystem ps, string what)
+            {
+                total += ps.main.maxParticles; systems++;
+                Debug.Log($"[GloomhavenVR][Env] Element FX {(cellar ? "Cellar" : "Forest")}/{ps.name}: "
+                          + $"{what}, max alive {ps.main.maxParticles}, "
+                          + $"rate {ps.emission.rateOverTime.constant:F1}/s.");
+            }
+
+            // ------------------------------------------------------------ FIRE
+            // Embers, rising. In the cellar off the floor along the walls, in the
+            // forest out of the ground between the trunks — the same event in two
+            // places, which is what makes an element read as one thing.
+            {
+                // THE RING'S HEIGHT IS ITS TUBE RADIUS, not zero. A donut's cross
+                // section is a circle as thick as the ring is wide, so a ring
+                // authored at floor level spawns half of its particles UNDER the
+                // floor, where they are depth-rejected and cost fill for nothing.
+                // Both rooms therefore sit the tube ON the ground.
+                var ps = ElemPS(root, "ElemEmbers", new Vector3(0f, cellar ? 0.80f : 1.50f, 0f),
+                                "FX_ElemEmber.mat", cellar ? 20 : 26);
+                var m = ps.main;
+                m.duration = 12f;
+                m.startLifetime = new ParticleSystem.MinMaxCurve(2.6f, 5.2f);
+                m.startSpeed = 0f;
+                // SIZES ARE MEASURED AGAINST THE FIREFLIES, which are the only
+                // thing in either room a hardware round has already judged for
+                // legibility at this kind of distance (0.032-0.070 m at ~8 m,
+                // "dezent" but not gone). The first bake authored everything here
+                // at half that and the previews showed nothing at all — an ember
+                // ring four metres away has to be at least as big as a firefly
+                // eight metres away to exist.
+                m.startSize = new ParticleSystem.MinMaxCurve(0.030f, 0.075f);
+                m.startColor = new Color(1f, 1f, 1f, 1f);
+                var e = ps.emission; e.rateOverTime = cellar ? 4.6f : 6.2f;
+                // The forest ring is 5.6-8.5 m and not 5.6-9.6: twenty embers
+                // spread over the wider annulus were four embers per 60 deg of
+                // view, i.e. nothing. Density is the whole effect — a ring you
+                // can count the particles of is a bug report.
+                ElemRing(ps, playR + 0.35f, cellar ? 4.9f : 8.5f);
+                var v = ps.velocityOverLifetime; v.enabled = true;
+                v.space = ParticleSystemSimulationSpace.World;
+                // an ember rises, wanders and dies; the drift is the room's own
+                // wind so Fire and Air agree about which way the air is going
+                v.x = WindRange(wind.x, 0.10f, 0.26f);
+                v.z = WindRange(wind.z, 0.10f, 0.26f);
+                v.y = new ParticleSystem.MinMaxCurve(0.24f, 0.62f);
+                var n = ps.noise; n.enabled = true; n.quality = ParticleSystemNoiseQuality.Low;
+                n.strength = 0.09f; n.frequency = 0.5f; n.scrollSpeed = 0.35f;
+                // they burn out rather than fade: the last third is the fade
+                ElemFade(ps, 0.08f, 0.55f);
+                var sol = ps.sizeOverLifetime; sol.enabled = true;
+                sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
+                    new Keyframe(0f, 1f), new Keyframe(0.6f, 0.75f), new Keyframe(1f, 0.25f)));
+                Note(ps, "embers rising at the periphery");
+            }
+
+            // ------------------------------------------------------------- ICE
+            // Snow, but only in the FOREST: it falls out of a sky, and the cellar
+            // has a ceiling. The cellar's Ice is the frost on the stone (EnvRoom),
+            // the glazed puddle (EnvPuddle) and the motes going cold (FX_Dust) —
+            // which is three surfaces the player already knows the resting state
+            // of, and is worth more than a fourth emitter would be.
+            //
+            // REJECTED for the cellar: breath fog. It would have to come out of
+            // the player's face, i.e. be head-anchored, and head-anchored FX are
+            // permanently forbidden in this project.
+            if (!cellar)
+            {
+                // 3.6 m and a 4.5-7 s life, not 5 m and 9-14 s: a flake that
+                // takes twelve seconds to cross the frame is a flake the preview
+                // never sees (six-second fast-forward) and the player waits for.
+                // It fades out in mid-air on the way down, which is what a flake
+                // does in a wood full of branches anyway.
+                var ps = ElemPS(root, "ElemSnow", new Vector3(0f, 3.6f, 0f), "FX_ElemSnow.mat", 42);
+                var m = ps.main;
+                m.duration = 20f;
+                m.startLifetime = new ParticleSystem.MinMaxCurve(4.5f, 7f);
+                m.startSpeed = 0f;
+                // Bigger than the embers, because snow has to read AS SNOW at
+                // eight metres and thirty flakes is not weather — the size is
+                // doing the work the count cannot.
+                m.startSize = new ParticleSystem.MinMaxCurve(0.045f, 0.105f);
+                m.startColor = new Color(1f, 1f, 1f, 1f);
+                var e = ps.emission; e.rateOverTime = 7.0f;
+                // 5.3-8.0 m, not a 15 m annulus: the same flakes over a sixth of
+                // the volume. Snow you can see is snow near you.
+                ElemRing(ps, playR + 0.8f, 8.0f);
+                var v = ps.velocityOverLifetime; v.enabled = true;
+                v.space = ParticleSystemSimulationSpace.World;
+                // slow: 0.2-0.4 m/s is what a real flake does, and it is the one
+                // thing that separates snow from ash at a glance
+                v.y = new ParticleSystem.MinMaxCurve(-0.40f, -0.18f);
+                v.x = WindRange(wind.x, 0.14f, 0.30f);
+                v.z = WindRange(wind.z, 0.14f, 0.30f);
+                var n = ps.noise; n.enabled = true; n.quality = ParticleSystemNoiseQuality.Low;
+                n.strength = 0.10f; n.frequency = 0.18f; n.scrollSpeed = 0.10f;
+                ElemFade(ps, 0.10f, 0.86f);
+                Note(ps, "slow snow between the trunks");
+            }
+
+            // ------------------------------------------------------------- AIR
+            // The air itself, made visible: needles and dust DRIVEN along the
+            // room's own bearing, fast, at head height and above. Stretch mode
+            // aligns each streak to its WORLD velocity, never to the head
+            // (cameraVelocityScale pinned to 0) — the same escape hatch the
+            // shooting stars use, and the reason this is legal in VR at all.
+            {
+                // A RING AROUND THE PLAYER, not a box upwind of him. The first
+                // bake put the emitter on the windward side and let the streaks
+                // cross the room: from the middle of the clearing they spawned
+                // 40 deg off the view axis and then travelled AWAY BEHIND the
+                // camera, so the forest's Air rendered a pixel-exact copy of the
+                // still room. Wind is not a place, it is a direction — every
+                // streak in the ring carries the SAME world velocity, so whichever
+                // way the player turns he sees the air going one way.
+                var ps = ElemPS(root, "ElemGust", new Vector3(0f, cellar ? 1.95f : 2.20f, 0f),
+                                cellar ? "FX_ElemDraught.mat" : "FX_ElemGust.mat", cellar ? 20 : 28);
+                var m = ps.main;
+                m.duration = 10f;
+                // The forest gust is SHORT-LIVED on purpose: at 1.9-3.4 m/s a
+                // six-second streak ends up twenty metres out in the black wood,
+                // where it is neither visible nor doing anything. Three seconds
+                // keeps the whole population inside the tree band.
+                m.startLifetime = new ParticleSystem.MinMaxCurve(cellar ? 3.4f : 2.4f,
+                                                                 cellar ? 5.6f : 3.8f);
+                m.startSpeed = 0f;   // the wind is in velocityOverLifetime, below
+                // SMALL and dim: this is dust and needles going past, and the
+                // Stretch renderer multiplies whatever size is authored here by
+                // the speed. The first bake's 0.055-0.13 at full alpha produced
+                // three fat white comets per frame.
+                m.startSize = new ParticleSystem.MinMaxCurve(cellar ? 0.020f : 0.026f,
+                                                             cellar ? 0.048f : 0.055f);
+                m.startColor = new Color(1f, 1f, 1f, cellar ? 0.55f : 0.62f);
+                var e = ps.emission; e.rateOverTime = cellar ? 4.4f : 8.5f;
+                ElemRing(ps, playR + 0.25f, cellar ? 4.9f : 8.0f);
+                var vg = ps.velocityOverLifetime; vg.enabled = true;
+                vg.space = ParticleSystemSimulationSpace.World;
+                float lo = cellar ? 0.75f : 1.9f, hi = cellar ? 1.5f : 3.4f;
+                vg.x = WindRange(wind.x, lo, hi);
+                vg.z = WindRange(wind.z, lo, hi);
+                // a real gust is not level: it lifts what it carries
+                vg.y = new ParticleSystem.MinMaxCurve(-0.10f, 0.35f);
+                var n = ps.noise; n.enabled = true; n.quality = ParticleSystemNoiseQuality.Low;
+                n.strength = cellar ? 0.10f : 0.28f; n.frequency = 0.7f; n.scrollSpeed = 0.6f;
+                ElemFade(ps, 0.14f, 0.72f);
+                var r = ps.GetComponent<ParticleSystemRenderer>();
+                r.renderMode = ParticleSystemRenderMode.Stretch;
+                r.velocityScale = 0.055f;
+                r.lengthScale = 1.6f;
+                r.cameraVelocityScale = 0f;   // no camera term may enter the stretch
+                Note(ps, cellar ? "dust streaming along DraftDir" : "needles driven across the wood");
+            }
+
+            // ----------------------------------------------------------- EARTH
+            // Two different events for one element, because the two rooms have
+            // opposite geometry: in the wood the ground BREATHES upward (spores
+            // off the litter), in a cellar the ceiling SHEDS (grit between the
+            // planks). Both are slow, both are at the periphery, and neither is
+            // a colour — Earth's colour channel is the green on the moss and the
+            // roots (EnvRoom/_ElemMoss), which is a different surface again.
+            {
+                bool sift = cellar;
+                var ps = ElemPS(root, sift ? "ElemSift" : "ElemSpores",
+                                new Vector3(0f, sift ? 3.02f : 0.12f, 0f),
+                                sift ? "FX_ElemSift.mat" : "FX_ElemSpore.mat", sift ? 22 : 26);
+                var m = ps.main;
+                m.duration = 15f;
+                m.startLifetime = new ParticleSystem.MinMaxCurve(sift ? 2.8f : 4.5f,
+                                                                 sift ? 4.6f : 7.5f);
+                m.startSpeed = 0f;
+                // The grit is the SMALLEST thing either room draws and it is in
+                // the darkest air in the game; the first two bakes put it under a
+                // pixel and the previews showed an unchanged room. Grit off a
+                // ceiling plank is a few millimetres of stone dust catching a
+                // candle — at 0.010-0.026 m it is still that, and it is visible.
+                m.startSize = new ParticleSystem.MinMaxCurve(sift ? 0.010f : 0.026f,
+                                                             sift ? 0.026f : 0.062f);
+                m.startColor = new Color(1f, 1f, 1f, sift ? 0.95f : 0.95f);
+                m.gravityModifier = sift ? 0.055f : 0f;
+                var e = ps.emission; e.rateOverTime = sift ? 7.5f : 4.2f;
+                ElemRing(ps, playR + 0.25f, cellar ? 4.9f : 7.6f);
+                // the spores rise from just above the litter, not from inside it:
+                // the donut's tube is 1.4 m thick, so half of a ring authored at
+                // ground level spawns UNDER the forest floor and is never seen
+                if (!sift) ps.transform.localPosition = new Vector3(0f, 1.45f, 0f);
+                var v = ps.velocityOverLifetime; v.enabled = true;
+                v.space = ParticleSystemSimulationSpace.World;
+                v.x = WindRange(wind.x, 0.04f, 0.10f);
+                v.z = WindRange(wind.z, 0.04f, 0.10f);
+                v.y = sift ? new ParticleSystem.MinMaxCurve(-0.05f, -0.01f)
+                           : new ParticleSystem.MinMaxCurve(0.05f, 0.15f);
+                var n = ps.noise; n.enabled = true; n.quality = ParticleSystemNoiseQuality.Low;
+                n.strength = sift ? 0.05f : 0.14f; n.frequency = 0.22f; n.scrollSpeed = 0.12f;
+                ElemFade(ps, sift ? 0.10f : 0.15f, sift ? 0.70f : 0.80f);
+                Note(ps, sift ? "grit sifting off the ceiling planks" : "spores drifting up off the litter");
+            }
+
+            // THE STANDING COST, stated where it is paid rather than in a report
+            // nobody keeps: this is what these emitters cost with all six elements
+            // inert, because nothing in the bundle can switch a particle system
+            // off. The DRAWN cost with an element down is zero (collapsed quads).
+            Debug.Log($"[GloomhavenVR][Env] Element FX {(cellar ? "Cellar" : "Forest")}: {systems} emitters, "
+                      + $"{total} particles max alive, ALWAYS simulating (no MonoBehaviours in the bundle). "
+                      + "While an element is down its quads collapse in the vertex shader: no fill, "
+                      + "but the simulation and one draw call per emitter remain.");
+        }
+
         // ================================================================ CELLAR
         // ~10.5 x 9 m weathered stone cellar, beamed plank ceiling, barred night
         // window with a real reveal and a moonlight shaft, stair alcove rising
@@ -1452,6 +1833,17 @@ namespace GloomhavenVR
                 // 16, not 22: at 22 a candle standing ON the bookshelf could not
                 // light the bookshelf. The pool has to have a soft outer half.
                 ptHard = 16f,
+                // ELEMENT ART: how far "the periphery" is. 5.0 m puts the far
+                // wall at 1.0 on the ramp and the edge of the play space at
+                // ~0.65, so frost owns the walls, touches the flagstones the
+                // board stands on hardly at all, and never reaches the middle.
+                elemRad = 5.0f,
+                // 0.70: at 1.0 the first bake lit the south-west corner — the one
+                // the cellar lane built as "a corner nobody ever repaired, no
+                // candle reaches it" — well enough to read the barrels in it.
+                // Fire may fill this room with firelight; it may not repeal the
+                // room's own geometry of light.
+                elemWarm = 0.70f,
                 points = new[]
                 {
                     new PLight(new Vector3(3.55f, 1.06f, 3.10f), 3.10f, new Color(1f, 0.60f, 0.30f) * 2.10f, 0.90f), // table candles
@@ -1483,8 +1875,16 @@ namespace GloomhavenVR
             var floorMesh = SaveMesh("Env_C_Floor.asset", GridMeshXZ(-hw, -hd, hw, hd, 60, 52,
                 CellarFloorY, (x, z) => Color.white, 2.6f));
             var floorGo = Place(root, "Floor", floorMesh, Vector3.zero, Vector3.zero, Vector3.one, null);
-            floorGo.GetComponent<MeshRenderer>().sharedMaterial =
-                SurfMat("C_Floor.mat", "monastery_stone_floor", 2.6f, floorGo.transform, 1.0f, 1f);
+            var floorMat = SurfMat("C_Floor.mat", "monastery_stone_floor", 2.6f, floorGo.transform, 1.0f, 1f);
+            // ELEMENT ART — EARTH, and it is the only green in this room. The
+            // cellar's authored Earth is the grit off the ceiling planks
+            // (AddElementFX), which is small, dark and easy to miss; a damp cast
+            // creeping up the flagstones AT THE WALLS gives the element a second
+            // channel that cannot be missed and costs nothing. 0.30, and the
+            // periphery ramp keeps it out of the middle: the floor the board
+            // stands on stays the colour it was tuned to.
+            floorMat.SetFloat("_ElemMoss", 0.30f);
+            floorGo.GetComponent<MeshRenderer>().sharedMaterial = floorMat;
 
             // ---- walls (N has window + a rat hole, S has the other rat hole,
             //      W has stair doorway) ----
@@ -2052,6 +2452,10 @@ namespace GloomhavenVR
             rig.points[2].pos = candleCrate + new Vector3(0, 0.20f, 0);
 
             BuildCellarAtmosphere(root, rig);
+            // ELEMENT ART — the gated emitters (embers, the strengthened draught,
+            // grit off the planks). See AddElementFX for why they hang here and
+            // not on the shell root.
+            AddElementFX(root, cellar: true);
 
             PaintContactAO(floorGo, 0.40f, 0.30f);
             FlushRig(rig);
@@ -3420,16 +3824,17 @@ namespace GloomhavenVR
         private struct HauntCard
         {
             public string name;      // for the log only
-            public int kind;         // EnvHaunt kind (see its catalogue block)
-            public float variant;    // kind sub-variant
+            public int kind;         // EnvHaunt kind: 0 TILE, 1 EYES, 2 CROSS, 3 NONE
+            public int tile;         // which apparition in Env_Haunt.png (EnvironmentsBuilder.HTile*)
             public Vector3 at;       // card centre, ROOM space
             public Vector3 facing;   // unit, must point roughly at the room centre
             public bool mirror;      // flip the card's +u axis
             public float halfW, halfH;   // metres
             public float reveal, hold, fade;  // the envelope, seconds
-            public float shape;      // env.w — kind-specific (the grin's maximum)
-            public Vector4 par;      // par.xyzw — kind-specific
-            public Color col;        // rgb apparition colour, a base opacity
+            public float shape;      // env.w — the damped sway, or the EYES blink lag
+            public Vector4 par;      // slide-u / travel, tilt (rad), slide-v / smear, rim mul
+            public Color col;        // rgb = the KEY light's colour, a = base opacity
+            public float fillAmt;    // how much of the ROOM's fill light this card takes
             public string why;       // one line of placement rationale, logged
         }
 
@@ -3487,11 +3892,24 @@ namespace GloomhavenVR
                     v.Add(c.at);
                     n.Add(up);
                     tan.Add(new Vector4(right.x, right.y, right.z, 1f));
-                    uv0.Add(new Vector4(q.x, q.y, 0f, 0f));
+                    // z = this card's share of the ROOM's fill light. It rides in
+                    // uv0 rather than in a channel of its own because EIGHT vertex
+                    // attributes is the ceiling that matters: POSITION, NORMAL,
+                    // TANGENT, COLOR and UV0..UV3 is exactly eight, and the round
+                    // that added a ninth (a UV4 carrying a per-card fill COLOUR)
+                    // did not fail loudly — it silently aliased the streams, so the
+                    // fragment read the par vector as a colour and every apparition
+                    // came out with a bright red outline. One channel over the line
+                    // is not a warning, it is a wrong picture.
+                    uv0.Add(new Vector4(q.x, q.y, c.fillAmt, 0f));
                     // z = ASPECT (halfW/halfH): EnvHaunt draws in a space where y
                     // spans [-1,1] and x spans [-aspect,aspect], so every shape is
                     // isotropic in METRES whatever proportions the card has.
-                    uv1.Add(new Vector4(i, c.kind, c.halfW / Mathf.Max(c.halfH, 1e-4f), c.variant));
+                    // w = the ATLAS TILE. EnvHaunt maps it to a cell of
+                    // Env_Haunt.png; the tile is a SQUARE IN METRES of side
+                    // 2 * halfH, which is why halfH and not halfW is what sizes an
+                    // apparition and why a card may be as wide as its slide needs.
+                    uv1.Add(new Vector4(i, c.kind, c.halfW / Mathf.Max(c.halfH, 1e-4f), c.tile));
                     uv2.Add(new Vector4(c.reveal, c.hold, c.fade, c.shape));
                     uv3.Add(c.par);
                     col.Add(c.col);
@@ -3516,6 +3934,77 @@ namespace GloomhavenVR
             m.SetTriangles(tri, 0);
             m.bounds = bounds;
             return m;
+        }
+
+        /// <summary>Write the haunt mesh to its asset — ALL OF IT.
+        ///
+        /// <para>This exists because SaveMesh() does not. When its target asset
+        /// already exists it re-uses it (to keep the GUID stable) and copies
+        /// vertices, normals, tangents, UV0, colors and triangles — and NOTHING
+        /// ELSE. Every other mesh in this builder uses at most those channels, so
+        /// nobody ever noticed; the haunt mesh carries four UV sets, and on a
+        /// re-bake it therefore kept UV1..UV3 FROM THE PREVIOUS BAKE while the
+        /// positions and colours came from the new one.</para>
+        ///
+        /// <para>THIS COST A WHOLE REVIEW ROUND, so it is written down. The
+        /// symptom was not "the easter eggs are missing": it was that half of them
+        /// drew the WRONG APPARITION and the other half drew nothing, in a way
+        /// that looked exactly like a broken atlas lookup. The forest's watcher
+        /// came out as a two-metre FACE (its stale UV1 said kind 2 / variant 0,
+        /// which the rebuilt shader reads as "cross" / "tile 0"), and the
+        /// handprints and the crossing figure vanished (stale kinds 6 and 3, which
+        /// the rebuilt shader reads as "draws nothing"). Both are perfectly
+        /// self-consistent pictures of a shader bug that did not exist. A mesh
+        /// writer that drops channels does not fail, it LIES.</para>
+        ///
+        /// <para>The channel count is asserted on the way out rather than trusted,
+        /// because the next person to add a UV set to this mesh will not read
+        /// this comment.</para></summary>
+        private static Mesh SaveHauntMesh(string file, Mesh src, Bounds bounds)
+        {
+            string path = MeshDir + "/" + file;
+            var dst = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+            if (dst == null)
+            {
+                src.name = Path.GetFileNameWithoutExtension(file);
+                src.bounds = bounds;
+                AssetDatabase.CreateAsset(src, path);
+                dst = src;
+            }
+            else
+            {
+                var v = new List<Vector3>(); src.GetVertices(v);
+                var n = new List<Vector3>(); src.GetNormals(n);
+                var t = new List<Vector4>(); src.GetTangents(t);
+                var c = new List<Color>(); src.GetColors(c);
+                var uvs = new List<Vector4>[4];
+                for (int k = 0; k < 4; k++) { uvs[k] = new List<Vector4>(); src.GetUVs(k, uvs[k]); }
+                dst.Clear();
+                dst.SetVertices(v);
+                dst.SetNormals(n);
+                dst.SetTangents(t);
+                for (int k = 0; k < 4; k++) dst.SetUVs(k, uvs[k]);
+                dst.SetColors(c);
+                dst.SetTriangles(src.triangles, 0);
+                dst.bounds = bounds;
+                EditorUtility.SetDirty(dst);
+                UnityEngine.Object.DestroyImmediate(src);
+            }
+
+            // Read the channels back off the ASSET, not off the array we just
+            // handed it. Four UV sets of four components each is what EnvHaunt's
+            // appdata declares, and a mesh one channel short draws the previous
+            // bake's catalogue with this bake's coordinates.
+            for (int k = 0; k < 4; k++)
+            {
+                var probe = new List<Vector4>();
+                dst.GetUVs(k, probe);
+                if (probe.Count != dst.vertexCount)
+                    throw new Exception($"{file}: UV{k} has {probe.Count} entries for "
+                                        + $"{dst.vertexCount} vertices. EnvHaunt reads all four UV sets; "
+                                        + "a missing one is a silently WRONG apparition, not an absent one.");
+            }
+            return dst;
         }
 
         /// <summary>Prove the catalogue is legal BEFORE it is baked, and print
@@ -3585,7 +4074,7 @@ namespace GloomhavenVR
 
                 float dur = c.reveal + c.hold + c.fade;
                 longest = Mathf.Max(longest, dur);
-                lines.Add($"[{i}] grp{i % HauntGroups} {c.name} kind {c.kind}.{c.variant:F0} at "
+                lines.Add($"[{i}] grp{i % HauntGroups} {c.name} kind {c.kind} tile {c.tile} at "
                           + $"({c.at.x:F2},{c.at.y:F2},{c.at.z:F2}) {2f * c.halfW:F2}x{2f * c.halfH:F2} m, "
                           + $"{c.reveal:F2}+{c.hold:F2}+{c.fade:F2} = {dur:F2} s"
                           + (c.fade <= 0f ? " (INSTANT vanish)" : "")
@@ -3731,21 +4220,39 @@ namespace GloomhavenVR
         /// It takes no light from the candles and casts none — it is a shape in the
         /// dark, and giving it a candle's falloff would make it furniture.</para></summary>
         private static GameObject BuildHaunts(Transform root, string room, string asset,
-            HauntCard[] cards, float playDia, float xLim, float zLim, float yLim)
+            HauntCard[] cards, Color fillLight, float playDia, float xLim, float zLim, float yLim)
         {
             AssertHauntCards(room, cards, playDia, Vector3.zero, xLim, zLim, yLim);
             ReportHauntSchedule(room, cards);
 
-            var mesh = SaveMesh(asset + ".asset", HauntMesh(asset, cards, out var bounds), bounds);
+            var mesh = SaveHauntMesh(asset + ".asset", HauntMesh(asset, cards, out var bounds), bounds);
             var mat = NewRoomMat(room + "_Haunt.mat", "GloomhavenVR/EnvHaunt");
             mat.SetFloat("_Period", HauntPeriod);
             mat.SetFloat("_Cards", cards.Length);
-            // 0.016 of a card half-height. At the sizes below that is 4-15 mm of
-            // soft edge: enough that the silhouette does not alias into a staircase
-            // at 15 m, tight enough that it is a SHAPE and not a smudge. A smudge
-            // is not frightening; it is a dirty lens.
-            mat.SetFloat("_Edge", 0.016f);
-            mat.SetFloat("_Rim", 0.30f);
+            // THE APPARITION ATLAS. Bound here rather than left to the shader's
+            // "black" default on purpose: a missing atlas would otherwise be an
+            // invisible feature rather than a build error, and an easter egg that
+            // silently does not exist is the hardest possible bug to notice.
+            var atlas = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                "Assets/Bundle/Environments/Textures/Env_Haunt.png");
+            if (atlas == null)
+                throw new Exception("Env_Haunt.png is missing — the apparitions have no likeness. "
+                                    + "EnvironmentsBuilder.MakeHauntAtlas bakes it; GenerateTextures "
+                                    + "must run before the rooms.");
+            mat.SetTexture("_Atlas", atlas);
+            // THE ROOM'S FILL LIGHT. One colour per room, because a room HAS one
+            // ambient — the cellar's is the cold spill off the window and the
+            // damp, the forest's is the sky between the trunks. Each card scales
+            // it (uv0.z); what it multiplies is the atlas's B channel, which is a
+            // second baked lighting solution from the opposite side.
+            mat.SetColor("_Fill", fillLight);
+            // 0.08, not 0.30. The rim is COMPENSATION for a room that has gone
+            // black (full Dark adds 0.55 on top), not a permanent outline: at 0.30
+            // every apparition wore a bright even line all the way round itself,
+            // which is the visual grammar of a sticker and was the loudest thing
+            // in the frame. The previews that caught it are env_swamp_HauntHang
+            // (a neon wireframe) and env_swamp_HauntLoom (an outlined cartoon).
+            mat.SetFloat("_Rim", 0.08f);
             mat.SetColor("_RimCold", new Color(0.42f, 0.56f, 0.78f, 1f));
             mat.SetColor("_RimWarm", new Color(0.95f, 0.48f, 0.16f, 1f));
             return Place(root, "Haunts", mesh, Vector3.zero, Vector3.zero, Vector3.one, mat);
@@ -4170,6 +4677,10 @@ namespace GloomhavenVR
                 eye.SetFloat("_BlinkPeriod", 4.3f);
                 eye.SetFloat("_Away", 1f);
                 eye.SetFloat("_AwayPeriod", 23f);
+                // ELEMENT ART: half of Fire's warm push. Something watching from
+                // between the barrels should catch the firelight — it is in the
+                // room — but it must not become a pair of orange lamps.
+                eye.SetFloat("_ElemWarm", 0.5f);
                 var at = new Vector3(-4.86f, 0.115f, -3.55f);
                 var side = new Vector3(0.028f, 0f, -0.010f);
                 Place(root, "EyeL", glowMesh, at - side, Vector3.zero, Vector3.one * 0.021f, eye);
@@ -4354,8 +4865,13 @@ namespace GloomhavenVR
                 // and the travel is short enough that the peak leaves the face
                 // still ~40 % behind the frame. Half a face is worse than a whole
                 // one, which is the entire trick.
-                const float GrinHalfH = 0.26f;                 // 1 card unit, metres
-                const float GrinFaceHalf = 0.60f * GrinHalfH;  // the head SDF's own half-width
+                // 0.20 m of half-height, i.e. a 0.40 m tile square, inside which
+                // the baked head spans about 0.34 m top to bottom and 0.16 m
+                // across. A real skull is 0.23 x 0.30; this one is longer and
+                // narrower than a person's on purpose, and it is the size a head
+                // actually is rather than the 0.52 m the first bake used.
+                const float GrinHalfH = 0.20f;                 // 1 tile unit, metres
+                const float GrinFaceHalf = 0.42f * GrinHalfH;  // the baked head's own half-width
                 float shelfBackX = 4.98f, shelfEdgeZ = 1.15f, shelfMidY = 1.42f;   // fallbacks
                 var shelfGo = root.Find("Shelf")?.gameObject;
                 if (shelfGo != null)
@@ -4368,99 +4884,167 @@ namespace GloomhavenVR
                     }
                     shelfBackX = sb.max.x - 0.04f;
                     shelfEdgeZ = sb.max.z;
-                    shelfMidY = Mathf.Clamp(sb.min.y + (sb.max.y - sb.min.y) * 0.72f, 1.0f, 1.9f);
+                    // 0.96 of the shelf's height, not 0.72. Head height for a
+                    // standing adult is the least frightening option available and
+                    // it is what the first bake used (1.42 m, i.e. beside a shelf,
+                    // at furniture height, reading as a prop). Near the TOP of the
+                    // shelf the thing is looking DOWN over it, which is a height
+                    // nothing in the room has a reason to be at.
+                    shelfMidY = Mathf.Clamp(sb.min.y + (sb.max.y - sb.min.y) * 0.86f, 1.0f, 2.6f);
                     Debug.Log($"[GloomhavenVR][Env] Cellar haunt GRIN measured off the bookshelf: bounds "
                               + $"{sb.min:F2}..{sb.max:F2}; the card sits at x={shelfBackX:F2} (its back "
                               + $"panel), z={shelfEdgeZ - GrinFaceHalf - 0.02f:F2} (one face-width inside "
                               + $"its near edge {shelfEdgeZ:F2}), y={shelfMidY:F2}.");
                 }
                 float grinZ = shelfEdgeZ - GrinFaceHalf - 0.02f;
-                // Travel: enough to put the face's CENTRE just past the shelf edge,
-                // so about 60 % of it is out and the rest is still behind the frame.
-                float grinTravel = (shelfEdgeZ - grinZ) + 0.055f;
+                // Travel: enough to put ONE EYE and half a jaw past the shelf's
+                // edge, and no more. The first bake cleared the WHOLE head at the
+                // peak, which reads as a mask hanging beside a shelf. A third of a
+                // face is worse than a whole one, and that is the entire trick.
+                float grinTravel = (shelfEdgeZ - grinZ) + 0.035f;
 
+                // ============================================================
+                // HAUNT FORCE ID TABLE — CELLAR. The C# lane that adds the
+                // Advanced-menu buttons publishes _GhvrHauntForce = (id + 1,
+                // clock, 0, 0); see the channel block in EnvHaunt.cginc. The id
+                // IS the index in the array below, which is why this table lives
+                // here and nowhere else — a copy kept anywhere else would drift
+                // the first time somebody reorders a catalogue.
+                //   0  Window   head and shoulders at the barred window; the
+                //               MOONBEAM DIMS while it is there (EnvBeam).
+                //   1  Hands    handprints blooming on the wet wall by the puddle.
+                //   2  Floor    a face at FLOOR level among the barrels, looking up.
+                //   3  Tremble  draws nothing: every COBWEB in the room shivers
+                //               (EnvRoomCutout). A tester pressing this button has
+                //               to be told to look at the webs, not at the room.
+                //   4  Stair    something too tall crosses the stair doorway in
+                //               0.7 s. The fastest event in the room.
+                //   5  Shelf    a face comes out from behind the bookshelf's top
+                //               edge, tilts once, and withdraws.
+                // ============================================================
+                //
+                // THE LIGHT COLOURS BELOW ARE THE ROOM'S OWN, and that is the whole
+                // compositing model: the atlas stores VALUE (how much light a
+                // surface catches) and the card supplies the LIGHT. `col.rgb` is
+                // the key — warm candlelight for whatever the cellar's candles
+                // reach, cold moon for what the window lights — and `fill.rgb` is
+                // the opposing one. An apparition lit by a colour the room does not
+                // contain is a decal; one lit by the room's own light is in it.
                 var cards = new[]
                 {
                     // [0] AT THE WINDOW. Outside the reveal, so the barred opening
                     // is its frame and the wall crops it: what you see is a head
                     // and two shoulders filling the one bright rectangle in the
-                    // room. It is a black SILHOUETTE, not a lit face, because it is
-                    // between you and the moon — and the moonbeam DIMS while it is
+                    // room. It is BACKLIT — a hole in the moonlight with a cold
+                    // line down one cheek — and the moonbeam DIMS while it is
                     // there (EnvBeam reads this same card), which is the whole
                     // reason this event is the strongest one in the cellar: the
                     // light in the room changes, and the light in the room is
                     // something the player is already using.
+                    //
+                    // TOO BIG FOR THE OPENING, deliberately. A head that would not
+                    // fit through the hole it is looking through is wrong in a way
+                    // nobody has to be told about.
                     new HauntCard
                     {
-                        name = "Window", kind = 2, variant = 1f,
-                        at = new Vector3(winX, 2.50f, hd + RevealDepth + 0.06f),
-                        facing = Vector3.back, halfW = 0.62f, halfH = 0.52f,
+                        name = "Window", kind = 0, tile = EnvironmentsBuilder.HTileBust,
+                        at = new Vector3(winX, 2.44f, hd + RevealDepth + 0.06f),
+                        facing = Vector3.back, halfW = 0.72f, halfH = 0.60f,
                         reveal = HauntWindowEnv.x, hold = HauntWindowEnv.y, fade = HauntWindowEnv.z,
-                        // The only card in either room that needs almost NO rim:
+                        // A slow lean INTO the opening over the hold — three
+                        // degrees, once, never reversed. Nothing sweeps or waves.
+                        par = new Vector4(0f, 0.055f, 0f, 0.55f),
+                        // The only card in either room that needs almost no rim:
                         // it is backlit by the moon, so the opening around it does
-                        // the contrast for free. par.w = 0.35.
-                        par = new Vector4(0f, 0f, 0f, 0.35f),
-                        col = new Color(0.0018f, 0.0020f, 0.0028f, 0.95f),
+                        // the contrast for free.
+                        col = new Color(0.80f, 0.96f, 1.30f, 0.96f),
+                        fillAmt = 0.30f,
                         why = "outside the barred window; the opening crops it and the beam dims for it",
                     },
                     // [1] THE HANDPRINTS, on the west wall beside the puddle — i.e.
                     // on the one piece of stone in the room the player has already
                     // been told is WET (the drip falls into that puddle every 2.85 s
                     // and the moonbeam lands in it). Prints bloom on wet stone; on
-                    // dry stone they are a decal. Pale, not bloody: a pale greasy
-                    // smear on dark wet masonry is both more legible in candlelight
-                    // and further from a jump scare, which the brief forbids.
+                    // dry stone they are a decal.
+                    //
+                    // LOW, not at hand height: 0.85 m, so they are where something
+                    // on the floor could reach and not where a person standing
+                    // would leave them. And they are not three copies of one print
+                    // — one is dragged downward into a smear, one has SIX fingers,
+                    // one is half outside the card. The first bake drew three
+                    // identical five-fingered pale hands, which rendered as three
+                    // copies of the waving-hand emoji.
                     new HauntCard
                     {
-                        name = "Hands", kind = 6, variant = 0f,
-                        at = new Vector3(-hw + 0.03f, 1.30f, PuddleAt.z - 0.15f),
-                        facing = Vector3.right, halfW = 0.88f, halfH = 0.62f,
-                        par = new Vector4(0.55f, 0f, 0f, 0f),
+                        name = "Hands", kind = 0, tile = EnvironmentsBuilder.HTileHands,
+                        // z = PuddleAt.z - 1.05, NOT - 0.15. The puddle sits
+                        // directly in front of the STAIR DOORWAY, so "beside the
+                        // puddle" put the prints ON THE OPENING: the preview of
+                        // the first two bakes is a picture of prints floating in a
+                        // black rectangle, which is the doorway, because there was
+                        // no wall behind them to print on. A metre south of it
+                        // there is stone, and the puddle is still in frame.
+                        at = new Vector3(-hw + 0.03f, 0.85f, PuddleAt.z - 1.05f),
+                        facing = Vector3.right, halfW = 0.62f, halfH = 0.62f,
+                        par = new Vector4(0f, 0f, 0f, 0f),
                         reveal = 2.8f, hold = 2.2f, fade = 3.0f,
-                        col = new Color(0.42f, 0.41f, 0.37f, 0.80f),
-                        why = "west wall beside the drip's puddle — the room's one wet stone",
+                        col = new Color(0.15f, 0.13f, 0.10f, 0.85f),
+                        fillAmt = 0.55f,
+                        why = "west wall by the drip's puddle at 0.85 m — the room's one wet stone",
                     },
-                    // [2] THE SOUTH-WEST CORNER. The cellar lane deliberately built
-                    // that corner as "a corner nobody ever repaired" (rubble, cant,
-                    // the deep dark web) and no candle reaches it. A crouched shape
-                    // folded in among the barrels, half occluded by them — real
-                    // geometry doing the hiding — whose ONE motion is that its head
-                    // comes up, once, in the middle of the hold. Then it is gone
-                    // between two frames: fade = 0 is the instant vanish, and it is
-                    // the reason you can never be sure it was there.
+                    // [2] THE FACE ON THE FLOOR, in the south-west corner. The
+                    // cellar lane built that corner as "a corner nobody ever
+                    // repaired" (rubble, cant, the deep dark web) and no candle
+                    // reaches it.
+                    //
+                    // THIS REPLACED A CROUCHING SILHOUETTE WHOSE HEAD LIFTED, and
+                    // the preview is why: it rendered as two soft glowing blobs
+                    // behind a barrel — a snowman. The concept was wrong as well.
+                    // A shape at 0.82 m is a shape at the height of the furniture
+                    // it is behind, and the eye files it as furniture. A FACE LYING
+                    // ON THE FLOOR AT 0.34 m, tilted back, looking up at you past
+                    // the barrels, is at a height nothing in the room has any
+                    // business being at — and it is half hidden by the barrels'
+                    // real geometry, which is occlusion doing the work instead of
+                    // a fade.
+                    //
+                    // It rises 4 cm over the hold. Four centimetres: enough that
+                    // you cannot afterwards be sure it moved.
                     new HauntCard
                     {
-                        name = "Crouch", kind = 2, variant = 2f,
-                        // 0.82, not 0.60: the barrels in front of it stand about
-                        // 0.9 m, and at 0.60 the only part of the shape that
-                        // cleared them was the crown of its shoulders. The head is
-                        // the top of this SDF (see EnvHaunt's crouch variant), so
-                        // this height puts the HEAD over the barrel line and leaves
-                        // the rest of it in among them, which is where it belongs.
-                        at = new Vector3(-4.70f, 0.82f, -3.95f),
-                        facing = new Vector3(0.766f, 0f, 0.643f), halfW = 0.55f, halfH = 0.60f,
+                        name = "Floor", kind = 0, tile = EnvironmentsBuilder.HTileLowFace,
+                        // 0.62 m of centre and 0.34 m of half-height, so the head
+                        // spans 0.28..0.96 m: its top third clears the 0.9 m barrel
+                        // line and the rest of it is in among them. At 0.34 m of
+                        // centre (the first attempt) the whole card was BEHIND the
+                        // barrels and the event was a slot in which nothing
+                        // happened — half occluded is the goal, entirely occluded
+                        // is a bug that looks like a design choice.
+                        at = new Vector3(-4.46f, 0.74f, -3.66f),
+                        facing = new Vector3(0.766f, 0f, 0.643f), halfW = 0.34f, halfH = 0.34f,
                         reveal = 4.0f, hold = 3.4f, fade = 0f,
-                        // A strong rim: it is half behind a barrel in the one
-                        // corner no candle reaches, so its own body is against a
-                        // background as black as it is.
-                        par = new Vector4(0f, 0f, 0f, 1.25f),
-                        col = new Color(0.0050f, 0.0054f, 0.0068f, 0.92f),
-                        why = "SW corner among the barrels, no candle reaches it; head lifts once, then gone",
+                        // par.z is the slide along the card's UP axis: it comes up,
+                        // a little, once. par.y tilts it while it does.
+                        par = new Vector4(0f, -0.070f, 0.13f, 1.10f),
+                        col = new Color(0.95f, 0.62f, 0.32f, 0.94f),
+                        fillAmt = 0.40f,
+                        why = "on the floor among the SW barrels, looking up; rises 4 cm, then gone",
                     },
                     // [3] THE TREMBLE. Draws NOTHING. Its whole existence is to
                     // occupy a schedule slot that EnvRoomCutout watches: every
                     // cobweb in the room shivers for two seconds as if something
-                    // large had just gone past behind it. Being a real card is what
+                    // large had just gone past behind them. Being a real card is what
                     // puts it under the same no-repeat and no-collision rules as
                     // the visible events — a tremble that could land on top of the
                     // thing at the window would read as one effect, not two.
                     new HauntCard
                     {
-                        name = "Tremble", kind = 7, variant = 0f,
+                        name = "Tremble", kind = 3, tile = 0,
                         at = new Vector3(-4.40f, 2.40f, -4.00f),
                         facing = new Vector3(0.740f, 0f, 0.673f), halfW = 0.05f, halfH = 0.05f,
                         reveal = HauntTrembleEnv.x, hold = HauntTrembleEnv.y, fade = HauntTrembleEnv.z,
                         col = new Color(0f, 0f, 0f, 0f),
+                        fillAmt = 0f,
                         why = "invisible; the cobwebs shiver for it (EnvRoomCutout)",
                     },
                     // [4] THE STAIR DOORWAY. The fastest thing in the catalogue —
@@ -4468,51 +5052,68 @@ namespace GloomhavenVR
                     // and far too short to be examined. Set BEHIND the doorway
                     // plane so the jambs are what it walks out of and into: it is
                     // never seen entering or leaving the frame, only crossing it.
+                    //
+                    // IT IS TOO TALL, AND ITS HEAD IS ABOVE THE CARD. The doorway
+                    // is 2.36 m; this card is 2.60 m and the baked figure's skull
+                    // sits past its top edge, so what crosses the lit rectangle is
+                    // a body whose top you never see. The first bake made it a
+                    // 1.8 m person, on the reasoning that a figure filling the door
+                    // is a statue — true, and what it produced was a glowing chess
+                    // pawn. A body you cannot measure is worse than either.
                     new HauntCard
                     {
-                        name = "Stair", kind = 3, variant = 1f,
-                        // 0.90 of a half-height is a 1.8 m person, not the 2.3 m
-                        // monument the first bake put in the frame — the doorway is
-                        // 2.36 m and a figure that fills it is a statue. The card is
-                        // WIDER than the opening (1.05 against 0.79) so the figure
-                        // comes out from behind one jamb and goes in behind the
-                        // other; it is never seen entering or leaving the frame.
-                        at = new Vector3(-hw - 0.05f, 0.94f, stairZ),
-                        facing = Vector3.right, halfW = 1.05f, halfH = 0.90f,
-                        // THE STRONGEST RIM IN EITHER ROOM (2.0): this is a black
-                        // shape crossing a black recess, and without an edge there
-                        // is literally nothing to see.
-                        par = new Vector4(0f, 1f, 0f, 2.0f),
+                        name = "Stair", kind = 2, tile = EnvironmentsBuilder.HTileTallFig,
+                        at = new Vector3(-hw - 0.05f, 1.28f, stairZ),
+                        facing = Vector3.right, halfW = 1.55f, halfH = 1.30f,
+                        // par.x scales the travel, par.z smears it along its own
+                        // direction. THE STRONGEST RIM IN EITHER ROOM (2.0): this is
+                        // a black shape crossing a black recess, and without an edge
+                        // there is literally nothing to see.
+                        par = new Vector4(1f, 0f, 0.30f, 1.1f),
                         reveal = 0.18f, hold = 0.34f, fade = 0.18f,
-                        col = new Color(0.0050f, 0.0053f, 0.0068f, 0.90f),
-                        why = "behind the stair doorway; crosses the lit rectangle in 0.7 s",
+                        col = new Color(0.16f, 0.19f, 0.28f, 0.92f),
+                        fillAmt = 0.12f,
+                        why = "behind the stair doorway; 2.6 m, head above the card, crosses in 0.7 s",
                     },
-                    // [5] THE GRIN — the user's own example, in the cellar's terms:
-                    // "eine lächelnde fratze die hinter einem Baum hervorguckt".
-                    // There is no tree here, so it uses the one tall thing with an
-                    // edge to hide behind, the bookshelf against the east wall. The
-                    // card sits just BEHIND the shelf's near edge, so the shelf's
-                    // real opaque geometry is what conceals the face until it has
-                    // come out — nothing is masked, it is simply behind a shelf.
-                    // The grin WIDENS all the way through, including while it
-                    // withdraws.
+                    // [5] THE FACE AT THE SHELF — the user's own example, in the
+                    // cellar's terms: "eine lächelnde fratze die hinter einem Baum
+                    // hervorguckt". There is no tree here, so it uses the one tall
+                    // thing with an edge to hide behind, the bookshelf against the
+                    // east wall. The card sits just BEHIND the shelf's near edge,
+                    // so the shelf's real opaque geometry is what conceals the face
+                    // until it has come out — nothing is masked, it is simply
+                    // behind a shelf.
+                    //
+                    // THIS IS THE ONE THE USER SAW AND CALLED RIDICULOUS. What
+                    // changed, in the order that matters: it is no longer a drawn
+                    // smiley but a rendered head (MakeHauntAtlas); it is lit from
+                    // BELOW by candlelight, so most of it is not there at all; it
+                    // comes out a THIRD rather than two thirds; it sits near the TOP
+                    // of the shelf looking down instead of at furniture height; and
+                    // its one motion is a slow tilt rather than a widening grin —
+                    // the widening grin being, precisely, the cartoon.
                     new HauntCard
                     {
-                        name = "Grin", kind = 0, variant = 0f,
-                        // Every number here comes off the shelf's own bounds (see
-                        // above): at rest the face is inside the shelf's volume and
-                        // depth-rejected by it, and sliding toward +u (which is +z,
-                        // hence mirror) walks it out past the frame.
+                        name = "Shelf", kind = 0, tile = EnvironmentsBuilder.HTileFaceCellar,
                         at = new Vector3(shelfBackX, shelfMidY, grinZ),
                         facing = new Vector3(-0.9736f, 0f, -0.2285f), mirror = true,
-                        halfW = (grinTravel / GrinHalfH + 0.65f) * GrinHalfH, halfH = GrinHalfH,
-                        // The shader's x is in card half-heights, so the travel in
-                        // metres is divided by one of them.
-                        par = new Vector4(grinTravel / GrinHalfH, 0f, 0f, 0f),
-                        shape = 1f,
+                        halfW = (grinTravel / GrinHalfH + 1.05f) * GrinHalfH, halfH = GrinHalfH,
+                        // The shader's slide is in TILE units, so the travel in
+                        // metres is divided by one of them. par.y is the tilt:
+                        // 0.075 rad = 4.3 degrees, once, across the whole event.
+                        par = new Vector4(grinTravel / GrinHalfH, 0.075f, 0f, 0.55f),
                         reveal = 3.6f, hold = 2.0f, fade = 2.6f,
-                        col = new Color(0.62f, 0.60f, 0.54f, 0.90f),
-                        why = "eases out from behind the bookshelf's edge; the shelf itself occludes it",
+                        // THE KEY IS BRIGHT, and that is not a contradiction of
+                        // "most of it is in the dark": the cellar's wall sits
+                        // around 0.3 linear here, so a head whose LIT parts peak
+                        // near 0.35 has its cheek at wall brightness and its
+                        // sockets at zero — and that INTERNAL contrast is what
+                        // makes the features read. A uniformly dim head against
+                        // a lit wall is a smudge, which is what the first tuning
+                        // pass produced.
+                        col = new Color(1.15f, 0.78f, 0.42f, 0.94f),
+                        fillAmt = 0.75f,
+                        why = "comes a third of the way out from behind the bookshelf's top edge",
                     },
                 };
                 // The two indices three other shaders were handed as constants.
@@ -4531,6 +5132,7 @@ namespace GloomhavenVR
                                         + "HauntCardWindow/HauntCardTremble with the order.");
 
                 BuildHaunts(root, "Cellar", "Env_C_Haunt", cards,
+                            new Color(0.10f, 0.13f, 0.21f, 1f),
                             CellarPlaySpaceDia, hw + RevealDepth + 0.30f, hd + RevealDepth + 0.30f, CH);
             }
         }
@@ -4895,6 +5497,15 @@ namespace GloomhavenVR
         // THE MOON than the fragment (plus a bias), which is literally "the
         // segment from here to the moon is blocked".
         //
+        // TWO MAPS SINCE ModBuild 142, and everything above is still true of both
+        // — same box, same basis, same raster, same encoded depth range. What
+        // differs is what is DONE with the answer: the trunks keep the crisp
+        // 512-texel depth map and its all-or-nothing bite ramp, and the crowns get
+        // a quarter-resolution AREA-COVERAGE map answered linearly and softly. The
+        // argument, the mechanism it fixes and what the second texture costs are in
+        // the SHAFT MASS block on the buffers below; read it before touching either
+        // response, because the two are only correct as a pair.
+        //
         // WHAT IS AN OCCLUDER: the trunks and every crown/canopy card, i.e. the
         // three accumulators the forest already has in hand at that point in the
         // build. Deliberately NOT the ground (nothing self-shadows, so the bias
@@ -5046,39 +5657,71 @@ namespace GloomhavenVR
             /// the visible half of every shaft evaporating into a smooth
             /// grey. With the ramp that trade changes completely: a long throw is
             /// now what FINDS the boughs, and the ramp is what decides which of
-            /// them are solid enough to draw.</summary>
+            /// them are solid enough to draw.
+            ///
+            /// ...and ModBuild 142 confines the ramp to the TRUNKS, because on the
+            /// needles it was the cause of the comb the user then photographed.
+            /// The ramp is still exactly right for a silhouette and was exactly
+            /// wrong for a sieve; see the SHAFT MASS block below.
+            ///
+            /// FolVis/FolReach/FolFall/FolOnset are the SAME four questions asked
+            /// of the mass map, and they are separate numbers rather than a scale
+            /// on the ones above because the whole point of ModBuild 142 is that a
+            /// crown and a trunk may not share a response (see the SHAFT MASS
+            /// block). There is no bite ramp among them: the mass answers LINEARLY
+            /// in its coverage, which is what makes it a dimming and not a bar.
+            /// FolOnset is the extra one — how many metres of depth the mass takes
+            /// to reach full effect once it is up-light of the fragment. The trunk
+            /// layer switches on the instant it is passed, because a trunk has a
+            /// front surface; a crown does not, so it fades in, and that softness
+            /// IN DEPTH is what stops a bough drawing a hard horizontal line across
+            /// a beam the way its silhouette drew hard vertical ones.</summary>
             public struct Look
             {
                 public float MinVis, Penumbra, MaxThrow, Fall, BiteLo, BiteHi;
+                public float FolVis, FolReach, FolFall, FolOnset;
                 /// <summary>What the shaders receive: a fully occluded fragment is
                 /// multiplied by 1 - Strength, i.e. by MinVis.</summary>
                 public float Strength => 1f - MinVis;
+                /// <summary>The same, for a texel of crown at full coverage.</summary>
+                public float FolStrength => 1f - FolVis;
                 public Look(float minVis, float penumbra, float maxThrow, float fall,
-                            float biteLo, float biteHi)
+                            float biteLo, float biteHi,
+                            float folVis, float folReach, float folFall, float folOnset)
                 {
                     MinVis = minVis; Penumbra = penumbra; MaxThrow = maxThrow; Fall = fall;
                     BiteLo = biteLo; BiteHi = biteHi;
+                    FolVis = folVis; FolReach = folReach; FolFall = folFall; FolOnset = folOnset;
                 }
             }
 
             /// <summary>One welded mesh to rasterise. Mask is the alpha-test
             /// coverage of the source's atlas, one bool per atlas texel, or null
-            /// for solid geometry (the trunks).</summary>
+            /// for solid geometry (the trunks). Fol says which of the TWO MAPS the
+            /// source writes into — see the SHAFT MASS block below; it is set from
+            /// the caller's intent (AddSolid vs AddCutout) and not inferred from
+            /// Mask, because "is this a sieve" and "is this a diffuse mass" are two
+            /// different questions that happen to have the same answer today.</summary>
             private struct Src
             {
                 public Acc A; public bool[] Mask; public int MW, MH; public string Name;
+                public bool Fol;
             }
 
             private readonly List<Src> _src = new List<Src>();
             // TWO LAYERS, and this is not an optimisation either — one layer
-            // cannot answer the question the throw asks. A texel holds the
-            // canopy AND the trunk under it AND the floor under that, all on one
-            // ray to the moon. Keeping only the NEAREST occluder stores the
-            // canopy, so the floor measures its distance to the ROOF (20-30 m),
-            // finds it past the throw, and reports itself lit — the trunk that
-            // is 4 m up-light of it never gets a vote. That is exactly what the
-            // first measured bake did: 5.2% of the clearing shaded on average
-            // but 0.9% of it half shaded, i.e. no trunk shadows at all.
+            // cannot answer the question the throw asks. A texel holds a whole
+            // COLUMN of trunks on one ray to the moon, near and far bands
+            // together, and behind them the floor. Keeping only the NEAREST
+            // occluder stores the far band 25 m up-light, so the floor measures
+            // its distance to THAT, finds it past the throw, and reports itself
+            // lit — the trunk that is 4 m up-light of it never gets a vote. That
+            // is exactly what the first measured bake did: 5.2% of the clearing
+            // shaded on average but 0.9% of it half shaded, i.e. no trunk
+            // shadows at all. (It was the CANOPY that filled the near layer then;
+            // the canopy has since moved to the mass map below, and the argument
+            // survives the move unchanged because a wood 28 m deep stacks trunks
+            // on one bearing all by itself.)
             //
             //   _zN = the occluder NEAREST the moon. What a blade hanging in the
             //         air needs: the thing above it is the thing that shades it.
@@ -5087,17 +5730,113 @@ namespace GloomhavenVR
             //         the floor is below everything, so the deepest occluder is
             //         always the nearest one up-light of it.
             // EnvGround therefore reads _zF alone. EnvShaft takes whichever of
-            // the two casts (max of the two throw tests): _zN catches the canopy
-            // over the beam, _zF catches the trunk the beam runs through. Only a
-            // third layer strictly between them is missed, and a miss is a
-            // shadow that is not drawn, never one that is drawn wrongly.
+            // the two casts (max of the two throw tests): _zN catches a far trunk
+            // standing over the beam, _zF catches the trunk the beam runs
+            // through. Only a third layer strictly between them is missed, and a
+            // miss is a shadow that is not drawn, never one that is drawn wrongly.
             private readonly float[] _zN = new float[Res * Res];
             private readonly float[] _zF = new float[Res * Res];
+
+            // ======================================== SHAFT MASS — THE SECOND MAP
+            // USER FINDING, ModBuild 141 (hardware): "Die Schatten im Wald
+            // funktionieren, allerdings da auch das Gestrüpp an den Bäumen Schatten
+            // wirft sieht es etwas merkwürdig aus."
+            //
+            // He is exactly right about the cause, and the SHAPE of what he saw
+            // names the mechanism: the beams were cut into hard VERTICAL STRIPES
+            // running their whole length, a comb rather than a dapple.
+            //
+            // WHY A COMB, AND WHY ONLY ON THE BEAMS. A shaft runs ALONG THE LIGHT,
+            // and the map's two axes are both PERPENDICULAR to the light. So (u,v)
+            // is not merely slowly varying down a beam, it is EXACTLY CONSTANT —
+            // moving one metre along dir changes u by dot(dir, AxisU) = 0 and v by
+            // dot(dir, AxisV) = 0. AddShaft's two blades make that literal: blade
+            // one is spanned by Cross(dir, up), which is AxisU, and blade two by
+            // Cross(dir, that), which is AxisV. A vertical strip of blade one is
+            // therefore ONE TEXEL COLUMN of the map, read over and over down its
+            // whole length, with only the depth changing. The map is point-sampled,
+            // so stepping one texel sideways swaps a whole tap and moves the seven-
+            // tap average by 1/7; the bite ramp (span 0.38) multiplies that step by
+            // 2.6 and turns it into a third of full shadow. One texel of sideways
+            // motion = a third of full shadow, held down the entire beam. That is
+            // the comb, and its teeth are 5.5 cm wide because the texels are.
+            // The FLOOR never showed it because a floor moves in u AND v AND depth
+            // at once, so the same grid lands as 2D dapple under albedo detail.
+            //
+            // The needle sieve is what FILLS those columns with a different value
+            // each time: a fir sprig is 23.6% coverage of alpha-tested speckle at
+            // 5.5 cm, which is noise at exactly the texel scale.
+            //
+            // THE FIX IS TO SPLIT THE OCCLUDERS BY SCALE, because a trunk and a
+            // crown are not the same kind of thing and must not share a response:
+            //   * A TRUNK is solid, half a metre thick and has a silhouette. It
+            //     keeps this map, the bite ramp and the small tap disc, and it goes
+            //     on casting the crisp dark bar the user asked for two rounds ago
+            //     and likes. With the needles gone this map holds nothing BUT
+            //     silhouettes, so the ramp now sharpens an edge instead of
+            //     quantising noise.
+            //   * A CROWN is a diffuse mass. It gets its own map, at a quarter of
+            //     the resolution, holding AREA COVERAGE rather than a binary hit —
+            //     which is the low-pass, done once at bake time where it is exact
+            //     and free, rather than by taps at runtime where it never can be.
+            //     It is read BILINEARLY and answered LINEARLY, with a long soft
+            //     onset in depth, so it can only ever dim.
+            //
+            // THE MASS MAP, channel by channel. 128 x 128 over the same box: 22 x
+            // 17.6 cm per texel, and each texel is the exact area average of the
+            // 4 x 4 block of the 5.5 cm raster under it, so coverage arrives in
+            // seventeenths and not as a hit/miss. Bilinear on top of that is a
+            // ~44 cm reconstruction filter — half a metre, which is a bough. A
+            // needle is 2 cm and is gone; a bough survives; a crown survives
+            // completely. That IS the "represent the crown as a mass" instruction,
+            // expressed as a filter width.
+            //   R = the NEAREST foliage depth in the block, G = the DEEPEST,
+            //   B = the coverage of the mass AT R, A = the coverage of the mass AT
+            //       G — each counted over a FolWindow-metre slab of depth around
+            //       its own extreme.
+            // The two coverages are the reason A is used rather than left at 255,
+            // and they are what stops the roof being charged to a bough: a texel
+            // in the wood typically holds the canopy shell 25 m up-light AND a
+            // crown 4 m up-light, and one shared coverage would bill the beam for
+            // both while only the crown is inside the throw.
+            //
+            // WHAT IT COSTS: 128^2 x RGBA32 = 64 KiB in the bundle beside the
+            // 1024 KiB of the trunk map, i.e. 6% more for the layer that carries
+            // three quarters of the wood. Report() prints both.
+            //
+            // WHY NOT SQUEEZE IT INTO THE SPARE BITS OF THE FIRST MAP: there are
+            // none. RGBA is already two 16-bit depths, and the trunk layer is the
+            // one that may NOT lose precision — 8-bit over this room's 46 m span
+            // is an 18 cm quantum, which is three times the bias and would detach
+            // every trunk's shadow from its own foot (the note on Save()). The
+            // mass layer is the one that can afford 8 bits, because its onset is
+            // metres long and its own texels are 22 cm.
+            public const int FolRes = 128;
+            private const int FolDown = Res / FolRes;
+            /// <summary>How deep a slab counts as "the mass at this extreme", in
+            /// metres along the bearing. A fir crown is 2-4 m through, so 3 m is
+            /// one crown's worth: wide enough that a whole bough counts against
+            /// itself, narrow enough that the roof 20 m behind it does not.</summary>
+            private const float FolWindow = 3.0f;
+            // full-resolution scratch: the raster writes here, Bake() box-filters
+            // it down to FolRes at the end and throws these away
+            private readonly float[] _fN = new float[Res * Res];
+            private readonly float[] _fF = new float[Res * Res];
+            private readonly bool[] _fHit = new bool[Res * Res];
+            // ...and the shipped grid, quantised to the same 8 bits the PNG will
+            // carry, so Visible() below answers with the texture's numbers rather
+            // than with the ones it wishes the texture had.
+            private readonly float[] _mN = new float[FolRes * FolRes];
+            private readonly float[] _mF = new float[FolRes * FolRes];
+            private readonly float[] _mCn = new float[FolRes * FolRes];
+            private readonly float[] _mCf = new float[FolRes * FolRes];
+
             private float _wNear, _wSpan = 1f;
-            private int _tris, _outside, _filled, _cut;
+            private int _tris, _outside, _filled, _cut, _folFilled;
+            private float _folCovMean;
             private float _hitNear = float.MaxValue, _hitFar = float.MinValue;
             private float _clearShadow, _clearDeep;
-            private string _path;
+            private string _path, _folPath;
 
             private float EncPerMetre => Enc / _wSpan;
             private float BiasEnc => Bias * EncPerMetre;
@@ -5142,7 +5881,8 @@ namespace GloomhavenVR
 
             private float Depth01(float w) => (w - _wNear) / _wSpan * Enc;
 
-            /// <summary>Solid geometry: every triangle casts. The trunks.</summary>
+            /// <summary>Solid geometry: every triangle casts, into the CRISP map.
+            /// The trunks, and since ModBuild 142 nothing else.</summary>
             public void AddSolid(Acc a, string name) =>
                 _src.Add(new Src { A = a, Name = name });
 
@@ -5150,7 +5890,13 @@ namespace GloomhavenVR
             /// atlas alpha is over the cutoff. The crowns and the canopy shell.
             /// The atlas is decoded from its PNG into a scratch texture — never
             /// by making the imported asset readable, which would keep a CPU copy
-            /// of it alive in the bundle for a build-time question.</summary>
+            /// of it alive in the bundle for a build-time question.
+            ///
+            /// Since ModBuild 142 this writes into the MASS map, not the crisp
+            /// one: the alpha test still runs at the full 5.5 cm raster (it is the
+            /// only honest way to know what a sprig covers), but the result is
+            /// AREA-AVERAGED down to 22 cm before anybody reads it, so the crown
+            /// arrives as a mass and not as a stencil of individual needles.</summary>
             public void AddCutout(Acc a, string name, string pngPath, float cutoff)
             {
                 var tmp = new Texture2D(2, 2, TextureFormat.RGBA32, false);
@@ -5164,7 +5910,7 @@ namespace GloomhavenVR
                 int solid = 0;
                 for (int i = 0; i < raw.Length; i++)
                     if (raw[i].a >= cut) { mask[i] = true; solid++; }
-                _src.Add(new Src { A = a, Mask = mask, MW = w, MH = h, Name = name });
+                _src.Add(new Src { A = a, Mask = mask, MW = w, MH = h, Name = name, Fol = true });
                 Debug.Log($"[GloomhavenVR][Env] Canopy shadow: alpha atlas {Path.GetFileName(pngPath)} "
                           + $"{w}x{h}, {solid * 100f / mask.Length:F1}% of it is over cutoff {cutoff:F2} "
                           + $"— that is the fraction of every '{name}' card that can cast.");
@@ -5209,7 +5955,62 @@ namespace GloomhavenVR
                             UV[T[i]], UV[T[i + 1]], UV[T[i + 2]], s);
                 }
                 for (int i = 0; i < _zF.Length; i++) if (_zF[i] > 0f) _filled++;
+                BuildMass();
             }
+
+            /// <summary>Box-filter the 5.5 cm foliage raster down to the 22 cm mass
+            /// grid, and quantise it to the eight bits the PNG will carry — the
+            /// quantisation happens HERE and not in Save() so that Visible(), which
+            /// places the shafts and writes the build log, is answering with the
+            /// texture's own numbers rather than with the ones the bake wishes it
+            /// had. Getting that wrong is how a search picks a beam the shader then
+            /// draws differently.
+            ///
+            /// The two coverages are counted over a FolWindow slab around each
+            /// extreme, so the crown 4 m up-light and the roof 25 m up-light are
+            /// billed separately. A sub-texel that is thin enough in depth to lie
+            /// in both slabs counts in both, which is correct: it really is part of
+            /// both masses.</summary>
+            private void BuildMass()
+            {
+                float win = FolWindow * EncPerMetre;
+                double covSum = 0; int covN = 0;
+                for (int y = 0; y < FolRes; y++)
+                    for (int x = 0; x < FolRes; x++)
+                    {
+                        float near = 1f, far = 0f; int hits = 0;
+                        for (int dy = 0; dy < FolDown; dy++)
+                            for (int dx = 0; dx < FolDown; dx++)
+                            {
+                                int k = (y * FolDown + dy) * Res + (x * FolDown + dx);
+                                if (!_fHit[k]) continue;
+                                hits++;
+                                if (_fN[k] < near) near = _fN[k];
+                                if (_fF[k] > far) far = _fF[k];
+                            }
+                        int i = y * FolRes + x;
+                        if (hits == 0) { _mN[i] = 1f; _mF[i] = 0f; _mCn[i] = 0f; _mCf[i] = 0f; continue; }
+                        int cn = 0, cf = 0;
+                        for (int dy = 0; dy < FolDown; dy++)
+                            for (int dx = 0; dx < FolDown; dx++)
+                            {
+                                int k = (y * FolDown + dy) * Res + (x * FolDown + dx);
+                                if (!_fHit[k]) continue;
+                                if (_fN[k] <= near + win) cn++;
+                                if (_fF[k] >= far - win) cf++;
+                            }
+                        int block = FolDown * FolDown;
+                        _mN[i] = Q8(near); _mF[i] = Q8(far);
+                        _mCn[i] = Q8(cn / (float)block); _mCf[i] = Q8(cf / (float)block);
+                        _folFilled++;
+                        covSum += Mathf.Max(_mCn[i], _mCf[i]); covN++;
+                    }
+                _folCovMean = covN > 0 ? (float)(covSum / covN) : 0f;
+            }
+
+            /// <summary>Round-trip through one byte, exactly as the PNG will.</summary>
+            private static float Q8(float v) =>
+                Mathf.Clamp(Mathf.RoundToInt(Mathf.Clamp01(v) * 255f), 0, 255) / 255f;
 
             private void Tri(Vector3 a, Vector3 b, Vector3 c,
                 Vector2 ua, Vector2 ub, Vector2 uc, Src s)
@@ -5232,7 +6033,7 @@ namespace GloomhavenVR
                 // there. A cutout source is a sieve by design and does not want
                 // its pinholes closed.
                 if (s.Mask == null)
-                { Stamp(ax, ay, a.z); Stamp(bx, by, b.z); Stamp(cx, cy, c.z); }
+                { Stamp(ax, ay, a.z, s.Fol); Stamp(bx, by, b.z, s.Fol); Stamp(cx, cy, c.z, s.Fol); }
                 int x0 = Mathf.CeilToInt(Mathf.Min(ax, Mathf.Min(bx, cx)));
                 int x1 = Mathf.FloorToInt(Mathf.Max(ax, Mathf.Max(bx, cx)));
                 int y0 = Mathf.CeilToInt(Mathf.Min(ay, Mathf.Min(by, cy)));
@@ -5264,21 +6065,34 @@ namespace GloomhavenVR
                             int my = Mathf.Clamp((int)(mv * s.MH), 0, s.MH - 1);
                             if (!s.Mask[my * s.MW + mx]) { _cut++; continue; }
                         }
-                        Put(x, y, l1 * a.z + l2 * b.z + l3 * c.z);
+                        Put(x, y, l1 * a.z + l2 * b.z + l3 * c.z, s.Fol);
                     }
             }
 
-            private void Stamp(float fx, float fy, float w) =>
-                Put(Mathf.RoundToInt(fx), Mathf.RoundToInt(fy), w);
+            private void Stamp(float fx, float fy, float w, bool fol) =>
+                Put(Mathf.RoundToInt(fx), Mathf.RoundToInt(fy), w, fol);
 
-            private void Put(int x, int y, float w)
+            /// <summary>One texel write, into whichever of the two maps this source
+            /// belongs to. Both maps share the raster, the box and the encoded
+            /// depth range — they differ only in what is DONE with the answer, and
+            /// keeping the geometry side identical is what lets the two be argued
+            /// against one another in the log.</summary>
+            private void Put(int x, int y, float w, bool fol)
             {
                 if (x < 0 || x >= Res || y < 0 || y >= Res) return;
                 float z = Depth01(w);
                 if (z < 0f || z > Enc) return;
                 int k = y * Res + x;
-                if (z < _zN[k]) _zN[k] = z;
-                if (z > _zF[k]) _zF[k] = z;
+                if (fol)
+                {
+                    if (!_fHit[k]) { _fHit[k] = true; _fN[k] = z; _fF[k] = z; }
+                    else { if (z < _fN[k]) _fN[k] = z; if (z > _fF[k]) _fF[k] = z; }
+                }
+                else
+                {
+                    if (z < _zN[k]) _zN[k] = z;
+                    if (z > _zF[k]) _zF[k] = z;
+                }
                 if (w < _hitNear) _hitNear = w;
                 if (w > _hitFar) _hitFar = w;
             }
@@ -5318,6 +6132,52 @@ namespace GloomhavenVR
                 return 1f - sh;
             }
 
+            /// <summary>The mass map's throw, and the one place the two occluder
+            /// classes really do behave differently in code rather than just in
+            /// their numbers: a smoothstep ONSET over FolOnset metres before the
+            /// linear release. A trunk has a front face and switches on the moment
+            /// it is passed; a crown is a cloud of needles that thickens, so it
+            /// arrives over a metre or so of depth. Without this a bough would
+            /// simply have traded a hard vertical edge for a hard horizontal
+            /// one.</summary>
+            private float FolThrow(float d, Look k)
+            {
+                if (d <= 0f) return 0f;
+                float t = Mathf.Clamp01(d / Mathf.Max(k.FolOnset * EncPerMetre, 1e-6f));
+                t = t * t * (3f - 2f * t);
+                return t * Mathf.Clamp01((k.FolReach * EncPerMetre - d)
+                                         / Mathf.Max(k.FolFall * EncPerMetre, 1e-6f));
+            }
+
+            /// <summary>CsFol on the CPU: one BILINEAR fetch of the mass grid — no
+            /// tap disc at all, because the low-pass that a tap disc is trying to
+            /// approximate has already been done exactly, at bake time, by the box
+            /// filter in BuildMass(). Bilinear on a DEPTH is forbidden in the crisp
+            /// map (it invents an occluder halfway between a trunk and the sky) and
+            /// is right here for the same reason it was wrong there: this map has
+            /// no silhouettes in it. Between two crown texels the interpolated
+            /// depth is a depth inside the crown, and at the mass's border the
+            /// coverage falls to zero on the same slope, so the term dies rather
+            /// than drifting.</summary>
+            private float FolShadow(Vector2 uv, float z, Look k)
+            {
+                float fx = uv.x * FolRes - 0.5f, fy = uv.y * FolRes - 0.5f;
+                int x0 = Mathf.FloorToInt(fx), y0 = Mathf.FloorToInt(fy);
+                float tx = fx - x0, ty = fy - y0;
+                float nr = 0f, fr = 0f, cn = 0f, cf = 0f;
+                for (int dy = 0; dy < 2; dy++)
+                    for (int dx = 0; dx < 2; dx++)
+                    {
+                        int X = Mathf.Clamp(x0 + dx, 0, FolRes - 1);
+                        int Y = Mathf.Clamp(y0 + dy, 0, FolRes - 1);
+                        float wgt = (dx == 0 ? 1f - tx : tx) * (dy == 0 ? 1f - ty : ty);
+                        int i = Y * FolRes + X;
+                        nr += _mN[i] * wgt; fr += _mF[i] * wgt;
+                        cn += _mCn[i] * wgt; cf += _mCf[i] * wgt;
+                    }
+                return Mathf.Max(cn * FolThrow(z - nr, k), cf * FolThrow(z - fr, k));
+            }
+
             /// <summary>CsVisible on the CPU, seven taps and all — INCLUDING the
             /// bite remap and the visibility floor, so what this returns is the
             /// number the shader multiplies into its moon term and not a
@@ -5329,7 +6189,15 @@ namespace GloomhavenVR
             /// can never disagree about where the light gets through.
             /// (EnvGround runs six taps rather than seven; the difference is
             /// under a percent and is not worth a second code path here.)</summary>
-            public float Visible(Vector3 p, Look k, bool useNear)
+            public float Visible(Vector3 p, Look k, bool useNear) =>
+                Visible(p, k, useNear, out _, out _);
+
+            /// <summary>...and the same with the two occluder classes reported
+            /// separately, which is what settles "how much of this beam's
+            /// shadowing is the trunk and how much is the crown" in the build log
+            /// instead of in an argument.</summary>
+            public float Visible(Vector3 p, Look k, bool useNear,
+                                 out float trunkTerm, out float folTerm)
             {
                 Vector3 c = Plane(p);
                 float z = Depth01(c.z) - BiasEnc;
@@ -5344,10 +6212,19 @@ namespace GloomhavenVR
                 vis /= 7f;
                 float sh = Mathf.Clamp01(((1f - vis) - k.BiteLo)
                                          / Mathf.Max(k.BiteHi - k.BiteLo, 1e-3f));
+                float shF = FolShadow(new Vector2(c.x, c.y), z, k);
                 float q = Mathf.Max(Mathf.Abs(c.x - 0.5f), Mathf.Abs(c.y - 0.5f));
                 float edge = Mathf.Clamp01((0.5f - q) * 40f);
                 if (z < 0f || z > 1f) edge = 0f;
-                return 1f - k.Strength * sh * edge;
+                trunkTerm = k.Strength * sh * edge;
+                folTerm = k.FolStrength * shF * edge;
+                // TWO OCCLUDERS ON ONE RAY MULTIPLY — that is what transmittances
+                // do — but the product is floored at the TRUNK's own MinVis so the
+                // safety rail stays exactly where it was declared. Without the
+                // floor a crown standing over a trunk shadow could compound the
+                // beam down past the 14% that guarantees it still arrives in its
+                // pool, and the whole point of MinVis is that nothing may.
+                return Mathf.Max(1f - k.Strength, (1f - trunkTerm) * (1f - folTerm));
             }
 
             /// <summary>Encode and write. R:G is the 16-bit linear depth of the
@@ -5357,7 +6234,7 @@ namespace GloomhavenVR
             /// extent along an oblique bearing — tens of metres — and 8 bits over
             /// that is a ~18 cm quantum, which forces a bias large enough to
             /// detach every trunk's shadow from its own foot.</summary>
-            public void Save(string path)
+            public void Save(string path, string massPath)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
                 // Color32/SetPixels32, never Color/SetPixels: the bytes ARE the
@@ -5403,6 +6280,50 @@ namespace GloomhavenVR
                 ti.textureCompression = TextureImporterCompression.Uncompressed;
                 ti.SaveAndReimport();
                 _path = path;
+
+                // ---- and the mass map beside it (SHAFT MASS) ----
+                // R = nearest foliage depth, G = deepest, B/A = the coverage of
+                // the mass at each. Eight bits per channel is an 18 cm depth
+                // quantum, which is a fifth of this map's own 22 cm texel and a
+                // seventh of the shortest onset any receiver asks for — the
+                // precision argument that forces 16 bits on the trunk layer simply
+                // does not arise for a cloud.
+                var mpx = new Color32[FolRes * FolRes];
+                for (int i = 0; i < mpx.Length; i++)
+                    mpx[i] = new Color32((byte)Mathf.RoundToInt(_mN[i] * 255f),
+                                         (byte)Mathf.RoundToInt(_mF[i] * 255f),
+                                         (byte)Mathf.RoundToInt(_mCn[i] * 255f),
+                                         (byte)Mathf.RoundToInt(_mCf[i] * 255f));
+                var mtex = new Texture2D(FolRes, FolRes, TextureFormat.RGBA32, false);
+                mtex.SetPixels32(mpx);
+                mtex.Apply();
+                File.WriteAllBytes(massPath, mtex.EncodeToPNG());
+                UnityEngine.Object.DestroyImmediate(mtex);
+                AssetDatabase.ImportAsset(massPath);
+                var mi = (TextureImporter)AssetImporter.GetAtPath(massPath)
+                         ?? throw new Exception("No importer for " + massPath);
+                mi.textureType = TextureImporterType.Default;
+                mi.sRGBTexture = false;
+                // A IS A COVERAGE, not transparency — same trap as the depth map's
+                // low byte, and the same answer: no dilation, no premultiply.
+                mi.alphaSource = TextureImporterAlphaSource.FromInput;
+                mi.alphaIsTransparency = false;
+                mi.mipmapEnabled = false;
+                // BILINEAR, and this is the one importer setting that differs from
+                // the crisp map. There the filter would blend a trunk against the
+                // sky beside it and invent an occluder; here there is nothing to
+                // invent — every neighbour of a crown texel is either more crown
+                // (so the blend is inside the mass) or empty (so the coverage
+                // fades out with it). It is also the second half of the low-pass:
+                // 22 cm texels reconstructed bilinearly is a ~44 cm kernel, which
+                // is the size of a bough and ten times the size of a needle.
+                mi.filterMode = FilterMode.Bilinear;
+                mi.wrapMode = TextureWrapMode.Clamp;
+                mi.anisoLevel = 1;
+                mi.maxTextureSize = FolRes;
+                mi.textureCompression = TextureImporterCompression.Uncompressed;
+                mi.SaveAndReimport();
+                _folPath = massPath;
             }
 
             /// <summary>Hand the basis to a material. Every number here is
@@ -5431,11 +6352,24 @@ namespace GloomhavenVR
                 // everything. See Look.BiteLo.
                 m.SetVector("_CsThrow", new Vector4(throwEnc, 1f / fallEnc,
                                                     k.BiteLo, 1f / Mathf.Max(k.BiteHi - k.BiteLo, 1e-3f)));
-                Debug.Log($"[GloomhavenVR][Env] Canopy shadow -> {m.name}: a fully occluded fragment "
-                          + $"keeps {k.MinVis * 100f:F0}% of its moon (strength {k.Strength:F2}), "
+                // ---- the mass layer (SHAFT MASS) ----
+                var mass = AssetDatabase.LoadAssetAtPath<Texture2D>(_folPath)
+                           ?? throw new Exception("Canopy mass map missing: " + _folPath);
+                m.SetTexture("_CsFol", mass);
+                m.SetVector("_CsFolP", new Vector4(
+                    k.FolReach * EncPerMetre,
+                    1f / Mathf.Max(k.FolFall * EncPerMetre, 1e-6f),
+                    1f / Mathf.Max(k.FolOnset * EncPerMetre, 1e-6f),
+                    k.FolStrength));
+                Debug.Log($"[GloomhavenVR][Env] Canopy shadow -> {m.name}: TRUNKS — a fully occluded "
+                          + $"fragment keeps {k.MinVis * 100f:F0}% of its moon (strength {k.Strength:F2}), "
                           + $"penumbra {k.Penumbra * 100f:F0} cm ({k.Penumbra / ExtentU * Res:F1} x "
                           + $"{k.Penumbra / ExtentV * Res:F1} texels), throw {k.MaxThrow:F1} m "
-                          + $"releasing over {k.Fall:F1} m, bite ramp {k.BiteLo * 100f:F0}%..{k.BiteHi * 100f:F0}% coverage.");
+                          + $"releasing over {k.Fall:F1} m, bite ramp {k.BiteLo * 100f:F0}%..{k.BiteHi * 100f:F0}% "
+                          + $"coverage; CROWNS — a texel of full needle mass takes {k.FolStrength * 100f:F0}% "
+                          + $"off and no more (no bite ramp, LINEAR in coverage), reach {k.FolReach:F1} m "
+                          + $"releasing over {k.FolFall:F1} m after a {k.FolOnset:F1} m onset, read "
+                          + $"bilinearly off the {FolRes}x{FolRes} mass grid.");
             }
 
             /// <summary><paramref name="shade"/> is EnvGround's own arithmetic for
@@ -5465,13 +6399,16 @@ namespace GloomhavenVR
                 float moonSum = 0f;                      // ...and how much of it is MOON
                 float worstRatio = 1f; float worstAt = 0f, worstAtZ = 0f;
                 float deepLit = 0f, deepShd = 0f; int deepN = 0;
+                float trunkShare = 0f, folShare = 0f;   // who is doing the shading
                 for (int j = 0; j <= 48; j++)
                     for (int k = 0; k <= 48; k++)
                     {
                         float x = Mathf.Lerp(-clearR, clearR, j / 48f);
                         float z = Mathf.Lerp(-clearR, clearR, k / 48f);
                         if (x * x + z * z > clearR * clearR) continue;
-                        float vis = Visible(new Vector3(x, groundY(x, z), z), floor, useNear: false);
+                        float vis = Visible(new Vector3(x, groundY(x, z), z), floor,
+                                            useNear: false, out float tT, out float fT);
+                        trunkShare += tT; folShare += fT;
                         float sh = 1f - vis;
                         sum += sh; n++;
                         float lit = shade(x, z, 1f), got = shade(x, z, vis);
@@ -5498,9 +6435,13 @@ namespace GloomhavenVR
                           + $"{(deepN > 0 ? deepLit / Mathf.Max(deepShd, 1e-6f) : 1f):F2}x a SHADOWED one, "
                           + $"and the deepest shadow in the clearing is {worstRatio:F2}x down at "
                           + $"({worstAt:F1},{worstAtZ:F1}). THAT ratio, not the shadow percentage, is what "
-                          + "he can or cannot see.");
+                          + "he can or cannot see. Of everything the floor loses, "
+                          + $"{trunkShare * 100f / Mathf.Max(trunkShare + folShare, 1e-6f):F0}% comes from "
+                          + "TRUNKS and the rest from the crown mass — the split matters because only the "
+                          + "first is meant to be a shadow you can point at.");
 
                 long bytes = new FileInfo(_path).Length;
+                long mbytes = new FileInfo(_folPath).Length;
                 // depths reported the way the shader sees them: metres down-light
                 // of the near plane, which is where 0 sits
                 float near = _hitNear == float.MaxValue ? 0f : _hitNear - _wNear;
@@ -5512,10 +6453,21 @@ namespace GloomhavenVR
                           + $"the alpha test), occluder depth {near:F1}..{far:F1} m of a "
                           + $"{_wSpan:F1} m encoded range ({_wSpan / 65535f * 1000f:F2} mm per 16-bit "
                           + $"step, bias {Bias * 100f:F1} cm), {_filled * 100f / (Res * Res):F1}% of "
-                          + "texels hold an occluder, "
+                          + "texels hold a TRUNK, "
                           + $"CLEARING FLOOR (r<{ClearR:F1} m) loses {_clearShadow * 100f:F1}% of its moon on average and {_clearDeep * 100f:F1}% of it is at least half shadowed, "
                           + $"{bytes / 1024} KiB on disk / {Res * Res * 4 / 1024} KiB as RGBA32 "
                           + $"in the bundle -> {_path}");
+                Debug.Log($"[GloomhavenVR][Env] Canopy MASS map (SHAFT MASS): {FolRes}x{FolRes} over the "
+                          + $"same box ({ExtentU / FolRes * 100f:F1} x {ExtentV / FolRes * 100f:F1} cm per "
+                          + $"texel, each one the area average of {FolDown}x{FolDown} raster texels, so "
+                          + $"coverage lands in {FolDown * FolDown}ths and not as a hit or a miss), "
+                          + $"{_folFilled * 100f / (FolRes * FolRes):F1}% of texels hold needle mass and "
+                          + $"where they do the mean coverage is {_folCovMean * 100f:F0}% — that is the "
+                          + "number the crowns now dim WITH, linearly, instead of quantising through a "
+                          + $"bite ramp. Depth 8-bit ({_wSpan / 255f * 100f:F1} cm per step, against a "
+                          + $"{FolWindow:F1} m slab window), bilinear + clamp, {mbytes / 1024} KiB on disk / "
+                          + $"{FolRes * FolRes * 4 / 1024} KiB as RGBA32 in the bundle "
+                          + $"({FolRes * FolRes * 100f / (Res * Res):F0}% of the trunk map's) -> {_folPath}");
             }
         }
 
@@ -5554,6 +6506,20 @@ namespace GloomhavenVR
                 ambUp = new Color(0.024f, 0.029f, 0.040f),
                 ambDown = new Color(0.005f, 0.006f, 0.005f),
                 dirWorld = MoonDir,
+                // ELEMENT ART: the periphery is the TREE LINE, not the far edge
+                // of the 30 m ground disc — out there nothing is lit enough for
+                // an element to be seen doing anything. 12 m puts the first two
+                // trunk bands (6.2-15 m) on the ramp and the clearing floor near
+                // zero, which is the design's "effects live in the periphery so
+                // the board stays readable", expressed as one number.
+                elemRad = 12f,
+                // 1.8, against the cellar's 0.70. The wood answers the moon with
+                // dirCol 0.70 and its trunks stand 6-10 m out with a per-vertex
+                // depth fade on top; at 1.0 Fire was a rumour on the near trunks
+                // and the only thing that actually changed colour was the
+                // fireflies. This puts a real ember rim on the faces that look
+                // into the clearing and still leaves the far bands black.
+                elemWarm = 1.8f,
                 // The moon does most of the work: a flat ambient made every trunk
                 // the same shade of blue-grey, which is exactly the "assembled
                 // assets" look. High key on the moonlit side, near black behind.
@@ -5894,13 +6860,46 @@ namespace GloomhavenVR
             // shadowed stretch, which is real. On the FLOOR 0.25: a shadow in a
             // night wood is not a hole either, and under the trees the moon goes
             // 0.171 -> 0.043 per unit albedo against an ambient of 0.024.
+            //
+            // SHAFT MASS, USER FINDING ModBuild 141 (hardware): "da auch das
+            // Gestrüpp an den Bäumen Schatten wirft sieht es etwas merkwürdig aus".
+            // Everything above is now the TRUNK half of each Look and is unchanged
+            // to the number, because the trunk half is the half he likes. The four
+            // Fol* numbers are the crown half, and they are chosen to be the
+            // opposite kind of thing in every respect that matters:
+            //
+            //   BLADES, FolVis 0.62 — a texel of solid needle mass takes 38% off
+            //   and no more, against the trunk's 86%. That ratio IS the brief: a
+            //   crisp dark bar where a trunk stands, a broad soft dapple where a
+            //   crown does, and the two never confusable. Reach 7.0 m against the
+            //   trunk's 5.0 and a 4.0 m release against 2.5: a diffuse mass may
+            //   reach further precisely because it cannot draw an edge, and the
+            //   long release is what makes the dapple BROAD instead of banded.
+            //   Onset 1.2 m so a bough arrives over a metre of depth rather than
+            //   switching on at a plane — the one thing that could have traded the
+            //   comb's vertical teeth for horizontal ones.
+            //
+            //   FLOOR, FolVis 0.86 — a seventh of the blades' response. The floor
+            //   was already refusing the crown wash on purpose (the bite ramp's
+            //   whole reason for existing at 0.26 was to throw away the 0.1-0.25
+            //   dusting from the roof 20-30 m up-light), and a hand-tuned floor may
+            //   not be darkened by a round about beams. What it gains is the part
+            //   that is worth having: a slow, half-metre-scale unevenness under the
+            //   crowns instead of a mathematically flat moon. Reach 12 m with a
+            //   5 m release, i.e. deliberately longer and softer than the trunks'
+            //   9 m, because a crown's shadow on the ground has no edge to lose.
+            //   Report() prints what it costs in the only currency that counts:
+            //   the lit-to-shadowed brightness ratio over the clearing.
             var floorLook = new CanopyShadowBake.Look(
                 minVis: 0.25f, penumbra: 0.18f, maxThrow: 9.0f, fall: 3.5f,
-                biteLo: 0.26f, biteHi: 0.66f);
+                biteLo: 0.26f, biteHi: 0.66f,
+                folVis: 0.78f, folReach: 12.0f, folFall: 5.0f, folOnset: 2.0f);
             var beamLook = new CanopyShadowBake.Look(
                 minVis: 0.14f, penumbra: 0.22f, maxThrow: 5.0f, fall: 2.5f,
-                biteLo: 0.34f, biteHi: 0.72f);
-            canopyShadow.Save(Root + "/Textures/Env_S_CanopyShadow.png");
+                biteLo: 0.34f, biteHi: 0.72f,
+                folVis: 0.62f, folReach: 7.0f, folFall: 4.0f, folOnset: 1.2f);
+            canopyShadow.Save(Root + "/Textures/Env_S_CanopyShadow.png",
+                              Root + "/Textures/Env_S_CanopyMass.png");
             // EnvGround's own arithmetic for a flat, up-facing patch of clearing
             // floor, per unit albedo — the ONLY way to answer "can he see the
             // shadow at all". The moon is one addend among four here: the
@@ -6048,33 +7047,213 @@ namespace GloomhavenVR
                 // smooth — the BAND is what he sees, not the average.
                 const int BeamTaps = 48;
                 const float BandVis = 0.55f;      // "inside a band you can point at"
+                const int Rolls = 24;             // candidates per shaft, see the loop
+                // ...and 9 LINES ACROSS, which ModBuild 142 had to add before the
+                // search could see what it was choosing. A blade is up to 4 m wide
+                // at the foot and a trunk's bar is 0.5-0.8 m of that, so a bar
+                // almost never lands on the axis: measured on the spine alone, two
+                // of the three shafts reported "0.0 m of band, deepest 62%" in a
+                // wood where the very same log's TRUNK TOOTH said every one of them
+                // carried a full-strength trunk edge somewhere across its width.
+                // Both numbers were right. The axis was the wrong question.
+                //
+                // The offsets are FRACTIONS of the blade's own half-width, so they
+                // follow the taper, and both blade planes are walked because they
+                // span the map's two axes (see AddShaft). BARRED is therefore an
+                // AREA of beam inside a bar, not a length of centre line, and
+                // BANDLEN is the longest run down whichever line is most barred —
+                // "the bar is four metres long" said about the line that has one.
+                var acrossFrac = new[] { 0f, 0.45f, -0.45f, 0.85f, -0.85f };
+                const int Across = 5;
                 (float head, float arrive, float whole, float minVis, float barred,
-                 float bandLen, string bar) Probe(Vector3 t0, float l)
+                 float bandLen, string bar) Probe(Vector3 t0, float l, float wTop, float wBot)
                 {
+                    Vector3 e1 = Vector3.Cross(dir, Vector3.up).normalized;
+                    Vector3 e2 = Vector3.Cross(dir, e1).normalized;
                     float head = 0f, arrive = 0f, whole = 0f, lo = 1f;
-                    int nHead = 0, nArrive = 0, nBody = 0, nBarred = 0;
-                    int run = 0, bestRun = 0;
+                    int nHead = 0, nArrive = 0, nBody = 0, nBarred = 0, bestRun = 0;
+                    var runs = new int[Across * 2];
                     var bar = new System.Text.StringBuilder(BeamTaps);
                     for (int s = 0; s < BeamTaps; s++)
                     {
                         float u = Mathf.Lerp(0.02f, 0.98f, s / (BeamTaps - 1f));
-                        float vis = canopyShadow.Visible(t0 + dir * (l * u), beamLook, useNear: true);
-                        whole += vis;
-                        bar.Append((char)('0' + Mathf.Clamp(Mathf.FloorToInt(vis * 9.99f), 0, 9)));
-                        if (u < 0.20f) { head += vis; nHead++; }
-                        else if (u > 0.86f) { arrive += vis; nArrive++; }
-                        else
+                        Vector3 c = t0 + dir * (l * u);
+                        float half = Mathf.Lerp(wTop, wBot, u);
+                        for (int a = 0; a < Across * 2; a++)
                         {
-                            nBody++;
-                            if (vis < lo) lo = vis;
-                            if (vis < BandVis) { nBarred++; run++; if (run > bestRun) bestRun = run; }
-                            else run = 0;
+                            Vector3 e = a < Across ? e1 : e2;
+                            float vis = canopyShadow.Visible(
+                                c + e * (acrossFrac[a % Across] * half), beamLook, useNear: true);
+                            whole += vis;
+                            // the printed profile stays the AXIS line, so it can be
+                            // read against every previous round's log
+                            if (a == 0)
+                                bar.Append((char)('0' + Mathf.Clamp(Mathf.FloorToInt(vis * 9.99f), 0, 9)));
+                            if (u < 0.20f) { head += vis; nHead++; }
+                            else if (u > 0.86f) { arrive += vis; nArrive++; }
+                            else
+                            {
+                                nBody++;
+                                if (vis < lo) lo = vis;
+                                if (vis < BandVis)
+                                {
+                                    nBarred++; runs[a]++;
+                                    if (runs[a] > bestRun) bestRun = runs[a];
+                                }
+                                else runs[a] = 0;
+                            }
                         }
                     }
                     return (head / Mathf.Max(nHead, 1), arrive / Mathf.Max(nArrive, 1),
-                            whole / BeamTaps, lo, nBarred / (float)Mathf.Max(nBody, 1),
+                            whole / (BeamTaps * Across * 2), lo,
+                            nBarred / (float)Mathf.Max(nBody, 1),
                             bestRun * l / BeamTaps, bar.ToString());
                 }
+                // SHAFT MASS — THE MEASUREMENT THAT WOULD HAVE CAUGHT ModBuild
+                // 141 BEFORE HE DID. Probe above walks the beam's AXIS, one line
+                // of samples, and the axis is the one direction in which the comb
+                // is invisible: (u,v) is constant down a beam, so every station on
+                // the axis reads the SAME texel and the profile comes out perfectly
+                // smooth while the blade beside it is a picket fence. The log said
+                // |999...711121111112479999| and meant it, and the screenshot still
+                // showed stripes, and both were true.
+                //
+                // So the beam is also read ACROSS, which is the only direction the
+                // striping lives in, and at a spacing (6 cm) close to the crisp
+                // map's own texel (5.5 cm) so that a per-texel step cannot hide
+                // between two samples. GRAIN is the mean absolute change in
+                // visibility between neighbouring samples and TOOTH is the worst
+                // one: with the old shared bite ramp a single texel of sideways
+                // motion moved a seventh of the tap average through a 0.38-wide
+                // ramp, i.e. about a third of full shadow, so TOOTH ran to tens of
+                // points. A dapple is a few points; a comb is tens.
+                //
+                // Both blade axes are swept because they are the two axes of the
+                // MAP: AddShaft spans blade one by Cross(dir, up) = AxisU and blade
+                // two by the perpendicular = AxisV. Sweeping only one would answer
+                // for half the geometry.
+                //
+                // THE TWO CLASSES ARE MEASURED SEPARATELY, and that is not
+                // bookkeeping — a combined figure cannot tell the two things apart,
+                // because the brief asks for a LARGE across-beam step (the crisp
+                // edge of a trunk's bar) at the same time as it forbids one (the
+                // comb). The first measured run made the point: a single combined
+                // TOOTH of 74-85 points looked like the comb surviving and was in
+                // fact the wanted bar, cast by a trunk the beam was standing
+                // inside. So: CROWN GRAIN and CROWN TOOTH are the comb, and they
+                // must be small; TRUNK TOOTH is the bar, and it should be large and
+                // rare. The old build has no separated number to compare against
+                // because it had no separated term — the before/after for the comb
+                // itself is measured in the rendered PICTURES, across a beam.
+                (float folGrain, float folTooth, float trunkTooth, float trunkPct) Grain(
+                    Vector3 t0, float l, float wTop, float wBot)
+                {
+                    Vector3 e1 = Vector3.Cross(dir, Vector3.up).normalized;
+                    Vector3 e2 = Vector3.Cross(dir, e1).normalized;
+                    double gSum = 0; int gN = 0; float worstF = 0f, worstT = 0f;
+                    double tSum = 0, fSum = 0;
+                    foreach (float u in new[] { 0.30f, 0.45f, 0.60f, 0.75f, 0.88f })
+                    {
+                        Vector3 c = t0 + dir * (l * u);
+                        float half = Mathf.Lerp(wTop, wBot, u);
+                        int n = Mathf.Max(4, Mathf.RoundToInt(2f * half / 0.06f));
+                        foreach (var e in new[] { e1, e2 })
+                        {
+                            float pT = 0f, pF = 0f;
+                            for (int s = 0; s <= n; s++)
+                            {
+                                canopyShadow.Visible(
+                                    c + e * Mathf.Lerp(-half, half, s / (float)n),
+                                    beamLook, useNear: true, out float tT, out float fT);
+                                tSum += tT; fSum += fT;
+                                if (s > 0)
+                                {
+                                    float dF = Mathf.Abs(fT - pF), dT = Mathf.Abs(tT - pT);
+                                    gSum += dF; gN++;
+                                    if (dF > worstF) worstF = dF;
+                                    if (dT > worstT) worstT = dT;
+                                }
+                                pT = tT; pF = fT;
+                            }
+                        }
+                    }
+                    return ((float)(gSum / Mathf.Max(gN, 1)), worstF, worstT,
+                            (float)(tSum / System.Math.Max(tSum + fSum, 1e-6)));
+                }
+
+                /// The beam's core against the wood, cheaply enough to run inside
+                /// the candidate loop: the smallest gap between the AXIS and any
+                /// bark over the stretch that is actually drawn. Negative means the
+                /// beam is standing inside a tree. See the placement gate below.
+                float AxisClear(Vector3 t0, float l)
+                {
+                    float best = 99f;
+                    for (int s = 0; s <= 32; s++)
+                    {
+                        Vector3 c = t0 + dir * (l * Mathf.Lerp(0.08f, 0.97f, s / 32f));
+                        foreach (var t in trees)
+                        {
+                            // cheap reject first: nothing 2 m away in plan can be
+                            // the nearest bark, and TrunkAt/HauntTrunkRadius are
+                            // noise evaluations, not arithmetic
+                            float dx = c.x - t.p.x, dz = c.z - t.p.y;
+                            if (dx * dx + dz * dz > 4f) continue;
+                            float y = c.y - ForestY(t.p.x, t.p.y);
+                            if (y < 0f || y > t.h) continue;
+                            Vector3 tc = TrunkAt(t, y);
+                            float d = new Vector2(c.x - tc.x, c.z - tc.z).magnitude
+                                      - HauntTrunkRadius(t, y);
+                            if (d < best) best = d;
+                        }
+                    }
+                    return best;
+                }
+
+                // ...and the OTHER half of the same user finding: "auch gibt es so
+                // manchmal noch Strahlen die durch den Stamm gehen, auf jeden Fall
+                // sieht es so aus." The hedge is fair and the question is a
+                // GEOMETRIC one, so it is answered geometrically rather than by
+                // looking at a picture. A blade is a flat quad up to 2 m out from
+                // its axis; where that quad and a trunk's cylinder intersect, the
+                // half of the blade on the camera's side of the trunk passes the
+                // ZTest and is drawn additively OVER the bark. That is not a depth
+                // bug — lit mist between an eye and a trunk really does veil it —
+                // but it reads as a beam boring through wood, and the fix for a
+                // thing that is right and looks wrong is placement.
+                //
+                // Two numbers, because they mean different things: the AXIS
+                // clearance (does the beam's core run into a tree?) and how much of
+                // the blade's own span is inside bark (does the picture show it?).
+                float BladeInBark(Vector3 t0, float l, float wTop, float wBot)
+                {
+                    int inN = 0, allN = 0;
+                    Vector3 e1 = Vector3.Cross(dir, Vector3.up).normalized;
+                    Vector3 e2 = Vector3.Cross(dir, e1).normalized;
+                    for (int s = 0; s <= 60; s++)
+                    {
+                        float u = s / 60f;
+                        Vector3 c = t0 + dir * (l * u);
+                        float half = Mathf.Lerp(wTop, wBot, u);
+                        foreach (var e in new[] { e1, e2 })
+                            for (int k = -4; k <= 4; k++)
+                            {
+                                Vector3 p = c + e * (half * k / 4f);
+                                allN++;
+                                foreach (var t in trees)
+                                {
+                                    float dx = p.x - t.p.x, dz = p.z - t.p.y;
+                                    if (dx * dx + dz * dz > 4f) continue;
+                                    float y = p.y - ForestY(t.p.x, t.p.y);
+                                    if (y < 0f || y > t.h) continue;
+                                    Vector3 tc = TrunkAt(t, y);
+                                    if (new Vector2(p.x - tc.x, p.z - tc.z).magnitude
+                                        < HauntTrunkRadius(t, y)) { inN++; break; }
+                                }
+                            }
+                    }
+                    return inN / (float)Mathf.Max(allN, 1);
+                }
+
                 for (int i = 0; i < 3; i++)
                 {
                     Vector3 hit = Vector3.zero, top = Vector3.zero;
@@ -6082,11 +7261,23 @@ namespace GloomhavenVR
                     int chosen = 0;
                     (float head, float arrive, float whole, float minVis, float barred,
                      float bandLen, string bar) pick = default;
-                    // 8 rolls rather than 5: the objective is now a conjunction
-                    // (open head AND arriving foot AND a broken body) and a
-                    // conjunction is satisfied by a smaller share of the rolls
-                    // than "clearest wins" ever was.
-                    for (int c = 0; c < 8; c++)
+                    // width first: the blade taper is a function of the shaft index
+                    // alone, and Probe now needs it to walk the beam as a surface
+                    float w0 = 0.42f + 0.30f * Hash3(i, 4, 0, 5311);
+                    float w1 = w0 * 2.8f;
+                    // 24 rolls, up from 8 (and 5 before that). The objective is a
+                    // conjunction of four gates now, and a conjunction is satisfied
+                    // by a smaller share of the rolls with every gate added. The
+                    // measured run at 8 is what forced it: with the crowns no
+                    // longer able to bite, TWO of the three shafts came out with no
+                    // band anywhere (deepest 63% and 68% visibility, 0.0 m of body
+                    // under the band threshold) — the search had simply not been
+                    // offered a candidate with a trunk up-light of it. A candidate
+                    // is 48 CPU taps; two dozen of them per shaft is nothing at
+                    // build time and it is the difference between a shaft with a
+                    // shadow in it and a shaft without one.
+                    float clr = 0f;
+                    for (int c = 0; c < Rolls; c++)
                     {
                         // c == 0 IS the previously authored roll, bit for bit
                         float side = (i - 1.0f) * 3.1f + 0.8f * (Hash3(i, 0, c, 5311) - 0.5f);
@@ -6121,7 +7312,7 @@ namespace GloomhavenVR
                                             11.5f, lenMax);
                         }
                         Vector3 tp = h - dir * l;                   // back up along the beam
-                        var m = Probe(tp, l);
+                        var m = Probe(tp, l, w0, w1);
                         // THE TWO GATES. Neither is a preference: a beam whose
                         // head is in a crown does not read as light entering the
                         // tear (that is what ModBuild 137 spent a round fixing),
@@ -6144,19 +7335,64 @@ namespace GloomhavenVR
                         // past about a third of the run more darkness stops
                         // adding anything a viewer can read as "a bough".
                         float bite = Mathf.Clamp01((1f - m.minVis) / Mathf.Max(beamLook.Strength, 1e-3f));
-                        float dapple = Mathf.Clamp01(m.barred / 0.30f);
-                        float score = headGate * footGate * aliveGate
+                        // 0.10 rather than 0.30, and the number changed meaning as
+                        // well as value: barred is now an AREA of blade inside a bar
+                        // rather than a length of centre line. A trunk's bar is
+                        // 0.5-0.8 m of a 2-4 m width and runs 4-5 m of an 18 m
+                        // length, so a strong single crossing is about a tenth of
+                        // the surface. The old normaliser was calibrated against a
+                        // spine that needle speckle could fill from end to end.
+                        float dapple = Mathf.Clamp01(m.barred / 0.10f);
+                        // THE EMBEDDING GATE, and the answer to the second half of
+                        // USER FINDING 141: "auch gibt es so manchmal noch Strahlen
+                        // die durch den Stamm gehen, auf jeden Fall sieht es so
+                        // aus." He is right about what he sees, and it is neither a
+                        // depth-order bug nor, in general, a placement mistake.
+                        //
+                        // THE GEOMETRY SETTLES IT, and it settles it the opposite
+                        // way round from the obvious guess. A shaft is PARALLEL TO
+                        // THE LIGHT. So anything that shadows a point of the beam
+                        // lies on that point's own ray to the moon — which is the
+                        // beam's own axis, further up. A trunk can therefore bar
+                        // this beam IF AND ONLY IF the beam passes through that same
+                        // trunk higher up: "a tree stands up-light of the beam" and
+                        // "the beam goes through that tree" are the same sentence.
+                        // (Numerically: 5 m up-light along the beam is 3.83 m
+                        // horizontally and 3.21 m higher at the moon's 40 deg — and
+                        // 5 m further up the beam is at exactly that point.) The
+                        // first attempt at this round gated crossings OUT and got
+                        // precisely what the arithmetic promises: three beams with
+                        // no band anywhere, deepest 63-78% visibility, 0.0 m of bar
+                        // between them. The crossing is not the defect. It is the
+                        // mechanism.
+                        //
+                        // What is left, and what this gate is for, is the ONE case
+                        // that really does look wrong: a beam whose AXIS is buried
+                        // deep in the timber, so that the lit half of the blade —
+                        // the half on the camera's side of the trunk, which passes
+                        // the ZTest and is additively drawn over the bark, as lit
+                        // mist in front of a tree genuinely is — appears to sprout
+                        // from INSIDE the wood rather than to graze past it.
+                        // ModBuild 141 shipped one at 0.21 m inside bark. So the
+                        // gate does not ask for clearance, it only refuses
+                        // EMBEDDING: full anywhere from the bark surface outwards,
+                        // and zero by 0.35 m in. A tangent beam — core just outside
+                        // the trunk, blade span crossing it — keeps its bar, and is
+                        // the reading the room wants: the tree stands IN the light,
+                        // its face is lit by it, and its shadow falls down the beam.
+                        float cl = AxisClear(tp, l);
+                        float clearGate = Mathf.SmoothStep(0f, 1f,
+                            Mathf.InverseLerp(-0.35f, 0.0f, cl));
+                        float score = headGate * footGate * aliveGate * clearGate
                                       * (0.55f * bite + 0.45f * dapple);
                         if (score > best + 1e-4f)
-                        { best = score; chosen = c; hit = h; top = tp; len = l; pick = m; }
+                        { best = score; chosen = c; hit = h; top = tp; len = l; pick = m; clr = cl; }
                         // The authored roll already does the job — take it and
                         // stop, so the room stays the room the user approved
                         // whenever it can.
                         if (c == 0 && score >= 0.62f) break;
                     }
                     if (chosen != 0) moved++;
-                    float w0 = 0.42f + 0.30f * Hash3(i, 4, 0, 5311);
-                    float w1 = w0 * 2.8f;
                     // The map is sized off the FLOOR (see THE BOX above) and the
                     // blades are only argued to fall inside it. Check, because a
                     // blade that projects off the edge reads as fully lit and the
@@ -6177,16 +7413,27 @@ namespace GloomhavenVR
                     // crosses the canopy, 5.5 m out at the bottom so it still
                     // dies in the air over its pool instead of ending on it.
                     AddShaft(sh, top, dir, len, w0, w1, amp, across, 1.1f / len, 5.5f / len);
+                    var gr = Grain(top, len, w0, w1);
+                    float bark = BladeInBark(top, len, w0, w1);
                     Debug.Log($"[GloomhavenVR][Env] Moon shaft {i}: lands ({hit.x:F2},{hit.z:F2}) "
                               + $"r {new Vector2(hit.x, hit.z).magnitude:F1} m, length {len:F1} m, top "
                               + $"y {top.y:F1} m at r {new Vector2(top.x, top.z).magnitude:F1} m "
                               + $"(canopy there {CanopyY(new Vector2(top.x, top.z).magnitude):F1} m), "
-                              + $"candidate {chosen} of 8 scoring {best:F2} — head {pick.head * 100f:F0}% lit, "
+                              + $"candidate {chosen} of {Rolls} scoring {best:F2} — head {pick.head * 100f:F0}% lit, "
                               + $"arrival {pick.arrive * 100f:F0}%, whole beam {pick.whole * 100f:F0}%, i.e. "
                               + $"{(1f - pick.whole) * 100f:F0}% OF THE BEAM SHADOWED; DEEPEST BAND down to "
                               + $"{pick.minVis * 100f:F0}% visibility, longest continuous band under "
                               + $"{BandVis * 100f:F0}% is {pick.bandLen:F1} m of {len:F1} ({pick.barred * 100f:F0}% "
-                              + $"of the body). Profile top->foot |{pick.bar}|");
+                              + $"of the body). Profile top->foot |{pick.bar}|. ACROSS THE BLADES (the axis "
+                              + "the profile above cannot see, and the only one the comb lived in): CROWN "
+                              + $"GRAIN {gr.folGrain * 100f:F1} points of visibility per 6 cm, worst CROWN "
+                              + $"TOOTH {gr.folTooth * 100f:F1} — that pair IS the comb, and single digits "
+                              + $"is a dapple; worst TRUNK TOOTH {gr.trunkTooth * 100f:F1} points, which is "
+                              + $"the wanted bar edge and should be large. {gr.trunkPct * 100f:F0}% of this "
+                              + $"beam's shadowing is TRUNK and {(1f - gr.trunkPct) * 100f:F0}% crown mass. "
+                              + $"Beam AXIS clears the nearest bark by {clr:F2} m and {bark * 100f:F1}% of "
+                              + "the blade span is inside bark — the fraction that can be drawn over a "
+                              + "trunk from some yaw and read as a beam going through it.");
                 }
                 Debug.Log($"[GloomhavenVR][Env] Moon shafts: {moved} of 3 moved off the authored roll — the "
                           + "search now wants a beam that is OPEN AT THE TOP and CROSSED further down, not "
@@ -6361,11 +7608,18 @@ namespace GloomhavenVR
             // falls off toward its own silhouette so it reads as a halo from any
             // direction and in stereo).
             var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
-            void Glow(string n, Vector3 p, float r, Color c, float falloff)
+            void Glow(string n, Vector3 p, float r, Color c, float falloff, float elemWarm = 0.35f)
             {
                 var m = NewRoomMat($"S_Glow{n}.mat", "GloomhavenVR/EnvGlow");
                 m.SetColor("_Tint", c);
                 m.SetFloat("_Falloff", falloff);
+                // ELEMENT ART: these halos still answer the Light/Dark split in
+                // full (they are SOURCES — see EnvGlow), but they only take a
+                // THIRD of Fire's warm push. A will-o'-the-wisp that turns
+                // ember-orange is not a will-o'-the-wisp any more, and the cold
+                // marsh green out among the trunks is the one colour in this wood
+                // that is doing narrative work.
+                m.SetFloat("_ElemWarm", elemWarm);
                 Place(root, "Wisp" + n, glowMesh, p, Vector3.zero, Vector3.one * r, m);
             }
             // ModBuild 134: the halos keep their brightness while everything
@@ -6374,7 +7628,8 @@ namespace GloomhavenVR
             // out there, so they are left alone deliberately — the contrast they
             // gain is the point.
             Glow("Wisp", new Vector3(-4.6f, 0.95f, -6.2f), 0.55f, new Color(0.42f, 1f, 0.60f, 0.16f), 2.4f);
-            Glow("Lantern", new Vector3(9.2f, 1.45f, -7.4f), 0.75f, new Color(1f, 0.60f, 0.24f, 0.17f), 2.2f);
+            // the lantern is the only FIRE in the wood, so it takes Fire in full
+            Glow("Lantern", new Vector3(9.2f, 1.45f, -7.4f), 0.75f, new Color(1f, 0.60f, 0.24f, 0.17f), 2.2f, 1f);
             Glow("Far", new Vector3(-11.5f, 1.1f, 8.2f), 0.7f, new Color(0.55f, 0.95f, 0.70f, 0.10f), 2.6f);
             // eyes: two tiny cold points at head height, deep between the trunks,
             // 12 cm apart. They never move — that is the point.
@@ -6407,18 +7662,25 @@ namespace GloomhavenVR
                 var facePos = TrunkAt(faceTree, 1.60f);
                 float faceR = HauntTrunkRadius(faceTree, 1.60f);
                 var faceOut = new Vector3(-facePos.x, 0f, -facePos.z).normalized;   // toward the clearing
-                const float FaceHalfH = 0.26f;                 // 1 card unit, in metres
-                // Just past the bark, and no further. faceR + 0.20 (the first
-                // bake) put the WHOLE face clear of the trunk at the peak, which
-                // reads as a mask hanging beside a tree; + 0.06 leaves about a
-                // third of it still behind the bark, which is what "hervorgucken"
-                // means and is the more unpleasant picture by a distance.
-                float faceTravel = faceR + 0.06f;
-                float facePar = faceTravel / FaceHalfH;        // the shader's x is in card units
+                // 0.20 m of half-height => a 0.40 m tile square, inside which the
+                // baked head is about 0.34 m tall and 0.16 m across. That is the
+                // size a head is; the first bake used 0.52 m, i.e. a head half as
+                // big again as a person's, which is one more reason it read as a
+                // prop rather than as somebody.
+                const float FaceHalfH = 0.20f;                 // 1 tile unit, in metres
+                // HALF A FACE, not a whole one. faceR + 0.20 (the first bake) put
+                // the entire head clear of the trunk at the peak, which reads as a
+                // mask hanging beside a tree; faceR - 0.02 leaves the card's centre
+                // just inside the bark, so at the peak about half the head is still
+                // behind the tree. That is what "hervorgucken" means, and it is the
+                // more unpleasant picture by a distance — the brief's own rule is
+                // that dread is what you are not sure you saw.
+                float faceTravel = faceR + 0.04f;
+                float facePar = faceTravel / FaceHalfH;        // the slide is in TILE units
                 Debug.Log($"[GloomhavenVR][Env] Forest haunt FACE hides behind the trunk at "
                           + $"({faceTree.p.x:F2},{faceTree.p.y:F2}) — {faceTree.p.magnitude:F1} m out, "
                           + $"{faceTree.h:F1} m tall, radius {faceR:F3} m at 1.60 m. It travels "
-                          + $"{faceTravel:F2} m to clear it.");
+                          + $"{faceTravel:F2} m, which leaves half of it behind the bark.");
 
                 Vector3 OnGround(float bearingDeg, float r, float up)
                 {
@@ -6428,122 +7690,180 @@ namespace GloomhavenVR
                 }
                 Vector3 ToClearing(Vector3 p) => new Vector3(-p.x, 0f, -p.z).normalized;
 
-                var watcherAt = OnGround(162f, 16.5f, 1.00f);
-                var crossAt = OnGround(190f, 13.0f, 0.95f);
-                var eyesAt = OnGround(302f, 8.6f, 0.40f);
-                var swarmAt = OnGround(219f, 7.6f, 1.45f);
-                var hangAt = OnGround(118f, 15.0f, 2.53f);
+                var watcherAt = OnGround(162f, 16.5f, 1.42f);
+                var crossAt = OnGround(190f, 13.0f, 1.36f);
+                // 0.75 m and 9.0 m on bearing 288, not 0.40 m at 8.6 on 302. The
+                // old placement was measured against nothing and the preview shows
+                // the result: env_swamp_HauntEyes was a picture of two BOULDERS,
+                // with the apparition completely behind them. Half occluded is the
+                // goal; entirely occluded is a slot in which nothing happens.
+                var eyesAt = OnGround(288f, 9.0f, 0.75f);
+                var loomAt = OnGround(219f, 7.6f, 1.66f);
+                var hangAt = OnGround(118f, 15.0f, 2.19f);
 
+                // ============================================================
+                // HAUNT FORCE ID TABLE — FOREST. Same channel and same rules as
+                // the cellar's (see EnvHaunt.cginc, _GhvrHauntForce); the id is
+                // the index in the array below.
+                //   0  Face     half a head comes out from behind a trunk at 11 m,
+                //               moon-rimmed down one side.
+                //   1  Eyes     two eyeshines open low in the understory and blink
+                //               out of step with each other.
+                //   2  Watcher  a 2.7 m figure stands between the trunks at 16.5 m,
+                //               does nothing at all, and vanishes between two frames.
+                //   3  Cross    something too tall crosses between the trunks at
+                //               13 m in a third of a second.
+                //   4  Loom     a 3.2 m mass at 7.6 m with no features whatever. You
+                //               do not see IT; you see what it blots out.
+                //   5  Hang     a long-limbed thing hangs head-down from a branch at
+                //               15 m and sways once.
+                // ============================================================
+                //
+                // THE LIGHT IS THE MOON, on MoonDir, and every key colour below is
+                // cold and dim because that is the only light this wood has. The
+                // atlas tiles are baked with the key GRAZING from the moon's side,
+                // so what these cards contribute is one cold line down one edge of
+                // a hole in the trees.
                 var cards = new[]
                 {
                     // [0] THE FACE — the user's own example, verbatim: "eine
                     // lächelnde fratze die hinter einem Baum hervorguckt". The card
                     // sits 4 cm BEHIND the trunk's axis, so the trunk's own opaque
-                    // geometry is what hides it: at u = 0 it is inside the tree and
-                    // depth-rejected, and it eases sideways until it has cleared
-                    // the bark. Nothing is masked and nothing is faded in in the
-                    // open — it comes out from behind a tree because it is behind
-                    // a tree. The grin widens the whole way through, including
-                    // while it withdraws.
+                    // geometry is what hides it: at rest it is inside the tree and
+                    // depth-rejected, and it eases sideways until half of it has
+                    // cleared the bark. Nothing is masked and nothing is faded in
+                    // in the open — it comes out from behind a tree because it is
+                    // behind a tree.
+                    //
+                    // WHAT IT USED TO BE, and why it is not that any more: a flat
+                    // white oval with two round dots and a smile arc that widened
+                    // over the hold (env_swamp_HauntFace_p55 — a smiley stuck to a
+                    // trunk). It is now a rendered head raked by the moon from one
+                    // side, most of which is not visible at all, and its only
+                    // motion is a four-degree tilt.
                     new HauntCard
                     {
-                        name = "Face", kind = 0, variant = 0f,
+                        name = "Face", kind = 0, tile = EnvironmentsBuilder.HTileFaceForest,
                         at = facePos - faceOut * 0.04f,
-                        facing = faceOut, halfW = (facePar + 0.65f) * FaceHalfH, halfH = FaceHalfH,
-                        par = new Vector4(facePar, 0f, 0f, 0f), shape = 1f,
+                        facing = faceOut, halfW = (facePar + 1.05f) * FaceHalfH, halfH = FaceHalfH,
+                        par = new Vector4(facePar, -0.070f, 0f, 0.60f),
                         reveal = 3.4f, hold = 2.4f, fade = 2.8f,
-                        col = new Color(0.66f, 0.64f, 0.57f, 0.90f),
-                        why = "behind a trunk at 11 m, away from the moon; the tree occludes it",
+                        col = new Color(0.62f, 0.76f, 1.05f, 0.93f),
+                        fillAmt = 0.35f,
+                        why = "behind a trunk at 11 m, away from the moon; the tree occludes half of it",
                     },
                     // [1] THE EYES. The wood already has a pair that never move
                     // (Glow EyeL/EyeR, bearing 135 deg) and that is the point of
                     // THOSE. These are the opposite: they open low in the
-                    // undergrowth, hold, blink ONCE and are gone. A steady pair is
-                    // a lamp; a pair that blinks is an animal, and three seconds is
-                    // just long enough to be sure you saw it.
+                    // undergrowth, hold, blink and are gone.
+                    //
+                    // NOTHING ABOUT THE PAIR MATCHES. par.x is the half-separation,
+                    // par.y makes the right eye 0.78 of the left, par.z sets it 0.16
+                    // of a tile higher, and `shape` lags its blink by 0.09 of the
+                    // event — so they do not close together. A matched pair of
+                    // round white dots (which is what the first bake drew) is a
+                    // pictogram; a mismatched pair that blinks out of step belongs
+                    // to something that is not built like a face.
                     new HauntCard
                     {
-                        name = "Eyes", kind = 1, variant = 0f,
+                        name = "Eyes", kind = 1, tile = EnvironmentsBuilder.HTileEye,
                         at = eyesAt, facing = ToClearing(eyesAt),
-                        halfW = 0.082f, halfH = 0.145f,
+                        halfW = 0.115f, halfH = 0.100f,
+                        par = new Vector4(0.70f, 0.78f, 0.16f, 0f),
+                        shape = 0.09f,
                         reveal = 1.1f, hold = 1.4f, fade = 0.5f,
-                        col = new Color(0.88f, 0.92f, 0.80f, 0.90f),
-                        why = "40 cm off the ground at 8.6 m, in the understory; one blink",
+                        col = new Color(0.46f, 0.44f, 0.24f, 0.92f),
+                        fillAmt = 1.20f,
+                        why = "0.75 m off the ground at 9 m, in the understory; two blinks, out of step",
                     },
-                    // [2] THE WATCHER. Standing between the trunks at 16.5 m, 1.95 m
-                    // tall, and it does NOTHING — it does not move, it does not
-                    // approach, it does not look round. It fades up over three and a
-                    // half seconds, which is slow enough that nobody ever catches it
-                    // arriving, holds for five, and then is gone between two frames
-                    // (fade = 0). The asymmetry is the entire event: you cannot
-                    // decide afterwards whether it was there.
+                    // [2] THE WATCHER. Standing between the trunks at 16.5 m, and it
+                    // does NOTHING — it does not move, it does not approach, it does
+                    // not look round. It fades up over three and a half seconds,
+                    // which is slow enough that nobody ever catches it arriving,
+                    // holds for five, and is then gone between two frames (fade = 0).
+                    // The asymmetry is the entire event: you cannot decide
+                    // afterwards whether it was there.
+                    //
+                    // 2.70 m TALL. The first bake made it 2.0 m — a person, which is
+                    // the least frightening height available — and rendered it as a
+                    // ball on a cone. It is now too tall, too thin, its head is
+                    // turned, its arms reach past its knees and its hem is torn.
                     new HauntCard
                     {
-                        name = "Watcher", kind = 2, variant = 0f,
+                        name = "Watcher", kind = 0, tile = EnvironmentsBuilder.HTileWatcher,
                         at = watcherAt, facing = ToClearing(watcherAt),
-                        halfW = 0.42f, halfH = 1.00f,
+                        halfW = 0.60f, halfH = 1.35f,
                         par = new Vector4(0f, 0f, 0f, 1.0f),
                         reveal = 3.5f, hold = 5.0f, fade = 0f,
-                        col = new Color(0.0032f, 0.0035f, 0.0044f, 0.95f),
-                        why = "standing at 16.5 m; 3.5 s in, 5 s still, INSTANT vanish",
+                        col = new Color(0.16f, 0.20f, 0.30f, 0.95f),
+                        fillAmt = 0.20f,
+                        why = "standing at 16.5 m, 2.7 m tall; 3.5 s in, 5 s still, INSTANT vanish",
                     },
-                    // [3] SOMETHING CROSSES. A third of a second of dark smear
-                    // between distant trunks — the shortest event in either room,
-                    // and the only one whose whole content is motion. Smeared along
-                    // its own travel rather than blurred: that is what a thing seen
-                    // for 0.3 s actually looks like, and it costs one divide.
+                    // [3] SOMETHING CROSSES. A third of a second between distant
+                    // trunks — the shortest event in either room, and the only one
+                    // whose whole content is motion. Smeared along its own travel
+                    // rather than blurred: that is what a thing seen for 0.3 s
+                    // actually looks like, and it costs one divide. It is the same
+                    // too-tall, head-cropped body the cellar's stair uses, which is
+                    // deliberate: two rooms, one thing.
                     new HauntCard
                     {
-                        name = "Cross", kind = 3, variant = 0f,
+                        name = "Cross", kind = 2, tile = EnvironmentsBuilder.HTileTallFig,
                         at = crossAt, facing = ToClearing(crossAt),
-                        halfW = 1.70f, halfH = 0.85f,
-                        par = new Vector4(0f, 1f, 1.6f, 0.7f),
+                        halfW = 1.70f, halfH = 1.30f,
+                        par = new Vector4(1f, 0f, 1.6f, 0.70f),
                         reveal = 0.06f, hold = 0.22f, fade = 0.06f,
-                        col = new Color(0.0030f, 0.0030f, 0.0040f, 0.90f),
+                        col = new Color(0.14f, 0.17f, 0.26f, 0.92f),
+                        fillAmt = 0.15f,
                         why = "4.2 m of travel at 13 m, in 0.34 s",
                     },
-                    // [4] THE SWARM. On the bearing the firefly swarms are already
-                    // on (the preview's Fireflies view looks at 217 deg), at the
-                    // edge of the clearing: fourteen drifting points that agree on
-                    // the outline of a face for about a second and scatter again.
+                    // [4] THE MASS. This REPLACED the firefly swarm outright, and
+                    // the preview is the whole argument: env_swamp_HauntSwarm was a
+                    // ring of bright green dots with two dots for eyes and four for
+                    // a smile — an emoji assembled out of fireflies, at the one
+                    // bearing the player is most likely to be looking. It is the
+                    // single most "Kindergeburtstag" thing the first pass shipped.
                     //
-                    // WHY NOT THE REAL FIREFLIES, which is what the brief asked
-                    // for. They are Shuriken particle systems in BuildEnvironments,
-                    // and steering a particle system onto authored positions needs
-                    // a script — which the bundle forbids outright
-                    // (BuildEnvironments.cs:35, no MonoBehaviours). The alternative
-                    // would be a custom particle mesh with per-particle targets,
-                    // i.e. rebuilding the swarm; this draws the same picture on ONE
-                    // quad with no emitter at all, and sits where the real swarm is
-                    // so it reads as the real swarm doing it.
+                    // What stands there now has no features at all: a 3.2 m mass at
+                    // 7.6 m, one shoulder much higher than the other, a head that is
+                    // barely one and far off centre, and a value of almost nothing.
+                    // YOU DO NOT SEE IT — you see what it blots out, because the
+                    // atlas gives it coverage and no light, and the trunks and
+                    // stars behind it stop being there. It fades up over four
+                    // seconds and vanishes between two frames.
                     new HauntCard
                     {
-                        name = "Swarm", kind = 4, variant = 0f,
-                        at = swarmAt, facing = ToClearing(swarmAt),
-                        halfW = 0.62f, halfH = 0.55f,
-                        par = new Vector4(0.31f, 0.72f, 0f, 0f),
-                        reveal = 2.2f, hold = 1.2f, fade = 1.6f,
-                        col = new Color(0.55f, 0.95f, 0.52f, 0.85f),
-                        why = "on the fireflies' own bearing at 7.6 m; points form a face and scatter",
+                        name = "Loom", kind = 0, tile = EnvironmentsBuilder.HTileLoom,
+                        at = loomAt, facing = ToClearing(loomAt),
+                        halfW = 1.00f, halfH = 1.60f,
+                        par = new Vector4(0f, 0.030f, 0f, 0.50f),
+                        reveal = 4.2f, hold = 2.6f, fade = 0f,
+                        col = new Color(0.055f, 0.065f, 0.095f, 0.97f),
+                        fillAmt = 0.10f,
+                        why = "3.2 m of nothing at 7.6 m; it is only visible as the hole it makes",
                     },
                     // [5] HUNG BY THE FEET, head down, from a branch at 15 m — near
                     // enough to the far lantern glow (bearing 129 deg) that
                     // something out there is lighting it. One slow sway that damps
                     // out, and nothing else: the sway is what says it was put there,
-                    // and recently. Head at 1.85 m, which is head height, which is
-                    // the point.
+                    // and recently. Its head is at 1.35 m, i.e. BELOW head height,
+                    // and its arms hang past it — the hair falling off the skull is
+                    // what reads as "upside down" at 15 m when nothing else can.
                     new HauntCard
                     {
-                        name = "Hang", kind = 5, variant = 0f,
+                        name = "Hang", kind = 0, tile = EnvironmentsBuilder.HTileHang,
                         at = hangAt, facing = ToClearing(hangAt),
-                        halfW = 0.42f, halfH = 0.87f,
-                        par = new Vector4(0f, 0f, 0f, 0.9f),
+                        halfW = 0.70f, halfH = 1.10f,
+                        par = new Vector4(0f, 0f, 0f, 0.90f),
+                        // `shape` is the damped sway, and a card that sways pivots
+                        // at the TOP of its tile — it is hanging from something.
+                        shape = 0.10f,
                         reveal = 2.6f, hold = 2.0f, fade = 2.2f,
-                        col = new Color(0.0055f, 0.0055f, 0.0070f, 0.92f),
-                        why = "hanging under a branch at 15 m, head down at 1.85 m; one damped sway",
+                        col = new Color(0.17f, 0.21f, 0.31f, 0.94f),
+                        fillAmt = 0.20f,
+                        why = "hanging under a branch at 15 m, head down at 1.35 m; one damped sway",
                     },
                 };
-
                 // Nothing but the face may stand inside a tree. The face MUST — it
                 // is hiding behind one — so it is exempt by index, and the rest are
                 // measured against every trunk axis at their own height.
@@ -6567,8 +7887,42 @@ namespace GloomhavenVR
                               + $"(({worst.x:F1},{worst.y:F1})) by {gap:F2} m.");
                 }
 
-                BuildHaunts(root, "Forest", "Env_S_Haunt", cards, ForestPlaySpaceDia, FR, FR, 12f);
+                BuildHaunts(root, "Forest", "Env_S_Haunt", cards,
+                            new Color(0.045f, 0.058f, 0.090f, 1f),
+                            ForestPlaySpaceDia, FR, FR, 12f);
             }
+
+            // ELEMENT ART — Earth is a PIGMENT, not a light: the green goes on
+            // the things in this wood that could plausibly be damp and growing,
+            // and on nothing else. The mossy rock sets and the roots carry it in
+            // full, the deadfall and the stumps a little (old wood goes green
+            // before a live trunk does), the standing trunks a third of it at
+            // most. A barrel that turns green is a bug; a root that does not is
+            // a missed element.
+            //
+            // KNOWN GAP, and it is a lane boundary rather than a decision: the
+            // moss CARDS (moss_01, the ferns, the grass, the whole canopy) are
+            // EnvRoomCutout materials and the forest FLOOR is EnvGround — both
+            // shaders belong to other lanes this round, so neither can answer
+            // Earth yet. What Earth has in the wood today is the rocks, the
+            // roots, the deadfall and the spores. Wiring the other two is a
+            // three-line follow-up in each shader once they are free.
+            void ElemMoss(string node, float amount)
+            {
+                var t = root.Find(node);
+                var mr = t == null ? null : t.GetComponent<MeshRenderer>();
+                var mat = mr == null ? null : mr.sharedMaterial;
+                if (mat != null && mat.HasProperty("_ElemMoss")) mat.SetFloat("_ElemMoss", amount);
+            }
+            foreach (var n in new[] { "Rocks0", "Rocks1", "Rocks2", "Root2", "Root3" })
+                ElemMoss(n, 1.0f);
+            foreach (var n in new[] { "Log0", "Log1", "LeanTree", "Stump0", "Stump1", "Branches0", "Branches1" })
+                ElemMoss(n, 0.55f);
+            foreach (var n in new[] { "TrunksNear", "TrunksFar" })
+                ElemMoss(n, 0.30f);
+
+            // ELEMENT ART — the gated emitters (embers, snow, the gust, spores).
+            AddElementFX(root, cellar: false);
 
             PaintContactAO(g, 0.45f, 0.55f);
             FlushRig(rig);

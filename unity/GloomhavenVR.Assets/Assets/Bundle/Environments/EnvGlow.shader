@@ -22,6 +22,15 @@ Shader "GloomhavenVR/EnvGlow"
         _BlinkPeriod ("Blink period (s)", Float) = 4.7
         _Away ("Absence depth", Range(0,1)) = 0
         _AwayPeriod ("Absence period (s)", Float) = 26
+        // ELEMENT ART (EnvElement.cginc). A halo IS a source, so this is where
+        // the Light/Dark split is most visible: Light makes every halo bigger and
+        // brighter, Dark does not extinguish them but pulls them in — the falloff
+        // exponent rises, so the glow stops being a soft veil and becomes a hard
+        // little core. A black room with hard bright points in it is the split.
+        // _ElemWarm (default 1) lets Fire swell the warm halos; the forest's cold
+        // wisps and the rat's eyes are built with less of it, because a wisp that
+        // turns orange is not a wisp any more.
+        _ElemWarm ("Element: fire susceptibility", Range(0,2)) = 1
     }
     SubShader
     {
@@ -36,9 +45,10 @@ Shader "GloomhavenVR/EnvGlow"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "EnvElement.cginc"
 
             fixed4 _Tint;
-            float _Falloff, _Flicker, _Rate, _Phase, _Blink, _BlinkPeriod, _Away, _AwayPeriod;
+            float _Falloff, _Flicker, _Rate, _Phase, _Blink, _BlinkPeriod, _Away, _AwayPeriod, _ElemWarm;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; };
@@ -56,7 +66,22 @@ Shader "GloomhavenVR/EnvGlow"
             fixed4 frag (v2f i) : SV_Target
             {
                 float3 V = normalize(_WorldSpaceCameraPos - i.wp);
-                float core = pow(saturate(dot(normalize(i.wn), V)), _Falloff);
+
+                // ---- ELEMENT ART: the halo's size, colour and edge -----------
+                GhvrElem e = GhvrElems();
+                float fall = _Falloff, elemAmp = 1.0;
+                float3 elemCol = _Tint.rgb;
+                if (e.live > 0.0)
+                {
+                    float warm = e.fire * _ElemWarm;
+                    // Dark tightens the edge (the corners swallow light), Light
+                    // opens it out; Fire swells the warm halos a little.
+                    fall = max(_Falloff * (1.0 + 1.15 * e.dark - 0.30 * e.light - 0.25 * warm), 0.30);
+                    elemAmp = max(GhvrSrcGain(e) + 0.85 * warm - 0.35 * e.dark * (1.0 - e.light), 0.0);
+                    // a fire-fed halo goes ember; nothing else recolours it
+                    elemCol = lerp(_Tint.rgb, float3(1.00, 0.46, 0.14), saturate(warm * 0.85));
+                }
+                float core = pow(saturate(dot(normalize(i.wn), V)), fall);
 
                 float t = _Time.y + _GhvrTimeOfs;
                 float ft = t * _Rate;
@@ -74,7 +99,7 @@ Shader "GloomhavenVR/EnvGlow"
                 float present = smoothstep(0.02, 0.10, ap) * smoothstep(0.47, 0.38, ap);
                 amp *= lerp(1.0, present, _Away);
 
-                return fixed4(_Tint.rgb, core * _Tint.a * max(amp, 0.0));
+                return fixed4(elemCol, core * _Tint.a * max(amp, 0.0) * elemAmp);
             }
             ENDCG
         }

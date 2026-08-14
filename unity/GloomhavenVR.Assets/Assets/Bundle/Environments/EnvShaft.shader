@@ -44,6 +44,11 @@ Shader "GloomhavenVR/EnvShaft"
         _CsDir ("Light travel direction (w = -near depth)", Vector) = (0,-1,0,0)
         _CsFlt ("Penumbra u, penumbra v, depth bias, 1 - minimum visibility", Vector) = (0,0,0,0)
         _CsThrow ("Max throw, 1/release (encoded depth), bite lo, 1/bite span", Vector) = (0,0,0,0)
+        // THE CROWN AS MASS — the second map (SHAFT MASS, ModBuild 142). Default
+        // "black" is "no crowns": both coverages are 0, which kills the term
+        // whatever the depths say, and _CsFolP.w = 0 kills it again.
+        _CsFol ("Canopy mass (R,G = near/far depth, B,A = their coverage)", 2D) = "black" {}
+        _CsFolP ("Crown reach, 1/release, 1/onset (encoded depth), strength", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -57,7 +62,7 @@ Shader "GloomhavenVR/EnvShaft"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma target 3.0        // seven dependent texture reads in the frag
+            #pragma target 3.0        // eight dependent texture reads in the frag
             #include "UnityCG.cginc"
 
             fixed4 _Tint;
@@ -86,7 +91,8 @@ Shader "GloomhavenVR/EnvShaft"
             // twenty lines. The ENCODING has exactly one source — the builder —
             // and both copies quote it.
             sampler2D _CsMap;
-            float4 _CsOrg, _CsU, _CsV, _CsDir, _CsFlt, _CsThrow;
+            sampler2D _CsFol;
+            float4 _CsOrg, _CsU, _CsV, _CsDir, _CsFlt, _CsThrow, _CsFolP;
 
             float3 CsCoord (float3 op)
             {
@@ -118,9 +124,9 @@ Shader "GloomhavenVR/EnvShaft"
                 return step(0.0, d) * saturate((_CsThrow.x - d) * _CsThrow.y);
             }
 
-            // A blade takes whichever layer casts: R:G is the canopy hanging over
-            // the beam, B:A is the trunk the beam runs THROUGH (which is deeper
-            // than the roof and would otherwise never be seen). Whichever gives
+            // A blade takes whichever layer casts: R:G is the nearest trunk on the
+            // bearing, B:A the deepest — the one the beam runs THROUGH, which is
+            // behind the first and would otherwise never be seen. Whichever gives
             // the stronger shadow wins.
             float CsTap (float2 uv, float z)
             {
@@ -131,6 +137,62 @@ Shader "GloomhavenVR/EnvShaft"
                 // z - 0 is a small depth for anything high in the room, so an
                 // ungated sentinel would shadow every shaft top.
                 return 1.0 - max(CsThrow(z - n), step(0.00002, f) * CsThrow(z - f));
+            }
+
+            // ------------------------------------------------------- SHAFT MASS
+            // THE CROWNS, and the whole of ModBuild 142. USER FINDING 141
+            // (hardware): "da auch das Gestrüpp an den Bäumen Schatten wirft sieht
+            // es etwas merkwürdig aus" — and the screenshot showed why: the beams
+            // were combed into hard vertical stripes running their entire length.
+            //
+            // THE MECHANISM, because it is not what it looks like. A shaft runs
+            // ALONG the light and the map's axes are both across it, so (u,v) is
+            // EXACTLY constant down a beam — one texel column serves a whole blade
+            // from canopy to floor, and only sc.z changes. The map is point-sampled
+            // (rightly: bilinear on a depth invents occluders), so one texel of
+            // SIDEWAYS motion swaps one of the seven taps, moving the average by
+            // 1/7; the bite ramp below, span 0.38, multiplies that step by 2.6 and
+            // delivers a third of full shadow. Held down the whole length, that is
+            // a picket fence with 5.5 cm teeth. The needle sieve — 23.6% coverage
+            // of alpha-tested speckle at exactly the texel scale — is what put a
+            // different value in every column.
+            //
+            // A TRUNK MUST KEEP THAT RAMP and a crown must never have had it. So
+            // the crowns now live in their own map, area-averaged at bake time to
+            // 22 cm texels, read BILINEARLY (~44 cm reconstruction — a bough, not a
+            // needle) and answered LINEARLY in coverage. There is no ramp here and
+            // there is no tap disc here: the low-pass a tap disc gropes for was
+            // done exactly, once, by a box filter in the builder.
+            //
+            //   R,G = the nearest and deepest needle depth in the texel,
+            //   B,A = the coverage of the mass at each, counted over a 3 m slab of
+            //         depth around its own extreme — so the roof 25 m up-light and
+            //         the bough 4 m up-light are billed separately and only the one
+            //         inside the reach is charged.
+            //
+            // The onset (smoothstep over 1/_CsFolP.z) is the other half of "soft":
+            // a trunk has a front face and switches on the instant it is passed,
+            // a crown thickens over a metre of depth. Without it the comb's
+            // vertical teeth would simply have become horizontal ones.
+            float CsFolThrow (float d)
+            {
+                float t = saturate(d * _CsFolP.z);
+                return t * t * (3.0 - 2.0 * t) * saturate((_CsFolP.x - d) * _CsFolP.y);
+            }
+
+            // z is the BIASED depth, the same one the trunk taps compare against —
+            // the builder's Visible() mirrors this exactly, and a mirror that
+            // disagrees by even one bias is a search that places shafts the shader
+            // then draws differently.
+            float CsFol (float2 uv, float z)
+            {
+                float4 e = tex2D(_CsFol, uv);
+                // No sentinel gate is needed on either layer: an empty texel has
+                // both coverages at zero, and zero coverage casts nothing whatever
+                // its depths happen to say. (That is also why the property default
+                // is "black" rather than "white".)
+                return max(e.b * CsFolThrow(z - e.r),
+                           e.a * CsFolThrow(z - e.g));
             }
 
             float CsVisible (float3 sc)
@@ -152,25 +214,25 @@ Shader "GloomhavenVR/EnvShaft"
                         + CsTap(sc.xy + float2( 0.000, -1.000) * f, z)
                         + CsTap(sc.xy + float2( 0.866, -0.500) * f, z);
                 v *= (1.0 / 7.0);
-                // SHAFT BITE (ModBuild 140). The tap average alone is what made
-                // the shafts read as SMOOTH on hardware even though the build log
-                // said their lower runs were 42% occluded. A fir crown is an
-                // alpha-tested sieve — 23.6% of the atlas is over the cutoff — so
-                // a beam crossing the crown mass collects a MOTTLE of 0.2-0.5
-                // coverage over metres of its length, and a linear average of
-                // that is a uniform dimming: exactly "the beam got a bit fainter",
-                // never "a bough crosses the beam".
+                // SHAFT BITE (ModBuild 140), now TRUNKS ONLY (ModBuild 142). The
+                // tap average alone is what made the shafts read as SMOOTH on
+                // hardware even though the build log said their lower runs were 42%
+                // occluded; the ramp is what turns a partial average into a bar.
+                // Below _CsThrow.z the coverage counts for nothing, above
+                // _CsThrow.z + span it counts for everything. The PENUMBRA is
+                // unaffected: the taps still average first, so a shadow EDGE still
+                // crosses the ramp smoothly over the tap disc; what the ramp
+                // removes is the flat middle.
                 //
-                // So the coverage is remapped before it is used: below _CsThrow.z
-                // it is speckle and counts for nothing, above _CsThrow.z + span it
-                // is a solid occluder and counts for everything. That is also the
-                // physics of light through mist — extinction is exponential in the
-                // needle mass crossed, not linear in a sub-texel coverage average
-                // — and it is what turns the wash back into dappled light with
-                // dark bars. The PENUMBRA is unaffected: the taps still average
-                // first, so a shadow EDGE still crosses the ramp smoothly over the
-                // tap disc; what the ramp removes is the flat middle.
+                // It applies to the trunk map alone because that is the only map it
+                // was ever right for. A trunk has a SILHOUETTE, and on a silhouette
+                // the ramp sharpens an edge; the needles had no silhouette at this
+                // scale, only noise, and on noise the very same ramp quantised the
+                // 1/7 tap steps into the comb the user photographed. Same operator,
+                // opposite meaning, decided entirely by what is in the map — which
+                // is the argument for splitting the maps rather than the numbers.
                 float sh = saturate(((1.0 - v) - _CsThrow.z) * _CsThrow.w);
+                float shFol = CsFol(sc.xy, z);
                 // Off the edge of the baked map, and anywhere in front of its near
                 // plane, everything is lit. CLAMP addressing would otherwise drag
                 // the border texels right across the room, and a hard cut-off
@@ -188,7 +250,14 @@ Shader "GloomhavenVR/EnvShaft"
                 // bite be aggressive — a shaft may be cut to a hard dark band and
                 // must still ARRIVE at the pool it lands in. The first pass had no
                 // such rail and extinguished all three beams.
-                return 1.0 - _CsFlt.w * sh * edge;
+                //
+                // TWO OCCLUDERS ON ONE RAY MULTIPLY — transmittances do — but the
+                // product is floored at the TRUNK's own minimum visibility so the
+                // rail stays exactly where the builder declared it. A crown
+                // standing over a trunk shadow may deepen it; it may not compound
+                // the beam past the point at which it is guaranteed to arrive.
+                return max(1.0 - _CsFlt.w,
+                           (1.0 - _CsFlt.w * sh * edge) * (1.0 - _CsFolP.w * shFol * edge));
             }
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; fixed4 color : COLOR; };

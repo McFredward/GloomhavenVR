@@ -126,6 +126,47 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 142** — four reported items. No wire change. **Bundle 65,226,455 bytes.**
+  **Element effects, the art half.** 140 shipped only the sensor, so the user saw nothing with Air
+  up — and his log proved the sensing side was fine (`Air=Waning now 0.00 -> 0.40±0.12`, nothing
+  reading it). All six now reach both rooms through nine `Env*` shaders and seven new emitters.
+  **The zero state is proven bit-identical** (md5-equal renders for channel-off vs
+  all-six-Strong-with-master-0 vs master-on-all-inert), which is what protects the levels tuned
+  over ModBuild 133–139. **Light and Dark are not one axis**: ambient is lifted by Light only while
+  Dark is down and crushed to 20% by Dark, while SOURCES are lifted by Light and HARDENED by Dark
+  — both strong gives a black room with small fierce candle pools, not a grey average.
+  **Horror redesign — a grammar problem, not a tuning one.** User verdict on 141: "weit entfernt
+  von echtem Horror … eher lächerlich", and the render is literally an emoji. A handful of SDF
+  primitives in a fragment shader can only produce A SILHOUETTE WITH FEATURES DRAWN ON IT, which is
+  the grammar of a pictogram. What frightens is VALUE, and value needs a modelled surface with cast
+  shadows — so the apparitions are baked from a CPU-rendered atlas (depth field, grazing key light,
+  40-tap heightfield shadow march, cavity occlusion). GENERAL RULE: if a thing must look
+  photographic, bake it; the fragment shader is where you spend ALU, not where you get craft.
+  Two bugs found on the way, both would have shipped silently: `SaveMesh` drops UV1–UV3 when
+  overwriting an existing asset (each re-bake kept the PREVIOUS catalogue's ids against the new
+  positions — it looked exactly like a shader bug), and `floor()` on an interpolated integer picked
+  the wrong atlas tile at 4.0 minus one ulp.
+  **Shaft striping — the best diagnosis of the session.** The beams were combed into hard 5.5 cm
+  vertical teeth. A shaft runs ALONG the light and both shadow-map axes are perpendicular to it, so
+  the map coordinate is **exactly constant down a beam**: a vertical strip of blade reads ONE TEXEL
+  COLUMN from canopy to floor, and one texel sideways swaps one of seven taps, which the bite ramp
+  amplifies to 0.375 of full shadow held over the entire length. The floor never showed it because
+  a floor moves in u AND v AND depth at once. **And my own verification was blind to it**: the
+  probe walked the beam AXIS, the one direction in which the comb cannot appear, so the log
+  reported a perfectly smooth profile while the picture showed a comb — both true. LESSON: a probe
+  that samples along the axis of the thing it measures proves nothing about its cross-section.
+  Fixed by splitting occluders by SCALE — trunks keep the crisp map and the bite ramp, needles get
+  a separate 128² mass map (exact 4×4 area averages, bilinear, linear response, 64 KiB). Worst
+  across-beam step 2.03% → 0.22% while the beam's own across-contrast ROSE 5.4% → 8.8%.
+  "Shafts through trunks" is the necessary geometry of a beam parallel to the light (what shadows a
+  point lies on that point's ray to the moon, which IS the beam further up) — not a bug; what was
+  wrong is one shaft whose axis sat 0.21 m inside a trunk.
+  **Test triggers** (new Advanced page): each element (Strong and Waning) and each apparition on
+  demand. LOCAL ONLY — the element board is a multiplayer desync invariant, so the buttons override
+  the PUBLISHED value, never the game's state.
+  **Open:** the cellar's shelf face reads as a dark rounded blob in my own render — it is backlit by
+  the candle behind it and shows no internal value. Needs re-siting or a key from the candle side.
+
 - **ModBuild 141** — HORROR EASTER EGGS (user feature request), forest and cellar only. No wire
   change. **Bundle 65,265,924 bytes.**
   Twelve apparitions, six per room, plus the rat stopping to stare (6% of crossings, free). Slot

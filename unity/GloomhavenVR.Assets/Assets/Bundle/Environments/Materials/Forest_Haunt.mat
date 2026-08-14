@@ -19,15 +19,20 @@ Material:
   disabledShaderPasses: []
   m_SavedProperties:
     serializedVersion: 3
-    m_TexEnvs: []
+    m_TexEnvs:
+    - _Atlas:
+        m_Texture: {fileID: 2800000, guid: 78de8ebf25dfb2f2fab0d40fcd903ecf, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
     - _Cards: 6
     - _Edge: 0.016
     - _Period: 83
-    - _Rim: 0.3
+    - _Rim: 0.08
     - _RimWidth: 0.09
     m_Colors:
+    - _Fill: {r: 0.045, g: 0.058, b: 0.09, a: 1}
     - _RimCold: {r: 0.42, g: 0.56, b: 0.78, a: 1}
     - _RimWarm: {r: 0.95, g: 0.48, b: 0.16, a: 1}
   m_BuildTextureStacks: []

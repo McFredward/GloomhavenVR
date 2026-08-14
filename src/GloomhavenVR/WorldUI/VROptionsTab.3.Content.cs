@@ -39,6 +39,9 @@ internal static partial class VROptionsTab
 
         /// <summary>One catalog topic in full.</summary>
         AdvancedTopic,
+
+        /// <summary>The TEST TRIGGER page — buttons, not settings. See VROptionsTab.9.TestTriggers.cs.</summary>
+        AdvancedTriggers,
     }
 
     private static View _view = View.Curated;
@@ -100,6 +103,7 @@ internal static partial class VROptionsTab
         {
             View.AdvancedIndex => BuildAdvancedIndex(),
             View.AdvancedTopic => BuildTopic(_category),
+            View.AdvancedTriggers => BuildTestTriggers(),
             _ => BuildCurated(),
         };
 
@@ -188,6 +192,18 @@ internal static partial class VROptionsTab
             });
             rows++;
         }
+
+        // THE TEST TRIGGERS, LAST AND BY THEMSELVES. They are not a catalog topic — there is no
+        // ConfigEntry behind any of them — so they cannot come out of the loop above; and last is
+        // where the one page that DOES something rather than editing something belongs, below every
+        // page that only edits. The user asked for exactly this door ("im Erweitert Menu").
+        BuildLinkRow(ContentRoot, Loc.Mod("vr_tt_page"), () =>
+        {
+            _view = View.AdvancedTriggers;
+            TickGuard.Run("VROptionsTab.Triggers", Rebuild, "WorldUI");
+        });
+        rows++;
+
         return rows;
     }
 

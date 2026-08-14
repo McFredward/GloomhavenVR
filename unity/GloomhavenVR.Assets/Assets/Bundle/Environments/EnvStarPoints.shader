@@ -60,6 +60,7 @@ Shader "GloomhavenVR/EnvStarPoints"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "EnvElement.cginc"
     // Shared with every other Env* shader that reads _Time: in multiplayer the elected
     // owner's epoch arrives on Net record 31 so both skies stand at the same hour; 0 offline.
     float _GhvrTimeOfs;
@@ -119,6 +120,36 @@ Shader "GloomhavenVR/EnvStarPoints"
                 float tw = 1.0 + amp * (0.62 * sin(t * _TwinkleSpeed + ph)
                                       + 0.38 * sin(t * _TwinkleSpeed * 1.618 + ph * 1.7));
 
+                // ================================ ELEMENT ART ================
+                // DARK EATS THE FAINT FIELD. Every star carries its own
+                // brightness in COLOR.a (magnitude -> brightness, ~0.05 for the
+                // faintest catalogue star at mag 6.5, well over 1 for the
+                // brightest), so "keep the bright ones, take the rest" is one
+                // smoothstep on a value the mesh already ships. A star that goes
+                // out costs NOTHING to draw: its quad degenerates through `ext`
+                // exactly the way a set star already does.
+                // LIGHT does the opposite half — the survivors get brighter.
+                // Under both, the sky ends up with a handful of hard bright
+                // points on black, which is the split (see EnvStars for the
+                // continuous layer's half of it).
+                GhvrElem e = GhvrElems();
+                float elemGain = 1.0;
+                if (e.live > 0.0)
+                {
+                    elemGain = 1.0 + 1.40 * e.light;
+                    // ONE application, on `ext`: it scales the quad as well as
+                    // the brightness, so a culled star shrinks to nothing instead
+                    // of merely dimming — which is both what a star at the limit
+                    // of vision does and what makes it free.
+                    // 0.030..0.22 rather than 0.045..0.34: the first bake culled
+                    // so far up the magnitude distribution that under Light+Dark
+                    // the sky held four points and none of them was a bright
+                    // star, so the "fewer but BRIGHTER" half of the split had
+                    // nothing to be brighter with. This takes the faint field and
+                    // leaves the constellations.
+                    ext *= lerp(1.0, smoothstep(0.030, 0.22, v.color.a), e.dark);
+                }
+
                 // quad basis from the star's own direction (never the camera)
                 float3 ref = abs(dr.y) > 0.999 ? float3(0, 0, 1) : float3(0, 1, 0);
                 float3 right = normalize(cross(ref, dr));
@@ -128,7 +159,7 @@ Shader "GloomhavenVR/EnvStarPoints"
 
                 o.pos = UnityObjectToClipPos(float4(opos, 1.0));
                 o.uv = v.uv;
-                o.col = fixed4(v.color.rgb, v.color.a * ext * max(tw, 0.0) * _Gain);
+                o.col = fixed4(v.color.rgb, v.color.a * ext * max(tw, 0.0) * _Gain * elemGain);
                 return o;
             }
 

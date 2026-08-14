@@ -25,6 +25,21 @@ Shader "GloomhavenVR/EnvFlame"
         _Gust ("Draft amount", Range(0,0.3)) = 0
         _GustDir ("Draft direction (OBJECT space XZ)", Vector) = (1,0,0,0)
     }
+    // ELEMENT ART (EnvElement.cginc). The flame is the cellar's Fire, Air, Light
+    // and Dark all at once, and it is the one object in the room that can show
+    // all four without a single new triangle:
+    //   FIRE  the flame flares — taller, brighter, whiter at the core.
+    //   AIR   the AUTHORED draught strengthens: the same _GustDir it already
+    //         leans along, several times over, so the room's one draught becomes
+    //         a wind. Nothing new to explain; the player has already seen it.
+    //   LIGHT it is a SOURCE, so Light drives it (see the split).
+    //   DARK  the candles duck: shorter and dimmer, but NOT out. Under Light+Dark
+    //         both apply and Light wins on the flame while Dark wins on the room
+    //         around it — which is the split, told on one candle.
+    // Ice deliberately does NOTHING here. The design's Fire+Ice mixture is
+    // "embers rising through falling snow"; an Ice that shrank the flame would
+    // cancel Fire's flare and turn a mixture into an average, which the brief
+    // forbids.
     SubShader
     {
         Tags { "Queue"="Transparent+15" "RenderType"="Transparent" "IgnoreProjector"="True" }
@@ -37,6 +52,7 @@ Shader "GloomhavenVR/EnvFlame"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "EnvElement.cginc"
 
             sampler2D _MainTex; float4 _MainTex_ST;
             fixed4 _Tint;
@@ -45,22 +61,42 @@ Shader "GloomhavenVR/EnvFlame"
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed fl : TEXCOORD1; };
+            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed fl : TEXCOORD1;
+                         fixed fire : TEXCOORD2; };
 
             v2f vert (appdata v)
             {
                 v2f o;
                 float t = _Time.y + _GhvrTimeOfs;
                 float ft = t * _Rate;
+
+                // ---- ELEMENT ART: the four modifiers, identity when nothing is up
+                GhvrElem e = GhvrElems();
+                float gustMul = 1.0, swayMul = 1.0, tall = 1.0, bright = 1.0;
+                if (e.live > 0.0)
+                {
+                    gustMul = 1.0 + 3.4 * e.air;
+                    swayMul = 1.0 + 1.3 * e.air;
+                    // a flame laid over by a draught is also LONGER, and a
+                    // ducking one is shorter: one number carries both
+                    tall = max(1.0 + 0.55 * e.fire + 0.25 * e.air - 0.40 * e.dark, 0.05);
+                    bright = max(1.0 + 1.05 * e.fire + 0.55 * e.light - 0.45 * e.dark, 0.0);
+                }
+                o.fire = e.fire;
+
                 // sway grows with height (uv.y=0 at flame base) — the tip dances
                 float h = v.uv.y;
                 float sway = (sin(ft * 5.7 + _Phase) * 0.6 + sin(ft * 9.3 + 1.3 + _Phase) * 0.4)
-                             * _Sway * h * h;
+                             * _Sway * swayMul * h * h;
                 // the draft: slow, shared, unphased (see _Gust)
                 float g = sin(t * 0.37) * 0.62 + sin(t * 0.83 + 1.1) * 0.38;
                 float4 p = v.vertex;
-                p.x += sway + _GustDir.x * _Gust * g * h * h;
-                p.z += sway * 0.6 + _GustDir.z * _Gust * g * h * h;
+                // the flame grows from its WICK: the mesh's origin is the wick, so
+                // scaling y about it lengthens the flame instead of lifting it off
+                // the candle (CrossQuadMesh puts uv.y=0 at y=0).
+                p.y *= tall;
+                p.x += sway + _GustDir.x * _Gust * gustMul * g * h * h;
+                p.z += sway * 0.6 + _GustDir.z * _Gust * gustMul * g * h * h;
                 o.pos = UnityObjectToClipPos(p);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 // brightness flicker — same sine family AND same rate as the
@@ -70,7 +106,7 @@ Shader "GloomhavenVR/EnvFlame"
                         + 0.25 * sin(ft * 19.7 + 4.2 + _Phase * 0.7);
                 f = f * 0.70 + 0.30 * sin(ft * 1.9 + _Phase * 0.5);
                 // a flame that is bent by a draught also burns brighter
-                o.fl = (1.0 + _Flicker * 0.35 * f) * (1.0 + 0.55 * _Gust * abs(g));
+                o.fl = (1.0 + _Flicker * 0.35 * f) * (1.0 + 0.55 * _Gust * gustMul * abs(g)) * bright;
                 return o;
             }
 
@@ -82,6 +118,13 @@ Shader "GloomhavenVR/EnvFlame"
                            + sin(t * 7.3 + 2.1 + _Phase)) * 0.012 * i.uv.y;
                 fixed4 c = tex2D(_MainTex, i.uv + float2(wob, 0));
                 c *= _Tint;
+                // ELEMENT ART: under Fire the core burns toward white while the
+                // edge keeps the candle's own amber — a hotter flame, not a
+                // recoloured one. i.uv.y is the height up the sprite, so the
+                // whitening is strongest at the base where a real flame is
+                // hottest. Exactly 0 when Fire is 0.
+                c.rgb = lerp(c.rgb, c.rgb * float3(1.16, 1.06, 0.82),
+                             saturate(i.fire * (1.0 - i.uv.y * 0.6)));
                 c.rgb *= c.a * i.fl; // premodulate: alpha drives additive energy
                 return c;
             }

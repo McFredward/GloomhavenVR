@@ -115,6 +115,47 @@
 //   _GhvrHaunt.zw reserved (0).
 float4 _GhvrHaunt;
 
+// ---------------------------------------------------- the ON-DEMAND channel
+// HAUNT DREAD. "Feuere jedes Easter Egg auf Knopfdruck aus dem Advanced-Menü."
+// The C# half publishes this global; every shader that reads the schedule
+// honours it, here, in one place.
+//
+//   _GhvrHauntForce.x = FORCED EVENT ID PLUS ONE. 0 means nothing is forced.
+//                       The id is the card index inside its room's catalogue —
+//                       the same index EnvBeam and EnvRoomCutout are already
+//                       handed, and the same one BuildEnvironmentRooms prints.
+//   _GhvrHauntForce.y = the SHARED-CLOCK time at which the forced event began,
+//                       i.e. _Time.y + _GhvrTimeOfs sampled when the button was
+//                       pressed. phase = (clock - y) / duration, clamped.
+//   _GhvrHauntForce.zw reserved (0).
+//
+// THE ID TABLE the button labels need is in BuildEnvironmentRooms.cs, next to
+// the catalogues themselves (grep HAUNT FORCE ID TABLE) — it has to live beside
+// the card arrays, because the ids ARE the array order and a table kept
+// anywhere else would be a copy that could drift from it.
+//
+// WHAT FORCING DOES, exactly:
+//   * the named card plays, from `y`, at its authored duration with NO per-slot
+//     jitter (durMul = 1) — the tester asked for THAT event, not for a random
+//     stretch of it;
+//   * every OTHER card in the room is hidden, because `h.card` is the forced id
+//     and each card draws only when h.card is its own index. That falls out of
+//     the existing test rather than needing a second one;
+//   * the normal schedule is suppressed for as long as x stays set, since the
+//     slot's own pick never gets computed. Leaving x set therefore fails SAFE:
+//     the room goes quiet, it never doubles up.
+//   * the three shaders that merely REACT to a haunt follow automatically. They
+//     call GhvrHauntAt too, so forcing the cellar's window card dims the
+//     moonbeam and forcing its tremble card shivers the cobwebs — which is
+//     exactly what a tester pressing those two buttons has to see.
+// The cost when nothing is forced is one uniform compare, and it is a uniform
+// branch, so it is coherent across the whole draw.
+//
+// ONE GLOBAL, TWO ROOMS: ids are per-room and only one room is ever loaded, so
+// a single channel is unambiguous. The C# lane must clear x to 0 when it stops
+// forcing.
+float4 _GhvrHauntForce;
+
 // The element mood, for flavour and for readability compensation. Same contract
 // as Core/ElementMood.cs: A = (Fire, Ice, Air, Earth), B = (Light, Dark,
 // Master, Peak), all 0..1, and the six are NOT pre-multiplied by the master.
@@ -224,6 +265,30 @@ GhvrHaunt GhvrHauntAt (float t, float period, float cards)
     h.varA = GhvrHauntH(h.slot, GHVR_HC_VARA);
     h.varB = GhvrHauntH(h.slot, GHVR_HC_VARB);
     h.varC = GhvrHauntH(h.slot, GHVR_HC_VARC);
+
+    // ---- ON DEMAND (see the _GhvrHauntForce block at the top). One uniform
+    // compare when nothing is forced.
+    if (_GhvrHauntForce.x > 0.5)
+    {
+        // The forced run is expressed in the SAME terms as a scheduled one —
+        // sIn measured from a start of 0 with no jitter — so the envelope, the
+        // phase and every drawing decision downstream take exactly the path
+        // they take in the shipped schedule. A second "forced" code path is how
+        // a debug mode ends up being the thing that was tested.
+        h.card   = _GhvrHauntForce.x - 1.0;
+        h.live   = 1.0;
+        h.start  = 0.0;
+        h.durMul = 1.0;
+        h.sIn    = t - _GhvrHauntForce.y;
+        // The per-slot variety hashes still have to come from somewhere, and it
+        // has to be the same somewhere on every client: the slot the forced
+        // event STARTED in. (The press itself is replicated by the C# lane; the
+        // shader never sees a local decision.)
+        float fs = floor(_GhvrHauntForce.y / per);
+        h.varA = GhvrHauntH(fs, GHVR_HC_VARA);
+        h.varB = GhvrHauntH(fs, GHVR_HC_VARB);
+        h.varC = GhvrHauntH(fs, GHVR_HC_VARC);
+    }
     return h;
 }
 

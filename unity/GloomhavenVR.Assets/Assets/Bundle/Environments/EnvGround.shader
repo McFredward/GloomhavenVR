@@ -58,6 +58,10 @@ Shader "GloomhavenVR/EnvGround"
         _CsDir ("Light travel direction (w = -near depth)", Vector) = (0,-1,0,0)
         _CsFlt ("Penumbra u, penumbra v, depth bias, 1 - minimum visibility", Vector) = (0,0,0,0)
         _CsThrow ("Max throw, 1/release (encoded depth), bite lo, 1/bite span", Vector) = (0,0,0,0)
+        // The crown mass (SHAFT MASS, ModBuild 142) — the second map, see the
+        // block at CsFol below. "black" is "no crowns".
+        _CsFol ("Canopy mass (R,G = near/far depth, B,A = their coverage)", 2D) = "black" {}
+        _CsFolP ("Crown reach, 1/release, 1/onset (encoded depth), strength", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -67,7 +71,7 @@ Shader "GloomhavenVR/EnvGround"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma target 3.0        // four albedo/normal reads plus six shadow taps
+            #pragma target 3.0        // four albedo/normal reads plus seven shadow taps
             #include "UnityCG.cginc"
 
             sampler2D _MainTex; float4 _MainTex_ST;
@@ -96,7 +100,8 @@ Shader "GloomhavenVR/EnvGround"
             // the floor covers far more of the view and its shadow edge is
             // already softened by the normal map and the vertex fade.
             sampler2D _CsMap;
-            float4 _CsOrg, _CsU, _CsV, _CsDir, _CsFlt, _CsThrow;
+            sampler2D _CsFol;
+            float4 _CsOrg, _CsU, _CsV, _CsDir, _CsFlt, _CsThrow, _CsFolP;
 
             float3 CsCoord (float3 op)
             {
@@ -142,6 +147,41 @@ Shader "GloomhavenVR/EnvGround"
                 return 1.0 - step(0.00002, f) * CsThrow(z - f);
             }
 
+            // ------------------------------------------------------- SHAFT MASS
+            // The crowns, in their own map (ModBuild 142 — the full argument is in
+            // EnvShaft.shader, where the comb the user photographed actually
+            // appeared). Two things changed for the FLOOR, and only two:
+            //   * the crowns left _CsMap, so the bite ramp above is now looking at
+            //     trunk silhouettes and nothing else, which is the only thing it
+            //     was ever right for;
+            //   * the crowns come back through here at a SEVENTH of the blades'
+            //     strength — enough to put a slow, half-metre-scale unevenness
+            //     under the canopy where the moon used to be mathematically flat,
+            //     and far too little to darken a floor the user tuned by hand.
+            // The floor was already refusing the crown wash: _CsThrow.z sat at 0.26
+            // precisely to throw away the 0.1-0.25 dusting from the roof. This does
+            // the same job honestly instead of by threshold, and it is measured —
+            // Report() prints the lit-to-shadowed ratio over the whole clearing,
+            // which is the number that ruling was made on.
+            float CsFolThrow (float d)
+            {
+                float t = saturate(d * _CsFolP.z);
+                return t * t * (3.0 - 2.0 * t) * saturate((_CsFolP.x - d) * _CsFolP.y);
+            }
+
+            // z is the BIASED depth, the same one the trunk taps compare against;
+            // the builder's Visible() mirrors this exactly.
+            float CsFol (float2 uv, float z)
+            {
+                // One BILINEAR fetch, no tap disc: the low-pass was done exactly at
+                // bake time by a 4x4 box filter, and a coverage may be interpolated
+                // where a depth may not. An empty texel has zero coverage in both
+                // layers, so no sentinel gate is needed.
+                float4 e = tex2D(_CsFol, uv);
+                return max(e.b * CsFolThrow(z - e.r),
+                           e.a * CsFolThrow(z - e.g));
+            }
+
             float CsVisible (float3 sc)
             {
                 float z = sc.z - _CsFlt.z;
@@ -184,7 +224,12 @@ Shader "GloomhavenVR/EnvGround"
                 // 1 - _CsFlt.w of its MOON term, and the ambient, the three point
                 // lights and the landing pool are untouched addends beside it. A
                 // shadow in a night wood is not a hole.
-                return 1.0 - _CsFlt.w * sh * edge;
+                //
+                // The two occluder classes multiply (transmittances do) under the
+                // same floor: whatever the crowns add, a patch of clearing may
+                // never lose more of its moon than the trunk rail allows.
+                return max(1.0 - _CsFlt.w,
+                           (1.0 - _CsFlt.w * sh * edge) * (1.0 - _CsFolP.w * CsFol(sc.xy, z) * edge));
             }
 
             struct appdata

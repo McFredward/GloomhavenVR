@@ -25,7 +25,16 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
-    m_Floats: []
+    m_Floats:
+    - _ElemAlpha: 1.1
+    - _ElemGain: 0.9
+    - _ElemSpark: 0
+    - _ElemTintAmt: 0.9
     m_Colors:
+    - _ElemCol: {r: 0.74, g: 0.86, b: 1, a: 1}
+    - _ElemMod: {r: 0, g: 1, b: 0.55, a: 0}
+    - _ElemMod2: {r: 0, g: 0, b: 0, a: 0}
+    - _ElemOwn: {r: 0, g: 0, b: 0, a: 0}
+    - _ElemOwn2: {r: 0, g: 0, b: 0, a: 0}
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
