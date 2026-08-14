@@ -755,6 +755,57 @@ internal static class EnvSound
     /// (a new clock owner is elected, or a scene reload resets it) the index simply becomes a
     /// different number and the next impact fires normally. A timer would either double-fire or go
     /// silent until it caught up.</para>
+    ///
+    /// =============================================================================================
+    /// <para><b>THE LEVEL, and why it came down with the timbre. ModBuild 147.</b> The user's report
+    /// was about the SOUND ("Außerdem gefällt mir das Geräusch nicht") and the rebuild of it is in
+    /// <c>EnvSoundBank.MakeDrips</c>. But the standing rule on environment sound is the user's own
+    /// and it is about EXPOSURE rather than about quality — "Auch hier sollen die sounds eher dezent
+    /// sein und nie aufdringlich überlagernd. Die Umgebung spielt immer noch nur eine zweite Rolle
+    /// neben dem eigentlichen Spiel." — and by that measure this cue is the worst offender in the
+    /// room whatever it sounds like: at <see cref="DripPeriod"/> = 2.85 s it fires more often than
+    /// everything else here PUT TOGETHER (the rat is on 26 s, the haunt on 83 s), and it fired at
+    /// 0.13 of a <see cref="MaxEmitterGain"/> of 0.16 — 81% of the ceiling, for the most repeated
+    /// event in the environment. That is backwards. Three numbers moved, and they are three separate
+    /// arguments rather than one taste:</para>
+    /// <list type="number">
+    /// <item><b>Gain 0.13 -> 0.085</b>, which is -3.7 dB. On top of it the bank's own rebuild is
+    /// -3.3 dB quieter in RMS at the same gain (it normalises to 0.78/0.52/0.70 instead of 0.90, and
+    /// two of the three variants are much shorter events), so the source level is -7.0 dB before the
+    /// rolloff below. The PERCEIVED drop is larger again, because loudness is not level: the old
+    /// clip put its energy where the ear is most sensitive and the new one does not.</item>
+    /// <item><b>maxDistance 9 m -> 6 m.</b> Nine perceived metres is most of a cellar — the drip was
+    /// audible from anywhere in the room, which made it ambience rather than a thing in a corner.
+    /// Six is "you hear it near the puddle", which is also what makes it worth having: the whole
+    /// feature's premise is "verortbar von seinen entsprechenden Quellen", and a sound that reaches
+    /// everywhere is not located anywhere.</item>
+    /// <item><b>minDistance 0.5 m -> 0.4 m.</b> Under logarithmic rolloff the level past the minimum
+    /// goes as <c>min/d</c>, so lowering the minimum steepens the whole curve: at 2 perceived metres
+    /// this is a further -1.9 dB, and at arm's length from the puddle it is unchanged. The drip
+    /// gets quieter with distance FASTER, which is the shape you want for something that repeats.</item>
+    /// </list>
+    /// <para><b>Net, measured off the finished buffers rather than estimated:</b> -8.9 dB at a
+    /// typical 2 perceived metres for the AVERAGE drop, and -13.2 dB for the quiet no-bubble one,
+    /// which is a third of them. That is before the duck, the master dial and the player's own two
+    /// volume sliders, all of which still apply on top. Erring quiet is deliberate and is the
+    /// standing rule read literally: a drip you notice every 2.85 s is a failure even when it is the
+    /// right drip, and the failure mode in the other direction — a drop you have to look for — costs
+    /// nothing, because the picture is already telling you it happened.</para>
+    ///
+    /// <para><b>AND THE VARIATION MOVED FROM PITCH TO TIMBRE.</b> The bank now bakes three
+    /// realisations of the drop (one of which entrains no bubble and therefore has no tone at all);
+    /// this picks between them by hash. The pitch jitter is NARROWED to compensate rather than
+    /// removed — ±3% instead of ±6% — because the pitch knob resamples the whole clip, so a wide
+    /// setting transposes the flagstone knock and the splash along with the bubble, and the floor
+    /// does not change note between drops. A small residue is still worth keeping: it decorrelates
+    /// two drops that drew the same variant, and 3% is under the threshold where the ear hears a
+    /// transposition rather than a difference.</para>
+    ///
+    /// <para>The variant draw uses hash CHANNEL 7 and the pitch keeps channel 2
+    /// (<see cref="Hash01"/>). Two draws off one channel would make the choice and the pitch
+    /// perfectly correlated — variant 0 would forever be the flattest drop — which is a subtler way
+    /// of having no variation at all. Both are pure functions of the period index, so every client
+    /// hears the same drop with the same colour on the same frame, with nothing on the wire.</para>
     /// </summary>
     private static void TickDrip(float clock)
     {
@@ -772,9 +823,31 @@ internal static class EnvSound
 
         Transform? at = _dripNode;
         if (at != null)
-            PlayShot(EnvSoundBank.Bank(EnvSoundClip.Drip), at.position, 0.13f, 0.5f, 9f,
-                     pitch: 0.94f + 0.12f * Hash01(idx));
+        {
+            int variant = (int)(3f * Haunt.Hash(idx, DripVariantChannel));
+            PlayShot(EnvSoundBank.DripVariant(variant), at.position, 0.085f, 0.4f, 6f,
+                     pitch: 0.97f + 0.06f * Hash01(idx));
+        }
     }
+
+    /// <summary>
+    /// Hash channel for "which of the three drops this one is".
+    ///
+    /// <para>A CHANNEL IS NOT AN EXCLUSIVE RESOURCE, and the table is worth stating correctly because
+    /// the obvious reading of it is wrong. <c>EnvHaunt.cginc</c>'s channel table (:186-192) already
+    /// spends 0 RATE, 1 PICK, 3 START, 4 DUR, 5/6/7 VARA/VARB/VARC, and this file's own rat cue
+    /// draws on 5 and 6 as well — so every channel is taken, and the rat has been sharing two of
+    /// them with the apparitions since they were written. That is sound and not an oversight: the
+    /// channels decorrelate two draws made from the SAME index, and these subsystems index different
+    /// things (a drip period, a rat slot, a haunt slot). Two values that are never compared cannot
+    /// be seen to correlate, and nothing in the mod ever compares them.</para>
+    ///
+    /// <para>7 is chosen for the drip anyway, in preference to 2: <see cref="Hash01"/> is 2, and the
+    /// pitch jitter on the very same drop is drawn from it. THAT pair is compared — by the ear, on
+    /// one event — and drawing both from one channel would lock the quietest variant to the lowest
+    /// pitch forever, which is a subtler way of having no variation at all.</para>
+    /// </summary>
+    private const float DripVariantChannel = 7f;
 
     /// <summary>
     /// THE RAT — "Mäusepiepen", plus its feet. The schedule is
