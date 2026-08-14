@@ -944,6 +944,12 @@ float GhvrGrowLum (float3 alb) { return alb.g; }
 //        * the FLUTTER gets fast. The leaf's own carrier goes from 1.6 s to
 //          0.6 s. This is the term that costs the shadow map nothing at all
 //          (see below) and it is the one the eye reads as wind SPEED.
+//          *** THIS BULLET WAS WRONG AND THE TERM IS GONE. It is the whole of
+//          the ModBuild 147 verdict below. The paragraph is left standing
+//          because it is the record of what was tried, and because the next
+//          lane needs to see that "the one the eye reads as wind SPEED" was the
+//          exact reasoning that produced the twitch he is now reporting. Read
+//          THE TWITCH before putting a `storm` on any rate in this file. ***
 //        * the BEND gets deeper, and only by 1.85x.
 //
 //  WHY THE STORM'S EXTRA AMPLITUDE IS RATIONED, and the number that rations it.
@@ -971,6 +977,173 @@ float GhvrGrowLum (float3 alb) { return alb.g; }
 //  i.e. the cheap-looking option is also the one that breaks the bake. Every
 //  term below is zero-mean in the bend and the flutter, and the gust envelope
 //  only scales them.
+//
+//  --------------------------------------------------------------- THE TWITCH
+//  USER VERDICT, ModBuild 146 (hardware, verbatim):
+//    "Wind führt zu einem sehr hektischen unrealistischen Zucken der Pflanzen,
+//     des Feuers und der Bäume - mach das es sich mehr random und immersiver im
+//     Wind bewegt, nicht so hektisch, so Mikrozuckungen hat."
+//
+//  THE FAULT IS ONE TERM AND IT IS NAMED IN THE PARAGRAPH ABOVE: the storm made
+//  a RATE bigger. `0.612 + 1.05 * storm`. Everything else Air does here is an
+//  amplitude, and none of it is at fault.
+//
+//  WHY THAT IS NOT A TUNING MISTAKE BUT A PHYSICAL ONE, which is the reason it
+//  is fixed by deletion and not by halving the coefficient. Every moving part
+//  of a plant is a DAMPED OSCILLATOR, and the defining property of one is that
+//  its natural frequency is a property of the STRUCTURE — of its length, its
+//  stiffness and its mass — and not of the force applied to it. Push a bough
+//  harder and it swings FURTHER at the same rate; that is the whole content of
+//  the word "resonance". Wind does three things to a canopy and raising the
+//  frequency of a branch is none of them:
+//    * it drives the same modes harder, so everything moves further;
+//    * it is intermittent, so the canopy is shoved and then released — the
+//      gust, which this function already has and which is the good part;
+//    * it excites SMALLER structures that a breeze leaves alone. A twig or a
+//      blade tip has its own, higher natural frequency, and in a light wind it
+//      simply is not kicked hard enough to show. That is a NEW BAND appearing,
+//      not an old band accelerating, and the difference between those two is
+//      exactly the difference between a canopy coming alive and a canopy
+//      vibrating.
+//  The size/frequency ladder for the things this function actually moves:
+//      a mature trunk       0.1-0.5 Hz     (nothing here: trunks do not move)
+//      a 2 m bough          0.2-0.6 Hz     s.x 0.235 / s.y 0.163 — the bend
+//      a 0.5 m leafy shoot  0.5-0.9 Hz     s.z 0.612 — the flutter, at rest
+//      a blade / frond tip  1.3-2.0 Hz     the band the storm may light up
+//      one leaf blade       5-15 Hz        TEXTURE. Not geometry. Never here.
+//
+//  THE MEASUREMENT, over 200 s at 4 kHz on the exact arithmetic below, one
+//  canopy vertex at w = 1 (tip amplitude 4.5 cm), whole offset:
+//                       f_mean   rms disp   rms speed   rms ACCEL
+//      rest             0.46 Hz    2.12 cm    4.3 cm/s    13.6 cm/s^2
+//      full Air, BEFORE 1.61 Hz    3.41 cm   19.4 cm/s   200.2 cm/s^2
+//      full Air, AFTER  1.21 Hz    2.99 cm    8.4 cm/s    71.2 cm/s^2
+//  Acceleration is the number to read and it is why "it is barely visible in a
+//  still frame" was never a defence: the eye is far more sensitive to
+//  acceleration than to displacement, and Air was multiplying it by FIFTEEN
+//  while multiplying the displacement by 1.6. A motion that goes fifteen times
+//  more violent and 1.6 times further is, in one word, a twitch.
+//
+//  AND THE PART THAT MATTERS MOST — THE SAME VERTEX AT HALF FREEDOM (w = 0.5),
+//  i.e. the middle of a bough rather than its tip:
+//      rest        3.4 cm/s^2      full Air BEFORE 50.1     AFTER 6.1
+//  Before, the MIDDLE of every bough was accelerating fifteen times harder
+//  under wind than at rest. A 2 m canopy card is not a leaf and must be nearly
+//  still and slow; it is now within a factor of 1.8 of its resting state while
+//  its tip is still five times livelier. That is what "the fast content belongs
+//  to the smallest structures" means when it is written as a number.
+//
+//  WHAT REPLACES IT, and every one of these is exactly zero at storm = 0, so
+//  THE RESTING BREEZE HE APPROVED IS PRESERVED TO THE BIT (verified: the
+//  returned float3 at storm = 0 is identical to the shipped one for every
+//  input, because each new term enters through a lerp(old, new, storm)):
+//    1. THE FLUTTER BAND SPLITS INTO THREE. Air no longer moves 100 % of the
+//       side/up excursion to one frequency; it spreads that same excursion over
+//       0.487 / 0.612 Hz (the shoot) and 1.37 / 1.63 Hz (the blade tip), with
+//       the fast pair entering on w*w INSIDE the mix — so, with the w*w already
+//       in the amplitude, the fast band's profile is w^4: nothing at the
+//       attachment, 9.5 % at half height, 38 % at the tip. This is the fire
+//       lane's tip-flutter fix (EnvFlame's ZAPPELT block, item 1) applied to a
+//       bough, and for the identical reason.
+//         1.63 Hz is deliberately almost the frequency the old code used
+//       (1.662 Hz at full storm). The old number was never wrong AS A
+//       FREQUENCY — it is a fine rate for a grass blade's tip. It was wrong as
+//       the frequency of the ENTIRE excursion of every structure in the wood,
+//       including a two-metre bough. The band survives; what it is allowed to
+//       move does not.
+//    2. THE FLUTTER STOPS BEING A LINE. Side and up were BOTH `s.z`, i.e.
+//       perfectly correlated (measured correlation 1.000), so every card
+//       reciprocated along one fixed diagonal — a shake, not a flutter. The two
+//       now take swapped weights with one sign flipped on the slow pair and two
+//       different lanes on the fast pair; measured correlation 0.001, so the
+//       tip traces an ellipse. Same trick, same file family, as the fire's
+//       lateral wander.
+//    3. THE GUST STOPS BEING A METRONOME. At full Air the envelope was one tone
+//       at 0.16 Hz: a gust every 6.25 seconds, forever, which is the most
+//       visible periodicity in the whole effect and the most likely literal
+//       referent of "mehr random". A second, much slower swell (0.038 Hz, 26 s)
+//       is mixed in at 34 %, so some gusts arrive big and some barely arrive.
+//       Real wind's spectrum is broad and low; two bands is the cheapest thing
+//       that is not a single tone.
+//
+//  WHAT IS DELIBERATELY UNCHANGED, and it is most of the function:
+//    * every amplitude. bendA 1.0->1.85, sideA 0.30->0.75, upA 0.16->0.40 are
+//      the ModBuild 143 numbers untouched, so the BOUNDS ARE UNTOUCHED — still
+//      exactly 1.06 * amp at rest and 2.04 * amp in the storm, which is what
+//      the canopy shadow-map argument above and ElemWind's build log both
+//      state. Nothing this round costs a bake or moves a printed number. (The
+//      splits are MIXES whose weights sum to 1, never sums, precisely so that
+//      this stays provable rather than measured.)
+//    * the gust's travel: 1.36 m/s at rest, 2.9 m/s in the storm. That IS a
+//      rate that scales with wind, correctly — it is the advection speed of the
+//      air itself, not the resonance of a branch — and it is the one place
+//      where "the wind is faster" belongs.
+//    * the bend's two carriers and the whole rest state.
+//
+//  IS AIR STILL "DEUTLICH HEFTIGER"? It has to be; he asked for that and got
+//  it, and losing it is the next verdict. Full Air against rest, after:
+//      rms displacement  x1.41     peak displacement  x1.83
+//      rms speed         x1.95     rms acceleration   x5.2
+//      and on the RENDERED PIXELS (the phase harness, forest canopy view):
+//      total change over 2 s x1.08, over 3.1 s x1.16 — the pixel figure is a
+//      whole-frame L1 mean, so most of it is sky and trunk that never moved and
+//      it understates the foliage badly; it is quoted because it is measured,
+//      not because it is the better number.
+//
+//  THE PIXELS, and this is the part a numeric harness cannot say. A still frame
+//  cannot show a twitch and the shipped preview harness has no time series for
+//  the forest at all, so this round built a throwaway one: 48 frames one 72 Hz
+//  frame apart plus 40 frames 80 ms apart, four forest views, at rest and at
+//  full Air, run before and after. The quantity is the TEMPORAL STRUCTURE
+//  FUNCTION of the actual pixels — of everything that changes over 0.2 s, how
+//  much has already happened after ONE frame? That ratio IS the complaint.
+//      canopy view, full Air     one-frame change   0.2 s   saturation
+//      BEFORE                        0.00028       0.00252     11.1 %
+//      AFTER                         0.00012       0.00144      8.0 %
+//      ...and THE RESTING BREEZE                                 7.7 %
+//  The last line is the result. Under wind the picture's per-frame busy-ness,
+//  measured against its own 0.2 s change, is now the same as the breeze he
+//  approved: the wind changes how MUCH the wood moves and no longer changes the
+//  CHARACTER of the motion. Before, it moved differently as well as more, and
+//  "differently" was 11.1 % against 7.7 %. All four views agree (11.2->8.6,
+//  9.5->8.1, 9.8->8.5 against resting 8.2 / 7.8 / 7.6).
+//  Meanwhile the total change over 3.1 s is 0.00407 against 0.00471 — 14 % less
+//  over three seconds for 57 % less per frame. Less change per frame, the same
+//  change per second, which is the same signature the fire lane measured.
+//  The rest rows came back BYTE-IDENTICAL before and after, on real pixels,
+//  which is the bit-identity claim above verified rather than argued.
+//      envelope          0.62..1.00 -> 0.26..1.00, i.e. the canopy now half-
+//                        stills between gusts and is then shoved to the full
+//                        1.85x lean — and at the CREST of a gust the offset is
+//                        arithmetically identical to what shipped, because no
+//                        amplitude changed. The storm's peak is as big as it
+//                        ever was. Only its hurry is gone.
+//
+//  REJECTED, and why:
+//    * halving `1.05 * storm` to `0.5 * storm`. It is the same defect at half
+//      strength and it would have to be halved again next round; and it keeps
+//      the untrue claim that a branch resonates faster in a gale.
+//    * lowering the amplitudes instead. Nothing in "hektisch / Mikrozuckungen"
+//      is about how FAR anything moves, and the two bounds above are a written
+//      contract with the shadow bake. (The same rejection the fire lane made
+//      for _Lick and _Sway, for the same reason.)
+//    * adding a 5-15 Hz leaf band. That is the real frequency of a real leaf
+//      and it is exactly the trap: a canopy CARD is a 1-2 m painted bough, not
+//      a leaf, and moving it at leaf frequency is the fault being fixed, one
+//      octave up. A leaf's own flutter is TEXTURE — it belongs in the sprite,
+//      the way the fire's 8 Hz went into its UV ripple, and no card in this
+//      wood has a shader that could carry it. Noted for whoever next owns
+//      EnvRoomCutout; nothing here pretends to do it.
+//    * raising the SPATIAL phase rate of the new bands to break the near-
+//      lockstep between neighbouring plants (at 0.12 cycles/m everything within
+//      a few metres moves nearly together). It is a real observation and it is
+//      reported rather than acted on: canopy cards are up to 2 m across, so any
+//      increase multiplies WITHIN-CARD SHEAR on the largest cards in the room,
+//      and this round is not spending a bough's shape on it.
+//    * a per-vertex damped-oscillator integration, which is what would give the
+//      gust a physically correct lagged response. It needs per-vertex state
+//      across frames; a vertex shader has none. (Same rejection, same words, as
+//      EnvFire.cginc's.)
 
 /// The wind offset for one vertex, in OBJECT units.
 ///   p     object-space vertex position
@@ -981,36 +1154,119 @@ float GhvrGrowLum (float3 alb) { return alb.g; }
 ///   amp   tip amplitude in object units — the STANDING breeze, always on
 ///   storm Air's strength, 0..1. 0 is exactly the ModBuild 143 breeze.
 /// The returned offset has magnitude <= 1.06 * amp at storm 0 and <= 2.04 * amp
-/// at storm 1, always (GhvrWave4 is bounded and so is every factor below).
+/// at storm 1, always (GhvrWave4 is bounded and so is every factor below), and
+/// ModBuild 147 did not move either bound by a millimetre — see THE TWITCH.
+///
+/// AT storm = 0 THIS FUNCTION IS BIT-IDENTICAL TO THE ModBuild 143 ONE HE
+/// APPROVED. Every ModBuild 147 term enters through lerp(shipped, new, storm),
+/// and lerp(a, b, 0) is exactly `a`, so the resting breeze is not "close", it is
+/// the same float3. That is a property of the code and not of a tuning, and it
+/// is the reason the branch below can be read as an optimisation rather than as
+/// a behaviour: whether the compiler takes it or flattens it, the result at
+/// storm 0 is identical.
 float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp, float storm)
 {
     // Phase in CYCLES from the vertex's own position, on a bearing that is not
     // the wind's: a constant with all three components means two boughs one
     // above the other are out of step as well as two side by side. |k| is
-    // 0.12 cycles/m, an 8.3 m wave — see WITHIN-CARD SHEAR above.
+    // 0.12 cycles/m, an 8.3 m wave — see WITHIN-CARD SHEAR above. EVERY band in
+    // this function, including the two added in ModBuild 147, uses this one
+    // spatial rate unmultiplied; see the last REJECTED note in THE TWITCH.
     float ph = dot(p, float3(0.062, 0.041, 0.094));
     // THE GUST: a swell travelling DOWN-WIND at 1.36 m/s (0.075 cycles/s over
     // 0.055 cycles/m) at rest and 2.9 m/s in the storm — you see it cross the
-    // clearing before it reaches you.
+    // clearing before it reaches you. THIS is the one rate `storm` is allowed
+    // to move, because it is the speed of the AIR and not the resonance of a
+    // branch (THE TWITCH).
     float gust = dot(p, dir) * 0.055 - t * (0.075 + 0.085 * storm);
     // Three carriers and the gust, one float4, all independent. 4.3 s and 6.1 s
-    // for the bend — a bough leans, it does not buzz — and 1.6 s for the leaf's
-    // own flutter, falling to 0.6 s at full Air.
-    float4 s = GhvrWave4(float4(t * float3(0.235, 0.163, 0.612 + 1.05 * storm) + ph, gust));
+    // for the bend — a bough leans, it does not buzz — and 1.6 s for the leafy
+    // shoot's own flutter.
+    //
+    // THE .z LANE USED TO READ `0.612 + 1.05 * storm` AND THAT WAS THE ENTIRE
+    // "hektisches Zucken". A branch is a damped oscillator: wind changes how
+    // hard it is driven, never the rate at which it answers. Full argument,
+    // ladder of structure sizes and the before/after acceleration table are in
+    // THE TWITCH above; do not put a `storm` back on any of these three.
+    float4 s = GhvrWave4(float4(t * float3(0.235, 0.163, 0.612) + ph, gust));
     float bend = s.x * 0.62 + s.y * 0.38;                 // exactly [-1, 1]
+
+    // The three things the storm re-shapes. Initialised to the SHIPPED resting
+    // arithmetic, so the block below is purely additive in the diff sense.
+    float flutS = s.z;                       // the flutter, across the wind
+    float flutU = s.z;                       // ...and its vertical half
+    float swell = s.w * 0.5 + 0.5;           // the gust envelope's 0..1 shape
+    // A UNIFORM BRANCH. `storm` is e.air, which comes from _GhvrElemA — a global
+    // uniform — so every vertex in every draw takes the same side of it and the
+    // branch is perfectly coherent. With Air down (the common case, and the
+    // permanent breeze runs in it) the second wave is not evaluated at all,
+    // which is what keeps the ModBuild 143 promise that the ALWAYS-ON cost of
+    // this function did not grow. If a compiler flattens it anyway the result is
+    // unchanged, because the lerps below collapse to the shipped values at 0.
+    if (storm > 1e-4)
+    {
+        // THE SECOND OCTAVE, and it exists only while there is a wind to excite
+        // it. Air does not speed the shoot up; it lights up the SMALLER things
+        // the shoot carries, which have their own higher natural frequencies.
+        //   .x 0.503 Hz  a second shoot band, so the flutter is not one tone
+        //   .y 1.370 Hz  a frond/blade tip — the vertical half
+        //   .z 1.673 Hz  a frond/blade tip — the crosswind half. Deliberately
+        //                almost the 1.662 Hz the old code drove EVERYTHING at:
+        //                the rate was never the mistake, its target was.
+        //   .w 0.038 Hz  a 26 s swell under the 6 s gust, so gusts stop
+        //                arriving on a metronome ("mehr random").
+        // THE EXACT VALUES ARE PICKED AGAINST RATIOS, not by taste, because a
+        // sum of tones at rational ratios RE-PHASES and the eye finds the
+        // repeat — and "mehr random" is half a request to have no repeat to
+        // find. Checked over all n:d up to 8:8 across the eight rates now in
+        // play (0.163, 0.235, 0.503, 0.612, 1.370, 1.673, and the two gusts
+        // 0.038 and 0.075-0.160): the tightest coincidence any of the three NEW
+        // rates makes with anything is 0.503 against 0.163 at 3:1, which drifts
+        // apart in 71 s — several times longer than anyone looks at one tree.
+        //   The first draft used 0.487 and 1.630, and 1.630 is EXACTLY 10 x
+        // 0.163, the bend's own slow carrier: zero drift, a hard 6.13 s repeat,
+        // parked right in the middle of the band this round exists to calm. It
+        // was found by running the ratio table rather than by looking at the
+        // render, which is the only way that class of mistake is ever found.
+        float4 s2 = GhvrWave4(float4(t * float3(0.503, 1.370, 1.673) + ph
+                                     + float3(0.21, 0.57, 0.83),
+                                     t * 0.038 + dot(p, dir) * 0.019 + 0.37));
+        // HOW MUCH OF THE FLUTTER IS THE FAST PAIR, by freedom. `a` below
+        // already carries w*w, so this w*w makes the fast band's profile w^4:
+        // 0 at the attachment, 9.5 % at half height, 38 % at the tip. A blade
+        // tip may flick; the middle of a two-metre bough may not.
+        float m = 0.38 * w * w;
+        // The slow pair, with the weights swapped and one sign flipped between
+        // the two axes: the two combinations are then UNCORRELATED (measured
+        // 0.001, against 1.000 for the shipped `s.z` on both), so the tip traces
+        // an ellipse instead of reciprocating along one fixed diagonal.
+        float sideSlow = 0.62 * s.z  + 0.38 * s2.x;
+        float upSlow   = 0.62 * s2.x - 0.38 * s.z;
+        // MIXED, never summed — each pair's weights sum to 1, so |flut| <= 1
+        // still holds and the 1.06 / 2.04 bounds are preserved by construction
+        // rather than by measurement.
+        flutS = lerp(s.z, (1.0 - m) * sideSlow + m * s2.z, storm);
+        flutU = lerp(s.z, (1.0 - m) * upSlow   + m * s2.y, storm);
+        // ...and the gust envelope gains its slow companion. Still 0..1, so the
+        // envelope's range below is exactly what it was.
+        swell = lerp(swell, 0.66 * swell + 0.34 * (s2.w * 0.5 + 0.5), storm);
+    }
     // [0.62, 1] at rest, [0.26, 1] in the storm: the canopy half-stills and is
     // then shoved, which is the whole difference between wind and vibration.
-    float env = lerp(0.62, 0.26, storm) + lerp(0.38, 0.74, storm) * (s.w * 0.5 + 0.5);
+    float env = lerp(0.62, 0.26, storm) + lerp(0.38, 0.74, storm) * swell;
     // w*w, not w: the stiff half of a bough hardly moves and only the last
     // quarter really flies, which is what a conifer does and what keeps the
     // shear at the attachment invisible.
     float a = amp * w * w * env;
     // Across the wind and a little up: a card that only slid down-wind reads as
     // a sheet on a rail. Never along the NORMAL (see the Tree Creator note).
+    // ALL THREE ARE THE ModBuild 143 AMPLITUDES, UNCHANGED. The storm still
+    // moves everything 1.85x / 2.5x further; that half of "deutlich heftiger"
+    // was never what he was complaining about.
     float bendA = a * (1.0 + 0.85 * storm);
     float sideA = a * (0.30 + 0.45 * storm);
     float upA   = a * (0.16 + 0.24 * storm);
-    return dir * (bend * bendA) + side * (s.z * sideA) + float3(0.0, s.z * upA, 0.0);
+    return dir * (bend * bendA) + side * (flutS * sideA) + float3(0.0, flutU * upA, 0.0);
 }
 
 /// The GROW-IN of a whole card, for the grass and moss that Earth brings up.
