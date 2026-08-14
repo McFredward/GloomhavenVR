@@ -296,6 +296,38 @@ namespace GloomhavenVR
             // along MoonDir — so this looks DOWN at the moon pool from the board
             // and has the window in the top of the frame at the same time.
             ("HauntShadow", new Vector3(-1.20f, 1.20f, 1.20f), new Vector3(27, 303, 0), false, 35f),
+            // ---- FIRE REAL (ModBuild 145) --------------------------------
+            // THE FIRE, CLOSE ENOUGH TO ANSWER THE QUESTION. Two rounds of this
+            // feature were reported on from wide room shots in which each fire is
+            // eighty pixels tall, and in a frame that size a bed, a tongue and a
+            // detached puff are all the same orange smudge — which is exactly how
+            // "viele Kerzenflammen" survived two builds. Every frame below puts
+            // ONE fire across a third of the picture at the distance a player
+            // meets it from, and the question asked of each is the same one:
+            // is this one flame, or is this a fire?
+            //
+            // ...and each site is shot from TWO heights, because the bed is the
+            // thing that decides it and a bed is invisible from directly above.
+            ("FireCrate", new Vector3(-0.60f, 1.30f, -2.55f), new Vector3(11, 218, 0), false, 40f),
+            ("FireCrateLow", new Vector3(-0.35f, 0.62f, -2.40f), new Vector3(-2, 214, 0), false, 40f),
+            ("FireSpill", new Vector3(-1.85f, 1.15f, -2.05f), new Vector3(17, 231, 0), false, 45f),
+            ("FireSpillLow", new Vector3(-1.90f, 0.45f, -2.10f), new Vector3(1, 231, 0), false, 45f),
+            ("FireShelf", new Vector3(2.70f, 1.85f, 0.90f), new Vector3(6, 84, 0), false, 42f),
+            ("FireShelfLow", new Vector3(2.85f, 1.05f, 1.05f), new Vector3(19, 82, 0), false, 42f),
+            // ...and the room WITH the fires in it, from the board: "bedrohlich"
+            // is a property of a room, not of a sprite.
+            ("FireRoom", new Vector3(0f, 1.40f, 0f), new Vector3(2, 232, 0), false, 75f),
+            // FOREST. The burning snag is at (-7.14,-0.60), the deadfall at
+            // (6.75,4.88) and the brushwood at (-6.90,-5.00) — all outside the
+            // 4.5 m PlaySpace, so these look OUT of the clearing at them.
+            ("FireSnag", new Vector3(-3.20f, 1.40f, -0.35f), new Vector3(-4, 275, 0), false, 45f),
+            ("FireSnagWide", Eye, new Vector3(-8, 275, 0), false, 70f),
+            ("FireLog", new Vector3(3.10f, 1.40f, 2.30f), new Vector3(4, 47, 0), false, 45f),
+            ("FireBrush", new Vector3(-3.00f, 1.30f, -2.10f), new Vector3(2, 226, 0), false, 45f),
+            // 250 deg, which is between the snag (265) and the brushwood (234):
+            // the frame the "peripheral, never over the board" rule is judged in,
+            // with two of the three burning things in it at once.
+            ("FireWood", Eye, new Vector3(0, 250, 0), false, 78f),
         };
 
         // ================================================================ HAUNT
@@ -413,6 +445,36 @@ namespace GloomhavenVR
             ("split", Vector4.zero, new Vector4(1, 1, 1, 1)),
             ("fice", new Vector4(1, 1, 0, 0), new Vector4(0, 0, 1, 1)),
             ("aiend", new Vector4(0, 0, 1, 1), new Vector4(0, 0, 1, 1)),
+            // ---- THE FIVE FIRE PAIRINGS (ModBuild 145) -------------------
+            // USER: "Schau dir auch jede mögliche Kombination der Elemente an
+            // und schau das jede der Effekte in beiden Umgebungen entsprechend
+            // sinnvoll miteinander interagiert. So zB das das Feuer der
+            // brennenden Bäume noch mehr Glut wirft und flackert wenn Wind an
+            // ist etc."
+            //
+            // Each row is FIRE AT FULL plus one other at full, which is the
+            // state the pair term is defined at — and each has to be judged
+            // against BOTH of its own single-element rows above (fireS and the
+            // other one), because the whole claim is that the pair does
+            // something neither element does alone. `fice` above is already
+            // Fire+Ice and is kept under its old name so the previous round's
+            // frames remain comparable; the four new ones follow its pattern.
+            //   _GhvrElemA = (Fire, Ice, Air, Earth)
+            //   _GhvrElemB = (Light, Dark, Master, Peak)
+            ("fair", new Vector4(1, 0, 1, 0), new Vector4(0, 0, 1, 1)),
+            ("fdark", new Vector4(1, 0, 0, 0), new Vector4(0, 1, 1, 1)),
+            ("flight", new Vector4(1, 0, 0, 0), new Vector4(1, 0, 1, 1)),
+            ("fearth", new Vector4(1, 0, 0, 1), new Vector4(0, 0, 1, 1)),
+            // ...and the composition test, which is the OTHER half of the
+            // requirement: three elements at once must read as ONE fire that is
+            // windblown and alone, not as three effects stacked. If the
+            // composition rule (see EnvFire.cginc) is doing its job, this frame
+            // is recognisably fair and fdark at the same time and nothing else.
+            ("fairdark", new Vector4(1, 0, 1, 0), new Vector4(0, 1, 1, 1)),
+            // ...and everything at once, with Fire in it: the worst case for
+            // legibility, and the frame that says whether fifteen pairs can be
+            // up together without becoming mud.
+            ("fall", new Vector4(1, 1, 1, 1), new Vector4(1, 1, 1, 1)),
             ("moff", new Vector4(1, 1, 1, 1), new Vector4(1, 1, 0, 1)),
             ("live0", Vector4.zero, new Vector4(0, 0, 1, 0)),
         };
@@ -436,10 +498,18 @@ namespace GloomhavenVR
         //   ShaftMoon        "die Lichtstrahlen verschwinden" — the shafts and
         //                    the moon that casts them, in one picture, so the
         //                    cause and the effect are judged together.
+        //
+        // ModBuild 145 adds the FIRE frames, and they belong here rather than in
+        // the plain set for a structural reason: the fires exist only under the
+        // Fire infusion, so at the zero state every one of them is collapsed to a
+        // point and a plain frame of them is a picture of an empty corner.
         private static readonly string[] CellarElementViews =
-        { "Corner", "DarkCornerSW", "Puddle", "Window", "S", "IceClose", "IceTop", "BeamSide" };
+        { "Corner", "DarkCornerSW", "Puddle", "Window", "S", "IceClose", "IceTop", "BeamSide",
+          "FireCrate", "FireCrateLow", "FireSpill", "FireSpillLow", "FireShelf", "FireShelfLow",
+          "FireRoom" };
         private static readonly string[] ForestElementViews =
-        { "TreeLine", "FloorToMoon", "Fireflies", "SkyBand", "N", "ShaftMoon" };
+        { "TreeLine", "FloorToMoon", "Fireflies", "SkyBand", "N", "ShaftMoon",
+          "FireSnag", "FireSnagWide", "FireLog", "FireBrush", "FireWood" };
 
         // The animated things only exist in motion, so the review set below is
         // ALSO rendered at these offsets of the shared shader clock

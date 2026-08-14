@@ -61,4 +61,9 @@ Material:
     - _RimDir: {r: 0, g: 1, b: 0, a: 0}
     - _RimWarm: {r: 0.95, g: 0.48, b: 0.16, a: 1}
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
+    - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
+    - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _TipPivot: {r: 0, g: 0, b: 0, a: 0}
+    - _TipSched: {r: 0, g: 0, b: 0, a: 0}
+    - _TipUse: {r: 0, g: -1, b: 0, a: 0}
   m_BuildTextureStacks: []

@@ -17,19 +17,6 @@
 // the same drawing problem twice: alpha-blended tongues on world-anchored
 // crossed cards, animated from the shared clock.
 //
-// A BURNING CRATE IS NOT A BIG CANDLE, and _Bonfire is the whole of that
-// difference. A candle flame is ONE laminar teardrop that sways; a fire is a
-// crowd of TONGUES that surge, tear off and die back at their own rates, each
-// one leaning further out the further it stands from the seat of the fire. So a
-// bonfire material is fed a mesh of many tongues (EnvRoomBuilder.FireMesh) whose
-// VERTEX COLOUR carries the per-tongue variation:
-//     COLOR.r  the tongue's own phase, 0..1 of a turn
-//     COLOR.g  how hard it surges (the tallest tongues surge most)
-//     COLOR.b  how far it stands from the seat, 0..1 — the lean and the tear
-//     COLOR.a  its share of the fire's brightness
-// None of that is read while _Bonfire is 0, which is what lets the room's three
-// candle materials go on using a mesh that has no colour stream at all.
-//
 // THE GATE (_FireGate). Everything this shader draws for the burning cellar
 // exists ONLY under the Fire infusion, and it has to cost nothing when Fire is
 // down — so a gated flame COLLAPSES to a point in the vertex shader exactly as
@@ -37,6 +24,102 @@
 // no fragment ever shaded, and the zero state is the same instructions on the
 // same data rather than "close enough". _FireGate = 0 is the candles: they burn
 // whatever the elements are doing, because they are the room.
+// ============================================================================
+//
+// ==================== FIRE REAL — USER VERDICT, ModBuild 144 ================
+// "Das Feuer im Keller sieht eher aus wie viele Kerzenflammen statt wirklich ein
+//  bedrohliches Brennen der Möbel! Überarbeite das Feuer nochmal komplett, es
+//  soll realistisch und bedrohlich wirken und auch die Lichtverhältnisse
+//  entsprechend anpassen."
+//
+// He is describing the previous _Bonfire mode exactly, and the renders agree:
+// the shipped fire is a ROW OF TALL AMBER SPIKES with black between them, each
+// one a closed smooth teardrop, standing on a crate. Every one of those words is
+// a candle. The three faults, and where each is now fixed:
+//
+//   1. THE SPRITE WAS A CANDLE FLAME. `candle_flame_alb` is one laminar
+//      teardrop with a hard silhouette; enlarging it enlarges a candle. It is
+//      replaced for bonfire materials by a four-cell procedural fire atlas
+//      (BuildEnvironments.MakeFireAtlas) whose cells are a BED, two torn tongues
+//      and a detached PUFF — shapes with holes and ragged tops, which is what
+//      makes two overlapping cards read as one mass instead of as two objects.
+//      The candles keep their own sprite and are untouched.
+//   2. THE MOTION WAS A SWAY, NOT TURBULENCE. Measured off the shipped
+//      material: surge = sin(lt*2.9) + sin(lt*4.7) with lt = t*_Rate*_LickRate,
+//      _Rate 1.19, _LickRate 1.15 — i.e. 0.63 Hz and 1.03 Hz. A one-hertz
+//      undulation IS a candle in a draught. The bonfire branch now runs on
+//      GhvrFireFlicker's bands at _FireHz (shipped 4.6 Hz), so the tongues turn
+//      over four to eight times a second.
+//   3. NOTHING DETACHED. A candle flame is attached at all times; a fire throws
+//      pieces of itself up that separate, cool, redden and go out. GHVR_FKIND_PUFF
+//      cards do exactly that, on their own cycle, as a pure function of the
+//      clock.
+// Plus the light, which was the loudest omission: see EnvFire.cginc.
+//
+// A BURNING CRATE IS NOT A BIG CANDLE, and _Bonfire is the whole of that
+// difference. A bonfire material is fed a mesh of many cards
+// (EnvRoomBuilder.FireMesh) whose VERTEX COLOUR carries the per-card variation:
+//     COLOR.r  the card's own phase, 0..1 of a turn
+//     COLOR.g  how hard it surges (the bed barely; the tallest tongues most)
+//     COLOR.b  how far it stands from the seat, 0..1 — the lean and the tear
+//     COLOR.a  its share of the fire's brightness
+// ...and UV1 the things that are not amounts:
+//     UV1.x    which atlas cell it is drawn with
+//     UV1.y    its KIND (GHVR_FKIND_* in EnvFire.cginc)
+//     UV1.z    a puff's rise, in metres
+//     UV1.w    a puff's place in its own cycle, 0..1
+// None of that is read while _Bonfire is 0, which is what lets the room's three
+// candle materials go on using a mesh that has neither stream.
+// ============================================================================
+//
+// ==================== SHELF RIDERS — USER VERDICT, ModBuild 144 =============
+// "Die Kerzen und das Feuer, die auf dem Bücherregal stehen, kippen nicht mit -
+//  das musst du beheben das ist ein echter Bug."
+//
+// Three of this shader's materials stand ON the cellar's tipping bookshelf: the
+// shelf candle's flame and the two fires seated on its boards. They take the
+// shelf's pose from EnvShelfTip.cginc — the same call the shelf itself makes —
+// and then do the two things a FLAME does that a rigid body does not:
+//   * it does not turn with the object. Hot gas goes up whatever the wax is
+//     doing, so the card is rigidly rotated (which keeps the wick welded to the
+//     candle) and then bent BACK about its own base, weighted by height. At 88
+//     degrees of shelf the plume is still within twenty of vertical.
+//   * it lags, gutters and goes out. See GhvrTipFlameLife: the flame dies about
+//     a quarter turn into the fall, is out for the whole of the ten seconds the
+//     shelf lies on the floor, and lights itself again late in the recovery with
+//     one flare. The LIGHT it casts takes the same number in the same frame
+//     (EnvRoom's GhvrTipSlot), which is the only way a candle going out is not
+//     also a pool of light that outlives it.
+// The two SEATED FIRES ride rigidly and do not gutter: a burning bookshelf that
+// falls over is still a burning bookshelf.
+// ============================================================================
+//
+// ============== THE FIVE PAIRINGS THAT INVOLVE FIRE — ModBuild 145 ==========
+// USER: "Schau dir auch jede mögliche Kombination der Elemente an ... So zB das
+//  das Feuer der brennenden Bäume noch mehr Glut wirft und flackert wenn Wind
+//  an ist etc."
+//
+// The composition rule, the reason there is one, and what each pair means are
+// in EnvFire.cginc's PAIRINGS block. What this shader contributes:
+//   FIRE+AIR   the rate (GhvrFireHz) and the depth (GhvrFireDepth) — the same
+//              two functions the wash takes, so the flame and its light cannot
+//              come apart under wind; a harder outward tear; the WHOLE fire
+//              leaning, bed included; and detached pieces thrown three times as
+//              far downwind and alive for three quarters of their cycle instead
+//              of a third, which is "noch mehr Glut" made of one number.
+//   FIRE+DARK  the bonfire stops taking the CANDLE's Dark response (which would
+//              have dimmed it to 55% — the exact opposite of the pairing) and
+//              gains a third instead.
+//   FIRE+LIGHT a detached piece becomes SMOKE: pale, climbing far past where an
+//              ember dies, spreading as it goes. Only here, because smoke is
+//              only visible when something lights it.
+//   FIRE+ICE   a detached piece becomes STEAM: white, low, slow, thickest at
+//              the seat; and the flame's own ramp is entered further along,
+//              because something is taking heat out of it.
+//   FIRE+EARTH it SMOULDERS: shorter tongues, the ramp entered further along
+//              still, dimmer, and pieces that barely lift before they sink.
+// Every one of them is a product of two element strengths and is exactly zero
+// unless both are up.
 // ============================================================================
 Shader "GloomhavenVR/EnvFlame"
 {
@@ -49,11 +132,9 @@ Shader "GloomhavenVR/EnvFlame"
         _Phase ("Phase offset", Float) = 0
         // MUST equal the rate of the EnvRoom light slot this flame belongs to
         // (EnvRoom: slot0 1.00, slot1 0.83, slot2 1.19) — otherwise the flame
-        // you see and the light it casts drift apart. A gated FIRE has no
-        // EnvRoom slot of its own (the room shader has exactly three and they
-        // are the candles); its light is the EnvGlow halo the builder puts on
-        // it, which is written with this same rate and phase — so the rule
-        // holds, it is just a different lamp.
+        // you see and the light it casts drift apart. A gated FIRE does not use
+        // this at all: its rate is _FireHz and its light is the fire wash, which
+        // is written with that same number (see _FireHz).
         _Rate ("Flicker rate (match the light slot)", Float) = 1
         // The DRAFT. Deliberately UNPHASED and slow, so every flame in the room
         // leans the same way at the same moment: that is what reads as one
@@ -77,10 +158,37 @@ Shader "GloomhavenVR/EnvFlame"
         _Bonfire ("Bonfire mode (0 = candle, 1 = burning object)", Range(0,1)) = 0
         _FireGate ("Exists only under the Fire infusion", Range(0,1)) = 0
         _Lick ("Bonfire: tongue surge amount", Range(0,1.5)) = 0.55
-        _LickRate ("Bonfire: tongue surge rate", Float) = 1.0
         _Flare ("Bonfire: outward tear of the outer tongues", Range(0,0.5)) = 0.10
-        _CoreCol ("Bonfire: colour at the seat of the fire", Color) = (1.30,0.98,0.60,1)
-        _TipCol ("Bonfire: colour at the tips", Color) = (1.00,0.42,0.14,1)
+        // THE ONE RATE. In HERTZ, and it is the number the wash on the wall is
+        // written with as well (EnvFire.cginc / _FireRate), so the standing rule
+        // — a flame and the light it casts share a rate — is now one constant in
+        // two properties rather than two families of sines that happen to agree.
+        _FireHz ("Bonfire: turbulence rate (Hz) — SHARED with the fire wash", Float) = 4.6
+        _PuffHz ("Bonfire: detachment rate (puffs per second per card)", Float) = 0.55
+        // THE HEIGHT OF THE WHOLE FIRE, in the mesh's own units. The temperature
+        // ramp is a property of the FIRE and not of a card: a 12 cm bed card
+        // whose own uv.y ran the full ramp would be dark red at its top, which
+        // is exactly the wrong end of the gradient for the hottest thing in the
+        // frame. Everything is measured against this instead.
+        _FireH ("Bonfire: total fire height (object units)", Float) = 1
+        _BaseCol ("Bonfire: colour in the seat (white-blue)", Color) = (1.45,1.28,1.10,1)
+        _CoreCol ("Bonfire: colour through the body", Color) = (1.30,0.72,0.26,1)
+        _TipCol ("Bonfire: colour where the tongues tear off", Color) = (0.62,0.13,0.03,1)
+        // What a detached piece BECOMES under the two pairings that change what
+        // it is (see the PAIRINGS block below). Neither is ever reached unless
+        // both of its elements are up, so both are inert by construction.
+        _SmokeCol ("Fire+Light: moonlit smoke", Color) = (0.60,0.66,0.78,1)
+        _SteamCol ("Fire+Ice: steam", Color) = (0.66,0.74,0.86,1)
+
+        // ---- SHELF RIDERS (EnvShelfTip.cginc owns all five; see the block
+        // above for what a flame does with them that a rigid body does not).
+        // All zero = "this flame is not standing on the bookshelf", which is
+        // every flame in both rooms except three.
+        _TipPivot ("Shelf hinge (OBJECT space, w = pose valid)", Vector) = (0,0,0,0)
+        _TipAxis ("Shelf hinge axis (OBJECT space, w = max angle rad)", Vector) = (0,0,0,0)
+        _TipSched ("Shelf schedule (period, cards, card)", Vector) = (0,0,0,0)
+        _TipEnv ("Shelf event envelope (reveal, hold, fade)", Vector) = (0,0,0,0)
+        _TipUse ("Ride self, lit slot, gutters, how much the flame refuses", Vector) = (0,-1,0,0)
     }
     // ELEMENT ART (EnvElement.cginc). The flame is the cellar's Fire, Air, Light
     // and Dark all at once, and it is the one object in the room that can show
@@ -108,23 +216,57 @@ Shader "GloomhavenVR/EnvFlame"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma target 3.0
             #include "UnityCG.cginc"
             #include "EnvElement.cginc"
+            // The fire's shared numbers (the waveform, the ramp, the card kinds)
+            // and — through it — the tipping shelf's pose.
+            #include "EnvFire.cginc"
 
             sampler2D _MainTex; float4 _MainTex_ST;
-            fixed4 _Tint, _CoreCol, _TipCol;
+            fixed4 _Tint, _BaseCol, _CoreCol, _TipCol, _SmokeCol, _SteamCol;
             float _Sway, _Flicker, _Phase, _Rate, _Gust, _AirGust;
-            float _Bonfire, _FireGate, _Lick, _LickRate, _Flare;
+            float _Bonfire, _FireGate, _Lick, _Flare;
+            float _FireHz, _PuffHz, _FireH;
             float4 _GustDir;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
-            // COLOR is the per-tongue stream and is read ONLY inside the
-            // `_Bonfire` branch (a uniform, so the candles never touch it). The
-            // candle mesh has no colour channel at all; Unity supplies white for
-            // a missing vertex stream, and white is never used here.
-            struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
-            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed fl : TEXCOORD1;
-                         fixed fire : TEXCOORD2; };
+            // ATLAS GEOMETRY. 2x2 cells; mirrored in BuildEnvironments
+            // (FireAtlasCols/Rows, FireTile) — change one, change both. The inset
+            // is what stops a card's own bilinear tap reaching into its
+            // neighbour's cell at the mip levels a fire is seen at across a room.
+            #define GHVR_FIRE_COLS  2.0
+            #define GHVR_FIRE_CELL  0.5
+            #define GHVR_FIRE_INSET 0.013
+
+            // COLOR and UV1 are the per-card streams and are read ONLY inside the
+            // `_Bonfire` branch (a uniform, so the candles never touch them). The
+            // candle mesh has neither channel; Unity supplies white for a missing
+            // colour stream and zero for a missing texcoord, and neither is used.
+            struct appdata
+            {
+                float4 vertex : POSITION;
+                float2 uv : TEXCOORD0;   // 0..1 up and across THIS card, always
+                float4 fp : TEXCOORD1;   // bonfire: cell, kind, puff rise, puff cycle
+                fixed4 color : COLOR;
+            };
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float2 uv : TEXCOORD0;
+                fixed fl : TEXCOORD1;
+                fixed fire : TEXCOORD2;
+                // bonfire: x = height in the FIRE's frame (0 at the seat),
+                //          y = a detached puff's age 0..1, z = its cell index,
+                //          w = its alpha
+                float4 fx : TEXCOORD3;
+                // ...and WHAT a detached piece has turned into, which is the one
+                // thing the pairings change about a card rather than about a
+                // number: x = smoke (Fire+Light), y = steam (Fire+Ice),
+                // z = smoulder (Fire+Earth). All exactly 0 unless both of the
+                // pair's elements are up. See the PAIRINGS block.
+                float3 pr : TEXCOORD4;
+            };
 
             v2f vert (appdata v)
             {
@@ -149,10 +291,18 @@ Shader "GloomhavenVR/EnvFlame"
                     {
                         o.pos = float4(0, 0, 0, 1);
                         o.uv = float2(0, 0); o.fl = 0; o.fire = 0;
+                        o.fx = float4(0, 0, 0, 0);
+                        o.pr = float3(0, 0, 0);
                         return o;
                     }
                 }
 
+                // THE FIVE PAIRINGS THAT INVOLVE FIRE — see the block in
+                // EnvFire.cginc for the composition rule. Every field is a
+                // product of two element strengths and is therefore exactly 0
+                // unless both are up, which is what makes the six single-element
+                // states below the ones that were tuned.
+                GhvrFirePair pair = GhvrFirePairs(e);
                 float gustMul = 1.0, swayMul = 1.0, tall = 1.0, bright = 1.0;
                 if (e.live > 0.0)
                 {
@@ -164,7 +314,29 @@ Shader "GloomhavenVR/EnvFlame"
                     // a flame laid over by a draught is also LONGER, and a
                     // ducking one is shorter: one number carries both
                     tall = max(1.0 + 0.55 * e.fire + 0.25 * e.air - 0.40 * e.dark, 0.05);
-                    bright = max(1.0 + 1.05 * e.fire + 0.55 * e.light - 0.45 * e.dark, 0.0);
+                    // THE FIRE TERM IS FOR CANDLES ONLY. `1.05 * e.fire` is "the
+                    // candles flare while the room is infused", and on a bonfire —
+                    // which exists ONLY under that infusion — it is not a response
+                    // to anything, it is a hidden constant multiplier of 2.05 on
+                    // top of every energy number in the mesh. It cost this round a
+                    // bake: with it, thirty overlapping additive cards clipped to
+                    // white over their whole area and the fire's own card edges
+                    // showed as hard white parallelograms.
+                    bright = max(1.0 + (_Bonfire > 0.5 ? 0.0 : 1.05 * e.fire)
+                                     + 0.55 * e.light - 0.45 * e.dark, 0.0);
+                    if (_Bonfire > 0.5)
+                    {
+                        // A BONFIRE IS NOT A CANDLE UNDER LIGHT AND DARK. The
+                        // candle line above is the ModBuild 142 design ("the
+                        // candles duck under Dark, they lift under Light"), and
+                        // applied to a burning crate it says the exact opposite
+                        // of the two pairings: FIRE+DARK is "the fire is the only
+                        // light left" and would have dimmed it to 55%, FIRE+LIGHT
+                        // is "it gains a plume, not a boost". So the bonfire path
+                        // replaces both with its own pair terms.
+                        bright = max(1.0 + 0.34 * pair.dark - 0.30 * pair.earth
+                                         - 0.10 * pair.light, 0.0);
+                    }
                 }
                 o.fire = e.fire;
 
@@ -176,37 +348,58 @@ Shader "GloomhavenVR/EnvFlame"
                 float g = sin(t * 0.37) * 0.62 + sin(t * 0.83 + 1.1) * 0.38;
                 float4 p = v.vertex;
 
-                // ---- REAL FIRE: what a crowd of tongues does that one does not
-                float lick = 1.0;
+                // ---- FIRE REAL: what a crowd of tongues does that one does not
+                float lick = 1.0, age = 0.0, cardA = 1.0, cell = 0.0;
+                float3 pr = float3(0, 0, 0);
                 if (_Bonfire > 0.5)
                 {
-                    float tp = v.color.r * 6.2831853;
-                    float lt = ft * _LickRate;
-                    // TWO incommensurate waves on the tongue's OWN phase. This is
-                    // the difference between a fire and a candle: the tongues do
-                    // not flicker together, they take turns surging, so the
-                    // silhouette of the fire is never the same twice. (Fast
-                    // enough to read at 2-5 m — the surge, not the brightness, is
-                    // what says "burning" at that distance.)
-                    float surge = 0.62 * sin(lt * 2.9 + tp) + 0.38 * sin(lt * 4.7 + tp * 1.7 + 1.1);
+                    cell = v.fp.x;
+                    float kind = v.fp.y;
+                    float tp = v.color.r;                 // this card's own turn
+                    // FIRE+AIR — the rate, through the SAME function the wash
+                    // takes it through (EnvFire.cginc). A fire in a draught turns
+                    // over faster; the pool it throws turns over with it.
+                    float bt = t * GhvrFireHz(pair, _FireHz);   // CYCLES, not radians
+
+                    // FOUR BANDS OFF ONE CALL, and the numbers are the point: at
+                    // the shipped 4.6 Hz these are 4.6 / 2.8 / 8.0 / 1.1 Hz. The
+                    // fast pair is the turbulence the brief asks for; the slow
+                    // one is the swell that keeps it from reading as buzz.
+                    float4 w = GhvrWave4(float4(bt          + tp,
+                                                bt * 0.61   + tp * 1.7 + 0.31,
+                                                bt * 1.73   + tp * 0.4 + 0.67,
+                                                bt * 0.235  + tp * 0.9 + 0.13));
+                    // the cards do not surge TOGETHER — each one is on its own
+                    // phase, so the silhouette of the fire is never the same
+                    // twice. That, and not brightness, is what says "burning" at
+                    // two to five metres.
+                    float surge = 0.58 * w.x + 0.42 * w.z;
                     lick = max(1.0 + _Lick * v.color.g * surge, 0.10);
                     // a tongue standing at the RIM of the fire is torn outward and
                     // dies sooner; COLOR.b is how far out it stands. Without this
                     // the tongues all point straight up and the fire reads as a
                     // bush.
-                    float tear = _Flare * v.color.b * (0.55 + 0.45 * sin(lt * 3.3 + tp * 2.1));
+                    // FIRE+AIR: a tongue in a draught is torn outward harder and
+                    // dies back sooner. Same term, more of it.
+                    float tear = _Flare * (1.0 + 1.9 * pair.air) * v.color.b * (0.55 + 0.45 * w.y);
                     p.x += p.x * tear * h;
                     p.z += p.z * tear * h;
+                    // FIRE+AIR: ...and the WHOLE fire leans, bed included. The
+                    // bed is the one part that does not wander on its own (see
+                    // COLOR.g), so without this a windblown fire is tongues
+                    // leaning off a seat that is standing still — which is a fire
+                    // in a room with a draught, not a fire being blown.
+                    p.xz += _GustDir.xz * (0.55 * pair.air * h * (0.6 + 0.4 * w.x));
                     // ...and every tongue wanders on its OWN phase. _Sway is one
                     // number per material, so without this the whole fire leans
                     // as a single bush and the tongues stay in the rows the mesh
-                    // put them in — the second half of what made the first bake
-                    // read as a row of candles. Weighted by COLOR.g, so the bed
-                    // (which barely surges) also barely wanders: a bed of embers
-                    // that slid about would read as a puddle of light.
+                    // put them in. Weighted by COLOR.g, so the BED (which barely
+                    // surges) also barely wanders: a bed of embers that slid
+                    // about would read as a puddle of light rather than as the
+                    // seat of a fire.
                     float wob = _Sway * 1.9 * v.color.g * h * h;
-                    p.x += sin(lt * 3.7 + tp * 1.3) * wob;
-                    p.z += sin(lt * 4.3 + tp * 2.2 + 0.9) * wob;
+                    p.x += w.z * wob;
+                    p.z += w.y * wob;
                     // The whole fire grows with the infusion: at the waning
                     // plateau it is a fire DYING BACK — smaller and lower — not
                     // the same fire turned down.
@@ -222,6 +415,57 @@ Shader "GloomhavenVR/EnvFlame"
                     // gentle.
                     gate = sqrt(gate);
                     tall *= 0.50 + 0.50 * gate;
+                    // FIRE+EARTH — it SMOULDERS. Wet growth on burning wood does
+                    // not flame cleanly: the tongues are shorter and the energy
+                    // stays down in the glowing bed. `tall` is the parameter the
+                    // single-element path already owns, so this is a modulation
+                    // and not a new layer; the bed is unaffected because the bed
+                    // is short already and the multiply is on the whole fire.
+                    tall *= 1.0 - 0.42 * pair.earth;
+
+                    // ---- THE DETACHED PUFF, i.e. the thing that was missing.
+                    // A card that leaves the fire, rises, cools and goes out, on
+                    // its own cycle, from its own place in that cycle. frac() of
+                    // a clock is a pure function with no state and no birth
+                    // event: at any instant the puffs of one fire are spread
+                    // through their lives because UV1.w spreads them, and a
+                    // player who looks away and back sees a different set.
+                    if (kind > 1.5)
+                    {
+                        age = frac(bt * (_PuffHz / max(_FireHz, 0.01)) + v.fp.w);
+                        // ---- WHAT A DETACHED PIECE IS, and it is the one thing
+                        // the pairings change about a CARD rather than about a
+                        // number. All three are products of two elements, so a
+                        // fire with one element up sheds ordinary embers.
+                        //   SMOKE  (Fire+Light) it is not burning any more, it is
+                        //          the soot above the flame — and it is only
+                        //          visible because there is a swollen moon to
+                        //          light it. This is the pairing's whole content:
+                        //          a fire next to a brighter moon that gains a
+                        //          plume instead of merely looking weaker.
+                        //   STEAM  (Fire+Ice) it is water, not soot: white, low,
+                        //          slow, and thickest right at the seat where the
+                        //          two are actually meeting.
+                        //   SMOULDER (Fire+Earth) it barely leaves at all — a
+                        //          dull red ember that lifts a hand's breadth and
+                        //          sinks back.
+                        pr = float3(pair.light, pair.ice, pair.earth);
+                        // ...and each of them changes how LONG the piece lasts,
+                        // which is the same alpha envelope the ember already has:
+                        // smoke outlives an ember by a long way, steam a little,
+                        // a smoulder hardly at all.
+                        float tail = 0.30 + 0.55 * pr.x + 0.22 * pr.y - 0.14 * pr.z;
+                        cardA = smoothstep(0.0, 0.10, age)
+                              * (1.0 - smoothstep(tail, 1.0, age));
+                        // FIRE+AIR: MORE GLUT, and it lives longer because it is
+                        // being fed on the way. His own example, so it is the one
+                        // that has to be unmistakable — the piece is visible over
+                        // three quarters of its cycle instead of a third, which
+                        // is the same thing as several times as many in the air.
+                        cardA = max(cardA, smoothstep(0.0, 0.07, age)
+                                           * (1.0 - smoothstep(0.55 + 0.40 * pair.air, 1.0, age))
+                                           * saturate(pair.air * 1.6));
+                    }
                 }
 
                 // the flame grows from its WICK: the mesh's origin is the wick, so
@@ -231,22 +475,118 @@ Shader "GloomhavenVR/EnvFlame"
                 p.y *= tall * lick;
                 p.x += sway + _GustDir.x * _Gust * gustMul * g * h * h;
                 p.z += sway * 0.6 + _GustDir.z * _Gust * gustMul * g * h * h;
+                // ...and a detached puff travels, AFTER the fire's own growth: it
+                // has already left, so it does not grow with what it left.
+                if (_Bonfire > 0.5 && v.fp.y > 1.5)
+                {
+                    // HOW FAR IT GOES. Four terms on ONE parameter — the authored
+                    // rise — rather than four behaviours:
+                    //   AIR   thrown much further (his example: "noch mehr Glut")
+                    //   LIGHT smoke climbs far past where an ember dies
+                    //   ICE   steam is heavy and slow, and hangs at the seat
+                    //   EARTH a smoulder barely lifts at all
+                    // IT GROWS AS IT GOES, and that is what turns a scatter of
+                    // embers into a PLUME. A smoke puff entrains air and swells;
+                    // a steam puff does the same only more so and lower down; a
+                    // smoulder's murk creeps. The scale is about the fire's own
+                    // origin — which for a card that has already left is exactly
+                    // right, because it enlarges the card AND lifts it in one
+                    // multiply. (The card cannot be scaled about its own base:
+                    // it does not know where that is, UV1 being full. The
+                    // difference is that the plume climbs a little faster than
+                    // authored, which is the direction a plume errs in anyway.)
+                    float grow = 1.0 + 1.45 * pr.x * age + 0.95 * pr.y * age
+                                     + 0.55 * pr.z * age;
+                    p.y *= grow;
+                    p.xz *= grow;
+                    float climb = v.fp.z * (1.0 + 1.30 * pair.air + 2.40 * pr.x
+                                            - 0.55 * pr.y - 0.62 * pr.z);
+                    p.y += climb * age;
+                    // it drifts with the room's draught as it rises, which is what
+                    // ties it to the same air the flames lean in — and under
+                    // FIRE+AIR that drift becomes a visible EMBER TRAIL running
+                    // downwind off whatever is burning, which in the wood is the
+                    // thing the pairing is meant to be recognised by.
+                    float drift = v.fp.z * age * age * (0.35 + 3.10 * pair.air);
+                    p.x += _GustDir.x * drift;
+                    p.z += _GustDir.z * drift;
+                }
+                // HEIGHT IN THE FIRE'S OWN FRAME — the temperature ramp's input.
+                // Taken after every displacement, so a surging tongue really does
+                // redden as it stretches.
+                o.fx = float4(saturate(p.y / max(_FireH, 1e-3)), age, cell, cardA);
+                o.pr = pr;
+
+                // ---- SHELF RIDERS: is this flame standing on the bookshelf? ---
+                GhvrTip tip = GhvrTipNow(t);
+                float life = 1.0;
+                if (tip.live > 0.5)
+                {
+                    // 1. THE BEND, about the flame's OWN base (the mesh origin is
+                    //    the wick / the seat), against the shelf's rotation and
+                    //    weighted by height. A flame goes up whatever the thing
+                    //    holding it is doing; _TipUse.w is how much of the
+                    //    rotation it refuses (0.8 for a candle, less for a bed of
+                    //    fire lying on a board that is turning under it).
+                    p.xyz = GhvrTipRot(p.xyz, float3(0, 0, 0), tip.axis,
+                                       -tip.ang * _TipUse.w * h * h);
+                    // 2. THE RIGID PART, which is what keeps the wick welded to
+                    //    the candle and the candle standing on the shelf.
+                    p.xyz = GhvrTipRot(p.xyz, tip.pivot, tip.axis, tip.ang);
+                    // 3. THE LAG. Hot gas has momentum the wax does not, so the
+                    //    plume trails the swing instead of arriving with it.
+                    p.xyz += GhvrTipLag(tip, p.xyz, h);
+
+                    if (_TipUse.z > 0.5)
+                    {
+                        life = GhvrTipFlameLife(tip);
+                        // A GUTTERING FLAME IS SHORT AND UNEVEN. The length goes
+                        // with the life so the flame shrinks into the wick rather
+                        // than fading as a full-size ghost of itself.
+                        p.y *= 0.30 + 0.70 * life;
+                        bright *= life * GhvrTipRelightFlare(tip, life);
+                        // ...and while the shelf is actually swinging it flutters
+                        // hard, four times faster than it breathes at rest
+                        bright *= 1.0 - 0.45 * saturate(abs(tip.vel) * 2.2)
+                                  * saturate(0.5 + 0.5 * GhvrWave4(float4(t * 11.0, 0, 0, 0)).x);
+                    }
+                }
+
                 o.pos = UnityObjectToClipPos(p);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
-                // brightness flicker — same sine family AND same rate as the
-                // EnvRoom light slot this candle drives
-                float f = 0.42 * sin(ft * 11.3 + _Phase)
-                        + 0.33 * sin(ft *  6.1 + 1.7 + _Phase * 1.3)
-                        + 0.25 * sin(ft * 19.7 + 4.2 + _Phase * 0.7);
-                f = f * 0.70 + 0.30 * sin(ft * 1.9 + _Phase * 0.5);
-                // a flame that is bent by a draught also burns brighter
-                o.fl = (1.0 + _Flicker * 0.35 * f) * (1.0 + 0.55 * _Gust * gustMul * abs(g)) * bright;
                 if (_Bonfire > 0.5)
                 {
-                    // per-tongue share of the fire's energy, and the surge shows
-                    // in the light as well as in the shape — a tongue that leaps
-                    // is a tongue that is burning harder.
-                    o.fl *= v.color.a * (0.55 + 0.45 * lick) * gate;
+                    // ONE waveform for the flame and for the light it casts (see
+                    // EnvFire.cginc). Per-card phase, shared rate: the parts of
+                    // one fire are independent, a fire and its wash are not.
+                    // Both the rate AND the depth go through the pair functions,
+                    // so FIRE+AIR reaches the flame and the pool identically.
+                    o.fl = GhvrFireFlicker(t, GhvrFireHz(pair, _FireHz),
+                                           v.color.r * 6.2831853,
+                                           GhvrFireDepth(pair, _Flicker))
+                         * bright
+                         // per-card share of the fire's energy, and the surge
+                         // shows in the light as well as in the shape — a tongue
+                         // that leaps is a tongue that is burning harder
+                         * v.color.a * (0.55 + 0.45 * lick) * gate * cardA
+                         // SMOKE AND STEAM CARRY MORE THAN AN EMBER DOES. A
+                         // detached ember is a spark's worth of energy; a lit
+                         // plume is a body of scattering matter and is the whole
+                         // content of Fire+Light. Same parameter (this card's
+                         // share), more of it, and only when both elements are up.
+                         * (1.0 + 2.30 * pr.x + 1.10 * pr.y);
+                }
+                else
+                {
+                    // brightness flicker — same sine family AND same rate as the
+                    // EnvRoom light slot this candle drives
+                    float f = 0.42 * sin(ft * 11.3 + _Phase)
+                            + 0.33 * sin(ft *  6.1 + 1.7 + _Phase * 1.3)
+                            + 0.25 * sin(ft * 19.7 + 4.2 + _Phase * 0.7);
+                    f = f * 0.70 + 0.30 * sin(ft * 1.9 + _Phase * 0.5);
+                    // a flame that is bent by a draught also burns brighter
+                    o.fl = (1.0 + _Flicker * 0.35 * f)
+                         * (1.0 + 0.55 * _Gust * gustMul * abs(g)) * bright;
                 }
                 return o;
             }
@@ -257,7 +597,26 @@ Shader "GloomhavenVR/EnvFlame"
                 float t = (_Time.y + _GhvrTimeOfs) * _Rate;
                 float wob = (sin(t * 13.1 + i.uv.y * 9.0 + _Phase)
                            + sin(t * 7.3 + 2.1 + _Phase)) * 0.012 * i.uv.y;
-                fixed4 c = tex2D(_MainTex, i.uv + float2(wob, 0));
+                float2 uv = i.uv + float2(wob, 0);
+                fixed4 c;
+                if (_Bonfire > 0.5)
+                {
+                    // THE ATLAS. ROUND FIRST — `cell` is a small integer that has
+                    // been through a perspective-correct interpolator and that is
+                    // not exact; floor(1.9999998) is 1 and the card would be drawn
+                    // with its neighbour's shape. (The same last-bit trap cost
+                    // this project a review round in EnvHaunt's atlas; the fix is
+                    // one add.)
+                    float ci = floor(i.fx.z + 0.5);
+                    float2 cel = float2(fmod(ci, GHVR_FIRE_COLS), floor(ci / GHVR_FIRE_COLS));
+                    float2 a = saturate(uv) * (1.0 - 2.0 * GHVR_FIRE_INSET) + GHVR_FIRE_INSET;
+                    c = tex2D(_MainTex, (a + cel) * GHVR_FIRE_CELL);
+                    c.a *= i.fx.w;      // a detached puff is born and dies
+                }
+                else
+                {
+                    c = tex2D(_MainTex, uv);
+                }
                 c *= _Tint;
                 // ELEMENT ART: under Fire the core burns toward white while the
                 // edge keeps the candle's own amber — a hotter flame, not a
@@ -266,14 +625,42 @@ Shader "GloomhavenVR/EnvFlame"
                 // hottest. Exactly 0 when Fire is 0.
                 c.rgb = lerp(c.rgb, c.rgb * float3(1.16, 1.06, 0.82),
                              saturate(i.fire * (1.0 - i.uv.y * 0.6)));
-                // REAL FIRE — the vertical temperature ramp. A candle flame is
-                // one colour because it is 2 cm tall; a burning crate is white-
-                // hot in the seat, orange at mid-height and dull red where the
-                // tongues tear off, and that gradient is most of what makes a
-                // thing read as BURNING rather than as a warm sprite. Bonfire
-                // materials only — the candles keep their authored _Tint.
+                // FIRE REAL — the vertical temperature ramp, THREE stops and
+                // measured up the whole FIRE rather than up this card (see
+                // _FireH). A candle flame is one colour because it is 2 cm tall;
+                // a burning crate is white-blue where it is fed, orange through
+                // the body and dark red where the tongues tear off, and a piece
+                // that has detached is cooling all the way down. That gradient is
+                // most of what makes a thing read as BURNING rather than as a
+                // warm sprite — and the previous two attempts had no white in
+                // them anywhere, which is why they read as light the colour of
+                // fire. Bonfire materials only; the candles keep their _Tint.
                 if (_Bonfire > 0.5)
-                    c.rgb *= lerp(_CoreCol.rgb, _TipCol.rgb, saturate(i.uv.y * 1.15));
+                {
+                    // FIRE+EARTH: a smouldering fire is COOLER all the way up —
+                    // the same ramp, entered further along, so the white-hot band
+                    // shrinks toward nothing and the body is already at the tip
+                    // colour. `age` is what the ramp already uses to cool a piece
+                    // that has detached, so adding to it is a modulation of an
+                    // existing parameter rather than a second colour path.
+                    // FIRE+ICE does a little of the same, and for the same
+                    // physical reason: something is taking heat out of the flame.
+                    float cool = i.fx.y + 0.42 * i.pr.z + 0.18 * i.pr.y;
+                    float3 fc = GhvrFireRamp(_BaseCol.rgb, _CoreCol.rgb, _TipCol.rgb,
+                                             i.fx.x, cool);
+                    // ...and WHAT a detached piece is made of. Both of these are
+                    // reached only when the piece is old (it has left the flame)
+                    // AND both of the pair's elements are up, so an ordinary
+                    // ember is untouched. Additive is the right blend for both:
+                    // moonlit smoke and steam are things that SCATTER light
+                    // toward you, and neither may occlude — see the report for
+                    // the one thing that costs (a smoke plume cannot darken what
+                    // is behind it in a single additive pass).
+                    float t2 = saturate(i.fx.y * 1.6);
+                    fc = lerp(fc, _SmokeCol.rgb, saturate(i.pr.x * t2));
+                    fc = lerp(fc, _SteamCol.rgb, saturate(i.pr.y * t2));
+                    c.rgb *= fc;
+                }
                 c.rgb *= c.a * i.fl; // premodulate: alpha drives additive energy
                 return c;
             }

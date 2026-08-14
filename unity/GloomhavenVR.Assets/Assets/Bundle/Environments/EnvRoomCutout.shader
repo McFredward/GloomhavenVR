@@ -23,6 +23,15 @@ Shader "GloomhavenVR/EnvRoomCutout"
         _VCol ("Vertex color amount", Range(0,1)) = 0
         _Cutoff ("Cutout threshold", Range(0,1)) = 0.35
         _PtHard ("Point falloff hardness", Range(0,64)) = 0
+        // ---- SHELF RIDERS (EnvShelfTip.cginc). Nothing drawn by this shader
+        // stands on the bookshelf — a cobweb is anchored to masonry and a fern
+        // grows in a wood — but the cellar's webs are LIT by the candle that
+        // does, so _TipUse.y names the slot that travels. All zero elsewhere.
+        _TipPivot ("Shelf hinge (OBJECT space, w = pose valid)", Vector) = (0,0,0,0)
+        _TipAxis ("Shelf hinge axis (OBJECT space, w = max angle rad)", Vector) = (0,0,0,0)
+        _TipSched ("Shelf schedule (period, cards, card)", Vector) = (0,0,0,0)
+        _TipEnv ("Shelf event envelope (reveal, hold, fade)", Vector) = (0,0,0,0)
+        _TipUse ("Ride self, lit slot, gutters, flame stiffness", Vector) = (0,-1,0,0)
         // Cobweb billow. 0 (default) = no vertex motion at all, so the forest's
         // ferns/grass/canopy are bit-identical. The per-vertex WEIGHT is
         // vertex-colour RED, authored by the web builder (1 = free centre of the
@@ -92,6 +101,10 @@ Shader "GloomhavenVR/EnvRoomCutout"
             // CHANNEL block asks for, now paid.
             #include "EnvHaunt.cginc"
             #include "EnvGrowth.cginc"
+            // ...and the tipping shelf's pose, for the ONE thing this shader has
+            // to take from it: the candle standing on that shelf lights these
+            // webs. See the vertex shader.
+            #include "EnvShelfTip.cginc"
 
             sampler2D _MainTex; float4 _MainTex_ST;
             sampler2D _BumpMap;
@@ -119,6 +132,11 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 float3 n    : TEXCOORD2;
                 float3 t    : TEXCOORD3;
                 float3 b    : TEXCOORD4;
+                // SHELF RIDERS: the baked light slot that stands on the cellar's
+                // tipping bookshelf, moved with it, w = that flame's life (w < 0
+                // means nothing rides and the fragment must not touch the light).
+                // See EnvShelfTip.cginc.
+                float4 tipL : TEXCOORD5;
                 fixed4 vcol : COLOR;
             };
 
@@ -258,6 +276,15 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 o.n = v.normal;
                 o.t = v.tangent.xyz;
                 o.b = cross(v.normal, v.tangent.xyz) * v.tangent.w;
+                // SHELF RIDERS. The cobwebs over the cellar's east wall are lit by
+                // the candle standing on the bookshelf, and the first bake of the
+                // rider fix showed exactly what happens when a shader is left out
+                // of it: the shelf went over, every stone surface in the room went
+                // dark as the candle travelled and died, and the ONE thing still
+                // lit by a candle that was no longer there was the web in the
+                // corner. Nothing here rides — a web is anchored to masonry — but
+                // the light it is lit BY does.
+                o.tipL = GhvrTipLight(GhvrTipNow(t), _L0Pos, _L1Pos, _L2Pos);
                 o.vcol = v.color;
                 return o;
             }
@@ -371,9 +398,17 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5)
                                * (ambGain + 0.30 * frost - 0.12 * mthk);
                 light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz))) * dirGain;
-                light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00);
-                light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83);
-                light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19);
+                // SHELF RIDERS — GhvrTipSlot touches nothing at all unless a slot
+                // is really riding, so the three accumulations below are the
+                // shipped ones bit for bit in the forest and in a standing cellar.
+                float4 p0 = _L0Pos, p1 = _L1Pos, p2 = _L2Pos;
+                fixed4 c0 = _L0Col, c1 = _L1Col, c2 = _L2Col;
+                GhvrTipSlot(i.tipL, 0.0, p0, c0);
+                GhvrTipSlot(i.tipL, 1.0, p1, c1);
+                GhvrTipSlot(i.tipL, 2.0, p2, c2);
+                light += PointLight(p0, c0, i.opos, N, 0.0, 1.00);
+                light += PointLight(p1, c1, i.opos, N, 2.1, 0.83);
+                light += PointLight(p2, c2, i.opos, N, 4.4, 1.19);
 
                 float3 col = alb.rgb * light;
                 // KNOWN DEBT of ModBuild 135, paid here: _VCol was declared and

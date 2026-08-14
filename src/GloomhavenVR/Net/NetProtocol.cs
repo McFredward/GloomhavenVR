@@ -416,7 +416,36 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 144;
+    public const ushort ModBuild = 145;
+    // Build 145: the shelf riders and the fire, both of which 144 owed. No wire change; the bump is
+    // the handshake key, and the BUNDLE IS REBUILT (65,793,726 bytes).
+    //
+    // SHELF RIDERS — a bug the user ruled on: the bookshelf toppled and the candle standing on it,
+    // its flame, its halo and the fires seated on its boards stayed hanging in mid-air. GhvrShelfTip
+    // moved into its own header and THE SHELF IS NOW A RIDER LIKE THE REST, so there is no "the
+    // shelf's version" of the curve for a rider to drift from. Each rider is authored where it
+    // really stands, so vertex-minus-hinge is already in its own object space; only the HINGE
+    // travels, through the same door ApplyRig already uses for the candle positions, and a build
+    // gate asserts it survives the round trip into each object space to under a millimetre. The
+    // flame rotates rigidly, bends back about its own origin so the plume stays near vertical, lags
+    // along the true tangential velocity, and GOES OUT a quarter-turn into the fall, relighting late
+    // in the recovery — light, halo and flame all taking that one number in the same frame. What
+    // does NOT ride, stated plainly: the spark emitters (Shuriken simulates in world space and the
+    // bundle has no scripts) and the wash on the wall behind it (the wall does not fall).
+    // FIRE, third attempt, and this time the failure was MEASURED rather than guessed: the sprite
+    // was the CANDLE flame texture — one laminar teardrop, which enlarged is just a big candle —
+    // and the "turbulence" ran at 0.63-1.03 Hz where real fire is 3-8. New procedural atlas (a wide
+    // holed BED, two torn tongues, a ragged puff), 4.6 Hz, and pieces that DETACH, rise, cool,
+    // redden and die. Every seat is now wider than tall and the bake asserts it. The forest burns
+    // for the first time: a dead snag chosen from the actually-placed trunks, the deadfall log
+    // burning as a LINE along its measured principal axis, and brushwood as a flat bed — three
+    // silhouettes, all >= 7.2 m out. The fire wash's SENDING half landed too, so a burning crate
+    // now lights its own wall, with the flame and its light sharing one constant and one function.
+    // FIVE FIRE PAIRINGS: Fire+Air throws embers three times further and tears the tongues sooner;
+    // Fire+Dark makes the fire the only light in the room; Fire+Light gives it a SMOKE PLUME, since
+    // smoke is only visible when lit — the physics that would otherwise make that pair the loser;
+    // Fire+Ice steams; Fire+Earth smoulders.
+    //
     // Build 144: TWENTY of 22 reported items, plus a new feature. THE TWO FIRE ITEMS ARE NOT IN
     // THIS BUILD — the lane rebuilding them was stopped before it landed, so the cellar fire still
     // reads as "viele Kerzenflammen" and the forest still has no burning trees. The RECEIVING half

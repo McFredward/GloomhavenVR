@@ -30,8 +30,13 @@ Material:
     - _ElemWarm: 1
     - _Falloff: 1.1
     - _Flicker: 0.85
-    - _Phase: 7.5
-    - _Rate: 1.19
+    - _Phase: 3.1
+    - _Rate: 1.38
     m_Colors:
-    - _Tint: {r: 1, g: 0.4, b: 0.13, a: 0.07}
+    - _Tint: {r: 1, g: 0.4, b: 0.13, a: 0.026}
+    - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
+    - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _TipPivot: {r: 0, g: 0, b: 0, a: 0}
+    - _TipSched: {r: 0, g: 0, b: 0, a: 0}
+    - _TipUse: {r: 0, g: -1, b: 0, a: 0}
   m_BuildTextureStacks: []

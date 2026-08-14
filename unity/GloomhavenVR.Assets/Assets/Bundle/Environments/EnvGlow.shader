@@ -48,6 +48,25 @@ Shader "GloomhavenVR/EnvGlow"
         // stands against. It is not a substitute for a surface light and it is
         // not pretending to be one — see BuildEnvironmentRooms' FIRE LIGHT note.
         _ElemGate ("Element gate: 1 = exists only under Fire", Range(0,1)) = 0
+
+        // ---- SHELF RIDERS (EnvShelfTip.cginc) -------------------------------
+        // USER, ModBuild 144: "Die Kerzen und das Feuer, die auf dem Bücherregal
+        // stehen, kippen nicht mit". Two of this shader's spheres stand on that
+        // shelf — the shelf candle's halo and the near halo of the fire seated on
+        // its top boards — and a halo that stays where the candle WAS is worse
+        // than no halo at all, because it is a light with nothing in it.
+        //
+        // A halo is a real world-space sphere and the pose is a rigid transform,
+        // so the whole sphere simply goes with the flame: the vertex path is one
+        // GhvrTipRot behind one uniform compare. The candle's halo also DIES with
+        // the candle, on the same GhvrTipFlameLife the flame and the baked light
+        // slot take, which is the only way the three can agree about a candle
+        // being out. Zero on every other glow in both rooms.
+        _TipPivot ("Shelf hinge (OBJECT space, w = pose valid)", Vector) = (0,0,0,0)
+        _TipAxis ("Shelf hinge axis (OBJECT space, w = max angle rad)", Vector) = (0,0,0,0)
+        _TipSched ("Shelf schedule (period, cards, card)", Vector) = (0,0,0,0)
+        _TipEnv ("Shelf event envelope (reveal, hold, fade)", Vector) = (0,0,0,0)
+        _TipUse ("Ride self, lit slot, gutters, flame stiffness", Vector) = (0,-1,0,0)
     }
     SubShader
     {
@@ -63,6 +82,12 @@ Shader "GloomhavenVR/EnvGlow"
             #pragma fragment frag
             #include "UnityCG.cginc"
             #include "EnvElement.cginc"
+            #include "EnvShelfTip.cginc"
+            // ...and the five Fire pairings, for the GATED halos only: a halo on
+            // a burning object is part of that fire and has to answer the same
+            // combinations it does. See the PAIRINGS block in EnvFire.cginc for
+            // the composition rule.
+            #include "EnvFire.cginc"
 
             fixed4 _Tint;
             float _Falloff, _Flicker, _Rate, _Phase, _Blink, _BlinkPeriod, _Away, _AwayPeriod, _ElemWarm;
@@ -70,7 +95,14 @@ Shader "GloomhavenVR/EnvGlow"
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; };
-            struct v2f { float4 pos : SV_POSITION; float3 wn : TEXCOORD0; float3 wp : TEXCOORD1; };
+            struct v2f { float4 pos : SV_POSITION; float3 wn : TEXCOORD0; float3 wp : TEXCOORD1;
+                         // SHELF RIDERS: the flame's life, so a halo goes out with
+                         // the candle it belongs to. NEGATIVE means "not riding",
+                         // and it is a sentinel rather than a neutral 1 for the
+                         // reason spelled out at GhvrTipLight: an interpolated
+                         // constant is not the constant, and every other halo in
+                         // both rooms has to stay bit-identical.
+                         float life : TEXCOORD2; };
 
             v2f vert (appdata v)
             {
@@ -81,12 +113,33 @@ Shader "GloomhavenVR/EnvGlow"
                 if (_ElemGate > 0.5 && GhvrElems().fire <= 0.0)
                 {
                     o.pos = float4(0, 0, 0, 1);
-                    o.wn = float3(0, 1, 0); o.wp = float3(0, 0, 0);
+                    o.wn = float3(0, 1, 0); o.wp = float3(0, 0, 0); o.life = -1;
                     return o;
                 }
-                o.pos = UnityObjectToClipPos(v.vertex);
-                o.wn = UnityObjectToWorldNormal(v.normal);
-                o.wp = mul(unity_ObjectToWorld, v.vertex).xyz;
+                // SHELF RIDERS. A halo is a sphere of light around a flame, so
+                // it takes the flame's rigid transform whole — there is nothing
+                // about a sphere to bend. One uniform compare when the shelf is
+                // standing, which is always outside the event.
+                float3 p = v.vertex.xyz;
+                float3 n = v.normal;
+                o.life = -1;
+                GhvrTip tip = GhvrTipNow(_Time.y + _GhvrTimeOfs);
+                if (tip.live > 0.5 && _TipUse.x > 0.5)
+                {
+                    p = GhvrTipRot(p, tip.pivot, tip.axis, tip.ang);
+                    // the sphere's normals turn with it: the falloff is measured
+                    // against them, and a halo whose normals stayed put would
+                    // brighten on the wrong side as it travelled
+                    n = GhvrTipRot(n, float3(0, 0, 0), tip.axis, tip.ang);
+                    if (_TipUse.z > 0.5)
+                    {
+                        float life = GhvrTipFlameLife(tip);
+                        o.life = life * GhvrTipRelightFlare(tip, life);
+                    }
+                }
+                o.pos = UnityObjectToClipPos(float4(p, 1.0));
+                o.wn = UnityObjectToWorldNormal(n);
+                o.wp = mul(unity_ObjectToWorld, float4(p, 1.0)).xyz;
                 return o;
             }
 
@@ -134,7 +187,50 @@ Shader "GloomhavenVR/EnvGlow"
                 // sqrt for the same reason EnvFlame's gate takes it: the waning
                 // plateau is 0.40 and a fire that is dying back still lights the
                 // wall it stands against. Zero at zero, so nothing pops in.
-                if (_ElemGate > 0.5) amp *= sqrt(saturate(e.fire));
+                if (_ElemGate > 0.5)
+                {
+                    amp *= sqrt(saturate(e.fire));
+                    // ---- THE FIVE FIRE PAIRINGS, on the halo. Every one of them
+                    // modulates a number this shader already owns — the
+                    // amplitude, the flicker rate, the edge and the colour — so
+                    // a halo under Fire+Air+Dark is ONE halo that is windblown
+                    // and alone. All exactly zero unless both elements are up.
+                    GhvrFirePair p = GhvrFirePairs(e);
+                    // FIRE+DARK: it is the only light there is, so the air around
+                    // it glows harder and the edge opens out (a bright source in
+                    // a black room has a bigger visible halo — that is what a
+                    // halo IS). This is the counterweight to _Falloff's own Dark
+                    // term above, which tightens every OTHER glow in the room:
+                    // the split is "hard little points everywhere, except where
+                    // something is actually burning".
+                    fall = max(fall * (1.0 - 0.45 * p.dark), 0.30);
+                    amp *= 1.0 + 1.35 * p.dark;
+                    // FIRE+AIR: the halo breathes at the flame's rate, and the
+                    // flame's rate has gone up — so this has to as well, or the
+                    // one thing the whole feature is built around (a flame and
+                    // the light it casts share a rate) breaks under wind. The
+                    // rate itself is applied above, so what is left here is the
+                    // DEPTH, which is the same +70% GhvrFireDepth gives the wash.
+                    amp = 1.0 + (amp - 1.0) * (1.0 + 0.70 * p.air);
+                    // FIRE+EARTH: a smoulder glows more than it flames — MORE
+                    // halo, redder, and tighter to the seat.
+                    elemCol = lerp(elemCol, float3(0.86, 0.20, 0.05), saturate(p.earth * 0.9));
+                    amp *= 1.0 + 0.55 * p.earth;
+                    fall = fall * (1.0 + 0.60 * p.earth);
+                    // FIRE+ICE: steam. The air around the fire is full of it, so
+                    // the halo is BIGGER and much less warm — a fire seen through
+                    // its own steam has a pale corona, not an amber one.
+                    elemCol = lerp(elemCol, float3(0.72, 0.80, 0.92), saturate(p.ice * 0.75));
+                    fall = max(fall * (1.0 - 0.35 * p.ice), 0.30);
+                    amp *= 1.0 + 0.40 * p.ice;
+                    // FIRE+LIGHT: nothing. The plume is the pairing (EnvFlame),
+                    // and a halo added on top of a moonlit smoke column would be
+                    // the second visual layer the composition rule forbids.
+                }
+
+                // SHELF RIDERS: untouched unless this halo belongs to a candle
+                // that has just been tipped over — see the vertex shader.
+                if (i.life >= 0.0) amp *= i.life;
 
                 return fixed4(elemCol, core * _Tint.a * max(amp, 0.0) * elemAmp);
             }

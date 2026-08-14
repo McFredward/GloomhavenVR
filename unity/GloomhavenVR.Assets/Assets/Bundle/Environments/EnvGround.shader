@@ -88,6 +88,15 @@ Shader "GloomhavenVR/EnvGround"
         _FirePos2 ("Fire seat 2 (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
         _FireCol ("Fire wash colour (a = flicker depth)", Color) = (0,0,0,0)
         _FireRate ("Fire flicker rate (Hz)", Float) = 6
+        // Nothing in the forest stands on the cellar's bookshelf, so this is
+        // always zero here; it exists because the receiving term is shared with
+        // EnvRoom and a shared term has one signature. See EnvFire.cginc.
+        _FireRide ("Fire seats that ride the tipping shelf", Vector) = (0,0,0,0)
+        _TipPivot ("Shelf hinge (OBJECT space, w = pose valid)", Vector) = (0,0,0,0)
+        _TipAxis ("Shelf hinge axis (OBJECT space, w = max angle rad)", Vector) = (0,0,0,0)
+        _TipSched ("Shelf schedule (period, cards, card)", Vector) = (0,0,0,0)
+        _TipEnv ("Shelf event envelope (reveal, hold, fade)", Vector) = (0,0,0,0)
+        _TipUse ("Ride self, lit slot, gutters, flame stiffness", Vector) = (0,-1,0,0)
     }
     SubShader
     {
@@ -101,11 +110,12 @@ Shader "GloomhavenVR/EnvGround"
             #include "UnityCG.cginc"
             #include "EnvElement.cginc"
             #include "EnvGrowth.cginc"
+            // ...and the fire wash, which used to be a verbatim copy of
+            // EnvRoom's in this file. See GhvrFireSeats.
+            #include "EnvFire.cginc"
 
             float4 _ElemCentre;
             float _ElemRad, _ElemScl, _ElemFrost, _ElemMoss, _ElemGrowFreq;
-            float4 _FirePos0, _FirePos1, _FirePos2;
-            fixed4 _FireCol; float _FireRate;
 
             sampler2D _MainTex; float4 _MainTex_ST;
             sampler2D _BumpMap;
@@ -321,35 +331,11 @@ Shader "GloomhavenVR/EnvGround"
                 return lcol.rgb * (atten * ndl * Flicker(lcol.a, phase, rate));
             }
 
-            // ---- FIRE SEATS: the receiving half of the fire lane's contract --
-            // Character for character EnvRoom.shader's — read the block there
-            // for why the near-field _PtHard divisor is deliberately left out
-            // and why one GhvrWave4 serves all three seats. Copied rather than
-            // #included for the same reason Flicker and PointLight above are:
-            // the bundle ships shaders and nothing else.
-            float3 FireSeats (float3 opos, float3 N, float t)
-            {
-                float3 w;
-                {
-                    float3 lv = _FirePos0.xyz - opos; float q = dot(lv, lv) * _FirePos0.w * _FirePos0.w;
-                    float x = saturate(1.0 - q);
-                    w.x = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-                }
-                {
-                    float3 lv = _FirePos1.xyz - opos; float q = dot(lv, lv) * _FirePos1.w * _FirePos1.w;
-                    float x = saturate(1.0 - q);
-                    w.y = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-                }
-                {
-                    float3 lv = _FirePos2.xyz - opos; float q = dot(lv, lv) * _FirePos2.w * _FirePos2.w;
-                    float x = saturate(1.0 - q);
-                    w.z = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-                }
-                float4 f = GhvrWave4(t * _FireRate * float4(1.00, 0.83, 1.19, 0.0)
-                                     + float4(0.0, 0.37, 0.71, 0.0));
-                w *= 1.0 + _FireCol.a * f.xyz;
-                return _FireCol.rgb * (w.x + w.y + w.z);
-            }
+            // The FIRE SEATS used to be a verbatim copy of EnvRoom's here — the
+            // copy even said so. It is GhvrFireSeats() in EnvFire.cginc now,
+            // because ModBuild 145 made the flicker a thing the FLAME has to
+            // agree with as well, and three copies of one waveform is one more
+            // than the two that were already a liability.
 
             fixed4 frag (v2f i) : SV_Target
             {
@@ -376,6 +362,9 @@ Shader "GloomhavenVR/EnvGround"
                 float frost = 0.0, moss = 0.0, mthk = 0.0;
                 float ambGain = 1.0, dirGain = 1.0, poolGain = 1.0;
                 float3 elemAdd = float3(0, 0, 0);
+                // the fire wash is kept SEPARATE from elemAdd because it is added
+                // at a different point — see the bottom of this function
+                float3 fireAdd = float3(0, 0, 0);
                 if (e.live > 0.0)
                 {
                     float gt = _Time.y + _GhvrTimeOfs;
@@ -470,7 +459,8 @@ Shader "GloomhavenVR/EnvGround"
                     // by accident: this is a wash from a fire two metres away
                     // over leaf litter with a strong normal map, and taking it
                     // per-texel would make the ground around a campfire boil.
-                    if (e.fire > 0.0) elemAdd = FireSeats(i.opos, normalize(i.n), gt) * e.fire;
+                    if (e.fire > 0.0)
+                        fireAdd = GhvrFireSeats(i.opos, normalize(i.n), gt, GhvrTipNow(gt), e) * e.fire;
                 }
                 // =============================================================
 
@@ -496,6 +486,22 @@ Shader "GloomhavenVR/EnvGround"
                 light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19) * poolGain;
 
                 float3 col = (alb.rgb * light + elemAdd * alb.rgb) * i.vcol.rgb;
+                // ...AND THE FIRE WASH, AFTER the vertex fade, which is the one
+                // term in this shader that is deliberately outside it.
+                //
+                // i.vcol is the wood DISSOLVING WITH DISTANCE (GroundColor's
+                // `fade` and `open`): out at the tree line it is 0.12, which is
+                // the "hinter den Bäumen soll es so dunkel sein das man sich
+                // nicht traut" ruling made of one number. That curve is aerial
+                // perspective on MOONLIT ground — a stand-in for "you cannot see
+                // that far in a wood at night". A fire burning out there is
+                // precisely the thing you CAN see that far, and the first bake of
+                // the forest fire proved the point by contradiction: the snag was
+                // alight and the ground it stood on was black, because its wash
+                // had been multiplied by 0.12. So the wash is added here, still
+                // modulated by the ground's own albedo and normal, and still
+                // exactly zero with Fire down.
+                col += fireAdd * alb.rgb;
                 return fixed4(col, 1.0);
             }
             ENDCG

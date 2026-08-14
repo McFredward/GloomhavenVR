@@ -1,0 +1,55 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: S_FireBrush
+  m_Shader: {fileID: 4800000, guid: 4d2ccb4c6513f666c9372008408792e0, type: 3}
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _MainTex:
+        m_Texture: {fileID: 2800000, guid: 4c849707561d2bd5b83663a02c4a23f7, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _AirGust: 2.2
+    - _Bonfire: 1
+    - _FireGate: 1
+    - _FireH: 0.4
+    - _FireHz: 4.6
+    - _Flare: 0.2
+    - _Flicker: 0.55
+    - _Gust: 0.04
+    - _Lick: 0.48
+    - _Phase: 3.4
+    - _PuffHz: 0.55
+    - _Rate: 1
+    - _Sway: 0.055
+    m_Colors:
+    - _BaseCol: {r: 1.78, g: 1.32, b: 0.86, a: 1}
+    - _CoreCol: {r: 1.46, g: 0.52, b: 0.12, a: 1}
+    - _GustDir: {r: -0.822, g: 0, b: -0.57, a: 0}
+    - _SmokeCol: {r: 0.6, g: 0.65999997, b: 0.78, a: 1}
+    - _SteamCol: {r: 0.65999997, g: 0.74, b: 0.86, a: 1}
+    - _Tint: {r: 1, g: 0.94, b: 0.86, a: 1}
+    - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
+    - _TipCol: {r: 0.6, g: 0.085, b: 0.018, a: 1}
+    - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _TipPivot: {r: 0, g: 0, b: 0, a: 0}
+    - _TipSched: {r: 0, g: 0, b: 0, a: 0}
+    - _TipUse: {r: 0, g: -1, b: 0, a: 0}
+  m_BuildTextureStacks: []

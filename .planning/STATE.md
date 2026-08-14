@@ -126,6 +126,36 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 145** — the shelf riders and the fire, the two things 144 owed. No wire change.
+  **Bundle 65,793,726 bytes.**
+  **Shelf riders** (a bug the user ruled on). `GhvrShelfTip` moved into its own header and **the
+  shelf became a rider like the rest**, so there is no privileged copy of the curve for a rider to
+  drift from. Each rider is authored where it stands, so `vertex − hinge` already exists in its own
+  object space; only the HINGE travels, through the same door `ApplyRig` uses for the candle
+  positions, with a build gate asserting it survives the round trip to under a millimetre. The
+  flame rotates rigidly, bends back about its own origin, lags along the true tangential velocity,
+  and GOES OUT a quarter-turn into the fall. Not riding, stated plainly: the spark emitters
+  (Shuriken simulates in world space; the bundle has no scripts) and the wash on the wall.
+  **Fire, third attempt — and the failure was finally MEASURED**: the sprite was the CANDLE flame
+  texture (one laminar teardrop, which enlarged is a big candle) and the "turbulence" ran at
+  0.63–1.03 Hz where real fire is 3–8. GENERAL RULE: when two rounds of tuning fail to change a
+  reading, measure the primitive instead of tuning the parameters. New atlas (wide holed bed, torn
+  tongues, ragged puff), 4.6 Hz, pieces that DETACH and die. The forest burns for the first time.
+  **Fire+Light gives the fire a SMOKE PLUME** — smoke is only visible when lit, so the physics that
+  would have made that pair the loser is what makes it work.
+
+  **NOT MERGED, and waiting in a worktree:** the ten non-fire element pairs and the 64-subset
+  arbitration. The lane finished and is sound, but its base predates the fire lane and a `--3way`
+  apply half-landed (shaders calling `GhvrPair*` helpers that had not arrived). Backed out cleanly
+  rather than shipping a broken bundle. **Two findings from it that matter regardless:**
+  (a) the weighted-blend composition rule — `value = (base + Σ wᵢ·targetᵢ)/(1 + Σ wᵢ)` with
+  `wᵢ = aᵢ·bᵢ·authority` — which is what makes any of the 64 subsets compose without summing
+  contradictory targets into mush; (b) **the forest has no light source that Dark spares**, so
+  every subset containing Dark reads mostly as "dark" there, where the cellar keeps its candles by
+  the user's own ruling. That asymmetry needs a ruling. (c) Shuriken emitters run with
+  `useAutoRandomSeed` ON, which makes previews incomparable across bakes AND is a multiplayer
+  determinism hole — pinning it is a real fix, not just tooling.
+
 - **ModBuild 144** — TWENTY of 22 reported items, plus environment SOUND. No wire change.
   **NOT IN THIS BUILD: the two fire items** (the cellar fire still reads as candle flames; the
   forest still has no burning trees). The lane was stopped before it landed. The RECEIVING half of

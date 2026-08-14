@@ -250,7 +250,58 @@ namespace GloomhavenVR
             // corner was fully revealed at Fire; the forest's trunks barely
             // moved). Measured, not guessed: see the renders in the report.
             public float elemWarm = 1f;
+
+            // ---- FIRE REAL: the SENDING half of the fire-wash contract -------
+            // USER, ModBuild 144: "... und auch die Lichtverhältnisse
+            // entsprechend anpassen." EnvRoom and EnvGround have carried the
+            // receiving term since ModBuild 144 (_FirePos0..2, _FireCol,
+            // _FireRate) and NOTHING WROTE IT, so a room could be on fire and
+            // the flagstones under the fire stayed the colour of a cellar with
+            // three candles in it. These three fields are the write.
+            //
+            // THREE SEATS, and they are SITES rather than fires. The cellar
+            // burns in six places and the shader has three slots; that is not a
+            // shortage, it is the right granularity. A crate top and the litter
+            // burning at its foot are forty centimetres apart and everything
+            // more than a metre away is lit by their sum — resolving them as two
+            // point lights would cost a slot to reproduce a difference no
+            // surface in the room can show. So: the crate stack, the casks, the
+            // bookshelf.
+            public FireSeat[] fires = Array.Empty<FireSeat>();
+            // The wash's colour, and its flicker DEPTH in the alpha. One colour
+            // per room for the same reason the ambient is one colour per room.
+            public Color fireWash = new Color(0f, 0f, 0f, 0f);
+            // ...and the rate, in Hz, which is the SAME number every bonfire
+            // material's _FireHz carries. See FireHz.
+            public float fireHz = FireHz;
         }
+
+        /// <summary>One seated fire, as the room's lighting sees it.</summary>
+        private struct FireSeat
+        {
+            public string name;      // for the bake log only
+            public Vector3 pos;      // world/room space; ApplyRig pulls it into each material's
+            public float range;      // metres to full darkness
+            public bool ridesShelf;  // 1 = it is standing on the tipping bookshelf
+            public FireSeat(string n, Vector3 p, float r, bool ride)
+            { name = n; pos = p; range = r; ridesShelf = ride; }
+        }
+
+        // FIRE REAL — THE ONE RATE. A flame and the light it casts must share a
+        // rate (the standing rule in EnvFlame.shader's header). Up to ModBuild
+        // 144 that was two families of sines that happened to be handed the same
+        // _Rate; it is now literally one constant, written into every bonfire
+        // material's _FireHz and into every lit material's _FireRate, and read by
+        // ONE function (GhvrFireFlicker) that both halves call.
+        //
+        // 4.6 Hz, and the number is the fix rather than a taste. The shipped
+        // fire's surge ran at 0.63 and 1.03 Hz — measured off the material, see
+        // EnvFlame's FIRE REAL block — which is the motion of a candle in a
+        // draught and is most of why six fires read as six candle flames. Real
+        // flame turbulence at this scale turns over three to eight times a
+        // second; GhvrFireFlicker's four bands at this base are 4.6, 2.8, 8.0
+        // and 1.1 Hz, i.e. the band plus the swell that stops it being buzz.
+        public const float FireHz = 4.6f;
 
         // Flicker phases and RATES are baked into the shaders, one per light
         // slot, and several places have to agree with them (the flame cards, the
@@ -265,6 +316,98 @@ namespace GloomhavenVR
             = new List<(Material, Transform, float)>();
 
         private static void Defer(Material m, Transform t, float tint) => Pending.Add((m, t, tint));
+
+        // ====================================================== SHELF RIDERS ====
+        // USER, hardware, ModBuild 144: "Die Kerzen und das Feuer, die auf dem
+        // Bücherregal stehen, kippen nicht mit - das musst du beheben das ist ein
+        // echter Bug. Sie müssen auf jeden Fall mitkippen."
+        //
+        // ONE RECORD, ONE WRITER. The hinge is DERIVED — from the placed shelf's
+        // measured bounds, because a photoscan's base edge is not where anybody
+        // would guess — so it exists exactly once, in BuildTippingShelf, and
+        // everything that has to know it (the shelf's own material, the wax, the
+        // flame, the halos, the two seated fires, and every lit surface in the
+        // room, because the candle standing on the shelf lights all of them) is
+        // written from this one record by WriteShelfTip. Nothing re-derives it,
+        // nothing stores a second copy, and the shelf mesh no longer carries one
+        // in its vertex lanes.
+        private class ShelfTipRig
+        {
+            public Vector3 pivotW;   // the hinge, in ROOM space
+            public Vector3 axisW;    // its axis, in ROOM space, unit
+            public float maxAngle;   // radians
+            public int card;         // which haunt card this event is
+            public Vector4 env;      // reveal, hold, fade (the authored envelope)
+            public float period, cards;
+            public int litSlot;      // the baked light slot that stands on it
+        }
+        /// Null except while the cellar is being built — nothing in the forest
+        /// stands on a bookshelf, so every forest material writes zeros and takes
+        /// the untouched path.
+        private static ShelfTipRig Tip;
+
+        /// Per-material overrides of the four answers in _TipUse. A material that
+        /// is not in here gets (0, litSlot, 0, 0): it does not move itself, its
+        /// light follows the candle, it is not a flame.
+        private static readonly Dictionary<Material, Vector4> TipUse
+            = new Dictionary<Material, Vector4>();
+
+        /// <summary>Declare what a material does with the shelf's pose.
+        /// <paramref name="self"/> 1 = move my own geometry; <paramref name="lit"/>
+        /// the baked light slot that rides (-1 = none); <paramref name="gutter"/>
+        /// 1 = I am a candle flame and may be blown out; <paramref name="stiff"/>
+        /// how much of the rotation a flame REFUSES (0 = rigid, 1 = stays
+        /// upright).</summary>
+        private static void RideShelf(Material m, float self, float lit, float gutter, float stiff)
+            => TipUse[m] = new Vector4(self, lit, gutter, stiff);
+
+        /// <summary>Write the shelf's pose into one material, in THAT material's
+        /// object space.
+        ///
+        /// <para>This is the whole of "one source of truth for the pose": the
+        /// hinge is a world point and the axis a world direction, and the only
+        /// thing that differs between the shelf, the wax welded at the origin,
+        /// the flame card under its own transform and the wall across the room is
+        /// which object space they are expressed in. That is exactly the
+        /// conversion ApplyRig already does for the three candle POSITIONS, with
+        /// the same two calls, so a rider's hinge and the light it stands under
+        /// cannot disagree about where the room is.</para>
+        ///
+        /// <para>The round trip is asserted rather than assumed: these transforms
+        /// are rigid with uniform scale, and if one ever is not, a hinge that
+        /// came back a centimetre out would put the candle inside the shelf —
+        /// which is precisely the failure the shared pose exists to prevent, and
+        /// it would be invisible in every frame except four.</para></summary>
+        private static void WriteShelfTip(Material m, Transform xf)
+        {
+            if (m == null || !m.HasProperty("_TipPivot")) return;
+            if (Tip == null)
+            {
+                // the forest, and anything built before the shelf exists
+                m.SetVector("_TipPivot", Vector4.zero);
+                m.SetVector("_TipAxis", Vector4.zero);
+                m.SetVector("_TipSched", Vector4.zero);
+                m.SetVector("_TipEnv", Vector4.zero);
+                m.SetVector("_TipUse", new Vector4(0f, -1f, 0f, 0f));
+                return;
+            }
+            var pO = xf.InverseTransformPoint(Tip.pivotW);
+            var aO = xf.InverseTransformDirection(Tip.axisW).normalized;
+            float back = Vector3.Distance(xf.TransformPoint(pO), Tip.pivotW);
+            if (back > 1e-3f)
+                throw new Exception($"Shelf rider '{m.name}' under transform '{xf.name}': the hinge "
+                                    + $"does not survive the round trip into its object space "
+                                    + $"({back * 1000f:F2} mm out). Every rider must be under a rigid, "
+                                    + "uniformly scaled transform — otherwise the candle and the shelf "
+                                    + "rotate about different points and the candle ends up inside its "
+                                    + "own shelf.");
+            m.SetVector("_TipPivot", new Vector4(pO.x, pO.y, pO.z, 1f));
+            m.SetVector("_TipAxis", new Vector4(aO.x, aO.y, aO.z, Tip.maxAngle));
+            m.SetVector("_TipSched", new Vector4(Tip.period, Tip.cards, Tip.card, 0f));
+            m.SetVector("_TipEnv", Tip.env);
+            m.SetVector("_TipUse",
+                TipUse.TryGetValue(m, out var u) ? u : new Vector4(0f, Tip.litSlot, 0f, 0f));
+        }
 
         private static void FlushRig(LightRig rig)
         {
@@ -325,6 +468,42 @@ namespace GloomhavenVR
                     m.SetColor(cn, new Color(0, 0, 0, 0));
                 }
             }
+            // ---- FIRE REAL: the seats, in this material's object space -------
+            // Same door, same conversion and the same reason as the three candle
+            // positions above: several transforms may share one material, so a
+            // seat is only meaningful once it has been pulled into the space the
+            // fragment is shaded in. `s` is the material's scale, so 1/range
+            // comes out in object units exactly as _L*Pos.w does.
+            if (m.HasProperty("_FirePos0"))
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    string pn = "_FirePos" + i;
+                    if (i < rig.fires.Length)
+                    {
+                        var f = rig.fires[i];
+                        Vector3 fp = xf.InverseTransformPoint(f.pos);
+                        m.SetVector(pn, new Vector4(fp.x, fp.y, fp.z,
+                                                    s / Mathf.Max(f.range, 0.01f)));
+                    }
+                    else m.SetVector(pn, new Vector4(0, 0, 0, 1));
+                }
+                m.SetColor("_FireCol", rig.fireWash);
+                m.SetFloat("_FireRate", rig.fireHz);
+                // ...and which of them stands on the bookshelf that topples.
+                var ride = Vector4.zero;
+                for (int i = 0; i < 3 && i < rig.fires.Length; i++)
+                    if (rig.fires[i].ridesShelf) ride[i] = 1f;
+                m.SetVector("_FireRide", ride);
+            }
+
+            // ---- SHELF RIDERS: the pose, for every lit material in the room --
+            // Not only for the things standing ON the shelf: the candle standing
+            // on it lights the whole cellar, so every lit surface needs the
+            // hinge in its own space in order to move that one light slot. See
+            // WriteShelfTip and EnvShelfTip.cginc's channel block.
+            WriteShelfTip(m, xf);
+
             var t = m.GetColor("_Tint");
             m.SetColor("_Tint", new Color(t.r * tintMul, t.g * tintMul, t.b * tintMul, t.a));
         }
@@ -347,6 +526,24 @@ namespace GloomhavenVR
                 m.SetColor("_Tint", Color.white);
             }
             return m;
+        }
+
+        /// <summary>The fire atlas, bound rather than defaulted.
+        ///
+        /// <para>A missing sprite here would be an INVISIBLE regression rather
+        /// than a build error — the shader's "white" default would draw every
+        /// card as a solid rectangle of flame colour, which at a glance in a dark
+        /// preview looks like a bright fire. The same argument, and the same
+        /// throw, as BuildHaunts makes about Env_Haunt.png.</para></summary>
+        private static Texture2D FireAtlas()
+        {
+            var t = AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Fire.png");
+            if (t == null)
+                throw new Exception("Env_Fire.png is missing — the fires would be drawn as solid "
+                                    + "rectangles and would look like a fire in a dark preview. "
+                                    + "EnvironmentsBuilder.MakeFireAtlas bakes it; GenerateTextures "
+                                    + "must run before the rooms.");
+            return t;
         }
 
         private static Texture2D Imp(string file)
@@ -2016,6 +2213,10 @@ namespace GloomhavenVR
         {
             var root = new GameObject("RoomGeo").transform;
             root.SetParent(shellRoot, false);
+            // SHELF RIDERS: the pose does not exist until the shelf is placed and
+            // measured, and it must not leak from one bake of one room into the
+            // next. Both are cleared here and again at the top of the forest.
+            Tip = null; TipUse.Clear();
 
             // Light positions are patched in AFTER the props are stacked (the
             // candles sit ON the props — bounds-derived); see rig fixup below.
@@ -2672,8 +2873,16 @@ namespace GloomhavenVR
             // animations, which is most of why the flicker read as "only the
             // flame cards move".
             var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
+            // SHELF RIDERS — `onShelf` is the whole of the ModBuild 144 bug
+            // ("Die Kerzen und das Feuer, die auf dem Bücherregal stehen, kippen
+            // nicht mit"). A candle group is FOUR things drawn by three shaders —
+            // welded wax (EnvRoom), a flame card per candle (EnvFlame), a halo
+            // (EnvGlow), and the baked light slot it drives — and every one of
+            // them has to take the shelf's rotation. They take it from the one
+            // record BuildTippingShelf published; nothing here knows a hinge.
             void CandleGroup(string n, int slot, Vector3 basePos,
-                (float h, float dx, float dz)[] candles, float glowR, float glowA)
+                (float h, float dx, float dz)[] candles, float glowR, float glowA,
+                bool onShelf = false)
             {
                 // one welded mesh per group: a shared material across several
                 // transforms would light all of them from the first one's spot
@@ -2705,12 +2914,29 @@ namespace GloomhavenVR
                     // now — so the room with nothing up is the room that was
                     // tuned. See the ModBuild 142 note on EnvFlame/_AirGust.
                     flame.SetFloat("_AirGust", AirGustAt(basePos + new Vector3(c.dx, c.h, c.dz)));
-                    Place(root, $"Flame{n}{ci}", fm, basePos + new Vector3(c.dx, c.h + 0.002f, c.dz),
+                    var flameGo = Place(root, $"Flame{n}{ci}", fm,
+                          basePos + new Vector3(c.dx, c.h + 0.002f, c.dz),
                           Vector3.zero, Vector3.one, flame);
+                    if (onShelf)
+                    {
+                        // it rides, it may be blown out, and it REFUSES 0.80 of
+                        // the rotation: a flame goes up whatever the wax under it
+                        // is doing, so the card is rotated rigidly (which welds
+                        // the base to the wick) and then bent back about its own
+                        // origin. 0.80 leaves the plume within twenty degrees of
+                        // vertical at the shelf's full 88.
+                        RideShelf(flame, self: 1f, lit: -1f, gutter: 1f, stiff: 0.80f);
+                        WriteShelfTip(flame, flameGo.transform);
+                    }
                     ci++;
                 }
                 var waxMesh = SaveMesh($"Env_C_Wax{n}.asset", acc.Build($"Env_C_Wax{n}"));
                 var waxGo = Place(root, $"Candles{n}", waxMesh, Vector3.zero, Vector3.zero, Vector3.one, wax);
+                // The wax is welded in ROOM space under the identity transform,
+                // so its object space IS room space and the hinge arrives
+                // unchanged — but it still goes through the one writer, because
+                // "it happens to be the identity here" is not a thing to rely on.
+                if (onShelf) RideShelf(wax, self: 1f, lit: slot, gutter: 0f, stiff: 0f);
                 Defer(wax, waxGo.transform, 1f);
 
                 if (glowMesh != null)
@@ -2723,9 +2949,18 @@ namespace GloomhavenVR
                     g.SetFloat("_Flicker", 0.95f);
                     g.SetFloat("_Rate", SlotRate[slot]);
                     g.SetFloat("_Phase", SlotPhase[slot]);
-                    Place(root, $"CandleGlow{n}", glowMesh,
+                    var glowGo = Place(root, $"CandleGlow{n}", glowMesh,
                         basePos + new Vector3(candles[0].dx, candles[0].h + 0.05f, candles[0].dz),
                         Vector3.zero, Vector3.one * glowR, g);
+                    if (onShelf)
+                    {
+                        // a halo IS the flame's light, so it travels with the
+                        // flame AND dies with it — a pool of glow left hanging
+                        // where a candle used to be is exactly the bug in a
+                        // different shader.
+                        RideShelf(g, self: 1f, lit: -1f, gutter: 1f, stiff: 0f);
+                        WriteShelfTip(g, glowGo.transform);
+                    }
                 }
             }
             var candleTable = new Vector3(3.72f, tableTop, 2.95f);
@@ -2733,7 +2968,9 @@ namespace GloomhavenVR
             var candleCrate = new Vector3(-1.55f, crateTop, -3.95f);
             CandleGroup("Table", 0, candleTable,
                 new[] { (0.16f, 0f, 0f), (0.11f, 0.07f, 0.04f), (0.085f, -0.05f, 0.06f) }, 0.30f, 0.60f);
-            CandleGroup("Shelf", 1, candleShelf, new[] { (0.12f, 0f, 0f) }, 0.24f, 0.50f);
+            // ...and THIS one is standing on the bookshelf that topples.
+            CandleGroup("Shelf", 1, candleShelf, new[] { (0.12f, 0f, 0f) }, 0.24f, 0.50f,
+                        onShelf: true);
             CandleGroup("Crate", 2, candleCrate, new[] { (0.14f, 0f, 0f), (0.09f, 0.06f, -0.05f) }, 0.27f, 0.55f);
 
             // rig fixup: light sources sit just above the tallest flame of each group
@@ -2751,7 +2988,7 @@ namespace GloomhavenVR
             // Both AFTER the props and the candles: every fire is seated on the
             // real surface it stands on, and the draught's mouth is derived from
             // the window opening that was really cut.
-            AddCellarFire(root, crateTop, shelfTop);
+            AddCellarFire(root, rig, crateTop, shelfTop);
             AddCellarDraught(root);
 
             // ================================================ SURFACE GROWTH ==
@@ -5222,13 +5459,20 @@ namespace GloomhavenVR
         /// event cut short by the slot ending cannot leave the shelf on its
         /// face.</para>
         ///
-        /// <para>KNOWN COST, and it is a cross-lane one: the room's second candle
-        /// GROUP stands ON this shelf (CandleGroup "Shelf", light slot 1) and does
-        /// not fall with it, because its wax, its flame cards and its halo are
-        /// three other shaders. The mechanism to fix it already exists — those
-        /// shaders would read GhvrHauntPresence for card 5 exactly as EnvBeam and
-        /// EnvRoomCutout already read cards 0 and 3 — but the shaders belong to
-        /// other lanes this round.</para></summary>
+        /// <para>SHELF RIDERS, ModBuild 145 — the KNOWN COST this method used to
+        /// carry is paid. It read: "the room's second candle GROUP stands ON this
+        /// shelf (CandleGroup 'Shelf', light slot 1) and does not fall with it,
+        /// because its wax, its flame cards and its halo are three other
+        /// shaders." The user found it on hardware and ruled: "Die Kerzen und das
+        /// Feuer, die auf dem Bücherregal stehen, kippen nicht mit - das musst du
+        /// beheben das ist ein echter Bug. Sie müssen auf jeden Fall mitkippen."
+        ///
+        /// This method now PUBLISHES the pose (the <c>Tip</c> record) instead of
+        /// burying it in this mesh's vertex lanes, and every rider — the wax, the
+        /// flame, the two halos, the two seated fires and the light slot that
+        /// belongs to the candle — takes it from there through WriteShelfTip. The
+        /// shelf itself is a rider like the rest: EnvHaunt reads the same five
+        /// material vectors the candle does.</para></summary>
         private static GameObject BuildTippingShelf(Transform root, Vector3 pos, float yaw)
         {
             var src = ImpMesh("wooden_bookshelf_worn");
@@ -5278,18 +5522,39 @@ namespace GloomhavenVR
             // is in the tip curve.
             const float TipDeg = 88f;
 
-            var pivotO = go.transform.InverseTransformPoint(pivotW);
-            var axisO = go.transform.InverseTransformDirection(axisW).normalized;
+            // ---- PUBLISH THE POSE. Everything that will stand on this shelf is
+            // built after it (the candles at CandleGroup, the fires at
+            // AddCellarFire), and every lit material in the room is written at
+            // FlushRig — all of them read this record and none of them re-derives
+            // any part of it. It is in ROOM space; WriteShelfTip is the only
+            // thing that converts, and it converts per material.
+            Tip = new ShelfTipRig
+            {
+                pivotW = pivotW,
+                axisW = axisW,
+                maxAngle = TipDeg * Mathf.Deg2Rad,
+                card = HauntCardShelf,
+                env = HauntShelfEnv,
+                period = HauntPeriod,
+                cards = HauntCellarCards,
+                // the candle group that stands on this shelf drives light slot 1
+                // (CandleGroup "Shelf"), so slot 1 is the one that travels
+                litSlot = 1,
+            };
 
             // SaveHauntMesh and NOT SaveMesh: the plain writer copies UV0 only,
             // and this mesh carries four UV sets. That mistake does not fail, it
             // draws the PREVIOUS bake's lanes with this bake's positions — see
             // SaveHauntMesh's own comment, which was written after it cost a
             // whole review round.
-            var propMesh = HauntPropMesh(src, HauntCardShelf, HauntShelfEnv,
-                                         pivotO, axisO, TipDeg * Mathf.Deg2Rad);
+            var propMesh = HauntPropMesh(src, HauntCardShelf, HauntShelfEnv);
             var mesh = SaveHauntMesh("Env_C_ShelfTip.asset", propMesh, propMesh.bounds);
             go.GetComponent<MeshFilter>().sharedMesh = mesh;
+            // The shelf is a rider of its own pose — one call, so there is no
+            // "the shelf's copy" of the hinge for a candle's copy to drift from.
+            // It moves its own geometry (self = 1) and is lit by the candle
+            // standing on it (the default lit slot, from the record).
+            RideShelf(mat, self: 1f, lit: Tip.litSlot, gutter: 0f, stiff: 0f);
             Defer(mat, go.transform, 1f);
 
             var top = pivotW + tipDir * (b.size.y * Mathf.Sin(TipDeg * Mathf.Deg2Rad));
@@ -5314,12 +5579,21 @@ namespace GloomhavenVR
 
         /// <summary>Re-author an imported prop mesh with the eight channels
         /// EnvHaunt's appdata declares, so an ordinary photoscan can be drawn by
-        /// the apparition shader. Only KIND 4 uses this, and it REINTERPRETS three
+        /// the apparition shader. Only KIND 4 uses this, and it REINTERPRETS two
         /// lanes: TANGENT carries the real tangent (a prop has a normal map and
-        /// never collapses, so it does not need an anchor), UV0.zw carries the
-        /// albedo uv, and UV2.xyz carries the hinge.</summary>
-        private static Mesh HauntPropMesh(Mesh src, int card, Vector4 env,
-                                          Vector3 pivot, Vector3 axis, float maxAngle)
+        /// never collapses, so it does not need an anchor) and UV0.zw carries the
+        /// albedo uv.
+        ///
+        /// <para>UV2 AND UV3 ARE NOW ZERO, and that is the shelf-rider fix in the
+        /// mesh. They used to carry the hinge and the axis+angle — a per-vertex
+        /// copy of three constants, and worse, a SECOND place in the bundle where
+        /// the pose was stored. The hinge is derived from the placed shelf's
+        /// measured bounds, so a mesh baked in one build and a material written in
+        /// another would have disagreed silently by however far the prop had
+        /// moved. The pose lives on the material now, once, shared with every
+        /// rider (WriteShelfTip). The lanes stay in the vertex layout because the
+        /// apparition kinds use them and one mesh feeds one shader.</para></summary>
+        private static Mesh HauntPropMesh(Mesh src, int card, Vector4 env)
         {
             var v = Verts(src);
             var n = src.normals;
@@ -5339,8 +5613,8 @@ namespace GloomhavenVR
                 var q = uv != null && uv.Length == v.Length ? uv[i] : Vector2.zero;
                 uv0.Add(new Vector4(card, HKindProp, q.x, q.y));
                 uv1.Add(env);
-                uv2.Add(new Vector4(pivot.x, pivot.y, pivot.z, 0f));
-                uv3.Add(new Vector4(axis.x, axis.y, axis.z, maxAngle));
+                uv2.Add(Vector4.zero);   // the hinge lives on the material now
+                uv3.Add(Vector4.zero);   // ...and so do the axis and the angle
                 col[i] = Color.white;
             }
             m.vertices = v;
@@ -5722,96 +5996,209 @@ namespace GloomhavenVR
         // Fire is down. With the master at 0 or the room inert the cellar is the
         // room that was tuned over six rounds, instruction for instruction.
 
-        /// <summary>A fire: a crowd of TONGUES on crossed cards, seated on a disc
-        /// of `radius`, none of them taller than `height`.
+        /// <summary>A FIRE — a bed, the tongues that rise out of it, and the
+        /// pieces that tear off and die. Crossed cards on a disc of `radius`,
+        /// nothing taller than `height`.
         ///
-        /// <para>Not one big flame card. A single card scaled up is a candle
-        /// flame the size of a crate and reads as a decal at any distance; what
-        /// says "burning" at 2-5 m in stereo is that the parts of the fire move
-        /// INDEPENDENTLY — tongues surge, lean out and die back out of step with
-        /// each other, so the silhouette is never the same twice. That per-tongue
-        /// variation is baked into the VERTEX COLOUR here and read by
-        /// EnvFlame's _Bonfire branch (see the shader for the channel contract);
-        /// it costs no extra draw call and no extra material.</para>
+        /// <para>USER VERDICT, hardware, ModBuild 144: "Das Feuer im Keller sieht
+        /// eher aus wie viele Kerzenflammen statt wirklich ein bedrohliches
+        /// Brennen der Möbel! Überarbeite das Feuer nochmal komplett." The two
+        /// previous constructions both answered "make it a fire" with "make more
+        /// candle flames", and the renders of the shipped build are exactly what
+        /// he describes: tall amber spikes with black gaps between them, each one
+        /// a smooth closed teardrop, standing in a row on a crate.</para>
         ///
-        /// <para>TWO KINDS OF CARD, and the first bake is why. A fire built out
-        /// of tongues alone came out of the preview as a ROW OF TALL CANDLE
-        /// FLAMES standing on a crate — narrow spikes with black gaps between
-        /// them, which is exactly the thing this round exists to stop being.
-        /// Real fire has a BED: a crowded, low, wide, nearly steady incandescent
-        /// mass at the seat, out of which the tongues rise. So a third of the
-        /// cards are bed cards — about as wide as the fire is across and a fifth
-        /// of its height, hardly surging, carrying most of the energy — and the
-        /// rest are tongues. Additively the bed cards pile into one bright body
-        /// (and the shader's vertical temperature ramp makes it the white-hot
-        /// part, because they live entirely at the bottom of their own UV), and
-        /// the tongues read as coming OUT of something instead of standing in a
-        /// line.</para>
+        /// <para>THREE KINDS OF CARD, because a fire has three kinds of part, and
+        /// the previous bake had one and a half of them:</para>
+        ///
+        /// <para>THE BED (38% of the cards, and the most important 38%). A fire's
+        /// brightest and densest part is a low incandescent mass at the seat,
+        /// WIDER THAN IT IS TALL, sitting ON the object. The previous version had
+        /// bed cards but drew them with the candle sprite and clamped them to
+        /// 2.8:1 to stop the teardrop smearing — so the bed was more teardrops.
+        /// These are drawn with an authored BED cell (a wide, holed, cloudy mass:
+        /// BuildEnvironments.MakeFireAtlas), they are crowded into the inner 85%
+        /// of the seat where several always overlap, they carry over half of the
+        /// fire's energy, and they neither surge nor wander — a bed of embers
+        /// that slid about would read as a puddle of light. Additively they pile
+        /// into one continuous body, and because the temperature ramp is measured
+        /// up the WHOLE FIRE (EnvFlame/_FireH) rather than up each card, that body
+        /// is the white-blue part.</para>
+        ///
+        /// <para>THE TONGUES (42%). They rise out of the bed — their bases sit
+        /// INSIDE it, which is what stops the fire looking like flames standing on
+        /// a lid — surge on their own phase, and the further out one stands the
+        /// more it is torn outward and the sooner it dies back.</para>
+        ///
+        /// <para>THE PUFFS (20%), and this is what nothing in either previous
+        /// build had. Pieces of a fire DETACH: they leave the flame body, rise,
+        /// cool, redden and go out. A candle's flame never does, and its absence
+        /// is one of the two or three strongest reasons an enlarged candle still
+        /// reads as a candle. Each puff card is born part-way up the body, rises
+        /// UV1.z metres over its own cycle, and is faded in fast and out slowly by
+        /// the shader — a pure function of the clock with no birth event and no
+        /// state, spread through their lives by UV1.w so a fire always has some at
+        /// every age.</para>
         ///
         /// <para>Deterministic in `seed` (Hash3, no Random): every client builds
-        /// the same fire, and the animation rides the shared clock, so two
-        /// players in one scenario watch the same tongue leap at the same
-        /// second.</para></summary>
-        private static Mesh FireMesh(string name, float radius, float height, int tongues, int seed)
+        /// the same fire, and the animation rides the shared clock, so two players
+        /// in one scenario watch the same tongue leap at the same second.</para>
+        ///
+        /// <para>THE CHANNELS are EnvFlame's contract; see the FIRE REAL block
+        /// there. COLOR = (phase, surge, how far out, energy share);
+        /// UV1 = (atlas cell, kind, a puff's rise in metres, its place in its own
+        /// cycle). Acc is not used because Acc has no UV1, and a fourth kind of
+        /// per-card datum is exactly what the previous version ran out of room
+        /// for when it needed to say "this one detaches".</para></summary>
+        private static Mesh FireMesh(string name, float radius, float height, int cards, int seed,
+                                     float bedFrac = 0.38f)
         {
-            var a = new Acc();
-            int bed = Mathf.Max(3, tongues / 3);
-            for (int i = 0; i < tongues; i++)
+            var V = new List<Vector3>();
+            var UV0 = new List<Vector2>();
+            var UV1 = new List<Vector4>();
+            var C = new List<Color>();
+            var T = new List<int>();
+
+            // `bedFrac` is 0 for a fire that has NO seat — the one climbing the
+            // burning snag's bark two metres off the ground. The first bake gave
+            // it the standard third of bed cards and the preview showed a wide
+            // flat white slab hanging in mid-air across the trunk: a bed is the
+            // part of a fire that lies ON something, and a fire licking up bark
+            // is not lying on anything.
+            int bed = bedFrac <= 0f ? 0 : Mathf.Max(4, Mathf.RoundToInt(cards * bedFrac));
+            int puff = Mathf.Max(3, Mathf.RoundToInt(cards * 0.20f));
+
+            for (int i = 0; i < cards; i++)
             {
                 bool isBed = i < bed;
+                bool isPuff = i >= cards - puff;
                 float h0 = Hash3(i, 0, 0, seed), h1 = Hash3(i, 1, 0, seed);
                 float h2 = Hash3(i, 2, 0, seed), h3 = Hash3(i, 3, 0, seed);
-                float h4 = Hash3(i, 4, 0, seed);
+                float h4 = Hash3(i, 4, 0, seed), h5 = Hash3(i, 5, 0, seed);
+
                 // sqrt-distributed radius: an even spread over a disc crowds the
-                // RIM (there is more area out there), and a fire is densest at
-                // its seat. The first draft looked like a ring of flames. The bed
-                // is crowded tighter still — it IS the seat.
-                float rr = radius * Mathf.Sqrt(h0) * (isBed ? 0.60f : 1f);
+                // RIM (there is more area out there), and a fire is densest at its
+                // seat. The very first draft of this looked like a ring of flames.
+                float rr = radius * Mathf.Sqrt(h0)
+                           * (isBed ? 0.85f : (isPuff ? 0.55f : 0.95f));
                 float ang = h1 * Mathf.PI * 2f;
                 var at = new Vector3(Mathf.Cos(ang) * rr, 0f, Mathf.Sin(ang) * rr);
                 float outw = radius > 1e-4f ? Mathf.Clamp01(rr / radius) : 0f;
-                // the middle of a fire is its tallest part, the rim is licks
-                float th = isBed
-                    ? height * (0.28f + 0.16f * h2)
-                    : height * Mathf.Lerp(1f, 0.45f, outw) * (0.60f + 0.32f * h2);
-                // WIDE, and that is the whole lesson of the first bake: a tongue
-                // as narrow as a candle flame IS a candle flame, however many of
-                // them there are.
-                // ...but a bed card may not be arbitrarily wide for its height.
-                // The spill fire is half a metre across and a third of a metre
-                // tall, so an unclamped bed card came out 0.9 m wide and 5 cm
-                // high — a 20:1 quad, and the flame sprite stretched across it is
-                // a HORIZONTAL SMEAR that reads as a light streak painted on the
-                // flagstones. That is what the low fires looked like from a
-                // standing eye in the second bake. 2.8:1 is where the sprite
-                // still reads as fire lying flat rather than as a smear; the low
-                // wide fires get MORE bed cards instead of wider ones.
-                float tw = isBed
-                    ? Mathf.Min(radius * (1.25f + 0.60f * h3), th * 2.8f)
-                    : th * (0.62f + 0.34f * h3);
-                // every tongue's cross is turned by its own angle: two quads at a
-                // fixed 90 deg, repeated eleven times, is a visible lattice from
+
+                float y0, th, tw, cell, kind, rise, cyc;
+                Color col;
+                if (isBed)
+                {
+                    // WIDER THAN TALL, and seated at y = 0 — ON the object. The
+                    // aspect is the sprite's own (the bed cell is authored about
+                    // 2:1), so the mass is not stretched; the fire gets its full
+                    // width from several of these overlapping across the seat
+                    // rather than from one enormous quad, which is also what makes
+                    // the bright part uneven instead of a painted ellipse.
+                    y0 = 0f;
+                    th = height * (0.24f + 0.12f * h2);
+                    // THE WIDTH COMES FROM THE FIRE'S RADIUS, not from the card's
+                    // own height, and that is what the second bake fixed. Tied to
+                    // the height, a bed card on the burning SPILL — half a metre
+                    // of radius and a third of a metre tall — came out 20 cm wide
+                    // on a 1.16 m pool, so thirteen of them were thirteen separate
+                    // flamelets scattered on the flagstones instead of one sheet
+                    // of burning spirits. The clamp stops the same number
+                    // stretching the 2:1 sprite past 3.5:1, which is where the
+                    // mottling starts reading as a horizontal smear.
+                    // ...capped at 2.6:1. The second bake let it stretch to 3.5:1
+                    // to cover the wide spill fire out of thirteen cards, and from
+                    // a standing eye those came out as flat white PLATES lying on
+                    // the flagstones — a 40 cm by 8 cm quad is a plate whatever is
+                    // painted on it. A wide fire gets its coverage from MORE bed
+                    // cards instead (see the counts at each site).
+                    tw = Mathf.Clamp(radius * (0.85f + 0.45f * h3), th * 1.7f, th * 2.6f);
+                    cell = 0f;
+                    kind = 0f;                       // GHVR_FKIND_BED
+                    rise = 0f; cyc = 0f;
+                    col = new Color(h1,
+                                    0.04f + 0.06f * h2,          // barely surges
+                                    0f,                          // and never leans
+                                    0.17f + 0.10f * h3);         // carries the mass
+                }
+                else if (isPuff)
+                {
+                    // it starts inside the upper body and leaves
+                    y0 = height * (0.30f + 0.25f * h2);
+                    th = height * (0.22f + 0.16f * h3);
+                    tw = th * (0.85f + 0.45f * h4);
+                    cell = 3f;
+                    kind = 2f;                       // GHVR_FKIND_PUFF
+                    rise = height * (0.55f + 0.40f * h5);
+                    cyc = h4;                        // its place in its own cycle
+                    col = new Color(h1, 0.25f + 0.25f * h2, outw,
+                                    0.075f + 0.10f * h3);
+                }
+                else
+                {
+                    // A TONGUE'S BASE SITS INSIDE THE BED, not on top of it: the
+                    // shipped fire's tongues all started at y = 0 alongside the
+                    // bed cards, so the bed was a separate bright object under a
+                    // row of flames rather than the thing they were coming out of.
+                    //
+                    // ...and on a fire with NO bed — the one climbing the burning
+                    // snag's bark — they are SPREAD UP the burning face instead.
+                    // With every base at the same y and nothing to hide it, the
+                    // preview showed a glowing rectangle with a flat bottom edge
+                    // nailed across the trunk. Fire on bark starts wherever the
+                    // bark caught.
+                    y0 = bed == 0 ? height * (0.30f * h4 - 0.04f) : -height * 0.06f;
+                    th = height * Mathf.Lerp(1f, 0.45f, outw) * (0.62f + 0.30f * h2);
+                    // WIDE, and that is the lesson of both previous bakes: a
+                    // tongue as narrow as a candle flame IS a candle flame,
+                    // however many of them there are.
+                    tw = th * (0.58f + 0.34f * h3);
+                    cell = 1f + Mathf.Floor(h5 * 2f);            // one of two shapes
+                    kind = 1f;                       // GHVR_FKIND_TONGUE
+                    rise = 0f; cyc = 0f;
+                    // THE ENERGY SHARES ARE A THIRD OF THE FIRST BAKE'S, and the
+                    // render is the argument. This pass is ADDITIVE and a fire is
+                    // thirty overlapping cards: at 0.40-0.60 per bed card, eleven
+                    // beds crowded into the same 30 cm summed to five, everything
+                    // clipped to pure white, and the boundary of the clipped
+                    // region traced the CARD EDGES — the crate fire came out with
+                    // straight white slabs and a hard-edged white chevron in it,
+                    // which is the one artefact that says "this is a stack of
+                    // quads" out loud. The peak of a fire still clips; what it
+                    // does not do any more is clip over its whole area.
+                    col = new Color(h1, 0.55f + 0.45f * h2, outw,
+                                    0.11f + 0.14f * (1f - outw) + 0.08f * h3);
+                }
+
+                // every card's cross is turned by its own angle: two quads at a
+                // fixed 90 deg, repeated a dozen times, is a visible lattice from
                 // the two axes that look down it.
-                float yaw = h4 * Mathf.PI;
-                var col = new Color(
-                    h1,                                                    // .r phase
-                    isBed ? 0.10f + 0.10f * h2 : 0.55f + 0.45f * h2,       // .g surge
-                    isBed ? 0f : outw,                                     // .b how far out
-                    isBed ? 0.34f + 0.16f * h3                             // .a energy share
-                          : 0.20f + 0.26f * (1f - outw) + 0.14f * h3);
+                float yaw = h5 * Mathf.PI;
+                var extra = new Vector4(cell, kind, rise, cyc);
                 for (int q = 0; q < 2; q++)
                 {
                     float qa = yaw + q * Mathf.PI * 0.5f;
                     var right = new Vector3(Mathf.Cos(qa), 0f, Mathf.Sin(qa)) * (tw * 0.5f);
-                    int b = a.Count;
-                    a.Vert(at - right, Vector3.up, new Vector2(0, 0), col);
-                    a.Vert(at + right, Vector3.up, new Vector2(1, 0), col);
-                    a.Vert(at + right + Vector3.up * th, Vector3.up, new Vector2(1, 1), col);
-                    a.Vert(at - right + Vector3.up * th, Vector3.up, new Vector2(0, 1), col);
-                    a.Quad(b);
+                    var lo = at + Vector3.up * y0;
+                    int b = V.Count;
+                    V.Add(lo - right); UV0.Add(new Vector2(0, 0));
+                    V.Add(lo + right); UV0.Add(new Vector2(1, 0));
+                    V.Add(lo + right + Vector3.up * th); UV0.Add(new Vector2(1, 1));
+                    V.Add(lo - right + Vector3.up * th); UV0.Add(new Vector2(0, 1));
+                    for (int k = 0; k < 4; k++) { UV1.Add(extra); C.Add(col); }
+                    T.AddRange(new[] { b, b + 2, b + 1, b, b + 3, b + 2 });
                 }
             }
-            return a.Build(name);
+
+            var m = new Mesh { name = name };
+            m.SetVertices(V);
+            m.SetUVs(0, UV0);
+            m.SetUVs(1, UV1);
+            m.SetColors(C);
+            m.SetTriangles(T, 0);
+            m.RecalculateNormals();
+            m.RecalculateBounds();
+            return m;
         }
 
         /// <summary>How hard the draught works a flame standing at `at`, as
@@ -5837,10 +6224,92 @@ namespace GloomhavenVR
             return Mathf.Lerp(7.0f, 1.2f, Mathf.Clamp01(d / 9.0f));
         }
 
-        /// <summary>The six fires, their light and their sparks. Called from
-        /// BuildCellarRoom once the props are stacked, because every seat is
-        /// derived from the real surface the fire stands on.</summary>
-        private static void AddCellarFire(Transform root, float crateTop, float shelfTop)
+        /// <summary>Build one fire: the mesh, the material and the placement. The
+        /// two rooms share it, because a burning bookshelf and a burning log are
+        /// the same object with different numbers, and the round that gave the
+        /// cellar a fire the user called "viele Kerzenflammen" is not a round to
+        /// let a second room drift away from the fix.
+        ///
+        /// <para>Everything the FLAME's look is tuned by is here, in one place,
+        /// so the two rooms cannot disagree about what fire looks like — and the
+        /// one number the LIGHT also has to know (FireHz) is a constant rather
+        /// than an argument, so it cannot be passed differently in two calls.
+        /// That is the standing "a flame and the light it casts share a rate"
+        /// rule, made unbreakable.</para></summary>
+        private static GameObject BuildFireCards(Transform root, string room, string n,
+            Vector3 seat, float radius, float height, int cards, int seed,
+            float gust, float phaseOfs, float airGust, Vector3 wind, float bedFrac = 0.38f)
+        {
+            var mesh = SaveMesh($"Env_{room}_Fire{n}.asset",
+                FireMesh($"Env_{room}_Fire{n}", radius, height, cards, seed, bedFrac),
+                // The shader stretches a tongue and throws detached puffs most of
+                // a fire-height above the seat, so the authored bounds would
+                // frustum-cull the top of the fire the moment it surged past a
+                // screen edge.
+                new Bounds(new Vector3(0f, height * 1.15f, 0f),
+                           new Vector3(radius * 3f + 0.5f, height * 3.4f, radius * 3f + 0.5f)));
+            var m = NewRoomMat($"{room}_Fire{n}.mat", "GloomhavenVR/EnvFlame");
+            // THE SPRITE IS NOT A CANDLE FLAME ANY MORE, and that is the first of
+            // the three fixes this round: `candle_flame_alb` is one smooth closed
+            // teardrop, and a smooth closed teardrop is a candle at every size.
+            m.SetTexture("_MainTex", FireAtlas());
+            // The tint is neutral: ALL of the colour comes from the three-stop
+            // temperature ramp below, which is the thing that makes a fire read as
+            // hot rather than as orange.
+            m.SetColor("_Tint", new Color(1f, 0.94f, 0.86f, 1f));
+            // WHITE-BLUE at the seat, orange through the body, dark red where the
+            // tongues tear off. Both previous fires went amber -> amber, i.e. they
+            // had no white in them anywhere; a fire with no white in it is a light
+            // source painted the colour of fire, which is the note the ModBuild
+            // 142 verdict already made about the round before it. The base stop is
+            // deliberately over 1 in every channel: this is an ADDITIVE pass and
+            // the seat of a fire is the one thing in a cellar that clips.
+            // 1.52/1.30/1.06 and not the first bake's 1.70/1.52/1.34: the seat has
+            // to be the hottest thing in the frame, but pushed to a NEUTRAL white
+            // it clipped all three channels together and the fire came out pale
+            // instead of hot. Keeping blue and green a step under red leaves the
+            // clip yellow-white, which is the colour of something at 1300 K, and
+            // the blue is still there in the unclipped fringe where it reads.
+            m.SetColor("_BaseCol", new Color(1.78f, 1.32f, 0.86f, 1f));
+            m.SetColor("_CoreCol", new Color(1.46f, 0.52f, 0.12f, 1f));
+            m.SetColor("_TipCol", new Color(0.60f, 0.085f, 0.018f, 1f));
+            m.SetFloat("_Bonfire", 1f);
+            m.SetFloat("_FireGate", 1f);      // exists only under the infusion
+            m.SetFloat("_FireH", height);     // the ramp is measured up the FIRE
+            m.SetFloat("_Sway", 0.055f);
+            m.SetFloat("_Flicker", 0.55f);
+            // 0.48: a tongue that can grow to 1.5x its own length is visible from
+            // four metres and still belongs to the mass it comes out of.
+            m.SetFloat("_Lick", 0.48f);
+            m.SetFloat("_Flare", 0.20f);
+            // THE RATE, in Hz, and the same constant the wash on the stone is
+            // written with (LightRig.fireHz). See FireHz for the measurement that
+            // condemned the old 0.6-1.0 Hz sway.
+            m.SetFloat("_FireHz", FireHz);
+            // ...and how often a card tears off. 0.55 Hz per card, so with six to
+            // eight puff cards a fire sheds something about every quarter second —
+            // often enough to be a property of the fire, rare enough that each one
+            // is a separate event to the eye.
+            m.SetFloat("_PuffHz", 0.55f);
+            m.SetFloat("_Phase", phaseOfs);
+            // _Rate is the CANDLE family's rate and is only used by this material
+            // for the fragment's UV wobble; the bonfire path runs on _FireHz.
+            m.SetFloat("_Rate", 1f);
+            m.SetFloat("_Gust", gust);
+            // ...the room's OWN air. A fire leaning along the cellar's draught and
+            // a fire leaning along the wood's wind is the same term with the two
+            // rooms' two authored directions, and it is what ties a fire to the
+            // rest of the room rather than leaving it a self-contained animation.
+            m.SetVector("_GustDir", wind);
+            m.SetFloat("_AirGust", airGust);
+            return Place(root, $"Fire{n}", mesh, seat, Vector3.zero, Vector3.one, m);
+        }
+
+        /// <summary>The cellar's fires, the light they throw and their sparks.
+        /// Called from BuildCellarRoom once the props are stacked, because every
+        /// seat is derived from the real surface the fire stands on.</summary>
+        private static void AddCellarFire(Transform root, LightRig rig,
+                                          float crateTop, float shelfTop)
         {
             var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
             // The barrel's top is measured off the placed prop rather than taken
@@ -5853,51 +6322,32 @@ namespace GloomhavenVR
 
             int tris = 0, fires = 0, particles = 0, emitters = 0;
 
-            // Every fire's seat, so the log (and a later round's fourth EnvRoom
-            // light slot — see the FIRE LIGHT note) has one list to read.
-            var seats = new List<(string n, Vector3 at, float r, float h)>();
+            // Every fire's seat, so the log has one list to read.
+            var seats = new List<(string n, Vector3 at, float r, float h, int cards)>();
 
-            void Fire(string n, Vector3 seat, float radius, float height, int tongues,
-                      int slot, float phaseOfs, int seed, float gust)
+            void Fire(string n, Vector3 seat, float radius, float height, int cards,
+                      float phaseOfs, int seed, float gust, bool onShelf = false)
             {
-                var mesh = SaveMesh($"Env_C_Fire{n}.asset",
-                    FireMesh($"Env_C_Fire{n}", radius, height, tongues, seed),
-                    // The shader stretches a tongue to ~1.6x and tears it
-                    // outward, so the authored bounds would frustum-cull the
-                    // top of the fire the moment it surged off screen-edge.
-                    new Bounds(new Vector3(0f, height * 0.95f, 0f),
-                               new Vector3(radius * 3f + 0.5f, height * 2.6f, radius * 3f + 0.5f)));
-                var m = NewRoomMat($"C_Fire{n}.mat", "GloomhavenVR/EnvFlame");
-                m.SetTexture("_MainTex", Imp("candle_flame_alb"));
-                // The tint is neutral-warm and nearly all of the colour comes
-                // from the shader's vertical temperature ramp (_CoreCol/_TipCol),
-                // so a fire is white-hot where it is fed and red where it tears.
-                m.SetColor("_Tint", new Color(1f, 0.86f, 0.62f, 1f));
-                m.SetColor("_CoreCol", new Color(1.34f, 1.02f, 0.62f, 1f));
-                m.SetColor("_TipCol", new Color(0.96f, 0.34f, 0.10f, 1f));
-                m.SetFloat("_Bonfire", 1f);
-                m.SetFloat("_FireGate", 1f);      // exists only under the infusion
-                m.SetFloat("_Sway", 0.055f);
-                m.SetFloat("_Flicker", 0.62f);
-                // 0.42, not the first bake's 0.62: a tongue that can grow to
-                // 1.6x its own length is a tongue that leaves the fire behind
-                // it. The surge has to be visible from four metres and still
-                // belong to the mass it comes out of.
-                m.SetFloat("_Lick", 0.42f);
-                m.SetFloat("_LickRate", 1.15f);
-                m.SetFloat("_Flare", 0.18f);
-                m.SetFloat("_Phase", SlotPhase[slot] + phaseOfs);
-                m.SetFloat("_Rate", SlotRate[slot]);
-                m.SetFloat("_Gust", gust);
-                m.SetVector("_GustDir", DraftDir);
-                m.SetFloat("_AirGust", AirGustAt(seat));
-                Place(root, $"Fire{n}", mesh, seat, Vector3.zero, Vector3.one, m);
-                tris += tongues * 4; fires++;
-                seats.Add((n, seat, radius, height));
+                var go = BuildFireCards(root, "C", n, seat, radius, height, cards, seed,
+                                        gust, phaseOfs, AirGustAt(seat), DraftDir);
+                if (onShelf)
+                {
+                    // SHELF RIDERS — "Die Kerzen UND DAS FEUER, die auf dem
+                    // Bücherregal stehen, kippen nicht mit". A burning shelf that
+                    // topples is still burning, so these ride rigidly and do NOT
+                    // gutter; the 0.35 stiffness is the small amount by which a
+                    // bed of fire lying on a board that is turning under it goes
+                    // on pointing up.
+                    RideShelf(go.GetComponent<MeshRenderer>().sharedMaterial,
+                              self: 1f, lit: -1f, gutter: 0f, stiff: 0.35f);
+                    WriteShelfTip(go.GetComponent<MeshRenderer>().sharedMaterial, go.transform);
+                }
+                tris += cards * 4; fires++;
+                seats.Add((n, seat, radius, height, cards));
             }
 
-            // A fire's LIGHT: the near halo at the seat, and a bigger, dimmer one
-            // pushed toward the wall behind it. One material for both — EnvGlow
+            // A fire's AIR GLOW: the near halo at the seat, and a bigger, dimmer
+            // one pushed toward the wall behind it. One material for both — EnvGlow
             // reads no baked light rig, so unlike every EnvRoom material in this
             // room two transforms may share it without being lit from the first
             // one's position. The wall halo is a SPHERE and not a flat wash card:
@@ -5905,18 +6355,33 @@ namespace GloomhavenVR
             // becomes a bright line the moment the view drops into its plane, and
             // this room has already paid for that lesson once (see the rejected
             // sill glows in the moonlight block).
+            //
+            // DIMMER THAN ModBuild 144's, and that is a consequence of the fire
+            // wash finally existing: a halo used to be the ONLY light a fire
+            // threw, so it was pushed until the wall behind the fire looked lit.
+            // The wall is now genuinely lit, by a term that respects its normal
+            // and its albedo, and a halo on top of that at the old strength is a
+            // second, flatter copy of the same light. What is left is what a halo
+            // honestly is: the AIR around a fire glowing.
             void Halo(string n, Vector3 at, float r, float alpha, Vector3 wallAt,
-                      float wallR, float wallAlpha, int slot, float phaseOfs)
+                      float wallR, float wallAlpha, float phaseOfs, bool onShelf = false)
             {
                 if (glowMesh == null) return;
                 var g = NewRoomMat($"C_FireGlow{n}.mat", "GloomhavenVR/EnvGlow");
                 g.SetColor("_Tint", new Color(1f, 0.47f, 0.16f, alpha));
                 g.SetFloat("_Falloff", 1.85f);
                 g.SetFloat("_Flicker", 0.85f);
-                g.SetFloat("_Rate", SlotRate[slot]);
-                g.SetFloat("_Phase", SlotPhase[slot] + phaseOfs);
+                // the halo breathes at the fire's rate, not at a candle slot's
+                g.SetFloat("_Rate", FireHz * 0.30f);
+                g.SetFloat("_Phase", phaseOfs);
                 g.SetFloat("_ElemGate", 1f);      // collapses while Fire is down
-                Place(root, $"FireGlow{n}", glowMesh, at, Vector3.zero, Vector3.one * r, g);
+                var go = Place(root, $"FireGlow{n}", glowMesh, at, Vector3.zero,
+                               Vector3.one * r, g);
+                if (onShelf)
+                {
+                    RideShelf(g, self: 1f, lit: -1f, gutter: 0f, stiff: 0f);
+                    WriteShelfTip(g, go.transform);
+                }
                 if (wallR > 0f)
                 {
                     var w = NewRoomMat($"C_FireWash{n}.mat", "GloomhavenVR/EnvGlow");
@@ -5925,9 +6390,15 @@ namespace GloomhavenVR
                     // something, so it may not have a core of its own
                     w.SetFloat("_Falloff", 1.10f);
                     w.SetFloat("_Flicker", 0.85f);
-                    w.SetFloat("_Rate", SlotRate[slot]);
-                    w.SetFloat("_Phase", SlotPhase[slot] + phaseOfs);
+                    w.SetFloat("_Rate", FireHz * 0.30f);
+                    w.SetFloat("_Phase", phaseOfs);
                     w.SetFloat("_ElemGate", 1f);
+                    // ...and this one deliberately does NOT ride the shelf, even
+                    // for the fire that does: it is the glow ON THE WALL, and the
+                    // wall does not fall over. What it gets wrong for twenty-six
+                    // seconds of a haunt slot is that the wall is still glowing
+                    // above a fire that has come down off it; what riding would
+                    // get wrong is a sphere of light swinging through masonry.
                     Place(root, $"FireWash{n}", glowMesh, wallAt, Vector3.zero,
                           Vector3.one * wallR, w);
                 }
@@ -5940,6 +6411,13 @@ namespace GloomhavenVR
             // emitter off. The forest's flying sparks are what the user singled
             // out as liked; these are the same sprite and the same colour, coming
             // off something that is actually burning.
+            //
+            // THEY DO NOT RIDE THE SHELF, and nothing can make them: a Shuriken
+            // system simulates in world space on the CPU and this bundle has no
+            // scripts, so the sparks off the burning bookshelf go on rising from
+            // where the shelf was standing. It is the one rider that could not be
+            // taken along, it is stated in the bake log, and it is the least
+            // visible of them — a spark is 2 cm and is already leaving.
             void Sparks(string n, Vector3 at, float spread, int maxAlive, float rate)
             {
                 var ps = ElemPS(root, $"FireSparks{n}", at, "FX_ElemEmber.mat", maxAlive);
@@ -5979,68 +6457,445 @@ namespace GloomhavenVR
 
             float hw = CW / 2f, hd = CD / 2f;
 
+            // SCALE. USER, ModBuild 144: the fires read as candle flames, and one
+            // of the reasons is that they were candle-sized. A burning crate's
+            // flame is half a metre to three quarters ACROSS; the shipped crate
+            // fire was 0.52 m across and 0.46 m tall, i.e. as tall as it was wide,
+            // which is a flame rather than a fire. Every radius below is up and
+            // every fire is now WIDER THAN IT IS TALL at its bed, which is the
+            // silhouette the eye reads as "an object is alight" rather than as
+            // "something is standing here burning".
+
             // ---- 1. the crate stack, lit by the candle standing on it --------
             var crateSeat = new Vector3(-1.55f, crateTop, -3.95f);
-            Fire("CrateTop", crateSeat, 0.26f, 0.46f, 15, 2, 0f, 7401, 0.050f);
+            Fire("CrateTop", crateSeat, 0.32f, 0.58f, 30, 0f, 7401, 0.050f);
             var litter = new Vector3(-0.95f, CellarFloorY(-0.95f, -3.75f), -3.75f);
-            Fire("CrateFoot", litter, 0.32f, 0.28f, 12, 2, 1.7f, 7402, 0.040f);
+            Fire("CrateFoot", litter, 0.38f, 0.30f, 36, 1.7f, 7402, 0.040f);
             // The wall halo is pushed hard against the masonry (0.22 m off it)
             // and held to 1.15 m: AssertPlaySpaceClear counts a glow sphere like
-            // any other geometry, and the first bake failed on exactly this one —
+            // any other geometry, and an earlier bake failed on exactly this one —
             // a 1.45 m sphere 0.55 m off the south wall reaches 2.73 m from the
             // centre, i.e. into the board's air. That check is the reason the
             // wall halos are sized the way they are, and it is a good reason:
             // a sphere of firelight the player can put his head inside is not a
             // wall being lit.
-            Halo("Crate", crateSeat + new Vector3(0f, 0.26f, 0f), 0.62f, 0.34f,
-                 new Vector3(-1.35f, 1.55f, -hd + 0.22f), 1.15f, 0.080f, 2, 0f);
-            Sparks("Crate", crateSeat + new Vector3(0f, 0.30f, 0f), 0.22f, 16, 7.5f);
+            Halo("Crate", crateSeat + new Vector3(0f, 0.30f, 0f), 0.66f, 0.15f,
+                 new Vector3(-1.35f, 1.55f, -hd + 0.22f), 1.15f, 0.028f, 0f);
+            Sparks("Crate", crateSeat + new Vector3(0f, 0.34f, 0f), 0.26f, 18, 8.5f);
 
             // ---- 2. the casks: one burning at the bung, one spilled ----------
             var bung = new Vector3(-4.25f, barrelTop, -2.0f);
-            Fire("Barrel", bung, 0.20f, 0.40f, 12, 2, 3.1f, 7403, 0.045f);
+            // 0.28 and not 0.24: the bake log's own aspect check flagged this one
+            // as the only fire in the room still taller than it is wide, and the
+            // check is there because that silhouette is the candle silhouette.
+            Fire("Barrel", bung, 0.28f, 0.48f, 26, 3.1f, 7403, 0.045f);
             // the spill: WIDE and LOW, so it reads as a burning floor rather than
             // as a third small bonfire. It is the one fire in the room whose
-            // shape says what is on fire.
+            // shape says what is on fire — and at 1.16 m across it is now the
+            // widest thing alight in the cellar, which is what a pool of burning
+            // spirits on flagstones is.
             var spill = new Vector3(-3.25f, CellarFloorY(-3.25f, -3.35f), -3.35f);
-            Fire("Spill", spill, 0.50f, 0.34f, 18, 2, 4.9f, 7404, 0.035f);
-            Halo("Barrel", bung + new Vector3(0f, 0.22f, 0f), 0.55f, 0.30f,
-                 new Vector3(-hw + 0.55f, 1.35f, -2.6f), 1.35f, 0.070f, 2, 3.1f);
-            Halo("Spill", spill + new Vector3(0f, 0.16f, 0f), 0.70f, 0.26f,
-                 Vector3.zero, 0f, 0f, 2, 4.9f);
-            Sparks("Barrel", bung + new Vector3(0f, 0.24f, 0f), 0.18f, 12, 5.5f);
-            Sparks("Spill", spill + new Vector3(0f, 0.12f, 0f), 0.44f, 14, 6.0f);
+            Fire("Spill", spill, 0.58f, 0.32f, 52, 4.9f, 7404, 0.035f);
+            Halo("Barrel", bung + new Vector3(0f, 0.26f, 0f), 0.58f, 0.14f,
+                 new Vector3(-hw + 0.55f, 1.35f, -2.6f), 1.35f, 0.026f, 3.1f);
+            Halo("Spill", spill + new Vector3(0f, 0.18f, 0f), 0.78f, 0.12f,
+                 Vector3.zero, 0f, 0f, 4.9f);
+            Sparks("Barrel", bung + new Vector3(0f, 0.28f, 0f), 0.20f, 14, 6.0f);
+            Sparks("Spill", spill + new Vector3(0f, 0.14f, 0f), 0.50f, 16, 7.0f);
 
             // ---- 3. the bookshelf: paper and dry boards ----------------------
+            // ...and this is the site that TOPPLES. Both fires and the near halo
+            // ride the shelf; the wall wash and the sparks do not (see their
+            // blocks for why, and the bake log states it).
             var shelfSeat = new Vector3(4.72f, shelfTop, 0.70f);
-            Fire("ShelfTop", shelfSeat, 0.26f, 0.42f, 13, 1, 0f, 7405, 0.045f);
+            Fire("ShelfTop", shelfSeat, 0.30f, 0.52f, 28, 0f, 7405, 0.045f, onShelf: true);
             // out of the shelf itself, below the top boards — a bookshelf burns
             // from the inside out, and a fire that only sits on the lid of a
             // thing does not read as the thing being alight
             var shelfMid = new Vector3(4.60f, 1.34f, 0.70f);
-            Fire("ShelfMid", shelfMid, 0.20f, 0.32f, 11, 1, 2.3f, 7406, 0.045f);
-            Halo("Shelf", shelfSeat + new Vector3(-0.05f, 0.24f, 0f), 0.58f, 0.30f,
-                 new Vector3(hw - 0.50f, 1.85f, 0.70f), 1.40f, 0.070f, 1, 0f);
-            Sparks("Shelf", shelfSeat + new Vector3(0f, 0.26f, 0f), 0.20f, 14, 6.5f);
+            Fire("ShelfMid", shelfMid, 0.24f, 0.38f, 22, 2.3f, 7406, 0.045f, onShelf: true);
+            Halo("Shelf", shelfSeat + new Vector3(-0.05f, 0.28f, 0f), 0.62f, 0.14f,
+                 new Vector3(hw - 0.50f, 1.85f, 0.70f), 1.40f, 0.026f, 0f, onShelf: true);
+            Sparks("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 16, 7.5f);
+
+            // ================= THE LIGHT THE FIRE THROWS =======================
+            // USER, ModBuild 144: "... und auch die Lichtverhältnisse entsprechend
+            // anpassen." The half of this that was missing is the one that matters
+            // most: it lights what it stands on. EnvRoom and EnvGround have
+            // carried the receiving term since ModBuild 144 and nothing wrote it,
+            // so a cellar could be alight in six places and its flagstones stayed
+            // the colour of a cellar with three candles in it. The halos above
+            // were standing in for it, and a halo is additive air — it cannot
+            // brighten the top of a crate and leave its shaded side dark, which is
+            // the single strongest cue that a thing is being LIT by something.
+            //
+            // THREE SEATS FOR SIX FIRES, and it is the right granularity rather
+            // than a shortage: a crate top and the litter burning at its foot are
+            // forty centimetres apart, and every surface more than a metre away is
+            // lit by their sum. So the sites are the crate stack, the casks and
+            // the bookshelf — which is also exactly the three the room reads as
+            // "places that are on fire".
+            //
+            // The RANGE is a fire's, not a candle's: the candles were pulled down
+            // to 2.6-3.1 m with _PtHard 16 on top, because "die Kerzen beleuchten
+            // hier viel zu viel" (ModBuild 134). A fire is not a candle and the
+            // wash deliberately does not take _PtHard (see EnvFire.cginc), so
+            // these reach across their own end of the room and die before the
+            // other one.
+            rig.fires = new[]
+            {
+                // the crate stack: between the two fires, a little above the top one
+                new FireSeat("Crates", new Vector3(-1.32f, crateTop + 0.22f, -3.86f), 2.6f, false),
+                // the casks: between the bung and the spill
+                new FireSeat("Casks", new Vector3(-3.74f, barrelTop * 0.55f + 0.18f, -2.72f),
+                             2.8f, false),
+                // the bookshelf, and this one MOVES: it is standing on the shelf
+                // that topples, so its seat takes the same rigid transform the
+                // flames on it take (EnvFire.cginc's _FireRide).
+                new FireSeat("Shelf", new Vector3(4.62f, shelfTop - 0.28f, 0.70f), 2.5f, true),
+            };
+            // THE WASH. Warm, and strong enough that the flagstones a fire stands
+            // on and the wall a metre behind it are plainly lit by it — the term
+            // is multiplied by the surface's own albedo and by N.L, so it lands as
+            // light on stone rather than as an orange film over the picture. The
+            // alpha is the flicker DEPTH: 0.45 means the pool swings +-45%, which
+            // is what "unsteadily" means and is only possible because GhvrWave4 is
+            // bounded.
+            //
+            // 1.05 AND 2.8-3.1 m RANGES, down from the first bake's 1.55 and
+            // 3.3-3.7 m, and the render is the argument. At the first numbers the
+            // three seats reached each other and the whole cellar came up to an
+            // even orange — a lit room, which is the one thing six rounds of
+            // tuning this cellar have been spent on not having. A fire lights
+            // what it stands on; it does not light the room. What is here now
+            // leaves the two corners furthest from anything burning as dark as
+            // they are with the fire down.
+            rig.fireWash = new Color(0.80f, 0.32f, 0.10f, 0.45f);
+            rig.fireHz = FireHz;
 
             float playR = CellarPlaySpaceDia * 0.5f;
             var log = new System.Text.StringBuilder();
-            log.Append($"[GloomhavenVR][Env] REAL FIRE (cellar, gated on the Fire infusion): "
+            log.Append($"[GloomhavenVR][Env] FIRE REAL (cellar, gated on the Fire infusion): "
                        + $"{fires} fires, {tris} tris, {emitters} spark emitters, "
-                       + $"{particles} spark particles max alive.\n");
-            foreach (var (n, at, r, h) in seats)
+                       + $"{particles} spark particles max alive. Turbulence {FireHz:F1} Hz "
+                       + $"(was 0.63-1.03 Hz, which is why it read as candle flames).\n");
+            foreach (var (n, at, r, h, c) in seats)
                 log.Append($"    burns: {n,-9} seat ({at.x,6:F2},{at.y,5:F2},{at.z,6:F2})  "
-                           + $"r {r:F2} m, {h:F2} m tall, "
+                           + $"{r * 2f:F2} m across x {h:F2} m tall ({c} cards, "
+                           + $"{(r * 2f > h ? "wider than tall" : "TALLER THAN WIDE — check it")}), "
                            + $"{new Vector2(at.x, at.z).magnitude:F2} m from the room centre "
-                           + $"(PlaySpace radius {playR:F2} m), "
-                           + $"_AirGust {AirGustAt(at):F2}\n");
-            log.Append("    light: one EnvGlow halo at each seat plus a wall halo behind it, "
-                       + "on the fire's own flicker rate and phase. NOT an EnvRoom point light: "
-                       + "the baked rig has three slots and all three are candles (see the FIRE "
-                       + "LIGHT note).\n");
+                           + $"(PlaySpace radius {playR:F2} m), _AirGust {AirGustAt(at):F2}\n");
+            foreach (var f in rig.fires)
+                log.Append($"    lights: {f.name,-7} seat ({f.pos.x,6:F2},{f.pos.y,5:F2},"
+                           + $"{f.pos.z,6:F2})  range {f.range:F2} m"
+                           + (f.ridesShelf ? "  RIDES THE TIPPING SHELF" : "") + "\n");
+            log.Append($"    wash: rgb ({rig.fireWash.r:F2},{rig.fireWash.g:F2},"
+                       + $"{rig.fireWash.b:F2}) at +-{rig.fireWash.a * 100f:F0} % flicker, "
+                       + $"{rig.fireHz:F1} Hz — THE SAME Hz every flame above burns at "
+                       + "(one constant, one function: GhvrFireFlicker).\n");
+            log.Append("    air: one EnvGlow halo at each seat plus a wall halo behind it. It is "
+                       + "the air around the fire glowing and nothing else now — the surfaces are "
+                       + "lit by the wash above, which is what a halo never could do.\n");
             log.Append("    cost when Fire is down: every flame card and every halo collapses to "
-                       + "a point in the vertex shader (zero-area triangles, no fill); the spark "
+                       + "a point in the vertex shader (zero-area triangles, no fill); the fire "
+                       + "wash is inside `if (e.fire > 0)` and its colour is black; the spark "
                        + "emitters keep simulating and keep one draw call each.");
+            Debug.Log(log.ToString());
+        }
+
+        // ==================================================== THE WOOD ON FIRE ==
+        // USER VERDICT, hardware, ModBuild 144: "Feuer im Wald ist noch nicht
+        // implementiert, Teile der Bäume sollen brennen!"
+        //
+        // WHAT BURNS, AND WHY THOSE THINGS. Three rules decided it, and they are
+        // the cellar's three:
+        //   1. IT MUST BE SOMETHING THAT WOULD REALLY CATCH. A living fir does
+        //      not go up like a torch; dead wood does. So: the deadfall log at
+        //      the clearing edge, the dry-branch pile in the understorey, and a
+        //      TRUNK — chosen from the ones the wood generator marked `dead`,
+        //      i.e. a snag with a broken top and no crown, which is the one tree
+        //      in a wet wood that burns standing.
+        //   2. IT MUST BE PERIPHERAL. Everything below is 6.5 m or more from the
+        //      centre against a 4.5 m PlaySpace radius, on the far side of the
+        //      tree line, and NOTHING is over the board — the same line the
+        //      easter eggs are held to ("niemals den Spielfluss stören").
+        //   3. IT MAY NOT REPAINT A WOOD HE HAS APPROVED. Nothing here changes a
+        //      material, a tint or a light that exists when Fire is down: the
+        //      flames are new gated geometry that collapses to a point, the wash
+        //      is inside `if (e.fire > 0)` with a black colour, and the halos
+        //      carry _ElemGate. With Fire down this function has added nothing
+        //      the renderer can see.
+        //
+        // AND THE THREE SILHOUETTES ARE DIFFERENT, which is the lesson from the
+        // cellar's first bake (five fires that read as five copies): a trunk
+        // burns as a TALL NARROW column hugging a vertical, a fallen log burns as
+        // a LINE of low fires along its own axis, and brushwood burns as one wide
+        // flat bed. Three shapes, three readings, one shader.
+        //
+        // THE SPARKS HE ALREADY LIKES STAY UNTOUCHED. The forest's flying embers
+        // are AddElementFX's, they are the thing he singled out as good, and this
+        // function does not go near them; what it adds is sparks coming OFF the
+        // things that are now actually alight, from the same sprite and the same
+        // gated material.
+        private static void AddForestFire(Transform root, LightRig rig, List<Tree> trees)
+        {
+            var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
+            int tris = 0, fires = 0, particles = 0, emitters = 0;
+            var seats = new List<(string n, Vector3 at, float r, float h, int cards)>();
+
+            void Fire(string n, Vector3 seat, float radius, float height, int cards,
+                      float phaseOfs, int seed, float gust, float bedFrac = 0.38f)
+            {
+                BuildFireCards(root, "S", n, seat, radius, height, cards, seed,
+                               gust, phaseOfs, 2.2f, ForestWind, bedFrac);
+                tris += cards * 4; fires++;
+                seats.Add((n, seat, radius, height, cards));
+            }
+
+            void Halo(string n, Vector3 at, float r, float alpha, float phaseOfs)
+            {
+                if (glowMesh == null) return;
+                var g = NewRoomMat($"S_FireGlow{n}.mat", "GloomhavenVR/EnvGlow");
+                g.SetColor("_Tint", new Color(1f, 0.45f, 0.15f, alpha));
+                g.SetFloat("_Falloff", 1.70f);
+                g.SetFloat("_Flicker", 0.85f);
+                g.SetFloat("_Rate", FireHz * 0.30f);
+                g.SetFloat("_Phase", phaseOfs);
+                g.SetFloat("_ElemGate", 1f);
+                Place(root, $"FireGlow{n}", glowMesh, at, Vector3.zero, Vector3.one * r, g);
+            }
+
+            void Sparks(string n, Vector3 at, float spread, int maxAlive, float rate)
+            {
+                var ps = ElemPS(root, $"FireSparks{n}", at, "FX_ElemEmber.mat", maxAlive);
+                var m = ps.main;
+                m.duration = 9f;
+                // LONGER-LIVED than the cellar's, because out here they have
+                // somewhere to go: an ember off a burning snag rides eight metres
+                // up through the crowns instead of hitting a plank ceiling.
+                m.startLifetime = new ParticleSystem.MinMaxCurve(1.8f, 4.0f);
+                m.startSpeed = new ParticleSystem.MinMaxCurve(0.40f, 1.30f);
+                m.startSize = new ParticleSystem.MinMaxCurve(0.016f, 0.044f);
+                m.startColor = Color.white;
+                m.gravityModifier = -0.055f;
+                var e = ps.emission; e.rateOverTime = rate;
+                var sh = ps.shape; sh.enabled = true;
+                sh.shapeType = ParticleSystemShapeType.Cone;
+                sh.angle = 24f;
+                sh.radius = spread;
+                sh.radiusThickness = 1f;
+                ps.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+                var v = ps.velocityOverLifetime; v.enabled = true;
+                v.space = ParticleSystemSimulationSpace.World;
+                // the wood's own wind, so the embers off the fire and the leaves
+                // in the air agree about which way the night is moving
+                v.x = WindRange(ForestWind.x, 0.12f, 0.38f);
+                v.z = WindRange(ForestWind.z, 0.12f, 0.38f);
+                v.y = new ParticleSystem.MinMaxCurve(0.35f, 1.05f);
+                var no = ps.noise; no.enabled = true; no.quality = ParticleSystemNoiseQuality.Low;
+                no.strength = 0.16f; no.frequency = 0.7f; no.scrollSpeed = 0.5f;
+                ElemFade(ps, 0.06f, 0.40f);
+                var sol = ps.sizeOverLifetime; sol.enabled = true;
+                sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
+                    new Keyframe(0f, 1f), new Keyframe(0.55f, 0.7f), new Keyframe(1f, 0.15f)));
+                particles += maxAlive; emitters++;
+            }
+
+            // ---- 1. THE SNAG. "Teile der Bäume sollen brennen" ---------------
+            // CHOSEN, not typed. The trunk has to be one the generator really
+            // placed — a hand-written position would be inside a tree in one bake
+            // and in mid-air in the next, and this room's whole trunk field is
+            // seeded. The rule: a DEAD one (broken top, no crown — the only kind
+            // that burns standing in a wet wood), in the first band, at 6.5-9.5 m,
+            // and as far from the moon's bearing as possible, so the burning tree
+            // is the one light source on the side of the clearing the moon does
+            // not reach. Deterministic and re-derived every bake.
+            var moonHoriz = new Vector3(MoonDir.x, 0f, MoonDir.z).normalized;
+            Tree snag = default; bool found = false; float bestDot = 2f;
+            foreach (var t in trees)
+            {
+                if (!t.dead || t.band != 0) continue;
+                float r = t.p.magnitude;
+                if (r < 6.5f || r > 9.5f) continue;
+                float d = Vector2.Dot(t.p.normalized, new Vector2(moonHoriz.x, moonHoriz.z));
+                if (!found || d < bestDot) { snag = t; bestDot = d; found = true; }
+            }
+            if (!found)
+                throw new Exception("Forest fire: no dead snag in the first trunk band between 6.5 "
+                                    + "and 9.5 m. The burning tree is chosen from the trunks the "
+                                    + "generator really placed (see the block above) — if the band "
+                                    + "table or the 1-in-9 dead rule changed, this search has to be "
+                                    + "widened rather than a position typed in.");
+            // The fires hug the trunk: their radius comes from the trunk's own
+            // radius at that height (HauntTrunkRadius, the same function the
+            // apparition that hides behind a tree is sized by), so a thin snag
+            // gets a thin fire and a thick one a broad one.
+            var foot = TrunkAt(snag, 0.10f);
+            var mid = TrunkAt(snag, 1.85f);
+            float rFoot = HauntTrunkRadius(snag, 0.10f), rMid = HauntTrunkRadius(snag, 1.85f);
+            // the root flare is burning widest — that is where the litter is
+            Fire("Snag0", foot, rFoot * 2.1f, 1.05f, 42, 0f, 7501, 0.050f);
+            // ...and it is climbing the bark, narrower, taller, and with NO BED:
+            // see FireMesh's bedFrac. A bed is the part of a fire that lies on
+            // something; two metres up a trunk there is nothing to lie on, and
+            // the first bake's bed cards there read as a white slab nailed across
+            // the tree.
+            Fire("Snag1", mid, rMid * 1.5f, 0.95f, 24, 2.6f, 7502, 0.055f, bedFrac: 0f);
+            Halo("Snag", foot + new Vector3(0f, 0.75f, 0f), 1.35f, 0.16f, 0f);
+            Sparks("Snag", mid + new Vector3(0f, 0.45f, 0f), 0.28f, 22, 9.0f);
+
+            // ---- 2. THE DEADFALL LOG at the clearing edge --------------------
+            // Log1 is at (6.9, 5.0) yawed 128 deg, i.e. 8.5 m out, and it burns
+            // ALONG ITS OWN AXIS: three low fires spaced down the log rather than
+            // one on top of it. A line of fire is a completely different
+            // silhouette from a cone of it, and it is the shape that says "this
+            // long thing is what is alight".
+            Vector3 logSeat;
+            var logGo = root.Find("Log1");
+            if (logGo == null)
+                throw new Exception("Forest fire: prop 'Log1' is missing — the deadfall cannot burn.");
+            {
+                // THE LOG'S AXIS IS MEASURED, not taken from the yaw it was placed
+                // with. `Rest` re-centres a prop on its own footprint and the
+                // photoscan's long axis is not the mesh's local +Z, so the first
+                // attempt at this — three points along Quaternion.Euler(0,128,0) —
+                // put one of them inside the log's bounding box but off the log,
+                // and the bake failed on "a ray down misses 'Log1' entirely". The
+                // axis below is the direction of greatest spread of the placed
+                // vertices in XZ, i.e. the log's own line, whatever it was rotated
+                // by. Two dot products, no matrices: the covariance of a set of
+                // points about their mean is diagonalised in closed form in 2D.
+                var pts = WorldVerts(logGo.gameObject);
+                var mean = Vector2.zero;
+                foreach (var p in pts) mean += new Vector2(p.x, p.z);
+                mean /= Mathf.Max(pts.Count(), 1);
+                float sxx = 0f, szz = 0f, sxz = 0f;
+                foreach (var p in pts)
+                {
+                    float dx = p.x - mean.x, dz = p.z - mean.y;
+                    sxx += dx * dx; szz += dz * dz; sxz += dx * dz;
+                }
+                float th = 0.5f * Mathf.Atan2(2f * sxz, sxx - szz);
+                var la = new Vector3(Mathf.Cos(th), 0f, Mathf.Sin(th));
+                float half = 0f;
+                foreach (var p in pts)
+                    half = Mathf.Max(half, Mathf.Abs(Vector3.Dot(
+                        new Vector3(p.x - mean.x, 0f, p.z - mean.y), la)));
+                var (lw, lt) = WorldMesh(logGo.gameObject);
+                var logMid = new Vector3(mean.x, 0f, mean.y);
+                for (int i = 0; i < 3; i++)
+                {
+                    // 0.62 of the half-length, not 1.0: the ends of a photoscanned
+                    // log taper to nothing and a fire seated on the last ten
+                    // centimetres of it hangs in the air.
+                    float u = (i - 1) * half * 0.62f;
+                    var at = logMid + la * u;
+                    // ...and walk inward until the ray really lands on the log, so
+                    // a re-scanned or re-scaled asset cannot fail the bake over a
+                    // seat two centimetres past the bark.
+                    float y = 0f; bool hit = false;
+                    for (int k = 0; k < 10 && !hit; k++)
+                    {
+                        hit = RayDown(lw, lt, at.x, at.z, out y);
+                        if (!hit) at = Vector3.Lerp(at, logMid, 0.18f);
+                    }
+                    if (!hit)
+                        throw new Exception("Forest fire: no point on 'Log1' under the seat for "
+                                            + $"Log{i} — the deadfall's measured axis "
+                                            + $"({la.x:F2},{la.z:F2}) does not lie on the prop.");
+                    at.y = y;
+                    Fire($"Log{i}", at, 0.34f - 0.04f * Mathf.Abs(i - 1), 0.42f, 22,
+                         1.3f * i, 7510 + i, 0.045f);
+                    if (i == 1) Sparks("Log", at + new Vector3(0f, 0.24f, 0f), 0.30f, 16, 6.5f);
+                }
+                logMid.y = 0.42f;
+                Halo("Log", logMid, 1.10f, 0.14f, 1.9f);
+                logSeat = logMid;
+            }
+
+            // ---- 3. THE BRUSHWOOD in the understorey -------------------------
+            // Branches1, the dry-branch pile at (-6.9, -5.0): one wide, flat,
+            // low bed. It is the fire whose shape says "the ground itself is
+            // catching", and it is on the opposite side of the clearing from the
+            // log, so the wood is lit from two bearings and the trunks between
+            // them stand up as volumes.
+            var brush = new Vector3(-6.9f, ForestY(-6.9f, -5.0f) + 0.06f, -5.0f);
+            Fire("Brush", brush, 0.62f, 0.40f, 50, 3.4f, 7520, 0.040f);
+            Halo("Brush", brush + new Vector3(0f, 0.26f, 0f), 0.95f, 0.15f, 3.4f);
+            Sparks("Brush", brush + new Vector3(0f, 0.18f, 0f), 0.52f, 18, 7.5f);
+
+            // ================= THE LIGHT ======================================
+            // Three sites, one per burning thing, and in the wood the wash lands
+            // almost entirely on the GROUND — which is EnvGround, which has
+            // carried the receiving term since ModBuild 144 with nothing writing
+            // it. RANGES are longer than the cellar's because there is nothing
+            // out here to stop the light: a fire in a wood lights the floor for
+            // five or six metres and the trunks around it, and then the wood
+            // swallows it.
+            // A SEAT MAY NOT BE INSIDE THE THING IT IS LIGHTING. The snag's fire
+            // is authored on the TRUNK'S AXIS, which is where the flames belong —
+            // and where a point light is useless, because every triangle of the
+            // trunk faces AWAY from its own centre line and N.L is negative on all
+            // of them. The first bake's preview showed it exactly: a burning tree
+            // whose bark was unlit blue-grey, with two red patches where the mesh
+            // happened to curve back. So the SEAT (and only the seat) is pushed
+            // out of the trunk toward the clearing by its own radius plus a
+            // handspan, which is roughly where the luminous part of the flame
+            // sheet really is.
+            var toClearing = new Vector3(-foot.x, 0f, -foot.z).normalized;
+            // rFoot + 0.55 and not + 0.20: at a fifth of a metre the seat was
+            // barely in front of the bark it was meant to be lighting, so N.L on
+            // the trunk's own face was still near zero and the burning tree stayed
+            // blue-grey. Half a metre out is roughly where the luminous sheet of
+            // a fire licking up a trunk actually stands.
+            var snagSeat = foot + new Vector3(0f, 0.55f, 0f)
+                           + toClearing * (rFoot + 0.55f);
+            rig.fires = new[]
+            {
+                new FireSeat("Snag", snagSeat, 6.0f, false),
+                new FireSeat("Log", logSeat + new Vector3(0f, -0.07f, 0f), 5.2f, false),
+                new FireSeat("Brush", brush + new Vector3(0f, 0.22f, 0f), 5.0f, false),
+            };
+            // DIMMER THAN THE CELLAR'S, and that is the room's whole recipe
+            // rather than a taste: the wood is tuned so that "hinter den Bäumen
+            // außerhalb der Lichtung soll es so dunkel sein das man sich nicht
+            // traut dahinter hinweg zu gehen", and a fire that lit the tree line
+            // would undo the one thing ModBuild 133 and 134 were spent on. What
+            // it does instead is light its OWN patch brightly and let the rest of
+            // the wood stay black — which is also what a real fire in a wood does,
+            // and it is why the burning snag reads as a place rather than as a
+            // lamp. 0.55 flicker depth, deeper than the cellar's 0.45: out here
+            // the fire is the only thing moving the light, so the swing is the
+            // whole signal.
+            rig.fireWash = new Color(0.92f, 0.35f, 0.11f, 0.55f);
+            rig.fireHz = FireHz;
+
+            float playR = ForestPlaySpaceDia * 0.5f;
+            var log = new System.Text.StringBuilder();
+            log.Append($"[GloomhavenVR][Env] FIRE REAL (forest, gated on the Fire infusion) — user: "
+                       + $"\"Feuer im Wald ist noch nicht implementiert, Teile der Bäume sollen "
+                       + $"brennen!\". {fires} fires, {tris} tris, {emitters} spark emitters, "
+                       + $"{particles} spark particles max alive, turbulence {FireHz:F1} Hz.\n");
+            log.Append($"    the SNAG that burns is chosen from the placed trunks, not typed: a dead "
+                       + $"one (broken top, no crown) in band 0 at ({snag.p.x:F2},{snag.p.y:F2}), "
+                       + $"{snag.p.magnitude:F2} m out, {snag.h:F1} m tall, base radius "
+                       + $"{snag.rb:F2} m — the one furthest round from the moon's bearing "
+                       + $"(dot {bestDot:F2}), so it lights the dark side of the clearing.\n");
+            foreach (var (n, at, r, h, c) in seats)
+                log.Append($"    burns: {n,-7} seat ({at.x,6:F2},{at.y,5:F2},{at.z,6:F2})  "
+                           + $"{r * 2f:F2} m across x {h:F2} m tall ({c} cards), "
+                           + $"{new Vector2(at.x, at.z).magnitude:F2} m from the clearing centre "
+                           + $"(PlaySpace radius {playR:F2} m)\n");
+            foreach (var f in rig.fires)
+                log.Append($"    lights: {f.name,-6} seat ({f.pos.x,6:F2},{f.pos.y,5:F2},"
+                           + $"{f.pos.z,6:F2})  range {f.range:F2} m\n");
+            log.Append($"    wash: rgb ({rig.fireWash.r:F2},{rig.fireWash.g:F2},"
+                       + $"{rig.fireWash.b:F2}) at +-{rig.fireWash.a * 100f:F0} % flicker, "
+                       + $"{rig.fireHz:F1} Hz — the same Hz the flames burn at. Deliberately below "
+                       + "the cellar's: the tree line has to stay unwalkable.\n");
+            log.Append("    cost when Fire is down: every flame card and every halo collapses to a "
+                       + "point in the vertex shader; the wash is black and inside `if (e.fire > 0)`; "
+                       + "the spark emitters keep simulating and keep one draw call each.");
             Debug.Log(log.ToString());
         }
 
@@ -8359,6 +9214,8 @@ namespace GloomhavenVR
             var root = new GameObject("RoomGeo").transform;
             root.SetParent(shellRoot, false);
             _groundY = ForestY;
+            // nothing in a wood stands on a cellar bookshelf
+            Tip = null; TipUse.Clear();
 
             float moonAz = MoonAzimuth();
             var moonHoriz = new Vector3(MoonDir.x, 0f, MoonDir.z).normalized;
@@ -10108,6 +10965,8 @@ namespace GloomhavenVR
 
             // ELEMENT ART — the gated emitters (embers, snow, the gust, spores).
             AddElementFX(root, cellar: false);
+            // FIRE REAL — the parts of the wood that catch while Fire is up.
+            AddForestFire(root, rig, trees);
 
             PaintContactAO(g, 0.45f, 0.55f);
             FlushRig(rig);

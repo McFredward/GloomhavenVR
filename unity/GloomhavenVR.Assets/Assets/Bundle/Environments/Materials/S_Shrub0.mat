@@ -64,4 +64,9 @@ Material:
     - _L2Pos: {r: -2.919553, g: 0.3227218, b: -0.51165617, a: 0.35}
     - _SwayDir: {r: 0, g: 0, b: 1, a: 0}
     - _Tint: {r: 0.93953407, g: 0.93953407, b: 0.93953407, a: 1}
+    - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
+    - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _TipPivot: {r: 0, g: 0, b: 0, a: 0}
+    - _TipSched: {r: 0, g: 0, b: 0, a: 0}
+    - _TipUse: {r: 0, g: -1, b: 0, a: 0}
   m_BuildTextureStacks: []

@@ -397,6 +397,11 @@ namespace GloomhavenVR
                 HauntTile * HauntAtlasCols, HauntTile * HauntAtlasRows,
                 sRGB: true, clamp: true,
                 comp: TextureImporterCompression.Uncompressed);
+            // THE FIRE ATLAS. See MakeFireAtlas for why a fire could not go on
+            // being drawn with the candle sprite.
+            WritePng(TexDir + "/Env_Fire.png", MakeFireAtlas(),
+                FireTile * FireAtlasCols, FireTile * FireAtlasRows,
+                sRGB: true, clamp: true);
             AssetDatabase.Refresh();
         }
 
@@ -1344,6 +1349,174 @@ namespace GloomhavenVR
                     float r2 = (dx * dx + dy * dy) * 4f; // 0..1 at edge
                     float a = Mathf.Exp(-r2 * 8f) + 0.30f * Mathf.Exp(-r2 * 2.2f);
                     px[y * n + x] = new Color(1, 1, 1, Mathf.Clamp01(a));
+                }
+            return px;
+        }
+
+        // ======================================================== FIRE ATLAS ====
+        // FIRE REAL. USER VERDICT, hardware, ModBuild 144: "Das Feuer im Keller
+        // sieht eher aus wie viele Kerzenflammen statt wirklich ein bedrohliches
+        // Brennen der Möbel!"
+        //
+        // WHY A NEW SPRITE IS THE FIRST OF THE THREE FIXES, and not a tuning. The
+        // cellar's six fires were drawn with `candle_flame_alb` — a photograph of
+        // ONE CANDLE FLAME. A candle flame is laminar: a single smooth teardrop
+        // with a closed, continuous silhouette and no internal structure, because
+        // at two centimetres the flow never goes turbulent. Enlarging that to half
+        // a metre does not make a fire; it makes a large candle flame, and eleven
+        // of them side by side make eleven large candle flames. That is what he
+        // photographed, word for word.
+        //
+        // What a burning object's flame actually looks like, and what each cell
+        // below is drawn to be:
+        //   0 BED     the seat. WIDER THAN TALL (about 2:1 of the drawn mass),
+        //             dense and near-solid across its middle, ragged along its
+        //             top, thinning to nothing at its ends. Several of these
+        //             overlap additively into the one continuous incandescent
+        //             body a fire has and a candle does not.
+        //   1,2 TONGUE two different tongues. Tapered but NOT closed: each one is
+        //             cut by holes and its edge is torn, so two overlapping cards
+        //             merge into one mass instead of reading as two objects with
+        //             outlines. That is the single most important difference from
+        //             the candle sprite, and it is why there are two of them —
+        //             one silhouette repeated a dozen times is a pattern.
+        //   3 PUFF    a piece that has torn off: a lopsided ragged blob with no
+        //             stem at all. Its whole job is to not be attached.
+        //
+        // ALPHA ONLY (RGB is white). All colour comes from the shader's three-stop
+        // temperature ramp, which is measured up the whole FIRE rather than up the
+        // card — so one bed sprite is white-blue at the seat of a big fire and
+        // orange at the seat of a small one, out of one texture.
+        //
+        // COMPRESSED, unlike the haunt atlas: this is a single channel that varies
+        // smoothly, i.e. the best case for BC3's alpha block rather than the worst
+        // case its RGB blocks are. 512x512 with mips is 170 KiB.
+        public const int FireTile = 256;
+        public const int FireAtlasCols = 2, FireAtlasRows = 2;
+
+        private static Color[] MakeFireAtlas()
+        {
+            int W = FireTile * FireAtlasCols, H = FireTile * FireAtlasRows;
+            var px = new Color[W * H];
+
+            // HLSL's smoothstep(edge0, edge1, x), which is NOT Unity's
+            // Mathf.SmoothStep(from, to, t) — that one is a LERP FROM `from` TO
+            // `to` with a smoothed t, and the two have the same three arguments in
+            // the same order. The first bake of this atlas wrote
+            // Mathf.SmoothStep(0f, 0.055f, v), meaning "fade in over the bottom
+            // 5%", and got back a number that never exceeds 0.055: the bed came
+            // out at an alpha of 3/255 and was invisible, so the fire in the
+            // preview was tongues alone — which is precisely the picture this
+            // round exists to stop producing. The rest of this file uses the
+            // Unity form correctly and always with an InverseLerp inside it; a
+            // named local is cheaper than remembering which is which.
+            float Ss(float e0, float e1, float x)
+                => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(e0, e1, x));
+
+            // A tongue: `taper` is how fast it narrows toward the tip, `lean`
+            // bends its axis, `seed` picks the tears. u,v are 0..1 inside the cell
+            // with v = 0 at the base.
+            float Tongue(float u, float v, float taper, float lean, int seed)
+            {
+                // the axis wanders, so the tongue is not an axis-aligned spindle
+                float axis = 0.5f + lean * v * v
+                             + 0.13f * (Noise3(v * 3.1f, seed * 0.13f, 2.2f, seed) - 0.5f);
+                // FAT LOW, CLOSING HIGH. A candle flame is widest at its middle and
+                // perfectly symmetric about its axis; a tongue of fire is widest
+                // near where it is fed and its two sides are not the same shape.
+                // So the half-widths left and right are drawn from two independent
+                // noises — that asymmetry is most of what separates this
+                // silhouette from a teardrop, and it costs one extra lookup.
+                float wdt = 0.30f * (0.38f + 0.62f * Ss(0f, 0.13f, v))
+                            * Mathf.Pow(Mathf.Clamp01(1f - v), taper);
+                float wl = wdt * (0.72f + 0.58f * Noise3(v * 4.6f, 1.7f, seed * 0.21f, seed + 11));
+                float wr = wdt * (0.72f + 0.58f * Noise3(v * 4.6f, 5.3f, seed * 0.21f, seed + 23));
+                float s = u - axis;
+                float d = s < 0f ? -s / Mathf.Max(wl, 1e-4f) : s / Mathf.Max(wr, 1e-4f);
+                // NO PLATEAU. The obvious profile — opaque out to half the width,
+                // then an edge — puts a region of alpha 1 down the tongue's spine,
+                // and in an additive pass a region of alpha 1 clips to white with
+                // a STRAIGHT SIDE. The third bake's crate fire had two of those in
+                // it and they read as two white candles standing in the flames,
+                // which is the exact word the user used about the whole feature.
+                // Falling from the axis outward with no flat top costs nothing and
+                // there is no straight edge left anywhere in the sprite.
+                float body = 1f - Ss(0.08f, 1.06f, d);
+                // TORN, in two octaves. The coarse one eats bites out of the
+                // silhouette; the fine one cuts HOLES through the body, and the
+                // holes are the important half: they are what lets two overlapping
+                // cards merge into one mass instead of showing two outlines.
+                // Without them the silhouette is an analytic curve, which is the
+                // grammar of a sprite rather than of a flame.
+                body *= 0.28f + 0.72f * Ss(0.30f, 0.62f,
+                    Fbm3(new Vector3(u * 3.5f, v * 6.5f - 2f, seed * 0.7f), 4, seed));
+                body *= 0.42f + 0.58f * Ss(0.34f, 0.70f,
+                    Fbm3(new Vector3(u * 9f, v * 13f, seed * 1.9f), 3, seed + 77));
+                // the base is fed and the tip is dying
+                body *= Mathf.Lerp(1f, 0.20f, Ss(0.40f, 1.0f, v));
+                // ...and it is not cut off flat at the very bottom. 10% of the
+                // card, not the first bake's 3.5%: a tongue whose base is inside
+                // the bed can afford a long fade, and one that is climbing a
+                // trunk with no bed under it at all (bedFrac 0) has nothing else
+                // to hide a straight bottom edge behind.
+                body *= Ss(0f, 0.10f, v);
+                return Mathf.Clamp01(body * 1.60f);
+            }
+
+            for (int y = 0; y < H; y++)
+                for (int x = 0; x < W; x++)
+                {
+                    int cx = x / FireTile, cy = y / FireTile;
+                    int cell = cy * FireAtlasCols + cx;
+                    float u = (x % FireTile + 0.5f) / FireTile;
+                    float v = (y % FireTile + 0.5f) / FireTile;
+                    float a;
+                    if (cell == 0)
+                    {
+                        // THE BED. The drawn mass fills the cell across and sits in
+                        // its lower half, so a card whose quad is twice as wide as
+                        // it is tall carries a mass of roughly the right aspect
+                        // without the sprite being stretched.
+                        // SOFT ALL ROUND. Every straight edge in this cell becomes
+                        // a straight edge in the picture the moment two beds
+                        // overlap and the sum clips — the second bake's fires had
+                        // visible white parallelograms in them for exactly that
+                        // reason, and half of that was the energy and half was
+                        // this: a fade over 24% of the width and 12% of the height
+                        // costs nothing and there is no card edge left to see.
+                        float across = 1f - Ss(0.18f, 0.50f, Mathf.Abs(u - 0.5f));
+                        // solid to about a third of the cell, then a ragged top
+                        float top = 0.34f + 0.20f * Fbm3(new Vector3(u * 5.0f, 1.3f, 0.7f), 3, 6101);
+                        float up = 1f - Ss(top * 0.45f, top, v);
+                        // ...and it is not flat underneath either: a bed sits INTO
+                        // whatever it is burning on
+                        float under = Ss(0f, 0.12f, v);
+                        float lump = 0.55f + 0.75f * Fbm3(new Vector3(u * 5.5f, v * 7f, 3.3f), 4, 6102);
+                        // gaps, so that several overlapping beds are a glowing MASS
+                        // and not a flat slab of light
+                        float gap = 0.52f + 0.66f * Ss(0.30f, 0.68f,
+                            Fbm3(new Vector3(u * 11f, v * 9f, 8.1f), 3, 6103));
+                        // DENSE. This is the brightest thing in the room and it has
+                        // to be nearly opaque in its middle, or several overlapping
+                        // beds still add up to a haze.
+                        a = Mathf.Clamp01(across * up * under * Mathf.Clamp01(lump) * gap * 1.5f);
+                    }
+                    else if (cell == 1) a = Tongue(u, v, 1.30f, 0.16f, 6201);
+                    else if (cell == 2) a = Tongue(u, v, 0.80f, -0.21f, 6301);
+                    else
+                    {
+                        // THE PUFF: lopsided, ragged, no stem. Its centre is off
+                        // the cell's centre on purpose — a detached piece of fire
+                        // that is radially symmetric reads as a spark.
+                        float dx = (u - 0.47f) * 2.10f, dy = (v - 0.55f) * 1.75f;
+                        float r = Mathf.Sqrt(dx * dx + dy * dy);
+                        float warp = 0.50f * (Fbm3(new Vector3(u * 3.8f, v * 3.8f, 5.1f), 3, 6401) - 0.5f);
+                        float blob = 1f - Ss(0.26f, 0.95f, r + warp);
+                        float grain = 0.30f + 0.95f * Ss(0.28f, 0.72f,
+                            Fbm3(new Vector3(u * 8f, v * 8f, 1.9f), 4, 6402));
+                        a = Mathf.Clamp01(blob * grain * 1.25f);
+                    }
+                    px[y * W + x] = new Color(1, 1, 1, a);
                 }
             return px;
         }

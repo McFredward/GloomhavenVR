@@ -145,6 +145,18 @@
 // nothing accumulates, nothing integrates, and outside the event phase is 0 and
 // the shelf stands. An interrupted event therefore cannot leave the shelf on
 // its face: there is no state to be left in. That was the explicit requirement.
+//
+// SHELF RIDERS, ModBuild 145. The pose is no longer written here: it moved,
+// whole, to EnvShelfTip.cginc, because the wax candle standing on the shelf is
+// an EnvRoom material, its flame and the two fires seated on it are EnvFlame
+// materials, and its halo is an EnvGlow one — four shaders that have to agree
+// about one rotation to the bit. The shelf reads that file exactly as the
+// riders do, off the same four material vectors, so there is no "the shelf's
+// version" of the curve for a rider's version to drift from. WHAT WENT WITH IT:
+// this mesh's UV2 (the hinge) and UV3 (axis + angle). They were a per-vertex
+// copy of one constant AND a second place the hinge could be stored, and the
+// bake now writes the hinge once, into the material, for the shelf and every
+// rider at the same moment (EnvRoomBuilder.WriteShelfTip).
 // ============================================================================
 Shader "GloomhavenVR/EnvHaunt"
 {
@@ -184,6 +196,17 @@ Shader "GloomhavenVR/EnvHaunt"
         _PtHard ("Point falloff hardness", Range(0,64)) = 0
         _RimDir ("Rim gate: light dir (OBJECT space)", Vector) = (0,1,0,0)
 
+        // ---- KIND 4, THE POSE (EnvShelfTip.cginc) ---------------------------
+        // The shelf's hinge, axis, schedule and envelope, written to THIS
+        // material and to every rider's by the same call — the whole reason the
+        // candle standing on the shelf cannot end up somewhere else. The
+        // APPARITION material leaves all five at zero, which is "no shelf".
+        _TipPivot ("Shelf hinge (OBJECT space, w = pose valid)", Vector) = (0,0,0,0)
+        _TipAxis ("Shelf hinge axis (OBJECT space, w = max angle rad)", Vector) = (0,0,0,0)
+        _TipSched ("Shelf schedule (period, cards, card)", Vector) = (0,0,0,0)
+        _TipEnv ("Shelf event envelope (reveal, hold, fade)", Vector) = (0,0,0,0)
+        _TipUse ("Ride self, lit slot, gutters, flame stiffness", Vector) = (0,-1,0,0)
+
         // ---- render state, so two materials can share one program ----
         [HideInInspector] _SrcBlend ("src blend", Float) = 5   // SrcAlpha
         [HideInInspector] _DstBlend ("dst blend", Float) = 10  // OneMinusSrcAlpha
@@ -218,6 +241,9 @@ Shader "GloomhavenVR/EnvHaunt"
             #pragma target 3.0
             #include "UnityCG.cginc"
             #include "EnvHaunt.cginc"
+            // KIND 4 only: the tipping shelf's pose, shared with everything that
+            // is standing on it. See the KIND 4 block above.
+            #include "EnvShelfTip.cginc"
 
             sampler2D _Atlas;
             sampler2D _MainTex; float4 _MainTex_ST;
@@ -261,8 +287,12 @@ Shader "GloomhavenVR/EnvHaunt"
                 float4 env     : TEXCOORD1;  // reveal, hold, fade, sway (or blink lag)
                 float4 mv      : TEXCOORD2;  // SOLID/CROSS: move dir.xyz, metres
                                              // DECAL: xy = atlas tile-space uv
-                                             // PROP: xyz = the tipping pivot
+                                             // PROP: unused (zero) — the hinge
+                                             //   used to live here and now lives
+                                             //   on the material, once, shared
+                                             //   with the riders. See KIND 4.
                 float4 rot     : TEXCOORD3;  // rotation axis.xyz, angle (rad)
+                                             // PROP: unused (zero), same reason
                 fixed4 color   : COLOR;      // SOLID: BAKED lit colour, a = opacity
                                              // DECAL: colour, a = per-vertex softness
                                              // PROP: tint
@@ -277,6 +307,13 @@ Shader "GloomhavenVR/EnvHaunt"
                 float3 n     : TEXCOORD3;
                 float3 t     : TEXCOORD4;
                 float3 b     : TEXCOORD5;
+                // SHELF RIDERS: the candle standing on this shelf is the light
+                // that lights it, so when the shelf goes over the light has to go
+                // with it. xyz is that slot's object-space position AFTER the
+                // tip, w is the flame's life (0 while it is out). A per-draw
+                // constant, computed once in the vertex shader — see
+                // GhvrTipLight. PROP only; the apparitions take no rig light.
+                float4 tipL  : TEXCOORD6;
                 fixed4 color : COLOR;
             };
 
@@ -338,32 +375,6 @@ Shader "GloomhavenVR/EnvHaunt"
                 return lcol.rgb * (atten * ndl * GhvrHauntFlicker(lcol.a * flickMul, phase, rate));
             }
 
-            /// The bookshelf's tip-over, as a pure function of the event phase.
-            ///
-            /// IT FALLS FAST AND GETS UP SLOWLY, which is the whole picture: a
-            /// shelf goes over in about a second under gravity and then stands
-            /// itself back up over five, against nothing, which is the part that
-            /// is wrong. Both halves are shaped curves of `phase` and NOTHING IS
-            /// INTEGRATED — the schedule is the only thing that decides where the
-            /// shelf is at time t, so a player who joins mid-event, or an event
-            /// cut off by the slot ending, cannot leave it lying down.
-            float GhvrShelfTip (float ph)
-            {
-                // 0.00-0.18  the topple: a quadratic, i.e. constant angular
-                //            acceleration, which is what a falling body does
-                // 0.18-0.24  the landing, held flat with one small bounce
-                // 0.24-0.62  it lies there. This is the part that has to be long
-                //            enough for somebody to walk over and look at it.
-                // 0.62-1.00  it comes back up, slowly and evenly, and eases into
-                //            standing so the last degree is not a snap.
-                float fall  = saturate(ph / 0.18);
-                float down  = fall * fall;
-                float bounce = -0.055 * sin(saturate((ph - 0.18) / 0.06) * GHVR_PI)
-                             * step(0.18, ph) * step(ph, 0.24);
-                float rise  = smoothstep(0.62, 1.00, ph);
-                return saturate(down - rise) + bounce * step(ph, 0.62);
-            }
-
             // ------------------------------------------------------------ vertex
             v2f vert (appdata v)
             {
@@ -394,12 +405,24 @@ Shader "GloomhavenVR/EnvHaunt"
                 {
                     // ---- the tipping bookshelf. Always drawn; the schedule only
                     // decides the angle, and outside the event that angle is 0.
-                    float ang = v.rot.w * GhvrShelfTip(phase);
-                    float3 ax = normalize(v.rot.xyz + float3(0, 1e-6, 0));
-                    P = GhvrHauntRot(P, v.mv.xyz, ax, ang);
-                    N = GhvrHauntRot(N, float3(0, 0, 0), ax, ang);
+                    //
+                    // The pose comes from GhvrTipNow() — the SAME call, on the
+                    // same four material vectors, that the wax candle standing on
+                    // this shelf, its flame, its halo and the two fires seated on
+                    // it all make. That is what makes "the candle stays on the
+                    // shelf" a property of the construction rather than a thing
+                    // to be tuned: there is one rotation, and five materials
+                    // apply it. (`phase` above is still computed from the mesh's
+                    // own lanes and is still what the fragment shades with; it is
+                    // bit-identical to tip.phase because both come from
+                    // GhvrHauntEnvelope on the same schedule with the same
+                    // authored envelope — the builder writes the mesh lane and
+                    // the material vector from the same C# variable.)
+                    GhvrTip tip = GhvrTipNow(t);
+                    P = GhvrTipPoint(tip, P);
+                    N = GhvrTipDir(tip, N);
                     // the tangent has to turn with it or the normal map shears
-                    float3 T = GhvrHauntRot(v.tangent.xyz, float3(0, 0, 0), ax, ang);
+                    float3 T = GhvrTipDir(tip, v.tangent.xyz);
                     v2f o;
                     o.pos = UnityObjectToClipPos(float4(P, 1.0));
                     o.uv = float4(0, 1, phase, -1);
@@ -408,6 +431,9 @@ Shader "GloomhavenVR/EnvHaunt"
                     o.n = N;
                     o.t = T;
                     o.b = cross(N, T) * v.tangent.w;
+                    // ...and the candle that is standing on this shelf is one of
+                    // the three lights that light it, so it travels too.
+                    o.tipL = GhvrTipLight(tip, _L0Pos, _L1Pos, _L2Pos);
                     o.color = v.color;
                     return o;
                 }
@@ -480,6 +506,10 @@ Shader "GloomhavenVR/EnvHaunt"
                 o.n = N;
                 o.t = float3(1, 0, 0);
                 o.b = float3(0, 0, 1);
+                // apparitions carry their own baked key and read no rig light at
+                // all (see the NO LIGHT RIG note in BuildHaunts), so this lane is
+                // written to the identity rather than left undefined.
+                o.tipL = float4(0, 0, 0, 1);
                 o.color = v.color;
                 return o;
             }
@@ -513,11 +543,23 @@ Shader "GloomhavenVR/EnvHaunt"
                         dirGain = GhvrDirGain(e); hardMul = GhvrSrcHard(e);
                         flickMul = 1.0 + 1.20 * e.air;
                     }
+                    // SHELF RIDERS — the candle standing on this shelf is one of
+                    // the three lights that light it, so the slot named by
+                    // _TipUse.y travels with the shelf (i.tipL.xyz) and dims with
+                    // the flame (i.tipL.w). Without a ridden slot GhvrTipSlot
+                    // touches nothing, so the three lines below are the shipped
+                    // ones, bit for bit.
+                    float4 p0 = _L0Pos, p1 = _L1Pos, p2 = _L2Pos;
+                    fixed4 c0 = _L0Col, c1 = _L1Col, c2 = _L2Col;
+                    GhvrTipSlot(i.tipL, 0.0, p0, c0);
+                    GhvrTipSlot(i.tipL, 1.0, p1, c1);
+                    GhvrTipSlot(i.tipL, 2.0, p2, c2);
+
                     float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5) * ambGain;
                     light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz))) * dirGain;
-                    light += GhvrHauntPoint(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00, flickMul, hardMul) * srcGain;
-                    light += GhvrHauntPoint(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83, flickMul, hardMul) * srcGain;
-                    light += GhvrHauntPoint(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19, flickMul, hardMul) * srcGain;
+                    light += GhvrHauntPoint(p0, c0, i.opos, N, 0.0, 1.00, flickMul, hardMul) * srcGain;
+                    light += GhvrHauntPoint(p1, c1, i.opos, N, 2.1, 0.83, flickMul, hardMul) * srcGain;
+                    light += GhvrHauntPoint(p2, c2, i.opos, N, 4.4, 1.19, flickMul, hardMul) * srcGain;
                     return fixed4(alb.rgb * light, 1.0);
                 }
 

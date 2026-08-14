@@ -86,12 +86,37 @@ Shader "GloomhavenVR/EnvRoom"
         _FirePos2 ("Fire seat 2 (OBJECT space, w=1/range)", Vector) = (0,0,0,1)
         _FireCol ("Fire wash colour (a = flicker depth)", Color) = (0,0,0,0)
         _FireRate ("Fire flicker rate (Hz)", Float) = 6
+        // ...and which of the three seats is standing on the bookshelf that
+        // topples. See EnvFire.cginc; zero on every material in the forest and
+        // on the two cellar sites that stand on the floor.
+        _FireRide ("Fire seats that ride the tipping shelf", Vector) = (0,0,0,0)
+
+        // ---- SHELF RIDERS (EnvShelfTip.cginc) -------------------------------
+        // USER, ModBuild 144: "Die Kerzen und das Feuer, die auf dem Bücherregal
+        // stehen, kippen nicht mit - das musst du beheben das ist ein echter
+        // Bug." Two DIFFERENT things in this shader answer that:
+        //   * the WAX of the shelf candle is an EnvRoom material, so _TipUse.x
+        //     moves its geometry with the shelf;
+        //   * every lit surface in the cellar is lit BY that candle, so
+        //     _TipUse.y names the baked light slot whose position travels with
+        //     it and whose colour dies with its flame. That second one is why
+        //     the whole room carries these five and not just the candle.
+        // All zero = the material has never heard of the bookshelf.
+        _TipPivot ("Shelf hinge (OBJECT space, w = pose valid)", Vector) = (0,0,0,0)
+        _TipAxis ("Shelf hinge axis (OBJECT space, w = max angle rad)", Vector) = (0,0,0,0)
+        _TipSched ("Shelf schedule (period, cards, card)", Vector) = (0,0,0,0)
+        _TipEnv ("Shelf event envelope (reveal, hold, fade)", Vector) = (0,0,0,0)
+        _TipUse ("Ride self, lit slot, gutters, flame stiffness", Vector) = (0,-1,0,0)
     }
 
     CGINCLUDE
     #include "UnityCG.cginc"
     #include "EnvElement.cginc"
     #include "EnvGrowth.cginc"
+    // The fire wash and, through it, the tipping shelf's pose. Both channels are
+    // declared there — _FirePos0..2/_FireCol/_FireRate/_FireRide and the five
+    // _Tip* vectors — so this shader declares neither a second time.
+    #include "EnvFire.cginc"
 
     sampler2D _MainTex; float4 _MainTex_ST;
     sampler2D _BumpMap;
@@ -100,8 +125,6 @@ Shader "GloomhavenVR/EnvRoom"
     float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _RimDir;
     float4 _ElemCentre;
     float _ElemRad, _ElemFrost, _ElemWarm, _ElemMoss, _ElemScl, _ElemGrowFreq;
-    float4 _FirePos0, _FirePos1, _FirePos2;
-    fixed4 _FireCol; float _FireRate;
 
     // PREVIEW-ONLY global clock offset. Never set at runtime (=> 0, the shipped
     // behaviour); EnvironmentsPreview sets it with Shader.SetGlobalFloat so a
@@ -128,19 +151,41 @@ Shader "GloomhavenVR/EnvRoom"
         float3 t      : TEXCOORD3; // object-space tangent
         float3 b      : TEXCOORD4; // object-space bitangent
         float3 ov     : TEXCOORD5; // object-space view vector (rim light only)
+        // SHELF RIDERS: the one baked light slot that stands on the tipping
+        // bookshelf, moved with it, plus that flame's life in w. w < 0 means
+        // "nothing rides" and is the only value the fragment tests, so every
+        // material in both rooms that is not near the shelf takes exactly the
+        // path it took before this existed. See GhvrTipLight.
+        float4 tipL   : TEXCOORD6;
         fixed4 vcol   : COLOR;
     };
 
     v2f vert (appdata v)
     {
         v2f o;
-        o.pos = UnityObjectToClipPos(v.vertex);
+        // SHELF RIDERS — the WAX. The shelf candle's wax is welded into an
+        // EnvRoom mesh (CandleGroup), so the only thing that can move it at
+        // runtime is this vertex shader; _TipUse.x is what says it must.
+        // GhvrTipPoint/GhvrTipDir are the identity — the same registers, not a
+        // rotation by zero — whenever the shelf is standing.
+        GhvrTip tip = GhvrTipNow(_Time.y + _GhvrTimeOfs);
+        float4 vpos = v.vertex;
+        float3 vnrm = v.normal;
+        float3 vtan = v.tangent.xyz;
+        if (tip.live > 0.5 && _TipUse.x > 0.5)
+        {
+            vpos.xyz = GhvrTipPoint(tip, vpos.xyz);
+            vnrm = GhvrTipDir(tip, vnrm);
+            vtan = GhvrTipDir(tip, vtan);
+        }
+        o.pos = UnityObjectToClipPos(vpos);
         o.uv = TRANSFORM_TEX(v.uv, _MainTex);
-        o.opos = v.vertex.xyz;
-        o.n = v.normal;
-        o.t = v.tangent.xyz;
-        o.b = cross(v.normal, v.tangent.xyz) * v.tangent.w;
-        o.ov = ObjSpaceViewDir(v.vertex);
+        o.opos = vpos.xyz;
+        o.n = vnrm;
+        o.t = vtan;
+        o.b = cross(vnrm, vtan) * v.tangent.w;
+        o.ov = ObjSpaceViewDir(vpos);
+        o.tipL = GhvrTipLight(tip, _L0Pos, _L1Pos, _L2Pos);
         o.vcol = v.color;
         return o;
     }
@@ -204,44 +249,15 @@ Shader "GloomhavenVR/EnvRoom"
         return lcol.rgb * (atten * ndl * Flicker(lcol.a * flickMul, phase, rate));
     }
 
-    // ---- FIRE SEATS: the receiving half of the fire lane's contract --------
-    // Up to three seats, an ordinary point-light term each, with the SAME
-    // (1 - (d/r)^2)^2 window PointLight uses — but deliberately WITHOUT its
-    // near-field _PtHard divisor, which exists to shrink a candle's pool to its
-    // own table (user ruling, ModBuild 134) and would shrink a bonfire to the
-    // size of a candle with it.
-    //
-    // One GhvrWave4 gives all three flickers for the price of one: three
-    // incommensurate rates off the same call, so two fires in one room never
-    // pulse as a pair. No sin(), and the flicker is bounded, so `_FireCol.a` is
-    // a depth in the plain sense.
-    //
-    // EXACTLY ZERO WITH FIRE DOWN, three times over: the caller multiplies by
-    // e.fire, the caller only enters the block at all when e.fire > 0, and an
-    // unwritten _FireCol is black.
-    float3 FireSeats (float3 opos, float3 N, float t)
-    {
-        float3 w;
-        {
-            float3 lv = _FirePos0.xyz - opos; float q = dot(lv, lv) * _FirePos0.w * _FirePos0.w;
-            float x = saturate(1.0 - q);
-            w.x = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-        }
-        {
-            float3 lv = _FirePos1.xyz - opos; float q = dot(lv, lv) * _FirePos1.w * _FirePos1.w;
-            float x = saturate(1.0 - q);
-            w.y = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-        }
-        {
-            float3 lv = _FirePos2.xyz - opos; float q = dot(lv, lv) * _FirePos2.w * _FirePos2.w;
-            float x = saturate(1.0 - q);
-            w.z = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-        }
-        float4 f = GhvrWave4(t * _FireRate * float4(1.00, 0.83, 1.19, 0.0)
-                             + float4(0.0, 0.37, 0.71, 0.0));
-        w *= 1.0 + _FireCol.a * f.xyz;
-        return _FireCol.rgb * (w.x + w.y + w.z);
-    }
+    // ---- FIRE SEATS ------------------------------------------------------
+    // The receiving half of the fire contract used to be implemented here AND,
+    // character for character, in EnvGround.shader. It is now GhvrFireSeats() in
+    // EnvFire.cginc, ONCE, because ModBuild 145 gave it a third obligation it
+    // could not have met as two copies: the flicker has to agree with the FLAME
+    // as well as with the other room's floor, and two fires seated on a
+    // bookshelf have to move when the bookshelf does. Read that file for the
+    // window, for why _PtHard is deliberately left out of it, and for why the
+    // whole term is exactly zero with Fire down.
 
     fixed4 fragCore (v2f i, float face)
     {
@@ -372,6 +388,9 @@ Shader "GloomhavenVR/EnvRoom"
         // GROWTH needs them; the mood is read once for the whole shader.)
         float ambGain = 1.0, dirGain = 1.0, flickMul = 1.0;
         float3 elemAdd = float3(0, 0, 0);
+        // ...and the fire wash, kept SEPARATE because it is added at a different
+        // point — after the vertex fade. See the bottom of this function.
+        float3 fireAdd = float3(0, 0, 0);
         float3 rimTint = float3(1, 1, 1);
         if (e.live > 0.0)
         {
@@ -422,7 +441,8 @@ Shader "GloomhavenVR/EnvRoom"
             // above: the rim says "there is fire in this room", a seat says
             // "there is a fire HERE, and this is the wall it stands against".
             // The fire lane writes the seats; this is the receiving term.
-            if (e.fire > 0.0) elemAdd += FireSeats(i.opos, N, t) * e.fire;
+            if (e.fire > 0.0)
+                fireAdd = GhvrFireSeats(i.opos, N, t, GhvrTipNow(t), e) * e.fire;
 
             // ---- EARTH: the moss is grown above; here is only its SHEEN.
             // A grazing-angle wet gloss, cold and very small, and now weighted
@@ -467,9 +487,21 @@ Shader "GloomhavenVR/EnvRoom"
         // accumulation order stays exactly as it was.
         // The `* srcGain` that stood on each of these three lines in ModBuild
         // 142/143 is gone: see the ruling quoted at PointLight.
-        light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00, flickMul);
-        light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83, flickMul);
-        light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19, flickMul);
+        //
+        // SHELF RIDERS — THE LIGHT FOLLOWS ITS SOURCE. One of these three slots
+        // may be a candle standing on the bookshelf that topples; GhvrTipSlot
+        // moves that one to where the candle now is and dims it with the flame's
+        // life, and TOUCHES NOTHING when nothing is riding, so the accumulation
+        // below is the shipped one bit for bit. (The order of the three
+        // accumulations still may not change — see the note above.)
+        float4 p0 = _L0Pos, p1 = _L1Pos, p2 = _L2Pos;
+        fixed4 c0 = _L0Col, c1 = _L1Col, c2 = _L2Col;
+        GhvrTipSlot(i.tipL, 0.0, p0, c0);
+        GhvrTipSlot(i.tipL, 1.0, p1, c1);
+        GhvrTipSlot(i.tipL, 2.0, p2, c2);
+        light += PointLight(p0, c0, i.opos, N, 0.0, 1.00, flickMul);
+        light += PointLight(p1, c1, i.opos, N, 2.1, 0.83, flickMul);
+        light += PointLight(p2, c2, i.opos, N, 4.4, 1.19, flickMul);
 
         float3 col = alb.rgb * light + elemAdd * alb.rgb;
 
@@ -489,6 +521,19 @@ Shader "GloomhavenVR/EnvRoom"
         // can never disagree about how bright the moon is.
         col += _RimCol.rgb * (rim * dirGain) * rimTint;
         col *= lerp(float3(1, 1, 1), i.vcol.rgb, _VCol);
+        // ...AND THE FIRE WASH, AFTER the vertex fade, which is the one term in
+        // this shader deliberately outside it.
+        //
+        // _VCol is the forest's DEPTH DISSOLVE (EnvRoomBuilder's Depth(): 1.0 in
+        // the clearing falling to 0.010 by ten metres), i.e. aerial perspective
+        // on MOONLIT surfaces — a stand-in for "you cannot see that far in a wood
+        // at night", and the single number the "man traut sich nicht dahinter"
+        // ruling is made of. A tree that is ON FIRE at seven metres is exactly
+        // the thing you CAN see that far, and the first bake proved it by
+        // contradiction: the burning snag's bark stayed blue-grey because its own
+        // fire's wash had been multiplied by 0.35. In the cellar _VCol is 0 and
+        // this line is identical to adding it above. Still zero with Fire down.
+        col += fireAdd * alb.rgb;
         return fixed4(col, 1.0);
     }
     ENDCG

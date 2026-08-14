@@ -39,7 +39,7 @@ Material:
     - _ElemRad: 12.631579
     - _ElemScl: 0.95
     - _ElemWarm: 1.8
-    - _FireRate: 6
+    - _FireRate: 4.6
     - _PtHard: 0
     - _RimPow: 3
     - _VCol: 0
@@ -49,10 +49,11 @@ Material:
     - _DirCol: {r: 0.7, g: 0.79, b: 0.94, a: 1}
     - _DirDir: {r: 0.4796644, g: -0.11407092, b: 0.8700057, a: 0}
     - _ElemCentre: {r: -2.1021657, g: -1.2530758, b: 8.160622, a: 0}
-    - _FireCol: {r: 0, g: 0, b: 0, a: 0}
-    - _FirePos0: {r: 0, g: 0, b: 0, a: 1}
-    - _FirePos1: {r: 0, g: 0, b: 0, a: 1}
-    - _FirePos2: {r: 0, g: 0, b: 0, a: 1}
+    - _FireCol: {r: 0.92, g: 0.35, b: 0.11, a: 0.55}
+    - _FirePos0: {r: -1.951326, g: 4.713386, b: 5.214659, a: 0.15833333}
+    - _FirePos1: {r: -2.6314385, g: -5.867571, b: 15.607897, a: 0.18269232}
+    - _FirePos2: {r: -0.9859588, g: 3.5790973, b: 0.6833738, a: 0.19}
+    - _FireRide: {r: 0, g: 0, b: 0, a: 0}
     - _L0Col: {r: 0.11, g: 0.26, b: 0.16, a: 0.22}
     - _L0Pos: {r: 0.25611308, g: 1.0567038, b: 0.68113184, a: 0.17272727}
     - _L1Col: {r: 0.26, g: 0.145, b: 0.055, a: 0.3}
@@ -62,4 +63,9 @@ Material:
     - _RimCol: {r: 0, g: 0, b: 0, a: 1}
     - _RimDir: {r: 0.4796644, g: -0.11407092, b: 0.8700057, a: 0}
     - _Tint: {r: 0.5605362, g: 0.5605362, b: 0.5605362, a: 1}
+    - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
+    - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _TipPivot: {r: 0, g: 0, b: 0, a: 0}
+    - _TipSched: {r: 0, g: 0, b: 0, a: 0}
+    - _TipUse: {r: 0, g: -1, b: 0, a: 0}
   m_BuildTextureStacks: []
