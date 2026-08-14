@@ -860,6 +860,16 @@ internal static class SkyAlternative
         // reached on the MR-OFF branch, which is exactly the gating it wants.
         EnvSound.Tick(_roomPlaced ? _roomGo : null, style, anchor.lossyScale.x);
 
+        // HAUNT FIGURES — the apparitions that are real game monsters (Core/HauntFigures.cs).
+        // Ticked HERE, immediately after the sound and for the same three reasons: it needs THIS
+        // frame's shared clock (TickEnvClock ran above), it needs the room root, and neither the
+        // root nor the applied style has an accessor — handing them in keeps that encapsulation
+        // rather than opening the branches up to the whole mod. Like the sound and unlike the
+        // element mood it is attached to GEOMETRY, so the MR-OFF-only gating this method already
+        // provides is exactly the gating it wants. The room is passed only once PLACED: a monster
+        // walking past a window whose pose is not resolved yet would walk through the wrong wall.
+        HauntFigures.Tick(_roomPlaced ? _roomGo : null, style);
+
         if (!_active || !_loggedActive)
         {
             _active = true;
@@ -904,6 +914,7 @@ internal static class SkyAlternative
         // would also be precisely the disembodied stereo bed the user ruled out when he asked for
         // sounds that are "verortbar von seinen entsprechenden Quellen".
         EnvSound.StandDown("the environment stood down (mixed reality, or the style changed)");
+        HauntFigures.StandDown("the environment stood down (mixed reality, or the style changed)");
         Deactivate();
     }
 
@@ -919,6 +930,7 @@ internal static class SkyAlternative
         // of noise on every mixed-reality toggle would be pure waste) — but a rig that is gone must
         // leave nothing at all behind, audio buffers included.
         EnvSound.ReleaseAll("the environment was torn down (VR stopped, or the rig was destroyed)");
+        HauntFigures.ReleaseAll("the environment was torn down (VR stopped, or the rig was destroyed)");
         Deactivate();
         _missingWarned = false;
         _scanNextFrame = 0;

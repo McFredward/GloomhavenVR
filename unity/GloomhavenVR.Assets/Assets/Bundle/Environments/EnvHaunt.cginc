@@ -156,6 +156,49 @@ float4 _GhvrHaunt;
 // forcing.
 float4 _GhvrHauntForce;
 
+// ------------------------------------------------- the REPLACEMENT channel
+// HAUNT FIGURES. Published by Core/HauntFigures.cs, whose class doc is the ONE
+// canonical statement of this contract; nothing else in the mod may write it.
+//
+//   _GhvrHauntFigures.x = SUPPRESS MASK. A bitmask of THIS room's card indices,
+//                         carried as an exact small integer in a float (0..63).
+//                         Bit k set means "card k is being played by one of the
+//                         GAME'S OWN enemy models right now, so the apparition
+//                         this bundle would draw for it must not be drawn".
+//   _GhvrHauntFigures.yzw reserved (0).
+//
+// WHY THIS EXISTS AT ALL. USER, after testing the shader-drawn apparitions:
+//   "Ich hab getestet und mir gefallen die Figuren und animationen gar nicht.
+//    Ich habe eine andere Idee. Ich möchte dass du die Gegner-Figuren aus dem
+//    Spiel nimmst (insbesondere die grusiligen), die die eingebauten passenden
+//    Animationen ausführen (zB vorbeilaufen)."
+// Four of the twelve cards are now real, rigged, animated monsters spawned by
+// the C# side and walking on their own legs. The other eight are untouched and
+// are still drawn here — including the two that are not creatures at all, the
+// TOPPLING BOOKSHELF and the TREMBLE card that draws nothing and only shivers
+// the cobwebs. If the mask were ever to reach those, a prop would stop falling.
+//
+// ZERO IS THE SAFE STATE AND IS ALSO THE UNWRITTEN STATE. An unset global reads
+// as 0, which suppresses nothing, which is byte-for-byte the behaviour this
+// bundle had before this channel existed. Every failure on the C# side — no
+// bundle, no such monster, an exception — ends with 0 published, so the player
+// keeps getting apparitions rather than an empty room. That is why the
+// suppression is a runtime mask and not a bake-time deletion of the cards.
+float4 _GhvrHauntFigures;
+
+/// Is card `c` currently being played by a real figure instead of by us?
+/// Extracted with exp2/floor rather than with integer ops: `c` arrives as a
+/// float from a mesh UV lane or a material property and has usually been through
+/// an interpolator, so it is rounded first — the same defensiveness the rest of
+/// this file applies to card comparisons (`abs(a-b) < 0.5`, never `==`).
+float GhvrHauntReplaced (float c)
+{
+    float k = floor(c + 0.5);
+    if (k < 0.0 || k > 15.0) return 0.0;          // nothing outside a card index
+    float bit = floor(_GhvrHauntFigures.x / exp2(k));
+    return step(0.5, bit - 2.0 * floor(bit * 0.5));
+}
+
 // The element mood, for flavour and for readability compensation. It comes from
 // EnvElement.cginc, which is the bundle's ONE quotation of Core/ElementMood.cs's
 // contract.
@@ -234,9 +277,14 @@ struct GhvrHaunt
     float varC;
 };
 
-/// Decide the slot that contains time `t`. `cards` is the room's event count and
-/// MUST be a positive multiple of GHVR_HAUNT_GROUPS (the bake asserts it).
-GhvrHaunt GhvrHauntAt (float t, float period, float cards)
+/// Decide the slot that contains time `t`, WITHOUT the figure-replacement mask.
+/// `cards` is the room's event count and MUST be a positive multiple of
+/// GHVR_HAUNT_GROUPS (the bake asserts it).
+///
+/// THIS IS THE SCHEDULE, and the schedule is not affected by who draws an event.
+/// Only GhvrHauntPresence reads it — see the block on GhvrHauntAt below for the
+/// whole argument about why the two are separate.
+GhvrHaunt GhvrHauntAtRaw (float t, float period, float cards)
 {
     GhvrHaunt h;
     float per = max(period, 1.0);
@@ -297,6 +345,53 @@ GhvrHaunt GhvrHauntAt (float t, float period, float cards)
     return h;
 }
 
+/// The schedule AS THE DRAWING SHADER SEES IT: the same slot, with any card that
+/// a real game monster is playing this frame marked as "not mine to draw".
+///
+/// ============================================================================
+/// WHY THE MASK IS APPLIED HERE AND NOT INSIDE GhvrHauntPresence, WHICH IS THE
+/// ONE NON-OBVIOUS THING ABOUT THIS WHOLE MECHANISM.
+///
+/// Four shaders read this schedule and only ONE of them draws an apparition:
+///   * EnvHaunt      DRAWS   — and must stop, for a replaced card;
+///   * EnvBeam       REACTS  — the moonbeam dims while something is at the
+///                             cellar window, and it should STILL dim, because
+///                             now something really is;
+///   * EnvRoomCutout REACTS  — the cobwebs shiver on the tremble card, which is
+///                             not replaced at all;
+///   * EnvCritter    DEFERS  — the rat only stares in a slot the haunt schedule
+///                             left QUIET, and it must keep deferring, or the
+///                             rat would cross the floor while a monster walks
+///                             past the window. Two events at once is exactly
+///                             what the group partition exists to prevent.
+///
+/// So suppression must reach the drawing and must not reach the reacting or the
+/// deferring. The split is what does that, and the shape of the split is forced
+/// by a constraint: NO .shader FILE MAY BE EDITED for this (they are owned by
+/// other lanes this round), so the mask has to work through a call the drawing
+/// shader already makes and the reactors do not.
+///
+///   GhvrHauntAtRaw  — the schedule. GhvrHauntPresence calls it, so the beam and
+///                     the webs are bit-identical to before this existed.
+///   GhvrHauntAt     — this. EnvHaunt.shader and EnvCritter.shader call it.
+///
+/// AND THE MASK IS EXPRESSED AS `card = -1`, not as `live = 0`, which is the
+/// second half of the trick. EnvHaunt.shader draws a vertex only when its own
+/// card lane matches h.card (`step(abs(h.card - v.uv.x), 0.5)`), so a card index
+/// no mesh owns makes every existing test answer "not mine" with no new test and
+/// no shader edit. EnvCritter reads only h.live, which is untouched — so the rat
+/// still knows the slot is busy even though this file has stopped drawing it.
+/// ============================================================================
+GhvrHaunt GhvrHauntAt (float t, float period, float cards)
+{
+    GhvrHaunt h = GhvrHauntAtRaw(t, period, cards);
+    // -1 is not a card. lerp rather than a branch: this runs per vertex on every
+    // apparition card in the room and the condition is uniform, but a select is
+    // free and a branch is only nearly free.
+    h.card = lerp(h.card, -1.0, GhvrHauntReplaced(h.card));
+    return h;
+}
+
 /// The envelope of one event, and the phase through it.
 ///
 /// THE ASYMMETRY IS THE WHOLE TRICK, so it is a parameter rather than a curve:
@@ -327,10 +422,16 @@ float GhvrHauntEnvelope (float sIn, float start, float rev, float hold, float fa
 /// Presence of ONE named card at time t — the read the shaders that merely
 /// REACT to a haunt use (the beam that dims, the webs that shiver). Returns 0
 /// unless that card is this slot's event, this slot fires, and we are inside it.
+///
+/// IT READS THE RAW SCHEDULE, DELIBERATELY. A card played by a real monster is
+/// still HAPPENING; it is only being drawn by something else. The moonbeam
+/// should dim while a figure crosses the cellar window — more so than before,
+/// because now the thing casting the shadow exists — and the cobwebs' card is
+/// not replaced at all. See the block on GhvrHauntAt.
 float GhvrHauntPresence (float t, float period, float cards, float card,
                          float rev, float hold, float fade)
 {
-    GhvrHaunt h = GhvrHauntAt(t, period, cards);
+    GhvrHaunt h = GhvrHauntAtRaw(t, period, cards);
     float phase;
     float a = GhvrHauntEnvelope(h.sIn, h.start, rev, hold, fade, h.durMul, phase);
     // abs()<0.5 rather than ==: card indices are small integers carried in
