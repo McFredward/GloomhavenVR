@@ -103,6 +103,12 @@ internal static partial class VROptionsTab
         //      (Core/ElementMood.Tick).
         ["Elements/ResponseStrength"] = new("Elements", "EnvironmentResponse", On),
 
+        // ---- Grafik ▸ Darstellung: the haunt frequency is the tuning OF its toggle, and the same
+        //      literal truth holds — with 'EasterEggs' off, Core/Haunt.Tick stands the channel down
+        //      on its first line and the published master is 0 whatever the dial says, so every
+        //      apparition's card is collapsed to a point before the dial is ever read.
+        ["Haunt/Frequency"] = new("Haunt", "EasterEggs", On),
+
         // ---- Brett & Karten: THE NAMED CASE — the pitch window only exists in the
         //      "Begrenzt mit Neigung" scheme (BoardMoveMode.LimitedPitch, whose own enum doc names
         //      BoardPitchMin/Max as the window it clamps to). All six per-board keys, so the pair

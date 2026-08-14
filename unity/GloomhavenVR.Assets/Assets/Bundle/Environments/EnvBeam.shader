@@ -147,6 +147,27 @@ Shader "GloomhavenVR/EnvBeam"
         _BarSig ("Bar shadow half-width at the aperture (m)", Float) = 0.030
         _BarBlur ("Penumbra growth per metre", Float) = 0.085
         _BarFade ("Bar shadow fade length (m)", Float) = 0.9
+
+        // HAUNT — the thing at the window, seen from inside the room.
+        //
+        // One of the cellar's six easter eggs is a head and two shoulders leaning
+        // into the barred opening (EnvHaunt card "Window"). What makes it
+        // believable rather than a sticker on the glass is that the LIGHT ANSWERS:
+        // while it is there the beam this shader draws loses _HauntDepth of its
+        // strength, because something is standing between the room and the moon.
+        // The player is already using that light to see by, so the room changes
+        // under them and not just in front of them.
+        //
+        // The two shaders never talk. They both evaluate the SAME schedule from
+        // the SAME shared clock (EnvHaunt.cginc), so the dim and the silhouette
+        // are the same event by construction rather than by synchronisation —
+        // there is nothing to drift. _HauntDepth = 0 (the default) is a hard off
+        // and costs one uniform compare in the vertex shader.
+        _HauntDepth ("Haunt beam occlusion (0 = off)", Range(0,1)) = 0
+        _HauntPeriod ("Haunt slot beat (s)", Float) = 83
+        _HauntCards ("Haunt event count in this room", Float) = 6
+        _HauntWatch ("Which haunt event occludes the beam (-1 = none)", Float) = -1
+        _HauntEnv ("Watched event envelope: reveal, hold, fade, (unused)", Vector) = (0,1,1,0)
     }
     SubShader
     {
@@ -171,8 +192,11 @@ Shader "GloomhavenVR/EnvBeam"
             #pragma fragment frag
             #pragma target 3.0
             #include "UnityCG.cginc"
+            #include "EnvHaunt.cginc"
 
             fixed4 _Tint;
+            float _HauntDepth, _HauntPeriod, _HauntCards, _HauntWatch;
+            float4 _HauntEnv;
             float4 _BeamOrg, _BeamDir;
             float _Len, _W0, _WK, _Ramp, _Decay, _EndFade, _Knee, _HullR, _Steps;
             float _Shimmer, _ShimmerSpeed;
@@ -182,7 +206,12 @@ Shader "GloomhavenVR/EnvBeam"
             float _RadPow;
 
             struct appdata { float4 vertex : POSITION; };
-            struct v2f { float4 pos : SV_POSITION; float3 opos : TEXCOORD0; float4 spos : TEXCOORD1; };
+            // .haunt is the beam's dimming factor. It is CONSTANT over the whole
+            // hull, so computing it per vertex and letting the interpolator carry
+            // it is exact, not an approximation — and it keeps the schedule out of
+            // a fragment program that already runs a 24-tap integral per pixel.
+            struct v2f { float4 pos : SV_POSITION; float3 opos : TEXCOORD0; float4 spos : TEXCOORD1;
+                         float haunt : TEXCOORD2; };
 
             // Interleaved gradient noise (Jimenez, SIGGRAPH 2014), as used on
             // the sky gradient. A beam is a very smooth ramp across ~10 of 256
@@ -199,6 +228,16 @@ Shader "GloomhavenVR/EnvBeam"
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.opos = v.vertex.xyz;
                 o.spos = ComputeScreenPos(o.pos);
+                // HAUNT: the RAW clock, deliberately — the fragment's `t` below is
+                // fmod'd to SKY_PERIOD for the shimmer, and feeding a wrapped clock
+                // to a slot schedule would restart the whole haunt calendar every
+                // 48 minutes on a different slot boundary per client.
+                float traw = _Time.y + _GhvrTimeOfs;
+                o.haunt = (_HauntDepth > 1e-4)
+                    ? 1.0 - _HauntDepth * GhvrHauntPresence(traw, _HauntPeriod, _HauntCards,
+                                                            _HauntWatch, _HauntEnv.x, _HauntEnv.y,
+                                                            _HauntEnv.z)
+                    : 1.0;
                 return o;
             }
 
@@ -281,7 +320,12 @@ Shader "GloomhavenVR/EnvBeam"
                                            * sin(sm * 1.3 - t * _ShimmerSpeed * 2.9
                                                  + dot(dm, D.yzx) * 2.7));
 
-                float I = _Tint.a * acc * dt * sh / _W0;
+                // ...and the haunt's occlusion multiplies the whole integral,
+                // which is the physically right place for it: something is
+                // blocking the APERTURE, so every metre of the shaft behind it
+                // loses the same fraction at once, rather than a shadow crawling
+                // down the beam.
+                float I = _Tint.a * acc * dt * sh * i.haunt / _W0;
                 I = I / (1.0 + I * _Knee);                 // cannot blow out
                 // sub-LSB dither, on the linear value: ±0.5/255 of the final
                 // 8-bit step, applied AFTER the knee so it cannot be amplified

@@ -126,6 +126,40 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 141** — HORROR EASTER EGGS (user feature request), forest and cellar only. No wire
+  change. **Bundle 65,265,924 bytes.**
+  Twelve apparitions, six per room, plus the rat stopping to stare (6% of crossings, free). Slot
+  beat 83 s, one per slot at most, shipped at half frequency → median 1.9 min apart, shortest
+  quiet stretch 41 s.
+  **The sync is the rat's schedule pattern generalised**, and that pattern is now the project's
+  answer to "make it random but identical everywhere": cut time into slots off the SHARED clock,
+  make every decision a hash of the slot index, and never let `Random`, per-client state, head
+  input or `sin()` (vendor-divergent last bits) into it. Zero wire bytes, because the clock is
+  already shared and element state is already replicated.
+  **Nothing re-orients with the head** — the faces are world-fixed cards aimed at the BOARD, which
+  is where the player is anyway. That is the trick that makes "it looks at you" legal under the
+  permanent no-billboard ruling.
+  Placement respects the play space (cellar ≥ 4.95 m from the board, forest ≥ 7.6 m); nothing
+  flashes or lunges; longest event 8.6 s, shortest 0.34 s. Cost +12 tris and one draw call per
+  room, no textures — five of six cards collapse to a point at any instant.
+  **Elements FLAVOUR the haunt instead of fighting it**: Dark ×1.59 frequency and blacker, Light
+  ×0.65 and sharper-edged with a dark contour (so a pale apparition cannot be washed out), Fire an
+  unsteady warm rim, Ice ×1.35 duration / ×0.35 motion, Air drift, Earth sinks it. Read straight
+  off `_GhvrElemA`/`_GhvrElemB`.
+  **Assets: procedural SDF after searching six CC0 sources.** No CC0 face texture with an alpha
+  channel exists; the only CC0 human faces are 100k–600k-triangle museum life masks that cannot
+  smile, and the bundle forbids MonoBehaviours so nothing rigged could animate anyway. Drawn
+  shapes morph (the grin widens while it watches) and stay crisp at 25 m.
+  **Verified by rendering, not by intention** — `ENV_PREVIEW_OUT=… xvfb-run … RenderAll`, and the
+  preview solves the SHIPPED schedule backwards to an instant the event is really running rather
+  than forcing it with a debug constant. Two rounds of retuning came out of the renders: bodies at
+  0.020 linear rendered as the brightest thing in frame (the wood's blacks are 0.002), and two
+  SDFs had their heads swallowed by their own torsos.
+  **Open risk for hardware:** the five dark cellar silhouettes are borderline — in my own render
+  the window figure is barely separable from the wall, and a preview is BRIGHTER than the headset.
+  The beam-dim (−45% measured) carries that event even if the figure does not. Knob is `_Rim` plus
+  the per-card colours.
+
 - **ModBuild 140** — five reported items + the sensing half of the element feature. No wire change.
   **Bundle 65,255,033 bytes — 140 NEEDS it.**
   **Focus pin.** The board waits for a hex pick from the acting character, but the VR focus could

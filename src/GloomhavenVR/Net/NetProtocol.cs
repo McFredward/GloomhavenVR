@@ -416,7 +416,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 140;
+    public const ushort ModBuild = 141;
+    // Build 141: HORROR EASTER EGGS in the two bundled environments (user feature request). No
+    // wire change; the bump is the handshake key, and the BUNDLE IS REBUILT (65,265,924 bytes).
+    //
+    // Twelve apparitions, six per room, plus the rat stopping to stare (6% of its crossings, free
+    // — existing geometry). Slot beat 83 s, at most one per slot, shipped at half frequency:
+    // median 1.9 min between events, shortest quiet stretch 41 s. Everything is a SCHEDULE hashed
+    // off the shared environment clock exactly like the rat's walk — slot = floor((_Time.y +
+    // _GhvrTimeOfs) / 83), every decision H(slot, k), no Random, no per-client state, no head or
+    // camera input, and NO sin() in the hash (its last bits differ between GPU vendors and the
+    // schedule has to be bit-identical). Two clients therefore see the same apparition in the same
+    // place in the same second, with ZERO wire bytes.
+    // NOTHING RE-ORIENTS WITH THE HEAD (the permanent ruling): the faces are world-fixed cards
+    // aimed at the BOARD, which is where the player is anyway. All of it sits outside the play
+    // space (cellar >= 4.95 m from the board, forest >= 7.6 m), nothing flashes or lunges, and the
+    // longest event is 8.6 s. Cost: +12 triangles and one draw call per room, no textures — five
+    // of six cards are collapsed to a point at any instant.
+    // THE ELEMENTS FLAVOUR IT rather than fighting it (the user asked for both): Dark x1.59 more
+    // frequent and blacker, Light x0.65 and sharper-edged with a dark contour so a pale apparition
+    // cannot be washed out, Fire makes the rim unsteady and warm, Ice x1.35 duration and x0.35
+    // motion, Air drifts it, Earth sinks it and eats its lower edge. Read straight off
+    // _GhvrElemA/_GhvrElemB (ModBuild 140), so still no wire.
+    // ASSETS: procedural SDF, after searching six CC0 sources. No CC0 face texture with an alpha
+    // channel exists; the only CC0 human faces are 100k-600k-triangle museum life masks that
+    // cannot smile, and the bundle forbids MonoBehaviours so nothing rigged can animate anyway.
+    // Drawn shapes also morph — the grin widens while it watches — and stay crisp at 25 m.
+    //
     // Build 140: five reported items plus the sensing half of a new feature. No wire change; the
     // bump is the handshake key, and the BUNDLE IS REBUILT (65,255,033 bytes) — both players need
     // the new plugin AND the new bundle.

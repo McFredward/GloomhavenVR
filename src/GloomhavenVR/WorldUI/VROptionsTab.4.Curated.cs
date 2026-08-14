@@ -253,6 +253,13 @@ internal static partial class VROptionsTab
                         // and the strength dial folds under the toggle (VROptionsTab.8.Dependencies).
                         new("Elements", "EnvironmentResponse", "vr_o_elemmood"),
                         new("Elements", "ResponseStrength", "vr_o_elemmood_amt"),
+                        // HAUNT — the creepy easter eggs (user request, 2026-08-14). Directly
+                        // under the element mood because both are properties OF the environment
+                        // the row above chooses, and because a player who has just switched the
+                        // cellar on is exactly the player who wants to know this exists. The
+                        // frequency dial folds under the toggle (VROptionsTab.8.Dependencies).
+                        new("Haunt", "EasterEggs", "vr_o_haunt"),
+                        new("Haunt", "Frequency", "vr_o_haunt_freq"),
                         new("Rig", "ForwardRendering", "vr_o_forward"),
                         // "Hauptmenü in VR" ([Rig] MenuRig) is GONE with its dial (user ruling
                         // 2026-08-13): off built no rig at all outside a scenario — the main

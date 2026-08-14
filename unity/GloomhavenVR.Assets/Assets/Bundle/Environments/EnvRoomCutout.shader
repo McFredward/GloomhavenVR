@@ -31,6 +31,22 @@ Shader "GloomhavenVR/EnvRoomCutout"
         _SwayRate ("Sway rate", Float) = 0.55
         _SwayPhase ("Sway phase", Float) = 0
         _SwayDir ("Sway direction (OBJECT space)", Vector) = (0,0,1,0)
+
+        // HAUNT — the cobweb tremble. 0 (the default) is a hard off: every
+        // material that does not set _HauntTremble skips the whole block below,
+        // so the forest's ferns, grass, moss and canopy are bit-identical.
+        //
+        // One of the cellar's six easter eggs draws NOTHING (EnvHaunt kind 7):
+        // its entire content is that every web in the room shivers for about two
+        // seconds, as if something large had just gone past behind them. Doing it
+        // HERE, on the real webs, rather than drawing a shivering web somewhere,
+        // is what makes it believable — it is the room's own silk, in the room's
+        // own draught, briefly disturbed by nothing you can see.
+        _HauntTremble ("Haunt tremble amplitude (m)", Range(0,0.2)) = 0
+        _HauntPeriod ("Haunt slot beat (s)", Float) = 83
+        _HauntCards ("Haunt event count in this room", Float) = 6
+        _HauntWatch ("Which haunt event this reacts to (-1 = none)", Float) = -1
+        _HauntEnv ("Watched event envelope: reveal, hold, fade, (unused)", Vector) = (0,1,1,0)
     }
     SubShader
     {
@@ -42,12 +58,14 @@ Shader "GloomhavenVR/EnvRoomCutout"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
+            #include "EnvHaunt.cginc"
 
             sampler2D _MainTex; float4 _MainTex_ST;
             sampler2D _BumpMap;
             float _BumpScale, _VCol, _Cutoff, _PtHard, _Sway, _SwayRate, _SwayPhase;
+            float _HauntTremble, _HauntPeriod, _HauntCards, _HauntWatch;
             fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col;
-            float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _SwayDir;
+            float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _SwayDir, _HauntEnv;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             struct appdata
@@ -76,9 +94,29 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 // cobweb billow: two slow incommensurate sines, weighted by the
                 // authored freedom (vertex red) and de-phased along the web so
                 // it ripples rather than translating as a slab
-                float st = (_Time.y + _GhvrTimeOfs) * _SwayRate + _SwayPhase;
+                float t = _Time.y + _GhvrTimeOfs;
+                float st = t * _SwayRate + _SwayPhase;
                 float s = (sin(st) * 0.62 + sin(st * 1.73 + 2.1) * 0.38)
                           * _Sway * v.color.r;
+
+                // HAUNT — the tremble. A uniform branch, so it is coherent across
+                // every invocation and the materials that leave _HauntTremble at 0
+                // (all of the forest's foliage) never evaluate the schedule at all.
+                //
+                // It is a SHIVER, not a bigger sway: 14 Hz against the draught's
+                // 0.42, decaying over the event, and along the web's own normal
+                // rather than along the draught — silk that something brushed
+                // moves perpendicular to itself, and moving it along _SwayDir
+                // would just look like a gust, which the room already has.
+                if (_HauntTremble > 1e-4)
+                {
+                    float trem = GhvrHauntPresence(t, _HauntPeriod, _HauntCards, _HauntWatch,
+                                                   _HauntEnv.x, _HauntEnv.y, _HauntEnv.z);
+                    s += sin(t * 88.0 + _SwayPhase * 3.7) * exp(-(1.0 - trem) * 2.0)
+                         * _HauntTremble * trem * v.color.r * 0.35;
+                    p.xyz += v.normal * (sin(t * 71.0 + _SwayPhase * 2.3)
+                                         * _HauntTremble * trem * v.color.r);
+                }
                 p.xyz += _SwayDir.xyz * s;
                 o.pos = UnityObjectToClipPos(p);
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);

@@ -1841,6 +1841,15 @@ namespace GloomhavenVR
                 beamMat.SetFloat("_BarSig", 0.030f);
                 beamMat.SetFloat("_BarBlur", 0.095f);
                 beamMat.SetFloat("_BarFade", 0.85f);
+                // HAUNT — the beam DIMS while something is leaning in at the
+                // window. The two shaders never talk: both evaluate the same slot
+                // schedule off the same shared clock, so the dim and the silhouette
+                // are one event by construction. See EnvBeam's _HauntDepth block.
+                beamMat.SetFloat("_HauntDepth", HauntBeamDepth);
+                beamMat.SetFloat("_HauntPeriod", HauntPeriod);
+                beamMat.SetFloat("_HauntCards", HauntCellarCards);
+                beamMat.SetFloat("_HauntWatch", HauntCardWindow);
+                beamMat.SetVector("_HauntEnv", HauntWindowEnv);
                 Place(root, "MoonShaft", hullMesh, Vector3.zero, Vector3.zero, Vector3.one, beamMat);
 
                 // ---- the pool, which is now the bright end of this ----
@@ -3193,7 +3202,7 @@ namespace GloomhavenVR
                 }
                 return len;
             }
-            int runs = 0, revs = 0, turns = 0, sniffs = 0;
+            int runs = 0, revs = 0, turns = 0, sniffs = 0, stares = 0;
             var distinct = new HashSet<(int, int, int, int)>();   // routes to the nearest cm
             float lenLo = float.MaxValue, lenHi = 0f, spdLo = float.MaxValue, spdHi = 0f;
             float durLo = float.MaxValue, durHi = 0f, endLatest = 0f;
@@ -3233,6 +3242,14 @@ namespace GloomhavenVR
                 if (RatH(n, 3) < RatModes.x) revs++;
                 if (turn) turns++;
                 else if (RatH(n, 6) < RatModes.z) sniffs++;
+                // HAUNT — the stare, measured on the same three gates the shader
+                // applies: a straight crossing, channel 13 under RatStareChance,
+                // and a haunt slot the schedule left QUIET (at the shipped dial),
+                // which is what makes a stare and a drawn easter egg mutually
+                // exclusive rather than merely unlikely to coincide.
+                if (!turn && RatH(n, 13) < RatStareChance
+                    && HauntH(Mathf.Floor(t0 / HauntPeriod), HcRate) >= HauntFreqDefault)
+                    stares++;
             }
             // A run that overran its slot would be cut off mid-floor when sIn
             // wraps — the one way this scheme can produce a rat that vanishes in
@@ -3265,7 +3282,473 @@ namespace GloomhavenVR
                 + $"(the {wallZ:F2} m in z is the two HOLES, which are in the wall on purpose); "
                 + $"props {propLine} (the crates are exempt — it ends "
                 + $"under them on purpose). Moon-beam axis {beamLo:F2}..{beamHi:F2} m, "
-                + $"{100f * beamCross / runs:F0}% of crossings inside the 0.80 m the beam lights.");
+                + $"{100f * beamCross / runs:F0}% of crossings inside the 0.80 m the beam lights.\n"
+                + $"  HAUNT — THE STARE: {stares} of the {runs} crossings ({100f * stares / runs:F0}%, about "
+                + $"one in {runs / Mathf.Max(stares, 1)}) stop mid-floor and turn the head toward the ROOM "
+                + $"CENTRE for ~1 s — never toward the camera, which would be the billboard behaviour this "
+                + $"project has ruled out and would point somewhere else on every client. Gated on the haunt "
+                + $"master AND on a QUIET haunt slot, so it can never land on top of one of the six drawn "
+                + $"events; at the shipped dial ({HauntFreqDefault:F2}) that costs it about half its rolls. "
+                + $"Every {RatPeriod:F0} s slot, so roughly one stare every "
+                + $"{SLOTS * RatPeriod / Mathf.Max(stares, 1) / 60f:F0} min.");
+        }
+
+        // ================================================================ HAUNTS
+        // USER REQUEST, 2026-08-14: "'Grusel-Easter-Eggs' in den Umgebungen. Also
+        // grusilige Animationen (ohne sound) die ab und zu auftreten ... (nur Wald
+        // und Keller) ... nicht aufdringlich, eher im Hintergrund aber einen
+        // ordnelichen Gruselfaktor auslösen - wie zB eine lächelnde fratze die
+        // hinter einem Baum hervorguckt etc. ... sollen niemals den Spielfluss
+        // stören ... sollen sie synchron von allen Spielern an den selben Stellen
+        // sichtbar sein. Weiterhin sollen sie sich auch mit den aktuellen
+        // Elementen nicht im weg stehen oder deswegen ihren gruselfaktor
+        // verlieren."
+        //
+        // The DRAWING lives in EnvHaunt.shader and the SCHEDULE in EnvHaunt.cginc;
+        // read those two first. This half does three things the GPU cannot:
+        //   1. it places the cards, in metres, against the room's real geometry;
+        //   2. it GATES them — the play space, the walls, the trunks, the slot
+        //      budget, the group partition — so the bake fails rather than the
+        //      headset;
+        //   3. it MEASURES the schedule over thousands of slots and prints it, in
+        //      the rat's own style, so that a reader with the log and no Unity can
+        //      check the claims instead of taking them.
+        //
+        // The constants below are the C# MIRROR of EnvHaunt.cginc. They are
+        // duplicated for exactly the reason the rat's are (see RatH): the GPU
+        // cannot report and the log cannot render, so this is what lets the bake
+        // measure the schedule rather than describe it. Edit one, edit the other.
+        private const float HauntPeriod = 83f;      // the slot beat, seconds
+        private const float HauntStartLo = 0.15f;   // earliest start, fraction of a slot
+        private const float HauntStartSpan = 0.40f;
+        private const float HauntDurLo = 0.85f;     // per-slot duration scale
+        private const float HauntDurSpan = 0.30f;
+        private const int HauntGroups = 3;
+        // The shipped dial (Defaults.HauntFrequency). Mirrored here ONLY so the
+        // bake log can state the interval a fresh install actually gets; the
+        // runtime never reads this file.
+        private const float HauntFreqDefault = 0.50f;
+        // Hash channels — the same numbers EnvHaunt.cginc uses.
+        private const int HcRate = 0, HcPick = 1, HcStart = 3, HcDur = 4;
+
+        // ---- the events OTHER shaders react to ------------------------------
+        // Three shaders answer a haunt they do not draw (EnvBeam dims, the cobwebs
+        // shiver, the rat looks up), and each of them needs the card index and the
+        // exact envelope of the event it is watching. Those numbers therefore live
+        // HERE, once, and both the catalogue below and the material setup read
+        // them — because a beam that dimmed for 7.6 s while the silhouette lasted
+        // 8.0 s would be a bug nobody could see the cause of.
+        private const int HauntCellarCards = 6;
+        private const int HauntCardWindow = 0;    // the thing at the barred window
+        private const int HauntCardTremble = 3;   // the invisible card the webs answer
+        private static readonly Vector4 HauntWindowEnv = new Vector4(3.2f, 2.6f, 1.8f, 0f);
+        private static readonly Vector4 HauntTrembleEnv = new Vector4(0f, 1.1f, 0.9f, 0f);
+        // How much of the moonbeam the thing at the window takes away. 0.55, not
+        // 1.0: it is leaning IN at an opening it does not fill, so more than half
+        // the aperture is still open. A beam that went out completely would read
+        // as a light switch and would also make the room unusable for a second.
+        private const float HauntBeamDepth = 0.55f;
+        // Cobweb tremble, in metres. 10 mm on a web whose draught sway is 21-70 mm:
+        // the tremble is SMALLER than the breathing it interrupts, and reads only
+        // because it is fifty times faster.
+        private const float HauntWebTremble = 0.010f;
+        // Chance a straight crossing stops and looks at the room. With the rat's
+        // 15 % quiet slots and 30 % turn-backs, 0.16 lands it at roughly one
+        // crossing in nine — see the stare line in the rat's own bake report.
+        private const float RatStareChance = 0.16f;
+
+        /// <summary>The haunt schedule's hash, character for character
+        /// GhvrHauntH() in EnvHaunt.cginc — and character for character the rat's,
+        /// which is the point: it is a cascade of multiply/add/frac on values
+        /// under 200, every one of them a correctly-rounded IEEE-754 single
+        /// operation on every GPU this mod runs on. No sin(), so two clients do
+        /// not compute a similar schedule, they compute the same bits.</summary>
+        private static float HauntH(float n, float k)
+        {
+            float x = Frac((n + 1f + k * 7.13f) * 0.7548776662f);
+            x = Frac(x * (x + 31.70f));
+            x = Frac(x * (x + 17.31f));
+            return Frac(x * (x + 43.19f));
+        }
+
+        /// <summary>Which event slot `n` belongs to. THE GROUP PARTITION: event k
+        /// is in group (k mod 3) and slot n may only draw from group (n mod 3), so
+        /// two consecutive slots are two different events BY CONSTRUCTION — no
+        /// history, no re-roll, no residual chance of a repeat. See the "NEVER THE
+        /// SAME EVENT TWICE RUNNING" block in EnvHaunt.cginc for why the obvious
+        /// rule (re-roll on a collision) is not available to a shader.</summary>
+        private static int HauntCardOfSlot(int n, int cards)
+        {
+            int grp = n % HauntGroups;
+            int inGroup = Mathf.Max(cards / HauntGroups, 1);
+            int j = Mathf.Min(Mathf.FloorToInt(HauntH(n, HcPick) * inGroup), inGroup - 1);
+            return grp + HauntGroups * j;
+        }
+
+        /// <summary>A clock offset at which event `card` is exactly `at01` of the
+        /// way through its run — the preview harness's way of PHOTOGRAPHING an
+        /// apparition that is otherwise on screen for eight seconds out of every
+        /// three minutes.
+        ///
+        /// <para>This is deliberately NOT a "force it visible" debug flag. A debug
+        /// constant would be a second code path that could drift from the shipped
+        /// one, and the previews would then be pictures of the debug path. This
+        /// instead SOLVES the shipped schedule for a time at which the thing is
+        /// really happening — the same arithmetic the GPU does, run backwards — so
+        /// the frame is a photograph of the real thing at a real instant.
+        /// The harness still has to publish _GhvrHaunt = (1, 1, 0, 0) so that the
+        /// slot is not gated out, which is the shipped behaviour at dial 1.0.</para>
+        ///
+        /// <para>`durMul` is the per-slot duration jitter of the slot that is
+        /// found, so `at01` really is a fraction of THAT run and not of the
+        /// authored length.</para></summary>
+        public static float HauntPreviewClock(int card, int cards, float reveal, float hold,
+                                              float fade, float at01)
+        {
+            for (int n = 0; n < 4000; n++)
+            {
+                if (HauntCardOfSlot(n, cards) != card) continue;
+                float start = HauntPeriod * (HauntStartLo + HauntStartSpan * HauntH(n, HcStart));
+                float mul = HauntDurLo + HauntDurSpan * HauntH(n, HcDur);
+                return n * HauntPeriod + start + (reveal + hold + fade) * mul * at01;
+            }
+            throw new Exception($"No slot in the first 4000 draws haunt card {card} of {cards}.");
+        }
+
+        /// <summary>One apparition: where its card hangs, how big it is, which
+        /// shape EnvHaunt draws on it and how long that takes.</summary>
+        private struct HauntCard
+        {
+            public string name;      // for the log only
+            public int kind;         // EnvHaunt kind (see its catalogue block)
+            public float variant;    // kind sub-variant
+            public Vector3 at;       // card centre, ROOM space
+            public Vector3 facing;   // unit, must point roughly at the room centre
+            public bool mirror;      // flip the card's +u axis
+            public float halfW, halfH;   // metres
+            public float reveal, hold, fade;  // the envelope, seconds
+            public float shape;      // env.w — kind-specific (the grin's maximum)
+            public Vector4 par;      // par.xyzw — kind-specific
+            public Color col;        // rgb apparition colour, a base opacity
+            public string why;       // one line of placement rationale, logged
+        }
+
+        /// <summary>The card's +u axis in room space. Derived from `facing` so a
+        /// card can never end up with a basis that disagrees with the direction it
+        /// looks in; `mirror` picks which way "out" is for the kinds that slide
+        /// (the face easing out from behind a trunk or a shelf).</summary>
+        private static Vector3 HauntRight(HauntCard c)
+        {
+            var f = c.facing.normalized;
+            // cross(facing, up) = (-f.z, 0, f.x): the horizontal perpendicular,
+            // chosen so that cross(up, right) == facing exactly.
+            var r = new Vector3(-f.z, 0f, f.x).normalized;
+            return c.mirror ? -r : r;
+        }
+
+        /// <summary>Weld a room's whole catalogue into ONE mesh: four vertices per
+        /// event, all four sitting on the card's CENTRE, with the quad's two half
+        /// axes carried in TANGENT (right * halfW) and NORMAL (up * halfH) for the
+        /// vertex shader to expand — or not to expand, which is how a card that is
+        /// not this slot's event costs nothing at all.
+        ///
+        /// <para>NORMAL IS NOT A SHADING NORMAL. These cards are never lit (an
+        /// apparition takes no light from the room), the channel was free and it is
+        /// exactly the right size — so using it keeps the layout to what every
+        /// Unity mesh already ships instead of adding a fifth UV set.</para>
+        ///
+        /// <para>THE BOUNDS ARE EXPLICIT, and they have to be: every vertex is at a
+        /// card centre, so Unity's own RecalculateBounds would produce a box around
+        /// six points and frustum-cull the one card that is currently two metres
+        /// wide. The box below is the union of the EXPANDED quads.</para></summary>
+        private static Mesh HauntMesh(string name, HauntCard[] cards, out Bounds bounds)
+        {
+            var v = new List<Vector3>();
+            var n = new List<Vector3>();
+            var tan = new List<Vector4>();
+            var uv0 = new List<Vector4>();
+            var uv1 = new List<Vector4>();
+            var uv2 = new List<Vector4>();
+            var uv3 = new List<Vector4>();
+            var col = new List<Color>();
+            var tri = new List<int>();
+            bounds = new Bounds(cards[0].at, Vector3.zero);
+
+            for (int i = 0; i < cards.Length; i++)
+            {
+                var c = cards[i];
+                Vector3 right = HauntRight(c) * c.halfW;
+                Vector3 up = Vector3.up * c.halfH;
+                int b = v.Count;
+                var corners = new[] { new Vector2(-1, -1), new Vector2(1, -1),
+                                      new Vector2(1, 1),  new Vector2(-1, 1) };
+                foreach (var q in corners)
+                {
+                    v.Add(c.at);
+                    n.Add(up);
+                    tan.Add(new Vector4(right.x, right.y, right.z, 1f));
+                    uv0.Add(new Vector4(q.x, q.y, 0f, 0f));
+                    // z = ASPECT (halfW/halfH): EnvHaunt draws in a space where y
+                    // spans [-1,1] and x spans [-aspect,aspect], so every shape is
+                    // isotropic in METRES whatever proportions the card has.
+                    uv1.Add(new Vector4(i, c.kind, c.halfW / Mathf.Max(c.halfH, 1e-4f), c.variant));
+                    uv2.Add(new Vector4(c.reveal, c.hold, c.fade, c.shape));
+                    uv3.Add(c.par);
+                    col.Add(c.col);
+                    bounds.Encapsulate(c.at + right * q.x + up * q.y);
+                }
+                // CCW seen from the card's facing side. Cull Off makes the winding
+                // cosmetic, but a mesh that is wound consistently is a mesh whose
+                // next reader is not misled — this project has been bitten three
+                // times by the opposite.
+                tri.AddRange(new[] { b, b + 1, b + 2, b, b + 2, b + 3 });
+            }
+
+            var m = new Mesh { name = name };
+            m.SetVertices(v);
+            m.SetNormals(n);
+            m.SetTangents(tan);
+            m.SetUVs(0, uv0);
+            m.SetUVs(1, uv1);
+            m.SetUVs(2, uv2);
+            m.SetUVs(3, uv3);
+            m.SetColors(col);
+            m.SetTriangles(tri, 0);
+            m.bounds = bounds;
+            return m;
+        }
+
+        /// <summary>Prove the catalogue is legal BEFORE it is baked, and print
+        /// where every apparition hangs.
+        ///
+        /// <para>Five gates, in the order they would hurt:
+        /// <list type="number">
+        /// <item>THE PLAY SPACE, measured on the card's four CORNERS and not on its
+        /// centre. This is the one gate AssertPlaySpaceClear cannot do for us: the
+        /// mesh's vertices all sit on the card centres and the quad only exists
+        /// after the vertex shader has expanded it, so the room-wide sweep sees a
+        /// point where there is really a two-metre card. "Niemals den Spielfluss
+        /// stören" is the requirement; this is where it is enforced.</item>
+        /// <item>THE WALLS / THE GROUND: nothing may hang outside the room or below
+        /// the floor.</item>
+        /// <item>THE GROUP PARTITION: a positive multiple of three, so slot mod 3
+        /// really does select a non-empty group of equal size — the whole
+        /// no-repeat proof rests on it.</item>
+        /// <item>THE SLOT BUDGET: the latest possible start plus the longest
+        /// possible duration (including the Ice stretch) must finish inside the
+        /// slot, or an event would be cut off in mid-air when sIn wraps.</item>
+        /// <item>THE FACING: every card must look roughly at the room centre. Not
+        /// because the shader needs it — it does not — but because a card facing
+        /// away draws its apparition mirrored, and a face whose grin runs the wrong
+        /// way is the sort of thing nobody notices for three builds.</item>
+        /// </list></para></summary>
+        private static void AssertHauntCards(string room, HauntCard[] cards, float playDia,
+                                             Vector3 centre, float xLim, float zLim, float yLim)
+        {
+            if (cards.Length == 0 || cards.Length % HauntGroups != 0)
+                throw new Exception($"{room} haunts: {cards.Length} cards is not a positive multiple of "
+                                    + $"{HauntGroups}. The 'never the same event twice running' guarantee is "
+                                    + "the slot-mod-3 group partition, and it needs equal, non-empty groups.");
+
+            float rLim = playDia * 0.5f;
+            float nearest = float.MaxValue; string nearestName = "-";
+            float longest = 0f;
+            var lines = new List<string>();
+            for (int i = 0; i < cards.Length; i++)
+            {
+                var c = cards[i];
+                if (c.halfW <= 0f || c.halfH <= 0f)
+                    throw new Exception($"{room} haunt '{c.name}' has a degenerate card.");
+                Vector3 right = HauntRight(c) * c.halfW, up = Vector3.up * c.halfH;
+
+                float near = float.MaxValue;
+                for (int k = 0; k < 4; k++)
+                {
+                    Vector3 p = c.at + right * ((k & 1) == 0 ? -1f : 1f) + up * ((k & 2) == 0 ? -1f : 1f);
+                    near = Mathf.Min(near, new Vector2(p.x - centre.x, p.z - centre.z).magnitude);
+                    if (Mathf.Abs(p.x) > xLim || Mathf.Abs(p.z) > zLim || p.y < -0.05f || p.y > yLim)
+                        throw new Exception($"{room} haunt '{c.name}' has a corner at {p} — outside the "
+                                            + $"room box (|x|<={xLim:F2}, |z|<={zLim:F2}, 0<=y<={yLim:F2}).");
+                }
+                if (near < rLim)
+                    throw new Exception($"{room} haunt '{c.name}' reaches {near:F2} m of the room centre — "
+                                        + $"inside the {playDia:F1} m PlaySpace. The easter eggs may never "
+                                        + "be over the board (user: \"niemals den Spielfluss stören\").");
+                if (near < nearest) { nearest = near; nearestName = c.name; }
+
+                var toCentre = new Vector3(centre.x - c.at.x, 0f, centre.z - c.at.z).normalized;
+                float dot = Vector3.Dot(c.facing.normalized, toCentre);
+                if (dot < 0.55f)
+                    throw new Exception($"{room} haunt '{c.name}' faces {c.facing} but the room centre is at "
+                                        + $"{toCentre} (dot {dot:F2} < 0.55). A card facing away draws its "
+                                        + "apparition mirrored.");
+
+                float dur = c.reveal + c.hold + c.fade;
+                longest = Mathf.Max(longest, dur);
+                lines.Add($"[{i}] grp{i % HauntGroups} {c.name} kind {c.kind}.{c.variant:F0} at "
+                          + $"({c.at.x:F2},{c.at.y:F2},{c.at.z:F2}) {2f * c.halfW:F2}x{2f * c.halfH:F2} m, "
+                          + $"{c.reveal:F2}+{c.hold:F2}+{c.fade:F2} = {dur:F2} s"
+                          + (c.fade <= 0f ? " (INSTANT vanish)" : "")
+                          + $", {near:F2} m out — {c.why}");
+            }
+
+            // Ice stretches the duration by up to 35 % on top of the per-slot
+            // jitter; the budget has to hold in that worst case or a frozen room
+            // is where the scheme breaks.
+            float worstEnd = HauntPeriod * (HauntStartLo + HauntStartSpan)
+                             + longest * (HauntDurLo + HauntDurSpan) * 1.35f;
+            if (worstEnd > HauntPeriod - 5f)
+                throw new Exception($"{room} haunts: the latest event can still be running {worstEnd:F1} s into "
+                                    + $"a {HauntPeriod:F0} s slot — it would be cut off in the open. Shorten the "
+                                    + "longest event, or narrow the start window.");
+
+            Debug.Log($"[GloomhavenVR][Env] {room} HAUNTS — {cards.Length} events, one mesh, one material, one "
+                      + $"draw call ({cards.Length * 4} verts, {cards.Length * 2} tris; five of six collapsed to "
+                      + "a point at any instant).\n  " + string.Join("\n  ", lines)
+                      + $"\n  CLEARANCE: nearest card corner to the room centre is '{nearestName}' at "
+                      + $"{nearest:F2} m (PlaySpace radius {rLim:F2} m). SLOT BUDGET: worst end "
+                      + $"{worstEnd:F1} s of {HauntPeriod:F0} s.");
+        }
+
+        /// <summary>Measure the schedule and print it — the rat's report, for the
+        /// haunts. Everything here is computed from HauntH() alone, which is the
+        /// C# mirror of what the GPU runs, so these are MEASUREMENTS of the shipped
+        /// schedule and not a description of it.
+        ///
+        /// <para>Two properties are ASSERTED rather than reported, because they are
+        /// the two the user actually asked for:
+        /// <list type="number">
+        /// <item>NO REPEAT: no two consecutive slots pick the same event.</item>
+        /// <item>THE NESTING: a player on a lower frequency dial sees a strict
+        /// SUBSET of what a player on a higher one sees, at the same seconds and
+        /// the same places. That is what makes a per-client dial compatible with
+        /// "synchron von allen Spielern an den selben Stellen sichtbar".</item>
+        /// </list></para></summary>
+        private static void ReportHauntSchedule(string room, HauntCard[] cards)
+        {
+            const int SLOTS = 6000;
+            int n = cards.Length;
+
+            // ---- gate: no two consecutive slots are the same event
+            for (int s = 1; s < SLOTS; s++)
+                if (HauntCardOfSlot(s, n) == HauntCardOfSlot(s - 1, n))
+                    throw new Exception($"{room} haunts: slots {s - 1} and {s} both pick event "
+                                        + $"{HauntCardOfSlot(s, n)}. The group partition is broken.");
+
+            // ---- gate: the dial is a MONOTONE SUBSET selector, checked as the
+            // set inclusion it has to be and not as an algebraic identity. A
+            // player at 0.25 must fire on a strict subset of the slots a player at
+            // 0.50 fires on, who must fire on a subset of 1.00's — same slot, same
+            // event, same second, because the SCHEDULE is the same and only the
+            // gate differs. This is the whole reason the dial may not touch the
+            // hash (EnvHaunt.cginc, "THE TWO THINGS THAT ARE NOT ALLOWED TO DEPEND
+            // ON A LOCAL SETTING").
+            var atLo = new HashSet<int>();
+            var atMid = new HashSet<int>();
+            var atHi = new HashSet<int>();
+            for (int s = 0; s < SLOTS; s++)
+            {
+                float h = HauntH(s, HcRate);
+                if (h < 0.25f) atLo.Add(s);
+                if (h < HauntFreqDefault) atMid.Add(s);
+                if (h < 1.00f) atHi.Add(s);
+            }
+            if (!atLo.IsProperSubsetOf(atMid) || !atMid.IsProperSubsetOf(atHi))
+                throw new Exception($"{room} haunts: the frequency dial is not a monotone subset selector "
+                                    + $"({atLo.Count} / {atMid.Count} / {atHi.Count} slots at 0.25 / "
+                                    + $"{HauntFreqDefault:F2} / 1.00). Two players on different settings would "
+                                    + "then see DIFFERENT events, not merely fewer of the same ones.");
+
+            string Measure(float freq, out int fired)
+            {
+                var perCard = new int[n];
+                var gaps = new List<float>();
+                float lastStart = float.NaN, lastEnd = float.NaN;
+                float minQuiet = float.MaxValue;
+                fired = 0;
+                for (int s = 0; s < SLOTS; s++)
+                {
+                    if (HauntH(s, HcRate) >= freq) continue;
+                    int c = HauntCardOfSlot(s, n);
+                    float start = s * HauntPeriod
+                                  + HauntPeriod * (HauntStartLo + HauntStartSpan * HauntH(s, HcStart));
+                    float dur = (cards[c].reveal + cards[c].hold + cards[c].fade)
+                                * (HauntDurLo + HauntDurSpan * HauntH(s, HcDur));
+                    if (!float.IsNaN(lastStart))
+                    {
+                        gaps.Add(start - lastStart);
+                        minQuiet = Mathf.Min(minQuiet, start - lastEnd);
+                    }
+                    lastStart = start; lastEnd = start + dur;
+                    perCard[c]++; fired++;
+                }
+                gaps.Sort();
+                var mix = new List<string>();
+                for (int i = 0; i < n; i++)
+                    mix.Add($"{cards[i].name} {100f * perCard[i] / Mathf.Max(fired, 1):F1}%");
+                return $"{fired} events in {SLOTS} slots ({100f * fired / SLOTS:F0}% of slots), "
+                       + $"gap {gaps[0] / 60f:F1}..{gaps[gaps.Count - 1] / 60f:F1} min "
+                       + $"(median {gaps[gaps.Count / 2] / 60f:F1} min), shortest QUIET stretch between "
+                       + $"the end of one and the start of the next {minQuiet:F0} s; mix "
+                       + string.Join(" / ", mix);
+            }
+
+            string mid = Measure(HauntFreqDefault, out int firedMid);
+            string lo = Measure(0.25f, out int firedLo);
+            string hi = Measure(1.00f, out int firedHi);
+            // The elements bend the rate: Dark x1.60, Light x0.65 (EnvHaunt.cginc).
+            Measure(Mathf.Clamp01(HauntFreqDefault * 1.60f), out int firedDark);
+            Measure(Mathf.Clamp01(HauntFreqDefault * 0.65f), out int firedLight);
+
+            Debug.Log(
+                $"[GloomhavenVR][Env] {room} HAUNT SCHEDULE — a schedule, not a loop, and a PURE FUNCTION of "
+                + $"the shared clock: slot = floor((_Time.y + _GhvrTimeOfs) / {HauntPeriod:F0} s), and every "
+                + "decision in it is H(slot, k) — no Random, no per-client state, no per-instance seed, no "
+                + "frame history, no head or camera input, and no sin() in the hash. Two clients compute the "
+                + "same bits.\n"
+                + $"  NO REPEAT, proven over {SLOTS} slots: event k is in group (k mod {HauntGroups}) and slot "
+                + $"n may only draw from group (n mod {HauntGroups}), so consecutive slots are different events "
+                + "by construction — there is no re-roll and therefore no residual chance.\n"
+                + $"  AT THE SHIPPED DIAL ({HauntFreqDefault:F2}): {mid}\n"
+                + $"  AT 0.25: {lo}\n"
+                + $"  AT 1.00: {hi}\n"
+                + $"  THE DIAL IS A SUBSET, NOT A RESHUFFLE: the schedule is fixed and the dial is the gate "
+                + $"H(slot,{HcRate}) < freq, so the {firedLo} events a player at 0.25 sees are a strict subset "
+                + $"of the {firedMid} at 0.50, which are a strict subset of the {firedHi} at 1.00 — same "
+                + "seconds, same places. That is how a per-client dial coexists with \"synchron von allen "
+                + "Spielern an den selben Stellen sichtbar\".\n"
+                + $"  ELEMENTS bend the rate the same monotone way and stay client-identical (the game "
+                + $"desync-checks the element board every round): full Dark {firedDark} events "
+                + $"(x{(float)firedDark / firedMid:F2}), full Light {firedLight} (x"
+                + $"{(float)firedLight / firedMid:F2}).");
+        }
+
+        /// <summary>Bake one room's catalogue: gate it, measure it, weld it, place
+        /// it. Returns the node so the caller can name it in its own logs.
+        ///
+        /// <para>NO LIGHT RIG, deliberately. Every other object in these rooms is
+        /// registered with Defer() and lit by the baked rig; an apparition is not.
+        /// It takes no light from the candles and casts none — it is a shape in the
+        /// dark, and giving it a candle's falloff would make it furniture.</para></summary>
+        private static GameObject BuildHaunts(Transform root, string room, string asset,
+            HauntCard[] cards, float playDia, float xLim, float zLim, float yLim)
+        {
+            AssertHauntCards(room, cards, playDia, Vector3.zero, xLim, zLim, yLim);
+            ReportHauntSchedule(room, cards);
+
+            var mesh = SaveMesh(asset + ".asset", HauntMesh(asset, cards, out var bounds), bounds);
+            var mat = NewRoomMat(room + "_Haunt.mat", "GloomhavenVR/EnvHaunt");
+            mat.SetFloat("_Period", HauntPeriod);
+            mat.SetFloat("_Cards", cards.Length);
+            // 0.016 of a card half-height. At the sizes below that is 4-15 mm of
+            // soft edge: enough that the silhouette does not alias into a staircase
+            // at 15 m, tight enough that it is a SHAPE and not a smudge. A smudge
+            // is not frightening; it is a dirty lens.
+            mat.SetFloat("_Edge", 0.016f);
+            mat.SetFloat("_Rim", 0.30f);
+            mat.SetColor("_RimCold", new Color(0.42f, 0.56f, 0.78f, 1f));
+            mat.SetColor("_RimWarm", new Color(0.95f, 0.48f, 0.16f, 1f));
+            return Place(root, "Haunts", mesh, Vector3.zero, Vector3.zero, Vector3.one, mat);
         }
 
         /// <summary>A cobweb SHEET: one span of silk strung across an opening or
@@ -3647,6 +4130,13 @@ namespace GloomhavenVR
             ratMat.SetVector("_Peak", RatPeak);
             ratMat.SetVector("_Wob1", RatWob1);
             ratMat.SetVector("_Wob2", RatWob2);
+            // HAUNT — the stare. The rat stops mid-crossing and turns its head
+            // toward the ROOM CENTRE (never toward the camera; see EnvCritter's
+            // _Stare block), and only in a haunt slot the schedule left quiet, so
+            // it can never collide with one of the six drawn events.
+            ratMat.SetFloat("_Stare", RatStareChance);
+            ratMat.SetFloat("_HauntPeriod", HauntPeriod);
+            ratMat.SetFloat("_HauntCards", HauntCellarCards);
             var ratGo = Place(root, "Rat", ratMesh, Vector3.zero, Vector3.zero, Vector3.one, ratMat);
             Defer(ratMat, ratGo.transform, 1f);
 
@@ -3718,6 +4208,17 @@ namespace GloomhavenVR
                 m.SetFloat("_SwayRate", 0.42f);
                 m.SetFloat("_SwayPhase", phase);
                 m.SetVector("_SwayDir", swayDir.normalized);
+                // HAUNT — the tremble. Every web and every loose strand in the
+                // cellar answers the same invisible card, so the whole room's silk
+                // shivers at once: one web twitching is a draught, all of them
+                // twitching together is something walking past behind them. The
+                // forest's foliage uses this same shader and leaves _HauntTremble
+                // at 0, which skips the schedule entirely (uniform branch).
+                m.SetFloat("_HauntTremble", HauntWebTremble);
+                m.SetFloat("_HauntPeriod", HauntPeriod);
+                m.SetFloat("_HauntCards", HauntCellarCards);
+                m.SetFloat("_HauntWatch", HauntCardTremble);
+                m.SetVector("_HauntEnv", HauntTrembleEnv);
                 return m;
             }
             void Sheet(string n, Vector3 c, Vector3 halfU, Vector3 halfV, Rect uv,
@@ -3803,6 +4304,235 @@ namespace GloomhavenVR
                    new Vector3(-0.03f, -0.62f, 0.02f), DraftDir * 0.090f, 1, 0.070f, 2.6f, 0.95f);
             Strand("C", new Vector3(-hw + 0.72f, CH - 0.34f, -hd + 0.66f),
                    new Vector3(0.04f, -0.74f, 0.03f), DraftDir * 0.080f, 2, 0.062f, 4.4f, 0.75f);
+
+            // ------------------------------------------------------- the haunts
+            // HAUNT — the creepy easter eggs (user, 2026-08-14). Six events, one
+            // mesh, one material, one draw call; see the HAUNTS block above,
+            // EnvHaunt.shader and EnvHaunt.cginc.
+            //
+            // WHERE, AND WHY EACH ONE IS WHERE IT IS. The rule that decided all six
+            // is the user's own: "eher im Hintergrund", "niemals den Spielfluss
+            // stören". So every card hangs on a piece of the room that is ALREADY
+            // there and is already something the eye passes over — the window, the
+            // wet wall by the puddle, the corner nobody repaired, the stair
+            // doorway, the shelf. Nothing is in the open, nothing is over the
+            // board (the gate proves it), and nothing needs a new prop to justify
+            // it. Two of the six are not drawn here at all: the tremble happens in
+            // the cobwebs and the window's occlusion happens in the moonbeam,
+            // which is what makes those two believable rather than decorative.
+            //
+            // THE ORDER IS THE GROUP PARTITION (index mod 3), and it is chosen so
+            // that no group is a single duration class: g0 pairs the slowest event
+            // with a two-second one, g1 pairs a slow bloom with the fastest thing
+            // in the room. g2 holds the two long reveals — six events with only two
+            // short ones cannot be balanced three ways, and the schedule report
+            // prints the mix so the imbalance is visible rather than hidden.
+            {
+                var win = SnappedHole(WindowHole, CW, CH, WallCell);
+                float winX = -hw + (win.xMin + win.xMax) * 0.5f;
+                // The W wall runs p0 = (-hw, 0, -hd) along +z (CellarWalls), so a
+                // wall-local u is a z offset from the south-west corner. Reading
+                // the SNAPPED rect and not the authored one matters for the same
+                // reason the window bars read it: WallMesh keeps or drops whole
+                // 0.16 m cells, so the doorway is up to half a cell from where
+                // StairHole says it is, and a figure that crosses "the doorway"
+                // 8 cm off it walks through the jamb instead.
+                var stair = SnappedHole(StairHole, CD, CH, WallCell);
+                float stairZ = -hd + (stair.xMin + stair.xMax) * 0.5f;
+
+                // THE SHELF THE FACE HIDES BEHIND, measured rather than typed. The
+                // first bake put the card at a hand-guessed (4.90, 1.42, 1.15) with
+                // 0.62 m of travel, and the previews showed exactly what a guess
+                // buys: at the peak the face had cleared the shelf entirely and was
+                // hanging in the open on a candle-lit wall — a mask on a wall, not
+                // a thing looking round a corner. The bookshelf is an imported
+                // photoscan whose real extents nobody here knows, so ask it.
+                //
+                // The card goes at its BACK panel (x = max) and one face-width
+                // INSIDE its near edge (z = max - 0.17), so that at rest the whole
+                // face is inside the shelf's own volume and depth-rejected by it,
+                // and the travel is short enough that the peak leaves the face
+                // still ~40 % behind the frame. Half a face is worse than a whole
+                // one, which is the entire trick.
+                const float GrinHalfH = 0.26f;                 // 1 card unit, metres
+                const float GrinFaceHalf = 0.60f * GrinHalfH;  // the head SDF's own half-width
+                float shelfBackX = 4.98f, shelfEdgeZ = 1.15f, shelfMidY = 1.42f;   // fallbacks
+                var shelfGo = root.Find("Shelf")?.gameObject;
+                if (shelfGo != null)
+                {
+                    bool first = true; var sb = new Bounds();
+                    foreach (var p in WorldVerts(shelfGo))
+                    {
+                        if (first) { sb = new Bounds(p, Vector3.zero); first = false; }
+                        else sb.Encapsulate(p);
+                    }
+                    shelfBackX = sb.max.x - 0.04f;
+                    shelfEdgeZ = sb.max.z;
+                    shelfMidY = Mathf.Clamp(sb.min.y + (sb.max.y - sb.min.y) * 0.72f, 1.0f, 1.9f);
+                    Debug.Log($"[GloomhavenVR][Env] Cellar haunt GRIN measured off the bookshelf: bounds "
+                              + $"{sb.min:F2}..{sb.max:F2}; the card sits at x={shelfBackX:F2} (its back "
+                              + $"panel), z={shelfEdgeZ - GrinFaceHalf - 0.02f:F2} (one face-width inside "
+                              + $"its near edge {shelfEdgeZ:F2}), y={shelfMidY:F2}.");
+                }
+                float grinZ = shelfEdgeZ - GrinFaceHalf - 0.02f;
+                // Travel: enough to put the face's CENTRE just past the shelf edge,
+                // so about 60 % of it is out and the rest is still behind the frame.
+                float grinTravel = (shelfEdgeZ - grinZ) + 0.055f;
+
+                var cards = new[]
+                {
+                    // [0] AT THE WINDOW. Outside the reveal, so the barred opening
+                    // is its frame and the wall crops it: what you see is a head
+                    // and two shoulders filling the one bright rectangle in the
+                    // room. It is a black SILHOUETTE, not a lit face, because it is
+                    // between you and the moon — and the moonbeam DIMS while it is
+                    // there (EnvBeam reads this same card), which is the whole
+                    // reason this event is the strongest one in the cellar: the
+                    // light in the room changes, and the light in the room is
+                    // something the player is already using.
+                    new HauntCard
+                    {
+                        name = "Window", kind = 2, variant = 1f,
+                        at = new Vector3(winX, 2.50f, hd + RevealDepth + 0.06f),
+                        facing = Vector3.back, halfW = 0.62f, halfH = 0.52f,
+                        reveal = HauntWindowEnv.x, hold = HauntWindowEnv.y, fade = HauntWindowEnv.z,
+                        // The only card in either room that needs almost NO rim:
+                        // it is backlit by the moon, so the opening around it does
+                        // the contrast for free. par.w = 0.35.
+                        par = new Vector4(0f, 0f, 0f, 0.35f),
+                        col = new Color(0.0018f, 0.0020f, 0.0028f, 0.95f),
+                        why = "outside the barred window; the opening crops it and the beam dims for it",
+                    },
+                    // [1] THE HANDPRINTS, on the west wall beside the puddle — i.e.
+                    // on the one piece of stone in the room the player has already
+                    // been told is WET (the drip falls into that puddle every 2.85 s
+                    // and the moonbeam lands in it). Prints bloom on wet stone; on
+                    // dry stone they are a decal. Pale, not bloody: a pale greasy
+                    // smear on dark wet masonry is both more legible in candlelight
+                    // and further from a jump scare, which the brief forbids.
+                    new HauntCard
+                    {
+                        name = "Hands", kind = 6, variant = 0f,
+                        at = new Vector3(-hw + 0.03f, 1.30f, PuddleAt.z - 0.15f),
+                        facing = Vector3.right, halfW = 0.88f, halfH = 0.62f,
+                        par = new Vector4(0.55f, 0f, 0f, 0f),
+                        reveal = 2.8f, hold = 2.2f, fade = 3.0f,
+                        col = new Color(0.42f, 0.41f, 0.37f, 0.80f),
+                        why = "west wall beside the drip's puddle — the room's one wet stone",
+                    },
+                    // [2] THE SOUTH-WEST CORNER. The cellar lane deliberately built
+                    // that corner as "a corner nobody ever repaired" (rubble, cant,
+                    // the deep dark web) and no candle reaches it. A crouched shape
+                    // folded in among the barrels, half occluded by them — real
+                    // geometry doing the hiding — whose ONE motion is that its head
+                    // comes up, once, in the middle of the hold. Then it is gone
+                    // between two frames: fade = 0 is the instant vanish, and it is
+                    // the reason you can never be sure it was there.
+                    new HauntCard
+                    {
+                        name = "Crouch", kind = 2, variant = 2f,
+                        // 0.82, not 0.60: the barrels in front of it stand about
+                        // 0.9 m, and at 0.60 the only part of the shape that
+                        // cleared them was the crown of its shoulders. The head is
+                        // the top of this SDF (see EnvHaunt's crouch variant), so
+                        // this height puts the HEAD over the barrel line and leaves
+                        // the rest of it in among them, which is where it belongs.
+                        at = new Vector3(-4.70f, 0.82f, -3.95f),
+                        facing = new Vector3(0.766f, 0f, 0.643f), halfW = 0.55f, halfH = 0.60f,
+                        reveal = 4.0f, hold = 3.4f, fade = 0f,
+                        // A strong rim: it is half behind a barrel in the one
+                        // corner no candle reaches, so its own body is against a
+                        // background as black as it is.
+                        par = new Vector4(0f, 0f, 0f, 1.25f),
+                        col = new Color(0.0050f, 0.0054f, 0.0068f, 0.92f),
+                        why = "SW corner among the barrels, no candle reaches it; head lifts once, then gone",
+                    },
+                    // [3] THE TREMBLE. Draws NOTHING. Its whole existence is to
+                    // occupy a schedule slot that EnvRoomCutout watches: every
+                    // cobweb in the room shivers for two seconds as if something
+                    // large had just gone past behind it. Being a real card is what
+                    // puts it under the same no-repeat and no-collision rules as
+                    // the visible events — a tremble that could land on top of the
+                    // thing at the window would read as one effect, not two.
+                    new HauntCard
+                    {
+                        name = "Tremble", kind = 7, variant = 0f,
+                        at = new Vector3(-4.40f, 2.40f, -4.00f),
+                        facing = new Vector3(0.740f, 0f, 0.673f), halfW = 0.05f, halfH = 0.05f,
+                        reveal = HauntTrembleEnv.x, hold = HauntTrembleEnv.y, fade = HauntTrembleEnv.z,
+                        col = new Color(0f, 0f, 0f, 0f),
+                        why = "invisible; the cobwebs shiver for it (EnvRoomCutout)",
+                    },
+                    // [4] THE STAIR DOORWAY. The fastest thing in the catalogue —
+                    // seven tenths of a second, which is long enough to be a person
+                    // and far too short to be examined. Set BEHIND the doorway
+                    // plane so the jambs are what it walks out of and into: it is
+                    // never seen entering or leaving the frame, only crossing it.
+                    new HauntCard
+                    {
+                        name = "Stair", kind = 3, variant = 1f,
+                        // 0.90 of a half-height is a 1.8 m person, not the 2.3 m
+                        // monument the first bake put in the frame — the doorway is
+                        // 2.36 m and a figure that fills it is a statue. The card is
+                        // WIDER than the opening (1.05 against 0.79) so the figure
+                        // comes out from behind one jamb and goes in behind the
+                        // other; it is never seen entering or leaving the frame.
+                        at = new Vector3(-hw - 0.05f, 0.94f, stairZ),
+                        facing = Vector3.right, halfW = 1.05f, halfH = 0.90f,
+                        // THE STRONGEST RIM IN EITHER ROOM (2.0): this is a black
+                        // shape crossing a black recess, and without an edge there
+                        // is literally nothing to see.
+                        par = new Vector4(0f, 1f, 0f, 2.0f),
+                        reveal = 0.18f, hold = 0.34f, fade = 0.18f,
+                        col = new Color(0.0050f, 0.0053f, 0.0068f, 0.90f),
+                        why = "behind the stair doorway; crosses the lit rectangle in 0.7 s",
+                    },
+                    // [5] THE GRIN — the user's own example, in the cellar's terms:
+                    // "eine lächelnde fratze die hinter einem Baum hervorguckt".
+                    // There is no tree here, so it uses the one tall thing with an
+                    // edge to hide behind, the bookshelf against the east wall. The
+                    // card sits just BEHIND the shelf's near edge, so the shelf's
+                    // real opaque geometry is what conceals the face until it has
+                    // come out — nothing is masked, it is simply behind a shelf.
+                    // The grin WIDENS all the way through, including while it
+                    // withdraws.
+                    new HauntCard
+                    {
+                        name = "Grin", kind = 0, variant = 0f,
+                        // Every number here comes off the shelf's own bounds (see
+                        // above): at rest the face is inside the shelf's volume and
+                        // depth-rejected by it, and sliding toward +u (which is +z,
+                        // hence mirror) walks it out past the frame.
+                        at = new Vector3(shelfBackX, shelfMidY, grinZ),
+                        facing = new Vector3(-0.9736f, 0f, -0.2285f), mirror = true,
+                        halfW = (grinTravel / GrinHalfH + 0.65f) * GrinHalfH, halfH = GrinHalfH,
+                        // The shader's x is in card half-heights, so the travel in
+                        // metres is divided by one of them.
+                        par = new Vector4(grinTravel / GrinHalfH, 0f, 0f, 0f),
+                        shape = 1f,
+                        reveal = 3.6f, hold = 2.0f, fade = 2.6f,
+                        col = new Color(0.62f, 0.60f, 0.54f, 0.90f),
+                        why = "eases out from behind the bookshelf's edge; the shelf itself occludes it",
+                    },
+                };
+                // The two indices three other shaders were handed as constants.
+                // Reordering this array is a completely reasonable thing to want to
+                // do (the group partition is index-based), and it would silently
+                // make the beam dim for the handprints — so it is a build error
+                // rather than a comment.
+                if (cards.Length != HauntCellarCards
+                    || cards[HauntCardWindow].name != "Window"
+                    || cards[HauntCardTremble].name != "Tremble")
+                    throw new Exception("Cellar haunts were reordered: EnvBeam is told to dim for card "
+                                        + $"{HauntCardWindow} and the cobwebs to shiver for card "
+                                        + $"{HauntCardTremble}, but the catalogue now has "
+                                        + $"'{cards[HauntCardWindow].name}' and "
+                                        + $"'{cards[HauntCardTremble].name}' there. Update "
+                                        + "HauntCardWindow/HauntCardTremble with the order.");
+
+                BuildHaunts(root, "Cellar", "Env_C_Haunt", cards,
+                            CellarPlaySpaceDia, hw + RevealDepth + 0.30f, hd + RevealDepth + 0.30f, CH);
+            }
         }
 
         // ================================================================ FOREST
@@ -3962,6 +4692,63 @@ namespace GloomhavenVR
             return new Vector3(t.p.x + lean.x + wander.x,
                                ForestY(t.p.x, t.p.y) + y,
                                t.p.y + lean.y + wander.y);
+        }
+
+        /// <summary>A trunk's horizontal radius at height y — the SAME taper and
+        /// the SAME per-tree noise AddTrunk builds the geometry from, minus the
+        /// root flare (0.62 * exp(-y/0.30) is 3e-3 by one metre, and nothing here
+        /// asks below that) and minus the per-segment lobes, which is deliberate:
+        /// the haunt that hides behind a trunk needs the radius it can COUNT on,
+        /// i.e. the smallest one, not the lobed maximum.
+        ///
+        /// <para>Derived rather than guessed because the whole "eine lächelnde
+        /// fratze die hinter einem Baum hervorguckt" effect is a distance: the
+        /// face has to start hidden behind THIS tree and travel exactly far enough
+        /// to clear it. A typed-in 0.3 m would be right for one tree in the wood
+        /// and wrong for the other 105.</para></summary>
+        private static float HauntTrunkRadius(Tree t, float y)
+        {
+            float f = Mathf.Clamp01(y / t.h);
+            float rad = Mathf.Lerp(t.rb, t.rb * 0.30f, Mathf.Pow(f, 1.9f));
+            return rad * (1f + 0.13f * (Fbm2(f * 8f, t.sd * 3f, 3, 991) - 0.5f));
+        }
+
+        /// <summary>The trunk nearest a wanted compass bearing, taken from those
+        /// that lie INSIDE a radius band and are at least `minRb` thick.
+        ///
+        /// <para>THE BAND IS A HARD FILTER AND THE BEARING IS THE SCORE, and the
+        /// first version had it the other way round — a plain nearest-point search
+        /// against a target position. That looks equivalent and is not: distance
+        /// trades bearing against radius, so a wanted (250 deg, 11 m) was answered
+        /// with a tree at 230 deg and 6.6 m simply because it was the closest thing
+        /// to the target point. 6.6 m is still well outside the 4.5 m play space,
+        /// so no gate caught it — but it is half the intended distance, which for
+        /// a face means twice the angular size, and "eher im Hintergrund" is the
+        /// requirement. Range is the thing that must not drift; bearing is the
+        /// thing that may.</para>
+        ///
+        /// <para>ForestTrees() is deterministic, so this is a deterministic choice
+        /// — and it is a SEARCH rather than a hard-coded index on purpose: the wood
+        /// is re-seeded whenever a band changes, and an index would then silently
+        /// point at a different (possibly much thinner, or much nearer) tree.
+        /// Bearing is measured the way ForestTrees lays the wood out, from +z
+        /// toward +x, so it is the same compass as MoonAzimuth().</para></summary>
+        private static Tree HauntPickTree(float bearingDeg, float rMin, float rMax, float minRb)
+        {
+            Tree best = default; float bestErr = float.MaxValue; bool found = false;
+            foreach (var t in ForestTrees())
+            {
+                float r = t.p.magnitude;
+                if (t.dead || t.rb < minRb || r < rMin || r > rMax) continue;
+                float b = Mathf.Atan2(t.p.x, t.p.y) * Mathf.Rad2Deg;
+                float err = Mathf.Abs(Mathf.DeltaAngle(b, bearingDeg));
+                if (err < bestErr) { bestErr = err; best = t; found = true; }
+            }
+            if (!found)
+                throw new Exception($"No forest trunk of radius >= {minRb:F2} m between {rMin:F1} m and "
+                                    + $"{rMax:F1} m out. The haunt that hides behind it would stand in "
+                                    + "the open.");
+            return best;
         }
 
         private static void AddTrunk(Acc a, Tree t, int segs, int rings, float uvScale, Color tint)
@@ -5596,6 +6383,192 @@ namespace GloomhavenVR
             var eyeSide = Vector3.Cross(Vector3.up, eyeDir).normalized * 0.06f;
             Glow("EyeL", eyeAt - eyeSide, 0.045f, new Color(1f, 0.88f, 0.45f, 0.85f), 3.2f);
             Glow("EyeR", eyeAt + eyeSide, 0.045f, new Color(1f, 0.88f, 0.45f, 0.85f), 3.2f);
+
+            // ------------------------------------------------------- the haunts
+            // HAUNT — the creepy easter eggs (user, 2026-08-14). See the HAUNTS
+            // block, EnvHaunt.shader and EnvHaunt.cginc.
+            //
+            // WHERE. Every one of the six is between 7.6 m and 16.5 m out — past
+            // the 4.5 m play radius by a wide margin, past the understory, and
+            // among the trunks where the eye already has nothing to hold on to.
+            // Five of the six are on bearings 118-302 deg, i.e. AWAY from the moon
+            // at 40 deg, because the moonward wedge is the one direction in this
+            // wood with light in it and an apparition there would be an exhibit.
+            //
+            // NOTHING HERE IS A BILLBOARD and nothing re-orients with the head:
+            // the cards face the CLEARING (the board), which is world-fixed and is
+            // roughly where the player is anyway. See the VR SAFETY block in
+            // EnvHaunt.shader.
+            {
+                // The face's trunk: found by SEARCH, so the wood can be re-seeded
+                // without silently moving the face into the open. 0.26 m of base
+                // radius is the width the face has to hide behind.
+                var faceTree = HauntPickTree(250f, 9.5f, 13.0f, 0.24f);
+                var facePos = TrunkAt(faceTree, 1.60f);
+                float faceR = HauntTrunkRadius(faceTree, 1.60f);
+                var faceOut = new Vector3(-facePos.x, 0f, -facePos.z).normalized;   // toward the clearing
+                const float FaceHalfH = 0.26f;                 // 1 card unit, in metres
+                // Just past the bark, and no further. faceR + 0.20 (the first
+                // bake) put the WHOLE face clear of the trunk at the peak, which
+                // reads as a mask hanging beside a tree; + 0.06 leaves about a
+                // third of it still behind the bark, which is what "hervorgucken"
+                // means and is the more unpleasant picture by a distance.
+                float faceTravel = faceR + 0.06f;
+                float facePar = faceTravel / FaceHalfH;        // the shader's x is in card units
+                Debug.Log($"[GloomhavenVR][Env] Forest haunt FACE hides behind the trunk at "
+                          + $"({faceTree.p.x:F2},{faceTree.p.y:F2}) — {faceTree.p.magnitude:F1} m out, "
+                          + $"{faceTree.h:F1} m tall, radius {faceR:F3} m at 1.60 m. It travels "
+                          + $"{faceTravel:F2} m to clear it.");
+
+                Vector3 OnGround(float bearingDeg, float r, float up)
+                {
+                    float x = Mathf.Sin(bearingDeg * Mathf.Deg2Rad) * r;
+                    float z = Mathf.Cos(bearingDeg * Mathf.Deg2Rad) * r;
+                    return new Vector3(x, ForestY(x, z) + up, z);
+                }
+                Vector3 ToClearing(Vector3 p) => new Vector3(-p.x, 0f, -p.z).normalized;
+
+                var watcherAt = OnGround(162f, 16.5f, 1.00f);
+                var crossAt = OnGround(190f, 13.0f, 0.95f);
+                var eyesAt = OnGround(302f, 8.6f, 0.40f);
+                var swarmAt = OnGround(219f, 7.6f, 1.45f);
+                var hangAt = OnGround(118f, 15.0f, 2.53f);
+
+                var cards = new[]
+                {
+                    // [0] THE FACE — the user's own example, verbatim: "eine
+                    // lächelnde fratze die hinter einem Baum hervorguckt". The card
+                    // sits 4 cm BEHIND the trunk's axis, so the trunk's own opaque
+                    // geometry is what hides it: at u = 0 it is inside the tree and
+                    // depth-rejected, and it eases sideways until it has cleared
+                    // the bark. Nothing is masked and nothing is faded in in the
+                    // open — it comes out from behind a tree because it is behind
+                    // a tree. The grin widens the whole way through, including
+                    // while it withdraws.
+                    new HauntCard
+                    {
+                        name = "Face", kind = 0, variant = 0f,
+                        at = facePos - faceOut * 0.04f,
+                        facing = faceOut, halfW = (facePar + 0.65f) * FaceHalfH, halfH = FaceHalfH,
+                        par = new Vector4(facePar, 0f, 0f, 0f), shape = 1f,
+                        reveal = 3.4f, hold = 2.4f, fade = 2.8f,
+                        col = new Color(0.66f, 0.64f, 0.57f, 0.90f),
+                        why = "behind a trunk at 11 m, away from the moon; the tree occludes it",
+                    },
+                    // [1] THE EYES. The wood already has a pair that never move
+                    // (Glow EyeL/EyeR, bearing 135 deg) and that is the point of
+                    // THOSE. These are the opposite: they open low in the
+                    // undergrowth, hold, blink ONCE and are gone. A steady pair is
+                    // a lamp; a pair that blinks is an animal, and three seconds is
+                    // just long enough to be sure you saw it.
+                    new HauntCard
+                    {
+                        name = "Eyes", kind = 1, variant = 0f,
+                        at = eyesAt, facing = ToClearing(eyesAt),
+                        halfW = 0.082f, halfH = 0.145f,
+                        reveal = 1.1f, hold = 1.4f, fade = 0.5f,
+                        col = new Color(0.88f, 0.92f, 0.80f, 0.90f),
+                        why = "40 cm off the ground at 8.6 m, in the understory; one blink",
+                    },
+                    // [2] THE WATCHER. Standing between the trunks at 16.5 m, 1.95 m
+                    // tall, and it does NOTHING — it does not move, it does not
+                    // approach, it does not look round. It fades up over three and a
+                    // half seconds, which is slow enough that nobody ever catches it
+                    // arriving, holds for five, and then is gone between two frames
+                    // (fade = 0). The asymmetry is the entire event: you cannot
+                    // decide afterwards whether it was there.
+                    new HauntCard
+                    {
+                        name = "Watcher", kind = 2, variant = 0f,
+                        at = watcherAt, facing = ToClearing(watcherAt),
+                        halfW = 0.42f, halfH = 1.00f,
+                        par = new Vector4(0f, 0f, 0f, 1.0f),
+                        reveal = 3.5f, hold = 5.0f, fade = 0f,
+                        col = new Color(0.0032f, 0.0035f, 0.0044f, 0.95f),
+                        why = "standing at 16.5 m; 3.5 s in, 5 s still, INSTANT vanish",
+                    },
+                    // [3] SOMETHING CROSSES. A third of a second of dark smear
+                    // between distant trunks — the shortest event in either room,
+                    // and the only one whose whole content is motion. Smeared along
+                    // its own travel rather than blurred: that is what a thing seen
+                    // for 0.3 s actually looks like, and it costs one divide.
+                    new HauntCard
+                    {
+                        name = "Cross", kind = 3, variant = 0f,
+                        at = crossAt, facing = ToClearing(crossAt),
+                        halfW = 1.70f, halfH = 0.85f,
+                        par = new Vector4(0f, 1f, 1.6f, 0.7f),
+                        reveal = 0.06f, hold = 0.22f, fade = 0.06f,
+                        col = new Color(0.0030f, 0.0030f, 0.0040f, 0.90f),
+                        why = "4.2 m of travel at 13 m, in 0.34 s",
+                    },
+                    // [4] THE SWARM. On the bearing the firefly swarms are already
+                    // on (the preview's Fireflies view looks at 217 deg), at the
+                    // edge of the clearing: fourteen drifting points that agree on
+                    // the outline of a face for about a second and scatter again.
+                    //
+                    // WHY NOT THE REAL FIREFLIES, which is what the brief asked
+                    // for. They are Shuriken particle systems in BuildEnvironments,
+                    // and steering a particle system onto authored positions needs
+                    // a script — which the bundle forbids outright
+                    // (BuildEnvironments.cs:35, no MonoBehaviours). The alternative
+                    // would be a custom particle mesh with per-particle targets,
+                    // i.e. rebuilding the swarm; this draws the same picture on ONE
+                    // quad with no emitter at all, and sits where the real swarm is
+                    // so it reads as the real swarm doing it.
+                    new HauntCard
+                    {
+                        name = "Swarm", kind = 4, variant = 0f,
+                        at = swarmAt, facing = ToClearing(swarmAt),
+                        halfW = 0.62f, halfH = 0.55f,
+                        par = new Vector4(0.31f, 0.72f, 0f, 0f),
+                        reveal = 2.2f, hold = 1.2f, fade = 1.6f,
+                        col = new Color(0.55f, 0.95f, 0.52f, 0.85f),
+                        why = "on the fireflies' own bearing at 7.6 m; points form a face and scatter",
+                    },
+                    // [5] HUNG BY THE FEET, head down, from a branch at 15 m — near
+                    // enough to the far lantern glow (bearing 129 deg) that
+                    // something out there is lighting it. One slow sway that damps
+                    // out, and nothing else: the sway is what says it was put there,
+                    // and recently. Head at 1.85 m, which is head height, which is
+                    // the point.
+                    new HauntCard
+                    {
+                        name = "Hang", kind = 5, variant = 0f,
+                        at = hangAt, facing = ToClearing(hangAt),
+                        halfW = 0.42f, halfH = 0.87f,
+                        par = new Vector4(0f, 0f, 0f, 0.9f),
+                        reveal = 2.6f, hold = 2.0f, fade = 2.2f,
+                        col = new Color(0.0055f, 0.0055f, 0.0070f, 0.92f),
+                        why = "hanging under a branch at 15 m, head down at 1.85 m; one damped sway",
+                    },
+                };
+
+                // Nothing but the face may stand inside a tree. The face MUST — it
+                // is hiding behind one — so it is exempt by index, and the rest are
+                // measured against every trunk axis at their own height.
+                var allTrees = ForestTrees();
+                for (int i = 1; i < cards.Length; i++)
+                {
+                    float gap = float.MaxValue; Vector2 worst = Vector2.zero;
+                    foreach (var tr in allTrees)
+                    {
+                        float y = Mathf.Max(cards[i].at.y - ForestY(tr.p.x, tr.p.y), 0.1f);
+                        var c = TrunkAt(tr, Mathf.Min(y, tr.h * 0.95f));
+                        float d = new Vector2(c.x - cards[i].at.x, c.z - cards[i].at.z).magnitude
+                                  - HauntTrunkRadius(tr, Mathf.Min(y, tr.h * 0.95f));
+                        if (d < gap) { gap = d; worst = tr.p; }
+                    }
+                    if (gap < 0.15f)
+                        throw new Exception($"Forest haunt '{cards[i].name}' is {gap:F2} m from the trunk at "
+                                            + $"({worst.x:F1},{worst.y:F1}) — it would be inside a tree. Move "
+                                            + "its bearing or its radius.");
+                    Debug.Log($"[GloomhavenVR][Env] Forest haunt '{cards[i].name}' clears the nearest trunk "
+                              + $"(({worst.x:F1},{worst.y:F1})) by {gap:F2} m.");
+                }
+
+                BuildHaunts(root, "Forest", "Env_S_Haunt", cards, ForestPlaySpaceDia, FR, FR, 12f);
+            }
 
             PaintContactAO(g, 0.45f, 0.55f);
             FlushRig(rig);

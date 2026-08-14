@@ -89,6 +89,27 @@ Shader "GloomhavenVR/EnvCritter"
         _Wob1 ("P1 wander: ampX, ampZ, biasX, biasZ (m)", Vector) = (0.50,0.80,-0.46,0)
         _Wob2 ("P2 wander: ampX, ampZ, biasX, biasZ (m)", Vector) = (0.12,0.32,-0.12,0.28)
 
+        // ---- HAUNT: the stare -------------------------------------------------
+        // The cheapest creepy easter egg in the whole feature, and one of the
+        // nastiest: now and then the rat stops in the middle of the floor and
+        // turns its head toward the room. No new geometry, no new material, no
+        // new draw call — the animal, the stop and the head are all already here.
+        //
+        // WHY IT IS NOT ONE OF THE SIX CARDS. It cannot be: it has to happen
+        // where the rat happens to be, which is the rat's schedule and not the
+        // haunt's. So it rides the rat's slot instead — and to keep the standing
+        // rule that two easter eggs never land on top of each other, it is
+        // allowed ONLY in a haunt slot that the haunt schedule has left quiet.
+        // That is a one-line gate and it makes the guarantee total rather than
+        // statistical.
+        //
+        // 0 (the default) is off, and so is _GhvrHaunt.x = 0 — the master switch
+        // turns this off with everything else, which is the requirement
+        // ("Es soll deaktivierbar sein").
+        _Stare ("Chance a crossing stops and looks at the room", Range(0,1)) = 0
+        _HauntPeriod ("Haunt slot beat (s)", Float) = 83
+        _HauntCards ("Haunt event count in this room", Float) = 6
+
         _AmbUp ("Hemisphere ambient - sky", Color) = (0.05,0.06,0.08,1)
         _AmbDown ("Hemisphere ambient - ground", Color) = (0.015,0.015,0.015,1)
         _DirDir ("Directional dir (OBJECT space, toward light)", Vector) = (0,1,0,0)
@@ -134,11 +155,16 @@ Shader "GloomhavenVR/EnvCritter"
             // 256-instruction vertex budget of shader model 2.
             #pragma target 3.0
             #include "UnityCG.cginc"
+            // HAUNT — for the stare's mutual-exclusion gate only. The rat's own
+            // schedule stays in this file; the include is read for _GhvrHaunt (the
+            // master switch) and GhvrHauntAt (is this haunt slot quiet?).
+            #include "EnvHaunt.cginc"
 
             fixed4 _Tint, _BellyTint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col, _ShaftCol;
             float4 _W0, _W1, _W2, _W3, _DirDir, _L0Pos, _L1Pos, _L2Pos, _ShaftP, _ShaftD;
             float4 _Timing, _Modes, _Peak, _Wob1, _Wob2;
             float _Period, _RunTime, _Phase, _Dart, _Stride, _Scale, _PtHard, _ShaftR, _Skip;
+            float _Stare, _HauntPeriod, _HauntCards;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             #define GHVR_PI   3.14159265
@@ -276,6 +302,22 @@ Shader "GloomhavenVR/EnvCritter"
                 float PW = 0.24;
                 float pAt = 0.26 + 0.46 * hPsAt;
                 float pAmt = _Modes.w * saturate((_Modes.z - hPaus) / max(_Modes.z, 1e-3)) * (1.0 - turn);
+
+                // ---- HAUNT: THE STARE (see the _Stare property block) ----------
+                // Channel 13, a channel no other decision uses. The gate has three
+                // factors and every one of them is a requirement rather than a
+                // taste: the haunt master (the feature must be switchable off),
+                // this slot's own roll against _Stare (it must be rare), and a
+                // QUIET haunt slot (two easter eggs must never land together).
+                // Straight crossings only — a turn-back already stops at its apex,
+                // and an animal that stopped twice would read as a stutter.
+                float hStare = H(sl, 13);
+                GhvrHaunt hh = GhvrHauntAt(t, _HauntPeriod, _HauntCards);
+                float stareOn = step(hStare, _Stare) * (1.0 - hh.live)
+                              * step(0.0001, _GhvrHaunt.x) * (1.0 - turn);
+                // Force the stop to full depth: a stare during a half-hearted
+                // pause would be a head turning while the legs kept walking.
+                pAmt = max(pAmt, stareOn * _Modes.w);
                 float g = qe - pAmt * smoothstep(pAt - PW, pAt + PW, qe);
                 float p = g / max(1.0 - pAmt, 0.2);
 
@@ -326,9 +368,34 @@ Shader "GloomhavenVR/EnvCritter"
                 float sniffP = saturate(1.0 - abs(qe - pAt) / PW)
                              * saturate(pAmt / max(_Modes.w, 1e-3));
                 float sniffT = turn * smoothstep(0.28, 0.50, p) * smoothstep(0.72, 0.50, p);
-                float sniff = max(sniffP * sniffP * (3.0 - 2.0 * sniffP), sniffT);
-                lp.y += 0.034 * headW * sniff;
-                lp.x += 0.020 * headW * sniff * sin(t * 5.7 + hPsAt * GHVR_2PI);
+                float sniffS = sniffP * sniffP * (3.0 - 2.0 * sniffP);
+                float sniff = max(sniffS, sniffT);
+                // THE STARE rides the same stop the sniff does, so the animal's
+                // legs, body and timing need no special case at all — only the
+                // head behaves differently.
+                float stare = stareOn * sniffS;
+                lp.y += 0.034 * headW * sniff * (1.0 - 0.60 * stare);
+                // ...and while it stares, the nose stops casting about. A head
+                // that turned to look at you and then went on sniffing would be
+                // an animal; a head that turns and holds is not.
+                lp.x += 0.020 * headW * sniff * sin(t * 5.7 + hPsAt * GHVR_2PI) * (1.0 - stare);
+
+                // The yaw itself: toward the ROOM CENTRE, which is world-fixed and
+                // is where the board and the players are — NOT toward the camera.
+                // A head that tracked the head would be the billboard behaviour the
+                // project has permanently ruled out, it would differ between the
+                // two eyes, and in multiplayer it would point at a different place
+                // on every client. Clamped to +-1.25 rad because a rat's neck is a
+                // rat's neck, and because an unclamped turn would snap through 180
+                // degrees whenever the animal happens to be running away.
+                float2 toC = normalize(-P.xz + float2(1e-5, 0));
+                float dA = atan2(toC.x, toC.y) - ang;
+                dA = dA - GHVR_2PI * floor(dA / GHVR_2PI + 0.5);   // wrap to [-pi, pi]
+                float ya = clamp(dA, -1.25, 1.25) * stare * headW;
+                float2 rel = float2(lp.x, lp.z - 0.090);           // pivot at the shoulders
+                float cs = cos(ya), sn = sin(ya);
+                lp.x = rel.x * cs - rel.y * sn;
+                lp.z = 0.090 + rel.x * sn + rel.y * cs;
 
                 float3 wp = P + right * lp.x + up * lp.y + fwd * lp.z;
                 // body bob at stride frequency — a scurrying rat is never level
@@ -337,7 +404,12 @@ Shader "GloomhavenVR/EnvCritter"
                 // world origin, so it never streaks across the room
                 wp = lerp(P, wp, vis);
 
+                // The head's normals turn with the head. Skipping this would leave
+                // the one part of the animal the player is looking at during a
+                // stare lit as if it were still facing down the corridor — the
+                // same class of silent default as the forest's unset _RimDir.
                 float3 n = v.normal;
+                n = float3(n.x * cs - n.z * sn, n.y, n.x * sn + n.z * cs);
                 float3 nw = right * n.x + up * n.y + fwd * n.z;
 
                 v2f o;

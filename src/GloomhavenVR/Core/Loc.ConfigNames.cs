@@ -354,6 +354,8 @@ internal static partial class Loc
             ["Sky/Style"] = Pair("Environment", "Umgebung"),
             ["Elements/EnvironmentResponse"] = Pair("Elements affect surroundings", "Elemente wirken auf Umgebung"),
             ["Elements/ResponseStrength"] = Pair("Element effect strength", "Stärke der Elementwirkung"),
+            ["Haunt/EasterEggs"] = Pair("Creepy easter eggs", "Grusel-Easter-Eggs"),
+            ["Haunt/Frequency"] = Pair("Easter egg frequency", "Häufigkeit der Easter-Eggs"),
 
             // ---- [WallFade] — see-through wall tuning ---------------------------------------
             ["WallFade/OnFraction"] = Pair("Fade at coverage", "Ausblenden ab Deckung"),

@@ -32,6 +32,10 @@ Material:
     m_Floats:
     - _BumpScale: 0
     - _Cutoff: 0.12
+    - _HauntCards: 6
+    - _HauntPeriod: 83
+    - _HauntTremble: 0.01
+    - _HauntWatch: 3
     - _PtHard: 16
     - _Sway: 0.02
     - _SwayPhase: 0.8
@@ -42,6 +46,7 @@ Material:
     - _AmbUp: {r: 0.028, g: 0.032, b: 0.045, a: 1}
     - _DirCol: {r: 0.048, g: 0.07, b: 0.128, a: 1}
     - _DirDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
+    - _HauntEnv: {r: 0, g: 1.1, b: 0.9, a: 0}
     - _L0Col: {r: 2.1, g: 1.26, b: 0.63, a: 0.9}
     - _L0Pos: {r: 3.72, g: 0.7882587, b: 2.95, a: 0.32258067}
     - _L1Col: {r: 1.75, g: 0.98, b: 0.45499998, a: 0.95}

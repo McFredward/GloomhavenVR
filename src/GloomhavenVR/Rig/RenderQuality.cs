@@ -270,6 +270,11 @@ internal static class RenderQuality
         // element infusions, it is read in the same breath as [Sky] Style, and a player looking for
         // it on disk will look where the environment choice is. Runtime stays in Core/ElementMood.cs.
         ElementMood.BindConfig(_file);
+
+        // HAUNT ([Haunt] EasterEggs / Frequency) rides the same file for the third time and the
+        // same reason: the creepy easter eggs exist only inside the two bundled environments, so
+        // the switch belongs beside the switch that chooses one. Runtime stays in Core/Haunt.cs.
+        Haunt.BindConfig(_file);
     }
 
     /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>

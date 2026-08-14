@@ -29,9 +29,15 @@ namespace GloomhavenVR
         private const string ContentRoot = "Assets/Bundle";
         private const string OutputDir = "Build/Bundles";
 
-        // Never bundled: documentation / license / bookkeeping files.
+        // Never bundled: documentation / license / bookkeeping files, and shader
+        // INCLUDES. A .cginc is a compile-time input to the shaders that #include
+        // it — by the time a shader is in the bundle its includes have already been
+        // inlined and compiled, so shipping the text would be dead weight that
+        // Unity imports as a DefaultAsset and that no runtime path ever opens.
+        // (Added with EnvHaunt.cginc, HAUNT, which is the first shared include in
+        // this project.)
         private static readonly string[] ExcludedExtensions =
-            { ".md", ".txt", ".gitkeep", ".meta" };
+            { ".md", ".txt", ".gitkeep", ".meta", ".cginc" };
 
         [MenuItem("GloomhavenVR/Build AssetBundles")]
         public static void BuildFromMenu()

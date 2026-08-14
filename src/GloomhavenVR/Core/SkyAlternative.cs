@@ -746,6 +746,16 @@ internal static class SkyAlternative
         // user asked for element effects in passthrough as well — so it is ticked one level up, at
         // the top of MixedReality.Tick, which is the only per-frame call that runs on BOTH
         // branches. See Core/ElementMood.cs, "MIXED REALITY KEEPS SENSING".
+        //
+        // THE HAUNT IS TICKED HERE, and the contrast with the line above is the whole reason both
+        // comments exist. A mood is a NUMBER and has to reach the player under every presentation
+        // including passthrough, so it rides the level above. A haunt is a SURFACE inside one of
+        // two bundled room prefabs, so it exists exactly where those prefabs do — and this method
+        // is only reached on the MR-OFF branch, which is precisely the gating it wants. It does its
+        // own full gating (setting, session, scenario board, style) and publishes only numbers.
+        // See Core/Haunt.cs.
+        Haunt.Tick();
+
         if (!VRSession.IsRunning)
         {
             RestoreAll();
@@ -862,6 +872,12 @@ internal static class SkyAlternative
         // MixedReality.Tick on both branches and keeps publishing; the ROOM and the SKY stand down,
         // which is what the MR ruling is actually about. Teardown still zeroes the globals —
         // RestoreAll below.
+        //
+        // THE HAUNT DOES GO DOWN HERE, and that is the deliberate opposite of the paragraph above.
+        // This path is what MR calls (MixedReality.cs:692), the apparitions are geometry in the
+        // room that is being torn down, and the standing MR ruling is that the mod puts no
+        // occluding surface over passthrough. A mood is a number; a face is not.
+        Haunt.StandDown("the environment stood down (mixed reality, or the style changed)");
         Deactivate();
     }
 
@@ -871,6 +887,7 @@ internal static class SkyAlternative
     {
         // Same reason as StandDown: a teardown must leave nothing standing in a shader global.
         ElementMood.StandDown("the environment was torn down (VR stopped, or the rig was destroyed)");
+        Haunt.StandDown("the environment was torn down (VR stopped, or the rig was destroyed)");
         Deactivate();
         _missingWarned = false;
         _scanNextFrame = 0;

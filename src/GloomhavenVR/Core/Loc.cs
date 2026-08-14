@@ -576,6 +576,13 @@ internal static partial class Loc
         ["h_vr_o_elemmood"] = Pair("The surroundings answer the elements on the board: a fresh element reads as fully charged, a waning one slowly breathes so you can see it is about to go out. Off with mixed reality, and only inside a scenario.", "Die Umgebung antwortet auf die Elemente auf dem Brett: ein frisches Element wirkt voll aufgeladen, ein schwindendes atmet langsam, sodass du siehst, dass es gleich erlischt. Bei Mixed Reality aus, und nur im Szenario."),
         ["vr_o_elemmood_amt"] = Pair("Element effect strength", "Stärke der Elementwirkung"),
         ["h_vr_o_elemmood_amt"] = Pair("How strongly the surroundings answer. 1 is as designed, lower is subtler, 0 is the same as switching it off.", "Wie stark die Umgebung antwortet. 1 ist wie vorgesehen, kleiner ist dezenter, 0 entspricht dem Ausschalten."),
+        // Grafik ▸ Darstellung: the creepy easter eggs (HAUNT, Core/Haunt.cs). The hint names the
+        // three things a player will want to know before switching it on — what it is, that it is
+        // never in the way, and that everyone sees the same thing — and not one word about how.
+        ["vr_o_haunt"] = Pair("Creepy easter eggs", "Grusel-Easter-Eggs"),
+        ["h_vr_o_haunt"] = Pair("Rare, quiet apparitions in the cellar and the night forest: a pale face behind a tree, eyes that blink once, something at the window while the moonlight dims. No sound, never over the board, never two at once — and every player sees the same one in the same place at the same moment.", "Seltene, leise Erscheinungen im Keller und im Nachtwald: eine bleiche Fratze hinter einem Baum, Augen, die einmal blinzeln, etwas am Fenster, während der Mondschein schwächer wird. Kein Ton, nie über dem Brett, nie zwei gleichzeitig — und alle Spieler sehen dieselbe an derselben Stelle im selben Moment."),
+        ["vr_o_haunt_freq"] = Pair("Easter egg frequency", "Häufigkeit der Easter-Eggs"),
+        ["h_vr_o_haunt_freq"] = Pair("How often they happen. 0.5 is about one every three minutes, 1 shows every one there is. Lower only means you see fewer of the same events — never different ones, so it stays in step with the other players.", "Wie oft sie auftreten. 0,5 ist etwa eines alle drei Minuten, 1 zeigt alle. Kleiner heißt nur, dass du weniger derselben Ereignisse siehst — nie andere, es bleibt also mit den Mitspielern im Gleichklang."),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),
@@ -1174,6 +1181,10 @@ internal static partial class Loc
         // this line the generic browser would head the block with the raw English section word in a
         // German menu, the same defect the [Net] line above was added to fix.
         ["cfg_sec_elements"] = Pair("Elements & surroundings", "Elemente & Umgebung"),
+        // [Haunt] — the creepy easter eggs (HAUNT, Core/Haunt.cs). Same reason as the line above:
+        // a brand-new cfg section needs a heading or the generic browser prints the raw English
+        // section word in a German menu.
+        ["cfg_sec_haunt"] = Pair("Creepy easter eggs", "Grusel-Easter-Eggs"),
 
         // ---- SettingsPanel: Leistung — the VR render trade (2026-07 GPU pass) ----
         // Wording rule for this block, from the user ("super verwirrend für den User"): every

@@ -23,6 +23,8 @@ Material:
     m_Ints: []
     m_Floats:
     - _Dart: 0.055
+    - _HauntCards: 6
+    - _HauntPeriod: 83
     - _Period: 26
     - _Phase: 0
     - _PtHard: 16
@@ -30,6 +32,7 @@ Material:
     - _Scale: 1
     - _ShaftR: 0.8
     - _Skip: 0.15
+    - _Stare: 0.16
     - _Stride: 24
     m_Colors:
     - _AmbDown: {r: 0.02, g: 0.018, b: 0.015, a: 1}

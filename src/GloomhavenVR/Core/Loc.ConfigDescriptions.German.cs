@@ -393,6 +393,32 @@ internal static partial class Loc
                 "Wie stark die Umgebung auf die Elemente antwortet. 1 = wie vorgesehen. Kleiner ist "
                 + "dezenter, 0 entspricht genau dem Ausschalten der Reaktion, über 1 übersteuert sie. "
                 + "Ohne jede Wirkung, solange „Elemente wirken auf Umgebung“ aus ist. Wirkt sofort.",
+            // ---- [Haunt] ----
+            ["Haunt/EasterEggs"] =
+                "Gelegentliche Grusel-Easter-Eggs im KELLER und im NACHTWALD: eine bleiche, lächelnde "
+                + "Fratze, die hinter einem Baum hervorkommt, Augen, die sich im Unterholz öffnen und "
+                + "einmal blinzeln, eine hohe Gestalt, die zwischen zwei fernen Stämmen steht und dann "
+                + "einfach nicht mehr da ist, etwas, das zum Kellerfenster hereinsieht, während der "
+                + "Mondschein dafür schwächer wird, Handabdrücke, die auf dem nassen Stein aufblühen, "
+                + "ein Schatten, der durch die Treppentür geht, zitternde Spinnweben, als wäre eben "
+                + "etwas Großes dahinter vorbeigegangen, und ab und zu bleibt die Ratte mitten im Raum "
+                + "stehen und sieht sich um. Es gibt KEINEN Ton, und nichts erscheint jemals über dem "
+                + "Brett, im Weg von etwas, das du lesen musst, oder in Reichweite — sie sind "
+                + "Hintergrund, sie sind selten, und zwei passieren nie gleichzeitig. Alle Spieler "
+                + "sehen dasselbe Ereignis an derselben Stelle im selben Moment: es wird aus der "
+                + "gemeinsamen Umgebungsuhr berechnet, braucht also keinen Netzwerkverkehr und ändert "
+                + "nichts am Spiel. AUS entfernt sie vollständig und kostet überhaupt nichts. Nur in "
+                + "einem laufenden Szenario und nur, wenn die Umgebung Keller oder Nachtwald gewählt "
+                + "ist; Mixed Reality schaltet sie ab. Wirkt sofort.",
+            ["Haunt/Frequency"] =
+                "Wie oft die Easter-Eggs auftreten. 0,5 (Standard) ist etwa eines alle drei Minuten je "
+                + "Umgebung. Kleiner ist seltener, 0 entspricht dem Ausschalten, 1 zeigt alle, die der "
+                + "Plan enthält (etwa eines alle 80 Sekunden). Das ist eine rein lokale Einstellung und "
+                + "sie bricht die gemeinsame Zeitrechnung nicht: der Plan selbst ist auf jedem Rechner "
+                + "derselbe, und diese Einstellung entscheidet nur, wie viele seiner Ereignisse dein "
+                + "Rechner zeigt — wer niedriger stellt, sieht weniger von genau denselben Ereignissen "
+                + "an genau denselben Stellen, niemals andere. Ohne jede Wirkung, solange "
+                + "„Grusel-Easter-Eggs“ aus ist. Wirkt sofort.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "

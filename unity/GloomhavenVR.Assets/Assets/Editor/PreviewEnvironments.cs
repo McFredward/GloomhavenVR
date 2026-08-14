@@ -187,6 +187,92 @@ namespace GloomhavenVR
             ("ShaftTop", new Vector3(0f, 13.5f, 0f), new Vector3(80, MoonAz, 0), false, 80f),
             // standing under the middle shaft, looking up along it at the moon
             ("ShaftUnder", new Vector3(3.35f, 1.40f, 4.36f), new Vector3(-MoonAlt, MoonAz, 0), false, 78f),
+            // ---- HAUNT review set (2026-08-14) ----
+            // One frame per apparition, aimed at the card the builder placed. These
+            // are only ever shot inside the HAUNT time series below (the schedule
+            // solved for an instant at which the event is really running); in the
+            // ordinary set the feature is off and every card is collapsed to a
+            // point, so shooting them there would produce six empty rooms.
+            //
+            // CELLAR. Cards, in order: Window, Hands, Crouch, Tremble, Stair, Grin.
+            ("HauntWindow", new Vector3(0.20f, 1.50f, 1.00f), new Vector3(-13, 338, 0), false, 45f),
+            ("HauntHands", new Vector3(-3.00f, 1.40f, 2.20f), new Vector3(3, 270, 0), false, 45f),
+            ("HauntCrouch", new Vector3(-2.00f, 1.30f, -1.50f), new Vector3(11, 228, 0), false, 45f),
+            ("HauntStair", new Vector3(-2.20f, 1.40f, 2.45f), new Vector3(4, 271, 0), false, 50f),
+            ("HauntGrin", new Vector3(2.00f, 1.45f, 1.30f), new Vector3(1, 81, 0), false, 34f),
+            // ...and the tremble draws nothing at all: it is judged on the WEBS,
+            // so its frames are the two web close-ups, shot at its own instants.
+            ("HauntWeb", new Vector3(2.90f, 2.05f, 1.35f), new Vector3(-25, 91, 0), false, 38f),
+            // FOREST. Cards: Face, Eyes, Watcher, Cross, Swarm, Hang. Aimed off the
+            // same bearings the builder places them on (BuildForestRoom's haunt
+            // block), from the seated eye at the middle of the clearing — which is
+            // where the player is, and therefore the only place the framing of a
+            // background easter egg can honestly be judged.
+            ("HauntFace", Eye, new Vector3(-1, 250, 0), false, 25f),
+            ("HauntEyes", Eye, new Vector3(7, 302, 0), false, 22f),
+            ("HauntWatcher", Eye, new Vector3(1, 162, 0), false, 25f),
+            ("HauntCross", Eye, new Vector3(2, 190, 0), false, 40f),
+            ("HauntSwarm", Eye, new Vector3(0, 219, 0), false, 34f),
+            ("HauntHang", Eye, new Vector3(-4, 118, 0), false, 28f),
+            // ...and one wide frame per room at the same instants: the brief is
+            // "eher im Hintergrund", and the only way to check that an apparition
+            // is NOT intrusive is to look at the room the way a player would and
+            // see whether it pulls the eye.
+            ("HauntWide", Eye, new Vector3(0, 250, 0), false, 78f),
+            ("HauntWideC", Eye, new Vector3(-4, 320, 0), false, 78f),
+        };
+
+        // ================================================================ HAUNT
+        // The creepy easter eggs are on screen for a few seconds out of every few
+        // minutes, so the ordinary preview set can never contain one. This series
+        // SOLVES the shipped schedule for an instant at which a given event is
+        // really running (EnvRoomBuilder.HauntPreviewClock) and shoots it there —
+        // no debug flag, no forced-visible code path, and therefore no risk of
+        // photographing a path that is not the one that ships.
+        //
+        // Three phases per event, because half of this catalogue is ABOUT its
+        // envelope: 0.25 is the reveal (has it come out from behind the trunk
+        // yet?), 0.55 the hold (what does it actually look like?), 0.88 the
+        // withdrawal (does it leave the way it came, or vanish?).
+        private static readonly float[] HauntPhases = { 0.25f, 0.55f, 0.88f };
+
+        // view name, card index, and that card's authored (reveal, hold, fade) —
+        // which must match the builder's catalogue, because the phase is a
+        // fraction of the whole run.
+        private static readonly (string view, int card, Vector3 env)[] CellarHaunts =
+        {
+            ("HauntWindow", 0, new Vector3(3.2f, 2.6f, 1.8f)),
+            ("HauntHands", 1, new Vector3(2.8f, 2.2f, 3.0f)),
+            ("HauntCrouch", 2, new Vector3(4.0f, 3.4f, 0.0f)),
+            ("HauntWeb", 3, new Vector3(0.0f, 1.1f, 0.9f)),
+            ("HauntStair", 4, new Vector3(0.18f, 0.34f, 0.18f)),
+            ("HauntGrin", 5, new Vector3(3.6f, 2.0f, 2.6f)),
+            ("HauntWideC", 5, new Vector3(3.6f, 2.0f, 2.6f)),
+        };
+
+        private static readonly (string view, int card, Vector3 env)[] ForestHaunts =
+        {
+            ("HauntFace", 0, new Vector3(3.4f, 2.4f, 2.8f)),
+            ("HauntEyes", 1, new Vector3(1.1f, 1.4f, 0.5f)),
+            ("HauntWatcher", 2, new Vector3(3.5f, 5.0f, 0.0f)),
+            ("HauntCross", 3, new Vector3(0.06f, 0.22f, 0.06f)),
+            ("HauntSwarm", 4, new Vector3(2.2f, 1.2f, 1.6f)),
+            ("HauntHang", 5, new Vector3(2.6f, 2.0f, 2.2f)),
+            ("HauntWide", 0, new Vector3(3.4f, 2.4f, 2.8f)),
+        };
+
+        // THE ELEMENT COMPENSATION, which is a requirement and therefore has to be
+        // photographed rather than asserted: under full LIGHT a dark apparition
+        // must gain contrast instead of washing out, and under full DARK it must
+        // gain a rim instead of disappearing into a black room. Two extra frames
+        // per room, on the event whose whole content is a silhouette.
+        //   _GhvrElemA = (Fire, Ice, Air, Earth), _GhvrElemB = (Light, Dark, Master, Peak)
+        private static readonly (string tag, Vector4 a, Vector4 b)[] HauntMoods =
+        {
+            ("light", Vector4.zero, new Vector4(1f, 0f, 1f, 1f)),
+            ("dark", Vector4.zero, new Vector4(0f, 1f, 1f, 1f)),
+            ("fire", new Vector4(1f, 0f, 0f, 0f), new Vector4(0f, 0f, 1f, 1f)),
+            ("earth", new Vector4(0f, 0f, 0f, 1f), new Vector4(0f, 0f, 1f, 1f)),
         };
 
         // The animated things only exist in motion, so the review set below is
@@ -337,9 +423,18 @@ namespace GloomhavenVR
                 }
 
                 // ---- the still set, at the shader clock's origin ----
+                // HAUNT OFF for this pass, which is also the shipped default state
+                // of an unset global: every haunt card collapses to a point, the
+                // beam does not dim, the webs do not shiver and the rat does not
+                // look up. So every frame below is comparable, pixel for pixel,
+                // with the previous round's — which is the point of a review set.
+                Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+                Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
+                Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
                 Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 foreach (var (name, pos, euler, skyOnly, fov) in Views)
-                    if (WantView(name)) Shoot(name, pos, euler, skyOnly, fov, "");
+                    if (WantView(name) && !name.StartsWith("Haunt", StringComparison.Ordinal))
+                        Shoot(name, pos, euler, skyOnly, fov, "");
 
                 // ---- and the time series ----
                 // Flicker, the drip, the ripples, the rat and the cobwebs only
@@ -363,6 +458,53 @@ namespace GloomhavenVR
                     }
                     Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 }
+
+                // ---- HAUNT: the easter eggs, photographed mid-event ----
+                // ENV_PREVIEW_NOHAUNT=1 skips it.
+                if (Environment.GetEnvironmentVariable("ENV_PREVIEW_NOHAUNT") != "1")
+                {
+                    var shots = env == "Env_Cellar" ? CellarHaunts : ForestHaunts;
+                    int cards = 6;
+                    // dial 1.0: every scheduled slot fires. That is a real shipped
+                    // setting, not a debug mode — the frames below are what a
+                    // player with the frequency slider at maximum sees.
+                    Shader.SetGlobalVector("_GhvrHaunt", new Vector4(1f, 1f, 0f, 0f));
+                    foreach (var (vn, card, envv) in shots)
+                    {
+                        var v = Array.Find(Views, x => x.name == vn);
+                        if (v.name == null)
+                            throw new Exception($"A haunt shot names an unknown view '{vn}'.");
+                        if (!WantView(v.name)) continue;
+                        foreach (float ph in HauntPhases)
+                        {
+                            float ofs = EnvRoomBuilder.HauntPreviewClock(
+                                card, cards, envv.x, envv.y, envv.z, ph);
+                            Shader.SetGlobalFloat("_GhvrTimeOfs", ofs);
+                            Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov,
+                                  $"_p{Mathf.RoundToInt(ph * 100f):D2}");
+                        }
+                        // ...and the element compensation, at the hold, on the two
+                        // silhouette events (one per room) whose readability is the
+                        // thing the user warned could be lost.
+                        bool moodShot = (env == "Env_Cellar" && card == 0)
+                                        || (env != "Env_Cellar" && card == 2);
+                        if (!moodShot) continue;
+                        float hold = EnvRoomBuilder.HauntPreviewClock(
+                            card, cards, envv.x, envv.y, envv.z, 0.55f);
+                        Shader.SetGlobalFloat("_GhvrTimeOfs", hold);
+                        foreach (var (tag, ea, eb) in HauntMoods)
+                        {
+                            Shader.SetGlobalVector("_GhvrElemA", ea);
+                            Shader.SetGlobalVector("_GhvrElemB", eb);
+                            Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_" + tag);
+                        }
+                        Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
+                        Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                    }
+                    Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+                }
+
                 RenderTexture.active = null;
                 cam.targetTexture = null;
                 UnityEngine.Object.DestroyImmediate(tex);
