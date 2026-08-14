@@ -65,13 +65,15 @@ internal sealed class ComfortGizmos : MonoBehaviour
         if (ComfortSettings.Turn.Value == TurnMode.Snap)
             _sb.Append(turn != null && turn.WaitingForRearm ? " [waiting re-arm]" : " [armed]");
         // The overlay must show the gate SnapTurn actually applies, not the mode alone — since
-        // finding 14 the mode is only half the test (BoardTargeting is true on every client in the
-        // session; LocalTurnControl asks whose targeting it is). An overlay that still said
+        // ModBuild 138 the mode is not part of the test at all (TURN NEVER: board state never
+        // suppresses turning; only a consumer that would REALLY read the turn stick this frame
+        // can, and AoE rotation deliberately reads the other hand's). An overlay that still said
         // "SUPPRESSED" while turning worked would be the next round's bug report.
         if (VRModeStateMachine.CurrentMode == VRMode.BoardTargeting)
             _sb.Append(LocalTurnControl.TargetingOwnsStick
-                ? "  (SUPPRESSED: MY board targeting owns the stick)"
-                : "  (targeting is another seat's — turning stays mine)");
+                ? "  (SUPPRESSED: a live AoE pattern claims the TURN stick — not expected, the "
+                  + "hands should be split)"
+                : "  (targeting up, nothing claims the turn stick — turning stays mine)");
         else if (turn != null && turn.ScrollBlocked)
             _sb.Append("  (SUPPRESSED: menu scrolling owns the stick — release the stick sideways, "
                        + "or flick it hard sideways, to turn)");

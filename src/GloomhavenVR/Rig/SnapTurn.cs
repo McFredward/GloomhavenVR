@@ -12,25 +12,28 @@ namespace GloomhavenVR.Rig;
 /// <c>[Comfort] TurnMode</c>: Snap (default, <c>SnapTurnDegrees</c> per flick with
 /// engage/re-arm hysteresis) / Smooth (<c>SmoothTurnSpeed</c> °/s) / Off.
 ///
-/// STICK CONTENTION (documented rule): <see cref="VRMode.BoardTargeting"/> owns the
-/// thumbstick — Phase-3a rotates AoE patterns with it — so turning is hard-disabled
-/// there (and re-armed, so leaving targeting never fires a stale flick). Turning is
-/// also disabled in <see cref="VRMode.Menu2D"/> (no table exists; dev-proxy runs
-/// exempt). Test #13: turning is ACTIVE in <see cref="VRMode.ModalUI"/> — nothing
-/// modal reads the stick, and the player must keep full diorama movement while a
-/// dialog floats. It is further suppressed while the turn hand participates in a
-/// world grab.
+/// BOARD STATE NEVER BLOCKS TURNING (user, hardware ModBuild 138: "Wenn ich die
+/// Bewegung bei einem Character ausgewählt habe und das Feld auswählen soll, kann ich
+/// immer noch nicht mit dem joystick drehen. Die drehung soll nie blockiert sein!").
+/// This class used to hard-disable turning throughout <see cref="VRMode.BoardTargeting"/>
+/// because "targeting owns the thumbstick" — Phase-3a rotates AoE patterns with it. Two
+/// hardware reports killed that rule in two steps: ModBuild 137 showed the mode is
+/// derived from the SHARED Choreographer wait-state, so a fellow player's pending
+/// movement confirmation froze EVERY peer's turning; ModBuild 138 showed the remaining
+/// LOCAL case was just as wrong, because placing a waypoint is not AoE aiming and
+/// <c>AoeControl.CanRotate</c> declines to rotate anything there. The ruling is now
+/// unconditional: turning is never suppressed for what the BOARD is doing — only for a
+/// consumer that would really read this same physical axis this frame, which
+/// <see cref="LocalTurnControl.TargetingOwnsStick"/> asks the consumer itself. And since
+/// AoE rotation now lives on the hand <c>[Comfort] TurnHand</c> does not use, even that
+/// answer is structurally "no". Full reasoning: <see cref="LocalTurnControl"/>.
 ///
-/// …BUT ONLY FOR MY OWN TARGETING (user, hardware ModBuild 137, finding 14: "Während
-/// dessen ein Mitspieler gerade eine Bewegung bestätigen musste konnte keiner der
-/// Mitspieler (inklusive mir) sich mehr mit dem Joystick drehen. … Das darf nicht
-/// sein."). BoardTargeting is composed from the SHARED Choreographer wait-state, which
-/// the lockstep rule library drives identically on every peer, so one player's pending
-/// movement confirmation put the whole session into it and took everyone's turning away.
-/// The extra question — WHOSE decision is the board waiting for — is
-/// <see cref="LocalTurnControl"/>'s, and the standing rule it encodes is: another
-/// actor's turn or decision may gate GAME actions, never the local player's locomotion
-/// or view.
+/// The suppressions that REMAIN and must not be "finished off" by a later cleanup:
+/// <see cref="VRMode.Menu2D"/> (the flat 2D menu — there is no board in front of you to
+/// turn around; dev-proxy runs exempt), the world grab (the turn hand is already moving
+/// the player with that drag) and menu scrolling (below — the user's own ruling). Test
+/// #13: turning is ACTIVE in <see cref="VRMode.ModalUI"/> — nothing modal reads the
+/// stick, and the player must keep full diorama movement while a dialog floats.
 ///
 /// MENU SCROLLING OWNS THIS STICK TOO (user, hardware 2026-08-11: "Während dessen man
 /// in einem menu scrollt soll auch die Drehung blockiert sein, das passiert mir immer
@@ -97,12 +100,19 @@ internal sealed class SnapTurn : MonoBehaviour
         VRMode vrMode = VRModeStateMachine.CurrentMode;
         // Test #13: ModalUI no longer suppresses turning (see class doc).
         //
-        // …AND TARGETING ONLY SUPPRESSES IT WHEN THE TARGETING IS MINE (user, hardware ModBuild 137,
-        // finding 14 — a fellow player's pending movement confirmation froze EVERY player's turning).
-        // BoardTargeting is derived from the SHARED Choreographer state, so it is true on every
-        // client in the session; asking LocalTurnControl turns it into the question this line always
-        // meant to ask. Full reasoning, proof and rejected alternatives: LocalTurnControl.
-        if ((vrMode == VRMode.BoardTargeting && LocalTurnControl.TargetingOwnsStick)
+        // TURN NEVER (user, hardware ModBuild 138). Note what is NOT tested here any more: the mode.
+        // BoardTargeting used to be the whole condition, and it was wrong twice over — it is true on
+        // every peer in the session (ModBuild 137) and true throughout movement/waypoint selection,
+        // where the AoE rotation it was protecting refuses to run (ModBuild 138). The question is
+        // now asked of the consumer instead: LocalTurnControl.TargetingOwnsStick is true only while
+        // an AoE pattern would REALLY rotate on this very stick — which, since AoeControl moved to
+        // the non-turn hand, it never is. Reasoning and rejected alternatives: LocalTurnControl.
+        //
+        // Menu2D STAYS, and is not an oversight: it is the flat 2D menu, where there is no board in
+        // front of the player to turn around at all (dev-proxy runs exempt). The menu-scroll gate
+        // further down stays too — that one is the user's own ruling ("Scrollen soll mehr dominant
+        // sein", 2026-08-11). Neither is board state, so neither is touched by TURN NEVER.
+        if (LocalTurnControl.TargetingOwnsStick
             || (vrMode == VRMode.Menu2D && !RigTarget.IsDevProxy))
         {
             _armed = true; // never fire a stale flick when the stick is handed back
@@ -212,11 +222,11 @@ internal sealed class SnapTurn : MonoBehaviour
             : $"stick turn: RESUMED on the {hand.Side} hand.");
     }
 
+    /// <summary>
+    /// Through <see cref="LocalTurnControl.Resolve"/>, not a local copy of the same switch: the
+    /// turn hand is now load-bearing for a THIRD party — <c>AoeControl</c> takes the opposite of
+    /// it — and two copies of "which stick is the turn stick" would be two places to disagree.
+    /// </summary>
     private static VRHand? ResolveTurnHand() =>
-        ComfortSettings.TurnHand.Value switch
-        {
-            TurnHandChoice.Left => VRHands.Left,
-            TurnHandChoice.Right => VRHands.Right,
-            _ => VRHands.Primary,
-        };
+        VRHands.Get(LocalTurnControl.Resolve(ComfortSettings.TurnHand.Value));
 }

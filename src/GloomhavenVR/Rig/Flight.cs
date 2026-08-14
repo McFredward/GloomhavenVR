@@ -32,6 +32,15 @@ namespace GloomhavenVR.Rig;
 /// and strafe stands down (see <see cref="StrafeAllowed"/>); forward/backward flight is unaffected
 /// either way, because nothing else reads that axis.</para>
 ///
+/// <para>…AND, SINCE MODBUILD 138, WITH AOE PATTERN ROTATION — on the SHIPPED defaults, because
+/// <c>AoeControl</c> now deliberately takes the hand <c>TurnHand</c> does not use (TURN NEVER: the
+/// user's ruling that turning may never be blocked, which is only satisfiable by un-sharing the
+/// axis rather than arbitrating it). Turn Right ⇒ rotation lands Left ⇒ the same stick this class
+/// flies with by default. That contest is real, brief and hand-accurate: strafe yields only while
+/// an AoE pattern would REALLY rotate on THIS hand, i.e. during a ranged AoE aim, and never for
+/// board state alone. Forward flight is never affected, so the player keeps flying while aiming.
+/// See <see cref="StrafeAllowed"/>.</para>
+///
 /// <para>SPEED IS IN APPARENT METRES, NOT WORLD UNITS, and that is the one non-obvious decision
 /// here. The rig root is SCALED (the diorama runs at ~12x, and the player re-scales it by pinching),
 /// so a world unit is not what the player perceives as a metre — at 12x, one apparent metre of
@@ -117,8 +126,8 @@ internal sealed class Flight : MonoBehaviour
         // BOARDTARGETING IS NO LONGER A BLANKET BLOCK (user, hardware test 2026-08-03: "Obwohl
         // kontinuierliche Bewegung aktiviert ist, funktioniert sie nicht direkt nach dem
         // Szenariostart"). It was copied from SnapTurn's rule as "targeting owns the thumbstick",
-        // but that is not what targeting does: AoeControl reads Thumbstick.X ALONE (AoeControl.cs:75,
-        // one 60-degree step per horizontal flick) and never touches the forward axis. Meanwhile
+        // but that is not what targeting does: AoeControl reads Thumbstick.x ALONE (one 60-degree
+        // step per horizontal flick, see AoeControl.Tick) and never touches the forward axis. Meanwhile
         // WaitingForTileSelected is a targeting state — which is exactly what the player sits in
         // right after a scenario starts, while placing their figure — so the blanket block made
         // flight look broken during the first minutes of every scenario, precisely when a player
@@ -146,7 +155,7 @@ internal sealed class Flight : MonoBehaviour
         // so strafe is only taken when turning is not listening to this same stick. See
         // StrafeAllowed for why that arbitration goes turning's way.
         Vector2 stick = hand.Thumbstick;
-        float sideways = StrafeAllowed() ? stick.x : 0f;
+        float sideways = StrafeAllowed(hand) ? stick.x : 0f;
         var raw = new Vector2(sideways, stick.y);
 
         // The deadzone is applied to the stick's MAGNITUDE, not per axis: a per-axis deadzone makes
@@ -289,35 +298,42 @@ internal sealed class Flight : MonoBehaviour
     /// <para>Logged on every change of the verdict, not once ever: a player who moves the hands
     /// together and finds strafe gone deserves to see why in the log rather than wonder.</para>
     /// </summary>
-    private bool StrafeAllowed()
+    private bool StrafeAllowed(VRHand hand)
     {
         bool turningOnThisStick = ComfortSettings.Turn.Value != TurnMode.Off
                                   && SameHand(ComfortSettings.FlightHand.Value,
                                               ComfortSettings.TurnHand.Value);
-        // AoE targeting owns the sideways axis outright while it is up (AoeControl.cs:75 — a
-        // horizontal flick rotates the pattern one 60-degree step). It does NOT own the forward
-        // axis, which is why the mode gate above no longer refuses flight outright: the player
-        // keeps flying while aiming, they just cannot strafe with the same flick that turns the
-        // pattern. Same shape of ruling as the turning contest, same reason — the older, aimed
-        // control keeps the axis it was built on.
+        // AoE pattern rotation reads the sideways axis too (AoeControl — a horizontal flick rotates
+        // the pattern one 60-degree step). It never touches the forward axis, which is why the mode
+        // gate in Update does not refuse flight outright: the player keeps flying while aiming, they
+        // just cannot strafe with the same flick that turns the pattern. Same shape of ruling as the
+        // turning contest, same reason — the older, aimed control keeps the axis it was built on.
         //
-        // …AND ONLY WHILE THE TARGETING IS MINE (user, hardware ModBuild 137, finding 14). The mode
-        // is derived from the SHARED Choreographer state, so a fellow player's pending movement
-        // confirmation put EVERY client into BoardTargeting; snap turning was the loud casualty and
-        // strafe was the quiet one on the same axis. LocalTurnControl asks the "whose" question —
-        // and AoeControl.CanRotate already declines to rotate anything on a client without turn
-        // control, so this axis had no other claimant there. See LocalTurnControl for the proof.
-        bool aoeOwnsSideways = LocalTurnControl.TargetingOwnsStick;
+        // TWO THINGS THIS ASKS THAT IT USED TO GUESS (ModBuild 138):
+        //   1. WHETHER — the claim is taken from the consumer (AoeControl, via LocalTurnControl),
+        //      not from VRMode.BoardTargeting. That mode is true on every peer in the session AND
+        //      throughout movement/waypoint selection, where AoeControl.CanRotate rotates nothing;
+        //      strafe was being stood down for a consumer that had already declined it.
+        //   2. WHICH STICK — AoE rotation now lives on the hand [Comfort] TurnHand does NOT use, so
+        //      under the shipped defaults (turn Right) it lands on the LEFT stick, which is also the
+        //      default FlightHand. The contention that used to be imaginary here is now real, and a
+        //      hand-blind test would either miss it or punish the other hand for it. Asking about
+        //      THIS hand is both narrower and more accurate than the old mode test.
+        // Turning is deliberately NOT part of this arbitration any more (TURN NEVER); it keeps its
+        // own stick unconditionally, and `turningOnThisStick` above is the unrelated, older contest
+        // between flight and turning when the player points both dials at one controller.
+        bool aoeOwnsSideways = LocalTurnControl.AoeOwnsStick(hand.Side);
         bool allowed = !turningOnThisStick && !aoeOwnsSideways;
         if (_strafeAllowed != allowed)
         {
             _strafeAllowed = allowed;
             VRLog.Info("Comfort", allowed
                 ? "stick flight: sideways strafe ON — the flight stick's sideways axis is free."
-                : "stick flight: sideways strafe OFF — the sideways axis is claimed (AoE targeting, " +
-                  "or turning on this same stick). Put flight and turning on different hands ([Comfort] " +
-                  "FlightHand / TurnHand) or set turning to Off to get strafe back. Forward and " +
-                  "backward flight are unaffected.");
+                : $"stick flight: sideways strafe OFF — the {hand.Side} stick's sideways axis is " +
+                  "claimed (a live AoE pattern is rotating on this hand, or turning is on this same " +
+                  "hand). Put flight and turning on different hands ([Comfort] FlightHand / TurnHand) " +
+                  "to settle the second case; the first lasts only as long as the AoE aim. Forward " +
+                  "and backward flight are unaffected either way.");
         }
         return allowed;
     }
@@ -401,20 +417,15 @@ internal sealed class Flight : MonoBehaviour
     private const float ScrollBlockDiagSeconds = 5f;
     private float _lastScrollBlockDiagAt = float.NegativeInfinity;
 
-    /// <summary>Do two hand choices resolve to the same physical controller?</summary>
-    private static bool SameHand(TurnHandChoice a, TurnHandChoice b)
-    {
-        // Dominant is not a hand, it is a pointer to one — resolve both before comparing, or
-        // "Dominant vs Right" would read as different hands on a right-handed rig.
-        return Resolve(a) == Resolve(b);
-
-        static HandSide Resolve(TurnHandChoice choice) => choice switch
-        {
-            TurnHandChoice.Left => HandSide.Left,
-            TurnHandChoice.Right => HandSide.Right,
-            _ => VRHands.Primary != null ? VRHands.Primary.Side : HandSide.Right,
-        };
-    }
+    /// <summary>
+    /// Do two hand choices resolve to the same physical controller? Dominant is not a hand, it is a
+    /// pointer to one — resolve both before comparing, or "Dominant vs Right" would read as
+    /// different hands on a right-handed rig. The resolver itself moved to
+    /// <see cref="LocalTurnControl.Resolve"/> when AoeControl became a third party that has to
+    /// agree with it about which stick is which.
+    /// </summary>
+    private static bool SameHand(TurnHandChoice a, TurnHandChoice b) =>
+        LocalTurnControl.Resolve(a) == LocalTurnControl.Resolve(b);
 
     private bool _strafeAllowed = true;
 
