@@ -26,6 +26,7 @@ Material:
     - _AwayPeriod: 23
     - _Blink: 1
     - _BlinkPeriod: 4.3
+    - _ElemCandle: 0
     - _ElemGate: 0
     - _ElemWarm: 0.5
     - _Falloff: 3.2

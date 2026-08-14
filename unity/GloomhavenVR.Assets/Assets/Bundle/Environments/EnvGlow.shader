@@ -49,6 +49,36 @@ Shader "GloomhavenVR/EnvGlow"
         // not pretending to be one — see BuildEnvironmentRooms' FIRE LIGHT note.
         _ElemGate ("Element gate: 1 = exists only under Fire", Range(0,1)) = 0
 
+        // ---- THE CANDLE FLAG (ModBuild 146) --------------------------------
+        // TWO STANDING USER RULINGS, both verbatim, both about the cellar:
+        //     "anstatt die Kerzenscheine, die sollte identisch beiben."
+        //     "Auch bei Dunkelheit sollte es keinen Einfluss auf den Kerzenschein
+        //      haben."
+        // i.e. Light and Dark may not touch a candle's glow, in either
+        // direction. The shading lane closed that for every reader of the
+        // element SOURCE GAIN and the flame sprite is closed in EnvFlame — this
+        // is the last hole, and it was in this shader's `fall`: the halo's edge
+        // still tightened under Dark and opened out under Light.
+        //
+        // IT CANNOT BE GATED ON "INDOORS", which is why it is a per-material
+        // flag and not GhvrIndoor(). This one shader serves three different
+        // things through one path:
+        //   * the CANDLE halos — frozen against Light and Dark (the rulings),
+        //   * the FIRE halos   — must keep responding; they are fire and no
+        //                        ruling touches them,
+        //   * the WINDOW glow  — must respond to Light, because it IS moonlight
+        //                        and this round is about Light lifting the moon.
+        // "Indoors" is true of all three.
+        //
+        // THE DEFAULT 0 IS THE SAFETY PROPERTY: a material that never writes
+        // this flag — every halo that shipped before, and anything a future
+        // round adds without knowing about it — multiplies the light/dark terms
+        // by exactly 1.0, and multiplication by 1.0 is exact in IEEE-754 with no
+        // change to the expression's association. The zero state is therefore
+        // bit-identical to the arithmetic this shader had before the flag
+        // existed, not merely close to it.
+        _ElemCandle ("Element: 1 = a candle halo, frozen against Light/Dark", Range(0,1)) = 0
+
         // ---- SHELF RIDERS (EnvShelfTip.cginc) -------------------------------
         // USER, ModBuild 144: "Die Kerzen und das Feuer, die auf dem Bücherregal
         // stehen, kippen nicht mit". Two of this shader's spheres stand on that
@@ -91,7 +121,7 @@ Shader "GloomhavenVR/EnvGlow"
 
             fixed4 _Tint;
             float _Falloff, _Flicker, _Rate, _Phase, _Blink, _BlinkPeriod, _Away, _AwayPeriod, _ElemWarm;
-            float _ElemGate;
+            float _ElemGate, _ElemCandle;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; };
@@ -156,8 +186,14 @@ Shader "GloomhavenVR/EnvGlow"
                     float warm = e.fire * _ElemWarm;
                     // Dark tightens the edge (the corners swallow light), Light
                     // opens it out; Fire swells the warm halos a little.
-                    fall = max(_Falloff * (1.0 + 1.15 * e.dark - 0.30 * e.light - 0.25 * warm), 0.30);
-                    elemAmp = max(GhvrSrcGain(e) + 0.85 * warm - 0.35 * e.dark * (1.0 - e.light), 0.0);
+                    // `ld` is 1 for everything that is not a candle halo, and
+                    // 0 for the ones that are (see _ElemCandle). It multiplies
+                    // the Light and Dark terms ONLY: Fire still swells a candle's
+                    // halo, because no ruling says otherwise and a candle in a
+                    // burning room is in a burning room.
+                    float ld = 1.0 - _ElemCandle;
+                    fall = max(_Falloff * (1.0 + 1.15 * e.dark * ld - 0.30 * e.light * ld - 0.25 * warm), 0.30);
+                    elemAmp = max(GhvrSrcGain(e) + 0.85 * warm - 0.35 * e.dark * ld * (1.0 - e.light), 0.0);
                     // a fire-fed halo goes ember; nothing else recolours it
                     elemCol = lerp(_Tint.rgb, float3(1.00, 0.46, 0.14), saturate(warm * 0.85));
                 }

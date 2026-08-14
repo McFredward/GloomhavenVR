@@ -202,6 +202,25 @@ internal static partial class Haunt
     /// </summary>
     internal const int EventCount = 6;
 
+    /// <summary>
+    /// How many cards THIS room has. The two rooms stopped agreeing in ModBuild 147, when the
+    /// hand-built apparition figures were deleted on the user's order ("Entferne die alten 3D assets
+    /// komplett") — the cellar kept six because three of its events never were figures (the
+    /// handprints, the cobweb tremble, the toppling bookshelf) and a seventh, figure-free one was
+    /// authored to fill the retired slot, while the wood was left with three.
+    ///
+    /// <para>SIX OR THREE, AND NOTHING BETWEEN, and that is a property of the SCHEDULE rather than a
+    /// preference: <see cref="Schedule"/> partitions slots into <c>Groups</c> = 3 and picks within a
+    /// group with <c>round(cards / 3)</c>, so a five-card room would index card 5 in a third of its
+    /// group-2 slots and draw nothing at all for those. <c>AssertHauntCards</c> in the bake states
+    /// the same rule from its side.</para>
+    ///
+    /// <para><see cref="EventCount"/> is kept as the MAXIMUM — it is what the test page sizes its
+    /// button list from before a style is known, and what the figure mask iterates. Anything that
+    /// asks "does this card exist" must use this method instead.</para>
+    /// </summary>
+    internal static int CardsIn(SkyStyle style) => style == SkyStyle.SwampNight ? 3 : 6;
+
     // FOLLOW-UP USER REQUEST (hardware, verbatim): "In der Triggertestview möchte ich wenn ich etwas
     // triggere das es dauerhaft an ist und mit erneutem toggle wieder ausgemacht wird. So kann ich
     // die Mischungen besser testen." One press latches, the same press again releases, and NOTHING
@@ -378,7 +397,11 @@ internal static partial class Haunt
         if (!_bound)
             Rig.RenderQuality.Bind();
 
-        if (id < 0 || id >= EventCount)
+        // The room decides how many cards there ARE, and the two rooms stopped agreeing in ModBuild
+        // 147 (CardsIn). Read it here rather than below, where `room` is declared, because a press
+        // for a card this room does not have must be refused before anything else happens.
+        SkyStyle pressedRoom = SkyAlternative.Style.Value;
+        if (id < 0 || id >= CardsIn(pressedRoom))
             return false;
 
         // PRESSED AGAIN = OFF, and it is tested BEFORE ForceReady on purpose: releasing must work in

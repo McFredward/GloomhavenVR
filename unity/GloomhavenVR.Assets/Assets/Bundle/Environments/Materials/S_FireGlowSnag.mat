@@ -26,12 +26,13 @@ Material:
     - _AwayPeriod: 26
     - _Blink: 0
     - _BlinkPeriod: 4.7
+    - _ElemCandle: 0
     - _ElemGate: 1
     - _ElemWarm: 1
     - _Falloff: 1.7
     - _Flicker: 0.85
     - _Phase: 0
-    - _Rate: 1.38
+    - _Rate: 0.828
     m_Colors:
     - _Tint: {r: 1, g: 0.45, b: 0.15, a: 0.16}
     - _TipAxis: {r: 0, g: 0, b: 0, a: 0}

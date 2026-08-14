@@ -964,7 +964,7 @@ internal static class EnvSound
         if (!Haunt.EasterEggs.Value)
             return;
 
-        Haunt.Slot slot = Haunt.Resolve(clock);
+        Haunt.Slot slot = Haunt.Resolve(clock, style);
         if (!slot.Live)
             return;
 

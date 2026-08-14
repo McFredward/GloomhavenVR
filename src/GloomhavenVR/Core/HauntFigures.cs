@@ -305,7 +305,7 @@ internal static partial class HauntFigures
         }
 
         // ---- what should be running --------------------------------------------------------------
-        Haunt.Slot slot = Haunt.Resolve(clock);
+        Haunt.Slot slot = Haunt.Resolve(clock, style);
 
         int want = -1;
         float wantStart = 0f;

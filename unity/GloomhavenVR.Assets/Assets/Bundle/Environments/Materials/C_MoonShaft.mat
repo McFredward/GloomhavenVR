@@ -23,25 +23,25 @@ Material:
     m_Ints: []
     m_Floats:
     - _BarBlur: 0.095
-    - _BarDepth: 0.34
+    - _BarDepth: 0.55
     - _BarFade: 0.85
-    - _BarPitch: 0.2227273
+    - _BarPitch: 0.23863637
     - _BarSig: 0.03
-    - _BarX0: -1.6863637
+    - _BarX0: -1.8295454
     - _Decay: 1.3
     - _EndFade: 0.55
     - _HauntCards: 6
     - _HauntDepth: 0.55
     - _HauntPeriod: 83
     - _HauntWatch: 0
-    - _HullR: 1.1833224
+    - _HullR: 1.1990012
     - _Knee: 1.1
-    - _Len: 3.8933527
+    - _Len: 4.015604
     - _MinSin: 0.45
     - _RadPow: 1.35
-    - _Ramp: 0.34
-    - _Shimmer: 0.14
-    - _ShimmerSpeed: 0.13
+    - _Ramp: 0.55
+    - _Shimmer: 0.22
+    - _ShimmerSpeed: 0.17
     - _Softness: 4.6
     - _Steps: 24
     - _W0: 0.24
@@ -49,7 +49,7 @@ Material:
     - _WinZ: 4.5
     m_Colors:
     - _BeamDir: {r: -0.49255642, g: -0.6427071, b: -0.5867843, a: 0}
-    - _BeamOrg: {r: -1.3522727, g: 2.5142856, b: 4.5, a: 0}
+    - _BeamOrg: {r: -1.3522726, g: 2.5928571, b: 4.5, a: 0}
     - _DraftDir: {r: -0.89, g: 0, b: -0.456, a: 0}
     - _HauntEnv: {r: 3.2, g: 2.6, b: 1.8, a: 0}
     - _Tint: {r: 0.55, g: 0.68, b: 1, a: 0.031}

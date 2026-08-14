@@ -170,7 +170,14 @@ internal static partial class Haunt
     /// element channel on" branch — when the feature is off every term is 0 and every expression
     /// below collapses to the plain schedule, exactly as <c>GhvrElems()</c> does on the GPU.</para>
     /// </summary>
-    internal static Slot Resolve(float clock)
+    /// <param name="clock">The shared environment clock, in seconds.</param>
+    /// <param name="style">Which room is standing. It selects the CARD COUNT, and the two rooms
+    /// stopped agreeing in ModBuild 147 — see <see cref="CardsIn"/>. Every caller already knows it
+    /// (the figures are handed it, the sound reads it from the same tick), so it is a parameter
+    /// rather than a read of <c>SkyAlternative.Style</c>: this method is a PURE FUNCTION of the clock
+    /// and the room, and it has to stay one, or two peers whose dial reads differ for one frame
+    /// would resolve different slots.</param>
+    internal static Slot Resolve(float clock, SkyStyle style)
     {
         float per = Mathf.Max(PeriodSeconds, 1f);
         float slot = Mathf.Floor(clock / per);
@@ -179,7 +186,11 @@ internal static partial class Haunt
         // integer range. Consecutive slots are in different groups, therefore consecutive slots are
         // different events, with no history to walk.
         float grp = slot - Groups * Mathf.Floor(slot / Groups);
-        float inGroup = Mathf.Max(Mathf.Floor(EventCount / Groups + 0.5f), 1f);
+        // THE ROOM'S OWN COUNT, not the maximum. The cellar has six cards and the wood three since
+        // ModBuild 147 deleted the hand-built figures; feeding the six-card constant to a three-card
+        // room would index cards 3..5, which that room does not have, and draw nothing for two slots
+        // in every three.
+        float inGroup = Mathf.Max(Mathf.Floor(CardsIn(style) / (float)Groups + 0.5f), 1f);
         // min() rather than trusting the hash — the shader's own comment: frac() can return exactly
         // 0, and an edit that let it reach 1.0 would index one card past the end and silently draw
         // nothing for one slot in a few thousand.
@@ -236,27 +247,35 @@ internal static partial class Haunt
     /// </summary>
     internal static float CardSeconds(SkyStyle style, int card)
     {
-        if (card < 0 || card >= EventCount)
+        if (card < 0 || card >= CardsIn(style))
             return 0f;
 
+        // MIRRORED FROM THE BAKE'S CARD CATALOGUE, and rewritten wholesale in ModBuild 147 when the
+        // hand-built apparition figures were deleted. Two of the old numbers were WRONG BEFORE that
+        // happened and are worth naming, because they are what a stale mirror costs:
+        //   * the cellar's Shelf said 8.2 s and the bake has ALWAYS shipped 26.002 s. Three times
+        //     over, in the one event a player watches from beginning to end.
+        //   * the wood's Cross said 0.34 s, which was true of the shader card and is nonsense for
+        //     what now plays it: a body walking 6.8 m. Both figure-driven cards were re-authored to
+        //     the figure's own length for exactly that reason (see the entries below), and the
+        //     cellar's Window envelope moved with it because EnvBeam DIMS THE MOONBEAM for the
+        //     duration of that card — a 7.6 s dim over a 5.5 s walk-past leaves the shaft dark for
+        //     two seconds after the thing has gone.
         return style == SkyStyle.SwampNight
             ? card switch
             {
-                0 => 8.6f,   // Face    3.4 + 2.4 + 2.8
-                1 => 3.0f,   // Eyes    1.1 + 1.4 + 0.5
-                2 => 8.5f,   // Watcher 3.5 + 5.0 + 0
-                3 => 0.34f,  // Cross   0.06 + 0.22 + 0.06 — the fastest event in either room
-                4 => 6.8f,   // Loom    4.2 + 2.6 + 0
-                _ => 6.8f,   // Hang    2.6 + 2.0 + 2.2
+                0 => 3.0f,   // Eyes    1.1 + 1.4 + 0.5
+                1 => 8.5f,   // Watcher 3.5 + 5.0 + 0    — a FIGURE plays this (HauntFigures)
+                _ => 4.2f,   // Cross   1.0 + 2.4 + 0.8  — a FIGURE plays this (HauntFigures)
             }
             : card switch
             {
-                0 => 7.6f,   // Window  3.2 + 2.6 + 1.8
+                0 => 5.50f,  // Window  0.35 + 4.80 + 0.35 — a FIGURE plays this (HauntFigures)
                 1 => 8.0f,   // Hands   2.8 + 2.2 + 3.0
-                2 => 7.4f,   // Floor   4.0 + 3.4 + 0
+                2 => 6.8f,   // Door    2.2 + 3.0 + 1.6   — NEW: the stair-top door, no body at all
                 3 => 2.0f,   // Tremble 0 + 1.1 + 0.9 — draws nothing at all; the webs shiver
-                4 => 0.70f,  // Stair   0.18 + 0.34 + 0.18
-                _ => 8.2f,   // Shelf   3.6 + 2.0 + 2.6
+                4 => 2.60f,  // Stair   0.30 + 2.00 + 0.30 — a FIGURE plays this (HauntFigures)
+                _ => 26.002f,// Shelf   0.001 + 26.0 + 0.001 — the bookshelf, and by far the longest
             };
     }
 }

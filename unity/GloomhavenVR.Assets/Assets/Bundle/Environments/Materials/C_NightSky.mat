@@ -1,0 +1,71 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: C_NightSky
+  m_Shader: {fileID: 4800000, guid: 7bcc0b8cbea2bbc3dbd7b0334874e28c, type: 3}
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: 2450
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _HazeTex:
+        m_Texture: {fileID: 2800000, guid: 317d7e2492baa3ad5bc351156ff944b4, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 2800000, guid: 6ec45f3942bc715688881f40707e44b7, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MoonTex:
+        m_Texture: {fileID: 2800000, guid: 5f2766a50107ac247ac74ec07df61a7b, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _CoreSuppress: 0.88
+    - _DriftSpeed: 0.00034722223
+    - _DustCore: 24
+    - _DustDens: 0.2
+    - _DustGain: 0.085
+    - _DustScale: 330
+    - _Extinct: 0.24
+    - _HazeAmt: 0.4
+    - _HorizonDim: 0.14
+    - _MoonDiscR: 0.22
+    - _MoonExtent: 0.055
+    - _MwBulge: 1.35
+    - _MwDust: 0.8
+    - _MwGain: 0.04
+    - _MwThick: 17
+    - _MwThin: 5
+    - _RotSpeed: 0.0021816615
+    - _SkyBoost: 0.78
+    - _StarBoost: 1.8
+    - _TwinkleAmp: 0.3
+    - _TwinkleSpeed: 1.2
+    m_Colors:
+    - _GalX: {r: -0.87343746, g: -0.39627773, b: -0.28296822, a: 0}
+    - _GalY: {r: -0.44482893, g: 0.88574004, b: 0.13263398, a: 0}
+    - _GalZ: {r: -0.19807637, g: -0.2417199, b: 0.94991434, a: 0}
+    - _HazeCol: {r: 0.01, g: 0.013, b: 0.019, a: 1}
+    - _HorizonCol: {r: 0.003, g: 0.0039, b: 0.0068, a: 1}
+    - _MoonCol: {r: 1, g: 0.98, b: 0.92, a: 1}
+    - _MoonDir: {r: 0.4925564, g: 0.64270705, b: 0.58678424, a: 0}
+    - _MwCool: {r: 0.78, g: 0.85, b: 1, a: 1}
+    - _MwWarm: {r: 1, g: 0.86, b: 0.7, a: 1}
+    - _Pole: {r: 0, g: 0.74314487, b: 0.66913056, a: 0}
+    - _StarCol: {r: 0.85, g: 0.9, b: 1, a: 1}
+    - _TopCol: {r: 0.0092, g: 0.012, b: 0.0212, a: 1}
+  m_BuildTextureStacks: []

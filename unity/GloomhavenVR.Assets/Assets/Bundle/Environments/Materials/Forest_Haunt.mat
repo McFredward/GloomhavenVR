@@ -35,7 +35,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _BumpScale: 1
-    - _Cards: 6
+    - _Cards: 3
     - _Cull: 2
     - _DstBlend: 10
     - _Edge: 0.016

@@ -30,9 +30,9 @@ Material:
     - _Hang: 1.55
     - _Period: 2.85
     - _Phase: 0
-    - _SplashLife: 0.4
-    - _SplashOut: 0.55
-    - _SplashUp: 1.1
+    - _SplashLife: 0.18
+    - _SplashOut: 0.35
+    - _SplashUp: 0.88
     - _Stretch: 0.075
     - _Y0: 3.252
     - _Y1: 0.008

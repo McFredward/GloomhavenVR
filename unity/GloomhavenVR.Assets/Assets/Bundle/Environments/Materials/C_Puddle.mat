@@ -22,11 +22,11 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _Calm: 0.06
+    - _Calm: 0.01
     - _CandPhase: 4.4
     - _CandPow: 26
     - _CandRate: 1.19
-    - _DraftWave: 0.18
+    - _DraftWave: 0.018
     - _Fresnel: 0.5
     - _IceBody: 0.12
     - _IceRelief: 0.45
@@ -35,8 +35,8 @@ Material:
     - _Period: 2.85
     - _Phase: 0
     - _Radius: 0.72
-    - _RingAmp: 0.55
-    - _RingCon: 0.7
+    - _RingAmp: 0.022
+    - _RingCon: 1
     - _RingFreq: 4.4
     m_Colors:
     - _CandCol: {r: 1, g: 0.52, b: 0.2, a: 0.88}

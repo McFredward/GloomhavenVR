@@ -120,7 +120,19 @@ internal static partial class HauntFigures
     /// — but now it dims because something IS actually crossing in front of the window rather than
     /// because a card said so.</para>
     ///
-    /// <para><b>THE MOTION.</b> 5.5 m along the wall at z = +5.25 (0.41 m beyond the outer face, so
+    /// <para><b>ModBuild 147 MOVED THE WINDOW and this event followed it.</b> The user asked for a
+    /// bigger opening set in a visibly thicker wall, so the bake re-cut it: the snapped opening is now
+    /// x −2.068…−0.636 (was −1.909…−0.796) and y 2.200…2.986 (was …2.829), <c>RevealDepth</c> went
+    /// 0.34 → 0.55, and the OUTER wall face therefore moved from z = +4.84 to z = +5.05. Two of those
+    /// matter here and one does not: the SILL DID NOT MOVE — it is still exactly 2.200 — so the walk
+    /// height is untouched and the "you see feet and shins" property is intact. What did change is the
+    /// stand-off: a walk at the old z = +5.25 would now be only 0.20 m beyond the outer face instead
+    /// of 0.41, deep inside a reveal that is itself 0.62 m deeper, which crops the creature to a
+    /// slot narrower than its own stride. The line moved to z = +5.45 to restore the shipped 0.41 m.
+    /// There is now also a real night sky and a ground plane out there (<c>AddNightOutsideWindow</c>),
+    /// so the figure is silhouetted against stars instead of against the clear colour.</para>
+    ///
+    /// <para><b>THE MOTION.</b> 5.5 m along the wall at z = +5.45 (0.41 m beyond the outer face, so
     /// behind the bars and framed by the 0.34 m reveal), from x = +1.6 to x = −3.9 or the reverse —
     /// a per-slot hash decides which way, because a thing that always walks the same way is a
     /// mechanism. At the walk speed below it is out of the opening's 1.11 m in about 1.1 s.</para>
@@ -136,8 +148,8 @@ internal static partial class HauntFigures
         // hides, and an authored fade would put back exactly the "obvious effect" look this whole
         // feature exists to get rid of.
         reveal: 0.35f, hold: 4.80f, fade: 0.35f,
-        from: new Vector3(1.60f, 2.20f, 5.25f),
-        to: new Vector3(-3.90f, 2.20f, 5.25f),
+        from: new Vector3(1.60f, 2.20f, 5.45f),
+        to: new Vector3(-3.90f, 2.20f, 5.45f),
         height: 0f,          // its own size: this is a creature standing on real ground outside
         runBlend: 0.42f,     // a walk, not a hurry — it is not going anywhere in particular
         face: Vector3.zero,  // faces the way it walks
@@ -267,9 +279,14 @@ internal static partial class HauntFigures
     /// <see cref="MaskFor"/>, and is called out here so that decision is a decision rather than an
     /// archaeology exercise.</para>
     /// </summary>
+    /// <para><b>THE FOREST INDICES MOVED IN ModBuild 147</b> — they were 2 and 3 and are now 1 and 2.
+    /// The wood lost three of its six cards when the hand-built apparition figures were deleted on
+    /// the user's order, and its catalogue was renumbered rather than left with holes: a card index
+    /// is a POSITION in the bake's catalogue, and the schedule's group partition reads a contiguous
+    /// count. The cellar's 0 and 4 are unchanged, because the cellar kept six cards.</para>
     private static bool IsMineByDesign(SkyStyle style, int card) =>
         style == SkyStyle.Cellar ? card == 0 || card == 4
-                                 : card == 2 || card == 3;
+                                 : card == 1 || card == 2;
 
     /// <summary>
     /// True when this lane, rather than <c>EnvHaunt.shader</c>, actually plays this card RIGHT NOW
@@ -331,7 +348,7 @@ internal static partial class HauntFigures
 
     private static HauntEvent EventFor(SkyStyle style, int card) =>
         style == SkyStyle.Cellar ? (card == 0 ? CellarWindow : CellarStair)
-                                 : (card == 2 ? ForestWatcher : ForestCross);
+                                 : (card == 1 ? ForestWatcher : ForestCross);
 
     // =============================================================================================
     //  ARM → DRIVE → RETIRE. The life of one apparition.

@@ -26,17 +26,18 @@ Material:
     - _AwayPeriod: 26
     - _Blink: 0
     - _BlinkPeriod: 4.7
+    - _ElemCandle: 0
     - _ElemGate: 1
     - _ElemWarm: 1
     - _Falloff: 1.85
     - _Flicker: 0.85
     - _Phase: 0
-    - _Rate: 1.38
+    - _Rate: 0.828
     m_Colors:
     - _Tint: {r: 1, g: 0.47, b: 0.16, a: 0.14}
-    - _TipAxis: {r: 0.6, g: 0, b: 0.8, a: 1.5358897}
+    - _TipAxis: {r: -0.000000119209275, g: 0, b: 1, a: 1.5707964}
     - _TipEnv: {r: 0.001, g: 26, b: 0.001, a: 0}
-    - _TipPivot: {r: -0.52222055, g: -3.7792563, b: 0.6215051, a: 1}
+    - _TipPivot: {r: -0.16234538, g: -3.7792563, b: 0, a: 1}
     - _TipSched: {r: 83, g: 6, b: 5, a: 0}
     - _TipUse: {r: 1, g: -1, b: 0, a: 0}
   m_BuildTextureStacks: []

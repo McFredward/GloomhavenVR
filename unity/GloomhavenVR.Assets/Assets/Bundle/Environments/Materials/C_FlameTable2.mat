@@ -26,7 +26,7 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _AirGust: 3.6239889
+    - _AirGust: 3.6239893
     - _Bonfire: 0
     - _FireGate: 0
     - _FireH: 1

@@ -13,8 +13,9 @@ project**. Third-party assets:
 ## Room models & PBR texture sets (`Imported/`)
 
 All meshes and photo textures under `Imported/Models` and `Imported/Textures`
-are from **Poly Haven** (<https://polyhaven.com>) — with ONE exception, the
-cobweb alpha, which is TextureCan and has its own section below — license
+are from **Poly Haven** (<https://polyhaven.com>) — with TWO exceptions, the
+cobweb alpha (TextureCan) and the wall-fungus atlas (Wikimedia Commons), which
+have their own sections below — license
 **CC0 1.0**
 (public domain, <https://polyhaven.com/license>) — no attribution required;
 credited here with thanks. Modifications: UV-preserving decimation
@@ -86,6 +87,68 @@ is the `flame_diff` map of Poly Haven's brass_candleholders.
 
 The loose hanging strands (`Textures/Env_Strand.png`) are still generated —
 `EnvironmentsBuilder.MakeStrand`, original work of this project.
+
+### Wall fungus (`fungus_alb.png`)
+
+- **Asset**: an atlas of **eight** bracket-fungus cutouts on transparent
+  background, keyed by this project out of four **Wikimedia Commons**
+  photographs. It feeds the cellar "growth cards" — alpha-tested billboards
+  stuck horizontally into the masonry.
+- **License**: every source is **CC0 1.0 Universal** (public domain dedication,
+  <https://creativecommons.org/publicdomain/zero/1.0/>). No attribution
+  required; credited here with thanks. Each file's licence was re-verified
+  through the Commons API (`action=query&prop=imageinfo&iiprop=extmetadata`,
+  fields `LicenseShortName` = `CC0`, `UsageTerms` = "Creative Commons Zero,
+  Public Domain Dedication", `LicenseUrl` =
+  `http://creativecommons.org/publicdomain/zero/1.0/deed.en`, `Restrictions`
+  empty) on **2026-08-14**, immediately before download.
+
+  | Commons file | Author | Direct URL | Used for |
+  | --- | --- | --- | --- |
+  | `File:Tinder-fungus-1817040.jpg` (3072×2304) — <https://commons.wikimedia.org/wiki/File:Tinder-fungus-1817040.jpg> | **Tappancs** (originally <https://pixabay.com/en/users/Tappancs-829780/>; uploaded to Commons 2017-01-06 by Nikos Andronikos, Pixabay licence review confirmed by Amitie 10g 2017-01-07 — a **pre-2019** Pixabay upload, i.e. from the era when Pixabay's terms *were* CC0) | <https://upload.wikimedia.org/wikipedia/commons/c/c3/Tinder-fungus-1817040.jpg> | `shelf_tinder` |
+  | `File:Porling nahe Rheingoldhalle.jpg` (4312×5760) — <https://commons.wikimedia.org/wiki/File:Porling_nahe_Rheingoldhalle.jpg> | **ManuelB701**, own work | <https://upload.wikimedia.org/wikipedia/commons/0/0a/Porling_nahe_Rheingoldhalle.jpg> | `hoof_porling` |
+  | `File:Bracket fungus, 2021-09-15, Bird Park, 01.jpg` (4152×2768) — <https://commons.wikimedia.org/wiki/File:Bracket_fungus,_2021-09-15,_Bird_Park,_01.jpg> | **Cbaile19**, own work | <https://upload.wikimedia.org/wikipedia/commons/d/df/Bracket_fungus%2C_2021-09-15%2C_Bird_Park%2C_01.jpg> | `cluster_bird_top`, `cluster_bird_low`, `shelf_bird_right`, `small_bird_far`, `small_bird_left` |
+  | `File:Shelf fungus, Fox Chapel, 2022-03-05, 01.jpg` (4160×3120) — <https://commons.wikimedia.org/wiki/File:Shelf_fungus,_Fox_Chapel,_2022-03-05,_01.jpg> | **Cbaile19**, own work | <https://upload.wikimedia.org/wikipedia/commons/9/95/Shelf_fungus%2C_Fox_Chapel%2C_2022-03-05%2C_01.jpg> | `shelf_fox` |
+
+- **Why photographs and not a library asset**: neither Poly Haven nor
+  ambientCG has a bracket fungus at all, and a shelf fungus is one of the few
+  props whose whole job is its *silhouette* — a scanned albedo would still have
+  had to be keyed.
+- **Modifications**: crop; segmentation by OpenCV grabCut seeded from a
+  brightness-minus-saturation trimap (the fungi are pale, the backdrops are
+  dark bark and leaf litter or bright-but-saturated foliage), except the tinder
+  hoof, whose grey underside is tonally identical to the bark behind it and
+  which therefore needed a hand-traced silhouette with grabCut allowed only to
+  refine it; morphological open/close, connected-component filtering and hole
+  filling; the trunk removed and the attachment edge cut off along a straight
+  vertical line, since that edge is buried in the wall. Colour is then
+  re-sourced from a few pixels inside the silhouette — a plain erosion plus an
+  explicit rejection of violet pixels near the rim, because the source JPEGs
+  carry a chromatic-aberration fringe on every high-contrast edge — and carried
+  through the resize **premultiplied**, so no background texel can weight into
+  an edge texel; the transparent region is finally filled by nearest-opaque
+  bleed so mip generation cannot pull anything foreign into the visible edge.
+  Result: 1024×1024 RGBA8, ~0.9 % of texels partially transparent (a one-texel
+  ramp), ≥20 transparent texels between cutouts and ≥10 against the border.
+- **Sub-rects**: eight, all normalised so that **+U points away from the wall
+  and +V points up**; the rect's left edge is the buried attachment edge. The
+  table is `Rect[]` data for the card builder, not part of this file.
+- **No pipeline script ships**: unlike `polyhaven_pipeline.py` and
+  `cobweb_pipeline.py`, the keying here needed per-image hand tuning (one
+  traced polygon, per-image morphology radii) and was done offline; the method
+  above is the record. Re-deriving it needs python3 + numpy + OpenCV + SciPy +
+  Pillow.
+- **Not used, but evaluated** (recorded so a future round need not repeat the
+  search; both are equally **CC0 1.0 Universal**, verified the same way on the
+  same date): `File:Bracket fungus, Trillium Trail, 2022-03-30, 01.jpg`
+  (Cbaile19, 3835×2876,
+  <https://commons.wikimedia.org/wiki/File:Bracket_fungus,_Trillium_Trail,_2022-03-30,_01.jpg>)
+  — tan brackets on tan cut wood, no tonal separation to key against; and
+  `File:Hillesheim (Rheinhessen) - Bahnhofstraße, Baumpilz.jpg` (ManuelB701,
+  3000×4000,
+  <https://commons.wikimedia.org/wiki/File:Hillesheim_(Rheinhessen)_-_Bahnhofstra%C3%9Fe,_Baumpilz.jpg>)
+  — a vertically stacked cluster, but wholly inside the trunk's shadow band, so
+  the brackets are darker than the lit bark around them.
 
 ## Night-sky panorama — REMOVED in ModBuild 134
 
