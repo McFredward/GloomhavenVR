@@ -394,7 +394,14 @@ internal static partial class HauntFigures
             : Quaternion.identity;
         _anchor.transform.localRotation = _standRot;
 
-        Clone.Request(_model, picked, ev, _anchor.transform);
+        // THE ROOM ROOT RIDES ALONG, and only for its LIGHT. The clone factory reads the room's
+        // baked rig (_AmbUp/_DirDir/_L*Pos, written per material by BuildEnvironmentRooms.ApplyRig)
+        // off one of its materials so the apparition can be lit by the same moon and the same
+        // candles as the wall behind it — see the Lighting block in HauntFigures.Clone.cs for why
+        // that is read back rather than mirrored, and why it is delivered as per-renderer SH rather
+        // than as real Unity lights. The style goes with it because the two rooms answer the element
+        // channel differently and _GhvrIndoor is what tells them apart on the GPU side.
+        Clone.Request(_model, picked, ev, _anchor.transform, _room, style);
 
         VRLog.Info("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) armed at shared clock "
                            + $"{_startClock:F2}s for {ev.Seconds * _durMul:F2}s — model '{_model}' ({picked}), "

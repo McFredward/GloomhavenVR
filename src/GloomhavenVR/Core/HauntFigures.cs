@@ -326,8 +326,38 @@ internal static partial class HauntFigures
         }
 
         // ---- retire what should not be --------------------------------------------------------
-        if (_card >= 0 && (want != _card || !Mathf.Approximately(wantStart, _startClock)))
+        //
+        // A RE-ANCHOR OF THE SAME CARD IS NOT A DIFFERENT EVENT. ModBuild 147 gave the Advanced
+        // menu's test triggers an indefinite LATCH, and a latched apparition has to LOOP or the
+        // shader's presence envelope runs out and holds an empty room (see Haunt.ForceLoopSeconds).
+        // It loops by advancing _forceSince — i.e. the SAME card arrives with a new StartClock every
+        // ForceLoopSeconds, which is floored at 2.5 s. Read literally, the test below called that "a
+        // different event took over" and tore the clone down: an Addressables instantiate, a strip,
+        // an InitialiseCharacterAsync and a fresh light bind EVERY 2.5 SECONDS, for as long as the
+        // tester held the latch. Found in the hardware log as nine `armed at` lines 2.5 s apart on
+        // one forest card. It did not change the picture, which is exactly why it needed finding in
+        // the log rather than in a headset.
+        //
+        // So the card decides the CLONE and the start clock decides only the MOTION: same card and a
+        // start clock that moved FORWARD keeps the creature standing and re-runs its path from the
+        // top, which is what a looping apparition should look like anyway. Everything else still
+        // retires — a different card, and a clock that ran BACKWARDS (a scene reload, a new owner of
+        // the shared epoch), because that is a discontinuity rather than a repetition.
+        bool sameCardLooped = _card >= 0 && want == _card
+                              && !Mathf.Approximately(wantStart, _startClock)
+                              && wantStart > _startClock;
+        if (_card >= 0 && want != _card)
             Retire(want < 0 ? "the event ended" : "a different event took over");
+        else if (_card >= 0 && want < 0)
+            Retire("the event ended");
+        else if (_card >= 0 && !Mathf.Approximately(wantStart, _startClock) && !sameCardLooped)
+            Retire("the shared clock jumped backwards under a running apparition");
+        else if (sameCardLooped)
+        {
+            // Keep the creature, restart its run. One float write, no allocation, no load.
+            _startClock = wantStart;
+            _durMul = wantDur;
+        }
 
         if (want < 0)
             return;
