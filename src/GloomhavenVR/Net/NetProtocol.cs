@@ -416,7 +416,38 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 138;
+    public const ushort ModBuild = 139;
+    // Build 139: three reported items. No wire change; the bump is the handshake key, and the
+    // BUNDLE IS REBUILT (64.5 -> 65.2 MB), so both players need the new plugin AND the new bundle.
+    //
+    // TURNING IS NEVER BLOCKED (user: "Die drehung soll nie blockiert sein!"). Build 138 fixed the
+    // multiplayer half of this and stopped one scope short: placing a waypoint is not AoE aiming,
+    // and AoeControl.CanRotate declines to rotate anything there (display state MovementSelection,
+    // and WaitingForTileSelected is an outright refusal), so the acting player's own stick was
+    // still being taken for a consumer that had already declined it. The gate now asks the
+    // CONSUMER instead of VRMode, and AoE pattern rotation moves to the hand [Comfort] TurnHand
+    // does NOT use — so the claim cannot land on the turn stick at all and there is no
+    // arbitration left to get wrong. TurnMode=Off frees the turn stick and rotation keeps the
+    // primary hand there. Flight's strafe test became hand-accurate for the same reason.
+    // FOREST: the shafts passed through trunks and boughs with no consequence. There is no Unity
+    // Light in these prefabs to cast from, so the trees now cast BAKED shadow: an orthographic
+    // 16-bit DEPTH map along MoonDir (5.5 cm/texel), alpha-tested against the sprig atlas so a
+    // foliage card is leaves and not sheet metal, carrying TWO layers (nearest and deepest
+    // occluder) because the nearest is almost always the canopy 20-30 m up-light and the trunk
+    // four metres away never got a vote. A depth, not a mask: the shafts run UP through the tear,
+    // and a shaft's top projects to the same texel as the boughs around it. Occluders cast only
+    // within a MAXIMUM THROW (floor 9 m, blades 4 m) — a deliberate departure from physical
+    // exactness, because the exact answer in a wood this dense is "nothing is lit" and the
+    // authored fiction is the approved one. The floor's visibility multiplies the MOON term only,
+    // so ambient, all three point lights and the landing pool cannot be darkened by it.
+    // CELLAR: the room read as a rectangular box because WallMesh's bulge tapers to ZERO at every
+    // edge — the one place the irregularity was wanted was the one place it was forced off. All
+    // twelve edges are broken now: rubble skirtings that heap and thin along each wall run, four
+    // corners each treated differently, a crumbling mortar cove and three wall plates under the
+    // ceiling, the eight cube corbels replaced by hewn brackets, beams that sag and wander and are
+    // DERIVED from the two corbels under their own ends, and a plank plane that sags between them.
+    // The twelve transforms became two welded meshes: -10 draw calls, -10 materials, +2346 tris.
+    //
     // Build 138: the big multiplayer round — 16 reported items, most of them fixed at a cause
     // nobody had guessed. Wire GAINS record 31 (shared environment clock). Bundle rebuilt.
     //

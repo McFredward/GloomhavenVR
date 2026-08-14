@@ -40,6 +40,24 @@ Shader "GloomhavenVR/EnvGround"
         // itself down would flatten the trunk rim, which is the contrast recipe
         // ModBuild 134 spent a round building.
         _DirScale ("Directional (moon) response", Range(0,2)) = 1
+        // CANOPY SHADOW — baked by BuildEnvironmentRooms.cs (CanopyShadowBake).
+        // It multiplies the DIRECTIONAL term and nothing else, so it can only
+        // ever subtract moonlight: the hemisphere ambient and all three point
+        // lights are separate addends and are not in its reach. That matters
+        // here more than anywhere, because the levels this shader carries were
+        // hand-tuned to a user ruling (see _DirScale) and the landing pool the
+        // board is read by is a POINT light. Nothing in this room gets brighter.
+        //
+        // Defaults are "no shadow map": a white map decodes to depth 1.0, which
+        // is the bake's own "nothing here" sentinel, and _CsFlt.w = 0 takes the
+        // whole term out.
+        _CsMap ("Canopy shadow depth (R:G = 16-bit)", 2D) = "white" {}
+        _CsOrg ("Light-plane origin (OBJECT space, w = 1/depth span)", Vector) = (0,0,0,0)
+        _CsU ("Light-plane axis U (w = 1/extent)", Vector) = (1,0,0,0)
+        _CsV ("Light-plane axis V (w = 1/extent)", Vector) = (0,1,0,0)
+        _CsDir ("Light travel direction (w = -near depth)", Vector) = (0,-1,0,0)
+        _CsFlt ("Penumbra u, penumbra v, depth bias, strength", Vector) = (0,0,0,0)
+        _CsThrow ("Max throw, 1/release (encoded depth units)", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -49,6 +67,7 @@ Shader "GloomhavenVR/EnvGround"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma target 3.0        // four albedo/normal reads plus six shadow taps
             #include "UnityCG.cginc"
 
             sampler2D _MainTex; float4 _MainTex_ST;
@@ -59,6 +78,98 @@ Shader "GloomhavenVR/EnvGround"
             fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col;
             float4 _DirDir, _L0Pos, _L1Pos, _L2Pos;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
+
+            // ------------------------------------------------------ CANOPY SHADOW
+            // An orthographic depth map of the trees along the moon bearing, baked
+            // by BuildEnvironmentRooms.cs (CanopyShadowBake — read the block above
+            // that class for WHY it stores a depth and not an occlusion mask).
+            // R:G is a 16-bit linear depth measured DOWN-LIGHT from a plane just
+            // in front of the tallest tree; 1.0 (white) means "no occluder", which
+            // is why real depths only ever reach 0.98.
+            //
+            // Everything is in OBJECT space — the frame the ground mesh is built
+            // in and the only one the runtime's placement yaw and scale cannot
+            // move under it, exactly like _DirDir and _L0Pos above.
+            //
+            // Duplicated from EnvShaft.shader on purpose (see the note there):
+            // the floor takes SIX taps where a blade of mist takes seven, because
+            // the floor covers far more of the view and its shadow edge is
+            // already softened by the normal map and the vertex fade.
+            sampler2D _CsMap;
+            float4 _CsOrg, _CsU, _CsV, _CsDir, _CsFlt, _CsThrow;
+
+            float3 CsCoord (float3 op)
+            {
+                float3 r = op - _CsOrg.xyz;
+                return float3(dot(r, _CsU.xyz) * _CsU.w + 0.5,
+                              dot(r, _CsV.xyz) * _CsV.w + 0.5,
+                              (dot(r, _CsDir.xyz) + _CsDir.w) * _CsOrg.w);
+            }
+
+            // Each 16-bit layer arrives as two bytes over 255, so a stored depth
+            // is (hi*255*256 + lo*255) / 65535. R:G is the NEAREST occluder in
+            // the texel and B:A the DEEPEST — one value cannot serve both
+            // receivers, see the two-layer note in BuildEnvironmentRooms.cs.
+            //
+            // MAXIMUM THROW. d is how far DOWN-LIGHT of a stored occluder this
+            // fragment lies; d <= 0 means the occluder is behind me and I am lit.
+            // A physically exact test would stop there, and in this room it would
+            // answer "shadowed" everywhere: the moon sits at 40 deg, so the ray
+            // from the clearing floor to the moon spends the next 20-30 m inside
+            // the wood, and a wood at night genuinely has no moonlight on its
+            // floor. The clearing, the canopy tear and the three shafts are an
+            // AUTHORED FICTION and it is the fiction the user approved. So an
+            // occluder only casts for _CsThrow.x of depth and then releases
+            // smoothly over 1/_CsThrow.y: the trunk a beam passes through shadows
+            // it, the roof 25 m up-light does not. The builder derives both
+            // numbers — see the MAXIMUM THROW block in BuildEnvironmentRooms.cs.
+            float CsThrow (float d)
+            {
+                return step(0.0, d) * saturate((_CsThrow.x - d) * _CsThrow.y);
+            }
+
+            // The floor reads the FAR layer alone, and for a floor that is exact
+            // rather than an approximation: the floor lies below everything in
+            // its texel, so the deepest occluder is always the nearest one
+            // up-light of it. Reading R:G here would store the canopy 20-30 m
+            // overhead, put it past the throw, and report the floor lit while the
+            // trunk 4 m away casts nothing — which is what the first bake did.
+            float CsTap (float2 uv, float z)
+            {
+                float2 e = tex2D(_CsMap, uv).ba;
+                float f = (e.x * 65280.0 + e.y * 255.0) * (1.0 / 65535.0);
+                // 0 is "nothing here"; see the note in EnvShaft.shader
+                return 1.0 - step(0.00002, f) * CsThrow(z - f);
+            }
+
+            float CsVisible (float3 sc)
+            {
+                float z = sc.z - _CsFlt.z;
+                float2 f = _CsFlt.xy;
+                // PERCENTAGE-CLOSER filtering: compare first, average after. The
+                // map is point-sampled on purpose — bilinear interpolation of a
+                // DEPTH blends a trunk against the open sky beside it and invents
+                // an occluder halfway between the two. Six taps on a small disc
+                // (0.18 m radius in the wood, 3-4 texels) give a trunk's shadow a
+                // soft rim instead of the map's own grid; a single tap is a stencil.
+                float v = CsTap(sc.xy, z)
+                        + CsTap(sc.xy + float2( 0.951,  0.309) * f, z)
+                        + CsTap(sc.xy + float2( 0.000,  1.000) * f, z)
+                        + CsTap(sc.xy + float2(-0.951,  0.309) * f, z)
+                        + CsTap(sc.xy + float2(-0.588, -0.809) * f, z)
+                        + CsTap(sc.xy + float2( 0.588, -0.809) * f, z);
+                v *= (1.0 / 6.0);
+                // Off the edge of the baked map, and anywhere in front of its near
+                // plane, everything is lit. CLAMP addressing would otherwise drag
+                // the border texels right across the room, and a hard cut-off
+                // would draw a line on the floor — so it fades out over ~1/40th
+                // of the map's own width, which is comfortably wider than the tap
+                // disc, so no tap ever reaches past the border while it counts.
+                float2 q = abs(sc.xy - 0.5);
+                float edge = saturate((0.5 - max(q.x, q.y)) * 40.0)
+                           * step(0.0, sc.z) * step(sc.z, 1.0);
+                return 1.0 - _CsFlt.w * (1.0 - v) * edge;
+            }
 
             struct appdata
             {
@@ -127,7 +238,14 @@ Shader "GloomhavenVR/EnvGround"
 
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
                 float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5);
-                light += _DirCol.rgb * (_DirScale * saturate(dot(N, normalize(_DirDir.xyz))));
+                // USER FINDING, ModBuild 137 (hardware): "... ich würde hier
+                // gerne das die Bäume entsprechende Schatten werfen." Half of
+                // "the trees cast shadows" is the trunk shadows lying across the
+                // clearing floor, and this is it: a pure multiply on the MOON
+                // term. It can only subtract — see the _CsMap block in the
+                // Properties for why nothing here can get brighter.
+                light += _DirCol.rgb * (_DirScale * saturate(dot(N, normalize(_DirDir.xyz)))
+                                        * CsVisible(CsCoord(i.opos)));
                 light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00);
                 light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83);
                 light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19);

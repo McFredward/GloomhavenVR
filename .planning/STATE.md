@@ -126,6 +126,56 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 139** — three reported items. No wire change. **Bundle 65,245,628 bytes — 139 NEEDS
+  it** (the canopy shadow map is new bundle content and the cellar's meshes changed).
+  **Turning is never blocked** — the ruling hardened from 138's "not another seat's targeting" to
+  unconditional. 138 stopped one scope short: the acting player placing a waypoint is in
+  `BoardTargeting` WITH turn control, so the 137/138 gate said "MINE" and stood turning down — but
+  `AoeControl.CanRotate` declines there too (`CurrentDisplayState == MovementSelection`, and
+  `WaitingForTileSelected` is an explicit refusal). Same mistake as on the remote peers, one scope
+  smaller: the stick taken for a consumer that had declined it. Two changes, because "never" admits
+  no exception — (a) `LocalTurnControl` asks the CONSUMER (`AoeControl.ClaimsStick`, computed from
+  the gates `Tick` applies) instead of testing `VRMode`; (b) `AoeControl.ResolveRotationHand` moves
+  pattern rotation to the hand `[Comfort] TurnHand` does NOT use, so the claim cannot land on the
+  turn stick at all. `TurnMode=Off` frees it and rotation keeps the primary hand. `Flight`'s strafe
+  test became hand-accurate (after the split, AoE and flight share the LEFT stick on the shipped
+  defaults). GENERAL RULE: arbitrate a control against what really reads the axis this frame, never
+  against a game STATE — a state is not a claim.
+  **Forest — the trees cast shadows** (user: the shafts "clippen durch die Bäume"). No Unity Light
+  exists in these prefabs to cast from, so it is baked DATA: an orthographic depth map along
+  `MoonDir`, 512², 5.5 cm/texel, read by `EnvShaft` (blades) and `EnvGround` (the moon term only —
+  ambient, all three point lights and the landing pool are separate addends and cannot be
+  darkened). Three findings that each cost a pass and generalise:
+  (1) **A depth, not a mask.** The shafts run UP through the canopy tear; orthographically a
+  shaft's top and the boughs beside it are the SAME texel, so a mask blacks out exactly the thing
+  ModBuild 137 exists to show. Only a depth answers "is the segment from here to the moon blocked".
+  (2) **Alpha-cut cards are not solid.** Rasterised as opaque quads the crowns became a lid: 81.2%
+  of texels occluded and all three shafts scoring 0% clear — it would have DELETED the shafts.
+  Alpha-testing against the sprig atlas drops 2.4 M texel writes.
+  (3) **Nearest is the wrong layer.** The nearest occluder in a texel is almost always the canopy
+  20-30 m up-light, so the throw test measured the floor against the ROOF and the trunk four metres
+  away never voted — 5.2% clearing shadow. The map now carries TWO 16-bit layers (nearest + deepest,
+  hence RGBA32, 1024 KiB): the floor reads the deepest (exact for a floor), a blade takes the
+  stronger of both. Clearing shadow 5.2% → 28.8%.
+  **MAXIMUM THROW** (floor 9 m, blades 4 m, soft release) is a deliberate departure from physical
+  exactness: exactly, nothing in a wood this dense is lit, and the authored fiction is the approved
+  one. A blade is inside a trunk for ~1.2 m of its own length, so 4 m is "the tree this beam passes
+  through" and 9 m is "the trunk whose shadow rakes the clearing".
+  **Cellar — the box broken** (user: perfect 90° at every junction, cubes under the beams). The
+  cause was in the wall code: `WallMesh`'s inward bulge TAPERS TO ZERO at every edge and hole rim,
+  so the one place irregularity was wanted was the one place it was switched off. Now: rubble
+  skirtings that heap and thin along each run (cleared at the stair and the rat's route, taken from
+  `SnappedHole` and the rat's own Bézier), four corners each treated differently, a crumbling cove
+  and three wall plates under the ceiling, hewn corbels instead of `BoxMesh` cubes, beams that sag
+  and wander and are DERIVED from the two corbels under their own ends, and a plank plane that sags
+  between them. The twelve transforms became TWO welded meshes — required, not an optimisation:
+  the light rig bakes in OBJECT space, so twelve transforms sharing a material are all lit from the
+  first one's position. −10 draw calls, −10 materials, +2346 tris. `PruneUnreferenced` deleted the
+  14 now-unused beam/corbel assets, as designed.
+  **Process note:** `scripts/build-bundles.sh` only PACKS. The environment prefabs (and any bake in
+  them) come from a separate run — `-executeMethod GloomhavenVR.EnvironmentsBuilder.BuildAll`. A
+  green bundle build that silently did nothing is what hid the first bad bake for a full pass.
+
 - **ModBuild 138** — the big multiplayer round: 16 reported items. **Wire gains record 31.**
   Bundle 64,474,086 bytes — 138 NEEDS it. Root causes worth carrying:
   **Locomotion is local.** A peer's targeting froze everyone's snap-turn AND stick strafe:

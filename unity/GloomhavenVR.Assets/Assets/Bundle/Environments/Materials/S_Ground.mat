@@ -28,6 +28,10 @@ Material:
         m_Texture: {fileID: 2800000, guid: 150f32904cc5940e0853f0e0c5bc4c4f, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _CsMap:
+        m_Texture: {fileID: 2800000, guid: 15a32bfffc6c20dbe89e48920b0109b6, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _MainTex:
         m_Texture: {fileID: 2800000, guid: 4d4fefe33ff52281abc5b5500f2a9996, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -44,6 +48,12 @@ Material:
     m_Colors:
     - _AmbDown: {r: 0.005, g: 0.006, b: 0.005, a: 1}
     - _AmbUp: {r: 0.024, g: 0.029, b: 0.04, a: 1}
+    - _CsDir: {r: -0.49255642, g: -0.6427071, b: -0.5867843, a: 31.655201}
+    - _CsFlt: {r: 0.006428572, g: 0.007967256, b: 0.001265979, a: 0.75}
+    - _CsOrg: {r: -0, g: 0, b: -0, a: 0.021099651}
+    - _CsThrow: {r: 0.18989687, g: 13.541185, b: 0, a: 0}
+    - _CsU: {r: 0.76592493, g: 0, b: -0.64293003, a: 0.035714287}
+    - _CsV: {r: -0.4132157, g: 0.766112, b: -0.4922654, a: 0.044262532}
     - _DirCol: {r: 0.7, g: 0.79, b: 0.94, a: 1}
     - _DirDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
     - _L0Col: {r: 0.11, g: 0.26, b: 0.16, a: 0.22}

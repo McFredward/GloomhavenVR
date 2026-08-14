@@ -995,6 +995,107 @@ namespace GloomhavenVR
             a.Quad(b);
         }
 
+        /// <summary>World-planar UVs for one face: project on the two axes the
+        /// face's normal is LEAST aligned with, so no face smears, and take the
+        /// coordinates from the ROOM position so two stones side by side never
+        /// repeat the same texels. (Per-face 0..1 UVs, the obvious alternative,
+        /// would stretch one whole block of the atlas across a 12 cm chip and
+        /// across a 4 m skirting run alike — the chip would read as a boulder.)</summary>
+        private static Vector2 PlanarUV(Vector3 p, Vector3 n, float uvScale)
+        {
+            float ax = Mathf.Abs(n.x), ay = Mathf.Abs(n.y), az = Mathf.Abs(n.z);
+            if (ay >= ax && ay >= az) return new Vector2(p.x / uvScale, p.z / uvScale);
+            if (ax >= az) return new Vector2(p.z / uvScale, p.y / uvScale);
+            return new Vector2(p.x / uvScale, p.y / uvScale);
+        }
+
+        /// <summary>One FLAT-SHADED quad from its four corners in loop order, with
+        /// world-planar UVs. Its normal is cross(p1-p0, p2-p0) — the convention
+        /// BoxMesh, RevealMesh, BuildShaft and WallMesh are all wound to — so a
+        /// face built here matches everything it is welded next to.
+        ///
+        /// It deliberately does NOT route through Acc.Quad(), which emits
+        /// (b, b+2, b+1) and therefore faces the OTHER way: that order exists for
+        /// AddQuad's centre/half-axis form, where the stated normal is
+        /// cross(halfV, halfU). Mixing the two conventions is exactly how the
+        /// moonbeam hull came out inside-out in ModBuild 137, so each call site
+        /// says which one it is using.</summary>
+        private static void AddFaceUV(Acc a, Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3,
+            float uvScale, Color col)
+        {
+            Vector3 n = Vector3.Cross(p1 - p0, p2 - p0);
+            // A rubble run that has thinned to nothing pinches its own quads down
+            // to a line. Emitting those would cost triangles and hand the mesh a
+            // NaN normal, which the tangent solver then spreads to its neighbours.
+            if (n.sqrMagnitude < 1e-12f) return;
+            n.Normalize();
+            int b = a.Count;
+            a.Vert(p0, n, PlanarUV(p0, n, uvScale), col);
+            a.Vert(p1, n, PlanarUV(p1, n, uvScale), col);
+            a.Vert(p2, n, PlanarUV(p2, n, uvScale), col);
+            a.Vert(p3, n, PlanarUV(p3, n, uvScale), col);
+            a.T.AddRange(new[] { b, b + 1, b + 2, b, b + 2, b + 3 });
+        }
+
+        /// <summary>HEWN — a chisel-cut block welded into `a`. It is a box whose
+        /// eight corners are each jittered off the grid by up to `chip`, and whose
+        /// far (+Z, "tip") end can be narrowed (`tipNarrow`, the fraction of the
+        /// width it keeps there) and undercut (`tipRise`, the fraction of the
+        /// height its SOLE climbs there, leaving the top face flat).
+        ///
+        /// The asymmetry matters: a symmetric taper shrinks a block about its
+        /// centre, so the top slopes down as much as the bottom slopes up — and a
+        /// corbel's top face is the one surface in the whole room that must stay
+        /// flat, because a beam bears on it. Hence two separate knobs.
+        ///
+        /// Flat-shaded on purpose (4 verts per face): a smoothed block reads as a
+        /// pillow, and what the user asked for is chisel work. 12 triangles.</summary>
+        private static void AddHewnBlock(Acc a, Vector3 centre, Quaternion rot, Vector3 size,
+            float tipNarrow, float tipRise, float chip, float uvScale, int seed, Color col)
+        {
+            Vector3 h = size * 0.5f;
+            Vector3 C(int ix, int iy, int iz)
+            {
+                float sx = ix == 0 ? -1f : 1f, sz = iz == 0 ? -1f : 1f;
+                float w = iz == 1 ? tipNarrow : 1f;
+                float y = iy == 1 ? h.y : -h.y;
+                if (iz == 1 && iy == 0) y = -h.y + size.y * tipRise;
+                var l = new Vector3(sx * h.x * w, y, sz * h.z)
+                      + new Vector3(Hash3(ix, iy, iz, seed) - 0.5f,
+                                    Hash3(ix, iy, iz, seed + 31) - 0.5f,
+                                    Hash3(ix, iy, iz, seed + 67) - 0.5f) * (chip * 2f);
+                return centre + rot * l;
+            }
+            Vector3 c000 = C(0, 0, 0), c001 = C(0, 0, 1), c010 = C(0, 1, 0), c011 = C(0, 1, 1),
+                    c100 = C(1, 0, 0), c101 = C(1, 0, 1), c110 = C(1, 1, 0), c111 = C(1, 1, 1);
+            AddFaceUV(a, c100, c110, c111, c101, uvScale, col);   // +X
+            AddFaceUV(a, c000, c001, c011, c010, uvScale, col);   // -X
+            AddFaceUV(a, c010, c011, c111, c110, uvScale, col);   // +Y
+            AddFaceUV(a, c000, c100, c101, c001, uvScale, col);   // -Y
+            AddFaceUV(a, c001, c101, c111, c011, uvScale, col);   // +Z, the tip
+            AddFaceUV(a, c000, c010, c110, c100, uvScale, col);   // -Z, the buried end
+        }
+
+        private static Color Grey(float v) => new Color(v, v, v, 1f);
+
+        /// <summary>How close an accumulated mesh comes to the room's vertical
+        /// axis, counting only what is below `yMax` — the same rule
+        /// AssertPlaySpaceClear applies (anything overhead passes by design). The
+        /// assert reports the single nearest object in the whole room, which is a
+        /// prop; this is how the build log can also state the clearance of the
+        /// geometry THIS round added.</summary>
+        private static float MinRadiusBelow(Acc a, float yMax)
+        {
+            float best = float.MaxValue;
+            foreach (var p in a.V)
+            {
+                if (p.y > yMax) continue;
+                float d = Mathf.Sqrt(p.x * p.x + p.z * p.z);
+                if (d < best) best = d;
+            }
+            return best;
+        }
+
         /// <summary>A tapered tube through a polyline of rings — the rat's body,
         /// head, tail and legs are all this. `uvx` runs along the tube, the ring
         /// angle gives the belly/back blend in uv.x (0 belly, 1 back).</summary>
@@ -1066,6 +1167,52 @@ namespace GloomhavenVR
         private static float CellarFloorY(float x, float z) =>
             0.012f * Fbm2(x * 0.8f, z * 0.8f, 3, 901) - 0.006f;
 
+        /// <summary>Where the four ceiling beams run. ONE expression, read by the
+        /// beams themselves, by the corbels under them, by the plank ceiling that
+        /// sags between them and by the mortar cove that has to keep out of their
+        /// way — so none of those four can drift apart.</summary>
+        private static float CellarBeamZ(int i) => -CD / 2f + CD * (i + 1) / 5f;
+
+        /// <summary>The plank ceiling's height. It is NAILED TO THE BEAMS, so it
+        /// can only sag between them: the supports are the four beams and the two
+        /// walls, the sag is a first-mode bulge across each bay, and the amplitude
+        /// itself wanders along the room so no two bays sag alike.
+        ///
+        /// Pinned at every support for two reasons beyond the physical one. The
+        /// ceiling edge stays EXACTLY at y = CH where it meets the wall tops, so
+        /// the cove has a known line to bury itself in; and the beams' top faces
+        /// (CH + 6 mm, i.e. bedded INTO the planks) can never be left standing
+        /// proud of a ceiling that sagged out from under them.
+        ///
+        /// Amplitude is capped at 18 mm — the moon hull's SlideIntoRoom clamps to
+        /// CH - 30 mm, so anything deeper than that would let the hull's rim poke
+        /// through the planks and bite a hard-edged hole out of the beam.</summary>
+        private static float CellarCeilY(float x, float z)
+        {
+            float hd = CD / 2f;
+            float lo = -hd, hi = hd;
+            for (int i = 0; i < 4; i++)
+            {
+                float b = CellarBeamZ(i);
+                if (b <= z && b > lo) lo = b;
+                if (b >= z && b < hi) hi = b;
+            }
+            float f = Mathf.Clamp01((z - lo) / Mathf.Max(hi - lo, 1e-3f));
+            // ^1.3 rather than a plain sine: a sagging board is flatter at its
+            // supports and deeper in the middle than a half-wave is.
+            //
+            // THE Max(0) IS LOAD-BEARING. Mathf.PI is 3.14159274f, which is
+            // LARGER than pi, so Sin(1f * Mathf.PI) comes out at -8.7e-8 — and
+            // Pow(negative, 1.3) is NaN. f is exactly 1 at every support, and the
+            // ceiling grid samples exactly there, so without this clamp the whole
+            // edge row of the plank plane (and the last station of every beam,
+            // which uses the same shape) would be NaN: a mesh with no bounds that
+            // Unity either drops or draws as a smear across the room.
+            float bay = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(f * Mathf.PI)), 1.3f);
+            float amp = 0.006f + 0.012f * Fbm2(x * 0.42f + 5f, lo * 0.9f, 3, 3907);
+            return CH - bay * amp;
+        }
+
         // The window moved WEST (was x 6.0 in wall-local units). Two reasons:
         // the moon shaft that now comes through it has a fixed bearing, and at
         // the old position its pool landed 2.3 m from the room centre — inside
@@ -1092,6 +1239,15 @@ namespace GloomhavenVR
         // (EnvironmentsBuilder), which is what makes it read as one draught
         // through the room instead of two unrelated wobbles.
         private static readonly Vector3 DraftDir = new Vector3(-0.890f, 0f, -0.456f);
+
+        // The rat's route, lifted out of BuildCellarAtmosphere. The wall-base
+        // rubble added this round has to leave the animal's two holes open, and
+        // the only way that clearing cannot silently drift off the holes is for
+        // the rubble and the holes to read the SAME four control points.
+        private static readonly Vector3 RatW0 = new Vector3(-4.00f, 0.015f, 4.42f);
+        private static readonly Vector3 RatW1 = new Vector3(-2.42f, 0.015f, 1.81f);
+        private static readonly Vector3 RatW2 = new Vector3(-5.00f, 0.015f, -2.30f);
+        private static readonly Vector3 RatW3 = new Vector3(-0.95f, 0.015f, -4.44f);
 
         /// <summary>The opening WallMesh actually cut. It keeps or drops whole
         /// cells, so the hole is quantised to the 0.16 m grid and is NOT the
@@ -1219,28 +1375,143 @@ namespace GloomhavenVR
             Wall("WallE", wallE, new Vector3(hw, 0, hd), 90);        // runs -Z
             Wall("WallW", wallW, new Vector3(-hw, 0, -hd), 270);
 
-            // ---- ceiling: planks + beams + corbels ----
-            var ceilMesh = SaveMesh("Env_C_Ceil.asset", GridMeshXZ(-hw, -hd, hw, hd, 8, 8, (x, z) => CH, null, 2.4f, faceDown: true));
+            // ---- HEWN: the twelve edges of the box, broken ----
+            // The HEWN section further down says WHY each piece exists; what is
+            // chosen HERE is which run gets which clearing and which corner gets
+            // which treatment. No two corners are alike, deliberately — a room
+            // whose four corners are the same corner is still a rectangle, just a
+            // lumpy one.
+            var walls = CellarWalls();
+            var stone = new Acc();
+            var timber = new Acc();
+            var hewn = new List<string>();
+            {
+                // Clear zones. The stair doorway is taken from SnappedHole, i.e.
+                // the quantised rect the wall really cut — authoring against the
+                // unsnapped rect is what floated the window bars in ModBuild 134 —
+                // and the two rat holes are taken from the rat's own route.
+                var door = SnappedHole(StairHole, CD, CH, WallCell);
+                var skirtGate = new[]
+                {
+                    ClearOf((RatW0.x + hw, 0.30f)),      // N: the rat comes out here
+                    ClearOf((hw - RatW3.x, 0.30f)),      // S: and goes in here
+                    ClearOf(),                            // E: nothing to keep clear
+                    ClearOf(((door.xMin + door.xMax) * 0.5f, door.width * 0.5f + 0.12f)),  // W: the stairs
+                };
+                for (int i = 0; i < 4; i++) hewn.Add(AddWallSkirt(stone, walls[i], skirtGate[i]));
+
+                // Four corners, four different lies:
+                //   NE  a full quoin stack with the deepest step — the only corner
+                //       a candle really reaches, so the only one that has to hold
+                //       up at close range;
+                //   NW  a cant the whole height, cut stone only at the bottom;
+                //   SE  quoins to head height and a cant above them;
+                //   SW  the dark one: a heavy heap and a wide cant, almost no
+                //       dressed stone — a corner nobody ever repaired.
+                var ne = new Vector3(hw, 0f, hd); var nw = new Vector3(-hw, 0f, hd);
+                var se = new Vector3(hw, 0f, -hd); var sw = new Vector3(-hw, 0f, -hd);
+                int quoins = 0, rubble = 0;
+                quoins += AddCornerQuoins(stone, ne, Vector3.back, Vector3.left, 0.12f, 3.05f, 12, 0.045f, 0.105f, 7101);
+                quoins += AddCornerQuoins(stone, nw, Vector3.back, Vector3.right, 0.10f, 1.35f, 4, 0.040f, 0.085f, 7213);
+                AddCornerCant(stone, nw, Vector3.back, Vector3.right, 1.20f, CH - 0.02f, 0.07f, 0.19f, 7217);
+                quoins += AddCornerQuoins(stone, se, Vector3.forward, Vector3.left, 0.14f, 2.05f, 7, 0.035f, 0.095f, 7331);
+                AddCornerCant(stone, se, Vector3.forward, Vector3.left, 1.95f, CH - 0.02f, 0.06f, 0.16f, 7337);
+                quoins += AddCornerQuoins(stone, sw, Vector3.forward, Vector3.right, 1.55f, 2.60f, 3, 0.030f, 0.070f, 7447);
+                AddCornerCant(stone, sw, Vector3.forward, Vector3.right, 0.35f, CH - 0.02f, 0.05f, 0.22f, 7451);
+                rubble += AddCornerRubble(stone, ne, Vector3.back, Vector3.left, 3, 0.30f, 7501);
+                rubble += AddCornerRubble(stone, nw, Vector3.back, Vector3.right, 4, 0.36f, 7509);
+                rubble += AddCornerRubble(stone, se, Vector3.forward, Vector3.left, 2, 0.26f, 7517);
+                rubble += AddCornerRubble(stone, sw, Vector3.forward, Vector3.right, 7, 0.44f, 7523);
+                hewn.Add($"corners: NE quoins to 3.05 m (step 4.5-10.5 cm); NW cant 1.20-3.28 m + 4 quoins; "
+                       + $"SE quoins to 2.05 m + cant above; SW cant 0.35-3.28 m (5-22 cm) + 3 quoins; "
+                       + $"{quoins} courses and {rubble} corner blocks");
+
+                // The cove stops where a wall plate takes over (N, S) and where a
+                // beam with its corbel comes into the wall (E, W) — the brief is
+                // explicit that nothing added up here may touch those.
+                var coveGate = new Func<float, float>[4];
+                for (int i = 0; i < 4; i++)
+                {
+                    var zones = new List<(float, float)>();
+                    foreach (var p in CellarPlates)
+                        if (p.wall == i) zones.Add(((p.t0 + p.t1) * 0.5f, (p.t1 - p.t0) * 0.5f + 0.14f));
+                    // a beam is <=0.33 m across and its corbel <=0.40 m; 0.35 m of
+                    // half-width clears both with the cove's own 22 cm reach on top
+                    for (int b = 0; b < 4; b++)
+                    {
+                        if (i == 2) zones.Add((hd - CellarBeamZ(b), 0.35f));
+                        if (i == 3) zones.Add((CellarBeamZ(b) + hd, 0.35f));
+                    }
+                    coveGate[i] = ClearOf(zones.ToArray());
+                }
+                for (int i = 0; i < 4; i++) hewn.Add(AddCeilingCove(stone, walls[i], coveGate[i]));
+
+                // ...and the plates themselves, bedded 12 mm INTO the planks so the
+                // joint above them stays closed however the ceiling sags.
+                foreach (var p in CellarPlates)
+                {
+                    var w = walls[p.wall];
+                    const float dep = 0.15f, thick = 0.13f;
+                    Vector3 c = w.p0 + w.along * ((p.t0 + p.t1) * 0.5f)
+                              + w.into * ((dep - 0.02f) * 0.5f)
+                              + Vector3.up * (CH + 0.012f - thick * 0.5f);
+                    AddHewnBlock(timber, c, Quaternion.LookRotation(w.into, Vector3.up),
+                                 new Vector3(p.t1 - p.t0, thick, dep + 0.02f),
+                                 0.95f, 0.05f, 0.008f, 1.3f,
+                                 7600 + p.wall * 31 + Mathf.RoundToInt(p.t0 * 10f), Grey(0.88f));
+                }
+                hewn.Add("wall plates: "
+                       + string.Join(", ", CellarPlates.Select(p => $"{walls[p.wall].name} {p.t1 - p.t0:F2} m")));
+            }
+
+            // ---- ceiling: planks that SAG between the beams ----
+            // 14x20, not 8x8: z=20 puts a grid line exactly on all four beams
+            // (9.0/20 = 0.45 and the beams sit at multiples of 1.8), so the sag
+            // really is pinned at its supports in the mesh and not merely in the
+            // height function. It stays CLOSED and opaque — a hole in this plane
+            // shows the void, which is a hard requirement.
+            var ceilMesh = SaveMesh("Env_C_Ceil.asset",
+                GridMeshXZ(-hw, -hd, hw, hd, 14, 20, CellarCeilY, null, 2.4f, faceDown: true));
             var ceilGo = Place(root, "Ceiling", ceilMesh, Vector3.zero, Vector3.zero, Vector3.one, null);
             ceilGo.GetComponent<MeshRenderer>().sharedMaterial =
                 SurfMat("C_Ceiling.mat", "dark_wooden_planks", 2.4f, ceilGo.transform, 0.9f, 0.85f);
 
-            var beamMesh = SaveMesh("Env_C_Beam.asset", BoxMesh(0.30f, 0.26f, CW, 1.3f));
-            var corbelMesh = SaveMesh("Env_C_Corbel.asset", BoxMesh(0.34f, 0.24f, 0.42f, 1.7f));
+            // ---- the load-bearing stone, which is no longer eight cubes ----
+            var corbels = CellarCorbels();
+            foreach (var c in corbels) AddCorbel(stone, c);
+            // ...and the beams they carry, derived FROM them (each beam reads the
+            // bearing height of the two corbels under its own ends)
             for (int i = 0; i < 4; i++)
-            {
-                float z = -hd + CD * (i + 1) / 5f;
-                var b = Place(root, "Beam" + i, beamMesh, new Vector3(0, CH - 0.26f, z), new Vector3(0, 90, 0), Vector3.one, null);
-                b.GetComponent<MeshRenderer>().sharedMaterial =
-                    SurfMat($"C_Beam{i}.mat", "dark_wooden_planks", 1.3f, b.transform, 0.9f, 0.9f);
-                foreach (var sx in new[] { -1f, 1f })
-                {
-                    var c = Place(root, $"Corbel{i}{(sx < 0 ? "W" : "E")}", corbelMesh,
-                        new Vector3(sx * (hw - 0.17f), CH - 0.50f, z), Vector3.zero, Vector3.one, null);
-                    c.GetComponent<MeshRenderer>().sharedMaterial =
-                        SurfMat($"C_Corbel{i}{(sx < 0 ? "W" : "E")}.mat", "medieval_blocks_05", 1.7f, c.transform, 1.0f, 0.9f);
-                }
-            }
+                hewn.Add(AddCellarBeam(timber, i, corbels[i * 2], corbels[i * 2 + 1]));
+
+            // ONE mesh and ONE material each. Eight corbel transforms sharing a
+            // material would all have been lit from the first one's position (see
+            // MergeInto); welded at the identity transform, object space IS room
+            // space and every baked light is exact. It also takes the ceiling from
+            // 12 draw calls to 2, and EnvRoom shades per PIXEL out of i.opos, so
+            // nothing is lost by the coarse station spacing.
+            var stoneMesh = SaveMesh("Env_C_Stonework.asset", stone.Build("Env_C_Stonework"));
+            var stoneGo = Place(root, "Stonework", stoneMesh, Vector3.zero, Vector3.zero, Vector3.one, null);
+            var stoneMat = SurfMat("C_Stonework.mat", "medieval_blocks_05", 3.4f, stoneGo.transform, 1.15f, 0.86f);
+            // the vertex colours are authored contact shading: dark down where the
+            // rubble meets the flagstones and up inside the cove, bright on the
+            // crests and on the quoin faces that catch the moon
+            stoneMat.SetFloat("_VCol", 1f);
+            stoneGo.GetComponent<MeshRenderer>().sharedMaterial = stoneMat;
+
+            var timberMesh = SaveMesh("Env_C_Timber.asset", timber.Build("Env_C_Timber"));
+            var timberGo = Place(root, "CeilingTimber", timberMesh, Vector3.zero, Vector3.zero, Vector3.one, null);
+            var timberMat = SurfMat("C_Timber.mat", "dark_wooden_planks", 1.3f, timberGo.transform, 0.9f, 0.9f);
+            timberMat.SetFloat("_VCol", 1f);
+            timberGo.GetComponent<MeshRenderer>().sharedMaterial = timberMat;
+
+            Debug.Log("[GloomhavenVR][Env] Cellar HEWN — junction irregularity:\n  "
+                      + string.Join("\n  ", hewn)
+                      + $"\n  ceiling: 14x20 planks, sag <=18 mm, pinned at the walls and at the beams "
+                      + $"z {CellarBeamZ(0):F2}/{CellarBeamZ(1):F2}/{CellarBeamZ(2):F2}/{CellarBeamZ(3):F2}"
+                      + $"\n  stonework {stone.T.Count / 3} tris, nearest the room centre below 2.2 m: "
+                      + $"{MinRadiusBelow(stone, 2.2f):F2} m (PlaySpace radius {CellarPlaySpaceDia * 0.5f:F2} m, "
+                      + $"walls stand at {hd:F2}/{hw:F2} m); timber {timber.T.Count / 3} tris, all above 2.2 m");
 
             // ---- the window: reveal, sill, bars, and the moonlight through it ----
             // The opening WallMesh really cut, in ROOM coordinates. Everything
@@ -1675,6 +1946,524 @@ namespace GloomhavenVR
             Face(new Vector3(x0, y0, zWall + d), new Vector3(w, 0, 0), new Vector3(0, 0, -d));
             return FinishMesh(v, uv, tri, null);
         }
+
+        // ================================================== HEWN: breaking the box
+        // USER FINDING, hardware 2026-08-14: "Ich mag auch den Keller im Groben
+        // kannst du ihn so lassen. Mein Hauptproblem: Er ist noch zu eckig um
+        // realistisch zu sein, die Stellen an denen Wände und Böden/Decke
+        // aneinander Treffen sind perfekte 90 grad winkel, mach hier etwas
+        // unregelmäßigkeit rein, damit es nie zu sehr wie ein Rechteck erscheint
+        // in dem man ist. Zusätzlich auch die tragenden Elemende der Decke werden
+        // von perfekten Würfeln getragen."
+        //
+        // The ROOM is right and stays as it is. What is wrong is that every one of
+        // its EDGES is a mathematical line, and there are twelve of them:
+        //   4 wall/floor lines   -> AddWallSkirt    (rubble, spilled mortar)
+        //   4 wall/ceiling lines -> AddCeilingCove  (+ three wall-plate timbers)
+        //   4 vertical corners   -> AddCornerQuoins / AddCornerCant / ...Rubble
+        // plus the two things that are literally boxes: the corbels and the beams.
+        //
+        // WHY THE WALLS COULD NOT DO IT THEMSELVES. WallMesh already carries a
+        // 3.5 cm masonry bulge, but its `edge` term tapers that bulge to ZERO at
+        // every wall edge and every hole rim — so the one place the wall is
+        // allowed to be irregular is precisely the place that is forced dead flat.
+        // Lifting that taper was rejected: it opens gaps at the window and stair
+        // rims and at the wall/wall joins, and WallMesh is shared. The junctions
+        // instead get their OWN welded geometry, which overlaps both surfaces it
+        // sits between and can therefore never open a seam.
+        //
+        // ALL OF IT IS ONE MESH per material, in room coordinates, at the identity
+        // transform. The light rig is baked per MATERIAL in OBJECT space (see
+        // MergeInto's header for the bug that taught us), so N transforms sharing
+        // one material would all be lit from the first one's position; one welded
+        // mesh at the identity makes object space == room space, which is exact —
+        // and EnvRoom's point lights are evaluated per PIXEL from i.opos, so a
+        // 26 cm station spacing costs nothing in the shading.
+        //
+        // Every displacement is a seeded Fbm2/Hash3. Nothing here uses Random.
+
+        /// <summary>One wall of the cellar as a RUN: where its base line starts,
+        /// which way it runs, and which way is INTO the room. (along, into, up) is
+        /// a right-handed triple for all four walls — that is what lets every
+        /// strip below use ONE winding order instead of four.</summary>
+        private struct WallRun
+        {
+            public string name;
+            public Vector3 p0;      // room-space start of the base line (y = 0)
+            public Vector3 along;   // unit, along the wall
+            public Vector3 into;    // unit, into the room
+            public float len;
+            public int seed;
+        }
+
+        /// <summary>The four runs. p0/along MUST agree with how BuildCellarRoom
+        /// places the WallMesh planes (Wall("WallN", (-hw,0,hd), yaw 0) and the
+        /// three that follow): a run transcribed backwards would heap its rubble
+        /// at the wrong end of its wall and nothing would ever say so.</summary>
+        private static WallRun[] CellarWalls()
+        {
+            float hw = CW / 2f, hd = CD / 2f;
+            return new[]
+            {
+                new WallRun { name = "N", p0 = new Vector3(-hw, 0f, hd),  along = Vector3.right,   into = Vector3.back,    len = CW, seed = 5101 },
+                new WallRun { name = "S", p0 = new Vector3(hw, 0f, -hd),  along = Vector3.left,    into = Vector3.forward, len = CW, seed = 5209 },
+                new WallRun { name = "E", p0 = new Vector3(hw, 0f, hd),   along = Vector3.back,    into = Vector3.left,    len = CD, seed = 5317 },
+                new WallRun { name = "W", p0 = new Vector3(-hw, 0f, -hd), along = Vector3.forward, into = Vector3.right,   len = CD, seed = 5431 },
+            };
+        }
+
+        /// <summary>A gate over a wall run: 1 everywhere, fading to 0 within
+        /// `half` of each listed wall-local position and back over a further
+        /// 22 cm. This is how the rat holes, the stair doorway and the beam
+        /// pockets stay open through geometry that otherwise runs the whole
+        /// length of a wall.</summary>
+        /// <summary>Stretch an fbm onto its authored band. Fbm2 is an average of
+        /// value-noise octaves, so it lives around 0.5 and only rarely leaves
+        /// [0.28, 0.80]: fed straight into Lerp(min, max, f) it delivers about
+        /// HALF the amplitude the caller wrote down, which is how a "5-25 cm"
+        /// skirting measures 10-17 cm and reads as a moulding. Remapped, the
+        /// authored numbers are the numbers you get.</summary>
+        private static float Band(float fbm, float min, float max) =>
+            min + (max - min) * Mathf.Clamp01(Mathf.InverseLerp(0.28f, 0.80f, fbm));
+
+        private static Func<float, float> ClearOf(params (float at, float half)[] zones)
+        {
+            return t =>
+            {
+                float k = 1f;
+                foreach (var z in zones)
+                    k = Mathf.Min(k, Mathf.SmoothStep(0f, 1f,
+                        Mathf.InverseLerp(z.half, z.half + 0.22f, Mathf.Abs(t - z.at))));
+                return k;
+            };
+        }
+
+        /// <summary>Broken masonry, spilled mortar and rubble along the foot of one
+        /// wall — the wall/floor junction, which used to be a 10.5 m straight line
+        /// at exactly 90 degrees.
+        ///
+        /// The cross-section is three rows: a TOE out on the flagstones, a CREST
+        /// that carries 62% of the height at 48% of the depth (so the heap is
+        /// convex — a straight two-row ramp reads as a skirting BOARD), and a TOP
+        /// row driven 3 cm INTO the wall, which is what guarantees the run can
+        /// never show a slot behind its own top edge no matter how the wall's own
+        /// bulge moves under it.
+        ///
+        /// Height and depth are two independent fbm slices along the wall, and
+        /// both are multiplied by an INTERRUPTION gate: where a third fbm falls
+        /// below 0.40 the wall is swept bare and NO geometry is emitted at all.
+        /// That is the whole point — a skirting of constant section would only
+        /// have replaced one straight line with two.
+        ///
+        /// It sits on CellarFloorY, not on y = 0: the flagstones undulate +-6 mm
+        /// and a run laid on a flat zero would float on the high spots exactly the
+        /// way the props did before ModBuild 132.</summary>
+        private static string AddWallSkirt(Acc a, WallRun w, Func<float, float> keepClear)
+        {
+            const float step = 0.26f;              // one station every 26 cm
+            // The user's target is "reads from standing eye height", i.e. tens of
+            // centimetres, not millimetres. These are the caps; Band() below is
+            // what actually delivers them (measured peaks land at 0.20-0.28 m).
+            // The depth cap is also the play-space budget: the north and south
+            // walls are only 4.50 m out, so 0.36 m of rubble plus a half-metre
+            // loose block still leaves >4.1 m against a 3.25 m requirement.
+            const float minH = 0.06f, maxH = 0.30f;
+            const float minD = 0.07f, maxD = 0.36f;
+            int n = Mathf.Max(2, Mathf.RoundToInt(w.len / step));
+            var toe = new Vector3[n + 1]; var crest = new Vector3[n + 1]; var top = new Vector3[n + 1];
+            var gs = new float[n + 1];
+            float peakH = 0f, peakD = 0f; int live = 0;
+            for (int i = 0; i <= n; i++)
+            {
+                float t = w.len * i / n;
+                float g = keepClear(t)
+                        * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.42f, 0.66f,
+                              Fbm2(t * 0.62f + 3.7f, 0.5f, 3, w.seed)))
+                        // a run that stopped dead at the corner would draw a new
+                        // straight line there; it fades out and the corner's own
+                        // heap takes over
+                        * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.14f, Mathf.Min(t, w.len - t)));
+                float h = g * Band(Fbm2(t * 1.35f + 11f, 2.5f, 3, w.seed + 7), minH, maxH);
+                float d = g * Band(Fbm2(t * 1.10f + 23f, 4.5f, 3, w.seed + 13), minD, maxD);
+                gs[i] = g;
+                if (g > 0.02f) live++;
+                if (h > peakH) peakH = h;
+                if (d > peakD) peakD = d;
+                // The two BURIAL offsets — the top row's 3 cm into the wall and
+                // the toe's 8 mm under the flagstones — fade out with the gate as
+                // well. They must: held constant they keep the three rows apart
+                // where the run has already gone to nothing, and every fade
+                // boundary then ends in a 3 cm ribbon standing on edge, whose
+                // normal points wherever the neighbouring station happens to be.
+                // Faded, the rows collapse onto one line and AddFaceUV drops the
+                // quads outright.
+                float k = Mathf.Min(1f, g * 6f);
+                Vector3 b = w.p0 + w.along * t;
+                Vector3 pt = b + w.into * d, pc = b + w.into * (d * 0.48f), pp = b - w.into * (0.03f * k);
+                float fy = CellarFloorY(b.x, b.z);
+                toe[i] = new Vector3(pt.x, CellarFloorY(pt.x, pt.z) - 0.008f * k, pt.z);
+                crest[i] = new Vector3(pc.x, fy + h * 0.62f, pc.z);
+                top[i] = new Vector3(pp.x, fy + h, pp.z);
+            }
+            // WINDING: (along, into, up) is right-handed for all four runs, so
+            // ordering each quad [lower-and-further-out, higher-and-further-in,
+            // ... next station] gives cross(p1-p0,p2-p0) = +up/+into, i.e. a face
+            // the player sees. Reverse it and the skirting is invisible from
+            // inside the room and perfectly visible from outside it, which is the
+            // ModBuild 137 failure with different coordinates.
+            for (int i = 0; i < n; i++)
+            {
+                if (gs[i] < 0.02f && gs[i + 1] < 0.02f) continue;    // swept stretch
+                AddFaceUV(a, toe[i], crest[i], crest[i + 1], toe[i + 1], 3.4f, Grey(0.60f));
+                AddFaceUV(a, crest[i], top[i], top[i + 1], crest[i + 1], 3.4f, Grey(0.90f));
+            }
+            // Loose blocks fallen out of the courses. They are what gives the run a
+            // SILHOUETTE — a smooth heap still reads as a moulding from three
+            // metres — and they only appear where there is already a pile to lie
+            // in, so the swept stretches stay swept.
+            int stones = 0;
+            for (int i = 1; i < n; i++)
+            {
+                if (gs[i] < 0.35f || Hash3(i, 0, 0, w.seed + 77) < 0.56f) continue;
+                float t = w.len * i / n + (Hash3(i, 1, 0, w.seed + 77) - 0.5f) * step;
+                float d = Band(Fbm2(t * 1.10f + 23f, 4.5f, 3, w.seed + 13), minD, maxD);
+                Vector3 b = w.p0 + w.along * t + w.into * (d * 0.55f);
+                float sw = 0.14f + 0.16f * Hash3(i, 2, 0, w.seed + 77);
+                float sh = 0.09f + 0.09f * Hash3(i, 3, 0, w.seed + 77);
+                float sd = 0.11f + 0.11f * Hash3(i, 4, 0, w.seed + 77);
+                var rot = Quaternion.LookRotation(w.into, Vector3.up)
+                        * Quaternion.Euler((Hash3(i, 5, 0, w.seed + 77) - 0.5f) * 26f,
+                                           (Hash3(i, 6, 0, w.seed + 77) - 0.5f) * 60f,
+                                           (Hash3(i, 7, 0, w.seed + 77) - 0.5f) * 22f);
+                // sunk 12% of its own height into the heap: a block resting ON a
+                // surface at exactly tangency is the floating-prop problem again
+                AddHewnBlock(a, new Vector3(b.x, CellarFloorY(b.x, b.z) + sh * 0.38f, b.z),
+                             rot, new Vector3(sw, sh, sd), 0.82f, 0.10f, 0.012f, 1.6f,
+                             w.seed + 900 + i, Grey(0.86f));
+                stones++;
+            }
+            return $"{w.name} skirt: h<={peakH * 100f:F0} cm, d<={peakD * 100f:F0} cm, "
+                 + $"{live}/{n + 1} stations heaped, {stones} loose blocks";
+        }
+
+        /// <summary>The wall/ceiling junction: a crumbling mortar cove that drops a
+        /// varying distance down the wall and reaches a varying distance out over
+        /// the planks, INTERRUPTED so that stretches of the joint are simply gone
+        /// and you see raw stone meet raw board.
+        ///
+        /// Its wall row is buried 3 cm behind the wall plane and its ceiling row
+        /// 1 cm ABOVE CellarCeilY — i.e. it is bedded into both surfaces it joins,
+        /// never butted against either, so neither the ceiling's new sag nor the
+        /// wall's masonry bulge can open a crack along it.</summary>
+        private static string AddCeilingCove(Acc a, WallRun w, Func<float, float> keepClear)
+        {
+            const float step = 0.30f;
+            const float minDrop = 0.05f, maxDrop = 0.28f;
+            const float minProj = 0.04f, maxProj = 0.22f;
+            int n = Mathf.Max(2, Mathf.RoundToInt(w.len / step));
+            var rw = new Vector3[n + 1]; var rm = new Vector3[n + 1]; var rc = new Vector3[n + 1];
+            var gs = new float[n + 1];
+            float peakDrop = 0f, peakProj = 0f; int live = 0;
+            for (int i = 0; i <= n; i++)
+            {
+                float t = w.len * i / n;
+                float g = keepClear(t)
+                        * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.36f, 0.66f,
+                              Fbm2(t * 0.55f + 13f, 8.5f, 3, w.seed + 41)))
+                        * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.16f, Mathf.Min(t, w.len - t)));
+                float drop = g * Band(Fbm2(t * 1.20f + 31f, 3.5f, 3, w.seed + 47), minDrop, maxDrop);
+                float proj = g * Band(Fbm2(t * 0.95f + 47f, 7.5f, 3, w.seed + 53), minProj, maxProj);
+                gs[i] = g;
+                if (g > 0.02f) live++;
+                if (drop > peakDrop) peakDrop = drop;
+                if (proj > peakProj) peakProj = proj;
+                // both burials fade with the gate, for the reason spelled out in
+                // AddWallSkirt: constant offsets leave a standing ribbon wherever
+                // the run tapers out, and its facing is then anybody's guess.
+                // (CellarCeilY is exactly CH at a wall — the walls are supports —
+                // so at g = 0 all three rows land on the same line and die.)
+                float k = Mathf.Min(1f, g * 6f);
+                Vector3 b = w.p0 + w.along * t;
+                Vector3 pW = b - w.into * (0.03f * k), pM = b + w.into * (proj * 0.45f), pC = b + w.into * proj;
+                rw[i] = new Vector3(pW.x, CH - drop, pW.z);
+                rm[i] = new Vector3(pM.x, CH - drop * 0.35f, pM.z);
+                rc[i] = new Vector3(pC.x, CellarCeilY(pC.x, pC.z) + 0.010f * k, pC.z);
+            }
+            // same right-handed ordering as the skirt, read the other way up: the
+            // face comes out pointing DOWN and INTO the room, which is where the
+            // player's eye is.
+            for (int i = 0; i < n; i++)
+            {
+                if (gs[i] < 0.02f && gs[i + 1] < 0.02f) continue;
+                AddFaceUV(a, rw[i], rm[i], rm[i + 1], rw[i + 1], 3.4f, Grey(0.70f));
+                AddFaceUV(a, rm[i], rc[i], rc[i + 1], rm[i + 1], 3.4f, Grey(0.86f));
+            }
+            return $"{w.name} cove: drop<={peakDrop * 100f:F0} cm, reach<={peakProj * 100f:F0} cm, "
+                 + $"{live}/{n + 1} stations";
+        }
+
+        /// <summary>QUOINS at one vertical corner: courses that alternate which of
+        /// the two walls they stand proud of, so the corner LINE steps in and out
+        /// instead of being a line. Two flat planes meeting at a perfect 90 degree
+        /// edge is the single strongest "I am inside a box" cue there is, and it is
+        /// the one the user named first.
+        ///
+        /// Each course gets its own height, length, projection and a few degrees of
+        /// yaw/pitch/roll, and each block is a hewn block, so no two are alike and
+        /// none of them is square.</summary>
+        private static int AddCornerQuoins(Acc a, Vector3 corner, Vector3 inA, Vector3 inB,
+            float y0, float y1, int courses, float projMin, float projMax, int seed)
+        {
+            float span = (y1 - y0) / courses;
+            for (int k = 0; k < courses; k++)
+            {
+                bool even = (k & 1) == 0;
+                Vector3 proj = even ? inA : inB;    // which wall this course stands out of
+                Vector3 run = even ? inB : inA;     // and which way it runs from the corner
+                float hgt = span * (0.72f + 0.36f * Hash3(k, 0, 0, seed));
+                float yc = y0 + span * (k + 0.5f);
+                float lng = 0.30f + 0.26f * Hash3(k, 1, 0, seed);
+                float dep = projMin + (projMax - projMin) * Hash3(k, 2, 0, seed);
+                // the block spans [-2 cm, dep] out of its wall and [-2 cm, lng]
+                // along it: the 2 cm are buried, so no course can show an edge
+                // where it meets the stone it sits against
+                Vector3 c = corner + Vector3.up * yc
+                          + proj * ((dep - 0.02f) * 0.5f)
+                          + run * ((lng - 0.02f) * 0.5f);
+                var rot = Quaternion.LookRotation(proj, Vector3.up)
+                        * Quaternion.Euler((Hash3(k, 3, 0, seed) - 0.5f) * 3.5f,
+                                           (Hash3(k, 4, 0, seed) - 0.5f) * 5.0f,
+                                           (Hash3(k, 5, 0, seed) - 0.5f) * 3.0f);
+                AddHewnBlock(a, c, rot, new Vector3(lng + 0.02f, hgt, dep + 0.02f),
+                             0.93f, 0.03f, 0.009f, 1.7f, seed + k * 13,
+                             Grey(0.86f + 0.12f * Hash3(k, 6, 0, seed)));
+            }
+            return courses;
+        }
+
+        /// <summary>A CANT across one vertical corner: an irregular chamfer that
+        /// cuts the 90 degree dihedral off entirely, its width breathing up the
+        /// height and tapering back into both walls at top and bottom (a chamfer
+        /// that STARTED somewhere would just be two more straight lines).</summary>
+        private static void AddCornerCant(Acc a, Vector3 corner, Vector3 inA, Vector3 inB,
+            float y0, float y1, float wMin, float wMax, int seed)
+        {
+            // The four corners of a rectangular room ALTERNATE handedness: at two
+            // of them cross(inA,inB) is +up and at the other two it is -up. Left
+            // alone, half the cants would be wound inside out and would render
+            // only from outside the room — the ModBuild 137 hull bug, once per
+            // diagonal. Normalise first, then there is one winding order.
+            if (Vector3.Dot(Vector3.Cross(inA, inB), Vector3.up) < 0f)
+            { var tmp = inA; inA = inB; inB = tmp; }
+
+            int n = Mathf.Max(3, Mathf.RoundToInt((y1 - y0) / 0.30f));
+            var onA = new Vector3[n + 1]; var onB = new Vector3[n + 1];
+            for (int i = 0; i <= n; i++)
+            {
+                float y = Mathf.Lerp(y0, y1, i / (float)n);
+                float wa = wMin + (wMax - wMin) * Fbm2(y * 1.15f + 3f, 1.5f, 3, seed);
+                float wb = wMin + (wMax - wMin) * Fbm2(y * 1.15f + 9f, 6.5f, 3, seed + 5);
+                float k = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.35f, Mathf.Min(y - y0, y1 - y)));
+                // a point ON wall A runs away from the corner along inB, and is
+                // sunk 2 cm behind wall A's own plane
+                onA[i] = corner + Vector3.up * y + inB * (wb * k) - inA * 0.02f;
+                onB[i] = corner + Vector3.up * y + inA * (wa * k) - inB * 0.02f;
+            }
+            for (int i = 0; i < n; i++)
+                AddFaceUV(a, onB[i], onA[i], onA[i + 1], onB[i + 1], 1.9f, Grey(0.90f));
+        }
+
+        /// <summary>The heap where two skirtings meet. Both runs fade out over
+        /// their last 14 cm, and this is what stands in the gap — which is also
+        /// what a real cellar corner collects.</summary>
+        private static int AddCornerRubble(Acc a, Vector3 corner, Vector3 inA, Vector3 inB,
+            int count, float reach, int seed)
+        {
+            for (int k = 0; k < count; k++)
+            {
+                Vector3 p = corner + inA * (0.05f + reach * Hash3(k, 0, 0, seed))
+                                   + inB * (0.05f + reach * Hash3(k, 1, 0, seed + 3));
+                float sw = 0.13f + 0.17f * Hash3(k, 2, 0, seed);
+                float sh = 0.08f + 0.13f * Hash3(k, 3, 0, seed);
+                float sd = 0.11f + 0.14f * Hash3(k, 4, 0, seed);
+                var rot = Quaternion.Euler((Hash3(k, 5, 0, seed) - 0.5f) * 30f,
+                                           Hash3(k, 6, 0, seed) * 360f,
+                                           (Hash3(k, 7, 0, seed) - 0.5f) * 26f);
+                AddHewnBlock(a, new Vector3(p.x, CellarFloorY(p.x, p.z) + sh * 0.34f, p.z),
+                             rot, new Vector3(sw, sh, sd), 0.80f, 0.12f, 0.013f, 1.6f,
+                             seed + k * 17, Grey(0.84f));
+            }
+            return count;
+        }
+
+        /// <summary>One corbel's authored numbers. The BEAM reads `bear`, `z` and
+        /// `dz` back out of here, so the stone and the timber cannot disagree about
+        /// where they meet — which is the entire reason this is a struct and not
+        /// eight literals typed twice.</summary>
+        private struct Corbel
+        {
+            public int beam; public float sx;   // -1 west wall, +1 east wall
+            public float z, dz;                 // its beam's centre line, and its own offset off it
+            public float bear;                  // the height of its bearing face
+            public float reach, wide, tall, setIn, yaw, roll;
+            public int seed;
+        }
+
+        /// <summary>The eight brackets. Every one of them differs; in particular
+        /// `bear` differs, which is what tilts the beam each PAIR carries.</summary>
+        private static Corbel[] CellarCorbels()
+        {
+            var list = new List<Corbel>();
+            for (int i = 0; i < 4; i++)
+                for (int s = 0; s < 2; s++)
+                    list.Add(new Corbel
+                    {
+                        beam = i,
+                        sx = s == 0 ? -1f : 1f,
+                        z = CellarBeamZ(i),
+                        dz = (Hash3(i, s, 0, 6011) - 0.5f) * 0.09f,
+                        // The bearing face. It used to be CH-0.50 + 0.24 = CH-0.26
+                        // for all eight, to the millimetre. These were cut by hand,
+                        // so it is now CH-0.26 -22/+14 mm and the beams sit crooked.
+                        bear = CH - 0.26f + (Hash3(i, s, 1, 6011) - 0.62f) * 0.036f,
+                        reach = 0.40f + 0.14f * Hash3(i, s, 2, 6011),   // the VISIBLE projection
+                        wide = 0.30f + 0.10f * Hash3(i, s, 3, 6011),
+                        tall = 0.26f + 0.10f * Hash3(i, s, 4, 6011),
+                        setIn = 0.03f + 0.05f * Hash3(i, s, 5, 6011),   // how deep its root is buried
+                        yaw = (Hash3(i, s, 6, 6011) - 0.5f) * 9f,
+                        roll = (Hash3(i, s, 7, 6011) - 0.5f) * 5f,
+                        seed = 6100 + i * 29 + s * 7,
+                    });
+            return list.ToArray();
+        }
+
+        /// <summary>A hewn stone bracket, in place of the BoxMesh(0.34, 0.24, 0.42)
+        /// cube the user called out ("die tragenden Elemende der Decke werden von
+        /// perfekten Würfeln getragen"). Two pieces: a tapered bracket whose sole
+        /// sweeps up toward the tip and whose face narrows there, and a kicker
+        /// stone tucked under its root — one piece reads as a bracket somebody
+        /// modelled, two read as masonry.
+        ///
+        /// Its bearing face is authored 28 mm ABOVE `bear`, i.e. deliberately
+        /// inside the beam, and that number is not a guess. The bracket carries up
+        /// to 2.5 degrees of pitch over a half-metre reach, which walks its tip
+        /// corner +-22 mm; at exact tangency the low case would drop the tip away
+        /// from the timber and leave a slot you can see from across the room.
+        /// Overlap is free (both surfaces are opaque and the join is hidden under
+        /// the beam), gaps are not. Where the pad is wider than the beam the 28 mm
+        /// simply shows as the step a bedded beam sits in. 24 triangles.</summary>
+        private static void AddCorbel(Acc a, Corbel c)
+        {
+            float hw = CW / 2f;
+            Vector3 into = new Vector3(-c.sx, 0f, 0f);          // into the room from its wall
+            Vector3 wall = new Vector3(c.sx * hw, 0f, c.z + c.dz);
+            // Euler is (pitch, yaw, roll) in the block's own frame, whose +Z is
+            // `into`: pitch tips the bracket's nose down, roll leans its face.
+            var rot = Quaternion.LookRotation(into, Vector3.up)
+                    * Quaternion.Euler(c.roll * 0.55f, c.yaw, c.roll);
+
+            float depth = c.reach + c.setIn;                    // spans [-setIn, reach]
+            Vector3 body = wall + into * (depth * 0.5f - c.setIn)
+                         + Vector3.up * (c.bear + 0.028f - c.tall * 0.5f);
+            AddHewnBlock(a, body, rot, new Vector3(c.wide, c.tall, depth),
+                         0.66f, 0.46f, 0.011f, 1.7f, c.seed, Grey(0.94f));
+
+            float kd = 0.16f + 0.06f * Hash3(c.beam, 0, 1, c.seed);
+            const float kh = 0.13f;
+            Vector3 kick = wall + into * ((kd - 0.04f) * 0.5f)
+                         + Vector3.up * (c.bear - c.tall - kh * 0.5f + 0.035f);
+            AddHewnBlock(a, kick, rot, new Vector3(c.wide * 0.78f, kh, kd + 0.04f),
+                         0.74f, 0.30f, 0.010f, 1.7f, c.seed + 5, Grey(0.86f));
+        }
+
+        /// <summary>One ceiling beam, swept from the WEST corbel's bearing face to
+        /// the EAST one's. Hand-adzed timber is not a prism, so it gets, per beam
+        /// and from its own seed: a downward BOW of 14-30 mm, a side-to-side
+        /// WANDER of up to 34 mm, a cross-section that breathes +-10%, and a TWIST
+        /// of up to 3 degrees over the length.
+        ///
+        /// TWO CONSTRAINTS SHAPE ALL OF THAT, and they are why the sag lives where
+        /// it does. (a) The beam's ENDS are the corbels' bearing faces — read, not
+        /// typed — and the bow is a sin() that vanishes at both ends, so the timber
+        /// always lands ON the stone and the pair can never drift apart. Since the
+        /// two ends differ in height the beam is also slightly out of level, which
+        /// is free and completely correct. (b) The TOP face stays dead flat at
+        /// CH + 6 mm, bedded into the planks: the ceiling is laid ON the beams, so
+        /// the sag belongs on the soffit — which is also the only side of a beam
+        /// anybody in this room will ever see. Sagging the whole section instead
+        /// would open a 2 cm slot between beam and ceiling, 3.3 m up, at a grazing
+        /// angle: exactly the kind of gap the eye finds instantly.
+        ///
+        /// The twist is applied to the SOLE only (the two bottom corners counter-
+        /// rotate) for the same reason: rolling the whole section would tilt the
+        /// top face out of the ceiling. 84 triangles per beam.</summary>
+        private static string AddCellarBeam(Acc a, int i, Corbel west, Corbel east)
+        {
+            float hw = CW / 2f;
+            const float overhang = 0.05f;      // the ends are buried behind the wall planes
+            const int ns = 10;
+            float sag = 0.014f + 0.016f * Hash3(i, 0, 0, 6203);
+            float wob = 0.014f + 0.020f * Hash3(i, 1, 0, 6203);
+            float twist = (Hash3(i, 2, 0, 6203) - 0.5f) * 0.055f;    // radians over the length
+            float halfW0 = 0.145f + 0.020f * Hash3(i, 3, 0, 6203);
+            const float topY = CH + 0.006f;
+
+            var bl = new Vector3[ns + 1]; var br = new Vector3[ns + 1];
+            var tl = new Vector3[ns + 1]; var tr = new Vector3[ns + 1];
+            for (int k = 0; k <= ns; k++)
+            {
+                float x = Mathf.Lerp(-(hw + overhang), hw + overhang, k / (float)ns);
+                float f = Mathf.Clamp01((x + hw) / CW);
+                // Max(0) for the same reason CellarCeilY needs it: Mathf.PI is a
+                // hair LARGER than pi, so Sin(1f * Mathf.PI) is -8.7e-8 and the
+                // Pow below would return NaN at the beam's east end.
+                float bow = Mathf.Max(0f, Mathf.Sin(f * Mathf.PI));
+                float zc = west.z + wob * (Fbm2(f * 2.6f + 5f, i * 3.1f, 3, 6207) - 0.5f) * 2f * bow;
+                float halfW = halfW0 * (1f + 0.10f * (Fbm2(f * 3.4f + 17f, i * 2.3f, 3, 6211) - 0.5f) * 2f);
+                float under = Mathf.Lerp(west.bear, east.bear, f)
+                            - sag * Mathf.Pow(bow, 1.15f)
+                            - 0.010f * bow * Fbm2(f * 4.2f + 29f, i * 1.7f, 2, 6217);
+                float dy = Mathf.Tan(twist * (f - 0.5f)) * halfW;
+                bl[k] = new Vector3(x, under - dy, zc - halfW);
+                br[k] = new Vector3(x, under + dy, zc + halfW);
+                tl[k] = new Vector3(x, topY, zc - halfW);
+                tr[k] = new Vector3(x, topY, zc + halfW);
+            }
+            for (int k = 0; k < ns; k++)
+            {
+                // vertex colour is grime, not light: the soffit is the smoke-black
+                // face, the flanks stay lighter (which is what gives the beam an
+                // edge to read against the planks), the top is never seen
+                AddFaceUV(a, bl[k], bl[k + 1], br[k + 1], br[k], 1.3f, Grey(0.82f));   // soffit (-Y)
+                AddFaceUV(a, tl[k], tr[k], tr[k + 1], tl[k + 1], 1.3f, Grey(0.70f));   // top (+Y), in the planks
+                AddFaceUV(a, bl[k], tl[k], tl[k + 1], bl[k + 1], 1.3f, Grey(0.94f));   // -Z flank
+                AddFaceUV(a, br[k], br[k + 1], tr[k + 1], tr[k], 1.3f, Grey(0.94f));   // +Z flank
+            }
+            // The ends are behind the wall planes and can never be seen, but an
+            // open mesh is a trap for the next person who moves a wall.
+            AddFaceUV(a, bl[0], br[0], tr[0], tl[0], 1.3f, Grey(0.78f));
+            AddFaceUV(a, bl[ns], tl[ns], tr[ns], br[ns], 1.3f, Grey(0.78f));
+            return $"beam{i}: bear W {west.bear:F3} / E {east.bear:F3} (out of level {(east.bear - west.bear) * 1000f:+0;-0} mm), "
+                 + $"sag {sag * 1000f:F0} mm, wander {wob * 1000f:F0} mm, twist {twist * Mathf.Rad2Deg:F1} deg, "
+                 + $"section {halfW0 * 2f:F3} m";
+        }
+
+        /// <summary>Wall plates: hewn timbers bedded in the wall/ceiling angle, on
+        /// the two walls the beams do NOT run into (a plate on the east or west
+        /// wall would have to pass through four beam ends, and the brief is
+        /// explicit that nothing added here may intersect them).
+        ///
+        /// They deliberately do not run the full length and there are three of
+        /// them, not four: a plate all the way round is just another continuous
+        /// line at the same height, which is the thing being removed. Where a
+        /// plate runs, the mortar cove is gated OFF — the plate is what is there
+        /// instead. Wall index is into CellarWalls(): 0 N, 1 S, 2 E, 3 W.</summary>
+        private static readonly (int wall, float t0, float t1)[] CellarPlates =
+        {
+            (0, 1.95f, 6.10f),    // N, the long one — above and clear of the window head
+            (1, 2.30f, 4.05f),    // S, over the table end
+            (1, 6.90f, 9.20f),    // S, a second and shorter one over the crates
+        };
 
         /// <summary>The puddle: an irregular polar patch lying on (and following)
         /// the flagstones, its vertex ALPHA carrying the wet mask so the edge
@@ -2127,10 +2916,9 @@ namespace GloomhavenVR
             // it) while its closest approach to the room centre stays at 3.41 m,
             // outside the 3.25 m PlaySpace radius. Move a control point and check
             // both of those again.
-            var w0 = new Vector3(-4.00f, 0.015f, 4.42f);
-            var w1 = new Vector3(-2.42f, 0.015f, 1.81f);
-            var w2 = new Vector3(-5.00f, 0.015f, -2.30f);
-            var w3 = new Vector3(-0.95f, 0.015f, -4.44f);
+            // (the four points themselves live next to DraftDir now — the wall
+            // rubble has to keep the holes at w0/w3 clear, see HEWN)
+            Vector3 w0 = RatW0, w1 = RatW1, w2 = RatW2, w3 = RatW3;
             // ...and both of those claims are CHECKED, because they are the two
             // things a future edit to the route would silently break.
             {
@@ -2608,6 +3396,586 @@ namespace GloomhavenVR
 
         private static float CanopyY(float r) => 6.8f + 0.30f * (r - ClearR);
 
+        // ==================================================== CANOPY SHADOW (bake)
+        // USER FINDING, ModBuild 137 (hardware): "Die Lichstrahlen (die jetzt dem
+        // Mond folgen) die durch die Bäume kommen im Waldgebiet clippen durch die
+        // Bäume, ich würde hier gerne das die Bäume entsprechende Schatten
+        // werfen."
+        //
+        // The room prefabs are SCRIPT-FREE and contain not one Unity Light — all
+        // of the wood's lighting is baked per material by LightRig — so "cast
+        // shadows" cannot mean shadow casting here. There is nothing to cast
+        // FROM. It has to be DATA, baked at build time and read by the only two
+        // shaders that carry the moon into the open air and onto the floor:
+        // EnvShaft (the blades) and EnvGround (the floor's directional term).
+        //
+        // WHAT IS BAKED: an ORTHOGRAPHIC DEPTH MAP of the trees along the moon
+        // bearing. A grid is laid on a plane facing the moon, and each texel
+        // stores how far DOWN-LIGHT the nearest piece of tree is, in metres,
+        // linearly encoded. A fragment projects itself onto the same plane and
+        // asks "is anything in my texel nearer to the moon than I am?".
+        //
+        // WHY DEPTH AND NOT A BINARY MASK. This is the whole design, and it is
+        // not an optimisation — a mask cannot work at all here. ModBuild 137
+        // deliberately ran the shafts UP THROUGH THE TEAR in the canopy so the
+        // light is seen entering where the moon is seen. A shaft's top and the
+        // boughs around that tear project to THE SAME TEXELS: an orthographic
+        // projection cannot tell a point above the canopy from a point below it,
+        // because both sit on the same ray to the moon. A binary "is this texel
+        // occluded" map would therefore black out the top of every shaft — the
+        // one thing the previous round exists to show — while leaving the
+        // clipping further down exactly as it is. With a depth the test becomes
+        // the correct one: shadow only where the stored occluder is NEARER TO
+        // THE MOON than the fragment (plus a bias), which is literally "the
+        // segment from here to the moon is blocked".
+        //
+        // WHAT IS AN OCCLUDER: the trunks and every crown/canopy card, i.e. the
+        // three accumulators the forest already has in hand at that point in the
+        // build. Deliberately NOT the ground (nothing self-shadows, so the bias
+        // can stay at a few centimetres and there is no acne to fight) and not
+        // the props: the rocks and deadfall are under a metre tall, they cast a
+        // 1.2 m smudge onto floor that is already at 1-5% brightness, and they
+        // are placed AFTER the shafts in this room, so taking them would mean
+        // re-ordering an approved room for an effect nobody can see.
+        //
+        // FOLIAGE IS ALPHA-TESTED, AND SO IS THE BAKE. This was got wrong once
+        // and the log is what caught it: rasterising the crowns as solid quads
+        // put 81.2% of the map in shadow and scored all three shafts at 0% clear,
+        // i.e. it did not shadow the beams, it deleted them. A bough is a SPRITE
+        // — a rect of Imported/Textures/fir_twig_alb.png whose alpha holds a fir
+        // sprig on transparency, roughly half coverage — and a crown is a dozen
+        // of them. Treated as solid cards, a crown is a disc and the wood is a
+        // lid. So the raster interpolates each triangle's UV and only writes
+        // depth where the ATLAS ALPHA is over the cutoff, which is the same
+        // question EnvRoomCutout asks per fragment.
+        //
+        // The atlas is read by decoding the PNG into a scratch Texture2D
+        // (ImageConversion.LoadImage) rather than by flipping isReadable on the
+        // imported asset: isReadable keeps a CPU copy of a 1k BC7 texture alive
+        // in the BUNDLE for the whole session, which is about a megabyte of
+        // runtime memory bought for a build-time question.
+        //
+        // The three-corner stamp that closes pinholes in a solid card is
+        // switched OFF for cutout sources for the same reason: a corner of a
+        // sprig rect is nearly always transparent, so stamping it would print
+        // exactly the sprig's empty margin into the map.
+        //
+        // The TRUNKS do not receive this. They are EnvRoom, which the cellar
+        // shares, and a trunk's moonlit side is the contrast recipe ModBuild 134
+        // spent a round building — it is not something to put a shadow term
+        // under without a round of its own.
+        //
+        // MAXIMUM THROW, and why this room does not want a physically exact
+        // shadow. The moon stands at 40 deg, so the ray from a point on the
+        // clearing floor to the moon leaves obliquely and spends the next 20-30
+        // metres inside the wood; and the shafts' own tops now stand at r ~20 m,
+        // where CanopyMask's outer term (InverseLerp(15.5, 19, r)) has already
+        // closed the tear again — which is exactly why the length solver runs
+        // into its lenMax clamp for all three beams. An exact "is my whole path
+        // to the moon clear" test therefore answers NO everywhere, and it is
+        // right: this is a wood, and a wood at night has no moonlight on its
+        // floor. The clearing, the tear and the three shafts are an AUTHORED
+        // FICTION, and it is the fiction the user has approved twice.
+        //
+        // So an occluder only casts while it is within MaxThrow metres UP-LIGHT
+        // of the fragment, releasing softly over the last Fall metres instead of
+        // cutting. MaxThrow is measured ALONG THE BEAM, which is also along a
+        // shaft's own axis, and that is what fixes the numbers:
+        //   * a trunk at the clearing edge (r 6.2-10 m) shadows the floor for
+        //     MaxThrow x cos(40) horizontally — the rake across the clearing
+        //     that IS the effect the user asked for;
+        //   * a shaft that passes through a trunk goes dark for MaxThrow of its
+        //     own length below the crossing and then comes back, which reads as
+        //     "the tree casts a shadow in the beam" rather than "the beam ends";
+        //   * the canopy 20-30 m up-light — the roof over the whole wood — is
+        //     past the throw and does not participate at all.
+        // The two numbers are PER RECEIVER and live in Look, next to the bake
+        // call: a floor and a column of lit mist are not asking the same
+        // question, and one throw for both was measured and rejected.
+        //
+        // The room is world-fixed once placed and the trees never move, so what
+        // is baked here is valid forever. Everything is expressed in the room
+        // root's OWN frame — the frame 'Ground' and 'MoonShafts' are placed in —
+        // for the same reason the light rig writes _DirDir and _L0Pos in object
+        // space: it is the only frame the runtime's placement yaw and scale
+        // cannot move under it.
+        private sealed class CanopyShadowBake
+        {
+            // Square, and a power of two: TextureImporter.maxTextureSize only
+            // takes values off the power-of-two ladder, and a cap that does not
+            // match the image is a downscale nobody would notice until the
+            // shadows went soft.
+            //
+            // With the receiver box the caller passes (see THE BOX in
+            // BuildForestRoom) this comes to ~5.5 x 4.4 cm per texel, so a near
+            // trunk is 9-15 texels across its flare and a far one 5-10. That
+            // margin is the whole game: the penumbra has to be a few texels wide
+            // to hide the grid, and if a trunk is only four texels across then
+            // the filter that hides the grid also erases the shadow. The first
+            // pass got exactly that wrong — 8.6 cm texels and a 0.26 m disc left
+            // 5.1% of the clearing shaded on average but only 0.6% of it half
+            // shaded, i.e. a faint wash where trunk shadows should be.
+            //
+            // 1024 would halve the texel again and quadruple the bundle cost for
+            // detail that mostly lands on ground the vertex fade has already
+            // taken to 2%. Bundle cost is reported by Report().
+            public const int Res = 512;
+            // Real depths are encoded into 0..Enc; 1.0 is the "nothing here"
+            // sentinel, and reserving 2% is what keeps a genuine occluder at the
+            // far plane from ever colliding with it.
+            private const float Enc = 0.98f;
+
+            public readonly Vector3 Origin, AxisU, AxisV, Travel;
+            public readonly float ExtentU, ExtentV;
+            /// <summary>Bias along the beam, in metres. Nothing self-shadows (the
+            /// ground and the blades are receivers only), so this exists purely
+            /// to absorb the 16-bit quantisation and the interpolation, and it
+            /// can stay small — which is what keeps a trunk's shadow ATTACHED to
+            /// its foot instead of peter-panning half a metre away from it.</summary>
+            public float Bias = 0.06f;
+            /// <summary>What one RECEIVER makes of the map. Strength and
+            /// penumbra are taste; MaxThrow and Fall are the authored fiction
+            /// (see the MAXIMUM THROW block above the class), and they are per
+            /// receiver because the floor and the open air are not asking the
+            /// same question.
+            ///
+            /// THE FLOOR wants a long throw: a trunk at the clearing edge is
+            /// 6-12 m up-light of the middle of the clearing, and that rake
+            /// across the floor is the effect the user asked for.
+            ///
+            /// THE BLADES want a short one, and this had to be measured to be
+            /// believed. Air five metres up inside the wood is not like floor:
+            /// the ray from it to the moon climbs 0.84 m per metre while the
+            /// canopy only climbs 0.30, so at 6-9 m up-light it is still deep
+            /// inside the crown mass at r 10-16. On the floor those crowns are
+            /// 14 m away and the throw excludes them; from mid-air they are 3-8 m
+            /// away and a floor-sized throw includes them. Measured with a 9 m
+            /// throw the beams' lower runs came out 20-48% lit — the visible half
+            /// of every shaft, the half that lands in the pool, mostly gone. A
+            /// 4 m throw keeps only what a beam is essentially INSIDE: a trunk it
+            /// passes through leaves a 2-4 m dark band in eighteen metres of
+            /// beam, which is what "the tree casts a shadow" looks like, and the
+            /// roof does not participate.</summary>
+            public struct Look
+            {
+                public float Strength, Penumbra, MaxThrow, Fall;
+                public Look(float strength, float penumbra, float maxThrow, float fall)
+                { Strength = strength; Penumbra = penumbra; MaxThrow = maxThrow; Fall = fall; }
+            }
+
+            /// <summary>One welded mesh to rasterise. Mask is the alpha-test
+            /// coverage of the source's atlas, one bool per atlas texel, or null
+            /// for solid geometry (the trunks).</summary>
+            private struct Src
+            {
+                public Acc A; public bool[] Mask; public int MW, MH; public string Name;
+            }
+
+            private readonly List<Src> _src = new List<Src>();
+            // TWO LAYERS, and this is not an optimisation either — one layer
+            // cannot answer the question the throw asks. A texel holds the
+            // canopy AND the trunk under it AND the floor under that, all on one
+            // ray to the moon. Keeping only the NEAREST occluder stores the
+            // canopy, so the floor measures its distance to the ROOF (20-30 m),
+            // finds it past the throw, and reports itself lit — the trunk that
+            // is 4 m up-light of it never gets a vote. That is exactly what the
+            // first measured bake did: 5.2% of the clearing shaded on average
+            // but 0.9% of it half shaded, i.e. no trunk shadows at all.
+            //
+            //   _zN = the occluder NEAREST the moon. What a blade hanging in the
+            //         air needs: the thing above it is the thing that shades it.
+            //   _zF = the DEEPEST occluder. What the floor needs, and for the
+            //         floor it is exactly right rather than an approximation —
+            //         the floor is below everything, so the deepest occluder is
+            //         always the nearest one up-light of it.
+            // EnvGround therefore reads _zF alone. EnvShaft takes whichever of
+            // the two casts (max of the two throw tests): _zN catches the canopy
+            // over the beam, _zF catches the trunk the beam runs through. Only a
+            // third layer strictly between them is missed, and a miss is a
+            // shadow that is not drawn, never one that is drawn wrongly.
+            private readonly float[] _zN = new float[Res * Res];
+            private readonly float[] _zF = new float[Res * Res];
+            private float _wNear, _wSpan = 1f;
+            private int _tris, _outside, _filled, _cut;
+            private float _hitNear = float.MaxValue, _hitFar = float.MinValue;
+            private float _clearShadow, _clearDeep;
+            private string _path;
+
+            private float EncPerMetre => Enc / _wSpan;
+            private float BiasEnc => Bias * EncPerMetre;
+
+            /// <summary>The light-plane basis, derived from the ONE authored moon
+            /// bearing. roiR/yLo/yHi describe the RECEIVER region the map has to
+            /// cover — and only the receivers matter for sizing, because an
+            /// occluder shadows a receiver only when it projects into the very
+            /// same texel.</summary>
+            public CanopyShadowBake(Vector3 moonDir, float roiR, float yLo, float yHi)
+            {
+                Vector3 L = moonDir.normalized;
+                Travel = -L;                                       // the way the light travels
+                AxisU = Vector3.Cross(Vector3.up, L).normalized;   // horizontal, across the bearing
+                AxisV = Vector3.Cross(L, AxisU).normalized;        // the light plane's own "up"
+                // The (u,v) footprint of a cylinder of radius roiR between yLo
+                // and yHi. AxisU is horizontal, so u is simply +-roiR; AxisV is
+                // tilted by the moon's altitude, so v takes both a vertical share
+                // of the height and a horizontal share of the radius.
+                float hV = new Vector2(AxisV.x, AxisV.z).magnitude;
+                float vLo = Mathf.Min(AxisV.y * yLo, AxisV.y * yHi) - hV * roiR;
+                float vHi = Mathf.Max(AxisV.y * yLo, AxisV.y * yHi) + hV * roiR;
+                ExtentU = 2f * roiR;
+                ExtentV = vHi - vLo;
+                Origin = AxisV * ((vLo + vHi) * 0.5f);
+                // 1.0 = 'no occluder' for the near layer, 0.0 for the far one.
+                // Both sentinels are unreachable by real geometry because the
+                // measured range is padded half a metre at each end.
+                for (int i = 0; i < _zN.Length; i++) _zN[i] = 1f;
+            }
+
+            /// <summary>(u, v) across the map in 0..1, plus w = metres down-light
+            /// from the light plane through Origin. w does not depend on the
+            /// encoding range, which is what lets the range be MEASURED.</summary>
+            public Vector3 Plane(Vector3 p)
+            {
+                Vector3 r = p - Origin;
+                return new Vector3(Vector3.Dot(r, AxisU) / ExtentU + 0.5f,
+                                   Vector3.Dot(r, AxisV) / ExtentV + 0.5f,
+                                   Vector3.Dot(r, Travel));
+            }
+
+            private float Depth01(float w) => (w - _wNear) / _wSpan * Enc;
+
+            /// <summary>Solid geometry: every triangle casts. The trunks.</summary>
+            public void AddSolid(Acc a, string name) =>
+                _src.Add(new Src { A = a, Name = name });
+
+            /// <summary>Alpha-tested geometry: a triangle casts only where its
+            /// atlas alpha is over the cutoff. The crowns and the canopy shell.
+            /// The atlas is decoded from its PNG into a scratch texture — never
+            /// by making the imported asset readable, which would keep a CPU copy
+            /// of it alive in the bundle for a build-time question.</summary>
+            public void AddCutout(Acc a, string name, string pngPath, float cutoff)
+            {
+                var tmp = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                if (!tmp.LoadImage(File.ReadAllBytes(pngPath)))
+                    throw new Exception("Canopy shadow: cannot decode atlas " + pngPath);
+                int w = tmp.width, h = tmp.height;
+                var raw = tmp.GetPixels32();
+                UnityEngine.Object.DestroyImmediate(tmp);
+                byte cut = (byte)Mathf.Clamp(Mathf.RoundToInt(cutoff * 255f), 0, 255);
+                var mask = new bool[w * h];
+                int solid = 0;
+                for (int i = 0; i < raw.Length; i++)
+                    if (raw[i].a >= cut) { mask[i] = true; solid++; }
+                _src.Add(new Src { A = a, Mask = mask, MW = w, MH = h, Name = name });
+                Debug.Log($"[GloomhavenVR][Env] Canopy shadow: alpha atlas {Path.GetFileName(pngPath)} "
+                          + $"{w}x{h}, {solid * 100f / mask.Length:F1}% of it is over cutoff {cutoff:F2} "
+                          + $"— that is the fraction of every '{name}' card that can cast.");
+            }
+
+            /// <summary>Two passes: measure the depth range, then rasterise. The
+            /// range is measured and not guessed because 16 bits spread over a
+            /// corner-to-corner guess is the one thing that could put visible
+            /// banding into a shadow edge.</summary>
+            public void Bake(Func<float, float, float> groundY, float roiR)
+            {
+                float lo = float.MaxValue, hi = float.MinValue;
+                void Grow(Vector3 p)
+                {
+                    Vector3 c = Plane(p);
+                    if (c.x < -0.02f || c.x > 1.02f || c.y < -0.02f || c.y > 1.02f) return;
+                    if (c.z < lo) lo = c.z;
+                    if (c.z > hi) hi = c.z;
+                }
+                foreach (var s in _src)
+                    foreach (var v in s.A.V) Grow(v);
+                // The receivers: the floor under the map. The blades need no pass
+                // of their own — they hang between the floor and the canopy, so
+                // they are inside a range that already holds both. (They are also
+                // built AFTER this, from this.)
+                for (int j = 0; j <= 32; j++)
+                    for (int k = 0; k <= 32; k++)
+                    {
+                        float x = Mathf.Lerp(-roiR, roiR, j / 32f);
+                        float z = Mathf.Lerp(-roiR, roiR, k / 32f);
+                        if (x * x + z * z > roiR * roiR) continue;
+                        Grow(new Vector3(x, groundY(x, z), z));
+                    }
+                if (hi <= lo) throw new Exception("Canopy shadow: nothing projects into the map.");
+                _wNear = lo - 0.5f;                   // half a metre of headroom at each end
+                _wSpan = (hi + 0.5f) - _wNear;
+                foreach (var s in _src)
+                {
+                    var V = s.A.V; var UV = s.A.UV; var T = s.A.T;
+                    for (int i = 0; i < T.Count; i += 3)
+                        Tri(Plane(V[T[i]]), Plane(V[T[i + 1]]), Plane(V[T[i + 2]]),
+                            UV[T[i]], UV[T[i + 1]], UV[T[i + 2]], s);
+                }
+                for (int i = 0; i < _zF.Length; i++) if (_zF[i] > 0f) _filled++;
+            }
+
+            private void Tri(Vector3 a, Vector3 b, Vector3 c,
+                Vector2 ua, Vector2 ub, Vector2 uc, Src s)
+            {
+                _tris++;
+                // texel-CENTRE space: texel n covers u in [n/Res, (n+1)/Res), so
+                // its centre sits at u*Res - 0.5 == n
+                float ax = a.x * Res - 0.5f, ay = a.y * Res - 0.5f;
+                float bx = b.x * Res - 0.5f, by = b.y * Res - 0.5f;
+                float cx = c.x * Res - 0.5f, cy = c.y * Res - 0.5f;
+                // A SOLID card turned edge-on to the moon can cover no texel
+                // centre at all, which would punch a pinhole through a trunk.
+                // Stamping the three corners as well costs three writes and
+                // closes them, and it is also what carries the degenerate
+                // triangles the edge-on test below drops.
+                //
+                // NOT for alpha-tested sources: the corner of a sprig rect is
+                // nearly always the transparent margin around the sprig, so a
+                // stamp there prints exactly the part of the card that is not
+                // there. A cutout source is a sieve by design and does not want
+                // its pinholes closed.
+                if (s.Mask == null)
+                { Stamp(ax, ay, a.z); Stamp(bx, by, b.z); Stamp(cx, cy, c.z); }
+                int x0 = Mathf.CeilToInt(Mathf.Min(ax, Mathf.Min(bx, cx)));
+                int x1 = Mathf.FloorToInt(Mathf.Max(ax, Mathf.Max(bx, cx)));
+                int y0 = Mathf.CeilToInt(Mathf.Min(ay, Mathf.Min(by, cy)));
+                int y1 = Mathf.FloorToInt(Mathf.Max(ay, Mathf.Max(by, cy)));
+                if (x1 < 0 || y1 < 0 || x0 > Res - 1 || y0 > Res - 1) { _outside++; return; }
+                if (x0 < 0) x0 = 0;
+                if (y0 < 0) y0 = 0;
+                if (x1 > Res - 1) x1 = Res - 1;
+                if (y1 > Res - 1) y1 = Res - 1;
+                float det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+                if (det > -1e-7f && det < 1e-7f) return;
+                float inv = 1f / det;
+                for (int y = y0; y <= y1; y++)
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        float l1 = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) * inv;
+                        if (l1 < -1e-4f || l1 > 1.0001f) continue;
+                        float l2 = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) * inv;
+                        if (l2 < -1e-4f || l2 > 1.0001f) continue;
+                        float l3 = 1f - l1 - l2;
+                        if (l3 < -1e-4f) continue;
+                        if (s.Mask != null)
+                        {
+                            // the same alpha test EnvRoomCutout runs per fragment,
+                            // asked once per shadow texel
+                            float mu = ua.x * l1 + ub.x * l2 + uc.x * l3;
+                            float mv = ua.y * l1 + ub.y * l2 + uc.y * l3;
+                            int mx = Mathf.Clamp((int)(mu * s.MW), 0, s.MW - 1);
+                            int my = Mathf.Clamp((int)(mv * s.MH), 0, s.MH - 1);
+                            if (!s.Mask[my * s.MW + mx]) { _cut++; continue; }
+                        }
+                        Put(x, y, l1 * a.z + l2 * b.z + l3 * c.z);
+                    }
+            }
+
+            private void Stamp(float fx, float fy, float w) =>
+                Put(Mathf.RoundToInt(fx), Mathf.RoundToInt(fy), w);
+
+            private void Put(int x, int y, float w)
+            {
+                if (x < 0 || x >= Res || y < 0 || y >= Res) return;
+                float z = Depth01(w);
+                if (z < 0f || z > Enc) return;
+                int k = y * Res + x;
+                if (z < _zN[k]) _zN[k] = z;
+                if (z > _zF[k]) _zF[k] = z;
+                if (w < _hitNear) _hitNear = w;
+                if (w > _hitFar) _hitFar = w;
+            }
+
+            /// <summary>Is this point inside the map at all (with a margin, in
+            /// map fractions)? Outside it the shaders read "lit" — which is right
+            /// for the far floor and WRONG for a shaft, so the shaft placement
+            /// asserts on this instead of trusting the box arithmetic.</summary>
+            public bool Inside(Vector3 p, float margin)
+            {
+                Vector3 c = Plane(p);
+                return c.x > margin && c.x < 1f - margin
+                    && c.y > margin && c.y < 1f - margin;
+            }
+
+            /// <summary>One tap, exactly as CsTap does it in the two shaders:
+            /// point sample with CLAMP addressing, shadow only when the stored
+            /// occluder is nearer the moon, and only within the throw. `useNear`
+            /// picks EnvShaft's reading (max of both layers) over EnvGround's
+            /// (the far layer alone, which is exact for a floor).</summary>
+            private float Throw(float d, Look k) =>
+                d <= 0f ? 0f
+                        : Mathf.Clamp01((k.MaxThrow * EncPerMetre - d)
+                                        / (Mathf.Max(k.Fall, 1e-3f) * EncPerMetre));
+
+            private float Tap(float u, float v, float z, bool useNear, Look k)
+            {
+                int x = Mathf.Clamp((int)(u * Res), 0, Res - 1);
+                int y = Mathf.Clamp((int)(v * Res), 0, Res - 1);
+                int idx = y * Res + x;
+                float f = _zF[idx];
+                // f == 0 is the far layer's "nothing here". It has to be gated:
+                // z - 0 is a SMALL depth for anything high in the room, so an
+                // ungated sentinel would put a shadow on every shaft top.
+                float sh = f > 0f ? Throw(z - f, k) : 0f;
+                if (useNear) sh = Mathf.Max(sh, Throw(z - _zN[idx], k));
+                return 1f - sh;
+            }
+
+            /// <summary>CsVisible on the CPU, seven taps and all. This is what
+            /// places the shafts in gaps that are genuinely open and what the
+            /// report's clearing-floor number is measured with: the same map
+            /// answering the same question, so the geometry, the shading and the
+            /// build log can never disagree about where the light gets through.
+            /// (EnvGround runs six taps rather than seven; the difference is
+            /// under a percent and is not worth a second code path here.)</summary>
+            public float Visible(Vector3 p, Look k, bool useNear)
+            {
+                Vector3 c = Plane(p);
+                float z = Depth01(c.z) - BiasEnc;
+                float fu = k.Penumbra / ExtentU, fv = k.Penumbra / ExtentV;
+                float vis = Tap(c.x, c.y, z, useNear, k)
+                          + Tap(c.x + 0.866f * fu, c.y + 0.500f * fv, z, useNear, k)
+                          + Tap(c.x + 0.000f * fu, c.y + 1.000f * fv, z, useNear, k)
+                          + Tap(c.x - 0.866f * fu, c.y + 0.500f * fv, z, useNear, k)
+                          + Tap(c.x - 0.866f * fu, c.y - 0.500f * fv, z, useNear, k)
+                          + Tap(c.x + 0.000f * fu, c.y - 1.000f * fv, z, useNear, k)
+                          + Tap(c.x + 0.866f * fu, c.y - 0.500f * fv, z, useNear, k);
+                vis /= 7f;
+                float q = Mathf.Max(Mathf.Abs(c.x - 0.5f), Mathf.Abs(c.y - 0.5f));
+                float edge = Mathf.Clamp01((0.5f - q) * 40f);
+                if (z < 0f || z > 1f) edge = 0f;
+                return 1f - (1f - vis) * edge;
+            }
+
+            /// <summary>Encode and write. R:G is the 16-bit linear depth of the
+            /// NEAREST occluder (sentinel 65535, i.e. white) and B:A the DEEPEST
+            /// (sentinel 0) — see the two-layer note on the buffers. 16 bits per
+            /// layer rather than 8 because the depth span is the room's own
+            /// extent along an oblique bearing — tens of metres — and 8 bits over
+            /// that is a ~18 cm quantum, which forces a bias large enough to
+            /// detach every trunk's shadow from its own foot.</summary>
+            public void Save(string path)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                // Color32/SetPixels32, never Color/SetPixels: the bytes ARE the
+                // payload here, and a float round trip would put the outcome of
+                // "does Unity round or truncate v*255" between the bake and the
+                // shader. A one-step error in the HIGH byte is 256 steps of depth.
+                var px = new Color32[Res * Res];
+                for (int i = 0; i < px.Length; i++)
+                {
+                    int n = Mathf.Clamp(Mathf.RoundToInt(_zN[i] * 65535f), 0, 65535);
+                    int f = Mathf.Clamp(Mathf.RoundToInt(_zF[i] * 65535f), 0, 65535);
+                    px[i] = new Color32((byte)(n >> 8), (byte)(n & 255),
+                                        (byte)(f >> 8), (byte)(f & 255));
+                }
+                var tex = new Texture2D(Res, Res, TextureFormat.RGBA32, false);
+                tex.SetPixels32(px);
+                tex.Apply();
+                File.WriteAllBytes(path, tex.EncodeToPNG());
+                UnityEngine.Object.DestroyImmediate(tex);
+                AssetDatabase.ImportAsset(path);
+                var ti = (TextureImporter)AssetImporter.GetAtPath(path)
+                         ?? throw new Exception("No importer for " + path);
+                ti.textureType = TextureImporterType.Default;
+                // DATA, not colour: an sRGB curve on the way in would bend the
+                // depth and the comparison would be wrong everywhere at once.
+                ti.sRGBTexture = false;
+                // ALPHA IS THE LOW BYTE OF THE FAR LAYER, not transparency:
+                // alphaIsTransparency would let Unity DILATE the colour into
+                // texels it thinks are transparent, rewriting depths wholesale.
+                ti.alphaSource = TextureImporterAlphaSource.FromInput;
+                ti.alphaIsTransparency = false;
+                // NO MIPS: a mip is a box filter over depths, which would both
+                // invent occluders halfway between a trunk and the sky beside it
+                // and leak the border texels inward. POINT + CLAMP for the same
+                // reason — the filtering that makes the edge soft is the
+                // percentage-closer tap loop in the shaders, which compares
+                // first and averages after.
+                ti.mipmapEnabled = false;
+                ti.filterMode = FilterMode.Point;
+                ti.wrapMode = TextureWrapMode.Clamp;
+                ti.anisoLevel = 1;
+                ti.maxTextureSize = Res;
+                ti.textureCompression = TextureImporterCompression.Uncompressed;
+                ti.SaveAndReimport();
+                _path = path;
+            }
+
+            /// <summary>Hand the basis to a material. Every number here is
+            /// DERIVED from the one authored moon bearing and from the box the
+            /// constructor measured — there is no second copy of anything.</summary>
+            public void Apply(Material m, Look k)
+            {
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(_path)
+                          ?? throw new Exception("Canopy shadow map missing: " + _path);
+                m.SetTexture("_CsMap", tex);
+                m.SetVector("_CsOrg", new Vector4(Origin.x, Origin.y, Origin.z, Enc / _wSpan));
+                m.SetVector("_CsU", new Vector4(AxisU.x, AxisU.y, AxisU.z, 1f / ExtentU));
+                m.SetVector("_CsV", new Vector4(AxisV.x, AxisV.y, AxisV.z, 1f / ExtentV));
+                m.SetVector("_CsDir", new Vector4(Travel.x, Travel.y, Travel.z, -_wNear));
+                // The penumbra is asked for in METRES and converted here, so the
+                // two shaders agree on a physical softness rather than on a texel
+                // count that would change the day the resolution does.
+                m.SetVector("_CsFlt", new Vector4(k.Penumbra / ExtentU, k.Penumbra / ExtentV,
+                                                  BiasEnc, k.Strength));
+                // x = how far down-light an occluder still casts, y = 1/release,
+                // both in the map's own encoded depth units
+                float throwEnc = k.MaxThrow * EncPerMetre;
+                float fallEnc = Mathf.Max(k.Fall, 1e-3f) * EncPerMetre;
+                m.SetVector("_CsThrow", new Vector4(throwEnc, 1f / fallEnc, 0f, 0f));
+                Debug.Log($"[GloomhavenVR][Env] Canopy shadow -> {m.name}: strength {k.Strength:F2}, "
+                          + $"penumbra {k.Penumbra * 100f:F0} cm ({k.Penumbra / ExtentU * Res:F1} x "
+                          + $"{k.Penumbra / ExtentV * Res:F1} texels), throw {k.MaxThrow:F1} m "
+                          + $"releasing over {k.Fall:F1} m.");
+            }
+
+            public void Report(Func<float, float, float> groundY, float clearR, Look floor)
+            {
+                // THE NUMBERS THAT PREDICT WHAT HE SEES STANDING AT THE BOARD:
+                // how much of the clearing floor the wood now takes the moon off.
+                // Sampled with the ground shader's own reading of the map, so
+                // this is the shader's answer and not an estimate of it.
+                //
+                // TWO numbers, because the mean alone cannot tell a faint wash
+                // over the whole clearing (which would read as "the floor got
+                // darker" — a regression on a room tuned by hand) from a handful
+                // of hard trunk shadows raking across it, which is the effect
+                // that was asked for. The second is the fraction of the floor
+                // that is at least HALF shadowed: how much of it is inside a
+                // shadow you can point at.
+                float sum = 0f; int n = 0, deep = 0;
+                for (int j = 0; j <= 48; j++)
+                    for (int k = 0; k <= 48; k++)
+                    {
+                        float x = Mathf.Lerp(-clearR, clearR, j / 48f);
+                        float z = Mathf.Lerp(-clearR, clearR, k / 48f);
+                        if (x * x + z * z > clearR * clearR) continue;
+                        float sh = 1f - Visible(new Vector3(x, groundY(x, z), z), floor, useNear: false);
+                        sum += sh; n++;
+                        if (sh >= 0.5f) deep++;
+                    }
+                _clearShadow = n > 0 ? sum / n : 0f;
+                _clearDeep = n > 0 ? deep / (float)n : 0f;
+
+                long bytes = new FileInfo(_path).Length;
+                // depths reported the way the shader sees them: metres down-light
+                // of the near plane, which is where 0 sits
+                float near = _hitNear == float.MaxValue ? 0f : _hitNear - _wNear;
+                float far = _hitFar == float.MinValue ? 0f : _hitFar - _wNear;
+                Debug.Log($"[GloomhavenVR][Env] Canopy shadow map: {Res}x{Res}, box "
+                          + $"{ExtentU:F1} x {ExtentV:F1} m ({ExtentU / Res * 100f:F1} x "
+                          + $"{ExtentV / Res * 100f:F1} cm per texel), {_tris} triangles rasterised "
+                          + $"({_outside} projected clear of the map, {_cut} texel writes dropped by "
+                          + $"the alpha test), occluder depth {near:F1}..{far:F1} m of a "
+                          + $"{_wSpan:F1} m encoded range ({_wSpan / 65535f * 1000f:F2} mm per 16-bit "
+                          + $"step, bias {Bias * 100f:F1} cm), {_filled * 100f / (Res * Res):F1}% of "
+                          + "texels hold an occluder, "
+                          + $"CLEARING FLOOR (r<{ClearR:F1} m) {_clearShadow * 100f:F1}% shadowed on average and {_clearDeep * 100f:F1}% of it at least half shadowed, "
+                          + $"{bytes / 1024} KiB on disk / {Res * Res * 4 / 1024} KiB as RGBA32 "
+                          + $"in the bundle -> {_path}");
+            }
+        }
+
         // =========================================================== build forest
         public static void BuildForestRoom(Transform shellRoot)
         {
@@ -2889,6 +4257,108 @@ namespace GloomhavenVR
             Weld(trunkB, "Env_S_TrunkB.asset", "TrunksFar", barkB);
             Weld(canopy, "Env_S_Canopy.asset", "Canopy", foliage);
 
+            // ------------------------------------------------- CANOPY SHADOW
+            // The wood is finished, so the thing that blocks the moon is finished
+            // too — bake it now, before the shafts, because the shafts are placed
+            // WITH it (see below). Acc keeps its vertex and index lists after
+            // Build(), so this reads the very geometry that was just welded.
+            //
+            // THE BOX. Only the RECEIVERS set the size, and the receivers are the
+            // floor and the blades. An occluder never needs to be inside the box
+            // in world terms: it shadows a receiver only when it lands in the
+            // receiver's OWN TEXEL, so a crown 28 m out that stands between the
+            // moon and a beam is captured automatically — it shares that beam's
+            // (u,v) by definition of being on its ray.
+            //
+            // Getting this wrong the first time cost a factor of four in texel
+            // area. A SHAFT RUNS ALONG THE LIGHT, so in light space a whole 18 m
+            // beam collapses to a PATCH, not to a 20 m radius: v is constant down
+            // a beam (it moves 0.766 x -0.643 + -0.643 x -0.766 = 0 per metre),
+            // and the three of them together only reach u +-5.6 m (side +-3.5 m
+            // plus the widest blade half-width, 2.02 m) and v -6.9..-0.7 m. All
+            // of that sits comfortably inside the box the FLOOR alone demands.
+            //
+            // So the box is the floor's: a disc of 14 m — past the 11.5 m where
+            // GroundColor's fade bottoms out at 1.5% and past the 12 m where the
+            // props are gone — with 3 m of height either side of it, which is far
+            // more than ForestY moves inside that radius. 28.0 x 22.6 m, i.e.
+            // ~5.5 x 4.4 cm per texel, so a near trunk is 9-15 texels across and
+            // a shadow of it survives a filter wide enough to hide the grid.
+            // Inside() below checks the shafts really do land in it rather than
+            // trusting the arithmetic above.
+            const float shadowRoi = 14f;
+            var canopyShadow = new CanopyShadowBake(MoonDir, shadowRoi, yLo: -3f, yHi: 3f);
+            canopyShadow.AddSolid(trunkA, "TrunksNear");
+            canopyShadow.AddSolid(trunkB, "TrunksFar");
+            // The crowns AND the canopy shell are one accumulator of fir_twig
+            // sprite cards, so they cast through their own alpha. 0.50 rather
+            // than the material's own _Cutoff of 0.42: a shadow drawn from the
+            // sprig's SOLID CORE is slightly thinner than the sprig you can see,
+            // which is the right way round — a needle mass that shadows more
+            // than it covers is what turned the wood into a lid the first time.
+            canopyShadow.AddCutout(canopy, "Canopy", ImpTex + "/fir_twig_alb.png", 0.50f);
+            canopyShadow.Bake(ForestY, shadowRoi);
+            // THE TWO READINGS OF THE ONE MAP. Strength and penumbra are taste;
+            // the throw is the authored fiction, and it is per receiver because
+            // the floor and the open air are not the same problem. See Look.
+            //
+            // FLOOR 9.0 m / 3.5 m: full shadow for the first 5.5 m along the
+            // beam (4.2 m of floor), gone by 9.0 (6.9 m of floor). A trunk at
+            // the clearing edge therefore lays a shadow that reaches the middle
+            // of the clearing and dies just past it, and nothing beyond the
+            // second rank of trees can touch the floor at all.
+            //
+            // BLADES 4.0 m / 2.0 m, and this number is the geometry of "the tree
+            // this beam passes THROUGH" rather than "the wood in general". A
+            // blade is 0.8-2.0 m wide and the trunks it crosses are 0.3-0.8 m
+            // through, so a beam is inside a trunk for at most ~1.2 m of its own
+            // length; give it 2 m of full bite and 2 m of release and the trunk
+            // leaves a 2-4 m dark band in eighteen metres of beam — unmissable,
+            // and unmistakably that trunk's. Past 4 m the occluder is no longer
+            // something the beam touches: at 6-9 m up-light a beam five metres
+            // off the ground is simply inside the crown mass at r 10-16 (its ray
+            // climbs 0.84 m per metre of travel while the canopy only climbs
+            // 0.30, so the two converge), and a floor-sized throw there took the
+            // lower runs of all three shafts to 20-48% lit — the visible half of
+            // every beam, the half that has to arrive at the pool, evaporating
+            // halfway down.
+            //
+            // The blades take the strength UP to 0.90 as the other half of that
+            // trade: fewer things cast on a beam now, so the ones that do have
+            // to bite. A crossed trunk takes its band to a tenth of the beam's
+            // brightness, which is the "consequence" the user asked for.
+            var floorLook = new CanopyShadowBake.Look(
+                strength: 0.75f, penumbra: 0.18f, maxThrow: 9.0f, fall: 3.5f);
+            var beamLook = new CanopyShadowBake.Look(
+                strength: 0.90f, penumbra: 0.22f, maxThrow: 4.0f, fall: 2.0f);
+            canopyShadow.Save(Root + "/Textures/Env_S_CanopyShadow.png");
+            canopyShadow.Report(ForestY, ClearR, floorLook);
+            // THE FLOOR. A pure multiply on the ground's DIRECTIONAL term only —
+            // it can subtract moonlight under a tree and it can do nothing else.
+            // The hand-tuned levels from ModBuild 135/136 survive untouched: the
+            // hemisphere ambient is a separate addend, the three point lights are
+            // separate addends, and the landing pool (both the `pool` term in
+            // GroundColor and the third PLight) is a POINT light — so the patch
+            // the board stands on cannot be darkened by this at all. Nothing in
+            // the room gets brighter; the open floor is bit-for-bit what it was.
+            //
+            // 0.75, not 1.0: a shadow in a night wood is not a hole. The moon is
+            // a 0.5 deg disc and the air between the crowns is full of the mist
+            // the shafts are made of, so a trunk's shadow keeps a quarter of its
+            // moonlight. Under the trees that is moon 0.171 -> 0.043 per unit
+            // albedo against an ambient of 0.024, so a shadow reads as a real
+            // drop without taking the floor to the flat black the vertex fade
+            // already owns further out. First knob to turn on hardware.
+            //
+            // 0.18 m of penumbra. The PHYSICAL half-shadow of a trunk 10 m away
+            // under a 0.5 deg moon is about 9 cm, and a filter that small would
+            // draw the map's own grid on the floor as a staircase. 0.18 m is
+            // three texels: the smallest disc that hides the quantisation while
+            // staying well inside the 0.5-0.8 m trunk casting it — the first
+            // pass had this at 0.26 m against 8.6 cm texels, which washed the
+            // trunk shadows out to nothing.
+            canopyShadow.Apply(gm, floorLook);
+
             // ------------------------------------------------- moonlight shafts
             // Blades through the tear in the canopy, along the real moon
             // bearing, landing in and around the clearing.
@@ -2931,33 +4401,99 @@ namespace GloomhavenVR
                 // through the play space, where it read as a pane of glass across
                 // the whole view; now they strike the clearing floor around the
                 // board and are seen from outside.
+                // CANOPY SHADOW, second use — and the cheapest quality win here:
+                // the landing point is now CHOSEN with the map instead of taken
+                // from the first roll of the dice. Every candidate re-rolls only
+                // the two AUTHORED jitters (the +-0.4 m sideways nudge and the
+                // 4.0-7.4 m reach along the bearing); the spacing, the widths,
+                // the strengths and the derived length are untouched, so the
+                // authored look of the three shafts is exactly the authored look
+                // — the wood has been approved twice and this may not restyle it.
+                // What changes is that a beam whose upper run was buried in a
+                // crown, and which the new shadow term would now spend its whole
+                // length hiding, moves to a gap that is actually open.
+                int moved = 0;
                 for (int i = 0; i < 3; i++)
                 {
-                    float side = (i - 1.0f) * 3.1f + 0.8f * (Hash3(i, 0, 0, 5311) - 0.5f);
-                    Vector3 hit = moonHoriz * (4.0f + 3.4f * Hash3(i, 1, 0, 5311)) + across * side;
-                    hit.y = ForestY(hit.x, hit.z) - 0.15f;
-                    // The length is DERIVED: run up the bearing until the top
-                    // stands `clear` metres over the canopy at the radius it
-                    // reaches. Both sides of that condition move with the length
-                    // (the canopy rises 0.30 m per metre of radius, the shaft
-                    // 0.84), so it is solved by iteration — six passes is far
-                    // more than the two it needs. The old fixed 11.5-14 m is the
-                    // floor, and 19 m the ceiling: past ~19 m the canopy closes
-                    // again (CanopyMask's outer term) and a shaft that ends up
-                    // there would be roofed over instead of open to the sky.
-                    float clear = 1.4f + 0.9f * Hash3(i, 3, 0, 5311);
-                    float lenMax = 17.6f + 2.0f * Hash3(i, 6, 0, 5311);
-                    float len = 11.5f + 2.5f * Hash3(i, 3, 0, 5311);
-                    for (int it = 0; it < 6; it++)
+                    Vector3 hit = Vector3.zero, top = Vector3.zero;
+                    float len = 0f, best = -1f;
+                    int chosen = 0;
+                    for (int c = 0; c < 5; c++)
                     {
-                        Vector3 t0 = hit - dir * len;
-                        float rTop = new Vector2(t0.x, t0.z).magnitude;
-                        len = Mathf.Clamp((CanopyY(rTop) + clear - hit.y) / MoonDir.normalized.y,
-                                          11.5f, lenMax);
+                        // c == 0 IS the previously authored roll, bit for bit
+                        float side = (i - 1.0f) * 3.1f + 0.8f * (Hash3(i, 0, c, 5311) - 0.5f);
+                        Vector3 h = moonHoriz * (4.0f + 3.4f * Hash3(i, 1, c, 5311)) + across * side;
+                        h.y = ForestY(h.x, h.z) - 0.15f;
+                        // The length is DERIVED: run up the bearing until the top
+                        // stands `clear` metres over the canopy at the radius it
+                        // reaches. Both sides of that condition move with the
+                        // length (the canopy rises 0.30 m per metre of radius,
+                        // the shaft 0.84), so it is solved by iteration — six
+                        // passes is far more than the two it needs. The old fixed
+                        // 11.5-14 m is the floor, and 19 m the ceiling: past ~19 m
+                        // the canopy closes again (CanopyMask's outer term) and a
+                        // shaft that ends up there would be roofed over instead
+                        // of open to the sky.
+                        float clear = 1.4f + 0.9f * Hash3(i, 3, 0, 5311);
+                        float lenMax = 17.6f + 2.0f * Hash3(i, 6, 0, 5311);
+                        float l = 11.5f + 2.5f * Hash3(i, 3, 0, 5311);
+                        for (int it = 0; it < 6; it++)
+                        {
+                            Vector3 t0 = h - dir * l;
+                            float rTop = new Vector2(t0.x, t0.z).magnitude;
+                            l = Mathf.Clamp((CanopyY(rTop) + clear - h.y) / MoonDir.normalized.y,
+                                            11.5f, lenMax);
+                        }
+                        Vector3 tp = h - dir * l;                   // back up along the beam
+                        // Score the UPPER RUN only, along the beam's own axis: the
+                        // first 55% is the stretch that has to read as light
+                        // coming through the tear. Lower down a blade crossing a
+                        // trunk is not a fault, it is the effect — that is where
+                        // the shadow term is supposed to bite.
+                        float lit = 0f;
+                        for (int s = 0; s < 24; s++)
+                            lit += canopyShadow.Visible(
+                                tp + dir * (l * Mathf.Lerp(0.02f, 0.55f, s / 23f)),
+                                beamLook, useNear: true);
+                        float score = lit / 24f;
+                        if (score > best + 1e-4f)
+                        { best = score; chosen = c; hit = h; top = tp; len = l; }
+                        if (c == 0 && score >= 0.80f) break;        // the authored roll is clear
                     }
-                    Vector3 top = hit - dir * len;                   // back up along the beam
+                    if (chosen != 0) moved++;
+                    // ...and the other half of the answer: what the shadow term
+                    // does to the WHOLE beam. The upper run being clear is what
+                    // makes it read as light entering through the tear; this is
+                    // what makes it read as light that trees stand in. If it
+                    // ever approaches zero the beams are being deleted, not
+                    // shadowed — that is the failure this number is here to
+                    // catch, and it is the failure the first pass shipped.
+                    float whole = 0f, lower = 0f;
+                    for (int s = 0; s < 40; s++)
+                    {
+                        float vis = canopyShadow.Visible(
+                            top + dir * (len * Mathf.Lerp(0.02f, 0.98f, s / 39f)),
+                            beamLook, useNear: true);
+                        whole += vis;
+                        if (s >= 22) lower += vis;
+                    }
+                    whole /= 40f; lower /= 18f;
                     float w0 = 0.42f + 0.30f * Hash3(i, 4, 0, 5311);
                     float w1 = w0 * 2.8f;
+                    // The map is sized off the FLOOR (see THE BOX above) and the
+                    // blades are only argued to fall inside it. Check, because a
+                    // blade that projects off the edge reads as fully lit and the
+                    // whole feature would silently do nothing for it — which is
+                    // the exact class of failure the first pass shipped.
+                    foreach (var probe in new[] { top, hit,
+                                                  top + across * w0, top - across * w0,
+                                                  hit + across * w1, hit - across * w1,
+                                                  hit + Vector3.Cross(dir, across) * w1,
+                                                  hit - Vector3.Cross(dir, across) * w1 })
+                        if (!canopyShadow.Inside(probe, 0.03f))
+                            throw new Exception($"Moon shaft {i}: a blade corner at "
+                                + $"({probe.x:F2},{probe.y:F2},{probe.z:F2}) falls outside the canopy "
+                                + "shadow map — widen shadowRoi or the map's height range.");
                     float amp = 0.6f + 0.4f * Hash3(i, 5, 0, 5311);
                     // fade lengths in METRES, carried per vertex (see AddShaft):
                     // 1.1 m in at the top so the beam is already bright where it
@@ -2967,8 +4503,12 @@ namespace GloomhavenVR
                     Debug.Log($"[GloomhavenVR][Env] Moon shaft {i}: lands ({hit.x:F2},{hit.z:F2}) "
                               + $"r {new Vector2(hit.x, hit.z).magnitude:F1} m, length {len:F1} m, top "
                               + $"y {top.y:F1} m at r {new Vector2(top.x, top.z).magnitude:F1} m "
-                              + $"(canopy there {CanopyY(new Vector2(top.x, top.z).magnitude):F1} m).");
+                              + $"(canopy there {CanopyY(new Vector2(top.x, top.z).magnitude):F1} m), "
+                              + $"candidate {chosen} of 5, upper run {best * 100f:F0}% clear of the "
+                              + $"canopy shadow, whole beam {whole * 100f:F0}% lit, lower run {lower * 100f:F0}%.");
                 }
+                Debug.Log($"[GloomhavenVR][Env] Moon shafts: {moved} of 3 moved off the authored roll "
+                          + "because the canopy shadow found their upper run blocked.");
                 var shaftMat = NewRoomMat("S_Shaft.mat", "GloomhavenVR/EnvShaft");
                 // a touch stronger than ModBuild 133 (alpha 0.30): with the wood
                 // around them darker the blades are now the brightest thing in the
@@ -2977,6 +4517,22 @@ namespace GloomhavenVR
                 shaftMat.SetFloat("_Softness", 6.5f);
                 shaftMat.SetFloat("_Shimmer", 0.30f);
                 shaftMat.SetFloat("_ShimmerSpeed", 0.20f);
+                // CANOPY SHADOW on the blades — the answer to the user finding.
+                // Multiplied into the existing across/along/shimmer/facing
+                // product, so the pass stays additive and order-independent and
+                // no other term is disturbed.
+                //
+                // beamLook, declared with the bake: a SHORT throw so only the
+                // trunk the beam actually crosses bites, and a high strength so
+                // that when one does it is unmistakable. The penumbra is 0.22 m
+                // against the floor's 0.18 because a blade's shadow edge hangs
+                // in mid-air, where there is no albedo detail to hide a hard one
+                // — a beam of lit mist that goes to nothing behind a bough looks
+                // CUT. And 0.90, not 1.0: what is left over is the light the
+                // mist scatters sideways into the shadowed stretch, which is
+                // real. A shaft does not have a black bite taken out of it, it
+                // goes dim and comes back.
+                canopyShadow.Apply(shaftMat, beamLook);
                 var shMesh = SaveMesh("Env_S_Shafts.asset", sh.Build("Env_S_Shafts"));
                 Place(root, "MoonShafts", shMesh, Vector3.zero, Vector3.zero, Vector3.one, shaftMat);
             }

@@ -32,6 +32,18 @@ Shader "GloomhavenVR/EnvShaft"
         _Softness ("Cross-section softness", Range(0.5,8)) = 3.0
         _Shimmer ("Shimmer amount", Range(0,1)) = 0.25
         _ShimmerSpeed ("Shimmer speed", Range(0,2)) = 0.22
+        // CANOPY SHADOW — baked by BuildEnvironmentRooms.cs (CanopyShadowBake).
+        // The defaults below are "no shadow map": a white map decodes to depth
+        // 1.0, which is the bake's own "nothing here" sentinel, and _CsFlt.w = 0
+        // takes the whole term out. A material that never met the bake is
+        // therefore bit-for-bit what it was before this shader grew the feature.
+        _CsMap ("Canopy shadow depth (R:G = 16-bit)", 2D) = "white" {}
+        _CsOrg ("Light-plane origin (OBJECT space, w = 1/depth span)", Vector) = (0,0,0,0)
+        _CsU ("Light-plane axis U (w = 1/extent)", Vector) = (1,0,0,0)
+        _CsV ("Light-plane axis V (w = 1/extent)", Vector) = (0,1,0,0)
+        _CsDir ("Light travel direction (w = -near depth)", Vector) = (0,-1,0,0)
+        _CsFlt ("Penumbra u, penumbra v, depth bias, strength", Vector) = (0,0,0,0)
+        _CsThrow ("Max throw, 1/release (encoded depth units)", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -45,14 +57,115 @@ Shader "GloomhavenVR/EnvShaft"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma target 3.0        // seven dependent texture reads in the frag
             #include "UnityCG.cginc"
 
             fixed4 _Tint;
             float _Softness, _Shimmer, _ShimmerSpeed;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
+            // ------------------------------------------------------ CANOPY SHADOW
+            // An orthographic depth map of the trees along the moon bearing, baked
+            // by BuildEnvironmentRooms.cs (CanopyShadowBake — read the block above
+            // that class for WHY it is a depth and not a mask; the short version
+            // is that a shaft's top and the boughs around the canopy tear it comes
+            // through project to the same texels, and only a depth can tell them
+            // apart). R:G is a 16-bit linear depth measured DOWN-LIGHT from a
+            // plane just in front of the tallest tree; 1.0 (white) means "no
+            // occluder", which is why real depths only ever reach 0.98.
+            //
+            // Everything is in OBJECT space. The room root carries the runtime's
+            // placement yaw and scale, so object space is the only frame the bake
+            // survives in — the same reason the baked light rig writes _DirDir and
+            // _L0Pos in object space rather than world.
+            //
+            // These twenty lines are DUPLICATED in EnvGround.shader rather than
+            // shared through a .cginc: the two want different tap counts (a blade
+            // of lit mist needs a softer edge than a floor does), and a new
+            // include is one more asset GUID to keep alive through the bundle for
+            // twenty lines. The ENCODING has exactly one source — the builder —
+            // and both copies quote it.
+            sampler2D _CsMap;
+            float4 _CsOrg, _CsU, _CsV, _CsDir, _CsFlt, _CsThrow;
+
+            float3 CsCoord (float3 op)
+            {
+                float3 r = op - _CsOrg.xyz;
+                return float3(dot(r, _CsU.xyz) * _CsU.w + 0.5,
+                              dot(r, _CsV.xyz) * _CsV.w + 0.5,
+                              (dot(r, _CsDir.xyz) + _CsDir.w) * _CsOrg.w);
+            }
+
+            // Each 16-bit layer arrives as two bytes over 255, so a stored depth
+            // is (hi*255*256 + lo*255) / 65535. R:G is the NEAREST occluder in
+            // the texel and B:A the DEEPEST — one value cannot serve both
+            // receivers, see the two-layer note in BuildEnvironmentRooms.cs.
+            //
+            // MAXIMUM THROW. d is how far DOWN-LIGHT of a stored occluder this
+            // fragment lies; d <= 0 means the occluder is behind me and I am lit.
+            // A physically exact test would stop there, and in this room it would
+            // answer "shadowed" everywhere: the moon sits at 40 deg, so the ray
+            // from the clearing floor to the moon spends the next 20-30 m inside
+            // the wood, and a wood at night genuinely has no moonlight on its
+            // floor. The clearing, the canopy tear and the three shafts are an
+            // AUTHORED FICTION and it is the fiction the user approved. So an
+            // occluder only casts for _CsThrow.x of depth and then releases
+            // smoothly over 1/_CsThrow.y: the trunk a beam passes through shadows
+            // it, the roof 25 m up-light does not. The builder derives both
+            // numbers — see the MAXIMUM THROW block in BuildEnvironmentRooms.cs.
+            float CsThrow (float d)
+            {
+                return step(0.0, d) * saturate((_CsThrow.x - d) * _CsThrow.y);
+            }
+
+            // A blade takes whichever layer casts: R:G is the canopy hanging over
+            // the beam, B:A is the trunk the beam runs THROUGH (which is deeper
+            // than the roof and would otherwise never be seen). Whichever gives
+            // the stronger shadow wins.
+            float CsTap (float2 uv, float z)
+            {
+                float4 e = tex2D(_CsMap, uv);
+                float n = (e.r * 65280.0 + e.g * 255.0) * (1.0 / 65535.0);
+                float f = (e.b * 65280.0 + e.a * 255.0) * (1.0 / 65535.0);
+                // f == 0 is the far layer's "nothing here", and it MUST be gated:
+                // z - 0 is a small depth for anything high in the room, so an
+                // ungated sentinel would shadow every shaft top.
+                return 1.0 - max(CsThrow(z - n), step(0.00002, f) * CsThrow(z - f));
+            }
+
+            float CsVisible (float3 sc)
+            {
+                float z = sc.z - _CsFlt.z;
+                float2 f = _CsFlt.xy;
+                // PERCENTAGE-CLOSER filtering: compare first, average after. The
+                // map is point-sampled on purpose — bilinear interpolation of a
+                // DEPTH blends a trunk against the open sky beside it and invents
+                // an occluder halfway between the two. Seven taps on a small disc
+                // (0.22 m radius in the wood, 4-5 texels) give the soft penumbra a moonbeam
+                // in mist actually has; a single tap is a stencil and reads as a
+                // bug. World-space and identical in both eyes, so it fuses.
+                float v = CsTap(sc.xy, z)
+                        + CsTap(sc.xy + float2( 0.866,  0.500) * f, z)
+                        + CsTap(sc.xy + float2( 0.000,  1.000) * f, z)
+                        + CsTap(sc.xy + float2(-0.866,  0.500) * f, z)
+                        + CsTap(sc.xy + float2(-0.866, -0.500) * f, z)
+                        + CsTap(sc.xy + float2( 0.000, -1.000) * f, z)
+                        + CsTap(sc.xy + float2( 0.866, -0.500) * f, z);
+                v *= (1.0 / 7.0);
+                // Off the edge of the baked map, and anywhere in front of its near
+                // plane, everything is lit. CLAMP addressing would otherwise drag
+                // the border texels right across the room, and a hard cut-off
+                // would draw a line on the floor — so it fades out over ~1/40th
+                // of the map's own width, which is comfortably wider than the tap
+                // disc, so no tap ever reaches past the border while it counts.
+                float2 q = abs(sc.xy - 0.5);
+                float edge = saturate((0.5 - max(q.x, q.y)) * 40.0)
+                           * step(0.0, sc.z) * step(sc.z, 1.0);
+                return 1.0 - _CsFlt.w * (1.0 - v) * edge;
+            }
+
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
-            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed4 col : COLOR; float3 wn : TEXCOORD1; float3 wp : TEXCOORD2; };
+            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; fixed4 col : COLOR; float3 wn : TEXCOORD1; float3 wp : TEXCOORD2; float3 cs : TEXCOORD3; };
 
             #define SKY_PERIOD 2880.0
 
@@ -64,6 +177,8 @@ Shader "GloomhavenVR/EnvShaft"
                 o.col = v.color;
                 o.wn = UnityObjectToWorldNormal(v.normal);
                 o.wp = mul(unity_ObjectToWorld, v.vertex).xyz;
+                // affine in object space, so interpolating it is exact
+                o.cs = CsCoord(v.vertex.xyz);
                 return o;
             }
 
@@ -90,7 +205,15 @@ Shader "GloomhavenVR/EnvShaft"
                 // it fuses in stereo (unlike any screen-space pattern).
                 float3 V = normalize(_WorldSpaceCameraPos - i.wp);
                 float facing = abs(dot(normalize(i.wn), V));
-                float a = across * along * sh * facing * _Tint.a * i.col.a;
+                // USER FINDING, ModBuild 137 (hardware): "Die Lichstrahlen ...
+                // clippen durch die Bäume, ich würde hier gerne das die Bäume
+                // entsprechende Schatten werfen." A plain MULTIPLY into the same
+                // product every other term goes into: the pass stays additive
+                // and order-independent, overlapping shafts still cannot sort
+                // wrong, and no existing term is touched. The blade simply stops
+                // being lit air on the stretches where a trunk or a bough stands
+                // between it and the moon.
+                float a = across * along * sh * facing * _Tint.a * i.col.a * CsVisible(i.cs);
                 return fixed4(_Tint.rgb * a, 1.0);   // col.rgb is data, see header
             }
             ENDCG
