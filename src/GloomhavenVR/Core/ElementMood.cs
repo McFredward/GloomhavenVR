@@ -245,7 +245,9 @@ internal static class ElementMood
     // möglichkeit die Elemente und Easter eggs einzeln auf Knopfdruck auslösen zu können." A tester
     // cannot judge six element responses by waiting for a scenario to infuse them in the right order,
     // so the Erweitert menu gets a page of buttons (WorldUI/VROptionsTab.9.TestTriggers.cs) that each
-    // pretend ONE element is up for a few seconds.
+    // pretend an element is up. (The original version of this aid pretended ONE element was up for
+    // eight seconds; the follow-up request below turned both of those numbers into "as many as you
+    // press, for as long as you leave them pressed".)
     //
     // WHY THE OVERRIDE SITS HERE, ON THE PUBLISHED SIDE, AND NOT ON THE GAME'S BOARD.
     // ElementInfusionBoardManager.SetElementInstantly(EElement, EColumn)
@@ -261,61 +263,119 @@ internal static class ElementMood
     // is substituted. Nothing goes on the wire, nothing is game state, and a peer's client is
     // bit-identical throughout — the only thing that differs is what THIS headset draws.
     //
-    // REJECTED: forcing several elements at once. The user asked to trigger them "einzeln", and six
-    // overlapping responses are a lightshow rather than a test — you cannot attribute what you see.
-    // One force at a time; a second press simply replaces the first, which is also what makes the
-    // buttons feel like buttons.
+    // FOLLOW-UP USER REQUEST (hardware, verbatim): "In der Triggertestview möchte ich wenn ich etwas
+    // triggere das es dauerhaft an ist und mit erneutem toggle wieder ausgemacht wird. So kann ich
+    // die Mischungen besser testen." One press LATCHES the element on and it stays on until the same
+    // button is pressed again. That one sentence reverses BOTH of the rulings this block used to
+    // carry, and it reverses them for a reason rather than a preference:
     //
-    // REJECTED: zeroing the OTHER five while one is forced. They keep their real sensed state, so the
-    // override adds a lie in exactly one place instead of six. In practice the other five are Inert
-    // anyway outside combat, and if they are not, the tester is seeing the truth beside the forcing.
+    //   * "dauerhaft an" ends the timed hold. The old expiry was eight seconds — sized so a tester
+    //     could see the Waning plateau breathe one and a half times — which is right for "show me
+    //     this once" and wrong for "leave it standing while I look at something else". Judging how
+    //     two elements sit together cannot be done in eight seconds, and re-pressing a button every
+    //     eight seconds is not a test, it is a metronome. There is now NO expiry at all: the only
+    //     things that end a latch are the same button, the stop row, and a stand-down (scenario end,
+    //     VR teardown, mixed reality — all of which take the environment with them anyway).
+    //   * "die Mischungen" ends the single slot. The earlier ruling here was "REJECTED: forcing
+    //     several elements at once — the user asked to trigger them 'einzeln', and six overlapping
+    //     responses are a lightshow rather than a test". That was written for a tester judging ONE
+    //     response in isolation; the user has now asked for precisely the case it excluded, and a
+    //     MIXTURE cannot be built out of a channel that holds one element. So the latch is
+    //     PER-ELEMENT: any subset of the six can stand at once, each released by its own button.
+    //
+    // WHAT DOES NOT CHANGE is the placement, and it is the load-bearing part: the override still sits
+    // between SENSING and PUBLISHING (see the paragraph above), so the game's element board is still
+    // read and never written however many elements are latched and however long they stand.
+    //
+    // REJECTED: zeroing the elements that are NOT latched. They keep their real sensed state, so the
+    // override adds a lie only where the tester asked for one. In practice the rest are Inert outside
+    // combat anyway, and if they are not, the tester is seeing the truth beside the forcing.
+    //
+    // REJECTED: a single latch that simply never expires. It would have satisfied the first half of
+    // the sentence and failed the second — "so kann ich die Mischungen besser testen" is the REASON
+    // the user gives for wanting the latch at all, and a mixture needs at least two.
 
-    /// <summary>
-    /// How long a forced element is held, in shared-clock seconds.
-    ///
-    /// <para>EIGHT, and the number is the WANING state's requirement rather than a round figure: the
-    /// force ramps in over <see cref="RampSeconds"/> (1 s), and what a tester has to be able to judge
-    /// is the breath — <see cref="WaningEbbPeriodSeconds"/> = 2.4 s per cycle. 1 s in plus two and a
-    /// half breaths is 7 s; 8 leaves the eye a moment at the plateau before the ramp back. Strong
-    /// does not move at all and would be judged in two seconds, but one duration for both states
-    /// means the button does the same thing whichever half of the page it is on.</para>
-    /// </summary>
-    internal const float ForceSeconds = 8f;
+    /// <summary>Whether element <c>i</c> is currently latched by a test trigger. Six independent
+    /// flags rather than one index, because the request is explicitly about MIXTURES.</summary>
+    private static readonly bool[] ForceLatched = new bool[Count];
 
-    /// <summary>Element index currently forced, or -1 for none.</summary>
-    private static int _forceIndex = -1;
+    /// <summary>The state each latched element is being pretended into (Strong or Waning). Only
+    /// meaningful where <see cref="ForceLatched"/> is true — a separate flag rather than using
+    /// <c>Inert</c> as the "not latched" sentinel, so that "latched" and "which column" stay two
+    /// independent facts and a future Inert button would need no rework.</summary>
+    private static readonly ElementInfusionBoardManager.EColumn[] ForceColumn =
+        new ElementInfusionBoardManager.EColumn[Count];
 
-    /// <summary>The state <see cref="_forceIndex"/> is being pretended into.</summary>
-    private static ElementInfusionBoardManager.EColumn _forceColumn = ElementInfusionBoardManager.EColumn.Inert;
+    /// <summary>Shared-clock time each latch was pressed. DIAGNOSTICS ONLY now that nothing expires:
+    /// it is what lets a log reader say "this one has been standing since 41 s" while reading a
+    /// mixture, and it is deliberately not used by any decision below.</summary>
+    private static readonly float[] ForceSince = new float[Count];
 
-    /// <summary>Shared-clock time the force started; it ends <see cref="ForceSeconds"/> later.</summary>
-    private static float _forceSince;
+    /// <summary>How many of the six are latched. Kept as a counter rather than scanned, because
+    /// <see cref="Forcing"/> is read on the off path of <see cref="Tick"/> every frame and that path
+    /// is the one this file promises costs nothing.</summary>
+    private static int _forceCount;
 
     /// <summary>
     /// Whether a force could do anything at all right now. It deliberately does NOT include
-    /// <see cref="EnvironmentResponse"/>: the switch is a preference the button may override for its
-    /// few seconds (see <see cref="Force"/>), while these two are "there is no environment and no
-    /// board" — nothing to force, and nothing a button can conjure.
+    /// <see cref="EnvironmentResponse"/>: the switch is a preference the button may override for as
+    /// long as its latch stands (see <see cref="Force"/>), while these two are "there is no
+    /// environment and no board" — nothing to force, and nothing a button can conjure.
     /// </summary>
     internal static bool ForceReady => VRSession.IsRunning && Events.VRModeStateMachine.ScenarioBoardExists;
 
-    /// <summary>True while a forced element is standing.</summary>
-    internal static bool Forcing => _forceIndex >= 0;
+    /// <summary>True while ANY element is latched. It is what keeps <see cref="Tick"/> alive past the
+    /// player's own off-switch, and with the latch now unbounded in time that override lasts exactly
+    /// as long as the latch does — which is the point of the request.</summary>
+    internal static bool Forcing => _forceCount > 0;
 
     /// <summary>
-    /// Pretend one element is Strong (or Waning) for <see cref="ForceSeconds"/>, then let the real
-    /// sensed state come back through the normal ramp. Returns false — and says so in the log — when
-    /// there is nothing to force, so a press outside a scenario is inert rather than an exception.
+    /// Is this exact button lit? The test page asks once per row after every press, so a tester
+    /// building a mixture can see what is standing without reading the log.
+    /// </summary>
+    /// <param name="element">Element index, 0..5 in the game's own EElement order.</param>
+    /// <param name="waning">Which of the element's two rows is asking: true = Waning, false = Strong.
+    /// The two rows latch the SAME element into DIFFERENT columns, so exactly one of them can be lit
+    /// at a time and neither may claim the other's state.</param>
+    internal static bool IsForced(int element, bool waning)
+    {
+        if (element < 0 || element >= Count || !ForceLatched[element])
+            return false;
+
+        return ForceColumn[element] == (waning
+                                            ? ElementInfusionBoardManager.EColumn.Waning
+                                            : ElementInfusionBoardManager.EColumn.Strong);
+    }
+
+    /// <summary>
+    /// TOGGLE one element's test latch, and hold it until it is pressed again. Returns true when the
+    /// press changed something; false — and says so in the log — when there was nothing to force, so
+    /// a press outside a scenario is inert rather than an exception.
+    ///
+    /// <para><b>THE THREE CASES, and the middle one is the one worth stating.</b> Each element has TWO
+    /// rows on the test page (Strong and Waning), so a press means one of three things:</para>
+    /// <list type="number">
+    /// <item>the element is not latched → LATCH it into the pressed column;</item>
+    /// <item>it is latched into the OTHER column → SWITCH it, staying latched. Reading this as
+    /// "release, then press the other one" would be two presses' worth of work for one press, and the
+    /// tester who presses Waning while Strong stands has said what they want unambiguously;</item>
+    /// <item>it is latched into the SAME column → RELEASE it. That is "mit erneutem toggle wieder
+    /// ausgemacht" verbatim, and it is why the rule is per-BUTTON rather than per-element: a latch
+    /// released by a button the tester did not press would be a button that lies.</item>
+    /// </list>
     ///
     /// <para>IT OVERRIDES THE FEATURE'S OWN ON/OFF SWITCH, deliberately, and the page says so in
     /// German. The alternative (refuse while <see cref="EnvironmentResponse"/> is off) makes a button
     /// that does nothing and looks broken — indistinguishable from the very fault this aid exists to
     /// find, and with the switch two menu pages away the tester would have no way to tell which it
-    /// was. The override is bounded by the same few seconds, it is local, and it NEVER writes the
-    /// setting: the toggle still shows the player's own choice, and the moment the force expires that
-    /// choice is what stands again. The STRENGTH dial is NOT overridden — that one is a magnitude the
-    /// tester chose, and showing them an intensity they did not configure would be a different lie;
-    /// if it is at 0 the log below says the press will be invisible and why.</para>
+    /// was. What HAS changed with the latch is the DURATION of that override: it used to be bounded by
+    /// eight seconds and is now bounded only by the tester letting go of it. It is still local, it
+    /// still NEVER writes the setting — the toggle still shows the player's own choice — and the
+    /// moment the last latch is released that choice stands again on the very next tick (Tick's off
+    /// path is guarded by <see cref="Forcing"/>, so there is no frame in between). The STRENGTH dial
+    /// is NOT overridden — that one is a magnitude the tester chose, and showing them an intensity
+    /// they did not configure would be a different lie; if it is at 0 the log says the press will be
+    /// invisible and why.</para>
     /// </summary>
     /// <param name="element">Element index, 0..5 in the game's own EElement order.</param>
     /// <param name="waning">true = the breathing Waning plateau, false = Strong.</param>
@@ -328,10 +388,23 @@ internal static class ElementMood
             return false;
 
         var name = (ElementInfusionBoardManager.EElement)element;
+        ElementInfusionBoardManager.EColumn wanted = waning
+            ? ElementInfusionBoardManager.EColumn.Waning
+            : ElementInfusionBoardManager.EColumn.Strong;
+
+        // PRESSED AGAIN = OFF. Checked BEFORE ForceReady on purpose: releasing a latch must work in
+        // every state the latch can survive into, and a tester whose scenario has ended between the
+        // two presses would otherwise be told "there is no scenario board" by a button whose whole
+        // job at that moment is to stop doing something.
+        if (ForceLatched[element] && ForceColumn[element] == wanted)
+        {
+            ClearForce(element, "the tester pressed the same test trigger again");
+            return true;
+        }
 
         if (!ForceReady)
         {
-            VRLog.Info("Core", $"ELEMENT TEST TRIGGER ignored — {name} was not forced because "
+            VRLog.Info("Core", $"ELEMENT TEST TRIGGER ignored — {name} was not latched because "
                                + (VRSession.IsRunning ? "there is no scenario board" : "VR is not running")
                                + ". The element channel is not live outside a scenario, so there is no "
                                + "environment to answer and nothing to see; the button is inert here on "
@@ -339,55 +412,109 @@ internal static class ElementMood
             return false;
         }
 
-        _forceIndex = element;
-        _forceColumn = waning
-            ? ElementInfusionBoardManager.EColumn.Waning
-            : ElementInfusionBoardManager.EColumn.Strong;
-        _forceSince = SkyAlternative.EnvClockSeconds;
+        bool switched = ForceLatched[element];
+        ElementInfusionBoardManager.EColumn before = ForceColumn[element];
+        if (!switched)
+            _forceCount++;
+        ForceLatched[element] = true;
+        ForceColumn[element] = wanted;
+        ForceSince[element] = SkyAlternative.EnvClockSeconds;
 
         float master = Mathf.Max(0f, ResponseStrength.Value);
-        VRLog.Info("Core", $"ELEMENT TEST TRIGGER: {name} forced to {_forceColumn} for "
-                           + $"{ForceSeconds:F1}s of shared clock (from {_forceSince:F2}s to "
-                           + $"{_forceSince + ForceSeconds:F2}s), heading for {TargetLabel(_forceColumn)} "
-                           + $"over the usual {RampSeconds:F1}s ramp and ramping back to the real sensed "
-                           + $"state afterwards. Master factor {master:F2}"
+        VRLog.Info("Core", $"ELEMENT TEST TRIGGER: {name} latched to {wanted}"
+                           + (switched
+                                  ? $", switched from {before} without leaving the latch"
+                                  : string.Empty)
+                           + $" at shared clock {ForceSince[element]:F2}s and held INDEFINITELY — it "
+                           + "ends when the same button is pressed again, when the stop row is "
+                           + "pressed, or when the channel stands down. Heading for "
+                           + $"{TargetLabel(wanted)} over the usual {RampSeconds:F1}s ramp. "
+                           + $"{LatchedList()}. Master factor {master:F2}"
                            + (EnvironmentResponse.Value
-                                  ? " (the setting is on)"
-                                  : " — the 'EnvironmentResponse' setting is OFF and this press "
-                                    + "temporarily overrides it; the setting itself is untouched and "
-                                    + "stands again the moment the force expires")
+                                  ? " and the setting is on"
+                                  : " — the 'EnvironmentResponse' setting is OFF and this latch "
+                                    + "overrides it for as long as it stands; the setting itself is "
+                                    + "untouched and takes over again the moment the last latch goes")
                            + (master <= 0f
                                   ? ". NOTE: the strength dial is at 0, so every element effect "
-                                    + "multiplies by 0 and this press will be INVISIBLE — that is the "
+                                    + "multiplies by 0 and this latch will be INVISIBLE — that is the "
                                     + "dial, not a fault"
                                   : string.Empty)
                            + ". LOCAL TEST AID ONLY: the game's element board "
-                           + "(ElementInfusionBoardManager) is READ and never written, so nothing goes "
-                           + "on the wire, no game state changes and the end-of-round desync compare "
+                           + "(ElementInfusionBoardManager) is READ and never written — however many "
+                           + "elements are latched and however long they stand — so nothing goes on "
+                           + "the wire, no game state changes and the end-of-round desync compare "
                            + "(ScenarioState.CompareStates codes 117/118) has nothing to disagree "
                            + "about. Only this headset draws differently.");
         return true;
     }
 
     /// <summary>
-    /// Drop the override. Idempotent, and it re-anchors nothing by hand: the next tick reads the real
-    /// column, sees it differ from the forced one, and ramps back from wherever the eye last saw the
-    /// intensity — the same path a real Strong → Inert transition takes.
+    /// Release ONE element's latch. Idempotent, and it re-anchors nothing by hand: the next tick reads
+    /// the real column, sees it differ from the latched one, and ramps back from wherever the eye last
+    /// saw the intensity — the same path a real Strong → Inert transition takes.
+    /// </summary>
+    internal static void ClearForce(int element, string why)
+    {
+        if (element < 0 || element >= Count || !ForceLatched[element])
+            return;
+
+        var name = (ElementInfusionBoardManager.EElement)element;
+        ElementInfusionBoardManager.EColumn column = ForceColumn[element];
+        float since = ForceSince[element];
+        ForceLatched[element] = false;
+        ForceColumn[element] = ElementInfusionBoardManager.EColumn.Inert;
+        ForceSince[element] = 0f;
+        _forceCount = Mathf.Max(0, _forceCount - 1);
+
+        VRLog.Info("Core", $"ELEMENT TEST TRIGGER off — {name} is no longer latched to {column} ({why}); "
+                           + $"it had stood since shared clock {since:F2}s. The real sensed state takes "
+                           + $"over on the next tick and ramps in over {RampSeconds:F1}s. "
+                           + (_forceCount > 0
+                                  ? LatchedList() + " — the rest of the mixture is untouched."
+                                  : "Nothing is latched any more, so the player's own "
+                                    + "'EnvironmentResponse' setting decides again from the next "
+                                    + "tick."));
+    }
+
+    /// <summary>
+    /// Release EVERY latch — the stop row, and every stand-down route (see <see cref="StandDown"/>,
+    /// which calls this before its own idempotence guard so that no latch can survive a teardown).
+    /// Idempotent, and silent when there was nothing latched: the one press that must always leave a
+    /// trace is the stop row's, and that row writes its own line whether or not anything was standing.
     /// </summary>
     internal static void ClearForce(string why)
     {
-        if (_forceIndex < 0)
+        // The counter first, and not merely for tidiness: StandDown calls this on EVERY frame the
+        // feature spends switched off, so the "costs nothing when off" promise this file makes would
+        // otherwise have quietly become six array reads per frame instead of one compare.
+        if (_forceCount <= 0)
             return;
 
-        var name = (ElementInfusionBoardManager.EElement)_forceIndex;
-        ElementInfusionBoardManager.EColumn column = _forceColumn;
-        _forceIndex = -1;
-        _forceColumn = ElementInfusionBoardManager.EColumn.Inert;
-        _forceSince = 0f;
+        for (int i = 0; i < Count; i++)
+            ClearForce(i, why);
+    }
 
-        VRLog.Info("Core", $"ELEMENT TEST TRIGGER over — {name} is no longer forced to {column} ({why}). "
-                           + "The real sensed state takes over on the next tick and ramps in over "
-                           + $"{RampSeconds:F1}s; nothing of the override is left standing.");
+    /// <summary>The latched elements as one readable clause, for the log lines that have to let a
+    /// reader see a MIXTURE rather than deduce it from a stack of earlier presses.</summary>
+    private static string LatchedList()
+    {
+        if (_forceCount <= 0)
+            return "Nothing is latched";
+
+        var sb = new StringBuilder(96);
+        sb.Append("Latched now: ");
+        bool first = true;
+        for (int i = 0; i < Count; i++)
+        {
+            if (!ForceLatched[i])
+                continue;
+            if (!first)
+                sb.Append(", ");
+            first = false;
+            sb.Append((ElementInfusionBoardManager.EElement)i).Append('=').Append(ForceColumn[i]);
+        }
+        return sb.ToString();
     }
 
     // ---- live state ------------------------------------------------------------------------------
@@ -485,9 +612,10 @@ internal static class ElementMood
         // OFF ⇒ master 0 once, then nothing. This is the whole of requirement "costs nothing when
         // off": one bool read per frame and an early return.
         //
-        // …UNLESS A TEST TRIGGER IS STANDING. A press on the Erweitert page overrides the switch for
-        // its few seconds (the reasoning is at Force()), which is exactly one extra bool read on the
-        // off path — the field, not a property, so the "costs nothing when off" promise survives.
+        // …UNLESS A TEST LATCH IS STANDING. A press on the Erweitert page overrides the switch for as
+        // long as the latch is held (the reasoning is at Force()), which is exactly one extra int
+        // compare on the off path — a counter, not a scan of six flags, so the "costs nothing when
+        // off" promise survives an unbounded hold as cheaply as it survived an eight-second one.
         if (!EnvironmentResponse.Value && !Forcing)
         {
             StandDown("the setting is off");
@@ -533,26 +661,19 @@ internal static class ElementMood
 
         float clock = SkyAlternative.EnvClockSeconds;
 
-        // THE FORCE EXPIRES HERE, once, before the sensing reads it — so the very same frame that
-        // ends the override already senses the real column and starts the ramp back. The second test
-        // is the shared clock having jumped BACKWARDS (a new clock owner, a scene reload): the
-        // elapsed time is then meaningless, and dropping the override is the honest answer — a force
-        // that silently restarted its eight seconds is exactly the "left standing" bug.
-        if (_forceIndex >= 0 && (clock - _forceSince >= ForceSeconds || clock < _forceSince))
-        {
-            ClearForce(clock < _forceSince
-                           ? "the shared clock jumped backwards"
-                           : $"the {ForceSeconds:F1}s test hold elapsed");
-
-            // The force was the ONLY reason this tick got past the off-switch. With it gone the
-            // switch decides again, and it has to decide THIS frame: falling through would publish
-            // one frame of live values on a feature the player has switched off.
-            if (!EnvironmentResponse.Value)
-            {
-                StandDown("the setting is off — the test hold had been overriding it");
-                return;
-            }
-        }
+        // THERE IS NO EXPIRY HERE ANY MORE, and the deletion is the request itself ("dauerhaft an").
+        // What used to stand at this point was an eight-second hold plus a "the shared clock jumped
+        // backwards" escape, and both are gone:
+        //   * the hold, because a latch that ends by itself is not a latch;
+        //   * the backwards-clock escape, because it was only ever protecting the SUBTRACTION
+        //     `clock - _forceSince`, and no decision reads that difference now — the latch is a bool.
+        //     A backwards jump still has to be handled for the RAMP, and it already is, per element,
+        //     in the sense loop below (the `clock < Since[i]` re-anchor). Dropping the tester's
+        //     latches because the clock changed owner would now be the bug rather than the fix.
+        // The off-switch fallthrough that lived here is gone with it: nothing in this method can end
+        // a latch any more, so there is no longer a frame in which the force disappears mid-tick and
+        // the switch has to be re-consulted. Every route that DOES end one (the button, the stop row,
+        // StandDown) either runs outside Tick or stands the channel down in the same breath.
 
         // ---- SENSE ------------------------------------------------------------------------------
         // Six reads of a static array (ElementColumn, :92-95). try/catch per read, like
@@ -575,10 +696,15 @@ internal static class ElementMood
             // THE OVERRIDE, and it is one line because it is placed where a lie costs the least: the
             // game's board has already been read (and never written), and everything downstream —
             // the edge detector, the ramp anchoring, the breath, the peak, the log — treats the
-            // forced column exactly like a sensed one. So a force ramps IN like a real infusion and,
-            // when it expires, ramps OUT like a real one, with no second code path to keep in step.
-            if (i == _forceIndex)
-                column = _forceColumn;
+            // forced column exactly like a sensed one. So a latch ramps IN like a real infusion and,
+            // when it is released, ramps OUT like a real one, with no second code path to keep in
+            // step. THAT IS ALSO WHY MIXTURES NEEDED NO OTHER CHANGE: this loop already ran six
+            // times, the breath is one shared phase read once per frame outside it, and the peak is a
+            // max over all six — so six latched elements smooth, breathe and publish exactly as six
+            // real infusions would. The only edit the request needed here was `== _forceIndex`
+            // becoming a per-element flag.
+            if (ForceLatched[i])
+                column = ForceColumn[i];
 
             signature = signature * 3 + (int)column;
 
@@ -743,14 +869,23 @@ internal static class ElementMood
               .Append(" now ").Append(Value[i].ToString("F2"))
               .Append(" -> ").Append(TargetLabel(Column[i]));
         }
-        // The forced element is NAMED in the same line as the values, because the whole point of the
-        // test page is that the reader of this log can tell "the environment answered the press"
-        // from "the environment answered the game" without correlating two timestamps.
-        if (_forceIndex >= 0)
-            sb.Append(" | TEST TRIGGER ACTIVE: ")
-              .Append((ElementInfusionBoardManager.EElement)_forceIndex).Append(" forced to ")
-              .Append(_forceColumn).Append(" until shared clock ")
-              .Append((_forceSince + ForceSeconds).ToString("F2")).Append("s (local only, no wire)");
+        // The latched elements are NAMED in the same line as the values, because the whole point of
+        // the test page is that the reader of this log can tell "the environment answered the press"
+        // from "the environment answered the game" without correlating two timestamps — and with
+        // mixtures that now means naming ALL of them, since a line that named one of three would be
+        // worse than one that named none.
+        if (_forceCount > 0)
+        {
+            sb.Append(" | TEST TRIGGERS ACTIVE: ").Append(LatchedList())
+              .Append(", each held until its own button is pressed again, no timer");
+            for (int i = 0; i < Count; i++)
+            {
+                if (ForceLatched[i])
+                    sb.Append("; ").Append((ElementInfusionBoardManager.EElement)i)
+                      .Append(" since ").Append(ForceSince[i].ToString("F2")).Append('s');
+            }
+            sb.Append(" (local only, no wire)");
+        }
 
         sb.Append(" | master ").Append(master.ToString("F2"))
           // The setting can be OFF here while the channel publishes, because a test press overrides

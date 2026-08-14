@@ -1,4 +1,8 @@
+using System;
+using System.Collections.Generic;
 using GloomhavenVR.Core;
+using TMPro;
+using UnityEngine;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -12,35 +16,70 @@ namespace GloomhavenVR.WorldUI;
 /// an apparition happens on a schedule whose median gap is nearly two minutes and which picks one of
 /// six at random. So each gets a button.</para>
 ///
+/// <para><b>FOLLOW-UP USER REQUEST</b> (hardware, verbatim): "In der Triggertestview möchte ich wenn
+/// ich etwas triggere das es dauerhaft an ist und mit erneutem toggle wieder ausgemacht wird. So kann
+/// ich die Mischungen besser testen." <b>EVERY ROW ON THIS PAGE IS NOW A LATCH.</b> A press turns the
+/// effect on and leaves it on; the same press again turns it off. Nothing expires — the two timed
+/// holds this page used to advertise (8 s for an element, 14 s for an apparition) are gone from the
+/// code and from the captions. Three consequences shape the rest of this file:</para>
+/// <list type="number">
+/// <item><b>MIXTURES.</b> The reason the user gives for wanting the latch is the mixture, so the
+/// element force became per-element: any subset of the six can stand at once, in either state. That
+/// is a change in <see cref="ElementMood"/>, not here — this page only stopped assuming there is one.
+/// </item>
+/// <item><b>THE ROWS HAVE TO SHOW THEIR STATE.</b> A fire-and-forget button needs no readout because
+/// the press IS the whole interaction; a latch that does not say whether it is on is unusable the
+/// moment a second one is pressed, which is exactly the case the user asked for. So every trigger row
+/// carries its state in its own caption and is repainted after every press — see
+/// <see cref="RefreshLatchRows"/> for why that is a caption repaint and not a rebuild.</item>
+/// <item><b>THE TWO HALVES BEHAVE DIFFERENTLY, and the page says so in German rather than hiding
+/// it.</b> An element is a STATE, so "permanently on" is literal. An apparition is an EVENT with an
+/// authored envelope of a few seconds, so a latched one LOOPS (Haunt.Tick re-anchors it), and only
+/// ONE can be latched — the shader's force channel carries a single card id and this lane may not
+/// widen it without a bundle re-bake. Pressing a second apparition therefore releases the first. The
+/// full argument, including the rejected alternatives, is in Core/Haunt.cs above the loop
+/// constants.</item>
+/// </list>
+///
 /// <para><b>IT MUST READ AS A TEST AID, and that is a requirement rather than a matter of taste.</b>
 /// The page sits in the same menu as the settings, so a player who wanders in must not come away
 /// believing they have changed the game. Three things carry that: the page is called "Test-Auslöser",
 /// the first line under the heading states what it does NOT touch (nothing is sent, no game state
-/// changes), and every effect is temporary and says so in its heading. Nothing on this page writes a
-/// ConfigEntry, so there is also nothing for the player to undo.</para>
+/// changes), and every row says whether it is on. Nothing on this page writes a ConfigEntry, so there
+/// is also nothing for the player to undo. THE LATCH RAISES THE STAKES ON EXACTLY ONE OF THOSE: an
+/// override that no longer expires by itself can be left standing, so the stop row is no longer a
+/// convenience but the page's guarantee, and it is stated in the German caption as "everything off".
+/// The other two safety rails are unchanged, and every route that tears the environment down
+/// (scenario end, VR stand-down, mixed reality, a style change) still drops every latch on its way
+/// out — both StandDown implementations clear the force BEFORE their own idempotence guard.</para>
 ///
 /// <para><b>MULTIPLAYER: HARMLESS BY CONSTRUCTION, which is worth stating because the project's
 /// standing rule is that everything is synchronised 1:1 and this is a deliberate, narrow exception.</b>
-/// A press changes only what THIS client draws. The element force is applied between sensing and
-/// publishing in <see cref="ElementMood"/> — the game's element board is read and never written,
-/// which matters because that board is a desync invariant the game compares every round (the full
-/// citation is in ElementMood, at the override). A haunt force is a shader global; a haunt is not
-/// state at all, so a peer keeps computing the real schedule from the shared clock and is
-/// unaffected. Nothing here goes on the wire, and nothing here is a game action.</para>
+/// A press changes only what THIS client draws, and THE LATCH DOES NOT CHANGE THAT — it changes how
+/// long, not what. The element force is applied between sensing and publishing in
+/// <see cref="ElementMood"/> — the game's element board is read and never written, for one latched
+/// element or for six, which matters because that board is a desync invariant the game compares every
+/// round (the full citation is in ElementMood, at the override). A haunt force is a shader global; a
+/// haunt is not state at all, so a peer keeps computing the real schedule from the shared clock and
+/// is unaffected, including while this client loops a forced one. Nothing here goes on the wire,
+/// nothing here is a game action, and there is no value anywhere for two clients to disagree
+/// about — a peer cannot tell that a latch is standing at all.</para>
 ///
 /// <para><b>NO NEW CONFIG ENTRIES, deliberately.</b> The ten-file localisation footprint an option
 /// costs (bound description, German description, catalog name, curated row, dependency rule, …) buys
-/// nothing here: an action is not a value, it has nothing to persist, and a hold duration on a dial
-/// would be one more thing that can be wrong when the tester reports what they saw. Both durations
-/// are constants with their reasoning written next to them
-/// (<see cref="ElementMood.ForceSeconds"/>, <see cref="Haunt.ForceHoldSeconds"/>). What this page
-/// does add to the Loc tables is captions and hints, exactly like every other row in this menu.</para>
+/// nothing here: an action is not a value and has nothing to persist. The latch made this MORE true
+/// rather than less: the durations that were the only tunable numbers on this page no longer exist,
+/// and the one number that is left (how often a latched apparition repeats) is derived from the
+/// card's own authored length rather than chosen. What this page does add to the Loc tables is
+/// captions and hints, exactly like every other row in this menu.</para>
 ///
 /// <para><b>THE PAGE DOES NOT REBUILD ITSELF ON A PRESS</b>, unlike the variant-copy rows, which do.
-/// Those change the settings the page is showing, so the page has to be redrawn; these change nothing
-/// on screen. Rebuilding would destroy the very button under the pointer between two presses of a
-/// button a tester presses repeatedly, and the feedback that matters is not in the menu anyway — it
-/// is the environment behind it, and the log line each press writes.</para>
+/// Those change the settings the page is showing, so the page has to be redrawn. Rebuilding would
+/// destroy the very button under the pointer between two presses of a button a tester presses
+/// repeatedly — and the latch makes that worse rather than better, because now the tester presses
+/// several rows in a row to build a mixture. So a press repaints the captions in place instead. The
+/// feedback that matters is still not in the menu anyway: it is the environment behind it, and the
+/// log line each press writes.</para>
 /// </summary>
 internal static partial class VROptionsTab
 {
@@ -58,17 +97,32 @@ internal static partial class VROptionsTab
     };
 
     /// <summary>
+    /// The latch rows' captions, each with the delegate that re-reads its live on/off state.
+    ///
+    /// <para>THE SAME SHAPE THE SETTINGS ROWS ALREADY USE for a live value —
+    /// <c>VROptionsTab.2.Rows.cs</c>'s <c>ValueLabels</c> is a list of (label, read) pairs and
+    /// <c>Apply</c> repaints all of them after every edit. This page cannot join that list: its rows
+    /// have no <c>ConfigItem</c>, and <c>Apply</c> takes one to decide whether the edit also needs a
+    /// rebuild. So it keeps its own list of the same shape, repainted by the same rule — ALL of them
+    /// after ANY press, never just the row that was pressed, because one press can change another
+    /// row: latching Fire·Waning unlights Fire·Strong, latching an apparition unlights whichever one
+    /// was latched before, and the stop row unlights everything.</para>
+    /// </summary>
+    private static readonly List<(TMP_Text label, Func<string> read)> LatchLabels = new(24);
+
+    /// <summary>
     /// The page: a way back, what this is, and then the buttons — six elements as Strong, the same
-    /// six as Waning, one per apparition, and a stop.
+    /// six as Waning, one per apparition, and an all-off.
     ///
     /// <para>TWELVE ELEMENT BUTTONS RATHER THAN A PICKER PLUS A STRENGTH CHOOSER. The obvious saving
     /// is one element picker and one Strong/Waning picker over two buttons; it was rejected because
     /// it puts the meaning of a press into invisible state. On a test page the tester has to be able
     /// to say "I pressed Feuer schwindend and saw X" without first checking what two dropdowns were
-    /// left on — and a mode that persists between presses is exactly how a tester ends up reporting
-    /// the wrong effect. Twelve rows in a scroll pane cost nothing; a wrong bug report costs a
-    /// hardware round trip. The two states are separated into two HEADED blocks so that each button
-    /// carries only the element name, which keeps the captions short and the page scannable.</para>
+    /// left on. The latch made this decision stronger, not weaker: with mixtures there is no single
+    /// "current element" for a picker to point at, and twelve rows that each say AN or aus are the
+    /// readout. Twelve rows in a scroll pane cost nothing; a wrong bug report costs a hardware round
+    /// trip. The two states are separated into two HEADED blocks so that each button carries only the
+    /// element name plus its state, which keeps the captions short and the page scannable.</para>
     ///
     /// <para>WANING IS THERE BECAUSE IT IS THE ONE THAT CAN BE WRONG. Strong is a constant 1.0 and
     /// either shows or does not; waning is a plateau that BREATHES between 0.28 and 0.52 on the
@@ -80,6 +134,11 @@ internal static partial class VROptionsTab
         if (ContentRoot == null)
             return 0;
 
+        // The labels of the PREVIOUS visit are about to be destroyed with the page. Repainting a
+        // destroyed TMP_Text is a null-reference on Unity's fake-null, and the repaint runs from a
+        // button callback where an exception eats the rest of the press.
+        LatchLabels.Clear();
+
         // Same way out as a catalog topic has, in the same place, so the page behaves like the rest
         // of the advanced section even though its content does not.
         BuildLinkRow(ContentRoot, "‹ " + Loc.Mod("cat_debug"), () =>
@@ -90,15 +149,20 @@ internal static partial class VROptionsTab
 
         BuildHeader(ContentRoot, Loc.Mod("vr_tt_page"), "h_vr_tt_page");
 
-        // THREE NOTES, AND THEY ARE THE FEATURE'S SAFETY RAILS, not decoration:
+        // FOUR NOTES, AND THEY ARE THE FEATURE'S SAFETY RAILS, not decoration:
         //   1. what it does not touch (local only, nothing sent, no game state) — the standing
         //      "everything is synchronised" rule means a reader must be told where the exception is;
-        //   2. where it works at all, so an inert press in the main menu is expected rather than a
+        //   2. HOW THE ROWS BEHAVE — press = on and stays on, press again = off, several elements at
+        //      once. It is the first note a tester needs and the one thing about this page that is
+        //      not guessable from a row that says "Feuer"; it is also where the user's own reason
+        //      (the mixtures) is answered in the UI rather than only in a comment;
+        //   3. where it works at all, so an inert press in the main menu is expected rather than a
         //      bug report;
-        //   3. that a press overrides the effect's own on/off switch for those seconds — the
-        //      alternative was a button that silently refuses, which is indistinguishable from a
-        //      broken one (the full argument is at ElementMood.Force and Haunt.Force).
+        //   4. that a press overrides the effect's own on/off switch for as long as the latch stands
+        //      — the alternative was a button that silently refuses, which is indistinguishable from
+        //      a broken one (the full argument is at ElementMood.Force and Haunt.Force).
         BuildNote(ContentRoot, Loc.Mod("vr_tt_local"));
+        BuildNote(ContentRoot, Loc.Mod("vr_tt_latch"));
         BuildNote(ContentRoot, Loc.Mod("vr_tt_scope"));
         BuildNote(ContentRoot, Loc.Mod("vr_tt_override"));
 
@@ -107,29 +171,32 @@ internal static partial class VROptionsTab
         rows += BuildElementTriggers(waning: true, "vr_tt_elem_waning");
         rows += BuildHauntTriggers();
 
-        // ONE PRESS PUTS EVERYTHING BACK. Both overrides expire on their own — that is the invariant,
-        // and this row is not what enforces it. It exists so a tester who has seen enough does not
-        // have to sit out the remaining seconds before judging the real state, and because "how do I
-        // stop this" is the first question a page of triggers raises.
+        // ONE PRESS PUTS EVERYTHING BACK, AND IT IS NOW LOAD-BEARING. While both overrides expired on
+        // their own, this row was a convenience — a tester who had seen enough did not have to sit
+        // out the remaining seconds. Nothing expires any more, so this row is the page's guarantee
+        // that a tester can always get back to the real state in one press without hunting for which
+        // of eighteen rows they left latched. It clears EVERY element latch and the apparition latch
+        // together, which is why the German caption says "alles" rather than naming them.
         BuildLinkRow(ContentRoot, Loc.Mod("vr_tt_stop"), () =>
         {
             // Logged HERE rather than only inside the two ClearForce calls: both are idempotent and
             // say nothing when there was nothing to clear, and a press that leaves no trace at all is
             // the one thing this log may not do — "I pressed stop" has to be readable even when the
             // answer is "there was nothing running".
-            VRLog.Info("WorldUI", "TEST TRIGGER: 'stop' pressed on the Erweitert test page — element "
-                                  + $"force {(ElementMood.Forcing ? "was standing" : "was not standing")}, "
-                                  + $"apparition force {(Haunt.Forcing ? "was standing" : "was not standing")}. "
+            VRLog.Info("WorldUI", "TEST TRIGGER: 'all off' pressed on the Erweitert test page — element "
+                                  + $"latches {(ElementMood.Forcing ? "were standing" : "were not standing")}, "
+                                  + $"apparition latch {(Haunt.Forcing ? "was standing" : "was not standing")}. "
                                   + "Both channels go back to the real state; nothing else is touched.");
-            ElementMood.ClearForce("the tester pressed 'stop test triggers'");
-            Haunt.ClearForce("the tester pressed 'stop test triggers'");
+            ElementMood.ClearForce("the tester pressed 'all test triggers off'");
+            Haunt.ClearForce("the tester pressed 'all test triggers off'");
+            RefreshLatchRows();
         }, asAction: true);
         rows++;
 
         return rows;
     }
 
-    /// <summary>One headed block of six element buttons, all in the same state.</summary>
+    /// <summary>One headed block of six element buttons, all latching into the same state.</summary>
     private static int BuildElementTriggers(bool waning, string headerKey)
     {
         if (ContentRoot == null)
@@ -140,10 +207,17 @@ internal static partial class VROptionsTab
         for (int i = 0; i < ElementCaptionKeys.Length; i++)
         {
             // Captured per row: the loop variable would otherwise be shared by all six closures and
-            // every button would force Dark.
+            // every button would latch Dark.
             int element = i;
-            BuildLinkRow(ContentRoot, Loc.Mod(ElementCaptionKeys[i]),
-                         () => ElementMood.Force(element, waning), asAction: true);
+            string name = Loc.Mod(ElementCaptionKeys[i]);
+            RegisterLatchRow(
+                BuildLinkRow(ContentRoot, LatchCaption(name, ElementMood.IsForced(element, waning)),
+                             () =>
+                             {
+                                 ElementMood.Force(element, waning);
+                                 RefreshLatchRows();
+                             }, asAction: true),
+                () => LatchCaption(name, ElementMood.IsForced(element, waning)));
         }
 
         return ElementCaptionKeys.Length;
@@ -164,6 +238,13 @@ internal static partial class VROptionsTab
     /// <para>ONE ROW SAYS "draws nothing" ON PURPOSE (id 3 in the cellar, the cobweb tremble). A
     /// tester who presses it and sees no apparition would otherwise file a broken button; the
     /// caption tells them to watch the webs instead.</para>
+    ///
+    /// <para>THE BLOCK CARRIES ITS OWN NOTE because this half does not behave like the element half
+    /// above it, and a tester who discovered that by pressing would file it as a bug: only one
+    /// apparition can be latched (the shader's force channel carries one card id), and a latched one
+    /// REPEATS rather than standing still (its authored envelope is a few seconds long, so "on"
+    /// can only honestly mean "again and again"). Both facts are stated in German rather than
+    /// inferred.</para>
     /// </summary>
     private static int BuildHauntTriggers()
     {
@@ -172,6 +253,7 @@ internal static partial class VROptionsTab
 
         BuildHeader(ContentRoot, Loc.Mod("vr_tt_haunts"), "h_vr_tt_haunts", sub: true);
         BuildNote(ContentRoot, Loc.Mod("vr_tt_haunt_note"));
+        BuildNote(ContentRoot, Loc.Mod("vr_tt_haunt_one"));
 
         for (int i = 0; i < Haunt.EventCount; i++)
         {
@@ -180,9 +262,91 @@ internal static partial class VROptionsTab
             // the card index counts from zero, and the log prints the id so the two can be lined up.
             string caption = Loc.Mod("vr_tt_haunt_n").Replace("{0}", (i + 1).ToString())
                              + " — " + Loc.Mod("vr_tt_haunt_" + i);
-            BuildLinkRow(ContentRoot, caption, () => Haunt.Force(id), asAction: true);
+            RegisterLatchRow(
+                BuildLinkRow(ContentRoot, LatchCaption(caption, Haunt.IsForced(id)), () =>
+                {
+                    Haunt.Force(id);
+                    RefreshLatchRows();
+                }, asAction: true),
+                () => LatchCaption(caption, Haunt.IsForced(id)));
         }
 
         return Haunt.EventCount;
+    }
+
+    /// <summary>
+    /// A latch row's caption: what it triggers, plus whether it is on.
+    ///
+    /// <para>THE STATE IS IN THE CAPTION rather than in a control of its own, and that is the cheapest
+    /// HONEST option rather than the laziest one. The obvious alternative is the menu's own toggle
+    /// row, and it is wrong twice over: a toggle row's switch is bound to a <c>ConfigEntry</c> that
+    /// these rows do not have, and a checkbox in a settings menu reads as "this is a setting you have
+    /// changed" — the one impression this page may not leave (see the class doc). The row already is
+    /// a button with a hover and a press colour; giving its own label the state keeps it a button.</para>
+    ///
+    /// <para>ASYMMETRIC BY DESIGN: the on marker is short and upper-case and the off marker is quiet,
+    /// so a tester scanning eighteen rows for the three that are lit finds them by shape rather than
+    /// by reading. Both markers come from <see cref="Loc"/> like every other user-facing string, and
+    /// both are plain letters — no symbol or box-drawing glyph, because the menu's font atlas is the
+    /// game's and a missing glyph would render as a replacement box on hardware only.</para>
+    /// </summary>
+    private static string LatchCaption(string what, bool on) =>
+        Loc.Mod(on ? "vr_tt_on" : "vr_tt_off").Replace("{0}", what);
+
+    /// <summary>
+    /// Remember a row's caption label so <see cref="RefreshLatchRows"/> can repaint it.
+    ///
+    /// <para>The label is found the same way the row builders find it — <c>FindPart</c> on the
+    /// authored "Title" child, with the type search as its fallback — rather than by taking the first
+    /// TMP in the row: an action row still carries the donor's hidden value label and its inactive
+    /// gamepad key tip, and painting the caption into one of those would put the state somewhere
+    /// nobody can see. A row whose Title cannot be found is simply not registered; it keeps working as
+    /// a button and only loses its readout, which is the right way for a game-update surprise to
+    /// fail.</para>
+    /// </summary>
+    private static void RegisterLatchRow(GameObject row, Func<string> caption)
+    {
+        TMP_Text? label = FindPart<TMP_Text>(row.transform, "Title");
+        if (label == null)
+            return;
+
+        LatchLabels.Add((label, caption));
+    }
+
+    /// <summary>
+    /// Repaint every latch row's caption from the live state.
+    ///
+    /// <para>THIS IS THE WHOLE REASON THE ROWS CAN SHOW STATE WITHOUT A REBUILD, and a rebuild is
+    /// explicitly out (it would destroy the very button under the pointer — see the class doc). It is
+    /// also why the repaint is driven by the PRESS and not by a per-frame tick: the only things that
+    /// can change a latch are the buttons on this page, and this page cannot be open while the routes
+    /// that stand the channels down are being taken. A frame hook would cost eighteen delegate calls
+    /// and eighteen TMP writes per frame, forever, to catch a case that cannot happen while anyone is
+    /// looking. The one state it cannot show is a latch dropped by a stand-down with the page still
+    /// open — and a stand-down means the scenario or the environment is gone, at which point the
+    /// tester has lost more than a caption.</para>
+    ///
+    /// <para>Every read is guarded individually: this runs inside a UI button callback, where a throw
+    /// swallows the rest of the press, and one unreadable row must not stop the other seventeen
+    /// repainting. Same rule the settings rows' repaint already follows.</para>
+    /// </summary>
+    private static void RefreshLatchRows()
+    {
+        for (int i = 0; i < LatchLabels.Count; i++)
+        {
+            (TMP_Text label, Func<string> read) = LatchLabels[i];
+            if (label == null)
+                continue;
+            try
+            {
+                label.text = read();
+            }
+            catch (Exception e)
+            {
+                VRLog.Warn("WorldUI", $"VR options tab: repainting a test-trigger row threw ({e.Message}). "
+                                      + "The latch itself is unaffected — only this row's ON/OFF caption "
+                                      + "is stale until the next press.");
+            }
+        }
     }
 }

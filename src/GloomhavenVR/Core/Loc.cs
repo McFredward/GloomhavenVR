@@ -596,16 +596,35 @@ internal static partial class Loc
         // a game action — that is a requirement of the feature, not a tone choice, because the page
         // sits in the same menu as the settings and a player who wandered in must not think they
         // have just changed the game. So: the page name says "Test", the first note says what it
-        // does NOT touch, and every button names the effect plus the fact that it is temporary.
+        // does NOT touch, and every button says whether it is currently on.
+        //
+        // FOLLOW-UP REQUEST (hardware, verbatim): "In der Triggertestview möchte ich wenn ich etwas
+        // triggere das es dauerhaft an ist und mit erneutem toggle wieder ausgemacht wird. So kann
+        // ich die Mischungen besser testen." The rows became LATCHES, so every caption that stated a
+        // duration was rewritten rather than adjusted: the two holds (8 s for an element, 14 s for an
+        // apparition) do not exist any more, and a caption that still promised them would have been
+        // the most convincing kind of wrong — a number the tester could read off the screen. What
+        // replaces them is the on/off state on the row itself (vr_tt_on / vr_tt_off) and one note
+        // that states the interaction (vr_tt_latch).
         ["vr_tt_page"] = Pair("Test triggers", "Test-Auslöser"),
-        ["h_vr_tt_page"] = Pair("A test aid: show one element response or one apparition on demand instead of waiting for the game. Nothing here changes the game or your settings.", "Eine Testhilfe: eine Elementwirkung oder eine Erscheinung auf Knopfdruck zeigen, statt auf das Spiel zu warten. Nichts hier verändert das Spiel oder deine Einstellungen."),
+        ["h_vr_tt_page"] = Pair("A test aid: switch element responses and apparitions on and off by hand instead of waiting for the game. Nothing here changes the game or your settings.", "Eine Testhilfe: Elementwirkungen und Erscheinungen von Hand an- und ausschalten, statt auf das Spiel zu warten. Nichts hier verändert das Spiel oder deine Einstellungen."),
         ["vr_tt_local"] = Pair("Local only: nothing is sent, no game state changes — only what you see here.", "Nur lokal: nichts wird gesendet, kein Spielzustand ändert sich — nur was du selbst siehst."),
+        // THE INTERACTION, in one line. It is the first thing a tester needs and the one thing about
+        // this page that cannot be guessed from a row that says "Feuer" — and the second sentence
+        // answers the user's own reason for asking ("so kann ich die Mischungen besser testen") in
+        // the UI rather than only in a code comment.
+        ["vr_tt_latch"] = Pair("One press switches on and leaves it on; the same row again switches it off. Several elements can stay on at once, so you can judge how they mix.", "Ein Druck schaltet an und lässt es an; dieselbe Zeile erneut schaltet wieder aus. Mehrere Elemente dürfen gleichzeitig anbleiben, so lassen sich Mischungen beurteilen."),
         ["vr_tt_scope"] = Pair("Only inside a running scenario; apparitions also only in Cellar and Night forest.", "Nur im laufenden Szenario; Erscheinungen zusätzlich nur in Keller und Nachtwald."),
-        ["vr_tt_override"] = Pair("Works even when the effect is switched off — the switch is overridden for these seconds only, never changed.", "Wirkt auch bei ausgeschaltetem Effekt — der Schalter wird nur für diese Sekunden übergangen, nie verändert."),
-        ["vr_tt_elem_strong"] = Pair("Elements — strong (8 s)", "Elemente — stark (8 s)"),
-        ["h_vr_tt_elem_strong"] = Pair("Pretends this element is freshly infused: full strength, rock steady. Ramps in over a second and back to the real state afterwards.", "Tut so, als wäre dieses Element frisch infundiert: volle Stärke, völlig ruhig. Blendet in einer Sekunde ein und danach zum echten Zustand zurück."),
-        ["vr_tt_elem_waning"] = Pair("Elements — waning, breathing (8 s)", "Elemente — schwindend, atmend (8 s)"),
-        ["h_vr_tt_elem_waning"] = Pair("The state that breathes: about half strength, slowly swelling and ebbing — the one that shows an element is about to go out.", "Der atmende Zustand: etwa halbe Stärke, langsam an- und abschwellend — der zeigt, dass ein Element gleich erlischt."),
+        ["vr_tt_override"] = Pair("Works even when the effect is switched off — the switch is overridden for as long as the trigger is on, and never changed.", "Wirkt auch bei ausgeschaltetem Effekt — der Schalter wird übergangen, solange der Auslöser an ist, und nie verändert."),
+        // The row state. The ON marker is short and upper-case, the off marker quiet, so the lit rows
+        // are found by shape while scanning eighteen of them. Plain letters only: the menu uses the
+        // game's font atlas, and a symbol it does not carry would render as a box on hardware.
+        ["vr_tt_on"] = Pair("{0} — ON", "{0} — AN"),
+        ["vr_tt_off"] = Pair("{0} — off", "{0} — aus"),
+        ["vr_tt_elem_strong"] = Pair("Elements — strong", "Elemente — stark"),
+        ["h_vr_tt_elem_strong"] = Pair("Pretends this element is freshly infused: full strength, rock steady. Ramps in over a second and stays on until you press the same row again.", "Tut so, als wäre dieses Element frisch infundiert: volle Stärke, völlig ruhig. Blendet in einer Sekunde ein und bleibt an, bis du dieselbe Zeile erneut drückst."),
+        ["vr_tt_elem_waning"] = Pair("Elements — waning, breathing", "Elemente — schwindend, atmend"),
+        ["h_vr_tt_elem_waning"] = Pair("The state that breathes: about half strength, slowly swelling and ebbing — the one that shows an element is about to go out. Stays on until you press the same row again.", "Der atmende Zustand: etwa halbe Stärke, langsam an- und abschwellend — der zeigt, dass ein Element gleich erlischt. Bleibt an, bis du dieselbe Zeile erneut drückst."),
         ["vr_tt_fire"] = Pair("Fire", "Feuer"),
         ["vr_tt_ice"] = Pair("Ice", "Eis"),
         ["vr_tt_air"] = Pair("Air", "Luft"),
@@ -613,8 +632,14 @@ internal static partial class Loc
         ["vr_tt_light"] = Pair("Light", "Licht"),
         ["vr_tt_dark"] = Pair("Dark", "Dunkelheit"),
         ["vr_tt_haunts"] = Pair("Apparitions (easter eggs)", "Erscheinungen (Easter-Eggs)"),
-        ["h_vr_tt_haunts"] = Pair("Plays one apparition of the environment you are in right now and holds back all the others while it runs.", "Spielt eine Erscheinung der Umgebung ab, in der du gerade bist, und hält währenddessen alle anderen zurück."),
+        ["h_vr_tt_haunts"] = Pair("Plays one apparition of the environment you are in right now and holds back all the others while it is on.", "Spielt eine Erscheinung der Umgebung ab, in der du gerade bist, und hält alle anderen zurück, solange sie an ist."),
         ["vr_tt_haunt_note"] = Pair("Numbered by the current environment: the same number is a different apparition in the cellar than in the forest.", "Nummeriert nach der aktuellen Umgebung: dieselbe Nummer ist im Keller eine andere Erscheinung als im Wald."),
+        // THIS HALF OF THE PAGE DOES NOT BEHAVE LIKE THE ELEMENT HALF, and a tester who found that
+        // out by pressing would file it as a bug. Both differences are technical facts rather than
+        // choices: only one apparition can be on because the shader's force channel carries a single
+        // card id, and an apparition lasts a few authored seconds, so "on" can only honestly mean
+        // "again and again". Said plainly, without either reason — the tester needs the behaviour.
+        ["vr_tt_haunt_one"] = Pair("Only one apparition at a time: switching one on switches the previous one off. The one that is on repeats until you switch it off.", "Immer nur eine Erscheinung gleichzeitig: eine neue schaltet die vorherige aus. Die eingeschaltete wiederholt sich, bis du sie wieder ausschaltest."),
         ["vr_tt_haunt_n"] = Pair("Apparition {0}", "Erscheinung {0}"),
         // One id, two apparitions: the cellar's card and the forest's card of the same index are
         // different things, so each caption names both, cellar first. The authority for this table
@@ -629,7 +654,11 @@ internal static partial class Loc
                                  "Spinnweben zittern (keine Gestalt) / Etwas huscht vorbei"),
         ["vr_tt_haunt_4"] = Pair("Stairway / Looming mass", "Treppe / Dunkle Masse"),
         ["vr_tt_haunt_5"] = Pair("Bookshelf / Hanging body", "Bücherregal / Hängender Körper"),
-        ["vr_tt_stop"] = Pair("Stop test triggers now", "Test-Auslöser sofort beenden"),
+        // THE ALL-OFF ROW. It was "stop now" while both overrides expired by themselves; with latches
+        // it is the page's one guarantee that everything can be put back in a single press, so the
+        // caption says EVERYTHING rather than naming the two channels — a tester who has latched
+        // three elements and an apparition must not have to work out which rows they left lit.
+        ["vr_tt_stop"] = Pair("Switch all test triggers off", "Alle Test-Auslöser ausschalten"),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),

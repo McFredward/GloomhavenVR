@@ -204,6 +204,15 @@ internal static partial class Haunt
         // SAME terms as a scheduled one — a start with no jitter and durMul 1 — because the tester
         // asked for THAT event, not for a random stretch of it, and because a second "forced" code
         // path is how a debug mode ends up being the thing that was tested.
+        //
+        // A LATCHED FORCE LOOPS, and this mirror needs no special case for it: Haunt.Tick moves
+        // _forceSince forward by one run at a time, so every read below is simply "the run that is
+        // playing now" — exactly what the shader sees in _GhvrHauntForce.y. It does have one visible
+        // consequence worth stating, because it is a behaviour and not an accident: StartClock
+        // changes once per run, and EnvSound.TickHaunt fires one cue per (StartClock, Card) pair
+        // (EnvSound.cs, "Fire once per (start, card)"). So a latched apparition makes its sound
+        // again on every repetition, which is what a tester judging the cue against the picture
+        // needs — and it stays one cue per appearance, never one per frame.
         if (_forceId >= 0)
             return new Slot(Mathf.Floor(_forceSince / per), _forceId, true, _forceSince, 1f, true);
 

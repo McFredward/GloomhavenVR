@@ -39,7 +39,8 @@ namespace GloomhavenVR.Core;
 /// </list>
 /// <para>A SECOND global, <c>_GhvrHauntForce</c>, carries the Erweitert menu's TEST TRIGGER — one
 /// button per apparition, so a tester does not have to wait out the schedule. Its contract is
-/// documented at <see cref="ForceChannelName"/>; it is local, bounded, and never on the wire.</para>
+/// documented at <see cref="ForceChannelName"/>; it is local, held until the tester releases it, and
+/// never on the wire.</para>
 ///
 /// <para><b>WHY THE DIAL IS A SUBSET AND NOT A RESHUFFLE — the one non-obvious thing in this
 /// feature.</b> The user asked for two things that pull against each other: a frequency setting,
@@ -99,10 +100,13 @@ internal static partial class Haunt
     /// <item><b>x — the forced event id PLUS ONE.</b> 0 means nothing is forced, which is what stands
     /// whenever this channel is not live; the +1 is what makes id 0 expressible without a second
     /// flag, and is why the shader tests <c>x &gt; 0.5</c> rather than <c>x != 0</c>.</item>
-    /// <item><b>y — the SHARED-CLOCK time at which the force started</b>
+    /// <item><b>y — the SHARED-CLOCK time at which the CURRENT RUN of the forced event started</b>
     /// (<see cref="SkyAlternative.EnvClockSeconds"/>), so the shader plays the event from
     /// <c>phase = (clock − y) / duration</c> and suppresses everything else in the room while
-    /// <c>x &gt; 0.5</c>.</item>
+    /// <c>x &gt; 0.5</c>. "Current run" rather than "the press": a latched force LOOPS, and the loop
+    /// is nothing but this side moving y forward by one <see cref="ForceLoopSeconds"/> at a time. The
+    /// shader is not aware of it and needs no change — every value it reads is still a plain force
+    /// that began at y.</item>
     /// <item><b>z, w</b> — reserved, published as 0.</item>
     /// </list>
     /// <para>The id is the room's own card index (0..<see cref="EventCount"/>−1), i.e. the same index
@@ -184,8 +188,10 @@ internal static partial class Haunt
     //
     // MULTIPLAYER: ZERO WIRE, and here that is not even a decision to defend. A haunt is not state;
     // the schedule is a pure function of the shared clock. Forcing one changes what THIS client's
-    // shader draws for a few seconds and nothing else — a peer keeps computing and showing the real
-    // schedule, and there is no value anywhere for the two to disagree about.
+    // shader draws and nothing else — a peer keeps computing and showing the real schedule, and there
+    // is no value anywhere for the two to disagree about. THE LATCH DOES NOT WEAKEN THAT: it changes
+    // how long this client draws differently, not what any client publishes, so a force left standing
+    // for an hour is exactly as invisible to a peer as one that lasted a second.
 
     /// <summary>
     /// How many forceable events a haunted room has — the card count both rooms are built with
@@ -196,26 +202,95 @@ internal static partial class Haunt
     /// </summary>
     internal const int EventCount = 6;
 
-    /// <summary>
-    /// How long the forced flag is held up, in shared-clock seconds.
-    ///
-    /// <para>FOURTEEN, and it is an OVER-estimate on purpose. This side cannot know an event's length:
-    /// the per-card reveal/hold/fade envelopes live in the bundle, and there is no channel back from
-    /// the GPU. What the bake does state is the worst case — the longest authored event is 8.6 s
-    /// (AssertHauntCards prints every card's <c>reveal+hold+fade</c>), the per-slot jitter scales it
-    /// by up to 1.15 (<c>HauntDurLo + HauntDurSpan</c>) and Ice stretches it by a further 1.35, i.e.
-    /// at most ≈13.4 s. Cutting a forced apparition off in mid-fade would make the tester judge a
-    /// truncation instead of the effect, whereas holding too long costs only a few seconds in which
-    /// the room is quiet because the force suppresses the schedule. A press ends the previous force
-    /// immediately, so the tester never has to sit out the remainder.</para>
-    /// </summary>
-    internal const float ForceHoldSeconds = 14f;
+    // FOLLOW-UP USER REQUEST (hardware, verbatim): "In der Triggertestview möchte ich wenn ich etwas
+    // triggere das es dauerhaft an ist und mit erneutem toggle wieder ausgemacht wird. So kann ich
+    // die Mischungen besser testen." One press latches, the same press again releases, and NOTHING
+    // expires by itself. The old fourteen-second hold is gone.
+    //
+    // ON THIS SIDE THAT IS NOT ONE DELETION BUT TWO CHANGES, and the second one is the whole subtlety
+    // of this file. Removing the expiry alone produces a latch that LOOKS BROKEN: the shader plays
+    // the forced card from `h.sIn = t - _GhvrHauntForce.y` with `start = 0` and `durMul = 1`
+    // (EnvHaunt.cginc, the _GhvrHauntForce block), and GhvrHauntEnvelope returns 0 the moment
+    // `sIn` passes the card's own reveal+hold+fade. So a "permanent" force would show the apparition
+    // once, for its authored few seconds, and then hold an empty room for as long as the tester left
+    // the button lit — while suppressing the real schedule the whole time, because a set x is what
+    // suppresses it. That is strictly worse than the timed version it replaced.
+    //
+    // SO THE LATCH LOOPS: Tick re-anchors _forceSince every time the event's own duration has
+    // elapsed, and the apparition plays again. The tester sees the thing they pressed, repeatedly,
+    // for as long as they hold the latch — which is what "dauerhaft an" can honestly mean for an
+    // effect that is an EVENT rather than a state. (The elements are a state, so over there
+    // "dauerhaft" is literal; the two halves of the page therefore behave differently, and the page
+    // says so in German.)
+    //
+    // REJECTED: the reserved _GhvrHauntForce.z as a "loop" flag, which is what the channel's own
+    // contract block reserves a slot for. It is the tidier answer and it is unavailable in this
+    // round: honouring a flag means editing EnvHaunt.cginc, and a shader edit forces a bundle re-bake
+    // and collides with the lanes that own unity/. The C# re-anchor needs no shader change at all —
+    // the shader keeps seeing exactly what it sees today, a force that started at y — so it also
+    // cannot desynchronise the two halves of the contract.
+    //
+    // REJECTED: latching SEVERAL apparitions at once, which is what the element half of the page now
+    // does. The channel cannot express it and this lane may not widen it: _GhvrHauntForce.x is ONE
+    // card id + 1, the shader assigns `h.card = _GhvrHauntForce.x - 1.0` (a scalar), and every card
+    // draws only when h.card is its own index — so two ids would need a second uniform, a second
+    // compare in the vertex program of four shaders, and the very re-bake the paragraph above
+    // avoids. And unlike the elements, mixing apparitions is not what the user asked for: "die
+    // Mischungen" is about elements sitting together, while the catalogue's own rule is that two
+    // apparitions never happen at once. So the haunt half is LAST-PRESS-WINS — pressing a second
+    // apparition releases the first and says so in the log and on the row.
 
-    /// <summary>Forced event id, or -1 for none.</summary>
+    /// <summary>
+    /// The quiet gap left between two runs of a looping latch, in shared-clock seconds.
+    ///
+    /// <para>WITHOUT IT the next run starts on the exact frame the last one reached zero presence,
+    /// and a tester cannot tell a loop from one long event — which matters most for the events whose
+    /// whole identity is that they are brief. Six tenths of a second is under the eye's "is it gone?"
+    /// threshold for these fades and over the frame budget by a factor of thirty.</para>
+    /// </summary>
+    private const float ForceLoopGapSeconds = 0.6f;
+
+    /// <summary>
+    /// The shortest a loop may be, whatever the card's own length.
+    ///
+    /// <para>THIS IS A SAFETY FLOOR, not a taste: the forest's card 3 runs 0.34 s
+    /// (<see cref="CardSeconds"/> — "the fastest event in either room") and the cellar's card 4 runs
+    /// 0.70 s. Looping those at their own length would put a flash on screen roughly twice a second
+    /// and hold it there indefinitely, which is a strobe rather than a test — unjudgeable, and the
+    /// one thing a VR mod must never generate by accident. At two and a half seconds the fast events
+    /// read as a recurring event, which is exactly what the tester needs to judge them.</para>
+    /// </summary>
+    private const float ForceLoopMinSeconds = 2.5f;
+
+    /// <summary>
+    /// How long one run of a latched apparition takes before it starts again, in shared-clock
+    /// seconds. The card's own authored envelope, plus the gap, floored by the minimum.
+    ///
+    /// <para>IT USES <see cref="CardSeconds"/> RATHER THAN A SECOND NUMBER, deliberately: that table
+    /// is already the mirror of the two bake catalogues (reveal + hold + fade per card), and a loop
+    /// period invented here would be a fourth copy of a duration that is hard enough to keep in step
+    /// three times. The per-slot jitter and the Ice stretch are correctly NOT applied — the shader
+    /// pins <c>durMul = 1</c> for a forced event, so the authored length is the exact length.</para>
+    /// </summary>
+    internal static float ForceLoopSeconds(SkyStyle style, int card) =>
+        Mathf.Max(CardSeconds(style, card) + ForceLoopGapSeconds, ForceLoopMinSeconds);
+
+    /// <summary>Latched event id, or -1 for none. STILL A SINGLE INT: the shader channel carries one
+    /// card id and this lane may not widen it — see the rejection above.</summary>
     private static int _forceId = -1;
 
-    /// <summary>Shared-clock time the force started — published as y, and the expiry anchor.</summary>
+    /// <summary>Shared-clock time the CURRENT RUN of the latched event started — published as y, and
+    /// re-anchored by <see cref="Tick"/> once per loop. It is no longer an expiry anchor; nothing
+    /// expires.</summary>
     private static float _forceSince;
+
+    /// <summary>Shared-clock time the latch itself was pressed, as opposed to the current run.
+    /// Diagnostics only — it is what lets a log reader say how long a latch has been standing.</summary>
+    private static float _forceLatchedAt;
+
+    /// <summary>True once the current latch has looped at least once, so the "it is looping" line is
+    /// written exactly once per latch instead of once per run.</summary>
+    private static bool _forceLooped;
 
     private static Vector4 _lastForce;
 
@@ -227,8 +302,8 @@ internal static partial class Haunt
     /// <summary>
     /// Whether a forced apparition could be seen at all right now: VR running, a scenario board, and
     /// one of the two environments that HAS apparitions. It deliberately does NOT include
-    /// <see cref="EasterEggs"/> — the switch is a preference the button overrides for its few seconds
-    /// (see <see cref="Force"/>); these three are "there is no room to haunt".
+    /// <see cref="EasterEggs"/> — the switch is a preference the button overrides for as long as its
+    /// latch stands (see <see cref="Force"/>); these three are "there is no room to haunt".
     /// </summary>
     internal static bool ForceReady
     {
@@ -241,26 +316,45 @@ internal static partial class Haunt
         }
     }
 
-    /// <summary>True while an apparition is being forced.</summary>
+    /// <summary>True while an apparition is latched. It is what keeps <see cref="Tick"/> alive past
+    /// the player's own off-switch, and with the latch now unbounded in time that override lasts
+    /// exactly as long as the latch does — which is the point of the request.</summary>
     internal static bool Forcing => _forceId >= 0;
 
+    /// <summary>Is this exact button lit? At most one can be, because the channel carries one id —
+    /// the test page asks once per row after every press so the tester can see which.</summary>
+    internal static bool IsForced(int id) => _forceId >= 0 && _forceId == id;
+
     /// <summary>
-    /// Play one apparition now and suppress the rest of the room for
-    /// <see cref="ForceHoldSeconds"/>. Returns false — and says why in the log — when there is no
-    /// haunted room to play it in, so a press on the main menu or in the default environment is inert
-    /// rather than an exception.
+    /// TOGGLE one apparition's latch: play it, and keep replaying it, until this same button is
+    /// pressed again. Returns false — and says why in the log — when there is no haunted room to play
+    /// it in, so a press on the main menu or in the default environment is inert rather than an
+    /// exception.
     ///
-    /// <para>IT OVERRIDES <see cref="EasterEggs"/> FOR ITS DURATION, and the page says so in German.
-    /// The choice was between "does nothing and says so" and "overrides briefly", and the deciding
+    /// <para><b>THE THREE CASES.</b> Pressing the LATCHED apparition releases it ("mit erneutem toggle
+    /// wieder ausgemacht"). Pressing a DIFFERENT one releases the first and latches the new one —
+    /// last press wins, because <c>_GhvrHauntForce.x</c> is one card id and the shader assigns it to
+    /// one scalar <c>h.card</c>; the log says which one was dropped so the tester is never left
+    /// wondering. Pressing anything with nothing latched simply latches it.</para>
+    ///
+    /// <para><b>IT LOOPS while it is latched</b> — <see cref="Tick"/> re-anchors the start every
+    /// <see cref="ForceLoopSeconds"/> — because an apparition is an EVENT with an authored envelope
+    /// and not a state that can be held up. The long reasoning, including why the shader's reserved
+    /// loop slot was not used, is in the block above the constants.</para>
+    ///
+    /// <para>IT OVERRIDES <see cref="EasterEggs"/> FOR AS LONG AS IT STANDS, and the page says so in
+    /// German. The choice was between "does nothing and says so" and "overrides", and the deciding
     /// argument is that this is a TEST AID whose entire job is to put the apparition in front of the
     /// tester's eyes: a button that refuses because a toggle two pages away is off is
     /// indistinguishable from a button that is broken, which is precisely the failure this page
-    /// exists to rule out. The override is bounded by the same fourteen seconds, it is local, and it
-    /// never writes the setting — the toggle still reads the player's own choice, and that choice is
-    /// what stands again the moment the force expires. Technically the override is unavoidable
-    /// anyway: with the master at 0 the shader collapses every apparition's quad in the vertex
-    /// program (<c>h.live *= step(0.0001, _GhvrHaunt.x)</c>, EnvHaunt.cginc), so a forced event with
-    /// the feature off would be drawn nowhere.</para>
+    /// exists to rule out. What the latch changes is the DURATION of that override — it used to be
+    /// fourteen seconds and is now "until released". It is still local, and it still never writes the
+    /// setting: the toggle reads the player's own choice, and that choice stands again the moment the
+    /// latch goes, on the very next tick (Tick's off path is guarded by <see cref="Forcing"/>, so
+    /// there is no frame in between). Technically the override is unavoidable anyway: with the master
+    /// at 0 the shader collapses every apparition's quad in the vertex program
+    /// (<c>h.live *= step(0.0001, _GhvrHaunt.x)</c>, EnvHaunt.cginc), so a forced event with the
+    /// feature off would be drawn nowhere.</para>
     /// </summary>
     /// <param name="id">Event id — the room's card index, 0..<see cref="EventCount"/>−1.</param>
     internal static bool Force(int id)
@@ -271,6 +365,16 @@ internal static partial class Haunt
         if (id < 0 || id >= EventCount)
             return false;
 
+        // PRESSED AGAIN = OFF, and it is tested BEFORE ForceReady on purpose: releasing must work in
+        // every state a latch can survive into. A tester whose environment changed under the latch
+        // would otherwise be told "that environment has no apparitions" by a button whose whole job
+        // at that moment is to stop doing something.
+        if (_forceId == id)
+        {
+            ClearForce("the tester pressed the same test trigger again");
+            return true;
+        }
+
         if (!ForceReady)
         {
             string why = !VRSession.IsRunning
@@ -279,30 +383,47 @@ internal static partial class Haunt
                     ? "there is no scenario board"
                     : $"the environment is '{SkyAlternative.Style.Value}', which has no apparitions "
                       + "(only Cellar and SwampNight do)";
-            VRLog.Info("Core", $"HAUNT TEST TRIGGER ignored — apparition {id} was not forced because "
+            VRLog.Info("Core", $"HAUNT TEST TRIGGER ignored — apparition {id} was not latched because "
                                + why + ". There is no haunted room to draw it in, so the button is inert "
                                + "here on purpose rather than arming a force that would fire later.");
             return false;
         }
 
+        int dropped = _forceId;
+        SkyStyle room = SkyAlternative.Style.Value;
         _forceId = id;
         _forceSince = SkyAlternative.EnvClockSeconds;
+        _forceLatchedAt = _forceSince;
+        _forceLooped = false;
+        float loop = ForceLoopSeconds(room, id);
 
-        VRLog.Info("Core", $"HAUNT TEST TRIGGER: apparition {id} of the {SkyAlternative.Style.Value} room "
-                           + $"forced from shared clock {_forceSince:F2}s, held until "
-                           + $"{_forceSince + ForceHoldSeconds:F2}s ({ForceHoldSeconds:F0}s). "
+        VRLog.Info("Core", $"HAUNT TEST TRIGGER: apparition {id} of the {room} room latched from shared "
+                           + $"clock {_forceSince:F2}s and held INDEFINITELY — it ends when the same "
+                           + "button is pressed again, when another apparition is pressed, when the stop "
+                           + "row is pressed, or when the channel stands down. "
+                           + (dropped >= 0
+                                  ? $"Apparition {dropped} was latched and is released by this press: "
+                                    + "LAST PRESS WINS, because " + ForceChannelName + ".x carries ONE "
+                                    + "card id and the shader assigns it to one scalar h.card, so two "
+                                    + "apparitions at once is not a capability this channel has. "
+                                  : string.Empty)
                            + $"{ForceChannelName} = ({id + 1:F1}, {_forceSince:F2}, 0, 0) and "
                            + $"{ChannelName} = (master 1, frequency {Mathf.Clamp01(Frequency.Value):F2}, "
-                           + "0, 0) from the next tick; while the force stands, the shader plays this "
+                           + "0, 0) from the next tick; while the latch stands, the shader plays this "
                            + "one event from phase (clock - y) / duration and suppresses the scheduled "
-                           + "ones"
+                           + $"ones. IT LOOPS every {loop:F2}s — the card's own authored "
+                           + $"{CardSeconds(room, id):F2}s envelope plus a {ForceLoopGapSeconds:F2}s "
+                           + "gap, floored at " + ForceLoopMinSeconds.ToString("F2") + "s so the "
+                           + "shortest events cannot strobe — because the envelope reaches zero "
+                           + "presence at the end of the card and a latch that did not re-anchor would "
+                           + "hold an EMPTY room"
                            + (EasterEggs.Value
-                                  ? " (the 'EasterEggs' setting is on)"
-                                  : " — the 'EasterEggs' setting is OFF and this press temporarily "
-                                    + "overrides it, because with the master at 0 the shader collapses "
-                                    + "every apparition to a point and there would be nothing to judge; "
-                                    + "the setting itself is untouched and stands again the moment the "
-                                    + "force expires")
+                                  ? " and the 'EasterEggs' setting is on"
+                                  : " — the 'EasterEggs' setting is OFF and this latch overrides it for "
+                                    + "as long as it stands, because with the master at 0 the shader "
+                                    + "collapses every apparition to a point and there would be nothing "
+                                    + "to judge; the setting itself is untouched and stands again the "
+                                    + "moment the latch goes")
                            + ". LOCAL TEST AID ONLY: a haunt is not game state and not on the wire — a "
                            + "peer keeps computing the real schedule from the same shared clock and is "
                            + "unaffected. Only this headset draws differently.");
@@ -323,13 +444,18 @@ internal static partial class Haunt
         }
 
         int id = _forceId;
+        float held = Mathf.Max(0f, SkyAlternative.EnvClockSeconds - _forceLatchedAt);
         _forceId = -1;
         _forceSince = 0f;
+        _forceLatchedAt = 0f;
+        _forceLooped = false;
         WriteForce(Vector4.zero);
 
-        VRLog.Info("Core", $"HAUNT TEST TRIGGER over — apparition {id} is no longer forced ({why}). "
-                           + $"{ForceChannelName} published as zero, so the room goes back to its own "
-                           + "shared-clock schedule and nothing of the override is left standing.");
+        VRLog.Info("Core", $"HAUNT TEST TRIGGER off — apparition {id} is no longer latched ({why}); the "
+                           + $"latch had stood about {held:F1}s. {ForceChannelName} published as zero, so "
+                           + "the room goes back to its own shared-clock schedule and nothing of the "
+                           + "override is left standing — including the master, which the player's own "
+                           + "'EasterEggs' setting decides again from the next tick.");
     }
 
     // ---- live state ------------------------------------------------------------------------------
@@ -364,9 +490,9 @@ internal static partial class Haunt
         if (!_bound)
             Rig.RenderQuality.Bind();
 
-        // …UNLESS A TEST TRIGGER IS STANDING: a press overrides the switch for its few seconds (the
-        // reasoning is at Force()). One extra field read on the off path, so "costs nothing when off"
-        // still holds.
+        // …UNLESS A TEST LATCH IS STANDING: a press overrides the switch for as long as the latch is
+        // held (the reasoning is at Force()). One extra field read on the off path, so "costs nothing
+        // when off" still holds however long the tester leaves it on.
         if (!EasterEggs.Value && !Forcing)
         {
             StandDown("the setting is off");
@@ -398,24 +524,62 @@ internal static partial class Haunt
             return;
         }
 
-        // THE FORCE EXPIRES HERE, before anything is published, so the frame that ends the hold
-        // already publishes the zero. The backwards test is the shared clock changing owner or a
-        // scene reload resetting it: the elapsed time is then meaningless and the honest answer is to
-        // drop the override rather than let it restart its fourteen seconds unseen.
+        // THE LATCH LOOPS HERE, before anything is published, so the frame that starts a new run
+        // already publishes the new anchor.
+        //
+        // NOTHING EXPIRES ANY MORE — the user asked for "dauerhaft an", so the only thing that ends a
+        // latch is a press or a stand-down. What replaces the old expiry is a RE-ANCHOR: the shader
+        // plays the forced card from `sIn = t - _GhvrHauntForce.y` with start 0 and durMul 1, and
+        // GhvrHauntEnvelope returns 0 presence once `sIn` passes the card's own reveal+hold+fade
+        // (EnvHaunt.cginc). Left alone, a latched force would therefore show the apparition once and
+        // then hold an EMPTY room — while still suppressing the real schedule, because a set x is
+        // what suppresses it. Moving y forward by exactly one loop makes the apparition play again.
+        //
+        // THE OFF-SWITCH FALLTHROUGH THAT USED TO LIVE HERE IS GONE, and that is safe rather than an
+        // oversight: it existed because the force could END inside this method, which would leave a
+        // tick that had only got past `!EasterEggs.Value && !Forcing` because of a force that no
+        // longer existed. No path in Tick can end a latch now, so `Forcing` cannot change under this
+        // method and the master stays up for exactly as long as the latch does — which is precisely
+        // what an indefinite latch with the setting OFF has to mean. The routes that DO end a latch
+        // are the two buttons (outside Tick — the next tick then takes the off path in the normal
+        // way) and StandDown (which publishes the zeros itself).
+        //
+        // THE BACKWARDS-CLOCK CASE RE-ANCHORS RATHER THAN DROPPING THE LATCH. A new clock owner or a
+        // scene reload makes the elapsed time meaningless, which used to be an argument for ending
+        // the hold; with an explicit latch it is now an argument against, because the tester never
+        // let go of it. Re-anchoring to the new clock costs one restarted run and keeps the button
+        // honest. Guarding it at all is still necessary: without it, `clock - _forceSince` is
+        // negative for as long as the new clock takes to catch up and the apparition would freeze at
+        // presence 0.
         float clock = SkyAlternative.EnvClockSeconds;
-        if (_forceId >= 0 && (clock - _forceSince >= ForceHoldSeconds || clock < _forceSince))
+        if (_forceId >= 0)
         {
-            ClearForce(clock < _forceSince
-                           ? "the shared clock jumped backwards"
-                           : $"the {ForceHoldSeconds:F0}s test hold elapsed");
-
-            // The force was the ONLY reason this tick got past the off-switch. With it gone the
-            // switch decides again, and it has to decide THIS frame: falling through would publish
-            // one frame of master 1 on a feature the player has switched off.
-            if (!EasterEggs.Value)
+            float loop = Mathf.Max(0.05f, ForceLoopSeconds(style, _forceId));
+            if (clock < _forceSince)
             {
-                StandDown("the setting is off — the test hold had been overriding it");
-                return;
+                _forceSince = clock;
+            }
+            else if (clock - _forceSince >= loop)
+            {
+                // Whole loops, in one step rather than a while-loop: a frame that lands after a long
+                // stall (a level load, a headset taken off) would otherwise iterate once per skipped
+                // run to arrive at the same answer.
+                _forceSince += loop * Mathf.Floor((clock - _forceSince) / loop);
+
+                if (!_forceLooped)
+                {
+                    _forceLooped = true;
+                    VRLog.Info("Core", $"HAUNT TEST TRIGGER looping — apparition {_forceId} of the "
+                                       + $"{style} room restarts every {loop:F2}s while its button "
+                                       + "stays latched, re-anchored from C# by moving "
+                                       + $"{ForceChannelName}.y forward; the shader is unchanged and "
+                                       + "still sees a plain force that began at y. This line is "
+                                       + "written ONCE per latch, not once per run. The apparition's "
+                                       + "own envelope is "
+                                       + $"{CardSeconds(style, _forceId):F2}s, then a quiet gap, and "
+                                       + "the real schedule stays suppressed throughout — press the "
+                                       + "same button again to release it.");
+                }
             }
         }
 
@@ -439,9 +603,9 @@ internal static partial class Haunt
             VRLog.Info("Core", $"HAUNT on — {style} easter eggs live at frequency {freq:F2}"
                                + (EasterEggs.Value
                                       ? string.Empty
-                                      : " BECAUSE A TEST TRIGGER IS FORCING ONE; the 'EasterEggs' "
-                                        + "setting itself is off and takes over again when the hold "
-                                        + "expires")
+                                      : " BECAUSE A TEST TRIGGER IS LATCHED ON; the 'EasterEggs' "
+                                        + "setting itself is off and takes over again the moment the "
+                                        + "latch is released")
                                + ". "
                                + $"{ChannelName} = (master 1, frequency {freq:F2}, 0, 0). Everything the "
                                + "apparitions do is a pure function of the SHARED environment clock "

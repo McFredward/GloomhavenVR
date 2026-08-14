@@ -561,8 +561,15 @@ internal static partial class VROptionsTab
     /// are supposed to tick. Those rows take the settings-row path instead, which has no toggle at
     /// all: the whole row is the button.
     /// </param>
-    private static void BuildLinkRow(Transform parent, string caption, Action onClick,
-                                     bool asAction = false)
+    /// <returns>
+    /// The row that was built, so a caller that has to REPAINT the caption later can hold on to it.
+    /// Added for the test-trigger page, whose rows became latches (press = on, press again = off) and
+    /// therefore have to show their own state — and that page may not rebuild itself on a press,
+    /// which would destroy the very button under the pointer (VROptionsTab.9.TestTriggers.cs). Every
+    /// existing caller ignores the value; nothing else about this method changed.
+    /// </returns>
+    private static GameObject BuildLinkRow(Transform parent, string caption, Action onClick,
+                                           bool asAction = false)
     {
         GameObject row;
         if (_categoryTemplate != null && !asAction)
@@ -598,7 +605,7 @@ internal static partial class VROptionsTab
                     if (on)
                         onClick();
                 });
-                return;
+                return row;
             }
         }
 
@@ -685,6 +692,7 @@ internal static partial class VROptionsTab
         colors.fadeDuration = 0.08f;
         button.colors = colors;
         button.onClick.AddListener(() => onClick());
+        return row;
     }
 
     /// <summary>
