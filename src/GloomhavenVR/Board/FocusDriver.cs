@@ -184,6 +184,13 @@ internal sealed class FocusDriver : MonoBehaviour
             return;
         }
 
+        // FOCUS PIN (user ModBuild 139) — BEFORE anything is sampled, so the ring, the board frame
+        // and the wire all describe the same character on the very frame a targeting window opens.
+        // A focus taken before that window is returned to the acting character here; a switch INTO
+        // the window is refused at the click seam instead. Cheap: one reference compare in the
+        // steady state, and it early-returns outright while no focus override is live.
+        CharacterFocus.EnforcePin();
+
         _tickFocused = CharacterFocus.LookingAt;
         // THE CHARACTER THE GAME IS WAITING ON — the actor at turn, or (nobody at turn: the whole
         // of an enemy's action) the one that owes an OPEN DECISION. Reading only the turn is what

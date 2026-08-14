@@ -665,6 +665,16 @@ internal static partial class MixedReality
     internal static void Tick()
     {
         Bind();
+
+        // ELEMENT MOOD IS TICKED HERE, not from SkyAlternative.Tick, because this is the only
+        // per-frame call that runs on BOTH branches below. The user's requirement is that the
+        // elements reach the player under every presentation — a bundled room, the game's own sky,
+        // "off/black", and passthrough — and the MR-ON branch never reaches SkyAlternative.Tick.
+        // The mood does its own full gating (setting, session, scenario board) and publishes only
+        // numbers; the "no geometry over passthrough" half of the MR ruling is the ART's to keep.
+        // See Core/ElementMood.cs, "MIXED REALITY KEEPS SENSING".
+        ElementMood.Tick();
+
         bool want = Enabled.Value && VRSession.IsRunning;
         if (!want)
         {

@@ -248,6 +248,11 @@ internal static partial class VROptionsTab
                         // Reality ist der Himmel immer aus."). No dependency-layer entry: a
                         // choice row has no children.
                         new("Sky", "Style", "vr_o_sky"),
+                        // ELEMENT MOOD — the environment's answer to the element infusions. Sits
+                        // directly under the environment choice because that is what it acts on,
+                        // and the strength dial folds under the toggle (VROptionsTab.8.Dependencies).
+                        new("Elements", "EnvironmentResponse", "vr_o_elemmood"),
+                        new("Elements", "ResponseStrength", "vr_o_elemmood_amt"),
                         new("Rig", "ForwardRendering", "vr_o_forward"),
                         // "Hauptmenü in VR" ([Rig] MenuRig) is GONE with its dial (user ruling
                         // 2026-08-13): off built no rig at all outside a scenario — the main

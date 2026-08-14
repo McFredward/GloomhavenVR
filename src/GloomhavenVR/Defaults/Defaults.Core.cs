@@ -75,6 +75,10 @@ internal static partial class Defaults
     // ---- Core/SkyAlternative.cs ----------------------------------------------------
     internal const SkyStyle SkyStyle = Core.SkyStyle.Default;  // => [Sky] Style  (the game's own sky — a fresh install looks exactly like today; Cellar/SwampNight spawn the mod's own bundled 3D atmosphere around the play space, SCENARIO-ONLY by user ruling 2026-08-12 — game-asset room generation was removed by ruling 2026-08-13, see .planning/game-env-postmortem.md — OffBlack shows no surroundings at all, loading and spawning nothing, and is NOT mixed reality by user ruling 2026-08-13 — and mixed reality always overrides every sky/environment to OFF)
 
+    // ---- Core/ElementMood.cs -------------------------------------------------------
+    internal const bool ElementMoodEnabled = true;             // => [Elements] EnvironmentResponse  (ON: the channel is inert until a material reads it, so a fresh install looks exactly like today — and the day the environment art lands it is already live without the player hunting for a switch)
+    internal const float ElementMoodStrength = 1f;             // => [Elements] ResponseStrength  (1 = the authored strength; the dial is folded into the published master factor, so 0 is exactly the same picture as switching the reaction off)
+
     // ---- Core/StereoModeConfig.cs --------------------------------------------------
     internal const string RenderMode = nameof(StereoModeConfig.Mode.MultiPass);  // => [Stereo] RenderMode
 

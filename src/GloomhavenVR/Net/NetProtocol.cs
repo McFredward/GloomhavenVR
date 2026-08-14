@@ -416,7 +416,53 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 139;
+    public const ushort ModBuild = 140;
+    // Build 140: five reported items plus the sensing half of a new feature. No wire change; the
+    // bump is the handshake key, and the BUNDLE IS REBUILT (65,255,033 bytes) — both players need
+    // the new plugin AND the new bundle.
+    //
+    // FOCUS PIN: while the board waits for a hex pick from a character under THIS player's
+    // control, the VR focus is pinned to that character. Switching away was possible and left the
+    // player unable to confirm, because the confirm caps follow the focus while the pick follows
+    // the acting actor. Three clauses, all required: a real targeting wait state read LIVE from
+    // Choreographer.m_WaitState, ThisPlayerHasTurnControl, and CurrentPlayerActor being mine and
+    // alive. A teammate's decision pins NOTHING — the wait state is shared across all clients, the
+    // trap that cost 137 and 138 a round each.
+    // FOREST SHAFTS, the third pass, and the first two were both wrong for reasons worth keeping:
+    // (1) the candidate search maximised "how CLEAR is this beam" and found beams with nothing in
+    // them (98/95/89% clear); (2) even where coverage existed it was ALPHA-TEST SPECKLE averaged
+    // LINEARLY — a fir crown is a sieve, so a beam collected 0.2-0.5 coverage spread over metres,
+    // which is a uniform dimming, not a shadow. "42% occluded" and "perfectly smooth beam" were
+    // both true. Fixed with a BITE RAMP (coverage below a threshold casts nothing, above it casts
+    // everything; the PCF taps still average BEFORE the ramp so edges keep their penumbra) plus a
+    // minimum-visibility floor so a beam may be cut hard and still arrive. Search re-aimed to
+    // reward a beam that is open at the head, arrives at the foot, and is BROKEN in between.
+    // Measured: shaft 0 carries a 4.5 m band down to 14% visibility; a lit floor patch reads 2.04x
+    // a shadowed one. The moon is 77% of the lit floor's brightness — computed, not assumed, which
+    // is why _DirScale stayed at the user's approved 0.38.
+    // FOREST GROUND: 'Roots' was a 2.4x2.7 m photoscan of forest floor 0.17 m THICK — a decal
+    // shipped as geometry, with no height at which it works. Removed. The stumps' pale aprons were
+    // GroundLift's 99.5th-percentile rule, correct for a barrel and exactly wrong for a shell: new
+    // Bed() pass measures how far a prop's BEARING SURFACE stands over the ground and drops it,
+    // never lifts. Stump0 -18.7 cm, Stump1 -16.1, nine more between 1.5 and 10.8.
+    // THE RAT was inside-out: AddTube emitted every triangle wound against the normal it handed
+    // the same vertex, so Cull Back discarded the near surface and drew the far one — you looked
+    // INTO the animal and saw its legs. Third instance of this bug in the project, so it now has a
+    // build gate (closed + outward + signed volume), which reports the old mesh as 82 unpaired
+    // edges and 282/282 triangles backwards. Its walk became a SCHEDULE hashed off the shared
+    // clock: 2541 of 2541 crossings take a route no other one takes, 30% turn back, 32% sniff.
+    // RAT HOLES were one flat black quad each. Now really cut out of the wall (via WallMesh's own
+    // holes array, derived from the route endpoints), with an asymmetric arched mouth, a bent
+    // pocket you cannot see the back of, a stone ring overlapping the courses, spill blocks placed
+    // clear of the route, and darkness as a vertex-colour gradient instead of flat paint.
+    // ELEMENT MOOD (new, sensing half only): the six elements are polled — the game offers no
+    // event, nine methods mutate the board — smoothed, and published on two global shader vectors
+    // for the art to read. ZERO WIRE: element state is replicated by the game and desync-checked
+    // every round (ScenarioState codes 117/118). Strong 1.0, Waning 0.4 breathing 0.28..0.52 on
+    // the shared clock so a player can SEE an element is about to go out, Inert 0. It keeps
+    // sensing under MR, deliberately: the MR ruling is about GEOMETRY over passthrough, and a
+    // published number is not geometry.
+    //
     // Build 139: three reported items. No wire change; the bump is the handshake key, and the
     // BUNDLE IS REBUILT (64.5 -> 65.2 MB), so both players need the new plugin AND the new bundle.
     //

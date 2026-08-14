@@ -42,8 +42,8 @@ Shader "GloomhavenVR/EnvShaft"
         _CsU ("Light-plane axis U (w = 1/extent)", Vector) = (1,0,0,0)
         _CsV ("Light-plane axis V (w = 1/extent)", Vector) = (0,1,0,0)
         _CsDir ("Light travel direction (w = -near depth)", Vector) = (0,-1,0,0)
-        _CsFlt ("Penumbra u, penumbra v, depth bias, strength", Vector) = (0,0,0,0)
-        _CsThrow ("Max throw, 1/release (encoded depth units)", Vector) = (0,0,0,0)
+        _CsFlt ("Penumbra u, penumbra v, depth bias, 1 - minimum visibility", Vector) = (0,0,0,0)
+        _CsThrow ("Max throw, 1/release (encoded depth), bite lo, 1/bite span", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -152,6 +152,25 @@ Shader "GloomhavenVR/EnvShaft"
                         + CsTap(sc.xy + float2( 0.000, -1.000) * f, z)
                         + CsTap(sc.xy + float2( 0.866, -0.500) * f, z);
                 v *= (1.0 / 7.0);
+                // SHAFT BITE (ModBuild 140). The tap average alone is what made
+                // the shafts read as SMOOTH on hardware even though the build log
+                // said their lower runs were 42% occluded. A fir crown is an
+                // alpha-tested sieve — 23.6% of the atlas is over the cutoff — so
+                // a beam crossing the crown mass collects a MOTTLE of 0.2-0.5
+                // coverage over metres of its length, and a linear average of
+                // that is a uniform dimming: exactly "the beam got a bit fainter",
+                // never "a bough crosses the beam".
+                //
+                // So the coverage is remapped before it is used: below _CsThrow.z
+                // it is speckle and counts for nothing, above _CsThrow.z + span it
+                // is a solid occluder and counts for everything. That is also the
+                // physics of light through mist — extinction is exponential in the
+                // needle mass crossed, not linear in a sub-texel coverage average
+                // — and it is what turns the wash back into dappled light with
+                // dark bars. The PENUMBRA is unaffected: the taps still average
+                // first, so a shadow EDGE still crosses the ramp smoothly over the
+                // tap disc; what the ramp removes is the flat middle.
+                float sh = saturate(((1.0 - v) - _CsThrow.z) * _CsThrow.w);
                 // Off the edge of the baked map, and anywhere in front of its near
                 // plane, everything is lit. CLAMP addressing would otherwise drag
                 // the border texels right across the room, and a hard cut-off
@@ -161,7 +180,15 @@ Shader "GloomhavenVR/EnvShaft"
                 float2 q = abs(sc.xy - 0.5);
                 float edge = saturate((0.5 - max(q.x, q.y)) * 40.0)
                            * step(0.0, sc.z) * step(sc.z, 1.0);
-                return 1.0 - _CsFlt.w * (1.0 - v) * edge;
+                // _CsFlt.w is 1 - MINIMUM VISIBILITY, and those two really are one
+                // number seen from opposite ends: a fragment the map calls fully
+                // occluded keeps 1 - _CsFlt.w of its light and no less. The
+                // builder now names it from the end that matters (Look.MinVis),
+                // because the floor is the safety rail that lets the throw and the
+                // bite be aggressive — a shaft may be cut to a hard dark band and
+                // must still ARRIVE at the pool it lands in. The first pass had no
+                // such rail and extinguished all three beams.
+                return 1.0 - _CsFlt.w * sh * edge;
             }
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; float2 uv : TEXCOORD0; fixed4 color : COLOR; };

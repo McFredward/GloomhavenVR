@@ -126,6 +126,57 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 140** — five reported items + the sensing half of the element feature. No wire change.
+  **Bundle 65,255,033 bytes — 140 NEEDS it.**
+  **Focus pin.** The board waits for a hex pick from the acting character, but the VR focus could
+  be moved to another one — and the confirm caps follow the FOCUS while the pick follows the
+  ACTOR, so the player was left unable to confirm. `CharacterFocus.PinnedActor` requires all three
+  of: a real targeting wait state read LIVE from `Choreographer.m_WaitState` (not the mod's
+  event-driven mirror — a gate that takes a control away may not fire on a stale bit),
+  `ThisPlayerHasTurnControl`, and `CurrentPlayerActor` mine and alive. Clearing the OVERRIDE (not
+  the selection) is what returns the view, so no "nobody selected" state can appear. Use
+  `CurrentPlayerActor`, never raw `m_CurrentActor`: during exactly these waits the game re-points
+  it at the driven figure (`Choreographer.cs:4269, 9878, 10013`) and a summon there is a `CActor`.
+  **Forest shafts — the third pass, and both earlier ones were wrong in ways worth carrying:**
+  (1) a candidate search that maximises "how CLEAR is this beam" finds beams with nothing in them;
+  the objective was the inverse of the goal. (2) **Alpha-test speckle averaged LINEARLY is a
+  uniform dimming, not a shadow.** A fir crown is a sieve (23.6% of the atlas over cutoff), so a
+  beam collects 0.2–0.5 coverage spread over metres — which is why "42% occluded" and "perfectly
+  smooth beam" were both true, and why more throw could only have made it greyer. Fixed by a BITE
+  RAMP (below a coverage threshold nothing casts, above it everything does; the PCF taps still
+  average BEFORE the ramp so edges keep their penumbra) plus a minimum-visibility floor, which is
+  what lets throw and bite be aggressive without extinguishing a beam. GENERAL RULE: when a
+  visibility term is built from many small partial occlusions, average then THRESHOLD — a linear
+  mean of speckle is grey.
+  **Measure before tuning:** the lane computed EnvGround's own arithmetic and found the moon is
+  **77% of the lit floor's brightness**, so `_DirScale` stayed at the user's approved 0.38. Lit vs
+  shadowed now reads 2.04x (deepest 2.84x).
+  **Forest ground props.** 'Roots' was a 2.4 × 2.7 m photoscan of forest floor **0.17 m thick** —
+  a ground decal shipped as geometry, with no height at which it works; removed. The stumps' pale
+  aprons were `GroundLift`'s 99.5th-percentile rule, right for a barrel and exactly wrong for a
+  shell: new `Bed()` measures how far a prop's BEARING SURFACE stands over the ground under it and
+  drops it, never lifts (Stump0 −18.7 cm, Stump1 −16.1, nine more 1.5–10.8 cm).
+  **The rat was inside-out** — `AddTube` wound every triangle against the normal it handed the
+  same vertex, so `Cull Back` discarded the near surface and drew the far one: you looked INTO the
+  animal and saw its legs. **Third instance of this class of bug** (after the ModBuild 137 moon
+  hull), so it now has a build gate — closed, outward, signed volume — which reports the old mesh
+  as 82 unpaired edges and 282/282 triangles backwards. Its walk became a SCHEDULE hashed off the
+  shared clock (2541/2541 crossings unique, 30% turn back, 32% sniff); `sin()` is banned from the
+  hash because its last bits differ between GPU vendors and the schedule must be bit-identical.
+  **Rat holes** were one flat black quad each; now really cut out of the wall through `WallMesh`'s
+  own holes array, derived from the route endpoints, with an asymmetric arched mouth, a bent
+  pocket, a ring overlapping the courses, and darkness as a vertex-colour gradient.
+  **Element mood (new, sensing half).** Six elements polled — the game offers no event and nine
+  methods mutate the board — smoothed and published on two global shader vectors. ZERO WIRE:
+  element state is replicated by the game and desync-checked every round (`ScenarioState` codes
+  117/118). Strong 1.0, Waning 0.4 BREATHING 0.28–0.52 on the shared clock (so the player can see
+  an element is about to go out), Inert 0. It keeps sensing under MR **by ruling**: the MR rule is
+  about GEOMETRY over passthrough, and a published number is not geometry — the "additive only,
+  board-anchored" constraint belongs to the art that reads it.
+  **Tooling discovered:** `EnvironmentsPreview.RenderAll` runs headless under `xvfb-run`, so
+  environment lanes can render before/after and compare instead of shipping numbers. Previews are
+  brighter than the headset, so only structural claims are settled that way.
+
 - **ModBuild 139** — three reported items. No wire change. **Bundle 65,245,628 bytes — 139 NEEDS
   it** (the canopy shadow map is new bundle content and the cellar's meshes changed).
   **Turning is never blocked** — the ruling hardened from 138's "not another seat's targeting" to

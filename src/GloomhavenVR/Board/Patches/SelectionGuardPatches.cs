@@ -93,7 +93,9 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
         // PlayTray.DecisionMount) and are never re-parented, re-built or re-pointed by a focus.
         //
         // It is also why NO gate below can block the switch any more: the switch has already
-        // happened by the time we get there.
+        // happened by the time we get there — with the ONE exception minted inside TryFocus itself
+        // (the FOCUS PIN, below), which is a refusal of the switch and not a side effect on top of
+        // one that already landed.
         if (CharacterFocus.TryFocus(clicked))
         {
             Report(clicked, ClickSound.Outcome.Succeeded,
@@ -102,7 +104,37 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
             return false;
         }
 
-        // ---- focus did NOT take: card-selection phase, or not a focus target at all ----------
+        // ---- focus did NOT take -------------------------------------------------------------
+
+        // FOCUS PIN (user report, hardware ModBuild 139): while the board is waiting for one of THIS
+        // player's characters to pick a hex, the focus is pinned to that character
+        // (CharacterFocus.PinnedActor — see its doc for the three-clause predicate and the
+        // multiplayer argument). The switch has already been refused and logged by TryFocus; what is
+        // owed here is the AUDIBLE half, because "die Buttons fehlen … kann man dann nicht
+        // bestätigen" is a state the player must never be able to enter WITHOUT NOTICING that
+        // something said no.
+        //
+        // The cue is the game's own invalid-option sound, reused rather than invented:
+        // CardsGameApi.RejectActionPhaseSelect plays UIInfoTools.InvalidOptionAudioItem — the sound
+        // FullAbilityCard.OnAbilityClick plays on an illegal card click (FullAbilityCard.cs:625) and
+        // the one the two neighbouring refusals in this very file already use. Its own log line
+        // ("… is not the acting actor …") is literally true for the pin.
+        //
+        // PLACED FIRST among the refusals on purpose: during a pin the ownership guard below would
+        // also refuse a TEAMMATE's portrait, with a foreign-ownership reason that is not the reason.
+        // Same sound either way, but the log has to name the pin or the next report is unreadable.
+        if (clicked is CPlayerActor pinCandidate && !pinCandidate.IsDead
+            && CharacterFocus.PinnedActor is CPlayerActor pinned
+            && !ReferenceEquals(pinned, pinCandidate))
+        {
+            CardsGameApi.RejectActionPhaseSelect(clicked);
+            Report(clicked, ClickSound.Outcome.AlreadyAnswered,
+                "FOCUS PIN — the board is waiting for the acting character's hex pick, so the view " +
+                "stays with it; RejectActionPhaseSelect already played the game's invalid-click SFX");
+            return false;
+        }
+
+        // ---- card-selection phase, or not a focus target at all ------------------------------
         // In the card-selection phase vanilla's own switch IS the legitimate mechanism (a player
         // may leaf through their OWN characters while choosing cards), so the pre-focus rules
         // below decide, exactly as they did before the feature existed.

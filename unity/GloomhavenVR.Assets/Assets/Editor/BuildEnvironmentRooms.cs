@@ -1097,18 +1097,58 @@ namespace GloomhavenVR
         }
 
         /// <summary>A tapered tube through a polyline of rings — the rat's body,
-        /// head, tail and legs are all this. `uvx` runs along the tube, the ring
-        /// angle gives the belly/back blend in uv.x (0 belly, 1 back).</summary>
-        private static void AddTube(Acc a, Vector3[] c, float[] r, Color[] col, float[] along, int segs)
+        /// head, tail, ears and legs are all this. `along` runs down the tube into
+        /// uv.y, the ring angle gives the belly/back blend in uv.x (0 belly, 1
+        /// back). `cap` closes both ends with a fan, which is what makes the
+        /// result a SOLID rather than a piece of pipe.
+        ///
+        /// <para>RAT SOLID — USER FINDING, ModBuild 139: "Man kann durch die Ratte
+        /// hindurchsehen und sieht die Beine." This routine is why, and it is the
+        /// third time this project has shipped inward-wound geometry (the window
+        /// bars, the moonbeam blades in 137). The proof, because "it looks fine in
+        /// the scene view" is exactly what got the other two through:</para>
+        ///
+        /// <para>Unity's front face is the one whose vertices, taken in index
+        /// order, satisfy <c>normal = cross(v1-v0, v2-v0)</c> — check it against
+        /// the built-in Quad (verts (-.5,-.5,0),(.5,-.5,0),(-.5,.5,0),(.5,.5,0),
+        /// triangles 0,2,1, normals (0,0,-1)): cross((0,1,0),(1,0,0)) = (0,0,-1).
+        /// AddQuad below obeys that, which is why the rat holes are visible — and
+        /// so does the moon-shaft hull that ModBuild 137 had to fix for the same
+        /// reason (MoonHullMesh, "caps, so the hull is closed from every side"),
+        /// which emits the winding below verbatim. AddTube was simply never
+        /// brought along, and the rat is the only thing that uses it.
+        /// The ring frame here is rt x uu = axis. Take the first quad of a ring
+        /// pair: v0 = ring i at angle 0 = c + r*rt, v1 = ring i+1 at angle 0
+        /// = v0 + L*axis, v2 = ring i at angle d = v0 + r*d*uu. The OLD winding
+        /// emitted exactly that order, so its face normal was
+        /// cross(L*axis, r*d*uu) = -rt*(L*r*d) — the negative of the `nrm` the
+        /// very next line hands to the vertex. Every triangle of the rat faced
+        /// INWARD. With Cull Back that culls the near surface and draws the far
+        /// one, so you look straight into the animal and see its legs from the
+        /// inside, lit by normals pointing away from you. Swapping v1 and v2
+        /// (below) makes the face normal cross(r*d*uu, L*axis) = +rt.</para>
+        ///
+        /// <para>Closure is the other half. Every tube here was open at both ends;
+        /// a correctly wound open tube still shows its interior through the hole,
+        /// and the rump's was 4.8 cm across. `cap` fans each end onto its ring
+        /// centre with the ring's axial normal, so the silhouette is closed from
+        /// every direction. Interpenetrating closed solids (legs into body) are
+        /// fine — opaque depth testing sorts them for free.</para></summary>
+        private static void AddTube(Acc a, Vector3[] c, float[] r, Color[] col, float[] along, int segs,
+            bool cap = true)
         {
             int n = c.Length, stride = segs + 1;
             int b0 = a.Count;
+            Vector3 axis0 = Vector3.zero, rt0 = Vector3.zero, uu0 = Vector3.zero;
+            Vector3 axis1 = Vector3.zero, rt1 = Vector3.zero, uu1 = Vector3.zero;
             for (int i = 0; i < n; i++)
             {
                 Vector3 axis = (i == 0 ? c[1] - c[0] : i == n - 1 ? c[n - 1] - c[n - 2] : c[i + 1] - c[i - 1]).normalized;
                 Vector3 hint = Mathf.Abs(axis.y) > 0.9f ? Vector3.forward : Vector3.up;
                 Vector3 rt = Vector3.Cross(hint, axis).normalized;
                 Vector3 uu = Vector3.Cross(axis, rt).normalized;
+                if (i == 0) { axis0 = axis; rt0 = rt; uu0 = uu; }
+                if (i == n - 1) { axis1 = axis; rt1 = rt; uu1 = uu; }
                 for (int s = 0; s <= segs; s++)
                 {
                     float ang = s / (float)segs * Mathf.PI * 2f;
@@ -1121,8 +1161,36 @@ namespace GloomhavenVR
                 for (int s = 0; s < segs; s++)
                 {
                     int i0 = b0 + i * stride + s;
-                    a.T.AddRange(new[] { i0, i0 + stride, i0 + 1, i0 + 1, i0 + stride, i0 + stride + 1 });
+                    // (i0, i0+1, i0+stride) and its partner — OUTWARD, see above
+                    a.T.AddRange(new[] { i0, i0 + 1, i0 + stride,
+                                         i0 + 1, i0 + stride + 1, i0 + stride });
                 }
+            if (!cap) return;
+            // the two end discs. `front` is the one the axis points out of, so it
+            // fans forwards; the other is the mirror of it.
+            void Cap(Vector3 ctr, Vector3 axis, Vector3 rt, Vector3 uu, float rad,
+                     Color cc, float uvy, bool front)
+            {
+                Vector3 nrm = front ? axis : -axis;
+                int cIdx = a.Count;
+                a.Vert(ctr, nrm, new Vector2(0.5f, uvy), cc);
+                for (int s = 0; s <= segs; s++)
+                {
+                    float ang = s / (float)segs * Mathf.PI * 2f;
+                    Vector3 rad3 = rt * Mathf.Cos(ang) + uu * Mathf.Sin(ang);
+                    a.Vert(ctr + rad3 * rad, nrm,
+                           new Vector2(0.5f + 0.5f * Mathf.Sin(ang), uvy), cc);
+                }
+                for (int s = 0; s < segs; s++)
+                {
+                    int p0 = cIdx + 1 + s, p1 = cIdx + 2 + s;
+                    // cross(p0-ctr, p1-ctr) = +axis for the ascending order, so
+                    // the far cap takes it and the near cap takes it reversed
+                    a.T.AddRange(front ? new[] { cIdx, p0, p1 } : new[] { cIdx, p1, p0 });
+                }
+            }
+            Cap(c[0], axis0, rt0, uu0, r[0], col[0], along[0], false);
+            Cap(c[n - 1], axis1, rt1, uu1, r[n - 1], col[n - 1], along[n - 1], true);
         }
 
         // ================================================================ CELLAR
@@ -1249,6 +1317,65 @@ namespace GloomhavenVR
         private static readonly Vector3 RatW2 = new Vector3(-5.00f, 0.015f, -2.30f);
         private static readonly Vector3 RatW3 = new Vector3(-0.95f, 0.015f, -4.44f);
 
+        /// <summary>The two holes, as rects in their own wall's local (u, y) —
+        /// DERIVED from the route's own endpoints, which is the whole point: the
+        /// mouth the rat comes out of and the Bezier point it comes out at are one
+        /// fact, and a fact typed twice is a fact that drifts. `wall` is 0 for the
+        /// north wall (RatW0) and 1 for the south (RatW3), matching CellarWalls().
+        ///
+        /// <para>0.32 x 0.10 m authored: WallMesh keeps or drops whole 0.16 m
+        /// cells, so this is two cells wide and one tall whichever cell boundary
+        /// the route happens to land on, and SnappedHole reports the opening that
+        /// was really cut. The mouth inside it is fist-sized; the rest of the cut
+        /// is the ring of broken stone AddRatHole sets it in.</para></summary>
+        private static Rect RatHoleAuthored(int wall)
+        {
+            float u = wall == 0 ? RatW0.x + CW / 2f : CW / 2f - RatW3.x;
+            return new Rect(u - 0.16f, 0f, 0.32f, 0.10f);
+        }
+
+        // ...and the SCHEDULE those four points are only the spine of. Every
+        // number here is a range the per-slot hash picks out of; EnvCritter reads
+        // them as material properties and AssertRatSchedule() proves the whole
+        // range clears the play-space, the walls and the barrels before the bake
+        // writes them. USER FINDING, ModBuild 139: "mach das laufen ein wenig
+        // mehr random statt immer den selben weg."
+        //
+        // W2 WANDERS LESS THAN W1, AND NORTHWARD, and that asymmetry is the whole
+        // tuning problem in one line: W1's influence peaks at u~0.33, over open
+        // flagstones, while W2's peaks at u~0.66 — in among the three barrels.
+        // Wandering W2 as freely as W1 walked the rat straight THROUGH Barrel2
+        // (the one lying on its side, whose long footprint reaches out to
+        // (-2.66,-3.51) — the build gate below caught it at -0.01 m). What the
+        // clearance buys back is x, which is the axis pointing at the barrels;
+        // z costs almost nothing there, and a +0.28 m northward bias walks the
+        // late half of the route past the barrel rather than into it. Net: the
+        // family keeps 1.0 m of lateral spread instead of 1.1 m, and every
+        // barrel keeps more than a rat's width of daylight.
+        private const float RatPeriod = 26f, RatRunTime = 4.6f, RatSkip = 0.15f;
+        private const float RatDart = 0.055f, RatStride = 24f;
+        private static readonly Vector4 RatTiming = new Vector4(0.05f, 0.55f, 0.72f, 0.62f);
+        private static readonly Vector4 RatModes = new Vector4(0.42f, 0.30f, 0.45f, 0.26f);
+        private static readonly Vector4 RatPeak = new Vector4(0.35f, 0.40f, 0f, 0f);
+        private static readonly Vector4 RatWob1 = new Vector4(0.50f, 0.80f, -0.46f, 0f);
+        private static readonly Vector4 RatWob2 = new Vector4(0.12f, 0.32f, -0.12f, 0.28f);
+
+        /// <summary>The schedule's hash, character for character the one in
+        /// EnvCritter.shader. It is duplicated rather than derived because the
+        /// GPU cannot report and the log cannot render: this is what lets the
+        /// bake MEASURE the route family, the intervals and the speeds instead of
+        /// describing them. If you edit one, edit the other — the closed-form
+        /// check is that the printed play-space clearance still matches what the
+        /// headset does, and nothing weaker.</summary>
+        private static float RatH(float n, float k)
+        {
+            float x = Frac((n + 1f + k * 7.13f) * 0.7548776662f);
+            x = Frac(x * (x + 31.70f));
+            x = Frac(x * (x + 17.31f));
+            return Frac(x * (x + 43.19f));
+        }
+        private static float Frac(float v) => v - Mathf.Floor(v);
+
         /// <summary>The opening WallMesh actually cut. It keeps or drops whole
         /// cells, so the hole is quantised to the 0.16 m grid and is NOT the
         /// authored rect — build a reveal or a set of bars against the authored
@@ -1359,9 +1486,14 @@ namespace GloomhavenVR
             floorGo.GetComponent<MeshRenderer>().sharedMaterial =
                 SurfMat("C_Floor.mat", "monastery_stone_floor", 2.6f, floorGo.transform, 1.0f, 1f);
 
-            // ---- walls (N has window, W has stair doorway) ----
-            var wallN = SaveMesh("Env_C_WallN.asset", WallMesh(CW, CH, 0.16f, new[] { WindowHole }, 3.3f, 911, uOff: 0.00f));
-            var wallS = SaveMesh("Env_C_WallS.asset", WallMesh(CW, CH, 0.16f, Array.Empty<Rect>(), 3.3f, 912, uOff: 1.31f));
+            // ---- walls (N has window + a rat hole, S has the other rat hole,
+            //      W has stair doorway) ----
+            // The rat holes are REALLY CUT now (ModBuild 140): they used to be a
+            // black quad stuck on the wall, and a flat black patch 0.6 m from a VR
+            // camera reads as a sticker. AddRatHole builds the mouth, the recess
+            // behind the opening and the stone it took with it — see there.
+            var wallN = SaveMesh("Env_C_WallN.asset", WallMesh(CW, CH, 0.16f, new[] { WindowHole, RatHoleAuthored(0) }, 3.3f, 911, uOff: 0.00f));
+            var wallS = SaveMesh("Env_C_WallS.asset", WallMesh(CW, CH, 0.16f, new[] { RatHoleAuthored(1) }, 3.3f, 912, uOff: 1.31f));
             var wallE = SaveMesh("Env_C_WallE.asset", WallMesh(CD, CH, 0.16f, Array.Empty<Rect>(), 3.3f, 913, uOff: 2.17f));
             var wallW = SaveMesh("Env_C_WallW.asset", WallMesh(CD, CH, 0.16f, new[] { StairHole }, 3.3f, 914, uOff: 0.73f));
             void Wall(string n, Mesh mesh, Vector3 pos, float yaw)
@@ -1399,6 +1531,15 @@ namespace GloomhavenVR
                     ClearOf(((door.xMin + door.xMax) * 0.5f, door.width * 0.5f + 0.12f)),  // W: the stairs
                 };
                 for (int i = 0; i < 4; i++) hewn.Add(AddWallSkirt(stone, walls[i], skirtGate[i]));
+
+                // The two rat holes, built into the openings WallMesh really cut
+                // and welded into the same stonework mesh as the skirting — same
+                // material, same object-space light rig, no extra draw call. They
+                // go in AFTER the skirt so the loose blocks around each mouth lie
+                // on top of the run rather than under it.
+                for (int i = 0; i < 2; i++)
+                    hewn.Add(AddRatHole(stone, walls[i],
+                                        SnappedHole(RatHoleAuthored(i), CW, CH, WallCell), 6203 + i * 197));
 
                 // Four corners, four different lies:
                 //   NE  a full quoin stack with the deepest step — the only corner
@@ -2273,6 +2414,236 @@ namespace GloomhavenVR
                 AddFaceUV(a, onB[i], onA[i], onA[i + 1], onB[i + 1], 1.9f, Grey(0.90f));
         }
 
+        /// <summary>A rat hole: the mouth, the recess behind it, and the stone it
+        /// took with it. Welded into the room's one stonework mesh, in room
+        /// coordinates, so it is lit by the baked rig exactly like the wall it is
+        /// in and costs no extra draw call.
+        ///
+        /// <para>USER FINDING, ModBuild 140: "Das 'Loch' aus dem die Ratte kommt
+        /// und hineingeht ist aktuell ein Viereckiges schwarzes Rechteck. Das ist
+        /// nicht sehr immersiv." It was one <c>AddQuad</c>, 16.4 x 12.4 cm, tinted
+        /// 0.012 grey and stuck flat on the wall plane. Three things were wrong
+        /// with it and all three are geometry, not shading:</para>
+        ///
+        /// <para>1. IT WAS A RECTANGLE. The mouth here is a half-arch swept from
+        /// jamb to jamb, widest where it meets the floor (which is where a rat
+        /// actually wears one), ragged over the crown, and leaning — the wobble is
+        /// an fbm of the sweep angle, weighted by sin so it dies at both feet and
+        /// the mouth still meets the flagstones on a clean line. The two holes get
+        /// different seeds, different leans and different proportions, so they are
+        /// not the same hole twice.</para>
+        ///
+        /// <para>2. IT HAD NO DEPTH, and at 0.6 m from a VR camera a flat black
+        /// patch is read as a sticker instantly — stereo gives it away before the
+        /// shading does. So the wall is really CUT (see the <c>holes</c> array
+        /// handed to WallMesh) and this builds a blind pocket behind the opening:
+        /// the mouth loop extruded back, tapered to two thirds and BENT sideways,
+        /// with a cap at the end. The bend is the point — head-on you cannot see
+        /// the back of it, so the hole reads as going somewhere.
+        /// The alternative was to leave the wall closed and fake the recess in
+        /// front of it, which is cheaper by one Rect and is the same sticker with
+        /// more triangles: with the wall intact there is nothing for the pocket to
+        /// be recessed INTO, so it can only protrude.</para>
+        ///
+        /// <para>3. IT DID NOT BELONG TO ITS WALL. The mouth now carries a ring of
+        /// stone out to the cut edge, standing 2 mm proud so no seam can open, a
+        /// dropped lintel block above it, and a spill of broken stone on the floor
+        /// to either side — placed to the SIDES, because the rat comes out through
+        /// the middle. Darkness is a vertex-colour gradient into _VCol (the same
+        /// mechanism as the skirting's contact shading), not a flat near-black
+        /// tint: 0.72 grey out at the courses, 0.34 at the rim, then 0.22 and 0.07
+        /// down the pocket. And the flagstones in front get a contact pool through
+        /// the room's existing <c>Contacts</c> list — a thousand crossings' worth
+        /// of polish, for no triangles at all.</para>
+        ///
+        /// <para>`cut` is the SNAPPED opening (what WallMesh really removed), in
+        /// wall-local (u, y). Authoring against the unsnapped rect is what floated
+        /// the window bars in ModBuild 134.</para></summary>
+        private static string AddRatHole(Acc a, WallRun w, Rect cut, int seed)
+        {
+            // wall-local (u, y, z) -> room. WallMesh's own local +Z runs AWAY from
+            // the room (its bulge is negative), and `into` points the other way,
+            // so the pocket lives at positive z and subtracts `into`.
+            Vector3 P(float u, float y, float z) => w.p0 + w.along * u + Vector3.up * y - w.into * z;
+
+            const int M = 12;
+            // 12 mm UNDER the wall's base line, the same trick the skirting's toe
+            // uses: the flagstones undulate by +-6 mm, so a mouth that met them at
+            // exactly y=0 would show daylight under one jamb and bury the other.
+            const float yBase = -0.012f;
+            float cu = (cut.xMin + cut.xMax) * 0.5f;
+            float aw = cut.width * 0.20f;          // half-width before the wobble
+            float ah = cut.height * 0.78f;
+            float lean = 0.86f + 0.30f * Hash3(0, 0, 0, seed);   // one jamb chewed further out
+            float depth = 0.125f + 0.065f * Hash3(1, 0, 0, seed);
+            // The bend is what stops the pocket reading as a shoebox: head-on you
+            // must NOT see the back of it. So it gets a floor as well as a sign —
+            // a hashed value that happens to come out near zero would quietly
+            // give one of the two holes a straight bore and nothing would say so.
+            float bend = (Hash3(2, 0, 0, seed) < 0.5f ? -1f : 1f)
+                       * (0.40f + 0.60f * Hash3(3, 0, 0, seed)) * (aw * 0.95f);
+
+            // ---- the mouth loop, and the cut edge it has to reach
+            var arch = new Vector2[M + 1];
+            var rim = new Vector2[M + 1];
+            float wMax = 0f, hMax = 0f, jambL = 0f, jambR = 0f;
+            for (int i = 0; i <= M; i++)
+            {
+                float th = Mathf.PI * i / M;                    // 0 = one jamb, PI = the other
+                float c = Mathf.Cos(th), s = Mathf.Sin(th);
+                float rag = (Fbm2(th * 2.7f + 1.3f, 0.5f, 3, seed) - 0.5f) * 2f;
+                // gnawed, not drilled: ragged at the crown, clean at the feet, and
+                // flared where it meets the floor
+                float k = 1f + 0.26f * rag * s + 0.18f * (1f - s);
+                float u = cu + aw * c * k * (c > 0f ? lean : 2f - lean);
+                float y = yBase + ah * s * k;
+                // never let the mouth eat its own frame: 22 mm of ring is the
+                // minimum that still reads as stone and not as a chamfer
+                u = Mathf.Clamp(u, cut.xMin + 0.022f, cut.xMax - 0.022f);
+                y = Mathf.Clamp(y, yBase, cut.yMax - 0.020f);
+                arch[i] = new Vector2(u, y);
+                wMax = Mathf.Max(wMax, Mathf.Abs(u - cu) * 2f);
+                hMax = Mathf.Max(hMax, y - yBase);
+                if (u > cu) jambR = Mathf.Max(jambR, u - cu); else jambL = Mathf.Max(jambL, cu - u);
+
+                // the cut edge along the same ray, pushed 12 mm past it so the
+                // ring always overlaps the courses it is set into
+                float t = float.MaxValue;
+                if (c > 1e-4f) t = Mathf.Min(t, (cut.xMax + 0.012f - cu) / c);
+                if (c < -1e-4f) t = Mathf.Min(t, (cut.xMin - 0.012f - cu) / c);
+                if (s > 1e-4f) t = Mathf.Min(t, (cut.yMax + 0.012f - yBase) / s);
+                rim[i] = new Vector2(cu + t * c, yBase + t * s);
+            }
+
+            // EVERY face below goes through this, and every face below states the
+            // point it has to be visible FROM. Winding is the one mistake this
+            // room keeps making — the moonbeam hull in ModBuild 137, the rat's own
+            // body in 139 — and it is invisible in a diff and invisible in the
+            // scene view from the wrong side. A recess is the worst case of all:
+            // get it backwards and you see the OUTSIDE of the pocket, i.e. a
+            // stone plug sitting in the hole, and it still looks like geometry.
+            int bad = 0, faces = 0;
+            void Face(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Color col, Vector3 seenFrom)
+            {
+                int before = a.Count;
+                AddFaceUV(a, p0, p1, p2, p3, 3.4f, col);
+                if (a.Count == before) return;             // pinched to a line, dropped
+                faces++;
+                if (Vector3.Dot(a.N[a.Count - 1], seenFrom - (p0 + p1 + p2 + p3) * 0.25f) <= 0f) bad++;
+            }
+            // a standing player, 1.2 m out from the mouth — the only place this
+            // hole is ever looked at from
+            Vector3 eye = P(cu, 1.30f, -1.20f);
+
+            // ---- the ring, 2 mm proud of the wall plane
+            for (int i = 0; i < M; i++)
+                Face(P(arch[i].x, arch[i].y, -0.002f), P(arch[i + 1].x, arch[i + 1].y, -0.002f),
+                     P(rim[i + 1].x, rim[i + 1].y, -0.002f), P(rim[i].x, rim[i].y, -0.002f),
+                     Grey(Mathf.Lerp(0.34f, 0.72f, 0.5f + 0.5f * Mathf.Cos(Mathf.PI * i / M))), eye);
+
+            // ---- the pocket. Two rings deep, so the darkness is a gradient down
+            // the recess and not one flat value on a single quad.
+            Vector2 Shrink(Vector2 p, float f) =>
+                new Vector2(cu + bend * (1f - f) + (p.x - cu) * f, yBase + (p.y - yBase) * f);
+            float[] zs = { 0f, depth * 0.45f, depth };
+            float[] fs = { 1f, 0.84f, 0.66f };
+            float[] gs = { 0.24f, 0.13f, 0.07f };
+            // A point ON the pocket's centreline at depth z. Every wall of the
+            // recess has to face this, which is the exact statement of "the
+            // inside of the pocket" and the thing the ModBuild 137 bug got
+            // backwards.
+            Vector3 Axis(int r) => P(cu + bend * (1f - fs[r]) * 0.5f, yBase + ah * 0.42f * fs[r],
+                                     (zs[r] + zs[r + 1]) * 0.5f);
+            for (int r = 0; r < 2; r++)
+                for (int i = 0; i < M; i++)
+                {
+                    Vector2 a0 = Shrink(arch[i], fs[r]), a1 = Shrink(arch[i + 1], fs[r]);
+                    Vector2 b0 = Shrink(arch[i], fs[r + 1]), b1 = Shrink(arch[i + 1], fs[r + 1]);
+                    // (front_i, back_i, back_i+1, front_i+1) on a counter-clockwise
+                    // loop gives cross(dz, tangent) = the INWARD normal, which is
+                    // the only side of a pocket anybody can see
+                    Face(P(a0.x, a0.y, zs[r]), P(b0.x, b0.y, zs[r + 1]),
+                         P(b1.x, b1.y, zs[r + 1]), P(a1.x, a1.y, zs[r]), Grey(gs[r]), Axis(r));
+                }
+            // ...and the floor of it, which is the same extrusion of the one
+            // segment that closes the loop along the flagstones.
+            for (int r = 0; r < 2; r++)
+            {
+                Vector2 a0 = Shrink(arch[M], fs[r]), a1 = Shrink(arch[0], fs[r]);
+                Vector2 b0 = Shrink(arch[M], fs[r + 1]), b1 = Shrink(arch[0], fs[r + 1]);
+                Face(P(a0.x, a0.y, zs[r]), P(b0.x, b0.y, zs[r + 1]),
+                     P(b1.x, b1.y, zs[r + 1]), P(a1.x, a1.y, zs[r]), Grey(gs[r] * 0.8f), Axis(r));
+            }
+            // the end of it, facing back out at the room
+            var ctr = new Vector2(cu + bend * 0.34f, yBase + ah * 0.40f * fs[2]);
+            for (int i = 0; i < M; i++)
+            {
+                Vector2 b0 = Shrink(arch[i], fs[2]), b1 = Shrink(arch[i + 1], fs[2]);
+                int bi = a.Count;
+                Vector3 q0 = P(ctr.x, ctr.y, depth), q1 = P(b1.x, b1.y, depth), q2 = P(b0.x, b0.y, depth);
+                Vector3 nn = Vector3.Cross(q1 - q0, q2 - q0);
+                if (nn.sqrMagnitude < 1e-12f) continue;
+                nn.Normalize();
+                var cc = Grey(0.045f);
+                a.Vert(q0, nn, PlanarUV(q0, nn, 3.4f), cc);
+                a.Vert(q1, nn, PlanarUV(q1, nn, 3.4f), cc);
+                a.Vert(q2, nn, PlanarUV(q2, nn, 3.4f), cc);
+                a.T.AddRange(new[] { bi, bi + 1, bi + 2 });
+                faces++;
+                if (Vector3.Dot(nn, eye - (q0 + q1 + q2) / 3f) <= 0f) bad++;
+            }
+            if (bad > 0)
+                throw new Exception($"{w.name} rat hole: {bad} of {faces} faces are wound away from the "
+                                    + "only side they can be seen from. A backwards recess draws as a stone "
+                                    + "plug sitting in the opening — see the winding note over AddTube.");
+
+            // ---- the stone it took with it. The lintel block sits ON the ring,
+            // the other three lie on the flagstones OFF TO THE SIDES: the rat's
+            // Bezier leaves through the middle of this mouth, and a block in front
+            // of it would be a block the animal walks through.
+            int blocks = 0;
+            for (int b = 0; b < 4; b++)
+            {
+                bool lintel = b == 0;
+                float side = (b % 2 == 0) ? 1f : -1f;
+                float du = side * (aw * 1.25f + 0.09f * Hash3(b, 1, 0, seed + 41));
+                float sw = 0.045f + 0.055f * Hash3(b, 2, 0, seed + 41);
+                float sh = 0.030f + 0.040f * Hash3(b, 3, 0, seed + 41);
+                float sd = 0.040f + 0.050f * Hash3(b, 4, 0, seed + 41);
+                Vector3 at = lintel
+                    ? P(cu + (Hash3(b, 5, 0, seed + 41) - 0.5f) * aw, hMax + yBase + 0.030f, -0.018f)
+                    : P(cu + du, 0f, -(0.055f + 0.11f * Hash3(b, 6, 0, seed + 41)));
+                if (!lintel)
+                    at = new Vector3(at.x, CellarFloorY(at.x, at.z) + sh * 0.34f, at.z);
+                var rot = Quaternion.LookRotation(w.into, Vector3.up)
+                        * Quaternion.Euler((Hash3(b, 7, 0, seed + 41) - 0.5f) * 40f,
+                                           (Hash3(b, 8, 0, seed + 41) - 0.5f) * 80f,
+                                           (Hash3(b, 9, 0, seed + 41) - 0.5f) * 34f);
+                AddHewnBlock(a, at, rot, new Vector3(sw, sh, sd), 0.80f, 0.12f, 0.007f, 1.6f,
+                             seed + 300 + b, Grey(lintel ? 0.66f : 0.80f));
+                blocks++;
+            }
+
+            // ---- and the polish. No triangles: the flagstone mesh already
+            // carries contact shading in its vertex colours (PaintContactAO), and
+            // a run the animal has used a thousand times is exactly that.
+            Vector3 m0 = P(cu - aw * 1.6f, 0f, -0.02f), m1 = P(cu + aw * 1.6f, 0f, -0.30f);
+            Contacts.Add((new Foot
+            {
+                x0 = Mathf.Min(m0.x, m1.x), x1 = Mathf.Max(m0.x, m1.x),
+                z0 = Mathf.Min(m0.z, m1.z), z1 = Mathf.Max(m0.z, m1.z),
+            }, 0.80f));
+
+            return $"{w.name} rat hole: cut u {cut.xMin:F3}..{cut.xMax:F3} x y {cut.yMin:F3}..{cut.yMax:F3} "
+                 + $"({Mathf.RoundToInt(cut.width / WallCell)} cells wide), mouth {wMax * 100f:F1} x "
+                 + $"{hMax * 100f:F1} cm and NOT symmetric about it ({jambL * 100f:F1} cm one jamb, "
+                 + $"{jambR * 100f:F1} the other), ring >= 2.2 cm all round, pocket {depth * 100f:F0} cm "
+                 + $"deep tapering to {fs[2]:F2} and bending {bend * 100f:+0.0;-0.0} cm, {blocks} loose "
+                 + $"blocks, {faces} faces all facing the room (0 backwards), centre "
+                 + $"{Mathf.Abs(cu - (w.name == "N" ? RatW0.x + CW / 2f : CW / 2f - RatW3.x)) * 100f:F1} cm "
+                 + "off the route's own endpoint";
+        }
+
         /// <summary>The heap where two skirtings meet. Both runs fade out over
         /// their last 14 cm, and this is what stands in the gap — which is also
         /// what a real cellar corner collects.</summary>
@@ -2519,23 +2890,45 @@ namespace GloomhavenVR
 
         /// <summary>A rat, ~20 cm of body and 20 cm of tail, built nose-down-Z-
         /// forward at the origin with the gait weights in its vertex colours
-        /// (r tail, g leg, b leg phase). EnvCritter walks it along its Bezier.</summary>
+        /// (r tail, g leg, b leg phase). EnvCritter walks it along its Bezier.
+        ///
+        /// <para>RAT SOLID, ModBuild 140. Two things made this animal
+        /// see-through, and only one of them was the winding bug documented over
+        /// AddTube. The other is here: every tube was OPEN. The rump ended in a
+        /// 4.8 cm hole, each ear in a 2.1 cm one, each foot in a 1.1 cm one, and
+        /// an open end shows the inside of the far wall of the tube from any
+        /// angle that can see into it. AddTube caps both ends now, and the body
+        /// gains a shrunken ring at each end so those caps are a 1.8 cm rump
+        /// button and a 4 mm nose tip rather than two blunt plates — a capped
+        /// cylinder read as a sawn-off pipe from behind, which is not what the
+        /// fix is for.</para>
+        ///
+        /// <para>NOT DONE, deliberately: eyes. The material's albedo is one
+        /// belly-to-back lerp with no third slot to put a dark bead in, and at
+        /// the 3-5 m this animal is ever seen from in a room whose brightest
+        /// light is a candle, two 3 mm spheres are below a pixel. The silhouette
+        /// — rump, arched back, snout, ears, tail — is what identifies it, and
+        /// that is what the closure work above was spent on.</para></summary>
         private static Mesh RatMesh()
         {
             var a = new Acc();
             var fur = new Color(0f, 0f, 0f, 1f);
 
-            // body + head as one tube: rump -> shoulders -> muzzle
+            // body + head as one tube: rump -> shoulders -> muzzle. The first and
+            // last rings are the ROUNDING (see the summary): small radii set back
+            // from the ends so the caps read as curvature, not as a cut.
             var bc = new[]
             {
+                new Vector3(0, 0.042f, -0.062f),
                 new Vector3(0, 0.044f, -0.045f), new Vector3(0, 0.048f, -0.010f),
                 new Vector3(0, 0.052f,  0.028f), new Vector3(0, 0.054f,  0.066f),
                 new Vector3(0, 0.052f,  0.100f), new Vector3(0, 0.050f,  0.126f),
                 new Vector3(0, 0.046f,  0.156f), new Vector3(0, 0.040f,  0.182f),
+                new Vector3(0, 0.038f,  0.191f),
             };
-            var br = new[] { 0.024f, 0.036f, 0.042f, 0.041f, 0.034f, 0.027f, 0.018f, 0.006f };
-            var bcol = new[] { fur, fur, fur, fur, fur, fur, fur, fur };
-            var balong = new[] { 0f, 0.12f, 0.28f, 0.45f, 0.62f, 0.75f, 0.88f, 1f };
+            var br = new[] { 0.009f, 0.024f, 0.036f, 0.042f, 0.041f, 0.034f, 0.027f, 0.018f, 0.006f, 0.002f };
+            var bcol = new[] { fur, fur, fur, fur, fur, fur, fur, fur, fur, fur };
+            var balong = new[] { 0f, 0.06f, 0.17f, 0.32f, 0.48f, 0.63f, 0.76f, 0.88f, 0.97f, 1f };
             AddTube(a, bc, br, bcol, balong, 8);
 
             // the tail: trails back, lifts, and tapers to a whip
@@ -2586,7 +2979,293 @@ namespace GloomhavenVR
                 AddTube(a, ec, new[] { 0.0125f, 0.0105f }, new[] { fur, fur }, new[] { 0f, 1f }, 6);
             }
             Ear(1f); Ear(-1f);
+
+            // Prove the claim the shader's Cull Back depends on, rather than
+            // asserting it: every edge of a closed, consistently wound surface is
+            // used by exactly two triangles in opposite directions. (Tubes here
+            // interpenetrate rather than share vertices, so this is per-part
+            // closure, which is what opaque depth testing needs.)
+            AssertClosedAndOutward(a, "Rat");
             return a.Build("Env_C_Rat");
+        }
+
+        /// <summary>Fail the build if an accumulator's triangles are not a set of
+        /// closed, outward-facing shells. Three checks, ALL of which the rat
+        /// failed before ModBuild 140. That is not a guess: put the old winding
+        /// and the open ends back and this bake stops with "82 unpaired edge(s),
+        /// signed volume -770 cm^3, 282/282 triangles wound against their own
+        /// normal" — 82 being exactly the nine open tube mouths, and the minus
+        /// sign being the whole of the user's ModBuild 139 report:
+        /// <list type="number">
+        /// <item>EVERY directed edge (i,j) has exactly one partner (j,i). An open
+        /// end leaves unpaired edges — that is the rump hole; a mirrored part
+        /// leaves duplicated ones. Edges are keyed on WELDED POSITIONS, not on
+        /// indices: a tube's seam and its cap rim are deliberately duplicated
+        /// vertices (they carry different uv and normals) sitting on the same
+        /// point, and an index-keyed test would call every seam a hole.</item>
+        /// <item>The signed volume of the whole index set is POSITIVE. Flip the
+        /// winding of a closed shell and this goes negative — it is the one test
+        /// that tells inward from outward without a camera, and it is what
+        /// "prove which way the faces point rather than assuming" means when you
+        /// cannot render a frame.</item>
+        /// <item>NO triangle disagrees with the normal its own vertices carry.
+        /// The volume test is a sum and can average one flipped part away; this
+        /// one is per-triangle and cannot.</item>
+        /// </list></summary>
+        private static void AssertClosedAndOutward(Acc a, string what)
+        {
+            var weld = new Dictionary<(long, long, long), int>();
+            var id = new int[a.Count];
+            for (int i = 0; i < a.Count; i++)
+            {
+                var p = a.V[i];
+                var key = ((long)Mathf.RoundToInt(p.x * 1e5f),
+                           (long)Mathf.RoundToInt(p.y * 1e5f),
+                           (long)Mathf.RoundToInt(p.z * 1e5f));
+                if (!weld.TryGetValue(key, out int w)) { w = weld.Count; weld[key] = w; }
+                id[i] = w;
+            }
+            var edge = new Dictionary<long, int>();
+            long Key(int i, int j) => (long)i * 1000003L + j;
+            for (int k = 0; k < a.T.Count; k += 3)
+                for (int e = 0; e < 3; e++)
+                {
+                    int i = id[a.T[k + e]], j = id[a.T[k + (e + 1) % 3]];
+                    if (i == j) continue;                       // degenerate sliver
+                    long back = Key(j, i);
+                    if (edge.TryGetValue(back, out int cnt) && cnt > 0) edge[back] = cnt - 1;
+                    else { edge.TryGetValue(Key(i, j), out int c2); edge[Key(i, j)] = c2 + 1; }
+                }
+            int open = edge.Values.Sum();
+            double vol = 0;
+            for (int k = 0; k < a.T.Count; k += 3)
+            {
+                Vector3 p = a.V[a.T[k]], q = a.V[a.T[k + 1]], r = a.V[a.T[k + 2]];
+                vol += Vector3.Dot(p, Vector3.Cross(q, r)) / 6.0;
+            }
+            // dot(n, N) over the surface: how many triangles agree with the normal
+            // they were authored with. A single disagreement is a winding slip in
+            // one part, which the volume test can average away.
+            int wrong = 0;
+            for (int k = 0; k < a.T.Count; k += 3)
+            {
+                Vector3 p = a.V[a.T[k]], q = a.V[a.T[k + 1]], r = a.V[a.T[k + 2]];
+                Vector3 fn = Vector3.Cross(q - p, r - p);
+                Vector3 vn = a.N[a.T[k]] + a.N[a.T[k + 1]] + a.N[a.T[k + 2]];
+                if (Vector3.Dot(fn, vn) < 0f) wrong++;
+            }
+            int tris = a.T.Count / 3;
+            if (open != 0 || vol <= 0 || wrong > 0)
+                throw new Exception($"{what} mesh is not a closed outward solid: {open} unpaired edge(s), "
+                                    + $"signed volume {vol * 1e6:F0} cm^3, {wrong}/{tris} triangles wound "
+                                    + "against their own normal. An inward-wound or open critter is "
+                                    + "invisible from the side you look at it from (ModBuild 139).");
+            Debug.Log($"[GloomhavenVR][Env] {what} mesh CLOSED and OUTWARD: {a.Count} verts, {tris} tris, "
+                      + $"0 unpaired edges, signed volume +{vol * 1e6:F1} cm^3, "
+                      + "0 triangles disagreeing with their vertex normals.");
+        }
+
+        /// <summary>One crossing's Bezier, with the two middle control points
+        /// displaced. Identical to EnvCritter's Bez().</summary>
+        private static Vector3 RatBez(float u, Vector3 d1, Vector3 d2)
+        {
+            float k = 1f - u;
+            return k * k * k * RatW0 + 3f * k * k * u * (RatW1 + d1)
+                 + 3f * k * u * u * (RatW2 + d2) + u * u * u * RatW3;
+        }
+
+        /// <summary>The wander of slot `n`, on the same hash channels the shader
+        /// reads (7,8 for P1 and 9,10 for P2).</summary>
+        private static void RatWander(int n, out Vector3 d1, out Vector3 d2)
+        {
+            d1 = new Vector3(RatWob1.z + RatWob1.x * (2f * RatH(n, 7) - 1f), 0f,
+                             RatWob1.w + RatWob1.y * (2f * RatH(n, 8) - 1f));
+            d2 = new Vector3(RatWob2.z + RatWob2.x * (2f * RatH(n, 9) - 1f), 0f,
+                             RatWob2.w + RatWob2.y * (2f * RatH(n, 10) - 1f));
+        }
+
+        /// <summary>Everywhere the rat can EVER be at curve parameter u, as an
+        /// axis-aligned rectangle in the floor plane.
+        ///
+        /// <para>This is not a bound, it is the exact set, and the reason is
+        /// worth one line: the Bezier is affine in P1 and P2, the two
+        /// coefficients 3k^2u and 3ku^2 are non-negative, and both wander
+        /// rectangles are axis-aligned — so the reachable set is the (scaled)
+        /// Minkowski sum of two axis-aligned rectangles, which is an
+        /// axis-aligned rectangle. Distance from a point to it is then exact and
+        /// costs four subtractions, which is what makes it affordable to test
+        /// every barrel vertex against the whole family of routes.</para></summary>
+        private static void RatBox(float u, out Vector3 ctr, out Vector2 half)
+        {
+            float k = 1f - u, c1 = 3f * k * k * u, c2 = 3f * k * u * u;
+            ctr = RatBez(u, Vector3.zero, Vector3.zero)
+                + new Vector3(c1 * RatWob1.z + c2 * RatWob2.z, 0f, c1 * RatWob1.w + c2 * RatWob2.w);
+            half = new Vector2(c1 * RatWob1.x + c2 * RatWob2.x, c1 * RatWob1.y + c2 * RatWob2.y);
+        }
+
+        private static float RatBoxDist(Vector2 p, Vector3 ctr, Vector2 half)
+        {
+            float dx = Mathf.Max(Mathf.Abs(p.x - ctr.x) - half.x, 0f);
+            float dz = Mathf.Max(Mathf.Abs(p.y - ctr.z) - half.y, 0f);
+            return Mathf.Sqrt(dx * dx + dz * dz);
+        }
+
+        /// <summary>Prove the whole route family is legal, and then PRINT it, so
+        /// that a reader with the log and no Unity can check the rat: how many
+        /// routes there are and how long they are, how the intervals and speeds
+        /// spread, what fraction of crossings are reversed / turn back / stop to
+        /// sniff, and that all of it is a pure function of the shared clock.
+        ///
+        /// <para>Three build gates, in the order they have historically been
+        /// broken: the 6.5 m PLAY SPACE (the rat is exempt from
+        /// AssertPlaySpaceClear — its mesh sits at the origin and the shader
+        /// moves it, so no vertex walk can see where it goes); the WALLS; and the
+        /// BARRELS, whose clearance is measured against their real vertices below
+        /// rat height rather than against a guessed radius. The CRATES are
+        /// deliberately not gated: the route ends underneath them, which is the
+        /// authored ending ("...before it disappears under the crates").</para></summary>
+        private static void AssertRatSchedule(Transform root, Vector3 beam, Vector3 beamDir)
+        {
+            const int US = 2000, SLOTS = 3000;
+            float lim = CellarPlaySpaceDia * 0.5f;
+            const float RatHalfWidth = 0.06f;   // body radius plus the spine wave
+
+            // ---- gate 1+2: the reachable set against the disc and the walls
+            float nearCentre = float.MaxValue, atU = 0f;
+            float xLo = float.MaxValue, xHi = -float.MaxValue, zLo = float.MaxValue, zHi = -float.MaxValue;
+            float spread = 0f;
+            for (int i = 0; i <= US; i++)
+            {
+                float u = i / (float)US;
+                RatBox(u, out var ctr, out var half);
+                float d = RatBoxDist(Vector2.zero, ctr, half);
+                if (d < nearCentre) { nearCentre = d; atU = u; }
+                xLo = Mathf.Min(xLo, ctr.x - half.x); xHi = Mathf.Max(xHi, ctr.x + half.x);
+                zLo = Mathf.Min(zLo, ctr.z - half.y); zHi = Mathf.Max(zHi, ctr.z + half.y);
+                spread = Mathf.Max(spread, 2f * half.magnitude);
+            }
+            if (nearCentre - RatHalfWidth < lim)
+                throw new Exception($"Rat route family reaches {nearCentre - RatHalfWidth:F2} m from the room "
+                                    + $"centre at u={atU:F2} — inside the {CellarPlaySpaceDia:F1} m PlaySpace. "
+                                    + "Shrink _Wob1/_Wob2 or move a control point outward.");
+            float wallX = CW / 2f - Mathf.Max(Mathf.Abs(xLo), Mathf.Abs(xHi));
+            float wallZ = CD / 2f - Mathf.Max(Mathf.Abs(zLo), Mathf.Abs(zHi));
+            if (wallX < 0.10f)
+                throw new Exception($"Rat route family comes within {wallX:F2} m of a side wall.");
+
+            // ---- gate 3: the barrels, against their own geometry
+            string worstProp = "-"; float worstGap = float.MaxValue;
+            var propGaps = new List<string>();
+            foreach (var nm in new[] { "Barrel0", "Barrel1", "Barrel2", "Bucket" })
+            {
+                var go = root.Find(nm)?.gameObject;
+                if (go == null) continue;
+                float gap = float.MaxValue, atV = 0f, atW = 0f, atRu = 0f;
+                foreach (var p in WorldVerts(go))
+                {
+                    if (p.y > 0.25f) continue;          // only what the rat can hit
+                    var p2 = new Vector2(p.x, p.z);
+                    for (int i = 0; i <= 400; i++)
+                    {
+                        RatBox(i / 400f, out var ctr, out var half);
+                        float d = RatBoxDist(p2, ctr, half);
+                        if (d < gap) { gap = d; atV = p.x; atW = p.z; atRu = i / 400f; }
+                    }
+                }
+                gap -= RatHalfWidth;
+                propGaps.Add($"{nm} {gap:F2} m (its ({atV:F2},{atW:F2}) against u={atRu:F2})");
+                if (gap < worstGap) { worstGap = gap; worstProp = nm; }
+            }
+            string propLine = string.Join(", ", propGaps);
+            if (worstGap < 0.05f)
+                throw new Exception($"Rat route family passes {worstGap:F2} m from '{worstProp}' — it would walk "
+                                    + $"through it. Clearances: {propLine}. Restrain _Wob2 (it is the control "
+                                    + "point whose influence peaks among the barrels), or bias it away.");
+
+            // ---- the schedule itself, measured over SLOTS slots of the clock
+            float ArcLen(Vector3 d1, Vector3 d2, float to)
+            {
+                float len = 0f; var prev = RatBez(0f, d1, d2);
+                for (int i = 1; i <= 200; i++)
+                {
+                    var p = RatBez(to * i / 200f, d1, d2);
+                    len += Vector3.Distance(p, prev); prev = p;
+                }
+                return len;
+            }
+            int runs = 0, revs = 0, turns = 0, sniffs = 0;
+            var distinct = new HashSet<(int, int, int, int)>();   // routes to the nearest cm
+            float lenLo = float.MaxValue, lenHi = 0f, spdLo = float.MaxValue, spdHi = 0f;
+            float durLo = float.MaxValue, durHi = 0f, endLatest = 0f;
+            float beamLo = float.MaxValue, beamHi = 0f, beamCross = 0f;
+            float lastStart = float.NaN; var gaps = new List<float>();
+            for (int n = 0; n < SLOTS; n++)
+            {
+                if (RatH(n, 0) < RatSkip) continue;
+                RatWander(n, out var d1, out var d2);
+                distinct.Add((Mathf.RoundToInt(d1.x * 100f), Mathf.RoundToInt(d1.z * 100f),
+                              Mathf.RoundToInt(d2.x * 100f), Mathf.RoundToInt(d2.z * 100f)));
+                bool turn = RatH(n, 4) < RatModes.y;
+                float peak = turn ? RatPeak.x + RatPeak.y * RatH(n, 5) : 1f;
+                float travel = turn ? 2f * peak : 1f;
+                float runT = RatRunTime * travel * (RatTiming.z + RatTiming.w * RatH(n, 2));
+                float start = RatPeriod * (RatTiming.x + RatTiming.y * RatH(n, 1));
+                float t0 = n * RatPeriod + start;
+                if (!float.IsNaN(lastStart)) gaps.Add(t0 - lastStart);
+                lastStart = t0;
+                endLatest = Mathf.Max(endLatest, start + runT);
+
+                float len = ArcLen(d1, d2, peak) * (turn ? 2f : 1f);
+                lenLo = Mathf.Min(lenLo, len); lenHi = Mathf.Max(lenHi, len);
+                spdLo = Mathf.Min(spdLo, len / runT); spdHi = Mathf.Max(spdHi, len / runT);
+                durLo = Mathf.Min(durLo, runT); durHi = Mathf.Max(durHi, runT);
+
+                float near = float.MaxValue;
+                for (int i = 0; i <= 120; i++)
+                {
+                    var rel = RatBez(peak * i / 120f, d1, d2) - beam;
+                    near = Mathf.Min(near, (rel - beamDir * Vector3.Dot(rel, beamDir)).magnitude);
+                }
+                beamLo = Mathf.Min(beamLo, near); beamHi = Mathf.Max(beamHi, near);
+                if (near < 0.80f) beamCross++;      // 0.80 = the material's _ShaftR
+
+                runs++;
+                if (RatH(n, 3) < RatModes.x) revs++;
+                if (turn) turns++;
+                else if (RatH(n, 6) < RatModes.z) sniffs++;
+            }
+            // A run that overran its slot would be cut off mid-floor when sIn
+            // wraps — the one way this scheme can produce a rat that vanishes in
+            // the open, so it is a gate and not a note.
+            if (endLatest > RatPeriod)
+                throw new Exception($"A crossing can still be running {endLatest:F1} s into a {RatPeriod:F0} s "
+                                    + "slot: it would be cut off in the open. Lower _Timing.x/.y or _RunTime.");
+            gaps.Sort();
+            Debug.Log(
+                $"[GloomhavenVR][Env] Cellar rat — a SCHEDULE, not a loop (user: \"mehr random statt immer "
+                + $"den selben weg\"). Everything below is H(slot,k) of the SHARED clock alone "
+                + $"(_Time.y+_GhvrTimeOfs, slot = floor(t/{RatPeriod:F0} s)): no Random, no per-client state, "
+                + "no sin() in the hash, so two clients compute the same bits.\n"
+                + $"  ROUTES: a continuum, not a list — P1 wanders +-{RatWob1.x:F2}/{RatWob1.y:F2} m about "
+                + $"({RatWob1.z:F2},{RatWob1.w:F2}), P2 +-{RatWob2.x:F2}/{RatWob2.y:F2} m about "
+                + $"({RatWob2.z:F2},{RatWob2.w:F2}); up to {spread:F2} m of lateral spread, arc length "
+                + $"{lenLo:F2}..{lenHi:F2} m (the single old route was 9.90 m). {distinct.Count} of the "
+                + $"{runs} crossings below take a route no other one takes, measured to the nearest cm.\n"
+                + $"  MODES over {SLOTS} slots: {runs} crossings ({100f * (SLOTS - runs) / SLOTS:F0}% of slots "
+                + $"quiet), {100f * revs / runs:F0}% out of the south hole instead of the north, "
+                + $"{100f * turns / runs:F0}% turn back into the hole they came from at u="
+                + $"{RatPeak.x:F2}..{RatPeak.x + RatPeak.y:F2}, {100f * sniffs / runs:F0}% of all crossings "
+                + $"(= {100f * RatModes.z:F0}% of the straight ones) stop to sniff.\n"
+                + $"  TIMING: gap between crossings {gaps[0]:F0}..{gaps[gaps.Count - 1]:F0} s "
+                + $"(median {gaps[gaps.Count / 2]:F0} s); each lasts {durLo:F1}..{durHi:F1} s at "
+                + $"{spdLo:F2}..{spdHi:F2} m/s; latest a run can still be going is {endLatest:F1} s of "
+                + $"the {RatPeriod:F0} s slot.\n"
+                + $"  CLEARANCE, over the WHOLE family and not just one route: play-space "
+                + $"{nearCentre - RatHalfWidth:F2} m (needs >= {lim:F2}); side walls {wallX:F2} m "
+                + $"(the {wallZ:F2} m in z is the two HOLES, which are in the wall on purpose); "
+                + $"props {propLine} (the crates are exempt — it ends "
+                + $"under them on purpose). Moon-beam axis {beamLo:F2}..{beamHi:F2} m, "
+                + $"{100f * beamCross / runs:F0}% of crossings inside the 0.80 m the beam lights.");
         }
 
         /// <summary>A cobweb SHEET: one span of silk strung across an opening or
@@ -2916,38 +3595,27 @@ namespace GloomhavenVR
             // it) while its closest approach to the room centre stays at 3.41 m,
             // outside the 3.25 m PlaySpace radius. Move a control point and check
             // both of those again.
+            // Since ModBuild 140 these four points are the SPINE of a family of
+            // routes rather than the route (see RatWob1/RatWob2 next to them):
+            // the wander is small enough that the story above still happens on
+            // every crossing — the log prints what fraction of them are inside
+            // the beam — and large enough that no two crossings are the same.
             // (the four points themselves live next to DraftDir now — the wall
             // rubble has to keep the holes at w0/w3 clear, see HEWN)
             Vector3 w0 = RatW0, w1 = RatW1, w2 = RatW2, w3 = RatW3;
-            // ...and both of those claims are CHECKED, because they are the two
-            // things a future edit to the route would silently break.
-            {
-                Vector3 Bez(float u)
-                {
-                    float k = 1f - u;
-                    return k * k * k * w0 + 3f * k * k * u * w1 + 3f * k * u * u * w2 + u * u * u * w3;
-                }
-                var beam = MoonBeamHit();
-                var bd = -MoonDir.normalized;
-                float nearCentre = float.MaxValue, nearBeam = float.MaxValue;
-                for (int i = 0; i <= 240; i++)
-                {
-                    var p = Bez(i / 240f);
-                    nearCentre = Mathf.Min(nearCentre, new Vector2(p.x, p.z).magnitude);
-                    var rel = p - beam;
-                    nearBeam = Mathf.Min(nearBeam, (rel - bd * Vector3.Dot(rel, bd)).magnitude);
-                }
-                if (nearCentre < CellarPlaySpaceDia * 0.5f)
-                    throw new Exception($"Rat path reaches {nearCentre:F2} m from the room centre — inside the "
-                                        + $"{CellarPlaySpaceDia:F1} m PlaySpace. Move a control point outward.");
-                Debug.Log($"[GloomhavenVR][Env] Rat path: nearest the room centre {nearCentre:F2} m "
-                          + $"(needs >= {CellarPlaySpaceDia * 0.5f:F2}), nearest the moon beam axis {nearBeam:F2} m "
-                          + "(it has to cross it, not pass by).");
-            }
+            // ...and all of those claims are CHECKED — over the whole family of
+            // routes the schedule can produce, not just the one drawn by the four
+            // points above. See AssertRatSchedule: it is also where the bake log
+            // gets its route/interval/speed measurements from.
+            AssertRatSchedule(root, MoonBeamHit(), -MoonDir.normalized);
 
             var pathBox = new Bounds(w0, Vector3.zero);
             foreach (var p in new[] { w1, w2, w3 }) pathBox.Encapsulate(p);
-            pathBox.Expand(new Vector3(0.7f, 0.8f, 0.7f));
+            // The wander widens the swept volume as well as the route: the box
+            // has to hold the FAMILY, or Unity frustum-culls the animal on the
+            // runs that leave the old envelope.
+            pathBox.Expand(new Vector3(0.7f + 2f * (RatWob1.x + RatWob2.x), 0.8f,
+                                       0.7f + 2f * (RatWob1.y + RatWob2.y)));
             var ratMesh = SaveMesh("Env_C_Rat.asset", RatMesh(), pathBox);
             var ratMat = NewRoomMat("C_Rat.mat", "GloomhavenVR/EnvCritter");
             ratMat.SetColor("_Tint", new Color(0.36f, 0.310f, 0.280f));
@@ -2963,29 +3631,40 @@ namespace GloomhavenVR
             ratMat.SetColor("_ShaftCol", new Color(0.55f, 0.70f, 1.05f));
             ratMat.SetVector("_W0", w0); ratMat.SetVector("_W1", w1);
             ratMat.SetVector("_W2", w2); ratMat.SetVector("_W3", w3);
-            ratMat.SetFloat("_Period", 31f);
-            ratMat.SetFloat("_RunTime", 4.6f);
-            // Phase 0: the run starts at t=0 of the shader clock. That is not a
-            // detail — it is what lets a preview time series (and a reviewer with
-            // a stopwatch) see the whole run at known offsets.
+            ratMat.SetFloat("_Period", RatPeriod);
+            ratMat.SetFloat("_RunTime", RatRunTime);
+            // Phase 0: slot 0 starts at t=0 of the shared clock. That is not a
+            // detail — it is what lets a reviewer with the log and a stopwatch
+            // predict which crossing happens when.
             ratMat.SetFloat("_Phase", 0f);
-            ratMat.SetFloat("_Dart", 0.062f);
-            ratMat.SetFloat("_Stride", 24f);
+            ratMat.SetFloat("_Dart", RatDart);
+            ratMat.SetFloat("_Stride", RatStride);
             ratMat.SetFloat("_Scale", 1f);
+            // the schedule — proven legal by AssertRatSchedule above
+            ratMat.SetFloat("_Skip", RatSkip);
+            ratMat.SetVector("_Timing", RatTiming);
+            ratMat.SetVector("_Modes", RatModes);
+            ratMat.SetVector("_Peak", RatPeak);
+            ratMat.SetVector("_Wob1", RatWob1);
+            ratMat.SetVector("_Wob2", RatWob2);
             var ratGo = Place(root, "Rat", ratMesh, Vector3.zero, Vector3.zero, Vector3.one, ratMat);
             Defer(ratMat, ratGo.transform, 1f);
 
-            // ...and the holes it uses. Nothing bigger than a fist, black inside.
-            // (Quads face INTO the room: AddQuad's facing is cross(halfV,halfU).)
-            var holes = new Acc();
-            AddQuad(holes, new Vector3(w0.x, 0.062f, hd - 0.022f),
-                    new Vector3(0.082f, 0, 0), new Vector3(0, 0.062f, 0), Color.white);
-            AddQuad(holes, new Vector3(w3.x, 0.058f, -hd + 0.022f),
-                    new Vector3(-0.078f, 0, 0), new Vector3(0, 0.058f, 0), Color.white);
-            var holeMat = NewRoomMat("C_RatHole.mat", "GloomhavenVR/EnvRoom");
-            holeMat.SetColor("_Tint", new Color(0.012f, 0.011f, 0.010f));
-            Place(root, "RatHoles", SaveMesh("Env_C_RatHoles.asset", holes.Build("Env_C_RatHoles")),
-                  Vector3.zero, Vector3.zero, Vector3.one, holeMat);
+            // ...and the holes it uses are NOT here any more. Until ModBuild 140
+            // they were two AddQuad rectangles on a near-black material, which is
+            // what the user saw: "ein viereckiges schwarzes Rechteck ... nicht
+            // sehr immersiv". They are now real openings cut out of the wall with
+            // a recess behind them, built where the rest of the masonry is built
+            // (AddRatHole, called from the HEWN block in BuildCellarRoom) so they
+            // share the stonework's material, its vertex-colour darkening and its
+            // draw call. The two dead assets go with them — a bundle that still
+            // ships Env_C_RatHoles would be shipping the bug.
+            foreach (var dead in new[] { MeshDir + "/Env_C_RatHoles.asset", MatDir + "/C_RatHole.mat" })
+                if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(dead) != null)
+                {
+                    AssetDatabase.DeleteAsset(dead);
+                    Debug.Log($"[GloomhavenVR][Env] Removed the ModBuild 139 flat rat hole: {dead}");
+                }
 
             // --------------------------------------------------------- the eyes
             // Between the barrels in the south-west, where no candle reaches.
@@ -3533,34 +4212,66 @@ namespace GloomhavenVR
             /// can stay small — which is what keeps a trunk's shadow ATTACHED to
             /// its foot instead of peter-panning half a metre away from it.</summary>
             public float Bias = 0.06f;
-            /// <summary>What one RECEIVER makes of the map. Strength and
-            /// penumbra are taste; MaxThrow and Fall are the authored fiction
-            /// (see the MAXIMUM THROW block above the class), and they are per
-            /// receiver because the floor and the open air are not asking the
-            /// same question.
+            /// <summary>What one RECEIVER makes of the map. Penumbra is taste;
+            /// everything else is measured, and all of it is PER RECEIVER because
+            /// the floor and the open air are not asking the same question.
+            ///
+            /// MinVis — the MINIMUM VISIBILITY, and the safety rail of the whole
+            /// feature. A fragment the map calls fully occluded keeps this much
+            /// of its moon term and no less, so a beam can be cut to a hard dark
+            /// band and still ARRIVE at the pool it lands in, and a patch of
+            /// shadowed floor is still floor rather than a hole. It goes to the
+            /// shaders as 1 - MinVis, which is what used to be called "strength"
+            /// — the two are one number seen from opposite ends, and the code now
+            /// names it from the end that has to be defended. It is the rail that
+            /// lets Throw and the bite below be aggressive: the first pass had no
+            /// rail and extinguished all three shafts (81% occluded, 0% clear).
+            ///
+            /// BiteLo/BiteHi — the coverage remap, and THE fix for ModBuild 139's
+            /// "the beams are still smooth". A fir crown is an alpha-tested sieve
+            /// (23.6% of the atlas is over the cutoff), so a beam crossing the
+            /// crown mass collects a MOTTLE of 0.2-0.5 coverage over metres of its
+            /// length; averaged linearly that is a uniform dimming and reads as
+            /// "the beam got fainter", never as "a bough crosses the beam". The
+            /// log said the lower runs were 42% occluded and the screenshot showed
+            /// no band anywhere, and both were true at once. Coverage below BiteLo
+            /// now counts for nothing and coverage above BiteHi for everything,
+            /// which is also the physics (extinction is exponential in the needle
+            /// mass crossed, not linear in a sub-texel average). The tap disc still
+            /// averages BEFORE the remap, so a shadow's own edge keeps its
+            /// penumbra; what the ramp deletes is the flat middle.
+            ///
+            /// MaxThrow/Fall are the authored fiction — see the MAXIMUM THROW
+            /// block above the class.
             ///
             /// THE FLOOR wants a long throw: a trunk at the clearing edge is
             /// 6-12 m up-light of the middle of the clearing, and that rake
             /// across the floor is the effect the user asked for.
             ///
-            /// THE BLADES want a short one, and this had to be measured to be
+            /// THE BLADES want a shorter one, and this had to be measured to be
             /// believed. Air five metres up inside the wood is not like floor:
             /// the ray from it to the moon climbs 0.84 m per metre while the
             /// canopy only climbs 0.30, so at 6-9 m up-light it is still deep
             /// inside the crown mass at r 10-16. On the floor those crowns are
             /// 14 m away and the throw excludes them; from mid-air they are 3-8 m
             /// away and a floor-sized throw includes them. Measured with a 9 m
-            /// throw the beams' lower runs came out 20-48% lit — the visible half
-            /// of every shaft, the half that lands in the pool, mostly gone. A
-            /// 4 m throw keeps only what a beam is essentially INSIDE: a trunk it
-            /// passes through leaves a 2-4 m dark band in eighteen metres of
-            /// beam, which is what "the tree casts a shadow" looks like, and the
-            /// roof does not participate.</summary>
+            /// throw and NO bite ramp the beams' lower runs came out 20-48% lit —
+            /// the visible half of every shaft evaporating into a smooth
+            /// grey. With the ramp that trade changes completely: a long throw is
+            /// now what FINDS the boughs, and the ramp is what decides which of
+            /// them are solid enough to draw.</summary>
             public struct Look
             {
-                public float Strength, Penumbra, MaxThrow, Fall;
-                public Look(float strength, float penumbra, float maxThrow, float fall)
-                { Strength = strength; Penumbra = penumbra; MaxThrow = maxThrow; Fall = fall; }
+                public float MinVis, Penumbra, MaxThrow, Fall, BiteLo, BiteHi;
+                /// <summary>What the shaders receive: a fully occluded fragment is
+                /// multiplied by 1 - Strength, i.e. by MinVis.</summary>
+                public float Strength => 1f - MinVis;
+                public Look(float minVis, float penumbra, float maxThrow, float fall,
+                            float biteLo, float biteHi)
+                {
+                    MinVis = minVis; Penumbra = penumbra; MaxThrow = maxThrow; Fall = fall;
+                    BiteLo = biteLo; BiteHi = biteHi;
+                }
             }
 
             /// <summary>One welded mesh to rasterise. Mask is the alpha-test
@@ -3820,11 +4531,15 @@ namespace GloomhavenVR
                 return 1f - sh;
             }
 
-            /// <summary>CsVisible on the CPU, seven taps and all. This is what
-            /// places the shafts in gaps that are genuinely open and what the
-            /// report's clearing-floor number is measured with: the same map
-            /// answering the same question, so the geometry, the shading and the
-            /// build log can never disagree about where the light gets through.
+            /// <summary>CsVisible on the CPU, seven taps and all — INCLUDING the
+            /// bite remap and the visibility floor, so what this returns is the
+            /// number the shader multiplies into its moon term and not a
+            /// geometric proxy for it. That mattered: ModBuild 139 reported "80%
+            /// lit" from the raw tap average while the shader, with its strength
+            /// applied, was drawing something else, and a report you have to
+            /// mentally re-scale is a report that gets misread. It is also what
+            /// places the shafts, so the search, the shading and the build log
+            /// can never disagree about where the light gets through.
             /// (EnvGround runs six taps rather than seven; the difference is
             /// under a percent and is not worth a second code path here.)</summary>
             public float Visible(Vector3 p, Look k, bool useNear)
@@ -3840,10 +4555,12 @@ namespace GloomhavenVR
                           + Tap(c.x + 0.000f * fu, c.y - 1.000f * fv, z, useNear, k)
                           + Tap(c.x + 0.866f * fu, c.y - 0.500f * fv, z, useNear, k);
                 vis /= 7f;
+                float sh = Mathf.Clamp01(((1f - vis) - k.BiteLo)
+                                         / Mathf.Max(k.BiteHi - k.BiteLo, 1e-3f));
                 float q = Mathf.Max(Mathf.Abs(c.x - 0.5f), Mathf.Abs(c.y - 0.5f));
                 float edge = Mathf.Clamp01((0.5f - q) * 40f);
                 if (z < 0f || z > 1f) edge = 0f;
-                return 1f - (1f - vis) * edge;
+                return 1f - k.Strength * sh * edge;
             }
 
             /// <summary>Encode and write. R:G is the 16-bit linear depth of the
@@ -3922,14 +4639,27 @@ namespace GloomhavenVR
                 // both in the map's own encoded depth units
                 float throwEnc = k.MaxThrow * EncPerMetre;
                 float fallEnc = Mathf.Max(k.Fall, 1e-3f) * EncPerMetre;
-                m.SetVector("_CsThrow", new Vector4(throwEnc, 1f / fallEnc, 0f, 0f));
-                Debug.Log($"[GloomhavenVR][Env] Canopy shadow -> {m.name}: strength {k.Strength:F2}, "
+                // z/w are the BITE ramp: coverage below z is speckle and casts
+                // nothing, coverage above z + 1/w is a solid occluder and casts
+                // everything. See Look.BiteLo.
+                m.SetVector("_CsThrow", new Vector4(throwEnc, 1f / fallEnc,
+                                                    k.BiteLo, 1f / Mathf.Max(k.BiteHi - k.BiteLo, 1e-3f)));
+                Debug.Log($"[GloomhavenVR][Env] Canopy shadow -> {m.name}: a fully occluded fragment "
+                          + $"keeps {k.MinVis * 100f:F0}% of its moon (strength {k.Strength:F2}), "
                           + $"penumbra {k.Penumbra * 100f:F0} cm ({k.Penumbra / ExtentU * Res:F1} x "
                           + $"{k.Penumbra / ExtentV * Res:F1} texels), throw {k.MaxThrow:F1} m "
-                          + $"releasing over {k.Fall:F1} m.");
+                          + $"releasing over {k.Fall:F1} m, bite ramp {k.BiteLo * 100f:F0}%..{k.BiteHi * 100f:F0}% coverage.");
             }
 
-            public void Report(Func<float, float, float> groundY, float clearR, Look floor)
+            /// <summary><paramref name="shade"/> is EnvGround's own arithmetic for
+            /// a flat, up-facing patch of clearing floor: (x, z, moon visibility)
+            /// -> luminance per unit albedo. It is what turns a shadow PERCENTAGE
+            /// into the only number that decides whether the user can see
+            /// anything — the RATIO between a lit and a shadowed patch in final
+            /// shaded brightness. A floor whose moon is a tenth of its ambient
+            /// plus point lights can be 100% shadowed and look identical.</summary>
+            public void Report(Func<float, float, float> groundY, float clearR, Look floor,
+                Func<float, float, float, float> shade)
             {
                 // THE NUMBERS THAT PREDICT WHAT HE SEES STANDING AT THE BOARD:
                 // how much of the clearing floor the wood now takes the moon off.
@@ -3944,18 +4674,44 @@ namespace GloomhavenVR
                 // that is at least HALF shadowed: how much of it is inside a
                 // shadow you can point at.
                 float sum = 0f; int n = 0, deep = 0;
+                float litSum = 0f, shdSum = 0f;          // final brightness, lit vs as-shaded
+                float moonSum = 0f;                      // ...and how much of it is MOON
+                float worstRatio = 1f; float worstAt = 0f, worstAtZ = 0f;
+                float deepLit = 0f, deepShd = 0f; int deepN = 0;
                 for (int j = 0; j <= 48; j++)
                     for (int k = 0; k <= 48; k++)
                     {
                         float x = Mathf.Lerp(-clearR, clearR, j / 48f);
                         float z = Mathf.Lerp(-clearR, clearR, k / 48f);
                         if (x * x + z * z > clearR * clearR) continue;
-                        float sh = 1f - Visible(new Vector3(x, groundY(x, z), z), floor, useNear: false);
+                        float vis = Visible(new Vector3(x, groundY(x, z), z), floor, useNear: false);
+                        float sh = 1f - vis;
                         sum += sh; n++;
-                        if (sh >= 0.5f) deep++;
+                        float lit = shade(x, z, 1f), got = shade(x, z, vis);
+                        litSum += lit; shdSum += got; moonSum += lit - shade(x, z, 0f);
+                        if (sh >= 0.5f)
+                        {
+                            deep++; deepLit += lit; deepShd += got;
+                            deepN++;
+                        }
+                        float ratio = got > 1e-6f ? lit / got : 1f;
+                        if (ratio > worstRatio) { worstRatio = ratio; worstAt = x; worstAtZ = z; }
                     }
                 _clearShadow = n > 0 ? sum / n : 0f;
                 _clearDeep = n > 0 ? deep / (float)n : 0f;
+                Debug.Log("[GloomhavenVR][Env] Clearing floor CONTRAST (final shaded luminance per unit "
+                          + "albedo, the ambient + three point lights + landing pool all included as the "
+                          + "separate addends they are): THE MOON IS "
+                          + $"{moonSum / Mathf.Max(litSum, 1e-6f) * 100f:F0}% of the lit floor's brightness "
+                          + "— that is the ceiling on everything a shadow term can do here; "
+                          + $"unshadowed mean {litSum / Mathf.Max(n, 1):F4}, "
+                          + $"as shaded {shdSum / Mathf.Max(n, 1):F4} ({(1f - shdSum / Mathf.Max(litSum, 1e-6f)) * 100f:F1}% off "
+                          + "the clearing's average brightness); over the "
+                          + $"{_clearDeep * 100f:F1}% of it that is at least half shadowed a LIT patch reads "
+                          + $"{(deepN > 0 ? deepLit / Mathf.Max(deepShd, 1e-6f) : 1f):F2}x a SHADOWED one, "
+                          + $"and the deepest shadow in the clearing is {worstRatio:F2}x down at "
+                          + $"({worstAt:F1},{worstAtZ:F1}). THAT ratio, not the shadow percentage, is what "
+                          + "he can or cannot see.");
 
                 long bytes = new FileInfo(_path).Length;
                 // depths reported the way the shader sees them: metres down-light
@@ -3970,7 +4726,7 @@ namespace GloomhavenVR
                           + $"{_wSpan:F1} m encoded range ({_wSpan / 65535f * 1000f:F2} mm per 16-bit "
                           + $"step, bias {Bias * 100f:F1} cm), {_filled * 100f / (Res * Res):F1}% of "
                           + "texels hold an occluder, "
-                          + $"CLEARING FLOOR (r<{ClearR:F1} m) {_clearShadow * 100f:F1}% shadowed on average and {_clearDeep * 100f:F1}% of it at least half shadowed, "
+                          + $"CLEARING FLOOR (r<{ClearR:F1} m) loses {_clearShadow * 100f:F1}% of its moon on average and {_clearDeep * 100f:F1}% of it is at least half shadowed, "
                           + $"{bytes / 1024} KiB on disk / {Res * Res * 4 / 1024} KiB as RGBA32 "
                           + $"in the bundle -> {_path}");
             }
@@ -4298,41 +5054,97 @@ namespace GloomhavenVR
             // than it covers is what turned the wood into a lid the first time.
             canopyShadow.AddCutout(canopy, "Canopy", ImpTex + "/fir_twig_alb.png", 0.50f);
             canopyShadow.Bake(ForestY, shadowRoi);
-            // THE TWO READINGS OF THE ONE MAP. Strength and penumbra are taste;
-            // the throw is the authored fiction, and it is per receiver because
-            // the floor and the open air are not the same problem. See Look.
+            // THE TWO READINGS OF THE ONE MAP. Penumbra is taste; everything
+            // else is per receiver, because the floor and the open air are not
+            // the same problem. See Look.
             //
-            // FLOOR 9.0 m / 3.5 m: full shadow for the first 5.5 m along the
-            // beam (4.2 m of floor), gone by 9.0 (6.9 m of floor). A trunk at
-            // the clearing edge therefore lays a shadow that reaches the middle
-            // of the clearing and dies just past it, and nothing beyond the
-            // second rank of trees can touch the floor at all.
+            // SHAFT BITE, USER FINDING ModBuild 139 (hardware): "Die Mondstrahlen
+            // in der Wald-Umgebung gehen immer noch durch die Bäume durch und
+            // werfen auch keinen Schatten." The 139 numbers had already predicted
+            // it and were read the wrong way round — a beam scored 98% clear over
+            // its upper run and 42% occluded over its lower one produced a
+            // perfectly smooth shaft, because 42% spread evenly over nine metres
+            // of alpha-tested crown speckle is a DIMMING and not a shadow. Three
+            // things are changed together, and none of them works alone:
+            //   1. the candidate search wants a beam that is crossed, not a beam
+            //      that is clear (see the block at the shaft loop),
+            //   2. the BITE RAMP throws away the speckle and takes real crossings
+            //      to full (Look.BiteLo),
+            //   3. and only then can the throw go up, because the ramp is what
+            //      stops a longer throw simply greying the whole beam out.
             //
-            // BLADES 4.0 m / 2.0 m, and this number is the geometry of "the tree
-            // this beam passes THROUGH" rather than "the wood in general". A
-            // blade is 0.8-2.0 m wide and the trunks it crosses are 0.3-0.8 m
-            // through, so a beam is inside a trunk for at most ~1.2 m of its own
-            // length; give it 2 m of full bite and 2 m of release and the trunk
-            // leaves a 2-4 m dark band in eighteen metres of beam — unmissable,
-            // and unmistakably that trunk's. Past 4 m the occluder is no longer
-            // something the beam touches: at 6-9 m up-light a beam five metres
-            // off the ground is simply inside the crown mass at r 10-16 (its ray
-            // climbs 0.84 m per metre of travel while the canopy only climbs
-            // 0.30, so the two converge), and a floor-sized throw there took the
-            // lower runs of all three shafts to 20-48% lit — the visible half of
-            // every beam, the half that has to arrive at the pool, evaporating
-            // halfway down.
+            // FLOOR 9.0 m / 3.5 m, unchanged: full shadow for the first 5.5 m
+            // along the beam (4.2 m of floor), gone by 9.0 (6.9 m of floor). A
+            // trunk at the clearing edge therefore lays a shadow that reaches the
+            // middle of the clearing and dies just past it, and nothing beyond
+            // the second rank of trees can touch the floor at all. Its bite ramp
+            // is 0.26..0.66: the crowns 20-30 m up-light dust the whole clearing
+            // with 0.1-0.25 coverage and that is exactly the faint uniform wash
+            // that must NOT be allowed to darken a hand-tuned floor, while a
+            // trunk is a solid occluder and sails past 0.66.
             //
-            // The blades take the strength UP to 0.90 as the other half of that
-            // trade: fewer things cast on a beam now, so the ones that do have
-            // to bite. A crossed trunk takes its band to a tenth of the beam's
-            // brightness, which is the "consequence" the user asked for.
+            // BLADES 5.0 m / 2.5 m — up from 4.0/2.0, and MEASURED down from 7.0.
+            // The 4 m throw was chosen when a longer one was measured to take the
+            // lower runs to 20-48% lit; that measurement was made WITHOUT the
+            // bite ramp, and with the ramp the trade reverses, because a longer
+            // throw now buys BARS instead of grey. A beam five metres up has its
+            // crossing boughs 3-8 m up-light of it (its ray to the moon climbs
+            // 0.84 m per metre travelled while the canopy climbs only 0.30, so
+            // the two converge), and a 4 m throw finds almost none of them.
+            //
+            // 7.0 m was tried first and overshot in a way the profile in the log
+            // makes unmistakable: two of the three beams came out
+            // |9999...944411111111111111111136899|, i.e. their whole LOWER HALF
+            // at the floor in one 5-8 m block. That is not a bough crossing a
+            // beam, it is a beam that stops halfway down and reappears over its
+            // pool — with a 7 m reach, everything up-light of the beam below the
+            // canopy line is inside the throw at once and the crossings merge.
+            // 5.0 m is the reach at which they separate again.
+            //
+            // MinVis 0.14 on the blades: a fully crossed stretch keeps a seventh
+            // of its brightness. That is a hard dark bar and still not a hole —
+            // what is left is the light the mist scatters sideways into the
+            // shadowed stretch, which is real. On the FLOOR 0.25: a shadow in a
+            // night wood is not a hole either, and under the trees the moon goes
+            // 0.171 -> 0.043 per unit albedo against an ambient of 0.024.
             var floorLook = new CanopyShadowBake.Look(
-                strength: 0.75f, penumbra: 0.18f, maxThrow: 9.0f, fall: 3.5f);
+                minVis: 0.25f, penumbra: 0.18f, maxThrow: 9.0f, fall: 3.5f,
+                biteLo: 0.26f, biteHi: 0.66f);
             var beamLook = new CanopyShadowBake.Look(
-                strength: 0.90f, penumbra: 0.22f, maxThrow: 4.0f, fall: 2.0f);
+                minVis: 0.14f, penumbra: 0.22f, maxThrow: 5.0f, fall: 2.5f,
+                biteLo: 0.34f, biteHi: 0.72f);
             canopyShadow.Save(Root + "/Textures/Env_S_CanopyShadow.png");
-            canopyShadow.Report(ForestY, ClearR, floorLook);
+            // EnvGround's own arithmetic for a flat, up-facing patch of clearing
+            // floor, per unit albedo — the ONLY way to answer "can he see the
+            // shadow at all". The moon is one addend among four here: the
+            // hemisphere ambient, the three point lights and the vertex tint are
+            // all beside it, and the shadow reaches none of them. If the moon
+            // were a small share of the total then removing three quarters of it
+            // would be invisible BY CONSTRUCTION and no strength would help.
+            // (The vertex tint and the albedo are common factors and cancel out
+            // of the ratio, but they are carried anyway so the absolute numbers
+            // in the log are the numbers the floor actually shows.)
+            float FloorLum(float x, float z, float vis)
+            {
+                var N = Vector3.up;
+                var p = new Vector3(x, ForestY(x, z), z);
+                Color l = rig.ambUp;                                  // nw.y = 1
+                float ndl = Mathf.Max(0f, Vector3.Dot(N, MoonDir.normalized));
+                float dirScale = gm.GetFloat("_DirScale");
+                l += rig.dirCol * (dirScale * ndl * vis);
+                foreach (var pt in rig.points)                        // separate addends
+                {
+                    Vector3 lv = pt.pos - p;
+                    float d2 = Mathf.Max(lv.sqrMagnitude, 1e-8f), d = Mathf.Sqrt(d2);
+                    float q = d2 / (pt.range * pt.range);
+                    float att = Mathf.Clamp01(1f - q); att *= att;    // _PtHard is 0 in the forest
+                    l += pt.col * (att * Mathf.Max(0f, Vector3.Dot(N, lv / d)));
+                }
+                var alb = gm.GetColor("_Tint");
+                var g = GroundColor(x, z);                            // the vertex fade and the pool
+                return (l.r * alb.r * g.r + l.g * alb.g * g.g + l.b * alb.b * g.b) / 3f;
+            }
+            canopyShadow.Report(ForestY, ClearR, floorLook, FloorLum);
             // THE FLOOR. A pure multiply on the ground's DIRECTIONAL term only —
             // it can subtract moonlight under a tree and it can do nothing else.
             // The hand-tuned levels from ModBuild 135/136 survive untouched: the
@@ -4342,13 +5154,17 @@ namespace GloomhavenVR
             // the board stands on cannot be darkened by this at all. Nothing in
             // the room gets brighter; the open floor is bit-for-bit what it was.
             //
-            // 0.75, not 1.0: a shadow in a night wood is not a hole. The moon is
-            // a 0.5 deg disc and the air between the crowns is full of the mist
-            // the shafts are made of, so a trunk's shadow keeps a quarter of its
-            // moonlight. Under the trees that is moon 0.171 -> 0.043 per unit
-            // albedo against an ambient of 0.024, so a shadow reads as a real
-            // drop without taking the floor to the flat black the vertex fade
-            // already owns further out. First knob to turn on hardware.
+            // MinVis 0.25, not 0: a shadow in a night wood is not a hole. The
+            // moon is a 0.5 deg disc and the air between the crowns is full of
+            // the mist the shafts are made of, so a trunk's shadow keeps a
+            // quarter of its moonlight. Under the trees that is moon 0.171 ->
+            // 0.043 per unit albedo against an ambient of 0.024, so a shadow
+            // reads as a real drop without taking the floor to the flat black
+            // the vertex fade already owns further out. What that comes to in
+            // FINAL SHADED BRIGHTNESS — the only number that decides whether he
+            // can see it — is measured and printed by Report() above, because
+            // the moon is one of four addends on this floor and a percentage of
+            // one addend says nothing on its own. First knob to turn on hardware.
             //
             // 0.18 m of penumbra. The PHYSICAL half-shadow of a trunk 10 m away
             // under a 0.5 deg moon is about 9 cm, and a filter that small would
@@ -4401,24 +5217,89 @@ namespace GloomhavenVR
                 // through the play space, where it read as a pane of glass across
                 // the whole view; now they strike the clearing floor around the
                 // board and are seen from outside.
-                // CANOPY SHADOW, second use — and the cheapest quality win here:
-                // the landing point is now CHOSEN with the map instead of taken
-                // from the first roll of the dice. Every candidate re-rolls only
-                // the two AUTHORED jitters (the +-0.4 m sideways nudge and the
+                // SHAFT BITE — CANOPY SHADOW, second use, and the objective of
+                // this search is the thing ModBuild 139 got backwards.
+                //
+                // The landing point is CHOSEN with the map instead of taken from
+                // the first roll of the dice. Every candidate re-rolls only the
+                // two AUTHORED jitters (the +-0.4 m sideways nudge and the
                 // 4.0-7.4 m reach along the bearing); the spacing, the widths,
                 // the strengths and the derived length are untouched, so the
                 // authored look of the three shafts is exactly the authored look
                 // — the wood has been approved twice and this may not restyle it.
-                // What changes is that a beam whose upper run was buried in a
-                // crown, and which the new shadow term would now spend its whole
-                // length hiding, moves to a gap that is actually open.
+                //
+                // WHAT CHANGED, AND WHY. The 139 objective was "the clearest
+                // gap": it scored a candidate by how LIT its upper run was and
+                // took the maximum. That is a search for a beam with nothing in
+                // it, and it found one — the log reported the three upper runs
+                // 98%, 95% and 89% clear, and a beam that is 98% clear over its
+                // upper run has, by construction, almost nothing left to cast a
+                // shadow into it. The user then saw exactly what those numbers
+                // predicted: three perfectly smooth beams.
+                //
+                // A real shaft through a canopy is not a clear tube. It is open
+                // at the TOP — that is what makes it read as light coming in
+                // through the tear, and it is the one thing worth protecting —
+                // and CROSSED further down, which is what makes it read as light
+                // that trees stand in. So the score is now built from three
+                // separate readings of the same beam:
+                //   * HEAD (the top fifth) must be open   — a gate, not a term;
+                //   * ARRIVAL (the bottom seventh) must still land in its pool
+                //     — the other gate, and the reason the visibility floor
+                //     exists at all;
+                //   * the BODY between them is rewarded for being BROKEN: how
+                //     deep its deepest bite goes, and how much of its length is
+                //     inside a band you can point at.
+                // Gates multiply and the reward adds, so no amount of dappling
+                // can buy a beam that starts in a crown or dies before the pool.
                 int moved = 0;
+                // The beam, read at 48 stations along its own axis in the
+                // SHADER's own visibility (Visible applies the bite ramp and the
+                // floor), plus the two things a mean cannot say: the deepest
+                // single point and the longest continuous dark run. A beam that
+                // averages 60% lit with no band deeper than 15% still looks
+                // smooth — the BAND is what he sees, not the average.
+                const int BeamTaps = 48;
+                const float BandVis = 0.55f;      // "inside a band you can point at"
+                (float head, float arrive, float whole, float minVis, float barred,
+                 float bandLen, string bar) Probe(Vector3 t0, float l)
+                {
+                    float head = 0f, arrive = 0f, whole = 0f, lo = 1f;
+                    int nHead = 0, nArrive = 0, nBody = 0, nBarred = 0;
+                    int run = 0, bestRun = 0;
+                    var bar = new System.Text.StringBuilder(BeamTaps);
+                    for (int s = 0; s < BeamTaps; s++)
+                    {
+                        float u = Mathf.Lerp(0.02f, 0.98f, s / (BeamTaps - 1f));
+                        float vis = canopyShadow.Visible(t0 + dir * (l * u), beamLook, useNear: true);
+                        whole += vis;
+                        bar.Append((char)('0' + Mathf.Clamp(Mathf.FloorToInt(vis * 9.99f), 0, 9)));
+                        if (u < 0.20f) { head += vis; nHead++; }
+                        else if (u > 0.86f) { arrive += vis; nArrive++; }
+                        else
+                        {
+                            nBody++;
+                            if (vis < lo) lo = vis;
+                            if (vis < BandVis) { nBarred++; run++; if (run > bestRun) bestRun = run; }
+                            else run = 0;
+                        }
+                    }
+                    return (head / Mathf.Max(nHead, 1), arrive / Mathf.Max(nArrive, 1),
+                            whole / BeamTaps, lo, nBarred / (float)Mathf.Max(nBody, 1),
+                            bestRun * l / BeamTaps, bar.ToString());
+                }
                 for (int i = 0; i < 3; i++)
                 {
                     Vector3 hit = Vector3.zero, top = Vector3.zero;
                     float len = 0f, best = -1f;
                     int chosen = 0;
-                    for (int c = 0; c < 5; c++)
+                    (float head, float arrive, float whole, float minVis, float barred,
+                     float bandLen, string bar) pick = default;
+                    // 8 rolls rather than 5: the objective is now a conjunction
+                    // (open head AND arriving foot AND a broken body) and a
+                    // conjunction is satisfied by a smaller share of the rolls
+                    // than "clearest wins" ever was.
+                    for (int c = 0; c < 8; c++)
                     {
                         // c == 0 IS the previously authored roll, bit for bit
                         float side = (i - 1.0f) * 3.1f + 0.8f * (Hash3(i, 0, c, 5311) - 0.5f);
@@ -4434,7 +5315,15 @@ namespace GloomhavenVR
                         // the canopy closes again (CanopyMask's outer term) and a
                         // shaft that ends up there would be roofed over instead
                         // of open to the sky.
-                        float clear = 1.4f + 0.9f * Hash3(i, 3, 0, 5311);
+                        // `clear` — how far the top must stand over the canopy —
+                        // is now re-rolled per candidate as well (c == 0 is still
+                        // the authored value, bit for bit). It slides the whole
+                        // beam up to a metre along its OWN axis without moving
+                        // where it lands or how wide it is, which is the one
+                        // extra degree of freedom that costs the authored look
+                        // nothing: shaft 2's landing jitter alone could not find
+                        // anything to cross it in eight rolls.
+                        float clear = 1.4f + 0.9f * Hash3(i, 3, c, 5311);
                         float lenMax = 17.6f + 2.0f * Hash3(i, 6, 0, 5311);
                         float l = 11.5f + 2.5f * Hash3(i, 3, 0, 5311);
                         for (int it = 0; it < 6; it++)
@@ -4445,39 +5334,40 @@ namespace GloomhavenVR
                                             11.5f, lenMax);
                         }
                         Vector3 tp = h - dir * l;                   // back up along the beam
-                        // Score the UPPER RUN only, along the beam's own axis: the
-                        // first 55% is the stretch that has to read as light
-                        // coming through the tear. Lower down a blade crossing a
-                        // trunk is not a fault, it is the effect — that is where
-                        // the shadow term is supposed to bite.
-                        float lit = 0f;
-                        for (int s = 0; s < 24; s++)
-                            lit += canopyShadow.Visible(
-                                tp + dir * (l * Mathf.Lerp(0.02f, 0.55f, s / 23f)),
-                                beamLook, useNear: true);
-                        float score = lit / 24f;
+                        var m = Probe(tp, l);
+                        // THE TWO GATES. Neither is a preference: a beam whose
+                        // head is in a crown does not read as light entering the
+                        // tear (that is what ModBuild 137 spent a round fixing),
+                        // and a beam that does not arrive is a beam the user
+                        // never sees land. Below the lower knee the gate is zero,
+                        // so no amount of dappling can buy such a candidate.
+                        float headGate = Mathf.SmoothStep(0f, 1f,
+                            Mathf.InverseLerp(0.55f, 0.85f, m.head));
+                        float footGate = Mathf.SmoothStep(0f, 1f,
+                            Mathf.InverseLerp(0.30f, 0.65f, m.arrive));
+                        // ...and a third, on the WHOLE beam: three quarters of a
+                        // shaft in shadow is not a dappled shaft, it is a shaft
+                        // that has been deleted, which is the failure the first
+                        // pass shipped.
+                        float aliveGate = Mathf.SmoothStep(0f, 1f,
+                            Mathf.InverseLerp(0.32f, 0.55f, m.whole));
+                        // THE REWARD: how deep the deepest bite goes, normalised
+                        // against the floor so a perfect bite scores 1, plus how
+                        // much of the body is inside a band — capped, because
+                        // past about a third of the run more darkness stops
+                        // adding anything a viewer can read as "a bough".
+                        float bite = Mathf.Clamp01((1f - m.minVis) / Mathf.Max(beamLook.Strength, 1e-3f));
+                        float dapple = Mathf.Clamp01(m.barred / 0.30f);
+                        float score = headGate * footGate * aliveGate
+                                      * (0.55f * bite + 0.45f * dapple);
                         if (score > best + 1e-4f)
-                        { best = score; chosen = c; hit = h; top = tp; len = l; }
-                        if (c == 0 && score >= 0.80f) break;        // the authored roll is clear
+                        { best = score; chosen = c; hit = h; top = tp; len = l; pick = m; }
+                        // The authored roll already does the job — take it and
+                        // stop, so the room stays the room the user approved
+                        // whenever it can.
+                        if (c == 0 && score >= 0.62f) break;
                     }
                     if (chosen != 0) moved++;
-                    // ...and the other half of the answer: what the shadow term
-                    // does to the WHOLE beam. The upper run being clear is what
-                    // makes it read as light entering through the tear; this is
-                    // what makes it read as light that trees stand in. If it
-                    // ever approaches zero the beams are being deleted, not
-                    // shadowed — that is the failure this number is here to
-                    // catch, and it is the failure the first pass shipped.
-                    float whole = 0f, lower = 0f;
-                    for (int s = 0; s < 40; s++)
-                    {
-                        float vis = canopyShadow.Visible(
-                            top + dir * (len * Mathf.Lerp(0.02f, 0.98f, s / 39f)),
-                            beamLook, useNear: true);
-                        whole += vis;
-                        if (s >= 22) lower += vis;
-                    }
-                    whole /= 40f; lower /= 18f;
                     float w0 = 0.42f + 0.30f * Hash3(i, 4, 0, 5311);
                     float w1 = w0 * 2.8f;
                     // The map is sized off the FLOOR (see THE BOX above) and the
@@ -4504,11 +5394,16 @@ namespace GloomhavenVR
                               + $"r {new Vector2(hit.x, hit.z).magnitude:F1} m, length {len:F1} m, top "
                               + $"y {top.y:F1} m at r {new Vector2(top.x, top.z).magnitude:F1} m "
                               + $"(canopy there {CanopyY(new Vector2(top.x, top.z).magnitude):F1} m), "
-                              + $"candidate {chosen} of 5, upper run {best * 100f:F0}% clear of the "
-                              + $"canopy shadow, whole beam {whole * 100f:F0}% lit, lower run {lower * 100f:F0}%.");
+                              + $"candidate {chosen} of 8 scoring {best:F2} — head {pick.head * 100f:F0}% lit, "
+                              + $"arrival {pick.arrive * 100f:F0}%, whole beam {pick.whole * 100f:F0}%, i.e. "
+                              + $"{(1f - pick.whole) * 100f:F0}% OF THE BEAM SHADOWED; DEEPEST BAND down to "
+                              + $"{pick.minVis * 100f:F0}% visibility, longest continuous band under "
+                              + $"{BandVis * 100f:F0}% is {pick.bandLen:F1} m of {len:F1} ({pick.barred * 100f:F0}% "
+                              + $"of the body). Profile top->foot |{pick.bar}|");
                 }
-                Debug.Log($"[GloomhavenVR][Env] Moon shafts: {moved} of 3 moved off the authored roll "
-                          + "because the canopy shadow found their upper run blocked.");
+                Debug.Log($"[GloomhavenVR][Env] Moon shafts: {moved} of 3 moved off the authored roll — the "
+                          + "search now wants a beam that is OPEN AT THE TOP and CROSSED further down, not "
+                          + "the clearest gap it can find (which is what ModBuild 139 asked for and got).");
                 var shaftMat = NewRoomMat("S_Shaft.mat", "GloomhavenVR/EnvShaft");
                 // a touch stronger than ModBuild 133 (alpha 0.30): with the wood
                 // around them darker the blades are now the brightest thing in the
@@ -4522,16 +5417,17 @@ namespace GloomhavenVR
                 // product, so the pass stays additive and order-independent and
                 // no other term is disturbed.
                 //
-                // beamLook, declared with the bake: a SHORT throw so only the
-                // trunk the beam actually crosses bites, and a high strength so
-                // that when one does it is unmistakable. The penumbra is 0.22 m
-                // against the floor's 0.18 because a blade's shadow edge hangs
-                // in mid-air, where there is no albedo detail to hide a hard one
-                // — a beam of lit mist that goes to nothing behind a bough looks
-                // CUT. And 0.90, not 1.0: what is left over is the light the
-                // mist scatters sideways into the shadowed stretch, which is
-                // real. A shaft does not have a black bite taken out of it, it
-                // goes dim and comes back.
+                // beamLook, declared with the bake: a 7 m throw so the boughs the
+                // beam is actually passing through are found, a bite ramp so only
+                // the solid ones are drawn, and a 12% visibility floor so that
+                // when one does bite it is unmistakable and the beam still
+                // arrives. The penumbra is 0.22 m against the floor's 0.18
+                // because a blade's shadow edge hangs in mid-air, where there is
+                // no albedo detail to hide a hard one — a beam of lit mist that
+                // goes to nothing behind a bough looks CUT. And 12%, not 0: what
+                // is left over is the light the mist scatters sideways into the
+                // shadowed stretch, which is real. A shaft does not have a black
+                // bite taken out of it, it goes dim and comes back.
                 canopyShadow.Apply(shaftMat, beamLook);
                 var shMesh = SaveMesh("Env_S_Shafts.asset", sh.Build("Env_S_Shafts"));
                 Place(root, "MoonShafts", shMesh, Vector3.zero, Vector3.zero, Vector3.one, shaftMat);
@@ -4543,28 +5439,55 @@ namespace GloomhavenVR
             // nothing but a suggestion.
             float Fade(Vector3 pos) =>
                 Mathf.SmoothStep(1f, 0.04f, Mathf.InverseLerp(5.5f, 12f, new Vector2(pos.x, pos.z).magnitude));
+            // `bed` is this prop's BEARING REACH in metres — how far up from its
+            // lowest touching piece the parts that are meant to be lying in the
+            // ground still extend — and passing it is the statement "this
+            // photoscan carries a skirt of the ground it was scanned on, so bury
+            // the skirt". See the BEDDING A PHOTOSCAN IN block at the bottom of
+            // this file. It is small for a log (its bearing line is a line) and
+            // large for a rock SET, whose dozen boulders bed independently over
+            // the relief the set spans. 0 = off, which is right for the alpha-card
+            // understory (a fern is not standing on anything), for the leaning
+            // tree (it touches at one end and leans away) and for anything
+            // resting on another prop rather than on the floor.
             GameObject SProp(string n, string mesh, string tex, Vector3 pos, float yaw, float scale,
                 Vector3? e3 = null, Vector3? s3 = null, bool cutout = false, float bump = 1f,
                 float sink = 0.05f, float tintExtra = 1f, GameObject support = null,
-                Quaternion? rot = null)
+                Quaternion? rot = null, float bed = 0f, float bedBand = 0.05f, float bedQ = 0.90f)
             {
-                return Prop(root, n, mesh, tex, pos, yaw, scale, "S",
+                var go = Prop(root, n, mesh, tex, pos, yaw, scale, "S",
                     tintMul: Fade(pos) * tintExtra, euler3: e3, scale3: s3, cutout: cutout,
                     bump: bump, sink: sink, support: support, rot: rot);
+                if (bed > 0f) Bed(go, bed, bedBand, bedQ);
+                return go;
             }
 
             // deadfall: one log across the path, one at the clearing edge
             // both were pulled outward for the 9.0 m PlaySpace: a 3 m log lying
             // across the path reached 4.28 m from the centre at its near end
-            SProp("Log0", "dead_tree_trunk", "dead_tree_trunk", new Vector3(-3.1f, 0, -6.1f), 62, 1.0f, sink: 0.10f);
-            SProp("Log1", "dead_tree_trunk", "dead_tree_trunk", new Vector3(6.9f, 0, 5.0f), 128, 1.15f, sink: 0.12f);
+            SProp("Log0", "dead_tree_trunk", "dead_tree_trunk", new Vector3(-3.1f, 0, -6.1f), 62, 1.0f, sink: 0.10f, bed: 0.14f);
+            SProp("Log1", "dead_tree_trunk", "dead_tree_trunk", new Vector3(6.9f, 0, 5.0f), 128, 1.15f, sink: 0.12f, bed: 0.14f);
             // THE leaning dead tree — caught in its neighbour's crown and never
             // fell. Rest() grounds it vertex-exactly despite the 62° tilt.
+            // No bedding: it TOUCHES the ground at one end and leans away from it,
+            // so it has no bearing surface to bury and a drop would simply sink
+            // the whole tree.
             SProp("LeanTree", "dead_tree_trunk_02", "dead_tree_trunk_02", new Vector3(-6.4f, 0, 5.9f),
                 0, 1.35f, e3: new Vector3(0f, 24f, 62f), sink: 0.05f);
-            // stumps; the axe is left in the near one
-            var stump0 = SProp("Stump0", "tree_stump_01", "tree_stump_01", new Vector3(4.4f, 0, -4.1f), 60, 1.05f);
-            SProp("Stump1", "tree_stump_02", "tree_stump_02", new Vector3(-7.2f, 0, -2.1f), 200, 1.0f);
+            // Stumps; the axe is left in the near one. THIS IS ONE OF THE TWO
+            // THINGS THE USER PHOTOGRAPHED: tree_stump_01 is 1.5 x 1.7 m across
+            // and 0.59 m tall, which is a stump plus most of a square metre of
+            // the forest floor it was scanned on, and Rest() was floating that
+            // apron a hand's width over this room's floor — where it read as a
+            // pale dome with a razor-edged plate running out of it. `bed` buries
+            // it. bedQ 0.99 rather than the default 0.90 because a stump's apron
+            // is ONE surface and any part of it left standing is the whole
+            // artefact back again; a rock set, by contrast, wants the default,
+            // where a couple of boulders may keep their feet in the air rather
+            // than drown the other twenty-four. Bedding happens before the axe is
+            // placed, so the axe still lands on the stump's real surface.
+            var stump0 = SProp("Stump0", "tree_stump_01", "tree_stump_01", new Vector3(4.4f, 0, -4.1f), 60, 1.05f, bed: 0.18f, bedBand: 0.18f, bedQ: 0.99f);
+            SProp("Stump1", "tree_stump_02", "tree_stump_02", new Vector3(-7.2f, 0, -2.1f), 200, 1.0f, bed: 0.18f, bedBand: 0.18f, bedQ: 0.99f);
             // THE AXE. User finding, ModBuild 134: "Die Axt schwebt falsch rum
             // auf dem Stamm." Both halves of that were true, and both came from
             // guessing a pose in Euler angles instead of deriving it.
@@ -4598,19 +5521,36 @@ namespace GloomhavenVR
                 SProp("Axe", "wooden_axe_02", "wooden_axe_02", head + h * 0.29f, 0, 1.0f,
                     rot: Quaternion.LookRotation(edge, -handle), sink: 0.060f, support: stump0);
             }
-            // roots breaking the floor, mostly at the trunk feet and the path rim
-            SProp("Roots0", "root_cluster_02", "root_cluster_02", new Vector3(5.4f, 0, 2.3f), 190, 0.95f, sink: 0.14f);
-            SProp("Roots1", "root_cluster_02", "root_cluster_02", new Vector3(-5.7f, 0, -3.1f), 55, 0.85f, sink: 0.16f);
+            // Roots breaking the floor, at the path rim.
+            //
+            // root_cluster_02 IS GONE, and this is the second half of the ModBuild
+            // 139 "etwas undefiniertes" finding — the pale angular shard, as
+            // against the stumps' hovering apron above. It is not a fixable
+            // placement: the asset is a 2.4 x 2.7 m photoscanned patch of forest
+            // floor that is 0.17 m THICK, i.e. a ground DECAL delivered as
+            // geometry, and this room's terrain has more relief than that across
+            // the patch. Sunk far enough to hide its apron (it was at sink 0.14 of
+            // its own 0.16 m) all that surfaces is a scatter of disconnected
+            // decimated top facets — a hard-edged tan plate with a stretched
+            // texture and no readable shape, which is exactly what was
+            // photographed. Raised far enough to read as roots, the apron floats
+            // and is worse. There is no height at which it works, so it goes: the
+            // two single_root props below already do the job at the path rim, and
+            // every tree here has a modelled flare at its foot.
             // was (-1.9,-3.1): that reached 3.6 m into the 9.0 m PlaySpace disc
-            SProp("Root2", "single_root", "single_root", new Vector3(-3.6f, 0, -4.5f), 300, 1.0f, sink: 0.12f);
-            SProp("Root3", "single_root", "single_root", new Vector3(2.6f, 0, 4.9f), 130, 0.9f, sink: 0.12f);
-            // mossy rock outcrops
-            SProp("Rocks0", "rock_moss_set_01", "rock_moss_set_01", new Vector3(-6.4f, 0, 3.4f), 30, 0.42f, sink: 0.12f);
-            SProp("Rocks1", "rock_moss_set_02", "rock_moss_set_02", new Vector3(7.4f, 0, -1.4f), 245, 0.5f, sink: 0.12f);
-            SProp("Rocks2", "rock_moss_set_02", "rock_moss_set_02", new Vector3(-3.1f, 0, 7.2f), 95, 0.38f, sink: 0.10f);
+            SProp("Root2", "single_root", "single_root", new Vector3(-3.6f, 0, -4.5f), 300, 1.0f, sink: 0.06f, bed: 0.08f);
+            SProp("Root3", "single_root", "single_root", new Vector3(2.6f, 0, 4.9f), 130, 0.9f, sink: 0.06f, bed: 0.08f);
+            // mossy rock outcrops. The sets are 8 m wide in their own frame — a
+            // dozen separate boulders — so the bedding is per SHELL (see
+            // ShellOf): one drop measured off the deepest boulder would leave the
+            // other eleven standing on air, which is what the ModBuild 139
+            // previews show them doing.
+            SProp("Rocks0", "rock_moss_set_01", "rock_moss_set_01", new Vector3(-6.4f, 0, 3.4f), 30, 0.42f, sink: 0.12f, bed: 0.30f);
+            SProp("Rocks1", "rock_moss_set_02", "rock_moss_set_02", new Vector3(7.4f, 0, -1.4f), 245, 0.5f, sink: 0.12f, bed: 0.30f);
+            SProp("Rocks2", "rock_moss_set_02", "rock_moss_set_02", new Vector3(-3.1f, 0, 7.2f), 95, 0.38f, sink: 0.10f, bed: 0.30f);
             // deadfall branches
-            SProp("Branches0", "dry_branches_medium_01", "dry_branches_medium_01", new Vector3(1.4f, 0, -5.9f), 80, 1.0f);
-            SProp("Branches1", "dry_branches_medium_01", "dry_branches_medium_01", new Vector3(-6.9f, 0, -5.0f), 250, 0.9f);
+            SProp("Branches0", "dry_branches_medium_01", "dry_branches_medium_01", new Vector3(1.4f, 0, -5.9f), 80, 1.0f, bed: 0.10f);
+            SProp("Branches1", "dry_branches_medium_01", "dry_branches_medium_01", new Vector3(-6.9f, 0, -5.0f), 250, 0.9f, bed: 0.10f);
             // the story beat at the bend of the path: something was dropped here
             SProp("Crate", "wooden_crate_01", "wooden_crate_01", new Vector3(-4.1f, 0, -7.0f), 24, 0.95f,
                 e3: new Vector3(-14f, 24f, 78f), sink: 0.06f, tintExtra: 0.85f);
@@ -4664,6 +5604,160 @@ namespace GloomhavenVR
             // light, not matter — everything else must stay outside the clearing.
             AssertPlaySpaceClear(root, "Forest", ForestPlaySpaceDia, "Ground", "MoonShafts");
             Debug.Log("[GloomhavenVR][Env] Night-forest room geometry assembled.");
+        }
+
+        // ============================================ BEDDING A PHOTOSCAN IN
+        // USER FINDING, ModBuild 139 (hardware): "In der Waldumgebung gibt es
+        // zwei stellen wo etwas undefiniertes aus dem Boden clipped."
+        //
+        // ROOT CAUSE, and it is not that the grounding is wrong — it is that the
+        // grounding is RIGHT about the wrong thing. Rest() drops a ground-standing
+        // prop with GroundLift(), which lifts it until the 99.5th percentile of
+        // its vertices clears the terrain, i.e. until essentially NOTHING of it
+        // is buried. For a barrel, a stool or a crate that is exactly correct and
+        // it is what the ModBuild 132 "Gegenstände schweben herum" round was for.
+        //
+        // It is the opposite of what these props want, because a Poly Haven
+        // photoscan of a stump, a log or a boulder is not a model of the object:
+        // it is the object WITH A SKIRT OF THE GROUND IT STOOD ON, a nearly flat
+        // apron of scanned forest floor 1.5-2.7 m across welded into the same
+        // mesh. tree_stump_01 is 1.5 x 1.7 m across and only 0.59 m tall for
+        // exactly this reason. Lift that apron until its lowest corner clears the
+        // terrain and the REST of it hangs up to the terrain's own relief above
+        // the floor — ForestY's 0.52-frequency term alone gives 10-15 cm over a
+        // two-metre footprint — where it reads as a pale, hard-edged plate
+        // clipping up out of the litter, with a razor silhouette and a texture
+        // that matches nothing around it. Which is precisely what was
+        // photographed.
+        //
+        // The `sink` argument was the hand-applied counterweight and it could not
+        // work: sink is ONE CONSTANT per prop, while the error is the terrain
+        // relief under that prop's own footprint, which nobody measured. So
+        // measure it. Bed() asks the prop's own bearing surface how far it stands
+        // over the ground it is supposed to be lying in, and drops it by that —
+        // never up, so it can only ever bury a skirt and never re-float a prop
+        // Rest() has already seated.
+        private static readonly Dictionary<Mesh, int[]> ShellCache = new Dictionary<Mesh, int[]>();
+
+        /// <summary>Per-vertex connected-shell id. A decimated photoscan is a heap
+        /// of disconnected islands — rock_moss_set_01 is 71 of them, one per
+        /// boulder over an 8 x 7 m spread — and a bedding rule that used the
+        /// MESH's single lowest vertex would measure the one boulder standing in
+        /// the deepest dip and leave the other seventy in the air. Each shell
+        /// therefore gets its own base.</summary>
+        private static int[] ShellOf(Mesh m)
+        {
+            if (ShellCache.TryGetValue(m, out var cached)) return cached;
+            var v = Verts(m);
+            if (!TriCache.TryGetValue(m, out var t)) TriCache[m] = t = m.triangles;
+            var parent = new int[v.Length];
+            for (int i = 0; i < parent.Length; i++) parent[i] = i;
+            int Find(int a)
+            {
+                while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; }
+                return a;
+            }
+            void Union(int a, int b)
+            {
+                int ra = Find(a), rb = Find(b);
+                if (ra != rb) parent[ra] = rb;
+            }
+            for (int i = 0; i + 2 < t.Length; i += 3)
+            { Union(t[i], t[i + 1]); Union(t[i + 1], t[i + 2]); }
+            var id = new int[v.Length];
+            var map = new Dictionary<int, int>();
+            for (int i = 0; i < v.Length; i++)
+            {
+                int r = Find(i);
+                if (!map.TryGetValue(r, out int k)) map[r] = k = map.Count;
+                id[i] = k;
+            }
+            ShellCache[m] = id;
+            return id;
+        }
+
+        /// <summary>Sink a placed prop until its BEARING SURFACE is in the ground
+        /// rather than on it.
+        ///
+        /// One number per SHELL — how far that island's own lowest point stands
+        /// over the terrain under it — and then only the shells that are trying
+        /// to touch down at all: `reach` is how far up from the closest one the
+        /// bearing surface is allowed to spread, which for a scanned apron is its
+        /// own relief and for a set of boulders is how uneven the ground under
+        /// the set is. Everything above that is the prop's BODY (the stump's
+        /// crown, the top facets the decimator left as separate islands) and must
+        /// not vote, which is the whole of the first attempt's failure: measured
+        /// per vertex against each island's own base, a chip of geometry sitting
+        /// on top of a stump reported itself half a metre in the air and dragged
+        /// the whole stump 47 cm underground.
+        ///
+        /// `band` is the other half of the same question and they are genuinely
+        /// two: `reach` is how far apart the FEET are (a rock set's boulders bed
+        /// independently over the relief the set spans), `band` is how thick ONE
+        /// foot is. A stump's apron is a single shell 1.7 m across, so its base
+        /// alone says nothing — all of its own relief is INSIDE that one shell,
+        /// and only a band over it measures the far side that was left hanging.
+        ///
+        /// `quantile` is how much of that bearing surface has to end up buried.
+        /// Not 1.0 by default: one stray vertex of a photoscan is worth less than
+        /// the shape of the thing — but a stump's apron is ONE surface and any
+        /// part of it left standing is the whole artefact back again, so that
+        /// prop asks for 0.99.</summary>
+        private static void Bed(GameObject go, float reach, float band = 0.05f,
+            float quantile = 0.90f)
+        {
+            var mesh = go.GetComponent<MeshFilter>().sharedMesh;
+            var id = ShellOf(mesh);
+            var src = Verts(mesh);
+            var xf = go.transform;
+            int shells = 0;
+            for (int i = 0; i < src.Length; i++) if (id[i] + 1 > shells) shells = id[i] + 1;
+            var w = new Vector3[src.Length];
+            var clr = new float[src.Length];
+            var shellY = new float[shells];
+            var baseClear = new float[shells];
+            var count = new int[shells];
+            for (int s = 0; s < shells; s++) { shellY[s] = float.MaxValue; baseClear[s] = float.MaxValue; }
+            for (int i = 0; i < src.Length; i++)
+            {
+                w[i] = xf.TransformPoint(src[i]);
+                clr[i] = w[i].y - _groundY(w[i].x, w[i].z);
+                count[id[i]]++;
+                if (w[i].y < shellY[id[i]]) shellY[id[i]] = w[i].y;
+                if (clr[i] < baseClear[id[i]]) baseClear[id[i]] = clr[i];
+            }
+            // A decimated photoscan is mostly slivers; a shell of three vertices
+            // is noise and not a piece of the thing that stands on the ground.
+            float nearest = float.MaxValue;
+            int kept = 0;
+            for (int s = 0; s < shells; s++)
+                if (count[s] >= 8) { kept++; nearest = Mathf.Min(nearest, baseClear[s]); }
+            if (kept == 0) return;
+            // The bearing surface: every vertex in the low `band` of a shell that
+            // is itself trying to touch down.
+            var bearing = new List<float>();
+            for (int i = 0; i < w.Length; i++)
+                if (count[id[i]] >= 8 && baseClear[id[i]] <= nearest + reach
+                    && w[i].y <= shellY[id[i]] + band)
+                    bearing.Add(clr[i]);
+            if (bearing.Count == 0) return;
+            bearing.Sort();
+            float drop = bearing[Mathf.Clamp(Mathf.RoundToInt((bearing.Count - 1) * quantile),
+                                             0, bearing.Count - 1)];
+            // Never lift. Rest() has already guaranteed the prop is not below its
+            // support; this pass exists only to take a hovering skirt down.
+            if (drop <= 0.005f)
+            {
+                Grounded.Add($"{go.name}: bedding not needed — its bearing surface "
+                             + $"({bearing.Count} vertices of {kept} shell(s)) already sits within "
+                             + $"{drop * 100f:+0.0;-0.0} cm of the floor.");
+                return;
+            }
+            go.transform.localPosition += new Vector3(0f, -drop, 0f);
+            Grounded.Add($"{go.name}: BEDDED {drop * 100f:F1} cm — that much of its scanned ground "
+                         + $"skirt was standing proud of the forest floor ({bearing.Count} bearing "
+                         + $"vertices over {kept} shell(s), reach {reach * 100f:F0} cm, band "
+                         + $"{band * 100f:F0} cm, q {quantile:F2}).");
         }
 
         /// <summary>One shaft of moonlight: two crossed tapered blades, world-fixed

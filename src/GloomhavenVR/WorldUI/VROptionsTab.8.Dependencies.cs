@@ -96,6 +96,13 @@ internal static partial class VROptionsTab
         // ---- Grafik ▸ Leistung: "Has no effect at all when EnableGraphicsJobs is false" --------
         ["Core/AutoRestartForGraphicsJobs"] = new("Core", "EnableGraphicsJobs", On),
 
+        // ---- Grafik ▸ Darstellung: the element-mood strength is the tuning OF the toggle — its
+        //      bound description opens with "Has no effect at all while 'EnvironmentResponse' is
+        //      off", and the code makes that literally true: with the toggle off the whole per-frame
+        //      path early-outs and the published master is 0 whatever the dial says
+        //      (Core/ElementMood.Tick).
+        ["Elements/ResponseStrength"] = new("Elements", "EnvironmentResponse", On),
+
         // ---- Brett & Karten: THE NAMED CASE — the pitch window only exists in the
         //      "Begrenzt mit Neigung" scheme (BoardMoveMode.LimitedPitch, whose own enum doc names
         //      BoardPitchMin/Max as the window it clamps to). All six per-board keys, so the pair

@@ -740,6 +740,12 @@ internal static class SkyAlternative
     /// </summary>
     internal static bool Tick()
     {
+        // ELEMENT MOOD is NOT ticked here, and the near miss is worth recording: this looks like
+        // the environment's per-frame entry point, but MixedReality.Tick only reaches it on its
+        // MR-OFF branch (MixedReality.cs:684). The mood has to keep sensing while MR is ON — the
+        // user asked for element effects in passthrough as well — so it is ticked one level up, at
+        // the top of MixedReality.Tick, which is the only per-frame call that runs on BOTH
+        // branches. See Core/ElementMood.cs, "MIXED REALITY KEEPS SENSING".
         if (!VRSession.IsRunning)
         {
             RestoreAll();
@@ -848,12 +854,23 @@ internal static class SkyAlternative
     /// <c>HideSkyGeometry</c> records and disables a clean renderer for the chroma key. Cheap and
     /// idempotent (an early-out when nothing is applied); loaded prefab references stay cached.
     /// </summary>
-    internal static void StandDown() => Deactivate();
+    internal static void StandDown()
+    {
+        // ELEMENT MOOD DELIBERATELY DOES NOT GO DOWN HERE. It used to, and that was the ModBuild
+        // 139 miss: this path is what MR calls (MixedReality.cs:692), and the user's requirement is
+        // that the elements still reach the player in passthrough. The mood is ticked from
+        // MixedReality.Tick on both branches and keeps publishing; the ROOM and the SKY stand down,
+        // which is what the MR ruling is actually about. Teardown still zeroes the globals —
+        // RestoreAll below.
+        Deactivate();
+    }
 
     /// <summary>Full teardown (VR stop / hot reload): stand down and drop the one-shot warn latch.
     /// The cached prefab references are kept — they are session-lifetime by design (class doc).</summary>
     internal static void RestoreAll()
     {
+        // Same reason as StandDown: a teardown must leave nothing standing in a shader global.
+        ElementMood.StandDown("the environment was torn down (VR stopped, or the rig was destroyed)");
         Deactivate();
         _missingWarned = false;
         _scanNextFrame = 0;

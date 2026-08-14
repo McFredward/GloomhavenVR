@@ -56,8 +56,8 @@ Shader "GloomhavenVR/EnvGround"
         _CsU ("Light-plane axis U (w = 1/extent)", Vector) = (1,0,0,0)
         _CsV ("Light-plane axis V (w = 1/extent)", Vector) = (0,1,0,0)
         _CsDir ("Light travel direction (w = -near depth)", Vector) = (0,-1,0,0)
-        _CsFlt ("Penumbra u, penumbra v, depth bias, strength", Vector) = (0,0,0,0)
-        _CsThrow ("Max throw, 1/release (encoded depth units)", Vector) = (0,0,0,0)
+        _CsFlt ("Penumbra u, penumbra v, depth bias, 1 - minimum visibility", Vector) = (0,0,0,0)
+        _CsThrow ("Max throw, 1/release (encoded depth), bite lo, 1/bite span", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -159,6 +159,17 @@ Shader "GloomhavenVR/EnvGround"
                         + CsTap(sc.xy + float2(-0.588, -0.809) * f, z)
                         + CsTap(sc.xy + float2( 0.588, -0.809) * f, z);
                 v *= (1.0 / 6.0);
+                // SHAFT BITE (ModBuild 140) — the same remap EnvShaft runs, and
+                // for the same reason, read here on the floor: the crowns 20-30 m
+                // up-light speckle the whole clearing with 0.1-0.3 coverage, and a
+                // LINEAR average of that is a faint uniform dimming of a floor the
+                // user tuned by hand, while the one thing he asked for — a trunk's
+                // shadow raking across the ground — is a SOLID occluder that this
+                // ramp takes to full. Below _CsThrow.z the speckle counts for
+                // nothing; above _CsThrow.z + span the occluder is solid and
+                // counts for everything. The tap disc still averages first, so the
+                // shadow's own EDGE keeps its penumbra.
+                float sh = saturate(((1.0 - v) - _CsThrow.z) * _CsThrow.w);
                 // Off the edge of the baked map, and anywhere in front of its near
                 // plane, everything is lit. CLAMP addressing would otherwise drag
                 // the border texels right across the room, and a hard cut-off
@@ -168,7 +179,12 @@ Shader "GloomhavenVR/EnvGround"
                 float2 q = abs(sc.xy - 0.5);
                 float edge = saturate((0.5 - max(q.x, q.y)) * 40.0)
                            * step(0.0, sc.z) * step(sc.z, 1.0);
-                return 1.0 - _CsFlt.w * (1.0 - v) * edge;
+                // _CsFlt.w is 1 - MINIMUM VISIBILITY (see the note in
+                // EnvShaft.shader): a fully shadowed patch of floor keeps
+                // 1 - _CsFlt.w of its MOON term, and the ambient, the three point
+                // lights and the landing pool are untouched addends beside it. A
+                // shadow in a night wood is not a hole.
+                return 1.0 - _CsFlt.w * sh * edge;
             }
 
             struct appdata

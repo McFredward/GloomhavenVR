@@ -264,6 +264,12 @@ internal static class RenderQuality
         // pattern: the catalog's force-bind of RenderQuality surfaces it, module "rig" files it
         // under the Visual topic, and the runtime stays where it belongs (Core/SkyAlternative.cs).
         SkyAlternative.BindConfig(_file);
+
+        // ELEMENT MOOD ([Elements] EnvironmentResponse / ResponseStrength) rides the same file, for
+        // the same reason and right behind the sky dial: it is the environment's reaction to the
+        // element infusions, it is read in the same breath as [Sky] Style, and a player looking for
+        // it on disk will look where the environment choice is. Runtime stays in Core/ElementMood.cs.
+        ElementMood.BindConfig(_file);
     }
 
     /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>

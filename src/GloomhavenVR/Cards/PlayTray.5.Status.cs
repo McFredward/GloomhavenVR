@@ -387,8 +387,9 @@ internal sealed partial class PlayTray
     /// <c>CharacterFocus.Open</c> holds. A click on that character's initiative-track portrait then
     /// runs <c>InitiativeTrackPlayerAvatar_OnClick_Guard</c> → <c>CharacterFocus.TryFocus(owner)</c>,
     /// which under exactly those two conditions CANNOT refuse (TryFocus rejects only a non-player,
-    /// a dead actor, or a closed <c>Refusal</c> gate — the same two facts <c>CanFocus</c> just
-    /// asserted). After it, <c>Focused == owner</c>, this method returns false on the very next
+    /// a dead actor, a closed <c>Refusal</c> gate, or a <c>FOCUS PIN</c> naming a different
+    /// character — and <c>CanFocus</c> asserts every one of those four for this same actor, which is
+    /// why the pin was added to it rather than to TryFocus alone). After it, <c>Focused == owner</c>, this method returns false on the very next
     /// tick, and the keycap materializes again with its unchanged label; a frame later
     /// <c>ResolveHand</c> additionally drops the override altogether ("the game now presents the
     /// focused character"), restoring full interactivity. The 2026-08-08 ruling that a character

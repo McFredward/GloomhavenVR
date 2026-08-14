@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using GloomhavenVR.Net;
 using ScenarioRuleLibrary;
 
@@ -76,6 +77,20 @@ internal enum FocusTurnMark
 /// model holds a genuine secret — which two cards a remote player has CHOSEN this round
 /// (<c>AbilityCardUI.cs:980/1024/1100/1188</c>). Nothing else may ever refuse a switch, and in
 /// particular NO PHASE LIST does any more.</para>
+///
+/// <para>…AND ONE PIN, WHICH IS A DIFFERENT SHAPE OF THING (user ruling 2026-08-14, ModBuild 139:
+/// "Ich will das das highlighting sowie die Auswahl nur bei dem jeweiligen Character getroffen
+/// werden kann der diese Entscheidung treffen muss"). While the board is waiting for one of THIS
+/// player's characters to pick a hex — a move destination, an attack target — the focus is PINNED
+/// to that character: <see cref="PinnedActor"/>. It is not a third clause of <see cref="Open"/> and
+/// it never will be: <see cref="Open"/>/<see cref="Refusal"/> is the GLOBAL gate ("may anything be
+/// focused at all"), which is what the 08-08 ruling is written on and what three other subsystems
+/// consume, whereas the pin is an ACTOR-DEPENDENT refusal ("may THIS character be focused instead
+/// of the one being asked") that is open for the pinned character itself the whole time. It is
+/// bounded by the game's own targeting wait states and by local seat AND local character ownership,
+/// so it cannot exist during a teammate's turn, during the enemies' turn, or anywhere outside a
+/// live hex pick. The full derivation, the multiplayer argument and the rejected alternatives are
+/// on <see cref="PinnedActor"/>.</para>
 ///
 /// <para>WHY THE PHASE WHITELIST HAD TO GO (read from the game's own source). The gate used to
 /// enumerate the TURN phases <c>StartTurn, ActionSelection, Action, EndTurn, EndTurnLoot</c> and
@@ -477,6 +492,219 @@ internal static class CharacterFocus
         }
     }
 
+    // -------------------------------------------------------------------------------- FOCUS PIN --
+
+    /// <summary>
+    /// THE CHARACTER THE FOCUS IS <b>PINNED</b> TO — non-null exactly while the board is waiting for
+    /// a hex pick from a character of THIS player's, and null in every other moment of the game.
+    ///
+    /// <para>USER REPORT (hardware, ModBuild 139, 2026-08-14): "Wenn gerade ein character eine
+    /// Auswahl treffen [muss] wohin er geht, wen er attackiert etc. dann sind die jeweiligen Felder
+    /// gehighlighted. Das soll auch so sein ABER NUR für den Character der diese Entscheidung auch
+    /// treffen muss. Aktuell ist es möglich in dieser Phase einen anderen Character auszuwählen und
+    /// dann trotzdem das feld auszuwählen wo er hingehen soll. Da die Buttons fehlen (was gewollt
+    /// ist, da man ja einen anderen character ausgewählt hat) kann man dann nicht bestätigen."</para>
+    ///
+    /// <para>ROOT CAUSE, and it is a SPLIT between two things that must not come apart. The board's
+    /// highlighting and its pick BELONG TO THE GAME: the stars are painted for
+    /// <c>Choreographer.m_CurrentActor</c> and the click is dispatched by the game's own
+    /// <c>Controller.LateUpdate</c>, which gates on <c>ThisPlayerHasTurnControl</c> — a SEAT test,
+    /// not a character test (decompiled GH.Runtime/Choreographer.cs:557-580). The CONFIRM/UNDO
+    /// affordance, on the other hand, belongs to the character the mod is PRESENTING: the keycaps
+    /// hide as soon as the player looks at somebody other than the hand the confirm belongs to
+    /// (<c>PlayTray.ConfirmCapsForeignView</c>, and correctly so — a confirm must never be pressed
+    /// for a character you are not looking at). So a portrait click during the targeting window left
+    /// the player holding a live, pickable, highlighted board with NO way to commit it: exactly the
+    /// reported dead end. Both halves are individually right; what was missing is that during that
+    /// window they must name the SAME character.</para>
+    ///
+    /// <para>THE PREDICATE, all three clauses, and none of them is optional:</para>
+    /// <list type="number">
+    /// <item><b>The board really is waiting for a pick</b> — <c>Choreographer.m_WaitState.m_State</c>
+    ///   (Choreographer.cs:218) is one of the five targeting wait-states
+    ///   (<c>WaitingForPlayerWaypointSelection</c>, <c>WaitingForAreaAttackFocusSelection</c>,
+    ///   <c>WaitingForPlayerPushWaypointSelection</c>, <c>WaitingForPlayerPullWaypointSelection</c>,
+    ///   <c>WaitingForTileSelected</c>), classified by <see cref="VRModeStateMachine.IsTargetingState"/>
+    ///   so the five members live in ONE table. Read LIVE from the game rather than from
+    ///   <c>VRModeStateMachine.TargetingActive</c>: that mirror is event-driven and is deliberately
+    ///   force-cleared by a superseding flow message, and a gate that takes a control away may not
+    ///   fire on a stale bit.</item>
+    /// <item><b>The acting SEAT is mine</b> — <c>Choreographer.ThisPlayerHasTurnControl</c>
+    ///   (Choreographer.cs:557-580), the game's own answer, and the very property
+    ///   <c>WorldspaceStarHexDisplay</c> gates its target-selection stars on
+    ///   (WorldspaceStarHexDisplay.cs:442, :469). It returns true when <c>!FFSNetwork.IsOnline</c>,
+    ///   so offline it is a no-op and clause 3 carries the whole gate.</item>
+    /// <item><b>The acting CHARACTER is one of mine</b> — <see cref="TurnActor"/>
+    ///   (<c>Choreographer.CurrentPlayerActor</c>, Choreographer.cs:474-488, which maps a
+    ///   <c>CHeroSummonActor</c> to its <c>Summoner</c>), alive, and <c>IsUnderMyControl</c> when
+    ///   online. This is the clause the two failed ModBuilds (137, 138) were missing.</item>
+    /// </list>
+    ///
+    /// <para>WHY CLAUSE 1 ALONE WOULD REPEAT THE 137/138 MISTAKE. The wait state is the SHARED,
+    /// networked Choreographer state — the lockstep stream drives it identically on every client, so
+    /// while a teammate places a waypoint EVERY peer sits in
+    /// <c>WaitingForPlayerWaypointSelection</c>. A pin built on it alone would freeze a spectator's
+    /// view onto whoever happens to be acting, which is the exact class of bug that cost ModBuild 137
+    /// and 138 a hardware round each (see <c>Rig/LocalTurnControl.cs</c>, the same lesson for the
+    /// thumbstick). Clauses 2 and 3 are what make this LOCAL: they are false on every machine except
+    /// the one whose player is being asked. A teammate aiming pins nobody here.</para>
+    ///
+    /// <para>WHY <see cref="TurnActor"/> AND NOT <c>Choreographer.CurrentActor</c> DIRECTLY. During
+    /// exactly these wait states the game RE-POINTS <c>m_CurrentActor</c> at the figure being driven
+    /// — <c>m_CurrentActor = messageData4.m_MoveAbility.CurrentMovingActor</c>
+    /// (Choreographer.cs:4269) for a move, <c>= m_PushAbility.TargetingActor</c>
+    /// (Choreographer.cs:10013) / <c>= m_PullAbility.TargetingActor</c> (Choreographer.cs:9878) for
+    /// push and pull. For a hero that IS the hero; for a SUMMON acting on its summoner's turn it is
+    /// the summon, which is a <c>CActor</c> and not a <c>CPlayerActor</c>
+    /// (CHeroSummonActor.cs:10) — a raw read would answer "no player is acting" and refuse to pin in
+    /// precisely the situation the board is presenting the summoner's cards for.
+    /// <see cref="TurnActor"/> already resolves both (summon → summoner, plus the
+    /// <c>GameState.OverridingCurrentActor</c> hand-off), and it is the SAME object the card board,
+    /// the ring and the keycap owner-gate are keyed on — so the pin cannot name a character the rest
+    /// of the mod disagrees about.</para>
+    ///
+    /// <para>WHY THIS IS NOT THE 2026-08-08 RULING BEING BROKEN, but scoped. That ruling ("Ich will
+    /// nie wieder eine Blockierung haben, den Character zu wechseln") was minted against a PHASE
+    /// WHITELIST that refused a switch for whole phases at a time, most of them while the player was
+    /// simply looking at the table, and its trigger case — "Während der Character wegen den
+    /// Flitzstiefeln eine Entscheidung treffen muss, ist das Wechseln blockiert" — is a DECISION-DOCK
+    /// prompt raised in <c>CheckForForgoActionActiveBonuses</c>, which is not a targeting wait state
+    /// and therefore pins nothing here. This pin is open only while the player's own character is
+    /// being asked WHERE TO GO or WHOM TO HIT, it lifts by itself the moment that pick resolves or is
+    /// cancelled, and during it the character it pins to is the one whose confirm button the player
+    /// needs. The later ruling is the narrower one and it wins inside its own window; <see cref="Open"/>
+    /// / <see cref="Refusal"/> — the GLOBAL gate the 08-08 ruling is written on — is deliberately left
+    /// untouched, so this is an actor-dependent refusal and not a second global one.</para>
+    ///
+    /// <para>REJECTED: refusing the PICK instead (a gate in the board-click path). The pick is the
+    /// game's own dispatch (<c>Controller.LateUpdate</c> → <c>TileBehaviour.s_Callback</c>), it is
+    /// correct, and it is the same code path a mouse click uses; refusing it would mean the mod
+    /// silently dropping a legal game input, and the highlighted hexes would still be there inviting
+    /// the click. Pinning the focus removes the divergence at its source instead — with the focus on
+    /// the acting character the keycaps are present, so there is no state left to refuse.</para>
+    ///
+    /// <para>REJECTED: touching the game's highlighting. It already follows the acting character
+    /// exactly as the user wants ("Das soll auch so sein"); the complaint was never about which hexes
+    /// glow, only about which character the player was allowed to be looking at while they did.</para>
+    ///
+    /// <para>REJECTED: a BepInEx entry to disable the pin. Standing ruling — settings may configure
+    /// optional content, never repair or gate a broken interaction.</para>
+    ///
+    /// <para>FAILS OPEN in every degenerate case (no Choreographer, no wait state, a throwing game
+    /// property): answers null = "nothing is pinned". For a gate whose only power is to refuse a
+    /// character switch, and against a standing ruling that switches must stay free, the safe answer
+    /// is always to leave the player alone.</para>
+    /// </summary>
+    internal static CPlayerActor? PinnedActor
+    {
+        get
+        {
+            try
+            {
+                // Unity-null: a destroyed Choreographer compares equal to null.
+                Choreographer? choreographer = Choreographer.s_Choreographer;
+                if (choreographer == null)
+                    return null;
+
+                // (1) the board is really waiting for a pick — live game state, not our mirror.
+                Choreographer.CWaitState? wait = choreographer.m_WaitState;
+                if (wait == null || !VRModeStateMachine.IsTargetingState(wait.m_State))
+                    return null;
+
+                // (2) the acting SEAT is mine. The same property WorldspaceStarHexDisplay gates its
+                // stars on, and a no-op offline (it returns true when !FFSNetwork.IsOnline).
+                // Deliberately read here rather than through Rig.LocalTurnControl.ThisSeatActs:
+                // identical predicate, but that wrapper's diagnostic announces a THUMBSTICK verdict
+                // and would be actively misleading in a focus log.
+                if (!choreographer.ThisPlayerHasTurnControl)
+                    return null;
+
+                // (3) and the acting CHARACTER is one of mine. Offline every merc is ours, so this
+                // clause degenerates to "a player character is acting" — which is what keeps an
+                // enemy's turn (CurrentPlayerActor null) from pinning anything in single player.
+                CPlayerActor? acting = TurnActor;
+                if (acting == null || acting.IsDead)
+                    return null;
+                if (FFSNetwork.IsOnline && !acting.IsUnderMyControl)
+                    return null;
+                return acting;
+            }
+            catch (System.Exception)
+            {
+                // Fail open: a half-torn rules state may not cost the player their character switch.
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Does the pin refuse a switch to <paramref name="wanted"/>? False when nothing is pinned and
+    /// false when <paramref name="wanted"/> IS the pinned character — re-focusing the character you
+    /// are already pinned to is always allowed, and is the idempotent no-op <see cref="TryFocus"/>
+    /// already treats it as.
+    ///
+    /// <para>Split from <see cref="PinReason"/> so the predicate allocates NOTHING: it is asked
+    /// every frame by <see cref="CanFocus"/> (two keycap interlocks), and only the click seam — an
+    /// edge — ever needs the sentence.</para>
+    /// </summary>
+    private static bool PinRefuses(CPlayerActor wanted, out CPlayerActor? pinned)
+    {
+        pinned = PinnedActor;
+        return pinned != null && !ReferenceEquals(pinned, wanted);
+    }
+
+    /// <summary>The pin as a refusal reason, in the shape <see cref="LogRefusal"/> prints.</summary>
+    private static string PinReason(CPlayerActor? pinned) =>
+        $"FOCUS PIN — the board is waiting for '{Describe(pinned)}' to pick a hex (move " +
+        "destination / attack target), and that decision's confirm buttons belong to that character";
+
+    /// <summary>
+    /// THE PIN, APPLIED TO AN ALREADY-LIVE FOCUS. <see cref="TryFocus"/> stops a switch INTO the
+    /// window; this closes the other door — a focus that was taken BEFORE the window opened and is
+    /// still pointing at the wrong character when it does.
+    ///
+    /// <para>Both doors are needed and neither covers the other. The reported order is "targeting
+    /// opens, then the player clicks a portrait" (TryFocus refuses that), but the reverse is
+    /// reachable too: look at a teammate first, then have your own character pushed into a waypoint
+    /// selection by a forced move, a summon hand-off or an item. Without this the player would sit in
+    /// the identical dead end, having been refused nothing.</para>
+    ///
+    /// <para>It is a <see cref="Clear"/> — "follow the game again" — and NOT a re-focus onto the
+    /// pinned actor, because following the game IS pointing at the acting character during that
+    /// window (the game presents the acting hand, and <see cref="ResolveHandCore"/> then has no
+    /// override left to make read-only). Setting <see cref="_focused"/> instead would leave a live
+    /// override that the very next rebuild would clear anyway ("the game now presents the focused
+    /// character"), i.e. one more state for no gain.</para>
+    ///
+    /// <para>Called per frame from <c>FocusDriver.Tick</c> (so the ring and the board frame follow on
+    /// the frame the window opens, not on the next rebuild edge) and from
+    /// <see cref="ResolveHandCore"/> (so the card pipeline can never PRESENT a focus the pin forbids
+    /// even if the driver is down). One method, two callers — never two copies of the rule.</para>
+    /// </summary>
+    internal static void EnforcePin()
+    {
+        // Cheap first: no override live ⇒ nothing to return, and PinnedActor is never even resolved.
+        // This is the steady state on every frame of every scenario.
+        if (_focused == null)
+            return;
+        CPlayerActor? pinned = PinnedActor;
+        if (pinned == null || ReferenceEquals(pinned, _focused))
+            return;
+
+        // EDGE-ONLY BY CONSTRUCTION, with no change-guard field to keep in sync: the Clear() below
+        // drops the override, so the very next call returns at the first line and this line cannot
+        // repeat until a NEW override meets a NEW pin. Re-clicking the portrait does not get here
+        // either — TryFocus refuses that switch outright (and rate-limits its own refusal line).
+        VRLog.Info("Board", $"[Focus] FOCUS PIN engaged — the board is waiting for " +
+                            $"'{Describe(pinned)}' to pick a hex, so the view was RETURNED to " +
+                            $"that character from '{Describe(_focused)}'. The highlighted hexes " +
+                            "and the confirm/undo keycaps belong to the same character again " +
+                            "(user ModBuild 139: \"das highlighting sowie die Auswahl [darf] nur " +
+                            "bei dem jeweiligen Character getroffen werden\"). The pin lifts by " +
+                            "itself when the pick resolves or is cancelled.");
+        Clear("FOCUS PIN — the board is waiting for this character's hex pick");
+    }
+
     /// <summary>
     /// The LOCAL player's attention mark — the colour their own control board and their own Steam
     /// avatar wear. Green while they own the character the game is waiting on AND are looking at
@@ -619,8 +847,20 @@ internal static class CharacterFocus
     /// whole feature, and focusing one of your OWN characters that is not at turn is the state
     /// the red warning exists for. Deliberately says nothing about the hand WIDGET either — see
     /// <see cref="TryFocus"/>.
+    ///
+    /// <para>It DOES say something about the <see cref="PinnedActor"/>, because that is not an
+    /// ownership statement but a "which character is the game asking right now" one, and because
+    /// this property's whole job is to predict <see cref="TryFocus"/>: its two consumers
+    /// (<c>PlayTray.ConfirmCapsForeignView</c>, <c>WorldUI.ButtonCluster</c>) use it as the
+    /// deadlock interlock — "the way back to the confirm button must EXIST before we take the button
+    /// away" — so a true here that TryFocus would refuse is the one answer that could strand a
+    /// player. Both consumers fall OPEN on false (they keep the keycap), which is the safe
+    /// direction, and during a pin the presented hand IS the pinned character, so the clause they
+    /// evaluate it for cannot be reached anyway.</para>
     /// </summary>
-    internal static bool CanFocus(CActor? actor) => IsFocusTarget(actor) && Open;
+    internal static bool CanFocus(CActor? actor) =>
+        IsFocusTarget(actor) && Open
+        && (actor is not CPlayerActor player || !PinRefuses(player, out _));
 
     /// <summary>
     /// Focus <paramref name="actor"/>. Returns false — and changes nothing — only when the actor
@@ -657,6 +897,18 @@ internal static class CharacterFocus
             return false;
         }
 
+        // FOCUS PIN (user ModBuild 139) — the one actor-DEPENDENT refusal, and deliberately not a
+        // second clause of Refusal(): that method is the global gate the 2026-08-08 ruling is
+        // written on ("the only reason it can ever mint is the card-selection phase"), and it is
+        // consumed as Open by the interactability bypass and by the two keycap interlocks, none of
+        // which may be shut just because SOME character cannot be focused this instant. The refusal
+        // is minted next to the state it depends on and logged through the same one line.
+        if (PinRefuses(player, out CPlayerActor? pinned))
+        {
+            LogRefusal(player, PinReason(pinned));
+            return false;
+        }
+
         if (ReferenceEquals(_focused, player))
             return true; // already focused — idempotent, and never logs twice
         _focused = player;
@@ -684,9 +936,11 @@ internal static class CharacterFocus
     /// <summary>
     /// THE refusal line. Format is fixed by the 2026-08-08 ruling —
     /// <c>[Board] [Focus] switch REFUSED — &lt;reason&gt;</c> — so "blocked again" is never a
-    /// guess: grep the log for <c>switch REFUSED</c> and the reason is right there. After this
-    /// build the only reason that can ever appear is the card-selection phase; anything else in
-    /// this position is a regression, not a design decision.
+    /// guess: grep the log for <c>switch REFUSED</c> and the reason is right there. Exactly TWO
+    /// reasons can ever appear in that position: the card-selection phase
+    /// (<see cref="SecretWindowReason"/>, the global gate) and <c>FOCUS PIN</c>
+    /// (<see cref="PinRefusal"/>, the actor-dependent one, bounded by a live hex pick belonging to
+    /// one of this player's characters). Anything else there is a regression, not a design decision.
     /// </summary>
     private static void LogRefusal(CPlayerActor player, string why)
     {
@@ -834,6 +1088,11 @@ internal static class CharacterFocus
     {
         PresentedActor = gameHand != null ? gameHand.PlayerActor : null;
         _readOnlyView = false;
+
+        // FOCUS PIN, belt to FocusDriver's braces: a rebuild may never PRESENT a focus the pin
+        // forbids, even if the per-frame driver is down (its tick is TickGuard-isolated and can be
+        // stood down by a throwing carrier). It is the same method, so the two cannot drift.
+        EnforcePin();
 
         if (_focused == null)
             return gameHand;

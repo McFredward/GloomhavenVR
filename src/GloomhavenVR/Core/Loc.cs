@@ -570,6 +570,12 @@ internal static partial class Loc
         ["sky_cellar"] = Pair("Cellar", "Keller"),
         ["sky_swamp"] = Pair("Night forest", "Nachtwald"),
         ["sky_off"] = Pair("Off (black)", "Aus (schwarz)"),
+        // Grafik ▸ Darstellung: the environment's reaction to the element infusions (ELEMENT MOOD,
+        // Core/ElementMood.cs). The hint says what the player will SEE, not how it is published.
+        ["vr_o_elemmood"] = Pair("Elements affect surroundings", "Elemente wirken auf Umgebung"),
+        ["h_vr_o_elemmood"] = Pair("The surroundings answer the elements on the board: a fresh element reads as fully charged, a waning one slowly breathes so you can see it is about to go out. Off with mixed reality, and only inside a scenario.", "Die Umgebung antwortet auf die Elemente auf dem Brett: ein frisches Element wirkt voll aufgeladen, ein schwindendes atmet langsam, sodass du siehst, dass es gleich erlischt. Bei Mixed Reality aus, und nur im Szenario."),
+        ["vr_o_elemmood_amt"] = Pair("Element effect strength", "Stärke der Elementwirkung"),
+        ["h_vr_o_elemmood_amt"] = Pair("How strongly the surroundings answer. 1 is as designed, lower is subtler, 0 is the same as switching it off.", "Wie stark die Umgebung antwortet. 1 ist wie vorgesehen, kleiner ist dezenter, 0 entspricht dem Ausschalten."),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),
@@ -1164,6 +1170,10 @@ internal static partial class Loc
         ["cfg_sec_hexhighlight"] = Pair("Hex highlight", "Feld-Hervorhebung"),
         ["cfg_sec_selectionready"] = Pair("Selection reminder", "Auswahl-Erinnerung"),
         ["cfg_sec_renderquality"] = Pair("Render quality", "Bildqualität"),
+        // [Elements] — the environment's reaction to the element infusions (ELEMENT MOOD). Without
+        // this line the generic browser would head the block with the raw English section word in a
+        // German menu, the same defect the [Net] line above was added to fix.
+        ["cfg_sec_elements"] = Pair("Elements & surroundings", "Elemente & Umgebung"),
 
         // ---- SettingsPanel: Leistung — the VR render trade (2026-07 GPU pass) ----
         // Wording rule for this block, from the user ("super verwirrend für den User"): every

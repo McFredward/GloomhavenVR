@@ -119,6 +119,25 @@ internal static class VRModeStateMachine
     /// </summary>
     public static bool TargetingActive => _targeting;
 
+    /// <summary>
+    /// Is <paramref name="state"/> one of the <see cref="TargetingStates"/> — i.e. does that
+    /// Choreographer wait-state mean "the board wants a pick"? The TABLE, asked about a state the
+    /// caller read itself, as opposed to <see cref="TargetingActive"/>, which is this class's
+    /// EVENT-DRIVEN MIRROR of the same table applied to the live state.
+    ///
+    /// <para>Why both exist. The mirror is the right answer for presentation policy (interactor
+    /// sets, ping arbitration): it is cheap, it is what <see cref="CurrentMode"/> is composed from,
+    /// and it is deliberately force-cleared by a superseding flow message
+    /// (<see cref="OnMessage"/>). But a gate that TAKES SOMETHING AWAY from the player must not be
+    /// able to fire on a stale mirror, so <c>Board.CharacterFocus.PinnedActor</c> reads
+    /// <c>Choreographer.m_WaitState.m_State</c> straight from the game and brings it here to be
+    /// classified. One table, two readers — the alternative was a second copy of these five enum
+    /// members in Board, which is exactly the drift <c>scripts/check-mirrors.sh</c> exists to
+    /// catch.</para>
+    /// </summary>
+    public static bool IsTargetingState(Choreographer.ChoreographerStateType state) =>
+        TargetingStates.Contains(state);
+
     // ---- data-driven mapping tables -------------------------------------------------
 
     /// <summary>Engine message → flow mode (only TableIdle/CardSelection/HalfSelection make sense here).</summary>

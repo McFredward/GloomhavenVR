@@ -374,6 +374,25 @@ internal static partial class Loc
                 + "Panorama-Builds (Night/Sunset) gibt es nicht mehr, sie fallen auf "
                 + "Default zurück. Rein lokale Darstellung, wird nie mit Mitspielern "
                 + "synchronisiert.",
+            // ---- [Elements] ----
+            ["Elements/EnvironmentResponse"] =
+                "Lässt die 3D-Umgebung auf die ELEMENT-INFUSIONEN auf dem Brett reagieren (Feuer, Eis, "
+                + "Luft, Erde, Licht, Dunkelheit). AN gibt den aktuellen Elementzustand an die Materialien "
+                + "der Umgebung weiter, sodass die Umgebung auf die gerade aktiven Elemente antworten kann "
+                + "— ein frisch entfachtes Element wirkt voll aufgeladen, ein schwindendes atmet langsam, "
+                + "sodass du auch ohne Blick auf die Elementleiste siehst, dass es gleich erlischt, und die "
+                + "Reaktion blendet über etwa eine Sekunde ein und aus, statt zu springen. AUS entfernt die "
+                + "Reaktion vollständig und kostet überhaupt nichts: ein Wert wird einmal auf null gesetzt, "
+                + "der jeden Effekt abschaltet, danach wird pro Bild nichts mehr gelesen oder geschrieben. "
+                + "Rein lokale Darstellung — ändert NICHTS am Spielzustand und erzeugt KEINEN Netzwerkverkehr, "
+                + "denn die Elementtafel ist szenarioweiter Zustand, den das Spiel selbst auf allen Rechnern "
+                + "gleich hält (und jede Runde selbst auf Desync prüft). Nur in einem laufenden Szenario, "
+                + "wie die Umgebung selbst; Mixed Reality schaltet die Reaktion zusammen mit der Umgebung ab. "
+                + "Wirkt sofort.",
+            ["Elements/ResponseStrength"] =
+                "Wie stark die Umgebung auf die Elemente antwortet. 1 = wie vorgesehen. Kleiner ist "
+                + "dezenter, 0 entspricht genau dem Ausschalten der Reaktion, über 1 übersteuert sie. "
+                + "Ohne jede Wirkung, solange „Elemente wirken auf Umgebung“ aus ist. Wirkt sofort.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "
