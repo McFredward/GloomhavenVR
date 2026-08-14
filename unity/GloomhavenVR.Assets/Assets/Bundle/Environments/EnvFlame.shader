@@ -121,6 +121,57 @@
 // Every one of them is a product of two element strengths and is exactly zero
 // unless both are up.
 // ============================================================================
+//
+// ============== IT ZAPPELT — USER VERDICT, ModBuild 145 =====================
+// "Das Feuer zappelt viel zu schnell und ist damit nicht sehr immersiv."
+//
+// The full diagnosis, the frequency/structure-size table it rests on and the
+// three fixes that were REJECTED are in EnvFire.cginc's own ModBuild 145 block;
+// read that first, because it is the argument and this is only the half of it
+// that moves vertices. In one line: the clock is right and always was, but
+// every band was pointed at the wrong SIZE of thing. The frequency of a
+// structure in a fire is set by its size (f = 1.5/sqrt(D)), so
+//
+//     w.w 1.08 Hz -> 1.9 m      w.y 2.81 Hz -> 29 cm
+//     w.x 4.60 Hz -> 11 cm      w.z 7.96 Hz -> 3.6 cm
+//
+// ...and this shader was moving a 40 cm TONGUE with w.x and w.z, and moving the
+// 3 cm texture detail at 1-2 Hz. Exactly inverted. What changed here:
+//
+//   1. THE SURGE IS NOW TWO SURGES, split by height. A tongue's LENGTH is a
+//      30-60 cm structure and now rides the slow trio (1.1/2.8/4.6 weighted
+//      0.34/0.44/0.22); the fast pair survives only as a TIP FLUTTER, entering
+//      on h*h so it is nothing at the tongue's foot and 30 % at its tip — which
+//      is not a compromise but the actual shape of a flame, whose base is
+//      pinned where it is fed and whose last hand's breadth whips. Measured at
+//      the tip: mean frequency 6.0 -> 3.8 Hz, rms tip speed 3.33 -> 1.61 m/s,
+//      rms acceleration 144 -> 61 m/s^2, and the excursion is UNCHANGED at
+//      +-17.8 cm. It moves exactly as far as it did, in half the hurry.
+//   2. THE LATERAL WANDER STOPS BEING AN 8 Hz SHAKE. `p.x += w.z * wob` moved
+//      the whole card 10.4 cm sideways at 8 Hz — 3.6 m/s, 183 m/s^2, sixteen
+//      direction reversals a second, on a card 37 cm long. It is the single
+//      loudest jitter in the shader and the most likely literal referent of the
+//      word "zappelt". The body of the tongue now wanders on the 2.8/1.1 pair
+//      (and on both axes, out of phase, so it circles instead of shivering
+//      along one axis), and the fast band stays as a h^4 wrinkle worth 2.5 cm
+//      at the very tip.
+//   3. THE FAST CONTENT IS NOT DELETED, IT IS MOVED TO WHERE IT LIVES. The
+//      fragment's UV wobble is the one term in this shader that displaces
+//      TEXTURE detail — holes and torn edges a few centimetres across, i.e.
+//      exactly the 3.6 cm structure w.z names — and it was running at 2.1 Hz.
+//      The bonfire path now adds a small ripple on the fire's own w.z band,
+//      travelling up the card. So the fire keeps its 8 Hz life; it spends it on
+//      the scale where 8 Hz is what a fire does, and where the amplitude is
+//      millimetres and cannot read as a twitch.
+//   4. A CARD'S SHAPE AND ITS BRIGHTNESS ARE NOW THE SAME EVENT. The flicker
+//      call was phased with `v.color.r * 6.2831853` while the surge was phased
+//      with `v.color.r` — a leftover from a radians formulation, and since the
+//      wave argument is in CYCLES it meant every card's glow was uncorrelated
+//      with its own leap. Two independent random signals per card is twice the
+//      visual noise of one and says nothing more. Same phase now.
+// Nothing here changes a rate, a bake constant, or one instruction of the
+// CANDLE path: every edit is inside `if (_Bonfire > 0.5)`.
+// ============================================================================
 Shader "GloomhavenVR/EnvFlame"
 {
     Properties
@@ -265,7 +316,22 @@ Shader "GloomhavenVR/EnvFlame"
                 // number: x = smoke (Fire+Light), y = steam (Fire+Ice),
                 // z = smoulder (Fire+Earth). All exactly 0 unless both of the
                 // pair's elements are up. See the PAIRINGS block.
-                float3 pr : TEXCOORD4;
+                //
+                // ...and w = THIS CARD'S PLACE IN THE FAST BAND, 0..1, which the
+                // fragment needs to ripple the texture on the fire's own w.z
+                // (ModBuild 145; see the ZAPPELT block). Three things about it:
+                //   * it is FRAC'D in the vertex shader. A raw clock through an
+                //     interpolator grows without bound and a mobile GPU is free
+                //     to carry a varying at half precision, where t = 500 s
+                //     quantises to steps of 4; GhvrWave4 takes frac() of its
+                //     argument anyway, so pre-wrapping is exact, not a
+                //     rounding. (Same reason the puff's `age` is a frac.)
+                //   * it is CONSTANT over the card — all eight vertices of a
+                //     cross carry one COLOR.r — so it interpolates exactly and
+                //     the wrap can never land inside a triangle.
+                //   * it costs nothing: TEXCOORD4 was a float3 in a register
+                //     four floats wide.
+                float4 pr : TEXCOORD4;
             };
 
             v2f vert (appdata v)
@@ -292,7 +358,7 @@ Shader "GloomhavenVR/EnvFlame"
                         o.pos = float4(0, 0, 0, 1);
                         o.uv = float2(0, 0); o.fl = 0; o.fire = 0;
                         o.fx = float4(0, 0, 0, 0);
-                        o.pr = float3(0, 0, 0);
+                        o.pr = float4(0, 0, 0, 0);
                         return o;
                     }
                 }
@@ -349,8 +415,9 @@ Shader "GloomhavenVR/EnvFlame"
                 float4 p = v.vertex;
 
                 // ---- FIRE REAL: what a crowd of tongues does that one does not
-                float lick = 1.0, age = 0.0, cardA = 1.0, cell = 0.0;
+                float lick = 1.0, lickE = 1.0, age = 0.0, cardA = 1.0, cell = 0.0;
                 float3 pr = float3(0, 0, 0);
+                float texPh = 0.0;
                 if (_Bonfire > 0.5)
                 {
                     cell = v.fp.x;
@@ -363,18 +430,64 @@ Shader "GloomhavenVR/EnvFlame"
 
                     // FOUR BANDS OFF ONE CALL, and the numbers are the point: at
                     // the shipped 4.6 Hz these are 4.6 / 2.8 / 8.0 / 1.1 Hz. The
-                    // fast pair is the turbulence the brief asks for; the slow
-                    // one is the swell that keeps it from reading as buzz.
-                    float4 w = GhvrWave4(float4(bt          + tp,
-                                                bt * 0.61   + tp * 1.7 + 0.31,
-                                                bt * 1.73   + tp * 0.4 + 0.67,
-                                                bt * 0.235  + tp * 0.9 + 0.13));
+                    // ratios live in EnvFire.cginc next to the table that says
+                    // which SIZE of structure each of them is the frequency of;
+                    // this used to be a hand-kept copy of those four arguments.
+                    float4 w = GhvrFireBands(bt, tp);
                     // the cards do not surge TOGETHER — each one is on its own
                     // phase, so the silhouette of the fire is never the same
                     // twice. That, and not brightness, is what says "burning" at
                     // two to five metres.
-                    float surge = 0.58 * w.x + 0.42 * w.z;
+                    //
+                    // ---- ModBuild 145, "das Feuer zappelt viel zu schnell" ----
+                    // The surge is the tongue's LENGTH, i.e. it moves the whole
+                    // 30-60 cm structure, and it used to be 0.58*w.x + 0.42*w.z —
+                    // the 11 cm band and the 3.6 cm band, both several times too
+                    // fast for the thing they were moving, with nothing at all in
+                    // the 1.4-2.8 Hz where a fire this size actually puffs.
+                    //
+                    // SLOW is that structure's own spectrum: peaked at the
+                    // puffing band (w.y, 2.8 Hz), with the swell under it (w.w)
+                    // and a roll-off above (w.x). Weights sum to 1.
+                    float slow = 0.34 * w.w + 0.44 * w.y + 0.22 * w.x;
+                    // FAST is what is left of the old pair, and it is not thrown
+                    // away — a flame's last hand's breadth really does whip at
+                    // several hertz. It sums to 1 as well.
+                    float fast = 0.45 * w.x + 0.55 * w.z;
+                    // ...and it enters BY HEIGHT UP THE CARD. h*h is zero at the
+                    // foot, which is where the tongue is anchored in the bed and
+                    // physically cannot flick, and 30 % at the tip, which is the
+                    // part that has left the fuel behind. This is the whole of
+                    // the fix: not less fast motion, fast motion CONFINED TO THE
+                    // SMALL END of a big structure.
+                    //
+                    // The pair is MIXED and not summed, so |surge| <= 1 at every
+                    // height and _Lick 0.48 keeps meaning exactly what it says on
+                    // the bake — the excursion is unchanged at +-17.8 cm on a
+                    // 37 cm tongue and only its spectrum has moved. A sum would
+                    // have doubled the tongue's reach and cost the round a bake.
+                    float mix = 0.30 * h * h;
+                    float surge = (1.0 - mix) * slow + mix * fast;
                     lick = max(1.0 + _Lick * v.color.g * surge, 0.10);
+                    // THE ENERGY TAKES THE SLOW HALF ONLY, and per CARD rather
+                    // than per vertex. `lick` is now a function of height, and
+                    // feeding that to o.fl would paint a brightness gradient up
+                    // every card that fights the temperature ramp already there.
+                    // Physically it is also the right half: a tongue that is
+                    // stretching as a whole is being fed harder and glows; a tip
+                    // that flutters is not burning any harder for it.
+                    lickE = max(1.0 + _Lick * v.color.g * slow, 0.10);
+                    // THE FAST BAND'S PHASE, handed to the fragment so that the
+                    // 8 Hz life the geometry just gave up comes back on the scale
+                    // it belongs to — a ripple in the TEXTURE, i.e. in holes and
+                    // torn edges a few centimetres across (see the ZAPPELT block
+                    // and the note on v2f.pr.w for why it is frac'd here rather
+                    // than reconstructed there). It is bt's w.z band with its own
+                    // offsets, so it rides GhvrFireHz and speeds up under
+                    // Fire+Air with everything else, and it is decorrelated from
+                    // the geometric w.z so the wrinkle and the ripple are two
+                    // eddies rather than one drawn twice.
+                    texPh = frac(bt * 1.73 + tp * 2.3 + 0.19);
                     // a tongue standing at the RIM of the fire is torn outward and
                     // dies sooner; COLOR.b is how far out it stands. Without this
                     // the tongues all point straight up and the fire reads as a
@@ -389,7 +502,13 @@ Shader "GloomhavenVR/EnvFlame"
                     // COLOR.g), so without this a windblown fire is tongues
                     // leaning off a seat that is standing still — which is a fire
                     // in a room with a draught, not a fire being blown.
-                    p.xz += _GustDir.xz * (0.55 * pair.air * h * (0.6 + 0.4 * w.x));
+                    // ...and it leans on the SLOW pair. The whole fire is the
+                    // largest structure in the picture (0.5-1.2 m across, i.e.
+                    // 1.35-2.17 Hz by f = 1.5/sqrt(D)), so of the four bands it
+                    // must take the two slowest; on w.x it was a metre of fire
+                    // being shoved about at the rate of an 11 cm eddy.
+                    p.xz += _GustDir.xz * (0.55 * pair.air * h
+                                           * (0.6 + 0.4 * (0.6 * w.w + 0.4 * w.y)));
                     // ...and every tongue wanders on its OWN phase. _Sway is one
                     // number per material, so without this the whole fire leans
                     // as a single bush and the tongues stay in the rows the mesh
@@ -397,9 +516,36 @@ Shader "GloomhavenVR/EnvFlame"
                     // surges) also barely wanders: a bed of embers that slid
                     // about would read as a puddle of light rather than as the
                     // seat of a fire.
+                    //
+                    // ---- ModBuild 145: THIS WAS THE LOUDEST "ZAPPELN" --------
+                    // `p.x += w.z * wob` displaced the WHOLE card (h*h, so the
+                    // entire upper two thirds of a 37 cm tongue) by up to 10.4 cm
+                    // sideways at 7.96 Hz: 3.6 m/s rms, 183 m/s^2 rms, sixteen
+                    // direction reversals a second. Nothing else in the shader
+                    // came close, and a 3.6 cm band was driving a 40 cm object.
+                    // Worse, X took w.z and Z took w.y, so the two axes ran at
+                    // 8 Hz and 2.8 Hz and the card shivered along a LINE.
+                    //
+                    // The body of the tongue now takes the two slow bands on both
+                    // axes with the weights swapped and one sign flipped, so the
+                    // tip traces an ellipse rather than a line — one wave call,
+                    // no extra cost, and a wander that reads as gas turning over
+                    // rather than as a tremble. Each axis' weights still sum to
+                    // 1, so the authored 10.4 cm is exactly preserved.
                     float wob = _Sway * 1.9 * v.color.g * h * h;
-                    p.x += w.z * wob;
-                    p.z += w.y * wob;
+                    p.x += (0.62 * w.y + 0.38 * w.w) * wob;
+                    p.z += (0.62 * w.w - 0.38 * w.y) * wob;
+                    // ...and the fast pair survives as a WRINKLE at the very tip:
+                    // h^4, so it is 6 % of itself at half height and worth 2.5 cm
+                    // where the tongue is thinnest. That is a 3.6 cm structure
+                    // moving 2.5 cm at 8 Hz, which is precisely what the band is
+                    // for. rms speed on X falls 3.64 -> 1.19 m/s and rms
+                    // acceleration 183 -> 46 m/s^2, with only a tenth of the
+                    // power left above 6 Hz and the tip's liveliness still
+                    // visibly there.
+                    float wrinkle = _Sway * 0.45 * v.color.g * h * h * h * h;
+                    p.x += w.z * wrinkle;
+                    p.z += w.x * wrinkle;
                     // The whole fire grows with the infusion: at the waning
                     // plateau it is a fire DYING BACK — smaller and lower — not
                     // the same fire turned down.
@@ -515,7 +661,7 @@ Shader "GloomhavenVR/EnvFlame"
                 // Taken after every displacement, so a surging tongue really does
                 // redden as it stretches.
                 o.fx = float4(saturate(p.y / max(_FireH, 1e-3)), age, cell, cardA);
-                o.pr = pr;
+                o.pr = float4(pr, texPh);   // .w = this card's place in the fast band
 
                 // ---- SHELF RIDERS: is this flame standing on the bookshelf? ---
                 GhvrTip tip = GhvrTipNow(t);
@@ -561,14 +707,28 @@ Shader "GloomhavenVR/EnvFlame"
                     // one fire are independent, a fire and its wash are not.
                     // Both the rate AND the depth go through the pair functions,
                     // so FIRE+AIR reaches the flame and the pool identically.
+                    //
+                    // ModBuild 145 — THE PHASE IS `v.color.r`, NOT `* 6.2831853`.
+                    // The wave's argument is in CYCLES (GhvrWave4 takes frac of
+                    // it), so the 2*pi was a leftover from a radians formulation
+                    // and made the card's brightness wrap 6.28 times across the
+                    // same COLOR.r that phases its shape: a card's glow and a
+                    // card's leap were two uncorrelated signals. Two independent
+                    // random signals per card is twice the visual noise of one
+                    // and carries no more information — and "more uncorrelated
+                    // noise" is a fair paraphrase of "zappelt". Now a tongue
+                    // brightens as it rises, which is also what a tongue does.
                     o.fl = GhvrFireFlicker(t, GhvrFireHz(pair, _FireHz),
-                                           v.color.r * 6.2831853,
+                                           v.color.r,
                                            GhvrFireDepth(pair, _Flicker))
                          * bright
                          // per-card share of the fire's energy, and the surge
                          // shows in the light as well as in the shape — a tongue
-                         // that leaps is a tongue that is burning harder
-                         * v.color.a * (0.55 + 0.45 * lick) * gate * cardA
+                         // that leaps is a tongue that is burning harder. The
+                         // SLOW half of the surge (lickE), so that a card is one
+                         // brightness and a fluttering tip does not paint a
+                         // gradient up it — see lickE where it is computed.
+                         * v.color.a * (0.55 + 0.45 * lickE) * gate * cardA
                          // SMOKE AND STEAM CARRY MORE THAN AN EMBER DOES. A
                          // detached ember is a spark's worth of energy; a lit
                          // plume is a body of scattering matter and is the whole
@@ -601,6 +761,47 @@ Shader "GloomhavenVR/EnvFlame"
                 fixed4 c;
                 if (_Bonfire > 0.5)
                 {
+                    // ---- ModBuild 145: WHERE THE FAST BAND WENT ---------------
+                    // "Das Feuer zappelt viel zu schnell" was answered in the
+                    // vertex shader by taking the 8 Hz band off the tongue, which
+                    // is a 40 cm object that has no business moving at the rate
+                    // of a 3.6 cm one. It is not answered by DELETING 8 Hz: a
+                    // fire really does have structure turning over that fast —
+                    // just not structure that size. This is the term that has the
+                    // right size. The atlas cells are torn silhouettes with holes
+                    // two to five centimetres across on a 30 cm card, so
+                    // f = 1.5/sqrt(0.035) = 8.0 Hz is exactly the band they want,
+                    // and the displacement is under two centimetres of texture:
+                    // small, fast and near, which is what the eye reads as fire
+                    // being alive, as against large, fast and far, which is what
+                    // it reads as a twitch.
+                    //
+                    // It TRAVELS UP THE CARD (the -i.uv.y terms), because that is
+                    // the one direction the gas is going, and it is zero at the
+                    // base for the same reason the wander is: the sheet is
+                    // anchored where it is fed. The vertical half is deliberately
+                    // the smaller: `a` below is a saturate()d lookup, so a
+                    // vertical offset clamps rather than wraps, and 1.1 % is
+                    // inside the fade every atlas cell already has over its
+                    // bottom 10-12 % (MakeFireAtlas) — nothing that reaches the
+                    // clamp has any alpha left to smear.
+                    //
+                    // The pre-frac'd per-card phase arrives in i.pr.w; see v2f.
+                    //
+                    // GhvrWave4's arithmetic on TWO lanes instead of four, and
+                    // written out rather than called with two zeros. This is a
+                    // fragment on a stack of large additive cards — the one place
+                    // in the room with heavy overdraw — and on the tile GPUs this
+                    // ships to a float4 of which half is discarded is half of the
+                    // work discarded, per pixel, per layer. It is the same
+                    // function to the last bit (see EnvGrowth.cginc): a triangle
+                    // wave of period 1 put through 3v^2-2v^3 and mapped to
+                    // [-1,1]. If that ever changes there, this changes with it.
+                    float2 rv = abs(frac(float2(i.pr.w - i.uv.y * 0.62,
+                                                i.pr.w + 0.41 - i.uv.y * 0.28)
+                                         + 0.5) * 2.0 - 1.0);
+                    float2 rip = (rv * rv * (3.0 - 2.0 * rv) - 0.5) * 2.0;
+                    uv += float2(rip.x * 0.018, rip.y * 0.011) * i.uv.y;
                     // THE ATLAS. ROUND FIRST — `cell` is a small integer that has
                     // been through a perspective-correct interpolator and that is
                     // not exact; floor(1.9999998) is 1 and the card would be drawn

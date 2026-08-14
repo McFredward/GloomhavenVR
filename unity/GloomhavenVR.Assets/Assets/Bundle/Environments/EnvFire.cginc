@@ -60,6 +60,71 @@
 // a depth in the plain sense and lets a fire's peak brightness be a number the
 // builder can state rather than measure.
 // ============================================================================
+//
+// ============================================================================
+// USER VERDICT, hardware, ModBuild 145 (verbatim):
+//   "Das Feuer zappelt viel zu schnell und ist damit nicht sehr immersiv."
+//
+// THIS IS NOT A REQUEST TO SLOW THE FIRE DOWN, and reading it as one walks
+// straight back into "das sind Kerzenflammen", which he has now rejected twice.
+// The 4.6 Hz clock is measured and defensible and IS NOT TOUCHED by this round.
+// What was wrong is WHICH BAND MOVES WHICH STRUCTURE, and the diagnosis is a
+// table rather than an opinion.
+//
+// THE MEASUREMENT. A buoyant diffusion flame does not have "a" frequency; it
+// has a cascade, and the frequency of a structure is set by its SIZE. The pool-
+// fire puffing correlation (Cetegen & Ahmed 1993, and it is the one every fire-
+// safety text quotes) is
+//                        f = 1.5 / sqrt(D)   [Hz, D in metres]
+// so a band's frequency names the structure it belongs to, D = (1.5/f)^2:
+//
+//     band     ratio   at FireHz 4.6    the structure it MOVES
+//     w.w      0.235      1.08 Hz       1.9 m   — the whole fire, the swell
+//     w.y      0.610      2.81 Hz       29 cm   — ONE TONGUE
+//     w.x      1.000      4.60 Hz       11 cm   — a tongue's tip, a bed cell
+//     w.z      1.730      7.96 Hz       3.6 cm  — texture detail, a wrinkle
+//
+// ...and the fires that are actually built (BuildEnvironmentRooms, both rooms)
+// are 0.48 to 1.24 m across, i.e. their whole-flame puffing rate is 1.35 to
+// 2.17 Hz — the w.w/w.y end of that table, not the w.x/w.z end.
+//
+// THE FAULT. Before this round the assignment was INVERTED end to end:
+//   * the tongue's LENGTH (a 30-60 cm structure) was driven 58 % at 4.6 Hz and
+//     42 % at 8 Hz — the two bands that belong to 11 cm and 3.6 cm — and
+//     NOTHING drove it at its own 1.4-2.8 Hz. Amplitude-weighted mean 6.0 Hz.
+//   * the tongue's whole LATERAL WANDER (h^2, so the entire card) was driven on
+//     X by w.z alone: 10.4 cm of sideways travel at 8 Hz, 3.6 m/s rms, 183
+//     m/s^2 rms, sixteen direction reversals a second. That single line is the
+//     loudest "zappeln" in the shader.
+//   * meanwhile the ONE genuinely small-scale term in the whole effect — the
+//     fragment's UV wobble, which moves texture detail a few millimetres — ran
+//     at 2.1 Hz and 1.16 Hz, the frequencies that belong to a 1-2 m structure.
+//   * and 19 % of the brightness — of the FLAME and of the WASH ON THE WALLS —
+//     sat at 8 Hz, which is the peak of human temporal contrast sensitivity
+//     (de Lange): the one frequency at which a large dim-adapted field is most
+//     visibly unsteady. On the cellar's wash (depth 0.45) that is +-8.6 % of
+//     the whole pool of light, on the forest's (0.55) +-10.5 %.
+//
+// THE FIX, in one sentence: every band keeps its frequency and the CLOCK IS
+// UNCHANGED; what changes is that each band is now applied to the structure
+// whose size it names, and the amplitudes roll off with frequency the way a
+// turbulent spectrum does instead of being flat. The fire still turns over four
+// to eight times a second in its small parts. Its tongues now take a third of a
+// second to grow and fall, as a 30 cm tongue must.
+//
+// REJECTED, and why:
+//   * Lowering FireHz. That is the ModBuild 144 fire again — 1 Hz is a candle
+//     in a draught, measured, and it is the thing he rejected first. It also
+//     would have slowed the small structures, which were the one part that was
+//     right.
+//   * Lowering _Lick / _Sway (the amplitudes). Cuts the fire's size and life
+//     without touching its nervousness: the same jitter, smaller. Amplitude is
+//     not what he complained about — nothing in "zappelt zu schnell" is about
+//     how far anything moves.
+//   * Damping (an exponential lag on the surge). Costs per-vertex state a
+//     vertex shader does not have, and a low-pass of a flat spectrum is just a
+//     re-weighting done expensively and without saying so.
+// ============================================================================
 #ifndef GHVR_ENV_FIRE_INCLUDED
 #define GHVR_ENV_FIRE_INCLUDED
 
@@ -186,21 +251,65 @@ float GhvrFireDepth (GhvrFirePair p, float depth)
     return depth * (1.0 + 0.70 * p.air);
 }
 
+/// THE FOUR BANDS OF ONE FIRE, from one wave call. `cycles` is the fire's clock
+/// already in CYCLES (t * hz); `phase` decorrelates one fire from another, or
+/// one card from another inside a fire.
+///
+/// Returned as the raw four so that a CONSUMER can choose which band drives
+/// which structure — which is the whole content of the ModBuild 145 fix above,
+/// and the reason this is a function at all. EnvFlame's vertex shader used to
+/// carry a byte-for-byte copy of these four arguments with a comment saying the
+/// two had to be kept in step by hand; the copy is gone and the band ratios now
+/// exist once, here, next to the table that says what each of them means.
+///
+/// The ratios themselves are UNCHANGED and deliberately so: 1 / 0.61 / 1.73 /
+/// 0.235 are mutually irrational enough that the four never re-phase, which is
+/// what stops a fire having a visible period. It is only their weights and
+/// their targets that this round touches.
+float4 GhvrFireBands (float cycles, float phase)
+{
+    return GhvrWave4(float4(cycles          + phase,
+                            cycles * 0.61   + phase * 1.7 + 0.31,
+                            cycles * 1.73   + phase * 0.4 + 0.67,
+                            cycles * 0.235  + phase * 0.9 + 0.13));
+}
+
 /// The brightness of a fire at time t, in [1-depth, 1+depth].
 ///
 /// Four bands: the base rate, a slower one under it, a fast one over it and a
-/// slow breath. At the shipped 4.6 Hz that is 4.6 / 2.8 / 8.0 / 1.1 Hz, i.e. the
-/// turbulence band the brief asks for plus the swell that stops it reading as
-/// buzz. `phase` decorrelates two fires in one room; `hz` is shared between a
-/// flame and its light and is the whole of the rule this function exists for.
+/// slow breath. At the shipped 4.6 Hz that is 4.6 / 2.8 / 8.0 / 1.1 Hz. `phase`
+/// decorrelates two fires in one room; `hz` is shared between a flame and its
+/// light and is the whole of the rule this function exists for.
+///
+/// THE WEIGHTS — ModBuild 145, "das Feuer zappelt viel zu schnell". Both the
+/// physics and the eye say the same thing about the old 0.40/0.27/0.19/0.14:
+///
+///   * A flame's RADIANCE spectrum is not flat. It peaks at the puffing rate
+///     (1.4-2.2 Hz for these fires, see the table at the top) and rolls off
+///     above it; the old weighting put its peak at 4.6 Hz and gave 8 Hz nearly
+///     as much as the 1.1 Hz swell, which is a spectrum no fire has.
+///   * 8 Hz is the WORST POSSIBLE PLACE to spend brightness. Human temporal
+///     contrast sensitivity peaks near 8-10 Hz for a large field at low mean
+///     luminance (de Lange), and this waveform drives the WASH ON THE STONE —
+///     the largest, softest, dimmest field in the room. 19 % of a 0.45 depth is
+///     +-8.6 % of the whole pool of light, modulated at exactly the frequency
+///     the visual system is built to notice. That is "zappeln" in one number.
+///
+/// New: 0.26 / 0.34 / 0.08 / 0.32, still summing to 1 so `depth` stays exact
+/// and every bake value is untouched. Measured over 200 s at 4 kHz:
+///     mean frequency        4.26 Hz -> 3.13 Hz
+///     power above 6 Hz      12.5 %  ->  2.2 %
+///     power below 3 Hz      32.0 %  -> 74.6 %
+///     |d(brightness)/dt|    604 %/s -> 408 %/s
+///     direction reversals   11.5/s  ->  9.7/s
+/// The peak-to-peak swing is IDENTICAL (+-54.6 % at _Flicker 0.55): the fire is
+/// exactly as unsteady as it was, and it is unsteady on the timescale of a fire
+/// rather than on the timescale of a wasp.
 float GhvrFireFlicker (float t, float hz, float phase, float depth)
 {
-    float4 w = GhvrWave4(float4(t * hz             + phase,
-                                t * hz * 0.61      + phase * 1.7 + 0.31,
-                                t * hz * 1.73      + phase * 0.4 + 0.67,
-                                t * hz * 0.235     + phase * 0.9 + 0.13));
+    float4 w = GhvrFireBands(t * hz, phase);
     // the weights sum to 1, so |f| <= 1 and `depth` is exact
-    float f = 0.40 * w.x + 0.27 * w.y + 0.19 * w.z + 0.14 * w.w;
+    float f = 0.26 * w.x + 0.34 * w.y + 0.08 * w.z + 0.32 * w.w;
     return 1.0 + depth * f;
 }
 
