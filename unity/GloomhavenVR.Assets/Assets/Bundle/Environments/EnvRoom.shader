@@ -233,6 +233,18 @@ Shader "GloomhavenVR/EnvRoom"
     // the candles untouched the candle pools are the only well-lit places left
     // in the room without a single number on them having changed.
     //
+    // ...AND THAT RULING IS NO LONGER ENFORCED HERE ALONE. Deleting the two
+    // knobs from THIS function fixed the walls and left every other reader of
+    // the shared source gain still moving the cellar's candles — the halos
+    // (EnvGlow), the drips (EnvDrip), the reflected shard in the puddle
+    // (EnvPuddle) and the tipping bookshelf (EnvHaunt) all brightened 2.10x
+    // under Light in a room whose walls did not. Since ModBuild 146
+    // GhvrSrcGain and GhvrSrcHard are themselves the exact identity indoors, so
+    // the ruling holds for every consumer at once and a shader added next round
+    // inherits it instead of having to remember it. This function is unchanged
+    // and stays unchanged: it is simply no longer the only thing standing
+    // between the ruling and the room.
+    //
     // `flickMul` stays, and it is not the same kind of thing: AIR works the
     // flames, so the POOLS shiver and not just the sprites. A draught you can
     // see on the wall is a draught. It is exactly 1 with Air down.
@@ -335,6 +347,12 @@ Shader "GloomhavenVR/EnvRoom"
             // What is chosen on this side is only where it starts.
             float ea = e.earth * _ElemMoss;
             float4 mrel = float4(0, 0, 0, 0);
+            // WHICH BODY each fragment belongs to and WHAT COLOUR that body is —
+            // GhvrMossRelief's second output (x = clump field, y = tone),
+            // new in ModBuild 146; see MOSS REAL, SECOND PASS. The 0.5s are the
+            // middle of the palette and are what the un-grown path leaves them at,
+            // which is unreachable anyway: GhvrMossOn only reads it under `m`.
+            float2 morg = float2(0.5, 0.5);
             if (ea > 0.0)
             {
                 // 0.10 in the middle against frost's 0.15, and a steeper ramp:
@@ -350,13 +368,13 @@ Shader "GloomhavenVR/EnvRoom"
                 moss = GhvrGrow(GhvrGrowA(mfld, grain,
                                           saturate(0.52 * foot + 0.28 * shade + 0.20 * sky)),
                                 ea * (0.10 + 1.90 * rr), -creep);
-                mrel = GhvrMossRelief(q, mfld);
+                mrel = GhvrMossRelief(q, mfld, morg);
                 mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
             }
 
             float lum = GhvrGrowLum(alb.rgb);
             alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-            alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x);
+            alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x, morg);
             // the crust fills what it grew into. Exactly 1.0 where nothing grew,
             // so a lit-but-ungrown pixel is untouched. The moss takes far more
             // of the stone's relief than ModBuild 143's 0.30 did — a cushion
@@ -396,20 +414,52 @@ Shader "GloomhavenVR/EnvRoom"
         {
             float t = _Time.y + _GhvrTimeOfs;
 
+            // THE AMBIENT — and this line no longer means the same thing in the
+            // two rooms it serves. EnvRoom is the cellar's masonry AND the
+            // wood's trunks, so it is the shader the ModBuild 146 verdict is
+            // most visible in.
+            //
+            // USER VERDICT, ModBuild 146 (hardware, cellar, verbatim): "Der
+            // 'Hell'-Effekt im Keller gefällt mir noch nicht, es soll wirklich
+            // den Mondschein heller machen statt den ganzen Raum."
+            //
+            // WHAT THIS COMMENT USED TO SAY, and why it was wrong. It defended
+            // the previous behaviour by quoting ModBuild 143's "und den Raum
+            // mehr erhellen" — the room SHOULD get brighter under Light — and
+            // then delivered that through GhvrAmbGain, i.e. by raising the
+            // hemisphere floor 1.85x. That lifts the far corners, the ceiling,
+            // the underside of the stair and the shadowed side of every barrel
+            // by the same 85%, all of them out of the reach of any window, and
+            // no arrangement of that reads as moonlight. The two sentences are
+            // not in conflict: the second names the MECHANISM the first was
+            // supposed to arrive by. So the ambient is now held at exactly 1.00
+            // indoors (GHVR_AMB_LIFT_IN = 0.00 — zero, so it is the same bits,
+            // not merely a small number) and the whole of Light arrives through
+            // the window on the line below or does not arrive.
+            //
+            // The forest is UNTOUCHED and its opposite ruling still stands
+            // ("Bei Helligkeit sollten diese Dinge intensiver werden"): a
+            // clearing is lit by its own sky, so out there the ambient IS a
+            // moonlight term and still lifts by 0.85. One function, two rooms,
+            // GhvrIndoor() between them.
             ambGain = GhvrAmbGain(e);
-            // THE MOON, and it is the one thing Light and Dark are allowed to
-            // move in this shader (see PointLight for what they are no longer
-            // allowed to move). GhvrMoonLight is EnvElement.cginc's contract:
-            // 1.0 at rest, below 1 while the eclipse eats the disc under Dark,
-            // above 1 while Light swells it — and the SAME function scales the
-            // cellar's beam and the wood's shafts in another lane, so the light
-            // on the floor and the light in the air can never disagree about
-            // how much moon there is. Under full Dark at totality the product
-            // is 0.55 * 0.34 = 0.19: the room keeps a fifth of its moonlight,
-            // the ambient falls to a fifth with it (GhvrAmbGain), and the
-            // candles keep every photon they had. Under full Light it is
-            // 1.90 * 1.34 = 2.55, which is "viel intensiver ... und den Raum
-            // mehr erhellen" with the candles again untouched.
+            // THE MOON, and it is now the ONLY thing Light and Dark are allowed
+            // to move in this shader at all indoors (see PointLight for what
+            // they are no longer allowed to move, and the block above for the
+            // ambient). GhvrMoonLight is EnvElement.cginc's contract: 1.0 at
+            // rest, below 1 while the eclipse eats the disc under Dark, above 1
+            // while Light swells it — and the SAME function scales the cellar's
+            // beam, the wood's shafts and the puddle's mirror, so the light on
+            // the floor and the light in the air can never disagree about how
+            // much moon there is. Under full Dark at totality the product is
+            // 0.55 * 0.05 = 0.0275: the moonlight is gone, the ambient falls to
+            // a fifth with it (GhvrAmbGain), and the candles keep every photon
+            // they had. Under full Light it is 1.90 * 1.34 = 2.55 in the wood
+            // and 2.40 * 1.34 = 3.22 in the cellar — the cellar's moon is
+            // spending the ambient's share as well as its own, which is exactly
+            // what "wirklich den Mondschein heller machen statt den ganzen
+            // Raum" asks for, and it lands on the surfaces the moon can
+            // actually see because that is what a directional term is.
             dirGain = GhvrDirGain(e) * GhvrMoonLight();
             // AIR: the draught works the candles (see PointLight). The forest's
             // three "points" are a wisp, a far lantern and the shafts' landing
@@ -462,11 +512,30 @@ Shader "GloomhavenVR/EnvRoom"
             // Flecken" verdict expressed as one factor. A gloss over a patch of
             // moss is a VARNISH: it is the single strongest signal a surface can
             // send that it has been painted rather than grown. Real moss is the
-            // matt-est thing in a cellar. So the sheen now lives only on the
-            // THIN frontier, where the stone genuinely is wet and the moss has
-            // barely taken, and the deep middle of a cushion has none at all.
+            // matt-est thing in a cellar. So the sheen lives only on the THIN
+            // frontier, where the stone genuinely is wet and the moss has barely
+            // taken, and the deep middle of a cushion has none at all.
+            //
+            // ...AND INDOORS IT IS GONE ENTIRELY. USER VERDICT, ModBuild 146
+            // (verbatim): "Das Moos gefällt mir immer noch nicht insbesondere
+            // nicht im Keller - es sieht eher aus wie Schleim, es soll eher
+            // aussehen wie wuchende Pflanzen und Pilze die an den Wänden
+            // wachsen." A grazing wet gloss is not one of the reasons a surface
+            // looks like slime, it is THE reason: slime is defined by being wet,
+            // and the frontier this sheen sits on is the one part of every patch
+            // the eye traces to find its shape. Restricting it to the thin edge
+            // in ModBuild 145 made it smaller and left it exactly where it did
+            // the most damage. What grows on damp cellar stone with no sun is
+            // lichen crust and fungus — chalky, matt, DUSTY things — so indoors
+            // the term is multiplied out to nothing and the cushion's own
+            // relief normal is left to do all the work.
+            // Outdoors it stays: real moss after rain does catch a grazing
+            // sheen, the forest was not the room he named, and taking a working
+            // cue out of a room nobody complained about is how a fix becomes a
+            // regression.
             elemAdd += float3(0.014, 0.026, 0.017)
-                     * (moss * (1.0 - mthk) * graze * graze * (0.5 + 0.5 * rr));
+                     * (moss * (1.0 - mthk) * graze * graze * (0.5 + 0.5 * rr)
+                        * (1.0 - GhvrIndoor()));
             // ...and it swallows the ambient rather than answering it, which is
             // the other half of "matt": a cushion of moss is the darkest thing
             // on a moonlit wall. Frost is the opposite and is added above.

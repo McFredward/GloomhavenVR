@@ -535,6 +535,22 @@ Shader "GloomhavenVR/EnvHaunt"
                     // The GROWN frost/moss patches (EnvGrowth) are not here: they
                     // need the growth field and a second noise, and this shader
                     // exists to tip a shelf over, not to re-implement a surface.
+                    //
+                    // THE TWO SOURCE KNOBS BELOW ARE NOW DEAD IN THE ONE ROOM
+                    // THIS PROP STANDS IN, and that is a fix rather than an
+                    // accident. The tipping bookshelf is a CELLAR prop lit by
+                    // the room's three candles, and it was the last surface in
+                    // that room still brightening 2.10x under Light and
+                    // collapsing its pools 3.0x under Dark — the walls behind it
+                    // stopped doing both in ModBuild 144 (EnvRoom's PointLight
+                    // block), so a Light infusion visibly repainted the shelf and
+                    // nothing around it. Since ModBuild 146 GhvrSrcGain and
+                    // GhvrSrcHard are the exact identity indoors, on the standing
+                    // ruling that the candlelight is untouchable, so both lines
+                    // now evaluate to 1.0 here and the shelf is lit by its
+                    // candles exactly as the wall beside it is. The calls stay —
+                    // this shader is also compiled for the wood's haunt cards,
+                    // where the ruling does not apply and the gains still bite.
                     float ambGain = 1.0, srcGain = 1.0, dirGain = 1.0;
                     float hardMul = 1.0, flickMul = 1.0;
                     if (e.live > 0.0)

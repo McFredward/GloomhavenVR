@@ -112,7 +112,9 @@
 //
 // ELEMENT ART (ModBuild 144), two terms and both of them earn their place:
 //  * MOONLIGHT. The beam IS the moon, so it scales by the contract's own
-//    GhvrDirGain(e) * GhvrMoonLight() — 2.55x under Light, 0.0275x under the
+//    GhvrDirGain(e) * GhvrMoonLight() — 3.22x under Light since ModBuild 146
+//    (the cellar's Light gain now goes into the moon instead of into the room's
+//    ambient floor; see the MOON-LIGHT HOOK block in frag), 0.0275x under the
 //    held blood moon. Under Dark it stops being a light source and the room is
 //    left to its candles, which is exactly what the user asked for.
 //  * WIND. Under Air the density streams: fine filaments lying ALONG the
@@ -432,11 +434,40 @@ Shader "GloomhavenVR/EnvBeam"
                 // USER VERDICT, ModBuild 143, both halves: "Bei Licht sollte auch
                 // der Mondschein aus dem Fenster viel intensiver sein" and "bei
                 // Dunkelheit ... den Mondschein extrem zu reduzieren, so dass der
-                // Raum insgesamt deutlich dunkler wird". Full Light is 2.55x here
-                // (the Reinhard knee eats some of it, which is the point of the
-                // knee); full Dark is 0.0275x, i.e. the beam stops being a light
-                // source and the three candles are the only ones left. The room
-                // is ALLOWED to be that dark now — it is what was asked for.
+                // Raum insgesamt deutlich dunkler wird". Full Dark is 0.0275x,
+                // i.e. the beam stops being a light source and the three candles
+                // are the only ones left. The room is ALLOWED to be that dark
+                // now — it is what was asked for.
+                //
+                // ...AND FULL LIGHT IS NOW 3.22x AND NOT 2.55x. USER VERDICT,
+                // ModBuild 146 (verbatim): "Der 'Hell'-Effekt im Keller gefällt
+                // mir noch nicht, es soll wirklich den Mondschein heller machen
+                // statt den ganzen Raum." THIS SHADER IS WHERE THAT VERDICT IS
+                // MEANT TO BE FELT. Not one number in this file moved: the room
+                // stopped spending Light on its own ambient floor
+                // (GHVR_AMB_LIFT_IN = 0.00) and GhvrDirGain spends it here
+                // instead (GHVR_DIR_LIFT_IN = 1.40).
+                //
+                // MEASURED, in the preview harness, by rendering each cellar view
+                // twice — once with this hull drawn and once with it hidden — so
+                // that the beam's own contribution is isolated exactly rather than
+                // guessed at from a rectangle. At full Light, against the build
+                // the user rejected:
+                //     this volume        +24% to +26% (four views)
+                //     the room around it -22% to -31% in the same frames
+                //     the candle-lit wall (the "Web" view) back to its RESTING
+                //       value to five decimals — Light no longer touches it at all
+                // so the beam's share of the light in its own frame goes 0.32 ->
+                // 0.52 (BeamSide), 0.18 -> 0.29 (Window), 0.09 -> 0.15 (Puddle).
+                // The absolute number matters less than that ratio: this is a
+                // blade of lit air in a black room, and the eye reads it against
+                // what is behind it. Roughly two thirds of the change the user
+                // will see is the room getting out of the way.
+                //
+                // The Reinhard knee (_Knee 1.10) eats a little of the extra —
+                // 1.26x of gain arrives as 1.24x of pixels — which is the point of
+                // the knee: standing IN the beam and looking up it under full
+                // Light must not clip to a white screen.
                 float moonGain = 1.0;
                 if (e.live > 0.0) moonGain = GhvrDirGain(e) * GhvrMoonLight();
 

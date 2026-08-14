@@ -362,18 +362,24 @@ Shader "GloomhavenVR/EnvRoomCutout"
                     // Here the moss's own relief is the only relief there is.
                     float ea = e.earth * _ElemMoss;
                     float4 mrel = float4(0, 0, 0, 0);
+                    // WHICH BODY this fragment belongs to and WHAT COLOUR that
+                    // body is — GhvrMossRelief's second output (x = clump field,
+                    // y = tone), new in ModBuild 146. See MOSS REAL, SECOND PASS
+                    // in EnvGrowth.cginc; GhvrMossOn only reads it under `m`, so
+                    // the initialiser is never seen.
+                    float2 morg = float2(0.5, 0.5);
                     if (ea > 0.0)
                     {
                         float mfld = GhvrGrowField(q + 37.1);
                         moss = GhvrGrow(GhvrGrowA(mfld, grain,
                                                   saturate(0.62 * low + 0.38 * sky)),
                                         ea * (0.20 + 1.55 * rr), -creep);
-                        mrel = GhvrMossRelief(q, mfld);
+                        mrel = GhvrMossRelief(q, mfld, morg);
                         mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
                     }
                     float lum = GhvrGrowLum(alb.rgb);
                     alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x);
+                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x, morg);
                     n_ts.xy -= float2(dot(mrel.yzw, i.t), dot(mrel.yzw, i.b)) * mthk;
                 }
                 // =============================================================
@@ -387,6 +393,17 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 // EnvGround.shader for the user verdict and for why the pools
                 // below are deliberately NOT in this. Both gains are exactly 1
                 // with nothing up, so the branch is for cost only.
+                //
+                // THIS SHADER SERVES BOTH ROOMS (the wood's ferns and canopy,
+                // the cellar's cobwebs and sacking), and since ModBuild 146 the
+                // two functions below answer differently in each: the cellar's
+                // ambient no longer lifts under Light at all and its moon lifts
+                // 3.22x instead of 2.55x, on the verdict "es soll wirklich den
+                // Mondschein heller machen statt den ganzen Raum". Nothing is
+                // spelled here — GhvrAmbGain and GhvrDirGain read GhvrIndoor()
+                // themselves, which is the whole reason the room is a global and
+                // not a per-material property: a cobweb does not have to know
+                // which cellar it is hanging in.
                 float ambGain = 1.0, dirGain = 1.0;
                 if (eLive > 0.0)
                 {

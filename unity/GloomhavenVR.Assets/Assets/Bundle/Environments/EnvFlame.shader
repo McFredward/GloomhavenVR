@@ -379,7 +379,15 @@ Shader "GloomhavenVR/EnvFlame"
                     swayMul = 1.0 + 1.3 * e.air;
                     // a flame laid over by a draught is also LONGER, and a
                     // ducking one is shorter: one number carries both
-                    tall = max(1.0 + 0.55 * e.fire + 0.25 * e.air - 0.40 * e.dark, 0.05);
+                    // ...and the DARK term is switched off INDOORS. See the block on
+                    // `bright` below: the user's candle ruling covers the whole candle,
+                    // and a flame that ducks to 60% of its height under Dark is Dark
+                    // influencing the candle just as plainly as a dimmer one would be.
+                    // The FIRE and AIR terms stay in both rooms — the flare under a Fire
+                    // infusion is the ModBuild 142 design he has never objected to, and
+                    // the lean under Air is the draught from the window he asked FOR.
+                    tall = max(1.0 + 0.55 * e.fire + 0.25 * e.air
+                                   - 0.40 * e.dark * (1.0 - GhvrIndoor()), 0.05);
                     // THE FIRE TERM IS FOR CANDLES ONLY. `1.05 * e.fire` is "the
                     // candles flare while the room is infused", and on a bonfire —
                     // which exists ONLY under that infusion — it is not a response
@@ -388,8 +396,27 @@ Shader "GloomhavenVR/EnvFlame"
                     // bake: with it, thirty overlapping additive cards clipped to
                     // white over their whole area and the fire's own card edges
                     // showed as hard white parallelograms.
+                    // ...AND THE CANDLE FLAME ITSELF IS UNTOUCHABLE INDOORS. Two
+                    // standing rulings, both verbatim and both about the cellar:
+                    //   "anstatt die Kerzenscheine, die sollte identisch beiben."
+                    //   "Auch bei Dunkelheit sollte es keinen Einfluss auf den
+                    //    Kerzenschein haben."
+                    // ModBuild 146's shading pass enforced that centrally for every
+                    // reader of the SOURCE gain (GhvrSrcGain/GhvrSrcHard are the exact
+                    // identity indoors now), which fixed the candle's POOL, its halo,
+                    // its reflection in the puddle and the shelf it stands on — and left
+                    // this line, the flame SPRITE itself, still brightening 1.55x under
+                    // Light and dimming to 0.55 under Dark. The one part of a candle you
+                    // actually look at was the one part still moving. Multiplying by
+                    // (1 - GhvrIndoor()) is exact at both ends: outdoors it is the
+                    // shipped line unchanged, indoors the two terms vanish rather than
+                    // being scaled small.
+                    // NOT gated: the fire term. "Die Kerzen flackern auf, wenn der Raum
+                    // infundiert ist" is the ModBuild 142 design and is a response to
+                    // FIRE, which no ruling touches.
                     bright = max(1.0 + (_Bonfire > 0.5 ? 0.0 : 1.05 * e.fire)
-                                     + 0.55 * e.light - 0.45 * e.dark, 0.0);
+                                     + (0.55 * e.light - 0.45 * e.dark) * (1.0 - GhvrIndoor()),
+                                 0.0);
                     if (_Bonfire > 0.5)
                     {
                         // A BONFIRE IS NOT A CANDLE UNDER LIGHT AND DARK. The

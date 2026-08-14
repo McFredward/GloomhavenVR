@@ -460,6 +460,26 @@ Shader "GloomhavenVR/EnvPuddle"
                 // the candle's shard warms and grows with Fire; every reflected
                 // source follows the split's source gain (Light lifts, Dark does
                 // not dim — see EnvElement.cginc)
+                //
+                // THIS PUDDLE IS INDOORS, so since ModBuild 146 GhvrSrcGain is
+                // the exact identity here and the line below multiplies by 1.0
+                // whatever Light and Dark are doing. It is kept, rather than
+                // deleted, because it is the correct expression and it costs a
+                // multiply by a uniform-derived constant: the shader states that
+                // a reflection follows the room's source gain, and the room's
+                // source gain happens to be 1 in the only room a puddle stands
+                // in. Two things fall out and both are wanted:
+                //   * THE CANDLE'S SHARD DOES NOT MOVE under Light or Dark, which
+                //     is the standing ruling ("die Kerzenscheine, die sollten
+                //     identisch bleiben") applied to the one surface in the
+                //     cellar that mirrors a candle.
+                //   * THE MOON'S IMAGE STOPS BEING DOUBLE-COUNTED. `moon` above
+                //     already carries GhvrDirGain x GhvrMoonLight; multiplying
+                //     the reflected moon by the source gain as well made the
+                //     puddle 2.10x brighter than the moonlight it was reflecting
+                //     (5.36x against the beam's 2.55x under full Light), i.e. the
+                //     one mirror in the room disagreed with its own subject.
+                //     It is now 3.22x, the same as the beam and the pool.
                 float3 col = _MoonCol.rgb * moon
                            + _CandCol.rgb * (cand * (1.0 + 0.85 * e.fire))
                            + _SkyCol.rgb * sheen;

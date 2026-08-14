@@ -53,7 +53,9 @@
 //     wins: GhvrAmbGain.
 //     SOURCES (the candle pools, the moon, the flames, the glows — the things
 //     you can point at) are lifted by Light, and Dark does NOT dim them, it
-//     HARDENS them: GhvrSrcGain / GhvrSrcHard.
+//     HARDENS them: GhvrSrcGain / GhvrSrcHard. INDOORS BOTH OF THOSE ARE THE
+//     IDENTITY — the cellar's sources are candles and the user has ruled them
+//     untouchable; see "AND THE CANDLES ARE UNTOUCHABLE INDOORS" below.
 //
 //  Light alone: the room lifts. Dark alone: the room falls away and the pools
 //  shrink to their flames. BOTH: maximum contrast — a black room with a handful
@@ -62,6 +64,45 @@
 //  Fire+Ice (embers rising through falling snow) and Air+Earth (a dust storm)
 //  are simple additive layering, and they read because each element owns a
 //  different sensory channel: colour, particle, motion and place.
+//
+//  ...AND INDOORS, LIGHT DOES NOT LIFT THE ROOM AT ALL — it lifts the MOON
+//  ---------------------------------------------------------------------
+//  USER VERDICT, ModBuild 146 (hardware, cellar, verbatim):
+//    "Der 'Hell'-Effekt im Keller gefällt mir noch nicht, es soll wirklich den
+//     Mondschein heller machen statt den ganzen Raum."
+//
+//  This is NOT a reversal of ModBuild 143's cellar ruling ("Bei Licht sollte
+//  auch der Mondschein aus dem Fenster viel intensiver sein UND DEN RAUM MEHR
+//  ERHELLEN, anstatt die Kerzenscheine"); read together, the two sentences name
+//  a MECHANISM. The room may get brighter, but only BY the moonlight — the beam
+//  through the window, the pool it lands in, the faces it falls on, the puddle
+//  it is mirrored in. What it may not do is lift the AMBIENT FLOOR, because a
+//  lifted floor brightens the far corners, the ceiling and the shadowed side of
+//  every barrel at once, which is a room being turned up rather than a moon
+//  coming out from behind cloud. Both sentences are satisfied by moving the
+//  gain from GhvrAmbGain into GhvrDirGain, and by nothing else.
+//
+//  The forest wants the OPPOSITE and its ruling is equally binding (ModBuild
+//  143, verbatim): "Licht und Dunkelheit beeinflussen zwar den Mond aber nicht
+//  die Lichtverhältnisse in der Lichtung. Bei Dunkelheit soll auch entsprechend
+//  die Lichtung dunkler werden ... Bei Helligkeit sollten diese Dinge
+//  intensiver werden." A clearing under an open sky IS lit by its own sky, so
+//  there the ambient floor is a moonlight term and it must follow the moon.
+//  That is why GhvrIndoor() exists (see the uniform below): one set of gains,
+//  two biologies of light, and neither ruling has to lose.
+//
+//  AND THE CANDLES ARE UNTOUCHABLE INDOORS — the third standing ruling, now
+//  enforced HERE instead of one call site at a time (ModBuild 143, verbatim):
+//    "anstatt die Kerzenscheine, die sollten identisch bleiben."
+//    "Auch bei Dunkelheit sollte es keinen Einfluss auf den Kerzenschein haben."
+//  EnvRoom.shader answered that in ModBuild 144 by deleting its own two knobs,
+//  which fixed the walls and left every OTHER reader of the source gain still
+//  moving the candles: the halos (EnvGlow), the drips (EnvDrip), the reflected
+//  shard in the puddle (EnvPuddle) and the tipping bookshelf (EnvHaunt) all
+//  brightened by 2.10x under Light in a room whose walls no longer did. So
+//  GhvrSrcGain and GhvrSrcHard are now the identity INDOORS, exactly, for every
+//  consumer at once — and the moon, which is a source but is not in the room,
+//  is served by GhvrSkySrcGain below instead.
 //
 //  THE MOON IS A CONTRACT, not a picture — read MOON PHASE at the bottom
 //  ---------------------------------------------------------------------
@@ -150,41 +191,155 @@ GhvrElem GhvrElemsZero ()
 }
 
 // ------------------------------------------------------------- THE SPLIT
-// The three functions the Light+Dark split lives in. All three return EXACTLY
-// 1.0 when nothing is up, so a consumer can call them unconditionally and still
-// be bit-identical — the branch is for cost, not for correctness.
+// The functions the Light+Dark split lives in. All of them return EXACTLY 1.0
+// when nothing is up — in EITHER room, since every room-dependent factor below
+// multiplies an element value that is itself 0 — so a consumer can call them
+// unconditionally and still be bit-identical. The branch is for cost, not for
+// correctness.
+//
+// THE FOUR CONSTANTS THE TWO ROOMS DISAGREE ABOUT, named rather than inlined,
+// because they are the whole of two competing user rulings and the next round
+// will want to find them in one place. See "...AND INDOORS" in the header.
+#define GHVR_AMB_LIFT_OUT 0.85  // the clearing lifts under Light: it is lit by
+                                // the sky, and the sky is where the moon is.
+#define GHVR_AMB_LIFT_IN  0.00  // the cellar does NOT. Exactly zero, so the
+                                // indoor ambient under full Light is the SAME
+                                // BITS as the resting ambient and no amount of
+                                // Light can raise the room's black level.
+#define GHVR_DIR_LIFT_OUT 0.90  // the wood's moon, unchanged since ModBuild 143.
+#define GHVR_DIR_LIFT_IN  1.40  // the cellar's moon takes the ambient's share as
+                                // well as its own. Composite with the swell:
+                                // (1 + 1.40) * 1.34 = 3.22x on the beam, on the
+                                // pool it lands in, on the puddle's mirror and
+                                // on every moonlit face — against 2.55x before,
+                                // with the room's own floor now held at 1.00.
+//
+// WHERE 1.40 COMES FROM, because "how much" is the whole of this round's verdict
+// and a number picked by eye would be the fourth complaint. It is a TRANSFER,
+// measured off the cellar itself rather than chosen: the preview harness was run
+// with the room's three lighting terms separated (candles / ambient / moon) by
+// solving the three-frame system {rest, old full Light, new full Light} per
+// pixel percentile over seven cellar views. Across the room the ambient and the
+// moon contribute in a ratio near A/D = 0.75. The gain being taken away is the
+// ambient's 0.85, so the gain the moon has to be given to carry the same light
+// is
+//       dL = 0.85 * A / (1.34 * D) = 0.85 * 0.75 / 1.34 = 0.48
+// on top of the outdoor 0.90 — i.e. 1.38, rounded to 1.40. At that value the
+// measured room is NOWHERE brighter under full Light than it was in the build
+// the user rejected (the largest overshoot is +6% at the 25th percentile of the
+// darkest corner, which is 0.4 of an 8-bit step at that level), while every
+// pixel the moon does NOT reach falls all the way back to its resting value —
+// and that second clause is the one that has no exception in it: with the
+// ambient lift at exactly 0.00 and the candles at exactly 1.00, a pixel in this
+// room can only brighten under Light BECAUSE THE MOON REACHES IT. Before, every
+// pixel in the room brightened, by up to 85%, whatever the moon was doing.
+//
+// REJECTED: giving EnvBeam an extra indoor-only Light factor of its own, so the
+// visible shaft could go to 2x while the surfaces stayed at 1.16x. It is the
+// obvious way to make the headline number bigger and it breaks the one design
+// rule three files in this bundle state in the same words — the beam, the pool
+// it lands in and the disc in the sky are ONE event, computed from ONE
+// expression, so that the player reads one cause and not three effects. A shaft
+// twice as bright as the pool underneath it is a shaft that is lying about where
+// its light goes. If the next verdict wants more moonlight, this constant is the
+// single place to raise it, and everything moves together.
+// REJECTED: also crushing the indoor ambient under Light (a negative lift), to
+// buy contrast by deepening the shadows. It reads well in a still and it is
+// indefensible in a sentence: "the Light element makes the room darker" is not
+// something this feature can be asked to explain.
+//
+// WHAT THIS ROUND COULD NOT FIX, and it belongs to the bake lane rather than to
+// the shading: the cellar's moon is an UNOCCLUDED directional. It lights every
+// north-east-facing surface in the room at the same N.L whether or not the
+// window can see it, so the moon's share is 50% even at the 50th percentile of
+// the darkest corner in the room (measured). No coefficient here can tell the
+// wall the beam falls on from the wall behind the stair, because the shader is
+// not told which is which. If the next round wants Light to reach ONLY the
+// window's throw, what is needed is a per-material or per-vertex moon-visibility
+// mask on _DirCol in the cellar — the forest already has exactly that
+// (EnvGround's _CsMap canopy shadow), and the cellar has nothing.
 
 /// Ambient/hemisphere gain: the room's own floor of light. Light lifts it only
-/// while Dark is not up (that is the (1 - dark) factor); Dark crushes it to a
-/// fifth. REJECTED: letting Light win the ambient too — then Light+Dark is a
-/// wash, i.e. exactly the grey average the brief forbids.
+/// while Dark is not up (that is the (1 - dark) factor) AND only OUTDOORS (see
+/// GHVR_AMB_LIFT_IN); Dark crushes it to a fifth in both rooms, which is the
+/// cellar's own ruling ("den Raum insgesamt deutlich dunkler") and the wood's.
+/// REJECTED: letting Light win the ambient too — then Light+Dark is a wash,
+/// i.e. exactly the grey average the brief forbids.
+/// REJECTED, and this is the one worth recording: leaving a SMALL indoor lift
+/// (0.15-0.20) on the grounds that a brighter beam really does bounce off the
+/// flagstones and fill the room a little. It is physically true and it is
+/// exactly what the user rejected twice — the bounce is a whole-room term and
+/// he can see it as one. The beam's own landing pool carries that light instead,
+/// through GhvrDirGain, where it stays attached to the thing casting it.
 float GhvrAmbGain (GhvrElem e)
 {
-    return max(1.0 + 0.85 * e.light * (1.0 - e.dark) - 0.80 * e.dark, 0.0);
+    float lift = lerp(GHVR_AMB_LIFT_OUT, GHVR_AMB_LIFT_IN, GhvrIndoor());
+    return max(1.0 + lift * e.light * (1.0 - e.dark) - 0.80 * e.dark, 0.0);
 }
 
-/// Source gain: candle pools, moon, flames, halos. Light drives it hard; Dark
-/// does not subtract at all, and the small light*dark term is what makes the
-/// split read as "fewer, BRIGHTER sources" rather than merely "fewer".
-float GhvrSrcGain (GhvrElem e)
+/// The gain for a source that is OUTSIDE the room: the moon's disc and its halo,
+/// painted by EnvStars. Light drives it hard; Dark does not subtract at all, and
+/// the small light*dark term is what makes the split read as "fewer, BRIGHTER
+/// sources" rather than merely "fewer".
+///
+/// It is deliberately NOT room-aware, and that is the entire reason it is a
+/// separate function: it is the SAME SKY from both rooms (the cellar sees it
+/// through the barred window), so a moon that swelled and brightened over the
+/// clearing and merely swelled over the cellar would be two moons.
+float GhvrSkySrcGain (GhvrElem e)
 {
     return 1.0 + 1.10 * e.light + 0.35 * e.light * e.dark;
+}
+
+/// The gain for a source INSIDE the room: candle pools, flames, halos, drips,
+/// the shard of candlelight in the puddle. Outdoors — where the "candles" are a
+/// wisp, a far lantern and a firefly swarm, none of which anybody has ruled on
+/// — it is GhvrSkySrcGain. Indoors it is EXACTLY 1.0, at every strength of every
+/// element, because the user has ruled the candlelight untouchable twice (see
+/// "AND THE CANDLES ARE UNTOUCHABLE INDOORS" in the header).
+///
+/// lerp(x, 1, ind) rather than a branch: with nothing up GhvrSkySrcGain is
+/// exactly 1.0 and lerp(1,1,ind) = 1 + ind*0 = 1.0 for any ind, so the zero
+/// state is bit-identical in both rooms and there is nothing to predicate.
+float GhvrSrcGain (GhvrElem e)
+{
+    return lerp(GhvrSkySrcGain(e), 1.0, GhvrIndoor());
 }
 
 /// Near-field hardness multiplier for a point light's falloff (EnvRoom/_PtHard).
 /// Dark collapses the lit pool toward its flame — the corners swallow light —
 /// and Light softens it slightly so a lit room does not read as spot-lit.
+///
+/// INDOORS IT IS EXACTLY 1.0, for the same ruling and by the same arithmetic as
+/// GhvrSrcGain: collapsing a candle pool is an INFLUENCE on the candlelight,
+/// and "keinen Einfluss auf den Kerzenschein" does not have a shape exception
+/// in it. What Dark does in the cellar instead is take the moon away
+/// (GhvrDirGain x GhvrMoonLight down to 0.0275x), which leaves the three candle
+/// pools standing as the only well-lit places in the room without a single
+/// number on them having moved — the picture he asked for, arrived at by
+/// subtracting the competition rather than by re-lighting the candles.
 float GhvrSrcHard (GhvrElem e)
 {
-    return max(1.0 + 2.0 * e.dark - 0.25 * e.light, 0.05);
+    float k = 1.0 - GhvrIndoor();
+    return max(1.0 + k * (2.0 * e.dark - 0.25 * e.light), 0.05);
 }
 
 /// Directional (moon) gain. The moon is a SOURCE, so Dark only takes it away
 /// while Light is not up: under the split the moon survives and the ambient
 /// does not, which is what turns the moonbeam into the only thing in the room.
+///
+/// INDOORS LIGHT DRIVES THIS MORE THAN TWICE AS HARD (GHVR_DIR_LIFT_IN), and
+/// that is the ModBuild 146 verdict expressed as one number: the gain the cellar
+/// used to spend on its ambient floor is spent here instead. Every moonlight
+/// term in the room rides this one function — the beam volume (EnvBeam), the
+/// floor and walls the moon falls on (EnvRoom/EnvRoomCutout), the moon's mirror
+/// in the puddle (EnvPuddle) and the cold rim on anything with a _RimCol — so
+/// they cannot move apart, and there is exactly one place to look when the next
+/// verdict says "more" or "less".
 float GhvrDirGain (GhvrElem e)
 {
-    return max(1.0 + 0.90 * e.light - 0.45 * e.dark * (1.0 - e.light), 0.0);
+    float lift = lerp(GHVR_DIR_LIFT_OUT, GHVR_DIR_LIFT_IN, GhvrIndoor());
+    return max(1.0 + lift * e.light - 0.45 * e.dark * (1.0 - e.light), 0.0);
 }
 
 // --------------------------------------------------------- THE PERIPHERY
@@ -261,9 +416,12 @@ float GhvrEmberBreath (float t, float phase)
 //     Dark itself that drives the room, on ElementMood's own smoothed ramp.
 //   * LIGHT: x (1 + GHVR_MOON_SWELL * light) = 1.34 at full Light — the same
 //     number the sprite grows by, NOT the disc's area (1.8x). The caller
-//     already multiplies GhvrDirGain (1.90x at full Light) and 1.90 * 1.80 is a
-//     headlight that flattens the night into a grey day; 1.90 * 1.34 = 2.55 is
-//     a moon you would call bright with a tree line that is still black.
+//     already multiplies GhvrDirGain (1.90x outdoors, 2.40x indoors at full
+//     Light) and 1.90 * 1.80 is a headlight that flattens the night into a grey
+//     day; 1.90 * 1.34 = 2.55 is a moon you would call bright with a tree line
+//     that is still black, and 2.40 * 1.34 = 3.22 is the cellar's, where the
+//     room's own ambient floor no longer moves at all and the whole of Light
+//     has to arrive through the window or not arrive (ModBuild 146).
 //   * The two compose: a swollen moon still gets eaten (1.34 * 0.05 = 0.067).
 //
 //  THE FLOOR IS 0.05 AND IT USED TO BE 0.34 — the second half of this round's
@@ -282,9 +440,13 @@ float GhvrEmberBreath (float t, float phase)
 //  allowed to be dark: in the cellar the beam is the only light BESIDES the
 //  candles, and "the room goes very dark and the candles are what is left" is
 //  precisely the picture the user asked for. Dark does not touch the candles
-//  at all (GhvrSrcGain), it only HARDENS them (GhvrSrcHard), so what is left
-//  standing is three small fierce pools — the split's own promise, finally
-//  paid, because the one competing source has stopped competing.
+//  at all indoors — since ModBuild 146 BOTH GhvrSrcGain and GhvrSrcHard are the
+//  exact identity there, so the pools are not even reshaped — and what is left
+//  standing is three small pools with not one number on them changed. The
+//  split's own promise, finally paid, and paid entirely by subtracting the one
+//  competing source rather than by touching the survivors.
+//  (Outdoors the hardening stays: the wood's "candles" are a wisp and a far
+//  lantern, which nobody has ruled on and which read better collapsed.)
 //    It is still NOT 0. A totally eclipsed moon is genuinely still there (a
 //  real one loses ~10 magnitudes, i.e. far more than this), the copper disc is
 //  still painted in the sky at full strength, and a beam that went to exactly

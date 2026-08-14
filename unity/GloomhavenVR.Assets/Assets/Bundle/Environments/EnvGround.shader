@@ -394,6 +394,12 @@ Shader "GloomhavenVR/EnvGround"
                     // only where it starts on a forest floor.
                     float ea = e.earth * _ElemMoss;
                     float4 mrel = float4(0, 0, 0, 0);
+                    // WHICH BODY this fragment belongs to and WHAT COLOUR that
+                    // body is — GhvrMossRelief's second output (x = clump field,
+                    // y = tone), new in ModBuild 146. See MOSS REAL, SECOND PASS
+                    // in EnvGrowth.cginc; GhvrMossOn only reads it under `m`, so
+                    // the initialiser is never seen.
+                    float2 morg = float2(0.5, 0.5);
                     if (ea > 0.0)
                     {
                         // the frontier without GhvrGrown's depth factor: moss
@@ -403,12 +409,12 @@ Shader "GloomhavenVR/EnvGround"
                         moss = GhvrGrow(GhvrGrowA(mfld, grain,
                                                   saturate(0.55 * blend + 0.25 * (1.0 - vis) + 0.20 * rr)),
                                         ea * (0.16 + 1.60 * rr), -creep);
-                        mrel = GhvrMossRelief(q, mfld);
+                        mrel = GhvrMossRelief(q, mfld, morg);
                         mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
                     }
                     float lum = GhvrGrowLum(alb.rgb);
                     alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x);
+                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x, morg);
                     n_ts.xy *= 1.0 - 0.62 * frost - 0.78 * moss;
                     n_ts.xy -= float2(dot(mrel.yzw, i.t), dot(mrel.yzw, i.b)) * mthk;
 
@@ -425,9 +431,21 @@ Shader "GloomhavenVR/EnvGround"
                     // channel landed, so the forest FLOOR — the largest lit
                     // surface in the room and the one "die Lichtung" mostly IS —
                     // never read the channel at all. The three gains below are
-                    // the whole of the fix, and they are deliberately the same
-                    // three EnvRoom applies, so the wood and the cellar answer
-                    // Light and Dark with one rule rather than two:
+                    // the whole of the fix, and they are the same three
+                    // FUNCTIONS EnvRoom applies:
+                    //
+                    // ...THOUGH NO LONGER THE SAME NUMBERS, and it is worth being
+                    // exact about that because this comment used to claim they
+                    // were. ModBuild 146's cellar verdict ("es soll wirklich den
+                    // Mondschein heller machen statt den ganzen Raum") is the
+                    // exact opposite of the forest verdict quoted above, so
+                    // GhvrAmbGain and GhvrDirGain now read GhvrIndoor() and give
+                    // the two rooms different coefficients. THIS SHADER IS THE
+                    // FOREST FLOOR AND NOTHING HERE MOVED: the clearing still
+                    // lifts its ambient 1.85x under full Light and its moon
+                    // 2.55x, exactly as ModBuild 143 asked. What changed is only
+                    // that the cellar stopped copying it. One pair of functions,
+                    // two rooms, and neither ruling has to lose:
                     //
                     //  * THE MOON is what Light and Dark move. dirGain is
                     //    GhvrDirGain folded with GhvrMoonLight — the eclipse

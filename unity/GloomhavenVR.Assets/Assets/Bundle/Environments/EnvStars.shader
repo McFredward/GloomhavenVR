@@ -365,7 +365,19 @@ Shader "GloomhavenVR/EnvStars"
                             // the gain and the halo takes all of it: bigger moon,
                             // far bigger glow, face still legible. (A real bright
                             // moon in damp air is read by its glow too.)
-                            float src = GhvrSrcGain(e);
+                            // GhvrSkySrcGain, NOT GhvrSrcGain, and the difference
+                            // is a room: since ModBuild 146 the room's source
+                            // gain is the exact identity indoors (the cellar's
+                            // sources are candles and the user has ruled them
+                            // untouchable). The moon is a source that is NOT in
+                            // the room, and it is the SAME MOON from the clearing
+                            // and from behind the cellar's bars, so it takes the
+                            // sky's gain in both. Calling the room's function
+                            // here would have left the cellar's moon swelling
+                            // (GhvrMoonSize) without brightening — a bigger disc
+                            // of the same grey, which reads as the moon coming
+                            // NEARER rather than as the night clearing.
+                            float src = GhvrSkySrcGain(e);
                             float3 mcol = _MoonCol.rgb * lerp(src, 1.0 + 0.35 * (src - 1.0), inDisc);
                             mcol = lerp(mcol, mcol * float3(0.74, 0.88, 1.22), saturate(e.ice));
 
