@@ -26,6 +26,7 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _DraftPush: 0.85
     - _Hang: 1.55
     - _Period: 2.85
     - _Phase: 0
@@ -36,5 +37,6 @@ Material:
     - _Y0: 3.252
     - _Y1: 0.008
     m_Colors:
+    - _DraftDir: {r: -0.89, g: 0, b: -0.456, a: 0}
     - _Tint: {r: 0.62, g: 0.74, b: 1, a: 0.85}
   m_BuildTextureStacks: []

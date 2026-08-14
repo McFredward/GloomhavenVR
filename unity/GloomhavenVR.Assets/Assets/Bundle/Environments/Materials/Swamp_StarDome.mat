@@ -43,6 +43,7 @@ Material:
     - _Extinct: 0.24
     - _HazeAmt: 0.4
     - _HorizonDim: 0.14
+    - _MoonDiscR: 0.22
     - _MoonExtent: 0.055
     - _MwBulge: 1.35
     - _MwDust: 0.8

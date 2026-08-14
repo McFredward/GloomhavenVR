@@ -50,6 +50,7 @@ Material:
     m_Colors:
     - _BeamDir: {r: -0.49255642, g: -0.6427071, b: -0.5867843, a: 0}
     - _BeamOrg: {r: -1.3522727, g: 2.5142856, b: 4.5, a: 0}
+    - _DraftDir: {r: -0.89, g: 0, b: -0.456, a: 0}
     - _HauntEnv: {r: 3.2, g: 2.6, b: 1.8, a: 0}
     - _Tint: {r: 0.55, g: 0.68, b: 1, a: 0.031}
   m_BuildTextureStacks: []

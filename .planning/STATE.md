@@ -126,6 +126,44 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 143** — seven reported items, all environment craft. No wire change.
+  **Bundle 65,331,900 bytes.**
+  **The rat: two one-line defects, both instructive.** Its entire albedo was a lerp between two
+  greys 1.4 stops apart — measured on the shipped build at 43–53 luma, flat, over the whole animal,
+  which is why it read as untextured. And "it shrinks instead of entering the hole" was literally
+  `wp = lerp(P, wp, vis)`, a shrink written back when the hole was a black rectangle painted on the
+  wall; the file's own header admitted it. Now a coat (pigment ramp + sin-free noise evaluated in
+  the AUTHORED position so the fur does not swim as the body waves + bare-skin mask in the one free
+  vertex channel) and a real entry down a bore derived from the route's own tangent — the south
+  route arrives 60° off the wall normal, so the pocket is sheared to match. Hidden by stone after
+  47 cm and PARKED there between crossings.
+  **Real fire**: six seats, each with a cause in the frame. A burning crate is not a big candle —
+  `EnvFlame` needed a bonfire branch (wide low bed, tearing tongues, temperature ramp), and the
+  first bake proved it by rendering a row of tall candle flames on a crate.
+  **Surface growth — Ice and Earth are ONE problem**: a coverage that advances and retreats through
+  a fixed pattern, not a tint that fades. Per-pixel AFFINITY (noise in room metres + the normal
+  map's own grain + where frost and moss really start: wall feet, mortar, shade, damp) with the
+  element sliding a THRESHOLD down through it. GENERAL RULE, and the reason 142 failed: a global
+  fade of a tint can never read as growth, however well tuned — the frontier has to be spatial.
+  Grass/moss cards FOLD FLAT onto their own base edge at rest: zero area, no fragments.
+  **Wind**: the prior art is unanimous — Crytek, Unity Tree Creator and SpeedTree all use the
+  cubic-smoothed triangle wave, not `sin()` (no transcendentals, bounded time argument, |wave| ≤ 1
+  by construction). Tip amplitude 4.5 cm chosen AGAINST the canopy shadow map's 5.5 cm texel, so
+  the baked shadow cannot visibly disagree with the leaves moving under it.
+  **Moon**: Dark slides Earth's umbra across the disc with a Danjon copper gradient — a SHADOW, not
+  a body, because a body would have had to occult stars. Light swells it ×1.34 in RADIUS, not area,
+  because the caller already multiplies 1.9 and 1.9 × 1.8 is a headlight. Both drive
+  `GhvrMoonLight()`, which the room shaders multiply into their moon term, so the wood darkens
+  BECAUSE the moon is being covered. **The cellar never sees the disc** — the lane rendered it and
+  recorded the negative result; there, both elements arrive only as the beam's brightness.
+  **AN INTEGRATION FAULT OF MY OWN MAKING**, found at the merge and worth carrying: two lanes built
+  the two halves of the element channel in the same round, each declared the uniforms it needed,
+  and each picked the obvious name — one made `GhvrElems` a struct, the other a function. It
+  compiled everywhere EXCEPT in the one shader that wanted both headers. LESSON for splitting work
+  by file ownership: a shared NAMESPACE is a shared file even when the files are disjoint. Name the
+  contract in the brief, as I did for `GhvrMoonLight()` and `_GhvrHauntForce` — those two crossed
+  lanes without a scratch.
+
 - **ModBuild 142** — four reported items. No wire change. **Bundle 65,226,455 bytes.**
   **Element effects, the art half.** 140 shipped only the sensor, so the user saw nothing with Air
   up — and his log proved the sensing side was fine (`Air=Waning now 0.00 -> 0.40±0.12`, nothing

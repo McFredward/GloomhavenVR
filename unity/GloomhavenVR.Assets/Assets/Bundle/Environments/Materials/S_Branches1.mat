@@ -34,8 +34,10 @@ Material:
     - _Cutoff: 0.5
     - _Cutout: 0
     - _ElemFrost: 1
-    - _ElemMoss: 0.55
+    - _ElemGrowFreq: 3
+    - _ElemMoss: 1.1
     - _ElemRad: 13.333335
+    - _ElemScl: 0.8999999
     - _ElemWarm: 1.8
     - _PtHard: 0
     - _RimPow: 3

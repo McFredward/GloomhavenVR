@@ -356,7 +356,7 @@ Shader "GloomhavenVR/EnvHaunt"
                 clip(i.uv.z - 1e-4);
 
                 float t = _Time.y + _GhvrTimeOfs;
-                GhvrElems e = GhvrHauntElems();
+                GhvrElem e = GhvrHauntElems();
 
                 float kind   = i.id.y;
                 float aspect = max(i.id.z, 1e-3);

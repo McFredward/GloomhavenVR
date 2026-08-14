@@ -112,7 +112,24 @@ Shader "GloomhavenVR/EnvStarPoints"
                           * smoothstep(-0.015, 0.02, dr.y);
 
                 // MOON OCCLUSION (see header): a star behind the disc is gone.
-                ext *= step(dot(dr, normalize(_MoonDir.xyz)), _MoonCos);
+                // MOON PHASE (EnvElement.cginc): under Light the disc GROWS, so
+                // the cull has to grow with it or a swollen moon shines with
+                // stars inside it — the exact "Mond der dahinter ist" bug this
+                // cull was written for, back the other way round. 1 - cos(x) is
+                // x^2/2 for a disc 1.4 deg wide, so scaling the radius by s
+                // scales (1 - _MoonCos) by s^2: no trig, and EXACTLY _MoonCos
+                // when Light is down.
+                // The ECLIPSE does not appear here on purpose: it is Earth's
+                // shadow, not a body. Nothing moves in front of the sky beside
+                // the moon, so nothing beside the moon may be occulted.
+                GhvrElem e = GhvrElems();
+                float moonCos = _MoonCos;
+                if (e.live > 0.0)
+                {
+                    float s = GhvrMoonSize(e);
+                    moonCos = 1.0 - (1.0 - _MoonCos) * s * s;
+                }
+                ext *= step(dot(dr, normalize(_MoonDir.xyz)), moonCos);
 
                 // Log-compressed so the horizon shimmers instead of strobing.
                 float amp = _TwinkleAmp * saturate(log(X) / log(40.0));
@@ -132,7 +149,7 @@ Shader "GloomhavenVR/EnvStarPoints"
                 // Under both, the sky ends up with a handful of hard bright
                 // points on black, which is the split (see EnvStars for the
                 // continuous layer's half of it).
-                GhvrElem e = GhvrElems();
+                // (`e` is read above, for the moon cull.)
                 float elemGain = 1.0;
                 if (e.live > 0.0)
                 {

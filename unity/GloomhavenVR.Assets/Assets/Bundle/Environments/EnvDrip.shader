@@ -38,6 +38,15 @@ Shader "GloomhavenVR/EnvDrip"
         _SplashOut ("Splash outward speed (m/s)", Float) = 0.55
         _SplashUp ("Splash upward speed (m/s)", Float) = 1.15
         _Stretch ("Motion stretch per m/s", Float) = 0.055
+        // ELEMENT ART — AIR. The draught's direction (EnvRoomBuilder.DraftDir,
+        // OBJECT space) and how hard it pushes, in m/s^2, at full Air. A falling
+        // drop is the most honest wind gauge a cellar has: it is the one thing in
+        // the room whose UNDISTURBED path the player already knows is straight
+        // down, so any lean at all is unmistakably the air doing it. The drip
+        // hangs 0.9 m off the draught's own line (window -> stair door), which is
+        // why it leans at all and why it does not blow away.
+        _DraftDir ("Draught direction (OBJECT space)", Vector) = (0,0,0,0)
+        _DraftPush ("Draught acceleration at full Air (m/s^2)", Float) = 0
     }
     SubShader
     {
@@ -58,6 +67,7 @@ Shader "GloomhavenVR/EnvDrip"
             fixed4 _Tint;
             float _Period, _Phase, _Hang, _Y0, _Y1;
             float _SplashLife, _SplashOut, _SplashUp, _Stretch;
+            float4 _DraftDir; float _DraftPush;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
@@ -72,6 +82,15 @@ Shader "GloomhavenVR/EnvDrip"
                 float3 base = float3(0, _Y0, 0);
                 float alive = 0;
 
+                // ELEMENT ART: the draught, as an ACCELERATION rather than an
+                // offset — wind pushes a drop for as long as it is falling, so
+                // the path bends instead of shifting sideways, which is the
+                // difference between "blown" and "misaligned". Exactly zero in
+                // the zero state (e.air is 0 and the whole block is skipped).
+                GhvrElem eAir = GhvrElems();
+                float push = 0.0;
+                if (eAir.live > 0.0) push = _DraftPush * eAir.air;
+
                 if (v.color.r < 0.5)
                 {
                     // ---- the drop ----
@@ -82,12 +101,18 @@ Shader "GloomhavenVR/EnvDrip"
                         base.y = _Y0;
                         off *= 0.30 + 0.70 * g * g;
                         alive = smoothstep(0.0, 0.22, g);
+                        // a hanging drop in a draught is dragged off plumb and
+                        // trembles: the bigger it grows the more the air has to
+                        // hold on to, hence the g*g weighting.
+                        base.xz += _DraftDir.xz * (push * 0.020 * g * g
+                                                   * (1.0 + 0.35 * sin(t * 5.3)));
                     }
                     else
                     {
                         float tf = s - _Hang;
                         float y = _Y0 - 4.905 * tf * tf;
                         base.y = y;
+                        base.xz += _DraftDir.xz * (0.5 * push * tf * tf);
                         // a falling drop is a streak, not a bead: stretch the
                         // vertical blade with speed (COLOR.a marks it)
                         off.y *= 1.0 + _Stretch * (9.81 * tf) * v.color.a;

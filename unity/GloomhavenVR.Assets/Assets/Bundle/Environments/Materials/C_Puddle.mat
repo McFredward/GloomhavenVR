@@ -26,6 +26,7 @@ Material:
     - _CandPhase: 4.4
     - _CandPow: 26
     - _CandRate: 1.19
+    - _DraftWave: 0.18
     - _Fresnel: 0.5
     - _Impact: 2.363244
     - _MoonPow: 45
@@ -39,6 +40,7 @@ Material:
     - _CandCol: {r: 1, g: 0.52, b: 0.2, a: 0.88}
     - _CandPos: {r: -1.55, g: 0.7822111, b: -3.95, a: 0}
     - _Center: {r: -3.6, g: 0, b: 2.35, a: 0}
+    - _DraftDir: {r: -0.89, g: 0, b: -0.456, a: 0}
     - _MoonCol: {r: 0.78, g: 0.92, b: 1.25, a: 1}
     - _MoonDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
     - _SkyCol: {r: 0.16, g: 0.2, b: 0.31, a: 1}

@@ -48,6 +48,11 @@ Material:
     m_Floats:
     - _BumpScale: 1.15
     - _DirScale: 0.38
+    - _ElemFrost: 0.9
+    - _ElemGrowFreq: 3
+    - _ElemMoss: 1
+    - _ElemRad: 12
+    - _ElemScl: 1
     - _PtHard: 0
     m_Colors:
     - _AmbDown: {r: 0.005, g: 0.006, b: 0.005, a: 1}
@@ -61,6 +66,7 @@ Material:
     - _CsV: {r: -0.4132157, g: 0.766112, b: -0.4922654, a: 0.044262532}
     - _DirCol: {r: 0.7, g: 0.79, b: 0.94, a: 1}
     - _DirDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
+    - _ElemCentre: {r: 0, g: 0, b: 0, a: 0}
     - _L0Col: {r: 0.11, g: 0.26, b: 0.16, a: 0.22}
     - _L0Pos: {r: -4.6, g: 0.85, b: -6.2, a: 0.18181819}
     - _L1Col: {r: 0.26, g: 0.145, b: 0.055, a: 0.3}

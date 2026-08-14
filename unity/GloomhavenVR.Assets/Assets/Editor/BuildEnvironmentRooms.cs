@@ -298,6 +298,12 @@ namespace GloomhavenVR
                 m.SetVector("_ElemCentre", new Vector4(cObj.x, cObj.y, cObj.z, 0f));
                 m.SetFloat("_ElemRad", rig.elemRad / Mathf.Max(s, 1e-4f));
                 m.SetFloat("_ElemWarm", rig.elemWarm);
+                // SURFACE GROWTH — this material's object units, in metres. It
+                // rides here for the same reason _ElemRad does: ApplyRig is the
+                // one place that knows every lit material AND its transform, and
+                // a growth pattern that did not know the scale would be a 0.45 m
+                // patch of frost on the floor and a 0.9 m one on a prop scaled 2.
+                m.SetFloat("_ElemScl", s);
             }
             for (int i = 0; i < 3; i++)
             {
@@ -983,15 +989,33 @@ namespace GloomhavenVR
         }
 
         /// <summary>Two-sided card (quad). `up` runs from the stem toward the tip
-        /// of the sprig, `right` is the card's width axis.</summary>
+        /// of the sprig, `right` is the card's width axis.
+        ///
+        /// SURFACE GROWTH — vertex ALPHA is the card's FREEDOM: 0 along the stem
+        /// edge, 1 along the tip edge. It is written here, once, for every card
+        /// in both rooms, because "the attachment point never moves" is a
+        /// property of the CARD and not of whatever is animating it — the wind
+        /// (EnvRoomCutout/_ElemWind) and the Earth grow-in (_ElemGrow) both read
+        /// it, and neither can pull a bough off its branch while it is 0 there.
+        /// Unity's own terrain grass carries exactly this channel with exactly
+        /// this comment ("1 on top vertices, 0 on bottom vertices",
+        /// TerrainEngine.cginc); this is that, for cards that hang as well as
+        /// stand.
+        ///
+        /// The rgb is untouched, and nothing read the alpha before, so authoring
+        /// it changes no pixel of any existing frame. The stem edge really is
+        /// the attachment: AddCrown places `c` at c0 + up*(len*0.55), so c - up
+        /// lands on the whorl the bough grows out of.</summary>
         private static void AddCard(Acc a, Vector3 c, Vector3 right, Vector3 up, Vector3 nrm,
             Rect uvRect, Color col)
         {
             int b = a.Count;
-            a.Vert(c - right - up, nrm, new Vector2(uvRect.xMin, uvRect.yMin), col);
-            a.Vert(c + right - up, nrm, new Vector2(uvRect.xMax, uvRect.yMin), col);
-            a.Vert(c + right + up, nrm, new Vector2(uvRect.xMax, uvRect.yMax), col);
-            a.Vert(c - right + up, nrm, new Vector2(uvRect.xMin, uvRect.yMax), col);
+            var stem = new Color(col.r, col.g, col.b, 0f);
+            var tip = new Color(col.r, col.g, col.b, 1f);
+            a.Vert(c - right - up, nrm, new Vector2(uvRect.xMin, uvRect.yMin), stem);
+            a.Vert(c + right - up, nrm, new Vector2(uvRect.xMax, uvRect.yMin), stem);
+            a.Vert(c + right + up, nrm, new Vector2(uvRect.xMax, uvRect.yMax), tip);
+            a.Vert(c - right + up, nrm, new Vector2(uvRect.xMin, uvRect.yMax), tip);
             a.Quad(b);
         }
 
@@ -1741,6 +1765,173 @@ namespace GloomhavenVR
         private static readonly Vector4 RatWob1 = new Vector4(0.50f, 0.80f, -0.46f, 0f);
         private static readonly Vector4 RatWob2 = new Vector4(0.12f, 0.32f, -0.12f, 0.28f);
 
+        // ============================================================ THE BURROW
+        // USER FINDING, ModBuild 142: "Wenn sie verschwindet in einem loch geht
+        // sie auch nicht durch das Loch sondern wird kleiner und verschwindet
+        // dann." That was one line of EnvCritter — `wp = lerp(P, wp, vis)` — and
+        // it predated the holes: when it was written the "hole" was a black
+        // rectangle painted on the wall, and there was nothing to walk into.
+        // ModBuild 140 gave both mouths a bent pocket 13-15 cm deep with a stone
+        // ring, and this round the animal finally uses it.
+        //
+        // WHAT THE NUMBERS BELOW HAVE TO SATISFY, because "it goes in" is not a
+        // feeling, it is an inequality: the animal is 44.5 cm from nose tip to
+        // tail tip, its origin sits 25.4 cm ahead of that tail tip, and the
+        // pocket is only 13-15 cm deep. So travelling to the CAP hides nothing —
+        // three quarters of the animal would still be hanging out of the wall.
+        // The burrow therefore continues past the pocket, into the wall and down
+        // under its footing, and the travel is DERIVED per hole as
+        //     gap + pocket depth + tail reach + clearance
+        // where `gap` is the distance the route's endpoint stands in front of
+        // the wall plane. RatBurrow() computes it, AssertRatSchedule prints it,
+        // and the build fails if the last centimetre of tail is not past the cap
+        // by the end of the travel.
+        //
+        // WHY IT MAY BE OUTSIDE THE ROOM AT ALL. Because everything a ray can
+        // reach from inside the cellar is the mouth aperture, and the pocket is
+        // BLIND: sleeve, floor and cap are one closed opaque sock (the winding
+        // gate in AddRatHole proves every face of it points at the room). The
+        // stair does the same thing already — its treads and its cap hang 2.15 m
+        // outside the west wall, because the room is only ever looked at from
+        // inside. Anything else here would need a second, invisible parking spot
+        // for an animal that is standing in a hole, which is where it should be.
+        private const float RatBurrowTime = 0.45f;    // seconds per burrow travel
+        private const float RatBurrowClear = 0.06f;   // margin the tail tip clears the cap by
+        private const float RatBurrowDrop = 0.45f;    // how far it has gone down at full travel
+        // ...and the animal's own dimensions, read off RatMesh's control points
+        // rather than typed twice: the tail's last ring plus its cap, the nose
+        // tip, the widest body ring and the spine wave's amplitude.
+        private const float RatTailReach = 0.254f;    // |z| of the rearmost point
+        private const float RatNoseReach = 0.191f;    // +z of the foremost point
+        private const float RatBodyR = 0.042f;        // widest ring
+        private const float RatBodyTop = 0.096f;      // that ring's top, in rat-local y
+        private const float RatSway = 0.016f;         // the spine wave
+        private const float RatHoleBaseY = -0.012f;   // the mouth's foot, under the flagstones
+        // How far a bore may lean off its wall's normal. 34 degrees is a real
+        // limit and not a taste: the south route arrives at 60 degrees, and a
+        // pocket sheared that far would (a) drift 13 cm sideways inside a 32 cm
+        // cut and (b) turn one sleeve wall away from the only side the mouth can
+        // be seen from. At 34 the sleeve stays inside the cut and the residual
+        // 22 degrees is small enough for the animal to turn through as it enters.
+        private const float RatBoreLeanMax = 34f;
+
+        /// <summary>The direction the burrow behind hole `wall` runs: unit,
+        /// horizontal, pointing INTO that wall.
+        ///
+        /// <para>DERIVED from the route's own tangent at that endpoint, for the
+        /// same reason RatHoleAuthored derives the mouth's position from it: the
+        /// direction the animal arrives from and the direction its hole bores in
+        /// are one fact. A hole square to the wall while the route reaches it at
+        /// 60 degrees is a hole the animal enters sideways, and no amount of
+        /// heading blending in the shader hides that.</para>
+        ///
+        /// <para>The tangent is taken at the MEAN of the wander (the hash is
+        /// symmetric about the bias, so the mean displacement is the bias), and
+        /// the lean is clamped — see RatBoreLeanMax.</para></summary>
+        private static Vector3 RatBore(int wall)
+        {
+            Vector3 d1 = new Vector3(RatWob1.z, 0f, RatWob1.w);
+            Vector3 d2 = new Vector3(RatWob2.z, 0f, RatWob2.w);
+            // hole 0 is where the animal comes OUT (tangent points into the
+            // room, so the bore is against it); hole 1 is where it goes IN.
+            Vector3 t = wall == 0 ? (RatW1 + d1) - RatW0 : RatW3 - (RatW2 + d2);
+            t.y = 0f;
+            Vector3 dir = (wall == 0 ? -t : t).normalized;
+            Vector3 n = -CellarWalls()[wall].into;     // the wall's outward normal
+            float lean = Vector3.SignedAngle(n, dir, Vector3.up);
+            return Quaternion.AngleAxis(Mathf.Clamp(lean, -RatBoreLeanMax, RatBoreLeanMax),
+                                        Vector3.up) * n;
+        }
+
+        /// <summary>What AddRatHole really built, in room coordinates, so the
+        /// animal's burrow can be measured off the pocket instead of guessing at
+        /// it. Filled by AddRatHole (which is called from BuildCellarRoom's HEWN
+        /// block, i.e. long before the critter's material is written).</summary>
+        private struct RatHoleGeo
+        {
+            public bool set;
+            public Vector3 mouth;    // mouth centre at the animal's ride height
+            public Vector3 bore;     // unit, into the wall
+            public Vector3 along;    // the wall's own +u, for the pocket's sideways bend
+            public float depth;      // pocket depth ALONG THE BORE, to the cap
+            public float capBend;    // how far the cap's centre is off the mouth's, along `along`
+            public float mouthW, mouthH;
+        }
+        private static readonly RatHoleGeo[] RatHoles = new RatHoleGeo[2];
+
+        /// <summary>One hole's burrow, as the two vectors EnvCritter walks:
+        /// P(b) = end + A.xyz*b + B.xyz*b^2 - up*A.w*b^4, b in 0..1.
+        ///
+        /// <para>A is the bore times the travel, B the pocket's own sideways
+        /// crookedness (matched at the cap, where the builder knows it exactly),
+        /// A.w the quartic drop and B.w the gap between the route's endpoint and
+        /// the wall plane — which the shader needs to turn a vertex position into
+        /// a depth into the pocket, and therefore into a light level.</para></summary>
+        private static void RatBurrow(int wall, out Vector4 A, out Vector4 B,
+                                      out float travel, out float gap, out float hides)
+        {
+            var g = RatHoles[wall];
+            if (!g.set) throw new Exception($"RatBurrow({wall}): AddRatHole has not run yet — the "
+                                            + "burrow is measured off the pocket, not authored.");
+            Vector3 end = wall == 0 ? RatW0 : RatW3;
+            Vector3 n = -CellarWalls()[wall].into;
+            // bore-travel from the route's endpoint to the wall plane. The plane
+            // distance is a normal projection; the travel is that over cos(lean).
+            gap = Vector3.Dot(g.mouth - end, n) / Mathf.Max(Vector3.Dot(g.bore, n), 1e-3f);
+            travel = gap + g.depth + RatTailReach + RatBurrowClear;
+            // ...and the travel at which the last of the animal is behind the cap
+            hides = gap + g.depth + RatTailReach;
+            // the sideways bend, matched where the builder knows it: at the cap.
+            float bCap = (gap + g.depth) / travel;
+            Vector3 lat = g.along * (g.capBend / Mathf.Max(bCap * bCap, 1e-3f));
+            A = new Vector4(g.bore.x * travel, g.bore.y * travel, g.bore.z * travel, RatBurrowDrop);
+            B = new Vector4(lat.x, lat.y, lat.z, gap);
+        }
+
+        /// <summary>Strides walked over one burrow travel, in the same currency as
+        /// the gait on the floor: RatStride is strides per spine route, so this is
+        /// that rate over the mean of the two burrows. Typing a number here
+        /// instead would be authoring a second gait for the last half metre.
+        /// </summary>
+        private static float RatBurrowStride()
+        {
+            float mean = 0f;
+            for (int h = 0; h < 2; h++)
+            {
+                RatBurrow(h, out _, out _, out float travel, out _, out _);
+                mean += travel * 0.5f;
+            }
+            return RatStride * mean / RatArc(Vector3.zero, Vector3.zero, 1f);
+        }
+
+        /// <summary>A clock offset (_GhvrTimeOfs) at which the animal is at run
+        /// progress `q` of a crossing that uses hole `hole` at that end — the
+        /// rat's answer to HauntPreviewClock, and for the same reason: the entry
+        /// is 0.45 s out of a 26 s slot, so a preview that did not SOLVE the
+        /// shipped schedule for it could only photograph it by faking one.
+        ///
+        /// <para>q &lt; 0 is the emergence (q = -1 is deep in the burrow, 0 the
+        /// mouth), 0..1 the crossing, and q &gt; 1 the entry (2 = parked). `hole`
+        /// selects the slot: 0 is the north mouth, 1 the south.</para></summary>
+        public static float RatPreviewClock(int hole, float q)
+        {
+            for (int n = 0; n < 4000; n++)
+            {
+                if (RatH(n, 0) < RatSkip) continue;
+                bool turn = RatH(n, 4) < RatModes.y;
+                int rev = RatH(n, 3) < RatModes.x ? 1 : 0;
+                int used = q <= 0f ? rev : (turn ? rev : 1 - rev);
+                if (used != hole) continue;
+                float peak = turn ? RatPeak.x + RatPeak.y * RatH(n, 5) : 1f;
+                float runT = RatRunTime * (turn ? 2f * peak : 1f) * (RatTiming.z + RatTiming.w * RatH(n, 2));
+                float t0 = n * RatPeriod + RatPeriod * (RatTiming.x + RatTiming.y * RatH(n, 1));
+                if (q < 0f) return t0 + q * RatBurrowTime;
+                if (q <= 1f) return t0 + q * runT;
+                return t0 + runT + (q - 1f) * RatBurrowTime;
+            }
+            throw new Exception($"RatPreviewClock: no crossing in 4000 slots uses hole {hole} at q={q}.");
+        }
+
         /// <summary>The schedule's hash, character for character the one in
         /// EnvCritter.shader. It is duplicated rather than derived because the
         /// GPU cannot report and the log cannot render: this is what lets the
@@ -1876,14 +2067,18 @@ namespace GloomhavenVR
                 CellarFloorY, (x, z) => Color.white, 2.6f));
             var floorGo = Place(root, "Floor", floorMesh, Vector3.zero, Vector3.zero, Vector3.one, null);
             var floorMat = SurfMat("C_Floor.mat", "monastery_stone_floor", 2.6f, floorGo.transform, 1.0f, 1f);
-            // ELEMENT ART — EARTH, and it is the only green in this room. The
-            // cellar's authored Earth is the grit off the ceiling planks
-            // (AddElementFX), which is small, dark and easy to miss; a damp cast
-            // creeping up the flagstones AT THE WALLS gives the element a second
-            // channel that cannot be missed and costs nothing. 0.30, and the
-            // periphery ramp keeps it out of the middle: the floor the board
-            // stands on stays the colour it was tuned to.
-            floorMat.SetFloat("_ElemMoss", 0.30f);
+            // ELEMENT ART / SURFACE GROWTH — EARTH on the flagstones.
+            //
+            // 1.0, where ModBuild 142 had 0.30, and it is NOT a threefold
+            // increase: the number changed units. It used to be the OPACITY of a
+            // green tint over the whole floor; it is now the fraction of the
+            // frontier's travel this surface gets, i.e. a coverage. At 1.0 with
+            // the periphery ramp (0.10 + 1.90*rim) the flagstones at the wall
+            // are fully in reach of the frontier and the ones under the board are
+            // beyond it at any strength — the floor the board stands on still
+            // keeps exactly the colour it was tuned to, which was the reason for
+            // the 0.30 and is preserved by the ramp instead.
+            floorMat.SetFloat("_ElemMoss", 1.0f);
             floorGo.GetComponent<MeshRenderer>().sharedMaterial = floorMat;
 
             // ---- walls (N has window + a rat hole, S has the other rat hole,
@@ -1896,11 +2091,21 @@ namespace GloomhavenVR
             var wallS = SaveMesh("Env_C_WallS.asset", WallMesh(CW, CH, 0.16f, new[] { RatHoleAuthored(1) }, 3.3f, 912, uOff: 1.31f));
             var wallE = SaveMesh("Env_C_WallE.asset", WallMesh(CD, CH, 0.16f, Array.Empty<Rect>(), 3.3f, 913, uOff: 2.17f));
             var wallW = SaveMesh("Env_C_WallW.asset", WallMesh(CD, CH, 0.16f, new[] { StairHole }, 3.3f, 914, uOff: 0.73f));
+            GameObject wallGoN = null;
             void Wall(string n, Mesh mesh, Vector3 pos, float yaw)
             {
                 var go = Place(root, n, mesh, pos, new Vector3(0, yaw, 0), Vector3.one, null);
-                go.GetComponent<MeshRenderer>().sharedMaterial =
-                    SurfMat("C_" + n + ".mat", "medieval_blocks_05", 3.4f, go.transform, 1.15f, 1f);
+                var m = SurfMat("C_" + n + ".mat", "medieval_blocks_05", 3.4f, go.transform, 1.15f, 1f);
+                // SURFACE GROWTH — "Wände und Böden teilweise mit Moos bewachsen".
+                // The WALLS are the half of that sentence ModBuild 142 could not
+                // answer at all: _ElemMoss was 0 on every wall in the room, so
+                // Earth had the flagstones and nothing else. A wall is where moss
+                // most obviously belongs in a damp cellar, and the affinity puts
+                // it at the FOOT of the run and in the mortar courses rather than
+                // over the whole face (EnvRoom.shader, `place`).
+                m.SetFloat("_ElemMoss", 1.0f);
+                go.GetComponent<MeshRenderer>().sharedMaterial = m;
+                if (n == "WallN") wallGoN = go;
             }
             Wall("WallN", wallN, new Vector3(-hw, 0, hd), 0);        // runs +X, faces -Z (into room)
             Wall("WallS", wallS, new Vector3(hw, 0, -hd), 180);
@@ -1938,8 +2143,9 @@ namespace GloomhavenVR
                 // go in AFTER the skirt so the loose blocks around each mouth lie
                 // on top of the run rather than under it.
                 for (int i = 0; i < 2; i++)
-                    hewn.Add(AddRatHole(stone, walls[i],
-                                        SnappedHole(RatHoleAuthored(i), CW, CH, WallCell), 6203 + i * 197));
+                    hewn.Add(AddRatHole(stone, walls[i], i,
+                                        SnappedHole(RatHoleAuthored(i), CW, CH, WallCell),
+                                        RatBore(i), 6203 + i * 197));
 
                 // Four corners, four different lies:
                 //   NE  a full quoin stack with the deepest step — the only corner
@@ -2038,12 +2244,23 @@ namespace GloomhavenVR
             // rubble meets the flagstones and up inside the cove, bright on the
             // crests and on the quoin faces that catch the moon
             stoneMat.SetFloat("_VCol", 1f);
+            // SURFACE GROWTH — the skirting, the quoins and the rubble heaps are
+            // the wettest cut stone in the room (they stand IN the floor), so
+            // they take moss in full, and their normal map is the deepest in the
+            // room, which is what the affinity's `grain` term is for.
+            stoneMat.SetFloat("_ElemMoss", 1.0f);
             stoneGo.GetComponent<MeshRenderer>().sharedMaterial = stoneMat;
 
             var timberMesh = SaveMesh("Env_C_Timber.asset", timber.Build("Env_C_Timber"));
             var timberGo = Place(root, "CeilingTimber", timberMesh, Vector3.zero, Vector3.zero, Vector3.one, null);
             var timberMat = SurfMat("C_Timber.mat", "dark_wooden_planks", 1.3f, timberGo.transform, 0.9f, 0.9f);
             timberMat.SetFloat("_VCol", 1f);
+            // ...and the ceiling timber takes it at a third: old damp wood does
+            // go green, but three metres up and dry it goes last. The affinity's
+            // `foot` term already puts it near zero up there; this is the second
+            // guard, because a green CEILING is the one place moss would read as
+            // a bug rather than as damp.
+            timberMat.SetFloat("_ElemMoss", 0.35f);
             timberGo.GetComponent<MeshRenderer>().sharedMaterial = timberMat;
 
             Debug.Log("[GloomhavenVR][Env] Cellar HEWN — junction irregularity:\n  "
@@ -2232,6 +2449,13 @@ namespace GloomhavenVR
                 beamMat.SetFloat("_Knee", 1.10f);
                 beamMat.SetFloat("_Shimmer", 0.14f);
                 beamMat.SetFloat("_ShimmerSpeed", 0.13f);
+                // ELEMENT ART — AIR. The shaft is the only LIT air in the cellar,
+                // so it is where a draught coming in at the window can actually be
+                // seen; under Air its mottling travels along the room's own
+                // draught instead of merely shimmering faster (EnvBeam's element
+                // block). Zero-length would be a hard off; this is the same vector
+                // the flames lean along and the motes drift along.
+                beamMat.SetVector("_DraftDir", DraftDir);
                 // the bars' true shadow: pitch and first bar taken from the SAME
                 // numbers the bars were built from, traced back to the wall plane
                 beamMat.SetFloat("_WinZ", hd);
@@ -2415,6 +2639,12 @@ namespace GloomhavenVR
                     flame.SetFloat("_Rate", SlotRate[slot]);
                     flame.SetFloat("_Gust", 0.055f);
                     flame.SetVector("_GustDir", DraftDir);
+                    // ...and how hard AIR works this particular flame, from its
+                    // own distance to the window (AirGustAt). The authored lean
+                    // is unchanged — only the element's multiplier has a gradient
+                    // now — so the room with nothing up is the room that was
+                    // tuned. See the ModBuild 142 note on EnvFlame/_AirGust.
+                    flame.SetFloat("_AirGust", AirGustAt(basePos + new Vector3(c.dx, c.h, c.dz)));
                     Place(root, $"Flame{n}{ci}", fm, basePos + new Vector3(c.dx, c.h + 0.002f, c.dz),
                           Vector3.zero, Vector3.one, flame);
                     ci++;
@@ -2456,9 +2686,116 @@ namespace GloomhavenVR
             // grit off the planks). See AddElementFX for why they hang here and
             // not on the shell root.
             AddElementFX(root, cellar: true);
+            // REAL FIRE — the parts of the cellar that catch while Fire is up,
+            // and the draught's own mouth at the window (user, ModBuild 142).
+            // Both AFTER the props and the candles: every fire is seated on the
+            // real surface it stands on, and the draught's mouth is derived from
+            // the window opening that was really cut.
+            AddCellarFire(root, crateTop, shelfTop);
+            AddCellarDraught(root);
+
+            // ================================================ SURFACE GROWTH ==
+            // The moss that is not there yet: cushions along the foot of every
+            // wall run, folded flat until Earth brings them up. See the SURFACE
+            // GROWTH section near the bottom of this file for the mechanism, and
+            // for why every card is plumb.
+            //
+            // It is built HERE, before PaintContactAO, because that call clears
+            // `Contacts` — the footprint list the growth asks "does a barrel
+            // already stand here".
+            {
+                const float span = 0.30f;                  // the tallest card in this mesh
+                var acc = new Acc();
+                // (origin, along, length, inward) for the four runs, taken from
+                // the Wall() calls above so the two can never disagree.
+                var runs = new[]
+                {
+                    (o: new Vector3(-hw, 0, hd), a: Vector3.right, len: CW, inw: Vector3.back),
+                    (o: new Vector3(hw, 0, -hd), a: Vector3.left, len: CW, inw: Vector3.forward),
+                    (o: new Vector3(hw, 0, hd), a: Vector3.back, len: CD, inw: Vector3.left),
+                    (o: new Vector3(-hw, 0, -hd), a: Vector3.forward, len: CD, inw: Vector3.right),
+                };
+                // THE RAT'S ROUTE IS NOT NEGOTIABLE. It runs the wall foot at
+                // both hole mouths, and a moss cushion standing in it would have
+                // the rat pass through a bush twice a minute. Its four waypoints
+                // are the authored path (see the rat block), so the growth simply
+                // keeps half a metre off the polyline.
+                var rat = new[] { RatW0, RatW1, RatW2, RatW3 };
+                bool NearRat(Vector3 p)
+                {
+                    for (int k = 0; k + 1 < rat.Length; k++)
+                    {
+                        Vector3 a = rat[k], b = rat[k + 1];
+                        Vector3 ab = b - a; ab.y = 0f;
+                        Vector3 ap = p - a; ap.y = 0f;
+                        float u = Mathf.Clamp01(Vector3.Dot(ap, ab) / Mathf.Max(ab.sqrMagnitude, 1e-4f));
+                        if ((ap - ab * u).magnitude < 0.50f) return true;
+                    }
+                    return false;
+                }
+                int placed = 0, blocked = 0;
+                for (int r = 0; r < runs.Length; r++)
+                {
+                    int n = Mathf.RoundToInt(runs[r].len / 0.40f);
+                    for (int i = 0; i < n; i++)
+                    {
+                        int sd = 8300 + r * 131 + i;
+                        float u = (i + 0.15f + 0.70f * Hash3(sd, 0, 0, 8311)) / n * runs[r].len;
+                        float d = 0.10f + 0.28f * Hash3(sd, 1, 0, 8311);
+                        var p = runs[r].o + runs[r].a * u + runs[r].inw * d;
+                        // patchy, never a skirting board of moss all round the room
+                        if (Hash3(sd, 2, 0, 8311) > 0.30f + 0.70f * Fbm2(p.x * 0.42f, p.z * 0.42f, 2, 8317))
+                            continue;
+                        if (NearRat(p) || GrowthBlocked(p.x, p.z, 0.10f)) { blocked++; continue; }
+                        p.y = CellarFloorY(p.x, p.z);
+                        float h = 0.11f + 0.18f * Hash3(sd, 3, 0, 8311);
+                        AddGrowthClump(acc, p, h, 4, MossCards, sd, span, Grey(1f));
+                        placed++;
+                    }
+                }
+                var gMesh = SaveMesh("Env_C_Growth.asset", acc.Build("Env_C_Growth"));
+                var gm = NewRoomMat("C_Growth.mat", "GloomhavenVR/EnvRoomCutout");
+                gm.SetTexture("_MainTex", Imp("moss_01_alb"));
+                gm.SetFloat("_Cutoff", 0.35f);
+                gm.SetFloat("_VCol", 1f);
+                // moss_01 is a daylight photoscan; in a cellar lit by three
+                // candles it has to be as desaturated and as dark as the bark in
+                // the wood was made in ModBuild 133, or the one green thing in
+                // the room glows.
+                gm.SetColor("_Tint", new Color(0.44f, 0.51f, 0.36f));
+                gm.SetFloat("_ElemGrow", 1.0f);
+                // ...and it frosts like everything else when Ice comes up. A
+                // patch of moss with frost on it is the one place in this room
+                // where two elements are visibly on the same square centimetre.
+                gm.SetFloat("_ElemFrost", 0.9f);
+                // amplitude 0 = no wind (a cellar has a draught, not a breeze;
+                // the draught is on the candles and the cobwebs). w = 1 selects
+                // vertex ALPHA as the fold weight, which is what _ElemGrow needs.
+                gm.SetVector("_ElemWind", new Vector4(0f, 0f, 0f, 1f));
+                gm.SetVector("_ElemWindDir", new Vector4(0f, 0f, 1f, span));
+                var gGo = Place(root, "Growth", gMesh, Vector3.zero, Vector3.zero, Vector3.one, gm);
+                Defer(gm, gGo.transform, 1f);
+                Debug.Log($"[GloomhavenVR][Env] Cellar growth: {placed} moss clumps "
+                          + $"({acc.Count / 4} cards, {acc.Count} verts) along the wall runs, "
+                          + $"{blocked} refused for a prop or the rat's route; card span {span:F2} m. "
+                          + "With Earth down every card is folded onto its own base edge (zero area).");
+            }
 
             PaintContactAO(floorGo, 0.40f, 0.30f);
             FlushRig(rig);
+            // SURFACE GROWTH — the coverage table, printed after the rig so the
+            // frame it is computed against is the one the shader will use.
+            ReportGrowth("Cellar", "Floor", floorGo, "earth moss", 1.0f, 0.10f, 1.90f,
+                         rig.elemRad, 0.35f, PlaceRoom(moss: true));
+            ReportGrowth("Cellar", "Floor", floorGo, "ice frost", 1.0f, 0.15f, 1.15f,
+                         rig.elemRad, 0.35f, PlaceRoom(moss: false));
+            if (wallGoN != null)
+            {
+                ReportGrowth("Cellar", "WallN", wallGoN, "earth moss", 1.0f, 0.10f, 1.90f,
+                             rig.elemRad, 0.45f, PlaceRoom(moss: true));
+                ReportGrowth("Cellar", "WallN", wallGoN, "ice frost", 1.0f, 0.15f, 1.15f,
+                             rig.elemRad, 0.45f, PlaceRoom(moss: false));
+            }
             ReportGrounding("Cellar");
             // 'Floor' is what the board stands on; the moonlight and its pools on
             // the flagstones are light, not matter; 'Rat' is authored in its own
@@ -2871,19 +3208,53 @@ namespace GloomhavenVR
         ///
         /// <para>`cut` is the SNAPPED opening (what WallMesh really removed), in
         /// wall-local (u, y). Authoring against the unsnapped rect is what floated
-        /// the window bars in ModBuild 134.</para></summary>
-        private static string AddRatHole(Acc a, WallRun w, Rect cut, int seed)
+        /// the window bars in ModBuild 134.</para>
+        ///
+        /// <para>MODBUILD 143. Two changes, both of them consequences of the
+        /// animal finally going INTO this thing (see THE BURROW):</para>
+        ///
+        /// <para>a. THE POCKET IS BORED ALONG `bore`, not square to the wall. The
+        /// bore is the route's own tangent at this endpoint (RatBore) and it
+        /// leans up to 34 degrees, which is what lets the animal walk in along
+        /// its own line of travel instead of skating sideways into the jamb. It
+        /// also makes the recess read deeper head-on than a square bore of the
+        /// same depth: you cannot see its cap from in front, which was the whole
+        /// intent of the ModBuild 140 bend and is now geometry rather than a
+        /// hashed nudge.</para>
+        ///
+        /// <para>b. THE MOUTH IS AT LEAST THE SIZE OF THE ANIMAL. The arch is
+        /// pushed out of an ellipse sized from RatMesh's own widest ring, its
+        /// ride height and the spine wave. It costs nothing when the hash already
+        /// chewed a big enough hole (it did, both times: 15.9 and 16.2 cm wide),
+        /// and it means "a rat fits through it" is a build gate rather than an
+        /// observation about the two seeds that happen to ship.</para></summary>
+        private static string AddRatHole(Acc a, WallRun w, int wall, Rect cut, Vector3 bore, int seed)
         {
             // wall-local (u, y, z) -> room. WallMesh's own local +Z runs AWAY from
             // the room (its bulge is negative), and `into` points the other way,
             // so the pocket lives at positive z and subtracts `into`.
             Vector3 P(float u, float y, float z) => w.p0 + w.along * u + Vector3.up * y - w.into * z;
+            // ...and the same point taken down the BORE instead of straight back.
+            // The two agree at z = 0, so the mouth loop, the ring and the loose
+            // blocks are untouched by the shear: only what is behind the wall
+            // plane leans. Depth in Q is measured ALONG the bore, so a pocket
+            // 15 cm deep penetrates 15*cos(lean) cm of a 16 cm wall.
+            Vector3 Q(float u, float y, float z) => w.p0 + w.along * u + Vector3.up * y + bore * z;
 
             const int M = 12;
             // 12 mm UNDER the wall's base line, the same trick the skirting's toe
             // uses: the flagstones undulate by +-6 mm, so a mouth that met them at
             // exactly y=0 would show daylight under one jamb and bury the other.
-            const float yBase = -0.012f;
+            const float yBase = RatHoleBaseY;
+            // The animal's own cross-section, plus 2 mm of daylight and 10 mm for
+            // the body bob. Everything here is a RatMesh number, so a future round
+            // that fattens the rat widens its doors.
+            float fitW = RatBodyR + RatSway + 0.002f;
+            float fitH = RatBodyTop + RatW0.y - yBase + 0.010f;
+            if (fitW > cut.width * 0.5f - 0.022f || fitH > cut.height - 0.020f)
+                throw new Exception($"{w.name} rat hole: the {cut.width * 100f:F1} x {cut.height * 100f:F1} cm "
+                                    + $"cut cannot hold a mouth the animal fits through ({fitW * 200f:F1} x "
+                                    + $"{fitH * 100f:F1} cm plus a 2.2 cm ring). Widen RatHoleAuthored.");
             float cu = (cut.xMin + cut.xMax) * 0.5f;
             float aw = cut.width * 0.20f;          // half-width before the wobble
             float ah = cut.height * 0.78f;
@@ -2914,6 +3285,18 @@ namespace GloomhavenVR
                 // minimum that still reads as stone and not as a chamfer
                 u = Mathf.Clamp(u, cut.xMin + 0.022f, cut.xMax - 0.022f);
                 y = Mathf.Clamp(y, yBase, cut.yMax - 0.020f);
+                // ...and never let it be smaller than the animal. Pushed OUT of
+                // the fit ellipse along its own ray, which is the one correction
+                // that cannot make the mouth lopsided: a point already outside is
+                // left exactly where the raggedness put it.
+                float du = u - cu, dy = y - yBase;
+                float el = (du / fitW) * (du / fitW) + (dy / fitH) * (dy / fitH);
+                if (el < 1f && el > 1e-6f)
+                {
+                    float push = 1f / Mathf.Sqrt(el);
+                    u = cu + du * push;
+                    y = yBase + dy * push;
+                }
                 arch[i] = new Vector2(u, y);
                 wMax = Mathf.Max(wMax, Mathf.Abs(u - cu) * 2f);
                 hMax = Mathf.Max(hMax, y - yBase);
@@ -2965,7 +3348,7 @@ namespace GloomhavenVR
             // recess has to face this, which is the exact statement of "the
             // inside of the pocket" and the thing the ModBuild 137 bug got
             // backwards.
-            Vector3 Axis(int r) => P(cu + bend * (1f - fs[r]) * 0.5f, yBase + ah * 0.42f * fs[r],
+            Vector3 Axis(int r) => Q(cu + bend * (1f - fs[r]) * 0.5f, yBase + ah * 0.42f * fs[r],
                                      (zs[r] + zs[r + 1]) * 0.5f);
             for (int r = 0; r < 2; r++)
                 for (int i = 0; i < M; i++)
@@ -2975,8 +3358,8 @@ namespace GloomhavenVR
                     // (front_i, back_i, back_i+1, front_i+1) on a counter-clockwise
                     // loop gives cross(dz, tangent) = the INWARD normal, which is
                     // the only side of a pocket anybody can see
-                    Face(P(a0.x, a0.y, zs[r]), P(b0.x, b0.y, zs[r + 1]),
-                         P(b1.x, b1.y, zs[r + 1]), P(a1.x, a1.y, zs[r]), Grey(gs[r]), Axis(r));
+                    Face(Q(a0.x, a0.y, zs[r]), Q(b0.x, b0.y, zs[r + 1]),
+                         Q(b1.x, b1.y, zs[r + 1]), Q(a1.x, a1.y, zs[r]), Grey(gs[r]), Axis(r));
                 }
             // ...and the floor of it, which is the same extrusion of the one
             // segment that closes the loop along the flagstones.
@@ -2984,8 +3367,8 @@ namespace GloomhavenVR
             {
                 Vector2 a0 = Shrink(arch[M], fs[r]), a1 = Shrink(arch[0], fs[r]);
                 Vector2 b0 = Shrink(arch[M], fs[r + 1]), b1 = Shrink(arch[0], fs[r + 1]);
-                Face(P(a0.x, a0.y, zs[r]), P(b0.x, b0.y, zs[r + 1]),
-                     P(b1.x, b1.y, zs[r + 1]), P(a1.x, a1.y, zs[r]), Grey(gs[r] * 0.8f), Axis(r));
+                Face(Q(a0.x, a0.y, zs[r]), Q(b0.x, b0.y, zs[r + 1]),
+                     Q(b1.x, b1.y, zs[r + 1]), Q(a1.x, a1.y, zs[r]), Grey(gs[r] * 0.8f), Axis(r));
             }
             // the end of it, facing back out at the room
             var ctr = new Vector2(cu + bend * 0.34f, yBase + ah * 0.40f * fs[2]);
@@ -2993,7 +3376,7 @@ namespace GloomhavenVR
             {
                 Vector2 b0 = Shrink(arch[i], fs[2]), b1 = Shrink(arch[i + 1], fs[2]);
                 int bi = a.Count;
-                Vector3 q0 = P(ctr.x, ctr.y, depth), q1 = P(b1.x, b1.y, depth), q2 = P(b0.x, b0.y, depth);
+                Vector3 q0 = Q(ctr.x, ctr.y, depth), q1 = Q(b1.x, b1.y, depth), q2 = Q(b0.x, b0.y, depth);
                 Vector3 nn = Vector3.Cross(q1 - q0, q2 - q0);
                 if (nn.sqrMagnitude < 1e-12f) continue;
                 nn.Normalize();
@@ -3047,12 +3430,30 @@ namespace GloomhavenVR
                 z0 = Mathf.Min(m0.z, m1.z), z1 = Mathf.Max(m0.z, m1.z),
             }, 0.80f));
 
+            // ---- and what the animal needs to know about it. Measured here
+            // rather than re-derived next to the material: cu, depth and bend are
+            // all hashed off `seed`, and a second copy of them would be a second
+            // hole that only agrees with this one by luck.
+            RatHoles[wall] = new RatHoleGeo
+            {
+                set = true,
+                mouth = P(cu, RatW0.y, 0f),
+                bore = bore,
+                along = w.along,
+                depth = depth,
+                capBend = bend * 0.34f,       // Shrink() at fs[2] = 0.66
+                mouthW = wMax, mouthH = hMax,
+            };
+
+            float leanDeg = Vector3.Angle(bore, -w.into);
             return $"{w.name} rat hole: cut u {cut.xMin:F3}..{cut.xMax:F3} x y {cut.yMin:F3}..{cut.yMax:F3} "
                  + $"({Mathf.RoundToInt(cut.width / WallCell)} cells wide), mouth {wMax * 100f:F1} x "
                  + $"{hMax * 100f:F1} cm and NOT symmetric about it ({jambL * 100f:F1} cm one jamb, "
-                 + $"{jambR * 100f:F1} the other), ring >= 2.2 cm all round, pocket {depth * 100f:F0} cm "
-                 + $"deep tapering to {fs[2]:F2} and bending {bend * 100f:+0.0;-0.0} cm, {blocks} loose "
-                 + $"blocks, {faces} faces all facing the room (0 backwards), centre "
+                 + $"{jambR * 100f:F1} the other) — the animal needs {fitW * 200f:F1} x {fitH * 100f:F1} cm "
+                 + $"and gets it; ring >= 2.2 cm all round, pocket {depth * 100f:F0} cm deep along a bore "
+                 + $"leaning {leanDeg:F0} deg off the wall (so {depth * Mathf.Cos(leanDeg * Mathf.Deg2Rad) * 100f:F0} cm "
+                 + $"into a 16 cm wall), tapering to {fs[2]:F2} and bending {bend * 100f:+0.0;-0.0} cm, "
+                 + $"{blocks} loose blocks, {faces} faces all facing the room (0 backwards), centre "
                  + $"{Mathf.Abs(cu - (w.name == "N" ? RatW0.x + CW / 2f : CW / 2f - RatW3.x)) * 100f:F1} cm "
                  + "off the route's own endpoint";
         }
@@ -3316,16 +3717,28 @@ namespace GloomhavenVR
         /// cylinder read as a sawn-off pipe from behind, which is not what the
         /// fix is for.</para>
         ///
-        /// <para>NOT DONE, deliberately: eyes. The material's albedo is one
-        /// belly-to-back lerp with no third slot to put a dark bead in, and at
-        /// the 3-5 m this animal is ever seen from in a room whose brightest
-        /// light is a candle, two 3 mm spheres are below a pixel. The silhouette
-        /// — rump, arched back, snout, ears, tail — is what identifies it, and
-        /// that is what the closure work above was spent on.</para></summary>
+        /// <para>NOT DONE, deliberately: eyes. At the 3-5 m this animal is ever
+        /// seen from in a room whose brightest light is a candle, two 3 mm
+        /// spheres are below a pixel. The silhouette — rump, arched back, snout,
+        /// ears, tail — is what identifies it, and that is what the closure work
+        /// above was spent on.</para>
+        ///
+        /// <para>RAT SKIN, ModBuild 143: the colour ALPHA is now the BARE-SKIN
+        /// weight. It was constant 1 and nothing read it, which made it the one
+        /// free channel on this mesh (r, g and b are the gait's tail and leg
+        /// weights and the leg phase, and the shader would moonwalk without any
+        /// of them). 0 is fur; 1 is the naked, scaly, pinkish-grey of a rat's
+        /// tail, feet, ear rims and nose. It is authored per RING because that is
+        /// the granularity AddTube colours at, and per ring is exactly right for
+        /// this: where the fur stops on a rat is a station along a limb, not a
+        /// patch on a surface. EnvCritter's frag() reads it as the mask between
+        /// the coat and the skin — see "the coat" there for why a tail at the
+        /// same value as the body was half of "sieht aus hätte sie keine
+        /// Textur".</para></summary>
         private static Mesh RatMesh()
         {
             var a = new Acc();
-            var fur = new Color(0f, 0f, 0f, 1f);
+            var fur = new Color(0f, 0f, 0f, 0f);
 
             // body + head as one tube: rump -> shoulders -> muzzle. The first and
             // last rings are the ROUNDING (see the summary): small radii set back
@@ -3340,7 +3753,12 @@ namespace GloomhavenVR
                 new Vector3(0, 0.038f,  0.191f),
             };
             var br = new[] { 0.009f, 0.024f, 0.036f, 0.042f, 0.041f, 0.034f, 0.027f, 0.018f, 0.006f, 0.002f };
-            var bcol = new[] { fur, fur, fur, fur, fur, fur, fur, fur, fur, fur };
+            // ...furred all the way to the muzzle, where the last two rings are
+            // the bare nose. (Ring 7 is the snout at 1.8 cm, 8 and 9 the 6 mm and
+            // 2 mm tip: the fur has to stop somewhere and it stops there.)
+            var nose1 = new Color(0f, 0f, 0f, 0.45f);
+            var nose2 = new Color(0f, 0f, 0f, 0.90f);
+            var bcol = new[] { fur, fur, fur, fur, fur, fur, fur, fur, nose1, nose2 };
             var balong = new[] { 0f, 0.06f, 0.17f, 0.32f, 0.48f, 0.63f, 0.76f, 0.88f, 0.97f, 1f };
             AddTube(a, bc, br, bcol, balong, 8);
 
@@ -3357,7 +3775,11 @@ namespace GloomhavenVR
             for (int i = 0; i < tc.Length; i++)
             {
                 float f = i / (float)(tc.Length - 1);
-                tcol[i] = new Color(Mathf.SmoothStep(0f, 1f, f), 0f, 0f, 1f);   // r = tail weight
+                // r = tail weight (the whip), a = bare skin: a rat's tail is
+                // furred for the first centimetre or two out of the rump and
+                // naked and scaly for the other 22 cm.
+                tcol[i] = new Color(Mathf.SmoothStep(0f, 1f, f), 0f, 0f,
+                                    Mathf.Lerp(0.30f, 1f, Mathf.Clamp01(f * 2.2f)));
                 talong[i] = f;
             }
             AddTube(a, tc, tr, tcol, talong, 5);
@@ -3372,7 +3794,10 @@ namespace GloomhavenVR
                     new Vector3(x * 1.35f, 0.004f, z + 0.014f),
                 };
                 var lr = new[] { 0.0105f, 0.0075f, 0.0055f };
-                var lcol = new[] { new Color(0f, 0.5f, phase, 1f), new Color(0f, 1f, phase, 1f), new Color(0f, 1f, phase, 1f) };
+                // g = leg weight, b = phase, a = bare skin: furred at the
+                // shoulder, bare at the foot.
+                var lcol = new[] { new Color(0f, 0.5f, phase, 0f), new Color(0f, 1f, phase, 0.45f),
+                                   new Color(0f, 1f, phase, 0.80f) };
                 AddTube(a, lc, lr, lcol, new[] { 0f, 0.5f, 1f }, 4);
             }
             Leg(0.026f, 0.098f, 0.0f); Leg(-0.026f, 0.098f, 0.5f);   // fore
@@ -3389,7 +3814,10 @@ namespace GloomhavenVR
                     new Vector3(sx * 0.019f, 0.068f, 0.114f),
                     new Vector3(sx * 0.028f, 0.076f, 0.113f),
                 };
-                AddTube(a, ec, new[] { 0.0125f, 0.0105f }, new[] { fur, fur }, new[] { 0f, 1f }, 6);
+                // ...and thinly furred: an ear is skin with a fuzz on it, which is
+                // why it catches the light differently from the head it sits on.
+                var ear = new Color(0f, 0f, 0f, 0.60f);
+                AddTube(a, ec, new[] { 0.0125f, 0.0105f }, new[] { ear, ear }, new[] { 0f, 1f }, 6);
             }
             Ear(1f); Ear(-1f);
 
@@ -3516,6 +3944,22 @@ namespace GloomhavenVR
             half = new Vector2(c1 * RatWob1.x + c2 * RatWob2.x, c1 * RatWob1.y + c2 * RatWob2.y);
         }
 
+        /// <summary>Arc length of one route up to curve parameter `to`. Static
+        /// rather than a local of the assert because the burrow needs it too: the
+        /// stride the animal walks down a hole is the stride it walks on the
+        /// floor, scaled by how far the hole is against how far the route is, and
+        /// a hand-typed strides-per-burrow would be a second gait.</summary>
+        private static float RatArc(Vector3 d1, Vector3 d2, float to)
+        {
+            float len = 0f; var prev = RatBez(0f, d1, d2);
+            for (int i = 1; i <= 200; i++)
+            {
+                var p = RatBez(to * i / 200f, d1, d2);
+                len += Vector3.Distance(p, prev); prev = p;
+            }
+            return len;
+        }
+
         private static float RatBoxDist(Vector2 p, Vector3 ctr, Vector2 half)
         {
             float dx = Mathf.Max(Mathf.Abs(p.x - ctr.x) - half.x, 0f);
@@ -3596,16 +4040,6 @@ namespace GloomhavenVR
                                     + "point whose influence peaks among the barrels), or bias it away.");
 
             // ---- the schedule itself, measured over SLOTS slots of the clock
-            float ArcLen(Vector3 d1, Vector3 d2, float to)
-            {
-                float len = 0f; var prev = RatBez(0f, d1, d2);
-                for (int i = 1; i <= 200; i++)
-                {
-                    var p = RatBez(to * i / 200f, d1, d2);
-                    len += Vector3.Distance(p, prev); prev = p;
-                }
-                return len;
-            }
             int runs = 0, revs = 0, turns = 0, sniffs = 0, stares = 0;
             var distinct = new HashSet<(int, int, int, int)>();   // routes to the nearest cm
             float lenLo = float.MaxValue, lenHi = 0f, spdLo = float.MaxValue, spdHi = 0f;
@@ -3626,9 +4060,18 @@ namespace GloomhavenVR
                 float t0 = n * RatPeriod + start;
                 if (!float.IsNaN(lastStart)) gaps.Add(t0 - lastStart);
                 lastStart = t0;
-                endLatest = Mathf.Max(endLatest, start + runT);
+                // ...plus the burrow at BOTH ends: the animal is walking out of a
+                // hole for RatBurrowTime before the run and into one for
+                // RatBurrowTime after it, and both of those have to fit inside
+                // the slot for the same reason the run does.
+                endLatest = Mathf.Max(endLatest, start + runT + RatBurrowTime);
+                if (start < RatBurrowTime)
+                    throw new Exception($"Slot {n}'s crossing starts {start:F2} s in, which is less than the "
+                                        + $"{RatBurrowTime:F2} s the animal spends coming out of the hole: the "
+                                        + "emergence would reach back into the previous slot and two rats would "
+                                        + "be out at once. Raise _Timing.x.");
 
-                float len = ArcLen(d1, d2, peak) * (turn ? 2f : 1f);
+                float len = RatArc(d1, d2, peak) * (turn ? 2f : 1f);
                 lenLo = Mathf.Min(lenLo, len); lenHi = Mathf.Max(lenHi, len);
                 spdLo = Mathf.Min(spdLo, len / runT); spdHi = Mathf.Max(spdHi, len / runT);
                 durLo = Mathf.Min(durLo, runT); durHi = Mathf.Max(durHi, runT);
@@ -3662,6 +4105,55 @@ namespace GloomhavenVR
                 throw new Exception($"A crossing can still be running {endLatest:F1} s into a {RatPeriod:F0} s "
                                     + "slot: it would be cut off in the open. Lower _Timing.x/.y or _RunTime.");
             gaps.Sort();
+
+            // ---- gate 4: THE BURROW. "It goes in" as an inequality, per hole.
+            // hides is the travel at which the tail TIP is level with the pocket's
+            // cap; anything past that is the margin. If this were ever negative
+            // the animal would come to a stop with its hindquarters hanging out of
+            // the wall and stay there for twenty seconds — which is a far worse
+            // bug than the shrink it replaces, and is why it is a throw.
+            var burLines = new List<string>();
+            for (int h = 0; h < 2; h++)
+            {
+                RatBurrow(h, out _, out var B, out float travel, out float gap, out float hides);
+                var g = RatHoles[h];
+                float margin = travel - hides;
+                if (margin < 0.02f)
+                    throw new Exception($"Hole {h}: the burrow is {travel * 100f:F1} cm long but the animal's "
+                                        + $"tail tip is only clear of the pocket cap after {hides * 100f:F1} cm. "
+                                        + "It would park with its back half sticking out of the wall. Raise "
+                                        + "RatBurrowClear, or deepen the pocket.");
+                // The route's endpoint must be IN FRONT of the wall, or `gap` is
+                // negative and the animal starts the run already inside the stone.
+                if (gap <= 0.01f)
+                    throw new Exception($"Hole {h}: the route's endpoint is {gap * 100f:F1} cm from the wall "
+                                        + "plane along the bore — move RatW0/RatW3 back into the room.");
+                // ...and the drop must do nothing where it can be seen: b^6 of the
+                // full drop at the moment the animal's NOSE reaches the cap, which
+                // is the last instant at which any of it is deep in the pocket and
+                // still lit. (At b^4 this came out at 13 mm and the gate below
+                // stopped the bake — which is what it is for.)
+                float bHide = hides / travel;
+                float sagAtCap = RatBurrowDrop * Mathf.Pow((gap + g.depth) / travel, 6f);
+                if (sagAtCap > 0.008f)
+                    throw new Exception($"Hole {h}: the burrow has already dropped {sagAtCap * 1000f:F0} mm by "
+                                        + "the pocket's cap — the animal would visibly sink through the pocket "
+                                        + "floor. Lower RatBurrowDrop or lengthen the travel.");
+                float vBur = travel / RatBurrowTime;
+                burLines.Add(
+                    $"hole {h} ({(h == 0 ? "N" : "S")}): bore "
+                    + $"{Vector3.Angle(g.bore, -CellarWalls()[h].into):F0} deg "
+                    + $"off the wall normal, mouth {g.mouthW * 100f:F1}x{g.mouthH * 100f:F1} cm, pocket "
+                    + $"{g.depth * 100f:F1} cm; the route's end stands {gap * 100f:F1} cm out from the wall, "
+                    + $"so the animal travels {travel * 100f:F1} cm in {RatBurrowTime:F2} s ({vBur:F2} m/s) and "
+                    + $"is COMPLETELY hidden after {hides * 100f:F1} cm (b={bHide:F2}, {bHide * RatBurrowTime:F2} s "
+                    + $"in), with {margin * 100f:F1} cm of margin; sideways bend "
+                    + $"{new Vector3(B.x, B.y, B.z).magnitude * 100f:F1} cm, "
+                    + $"sag at the cap {sagAtCap * 1000f:F1} mm");
+            }
+
+            float spineArc = RatArc(Vector3.zero, Vector3.zero, 1f);
+            float burStride = RatBurrowStride();
             Debug.Log(
                 $"[GloomhavenVR][Env] Cellar rat — a SCHEDULE, not a loop (user: \"mehr random statt immer "
                 + $"den selben weg\"). Everything below is H(slot,k) of the SHARED clock alone "
@@ -3679,8 +4171,17 @@ namespace GloomhavenVR
                 + $"(= {100f * RatModes.z:F0}% of the straight ones) stop to sniff.\n"
                 + $"  TIMING: gap between crossings {gaps[0]:F0}..{gaps[gaps.Count - 1]:F0} s "
                 + $"(median {gaps[gaps.Count / 2]:F0} s); each lasts {durLo:F1}..{durHi:F1} s at "
-                + $"{spdLo:F2}..{spdHi:F2} m/s; latest a run can still be going is {endLatest:F1} s of "
-                + $"the {RatPeriod:F0} s slot.\n"
+                + $"{spdLo:F2}..{spdHi:F2} m/s; latest a run can still be going, burrow included, is "
+                + $"{endLatest:F1} s of the {RatPeriod:F0} s slot.\n"
+                + $"  THE BURROW (user: \"geht sie auch nicht durch das Loch sondern wird kleiner und "
+                + $"verschwindet dann\"). THERE IS NO SCALE TERM LEFT: the animal is at 1:1 at every instant "
+                + $"of every slot, including the {100f * (SLOTS - runs) / SLOTS:F0}% of slots in which it "
+                + $"never comes out, and what hides it is stone. It walks {burLines[0]}; {burLines[1]}. "
+                + $"Between crossings it stands at the far end of that travel — past the pocket's cap, "
+                + $"inside the wall and {RatBurrowDrop * 100f:F0} cm under it — and the pocket is a blind "
+                + $"sock (sleeve, floor and cap, every face of it proven to point at the room), so nothing "
+                + $"in the room has a line to it. Down the hole it keeps walking: {burStride:F2} strides per "
+                + $"travel, the same {RatStride / spineArc:F2} strides/m the floor gets.\n"
                 + $"  CLEARANCE, over the WHOLE family and not just one route: play-space "
                 + $"{nearCentre - RatHalfWidth:F2} m (needs >= {lim:F2}); side walls {wallX:F2} m "
                 + $"(the {wallZ:F2} m in z is the two HOLES, which are in the wall on purpose); "
@@ -4492,6 +4993,491 @@ namespace GloomhavenVR
             return LatheMesh(prof.ToArray(), 10);
         }
 
+        // ====================================================== REAL FIRE ========
+        // USER VERDICT, hardware, ModBuild 142:
+        //   "Das Feuer im Keller ist eher ein rötlicher Schein - ich möchte lieber
+        //    das Teile des Kellers wirklich brennen."
+        //
+        // The cellar's Fire infusion was a warm rim on the stone (EnvRoom's
+        // elemAdd), an ember ring out at the walls, and candle flames that flared.
+        // Every one of those is light the COLOUR of fire with nothing burning in
+        // it, which is exactly what "ein rötlicher Schein" means. So the room now
+        // catches: while Fire is up, six places in the cellar are alight, with
+        // real tongues of flame that surge and tear (EnvFlame's _Bonfire), sparks
+        // coming off them, and a halo of firelight around each.
+        //
+        // WHAT BURNS, AND WHY THOSE THINGS. The room may not simply be set on fire
+        // all over — a cellar full of flame is a lit room, and the whole tuning
+        // history of this room is about darkness. The rule used was: it has to be
+        // something that would REALLY catch, it has to be at the periphery, and
+        // there has to be a reason in the frame for it to be burning.
+        //   CRATE STACK, south wall (-1.55, -3.95). Dry pine boxes with a lit
+        //     candle standing on the top one — the only ignition in the room that
+        //     needs no explaining at all, because the player has been looking at
+        //     the cause for six builds. Two fires: the crate top (the candle's
+        //     own fire, grown) and a low one in the litter at its foot.
+        //   BARREL GROUP, south-west (-4.25, -2.0 upright, -2.85, -3.95 on its
+        //     side). A cask of spirits is the one thing in a cellar that burns
+        //     BETTER than the wood around it. The upright one burns at the bung;
+        //     the toppled one has spilled, so there is a wide, low, flat pool of
+        //     burning oil on the flagstones beside it — a completely different
+        //     silhouette from the crate fire, which is what stops five fires from
+        //     reading as five copies.
+        //   BOOKSHELF, east wall (4.72, 0.70). Paper and dry shelving, with the
+        //     shelf candle on top of it. Fire on the top boards and flames coming
+        //     out of the shelf below them.
+        // REJECTED: the ceiling beams and the plank ceiling. They span the room,
+        // including the part of it directly over the board, and nothing may burn
+        // over the play space. Also rejected: the table, which is 3.6 m from the
+        // centre and the one prop a player leans toward.
+        //
+        // THE FIRE LIGHT, and what could not be done this round. EnvRoom's baked
+        // rig has exactly THREE point slots and all three are candles (_L0.._L2);
+        // a fourth source cannot be added without that shader, which belongs to a
+        // different lane this round. So a fire does NOT light the masonry through
+        // the room's own lighting model. What it does instead is carry its own
+        // EnvGlow volume — a real world-space sphere of firelight around the seat
+        // of the fire and a second, larger and dimmer one pushed toward the wall
+        // behind it, both on the fire's own flicker phase and rate. That reads as
+        // the air and the wall near the fire glowing, and it is honest about being
+        // additive light rather than a shaded surface. THE HOOK a later round
+        // wants: a fourth EnvRoom point slot per fire, driven by e.fire, placed at
+        // FireSeats below and flickering on the same rate. Nothing else about the
+        // fires would change.
+        //
+        // ALL OF IT IS GATED ON FIRE. Every mesh here carries EnvFlame/_FireGate
+        // or EnvGlow/_ElemGate, every emitter uses an element-owned material, and
+        // all three collapse their geometry to a point in the vertex shader while
+        // Fire is down. With the master at 0 or the room inert the cellar is the
+        // room that was tuned over six rounds, instruction for instruction.
+
+        /// <summary>A fire: a crowd of TONGUES on crossed cards, seated on a disc
+        /// of `radius`, none of them taller than `height`.
+        ///
+        /// <para>Not one big flame card. A single card scaled up is a candle
+        /// flame the size of a crate and reads as a decal at any distance; what
+        /// says "burning" at 2-5 m in stereo is that the parts of the fire move
+        /// INDEPENDENTLY — tongues surge, lean out and die back out of step with
+        /// each other, so the silhouette is never the same twice. That per-tongue
+        /// variation is baked into the VERTEX COLOUR here and read by
+        /// EnvFlame's _Bonfire branch (see the shader for the channel contract);
+        /// it costs no extra draw call and no extra material.</para>
+        ///
+        /// <para>TWO KINDS OF CARD, and the first bake is why. A fire built out
+        /// of tongues alone came out of the preview as a ROW OF TALL CANDLE
+        /// FLAMES standing on a crate — narrow spikes with black gaps between
+        /// them, which is exactly the thing this round exists to stop being.
+        /// Real fire has a BED: a crowded, low, wide, nearly steady incandescent
+        /// mass at the seat, out of which the tongues rise. So a third of the
+        /// cards are bed cards — about as wide as the fire is across and a fifth
+        /// of its height, hardly surging, carrying most of the energy — and the
+        /// rest are tongues. Additively the bed cards pile into one bright body
+        /// (and the shader's vertical temperature ramp makes it the white-hot
+        /// part, because they live entirely at the bottom of their own UV), and
+        /// the tongues read as coming OUT of something instead of standing in a
+        /// line.</para>
+        ///
+        /// <para>Deterministic in `seed` (Hash3, no Random): every client builds
+        /// the same fire, and the animation rides the shared clock, so two
+        /// players in one scenario watch the same tongue leap at the same
+        /// second.</para></summary>
+        private static Mesh FireMesh(string name, float radius, float height, int tongues, int seed)
+        {
+            var a = new Acc();
+            int bed = Mathf.Max(3, tongues / 3);
+            for (int i = 0; i < tongues; i++)
+            {
+                bool isBed = i < bed;
+                float h0 = Hash3(i, 0, 0, seed), h1 = Hash3(i, 1, 0, seed);
+                float h2 = Hash3(i, 2, 0, seed), h3 = Hash3(i, 3, 0, seed);
+                float h4 = Hash3(i, 4, 0, seed);
+                // sqrt-distributed radius: an even spread over a disc crowds the
+                // RIM (there is more area out there), and a fire is densest at
+                // its seat. The first draft looked like a ring of flames. The bed
+                // is crowded tighter still — it IS the seat.
+                float rr = radius * Mathf.Sqrt(h0) * (isBed ? 0.60f : 1f);
+                float ang = h1 * Mathf.PI * 2f;
+                var at = new Vector3(Mathf.Cos(ang) * rr, 0f, Mathf.Sin(ang) * rr);
+                float outw = radius > 1e-4f ? Mathf.Clamp01(rr / radius) : 0f;
+                // the middle of a fire is its tallest part, the rim is licks
+                float th = isBed
+                    ? height * (0.28f + 0.16f * h2)
+                    : height * Mathf.Lerp(1f, 0.45f, outw) * (0.60f + 0.32f * h2);
+                // WIDE, and that is the whole lesson of the first bake: a tongue
+                // as narrow as a candle flame IS a candle flame, however many of
+                // them there are.
+                // ...but a bed card may not be arbitrarily wide for its height.
+                // The spill fire is half a metre across and a third of a metre
+                // tall, so an unclamped bed card came out 0.9 m wide and 5 cm
+                // high — a 20:1 quad, and the flame sprite stretched across it is
+                // a HORIZONTAL SMEAR that reads as a light streak painted on the
+                // flagstones. That is what the low fires looked like from a
+                // standing eye in the second bake. 2.8:1 is where the sprite
+                // still reads as fire lying flat rather than as a smear; the low
+                // wide fires get MORE bed cards instead of wider ones.
+                float tw = isBed
+                    ? Mathf.Min(radius * (1.25f + 0.60f * h3), th * 2.8f)
+                    : th * (0.62f + 0.34f * h3);
+                // every tongue's cross is turned by its own angle: two quads at a
+                // fixed 90 deg, repeated eleven times, is a visible lattice from
+                // the two axes that look down it.
+                float yaw = h4 * Mathf.PI;
+                var col = new Color(
+                    h1,                                                    // .r phase
+                    isBed ? 0.10f + 0.10f * h2 : 0.55f + 0.45f * h2,       // .g surge
+                    isBed ? 0f : outw,                                     // .b how far out
+                    isBed ? 0.34f + 0.16f * h3                             // .a energy share
+                          : 0.20f + 0.26f * (1f - outw) + 0.14f * h3);
+                for (int q = 0; q < 2; q++)
+                {
+                    float qa = yaw + q * Mathf.PI * 0.5f;
+                    var right = new Vector3(Mathf.Cos(qa), 0f, Mathf.Sin(qa)) * (tw * 0.5f);
+                    int b = a.Count;
+                    a.Vert(at - right, Vector3.up, new Vector2(0, 0), col);
+                    a.Vert(at + right, Vector3.up, new Vector2(1, 0), col);
+                    a.Vert(at + right + Vector3.up * th, Vector3.up, new Vector2(1, 1), col);
+                    a.Vert(at - right + Vector3.up * th, Vector3.up, new Vector2(0, 1), col);
+                    a.Quad(b);
+                }
+            }
+            return a.Build(name);
+        }
+
+        /// <summary>How hard the draught works a flame standing at `at`, as
+        /// EnvFlame's _AirGust.
+        ///
+        /// <para>USER VERDICT, ModBuild 142: "Im Keller sollte es noch mehr wie
+        /// ein Windzug wirken der insbesondere aus dem Fenster kommt." Air used to
+        /// multiply every flame's lean by the same constant, which is a room that
+        /// is windy everywhere — the one thing a draught with a source is not. The
+        /// number falls off with the flame's distance from the WINDOW OPENING
+        /// (derived, never typed: WindowCentre), so under Air the flames nearest
+        /// the aperture are laid over hardest and the far corner barely stirs, and
+        /// the gradient itself points at where the air is coming in.</para>
+        ///
+        /// <para>7.0 near / 1.2 far, against the 3.4 the shader still defaults to:
+        /// the near end is stronger than the old uniform value and the far end
+        /// much weaker, so the room's total agitation is about what it was and its
+        /// DISTRIBUTION is the whole change.</para></summary>
+        private static float AirGustAt(Vector3 at)
+        {
+            var w = WindowCentre();
+            float d = Vector2.Distance(new Vector2(at.x, at.z), new Vector2(w.x, w.z));
+            return Mathf.Lerp(7.0f, 1.2f, Mathf.Clamp01(d / 9.0f));
+        }
+
+        /// <summary>The six fires, their light and their sparks. Called from
+        /// BuildCellarRoom once the props are stacked, because every seat is
+        /// derived from the real surface the fire stands on.</summary>
+        private static void AddCellarFire(Transform root, float crateTop, float shelfTop)
+        {
+            var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
+            // The barrel's top is measured off the placed prop rather than taken
+            // from a second copy of its height: `Prop` grounds it against the
+            // undulating flagstones, so a typed number would float or sink.
+            var barrel = root.Find("Barrel1");
+            float barrelTop = barrel != null
+                ? SurfaceYAt(barrel.gameObject, -4.25f, -2.0f)
+                : throw new Exception("Cellar fire: prop 'Barrel1' is missing — the cask cannot burn.");
+
+            int tris = 0, fires = 0, particles = 0, emitters = 0;
+
+            // Every fire's seat, so the log (and a later round's fourth EnvRoom
+            // light slot — see the FIRE LIGHT note) has one list to read.
+            var seats = new List<(string n, Vector3 at, float r, float h)>();
+
+            void Fire(string n, Vector3 seat, float radius, float height, int tongues,
+                      int slot, float phaseOfs, int seed, float gust)
+            {
+                var mesh = SaveMesh($"Env_C_Fire{n}.asset",
+                    FireMesh($"Env_C_Fire{n}", radius, height, tongues, seed),
+                    // The shader stretches a tongue to ~1.6x and tears it
+                    // outward, so the authored bounds would frustum-cull the
+                    // top of the fire the moment it surged off screen-edge.
+                    new Bounds(new Vector3(0f, height * 0.95f, 0f),
+                               new Vector3(radius * 3f + 0.5f, height * 2.6f, radius * 3f + 0.5f)));
+                var m = NewRoomMat($"C_Fire{n}.mat", "GloomhavenVR/EnvFlame");
+                m.SetTexture("_MainTex", Imp("candle_flame_alb"));
+                // The tint is neutral-warm and nearly all of the colour comes
+                // from the shader's vertical temperature ramp (_CoreCol/_TipCol),
+                // so a fire is white-hot where it is fed and red where it tears.
+                m.SetColor("_Tint", new Color(1f, 0.86f, 0.62f, 1f));
+                m.SetColor("_CoreCol", new Color(1.34f, 1.02f, 0.62f, 1f));
+                m.SetColor("_TipCol", new Color(0.96f, 0.34f, 0.10f, 1f));
+                m.SetFloat("_Bonfire", 1f);
+                m.SetFloat("_FireGate", 1f);      // exists only under the infusion
+                m.SetFloat("_Sway", 0.055f);
+                m.SetFloat("_Flicker", 0.62f);
+                // 0.42, not the first bake's 0.62: a tongue that can grow to
+                // 1.6x its own length is a tongue that leaves the fire behind
+                // it. The surge has to be visible from four metres and still
+                // belong to the mass it comes out of.
+                m.SetFloat("_Lick", 0.42f);
+                m.SetFloat("_LickRate", 1.15f);
+                m.SetFloat("_Flare", 0.18f);
+                m.SetFloat("_Phase", SlotPhase[slot] + phaseOfs);
+                m.SetFloat("_Rate", SlotRate[slot]);
+                m.SetFloat("_Gust", gust);
+                m.SetVector("_GustDir", DraftDir);
+                m.SetFloat("_AirGust", AirGustAt(seat));
+                Place(root, $"Fire{n}", mesh, seat, Vector3.zero, Vector3.one, m);
+                tris += tongues * 4; fires++;
+                seats.Add((n, seat, radius, height));
+            }
+
+            // A fire's LIGHT: the near halo at the seat, and a bigger, dimmer one
+            // pushed toward the wall behind it. One material for both — EnvGlow
+            // reads no baked light rig, so unlike every EnvRoom material in this
+            // room two transforms may share it without being lit from the first
+            // one's position. The wall halo is a SPHERE and not a flat wash card:
+            // a flat additive card near a surface the player can get level with
+            // becomes a bright line the moment the view drops into its plane, and
+            // this room has already paid for that lesson once (see the rejected
+            // sill glows in the moonlight block).
+            void Halo(string n, Vector3 at, float r, float alpha, Vector3 wallAt,
+                      float wallR, float wallAlpha, int slot, float phaseOfs)
+            {
+                if (glowMesh == null) return;
+                var g = NewRoomMat($"C_FireGlow{n}.mat", "GloomhavenVR/EnvGlow");
+                g.SetColor("_Tint", new Color(1f, 0.47f, 0.16f, alpha));
+                g.SetFloat("_Falloff", 1.85f);
+                g.SetFloat("_Flicker", 0.85f);
+                g.SetFloat("_Rate", SlotRate[slot]);
+                g.SetFloat("_Phase", SlotPhase[slot] + phaseOfs);
+                g.SetFloat("_ElemGate", 1f);      // collapses while Fire is down
+                Place(root, $"FireGlow{n}", glowMesh, at, Vector3.zero, Vector3.one * r, g);
+                if (wallR > 0f)
+                {
+                    var w = NewRoomMat($"C_FireWash{n}.mat", "GloomhavenVR/EnvGlow");
+                    w.SetColor("_Tint", new Color(1f, 0.40f, 0.13f, wallAlpha));
+                    // softer edge than the near halo: this is the glow ON
+                    // something, so it may not have a core of its own
+                    w.SetFloat("_Falloff", 1.10f);
+                    w.SetFloat("_Flicker", 0.85f);
+                    w.SetFloat("_Rate", SlotRate[slot]);
+                    w.SetFloat("_Phase", SlotPhase[slot] + phaseOfs);
+                    w.SetFloat("_ElemGate", 1f);
+                    Place(root, $"FireWash{n}", glowMesh, wallAt, Vector3.zero,
+                          Vector3.one * wallR, w);
+                }
+            }
+
+            // Sparks off a fire. FX_ElemEmber is already owned by Fire
+            // (EnvParticleAdd's gate), so these cost one collapsed quad per
+            // particle while the infusion is down — the simulation and the draw
+            // call remain, because nothing in the bundle can switch a Shuriken
+            // emitter off. The forest's flying sparks are what the user singled
+            // out as liked; these are the same sprite and the same colour, coming
+            // off something that is actually burning.
+            void Sparks(string n, Vector3 at, float spread, int maxAlive, float rate)
+            {
+                var ps = ElemPS(root, $"FireSparks{n}", at, "FX_ElemEmber.mat", maxAlive);
+                var m = ps.main;
+                m.duration = 9f;
+                // short: an ember off a crate is out within a couple of metres,
+                // and a long-lived one ends up at the ceiling where it reads as a
+                // firefly indoors
+                m.startLifetime = new ParticleSystem.MinMaxCurve(1.1f, 2.4f);
+                m.startSpeed = new ParticleSystem.MinMaxCurve(0.35f, 1.15f);
+                m.startSize = new ParticleSystem.MinMaxCurve(0.016f, 0.042f);
+                m.startColor = Color.white;
+                m.gravityModifier = -0.045f;   // hot: they are carried UP
+                var e = ps.emission; e.rateOverTime = rate;
+                var sh = ps.shape; sh.enabled = true;
+                sh.shapeType = ParticleSystemShapeType.Cone;
+                sh.angle = 26f;
+                sh.radius = spread;
+                sh.radiusThickness = 1f;
+                // the cone's axis is its local +Z; stood on end it throws upward
+                ps.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+                var v = ps.velocityOverLifetime; v.enabled = true;
+                v.space = ParticleSystemSimulationSpace.World;
+                // ...and the room's own draught takes them, so the sparks agree
+                // with the flames about which way the air is going
+                v.x = WindRange(DraftDir.x, 0.10f, 0.30f);
+                v.z = WindRange(DraftDir.z, 0.10f, 0.30f);
+                v.y = new ParticleSystem.MinMaxCurve(0.30f, 0.85f);
+                var no = ps.noise; no.enabled = true; no.quality = ParticleSystemNoiseQuality.Low;
+                no.strength = 0.14f; no.frequency = 0.8f; no.scrollSpeed = 0.5f;
+                ElemFade(ps, 0.06f, 0.42f);   // they burn out, they do not fade away
+                var sol = ps.sizeOverLifetime; sol.enabled = true;
+                sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
+                    new Keyframe(0f, 1f), new Keyframe(0.55f, 0.7f), new Keyframe(1f, 0.15f)));
+                particles += maxAlive; emitters++;
+            }
+
+            float hw = CW / 2f, hd = CD / 2f;
+
+            // ---- 1. the crate stack, lit by the candle standing on it --------
+            var crateSeat = new Vector3(-1.55f, crateTop, -3.95f);
+            Fire("CrateTop", crateSeat, 0.26f, 0.46f, 15, 2, 0f, 7401, 0.050f);
+            var litter = new Vector3(-0.95f, CellarFloorY(-0.95f, -3.75f), -3.75f);
+            Fire("CrateFoot", litter, 0.32f, 0.28f, 12, 2, 1.7f, 7402, 0.040f);
+            // The wall halo is pushed hard against the masonry (0.22 m off it)
+            // and held to 1.15 m: AssertPlaySpaceClear counts a glow sphere like
+            // any other geometry, and the first bake failed on exactly this one —
+            // a 1.45 m sphere 0.55 m off the south wall reaches 2.73 m from the
+            // centre, i.e. into the board's air. That check is the reason the
+            // wall halos are sized the way they are, and it is a good reason:
+            // a sphere of firelight the player can put his head inside is not a
+            // wall being lit.
+            Halo("Crate", crateSeat + new Vector3(0f, 0.26f, 0f), 0.62f, 0.34f,
+                 new Vector3(-1.35f, 1.55f, -hd + 0.22f), 1.15f, 0.080f, 2, 0f);
+            Sparks("Crate", crateSeat + new Vector3(0f, 0.30f, 0f), 0.22f, 16, 7.5f);
+
+            // ---- 2. the casks: one burning at the bung, one spilled ----------
+            var bung = new Vector3(-4.25f, barrelTop, -2.0f);
+            Fire("Barrel", bung, 0.20f, 0.40f, 12, 2, 3.1f, 7403, 0.045f);
+            // the spill: WIDE and LOW, so it reads as a burning floor rather than
+            // as a third small bonfire. It is the one fire in the room whose
+            // shape says what is on fire.
+            var spill = new Vector3(-3.25f, CellarFloorY(-3.25f, -3.35f), -3.35f);
+            Fire("Spill", spill, 0.50f, 0.34f, 18, 2, 4.9f, 7404, 0.035f);
+            Halo("Barrel", bung + new Vector3(0f, 0.22f, 0f), 0.55f, 0.30f,
+                 new Vector3(-hw + 0.55f, 1.35f, -2.6f), 1.35f, 0.070f, 2, 3.1f);
+            Halo("Spill", spill + new Vector3(0f, 0.16f, 0f), 0.70f, 0.26f,
+                 Vector3.zero, 0f, 0f, 2, 4.9f);
+            Sparks("Barrel", bung + new Vector3(0f, 0.24f, 0f), 0.18f, 12, 5.5f);
+            Sparks("Spill", spill + new Vector3(0f, 0.12f, 0f), 0.44f, 14, 6.0f);
+
+            // ---- 3. the bookshelf: paper and dry boards ----------------------
+            var shelfSeat = new Vector3(4.72f, shelfTop, 0.70f);
+            Fire("ShelfTop", shelfSeat, 0.26f, 0.42f, 13, 1, 0f, 7405, 0.045f);
+            // out of the shelf itself, below the top boards — a bookshelf burns
+            // from the inside out, and a fire that only sits on the lid of a
+            // thing does not read as the thing being alight
+            var shelfMid = new Vector3(4.60f, 1.34f, 0.70f);
+            Fire("ShelfMid", shelfMid, 0.20f, 0.32f, 11, 1, 2.3f, 7406, 0.045f);
+            Halo("Shelf", shelfSeat + new Vector3(-0.05f, 0.24f, 0f), 0.58f, 0.30f,
+                 new Vector3(hw - 0.50f, 1.85f, 0.70f), 1.40f, 0.070f, 1, 0f);
+            Sparks("Shelf", shelfSeat + new Vector3(0f, 0.26f, 0f), 0.20f, 14, 6.5f);
+
+            float playR = CellarPlaySpaceDia * 0.5f;
+            var log = new System.Text.StringBuilder();
+            log.Append($"[GloomhavenVR][Env] REAL FIRE (cellar, gated on the Fire infusion): "
+                       + $"{fires} fires, {tris} tris, {emitters} spark emitters, "
+                       + $"{particles} spark particles max alive.\n");
+            foreach (var (n, at, r, h) in seats)
+                log.Append($"    burns: {n,-9} seat ({at.x,6:F2},{at.y,5:F2},{at.z,6:F2})  "
+                           + $"r {r:F2} m, {h:F2} m tall, "
+                           + $"{new Vector2(at.x, at.z).magnitude:F2} m from the room centre "
+                           + $"(PlaySpace radius {playR:F2} m), "
+                           + $"_AirGust {AirGustAt(at):F2}\n");
+            log.Append("    light: one EnvGlow halo at each seat plus a wall halo behind it, "
+                       + "on the fire's own flicker rate and phase. NOT an EnvRoom point light: "
+                       + "the baked rig has three slots and all three are candles (see the FIRE "
+                       + "LIGHT note).\n");
+            log.Append("    cost when Fire is down: every flame card and every halo collapses to "
+                       + "a point in the vertex shader (zero-area triangles, no fill); the spark "
+                       + "emitters keep simulating and keep one draw call each.");
+            Debug.Log(log.ToString());
+        }
+
+        /// <summary>The draught, made to come from somewhere.
+        ///
+        /// <para>USER VERDICT, ModBuild 142: "Im Keller sollte es noch mehr wie
+        /// ein Windzug wirken der insbesondere aus dem Fenster kommt." The room
+        /// already had a draught — DraftDir, in at the window and out under the
+        /// stair door, which the flames lean along and the motes drift along —
+        /// and Air already strengthened all of it. What it did not have was a
+        /// SOURCE you could see: the Air emitter is a ring around the player, so
+        /// every mote in the room set off in the same direction at the same
+        /// moment from nowhere in particular. Air that starts everywhere is
+        /// weather; air that starts at an opening is a draught.</para>
+        ///
+        /// <para>So this is a CONE at the window's own aperture, aimed along
+        /// DraftDir, spreading as it comes in — the shape of air entering a room
+        /// through a hole. The ring emitter stays: it is the same draught further
+        /// along, and the two together are a stream that enters at a place and
+        /// then fills the room.</para></summary>
+        private static void AddCellarDraught(Transform root)
+        {
+            var mouth = WindowCentre();
+            // Just INSIDE the reveal, not on the wall plane: particles born in
+            // the opening itself are half behind the masonry, and the ones that
+            // are not read as a sprite stuck to the stone.
+            var at = mouth + DraftDir * 0.22f + new Vector3(0f, -0.06f, 0f);
+            var ps = ElemPS(root, "ElemDraughtMouth", at, "FX_ElemDraught.mat", 46);
+            var m = ps.main;
+            m.duration = 11f;
+            // long enough to cross the room's north-west corner (about 1.3 m/s
+            // for four metres) and no longer: a mote that outlives the room ends
+            // up inside the west wall, where it is fill for nothing.
+            m.startLifetime = new ParticleSystem.MinMaxCurve(2.4f, 4.2f);
+            // THE SPEED IS THE EMITTER'S, not velocityOverLifetime's, and that is
+            // the whole construction: with the speed on the shape, every particle
+            // leaves along the CONE's own direction, so the stream fans out from
+            // the aperture. A world-space velocity (which is what the ring
+            // emitter uses, correctly, because a wind has no source) would make
+            // them all travel parallel and the spreading would be gone.
+            m.startSpeed = new ParticleSystem.MinMaxCurve(0.65f, 1.55f);
+            m.startSize = new ParticleSystem.MinMaxCurve(0.018f, 0.046f);
+            m.startColor = new Color(1f, 1f, 1f, 0.62f);
+            var e = ps.emission; e.rateOverTime = 14f;
+            var sh = ps.shape; sh.enabled = true;
+            sh.shapeType = ParticleSystemShapeType.Cone;
+            // the mouth is the size of the opening, the angle is the spread
+            sh.radius = 0.34f;
+            sh.angle = 19f;
+            sh.radiusThickness = 1f;
+            // Shuriken authors a cone about its own local +Z, so the emitter is
+            // TURNED to face down the draught. (Same mechanism, opposite use, as
+            // ElemRing's (-90,0,0): there the shape has to be laid flat, here it
+            // has to be aimed.)
+            ps.transform.localRotation = Quaternion.LookRotation(DraftDir, Vector3.up);
+            // ...and a small shared push on top of the fan, so the stream bends
+            // into the room's own bearing as it slows — a jet through a hole
+            // spreads first and then goes with the room.
+            var v = ps.velocityOverLifetime; v.enabled = true;
+            v.space = ParticleSystemSimulationSpace.World;
+            v.x = WindRange(DraftDir.x, 0.18f, 0.42f);
+            v.z = WindRange(DraftDir.z, 0.18f, 0.42f);
+            v.y = new ParticleSystem.MinMaxCurve(-0.14f, 0.10f);
+            var n = ps.noise; n.enabled = true; n.quality = ParticleSystemNoiseQuality.Low;
+            n.strength = 0.16f; n.frequency = 0.55f; n.scrollSpeed = 0.55f;
+            ElemFade(ps, 0.10f, 0.62f);
+            var r = ps.GetComponent<ParticleSystemRenderer>();
+            r.renderMode = ParticleSystemRenderMode.Stretch;
+            r.velocityScale = 0.075f;
+            r.lengthScale = 1.7f;
+            r.cameraVelocityScale = 0f;   // no camera term may enter the stretch
+
+            // How close the stream ever comes to the board, MEASURED rather than
+            // asserted: the closest approach of the draught's own axis to the room
+            // centre. AssertPlaySpaceClear cannot check an emitter (it walks
+            // MeshFilters), so this is the only check there is.
+            var a2 = new Vector2(at.x, at.z);
+            var d2 = new Vector2(DraftDir.x, DraftDir.z).normalized;
+            float tStar = -Vector2.Dot(a2, d2);
+            float near = (a2 + d2 * Mathf.Max(tStar, 0f)).magnitude;
+            Debug.Log($"[GloomhavenVR][Env] Cellar draught mouth: cone at the window "
+                      + $"({at.x:F2},{at.y:F2},{at.z:F2}), aperture r {sh.radius:F2} m, spread "
+                      + $"{sh.angle:F0} deg, {m.startSpeed.constantMin:F2}-{m.startSpeed.constantMax:F2} m/s "
+                      + $"along DraftDir ({DraftDir.x:F3},{DraftDir.z:F3}) toward the stair door; "
+                      + $"46 particles max alive, gated on Air. Closest approach of the stream's "
+                      + $"axis to the room centre {near:F2} m (PlaySpace radius "
+                      + $"{CellarPlaySpaceDia * 0.5f:F2} m).");
+
+            // ...and THE GRADIENT ITSELF, read back off the built room rather
+            // than restated from the formula: every flame in the cellar, with its
+            // distance to the aperture and the Air multiplier it was given. If a
+            // later round moves the window or a candle, this list is where the
+            // draught's source shows up as having moved with it.
+            var g = new System.Text.StringBuilder();
+            g.Append("[GloomhavenVR][Env] Cellar draught gradient (EnvFlame/_AirGust, "
+                     + "3.4 was the old room-wide constant):\n");
+            foreach (var mr in root.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var mm = mr.sharedMaterial;
+                if (mm == null || mm.shader == null || mm.shader.name != "GloomhavenVR/EnvFlame") continue;
+                var p = mr.transform.localPosition;
+                float dd = Vector2.Distance(new Vector2(p.x, p.z), new Vector2(mouth.x, mouth.z));
+                g.Append($"    {mr.name,-14} ({p.x,6:F2},{p.z,6:F2})  {dd:F2} m from the window  "
+                         + $"_AirGust {mm.GetFloat("_AirGust"):F2}\n");
+            }
+            Debug.Log(g.ToString().TrimEnd());
+        }
+
         // ==================================================== CELLAR ATMOSPHERE
         // "Und hier mehr athmosphärische Details einbauen! zB tropft Wasser von
         //  irgendwo runter in eine pütze, eine Ratte huscht durch den Raum...
@@ -4549,6 +5535,28 @@ namespace GloomhavenVR
             pud.SetFloat("_CandRate", SlotRate[2]);
             pud.SetFloat("_CandPhase", SlotPhase[2]);
             pud.SetFloat("_Fresnel", 0.50f);
+            // ELEMENT ART — AIR: cat's paws running along the draught. The puddle
+            // lies 0.9 m off the draught's own line (window -> stair door), i.e.
+            // in it, so wind ripples here are physics rather than decoration —
+            // and the moon's reflection breaking into travelling bands is the
+            // cheapest legible statement in the room that the air is MOVING and
+            // which way. 0.10 against the drip's own _RingAmp of 0.55: a draught
+            // ruffles a puddle, it does not out-ring a falling drop.
+            //
+            // 0.18, and it is derived rather than eyeballed because THE PREVIEW
+            // CANNOT SETTLE THIS ONE. The only element-review frame that contains
+            // the puddle ('Puddle') also contains the moon pool, which is drawn
+            // additively ON TOP of it, so the multiply pass's contribution there
+            // is swamped: raising this number from 0.10 to 0.32 moved a measured
+            // maximum of 3/255 in that frame, i.e. the frame is blind to it, not
+            // the effect absent. So the value comes from the physics instead: the
+            // wave's spatial frequency is 7.3 rad/m and the normal path takes
+            // 0.30 of the amplitude, so 0.18 tilts the water by about 21 deg at
+            // the crests — what a draught does to standing water — and swings the
+            // wet darkening by ~13%. HARDWARE HAS TO JUDGE IT, from a pose where
+            // the puddle is not under the moon pool.
+            pud.SetVector("_DraftDir", DraftDir);
+            pud.SetFloat("_DraftWave", 0.18f);
             Place(root, "Puddle", puddleMesh, Vector3.zero, Vector3.zero, Vector3.one, pud);
 
             // --------------------------------------------------------- the drip
@@ -4567,6 +5575,14 @@ namespace GloomhavenVR
             drip.SetFloat("_SplashOut", 0.55f);
             drip.SetFloat("_SplashUp", 1.10f);
             drip.SetFloat("_Stretch", 0.075f);
+            // ELEMENT ART — AIR: the drop is blown off plumb on the way down.
+            // 0.85 m/s^2 is chosen against the fall itself, not picked: the drop
+            // falls DripFall s, so at full Air it lands 0.5*0.85*DripFall^2 =
+            // ~0.28 m downwind — plainly bent, and still well inside the 0.72 m
+            // puddle it has to ring. A drop that missed its own puddle would
+            // break the one event the drip and the ripples exist to tell together.
+            drip.SetVector("_DraftDir", DraftDir);
+            drip.SetFloat("_DraftPush", 0.85f);
             Place(root, "Drip", dripMesh, PuddleAt, Vector3.zero, Vector3.one, drip);
             Debug.Log($"[GloomhavenVR][Env] Cellar drip: period {DripPeriod:F2} s, hang {DripHang:F2} s, "
                       + $"fall {DripFall:F3} s => the puddle rings at t={DripHang + DripFall:F3} s of every cycle.");
@@ -4606,10 +5622,53 @@ namespace GloomhavenVR
             // runs that leave the old envelope.
             pathBox.Expand(new Vector3(0.7f + 2f * (RatWob1.x + RatWob2.x), 0.8f,
                                        0.7f + 2f * (RatWob1.y + RatWob2.y)));
+            // ...and so does THE BURROW, which leaves the room entirely: the
+            // animal travels half a metre into each wall and ends 45 cm under it.
+            // Bounds that stopped at the wall plane would let Unity frustum-cull
+            // the object at exactly the moment half of it is still in the mouth —
+            // i.e. it would pop out of existence mid-entry, which is the ModBuild
+            // 142 report with extra steps.
+            {
+                float reach = 0f;
+                for (int h = 0; h < 2; h++)
+                {
+                    RatBurrow(h, out _, out _, out float travel, out _, out _);
+                    reach = Mathf.Max(reach, travel);
+                }
+                pathBox.Expand(new Vector3(2f * reach, 2f * RatBurrowDrop, 2f * reach));
+            }
             var ratMesh = SaveMesh("Env_C_Rat.asset", RatMesh(), pathBox);
             var ratMat = NewRoomMat("C_Rat.mat", "GloomhavenVR/EnvCritter");
-            ratMat.SetColor("_Tint", new Color(0.36f, 0.310f, 0.280f));
-            ratMat.SetColor("_BellyTint", new Color(0.52f, 0.46f, 0.42f));
+            // RAT SKIN, ModBuild 143 — "Die Maus sieht aus hätte sie keine
+            // Textur." It had none: one lerp between (0.36,0.31,0.28) and
+            // (0.52,0.46,0.42), two greys 1.4 stops apart, which in the moon
+            // shaft is a white blob and in candlelight is an orange one. A rat
+            // is a THREE-value animal — near-black along the spine, mid brown on
+            // the flank, and a belly pale enough to read as a different creature
+            // from below — and the ratio between those is what survives being
+            // lit by anything. The fur itself is procedural (EnvCritter's frag);
+            // these are only its pigments.
+            ratMat.SetColor("_Tint", new Color(0.310f, 0.265f, 0.235f));
+            ratMat.SetColor("_BackTint", new Color(0.165f, 0.140f, 0.124f));
+            ratMat.SetColor("_BellyTint", new Color(0.550f, 0.490f, 0.440f));
+            // ...and the parts that are not fur at all: warmer and pinker than
+            // the coat, because that is what makes a tail read as a tail — but
+            // only just BRIGHTER than it. The first pass had this at
+            // (0.44,0.32,0.30), 40% up on the flank and nearly three times the
+            // back, and the preview of the entry was a pale rope hanging out of
+            // a hole: in a room this dark the eye goes to the brightest thing in
+            // frame, and that must not be 25 cm of tail.
+            ratMat.SetColor("_SkinTint", new Color(0.345f, 0.258f, 0.240f));
+            // ...and the fur itself: strand contrast, coarse mottle, the tail's
+            // ring frequency and how deep the rings cut. The contrast is TUNED
+            // AGAINST THE DARK, not against a lit turntable: at the shipped
+            // (0.30, 0.20) the modulation came out at +-3 of 20 levels on a
+            // candle-lit flank, i.e. under the 8-bit floor, and the preview was
+            // as smooth as the flat tint it replaced. 0.85 is what makes a
+            // strand legible at arm's length without turning the animal blotchy
+            // in the moon shaft, which is the one place it is ever bright.
+            ratMat.SetVector("_Fur", new Vector4(0.85f, 0.50f, 26f, 0.16f));
+            ratMat.SetVector("_FurCell", new Vector4(215f, 48f, 62f, 19f));
             // the beam it runs through, as a real light on this one object
             ratMat.SetVector("_ShaftP", MoonBeamHit());
             ratMat.SetVector("_ShaftD", -MoonDir.normalized);
@@ -4644,6 +5703,24 @@ namespace GloomhavenVR
             ratMat.SetFloat("_Stare", RatStareChance);
             ratMat.SetFloat("_HauntPeriod", HauntPeriod);
             ratMat.SetFloat("_HauntCards", HauntCellarCards);
+            // THE BURROW — measured off the two pockets AddRatHole really built
+            // (see RatBurrow), never typed. This is the whole of the ModBuild 142
+            // fix on this side: the shader has no scale term left, so if these
+            // four vectors were wrong the animal would walk into the wall in
+            // plain sight rather than quietly fail to disappear. AssertRatSchedule
+            // above has already proven each one long enough to swallow the tail.
+            for (int h = 0; h < 2; h++)
+            {
+                RatBurrow(h, out var bA, out var bB, out _, out _, out _);
+                ratMat.SetVector($"_Hole{h}A", bA);
+                ratMat.SetVector($"_Hole{h}B", bB);
+            }
+            ratMat.SetFloat("_BurTime", RatBurrowTime);
+            ratMat.SetFloat("_BurStride", RatBurrowStride());
+            // How fast the light dies down the hole. The pocket's own stonework
+            // goes 0.24 grey at the mouth to 0.07 at the cap, and the animal has
+            // to be lit by the same nothing the stone next to it is.
+            ratMat.SetFloat("_PocketD", 0.5f * (RatHoles[0].depth + RatHoles[1].depth));
             var ratGo = Place(root, "Rat", ratMesh, Vector3.zero, Vector3.zero, Vector3.one, ratMat);
             Defer(ratMat, ratGo.transform, 1f);
 
@@ -7900,37 +8977,503 @@ namespace GloomhavenVR
             // most. A barrel that turns green is a bug; a root that does not is
             // a missed element.
             //
-            // KNOWN GAP, and it is a lane boundary rather than a decision: the
-            // moss CARDS (moss_01, the ferns, the grass, the whole canopy) are
-            // EnvRoomCutout materials and the forest FLOOR is EnvGround — both
-            // shaders belong to other lanes this round, so neither can answer
-            // Earth yet. What Earth has in the wood today is the rocks, the
-            // roots, the deadfall and the spores. Wiring the other two is a
-            // three-line follow-up in each shader once they are free.
+            // The KNOWN GAP this comment used to record is PAID: the moss cards,
+            // the ferns, the grass, the canopy and the FLOOR all answer the
+            // elements now (EnvRoomCutout and EnvGround grew the growth block
+            // this round). The susceptibilities below are coverage fractions and
+            // no longer tint opacities — see SURFACE GROWTH — so the numbers
+            // moved even where the intent did not.
+            Material MatOf(string node)
+            {
+                var t = root.Find(node);
+                var mr = t == null ? null : t.GetComponent<MeshRenderer>();
+                return mr == null ? null : mr.sharedMaterial;
+            }
             void ElemMoss(string node, float amount)
+            {
+                var mat = MatOf(node);
+                if (mat != null && mat.HasProperty("_ElemMoss")) mat.SetFloat("_ElemMoss", amount);
+            }
+            foreach (var n in new[] { "Rocks0", "Rocks1", "Rocks2", "Root2", "Root3" })
+                ElemMoss(n, 1.4f);
+            foreach (var n in new[] { "Log0", "Log1", "LeanTree", "Stump0", "Stump1", "Branches0", "Branches1" })
+                ElemMoss(n, 1.1f);
+            // The TRUNKS, and this is the sentence "auch im Wald das die Stämme
+            // teilweise ... bewachsen" in one number. 1.6 rather than the rocks'
+            // 1.4 because the periphery ramp is weakest exactly where the trunks
+            // are: the first band stands at 6-10 m of a 12 m element radius, so
+            // its rim value is only ~0.37 and the coverage ramp (0.10 + 1.90*rim)
+            // gives it 0.8 of the frontier's travel. The affinity's `foot` term
+            // is what keeps it TEILWEISE — it dies out 1.25 m up, so what grows
+            // is the base and the lower bark and never the crown.
+            foreach (var n in new[] { "TrunksNear", "TrunksFar" })
+                ElemMoss(n, 1.6f);
+
+            // ================================================ SURFACE GROWTH ==
+            // THE FLOOR. "Frost auf dem Boden" and "der Boden mit Moos bzw. Gras
+            // bewachsen" are both about this one surface, which until now was the
+            // only major surface in either room outside the element channel.
+            // Frost takes it readily (0.9: a clearing floor under an open sky is
+            // where frost forms first); moss a little less, because the floor's
+            // own damp map — the mud/litter blend in its vertex alpha — is doing
+            // most of the choosing (EnvGround.shader, `place`).
+            gm.SetFloat("_ElemFrost", 0.9f);
+            gm.SetFloat("_ElemMoss", 1.0f);
+
+            // THE FOLIAGE. Air is the reason this block exists: "Bei der Luft
+            // bzw Wind möchte ich das die Blätter der Bäume wackeln!"
+            //
+            // The wind blows ACROSS the moon bearing rather than along it, and
+            // that is a looking decision: the moonbeams and the shafts run along
+            // that bearing, so leaves crossing them are seen against the one lit
+            // thing in the wood. Along it they would move up and down a beam and
+            // read as nothing.
+            var windDir = new Vector3(-moonHoriz.z, 0f, moonHoriz.x).normalized;
+            void ElemFoliage(string node, float frost, float moss, float windAmp)
             {
                 var t = root.Find(node);
                 var mr = t == null ? null : t.GetComponent<MeshRenderer>();
                 var mat = mr == null ? null : mr.sharedMaterial;
-                if (mat != null && mat.HasProperty("_ElemMoss")) mat.SetFloat("_ElemMoss", amount);
+                var mf = t == null ? null : t.GetComponent<MeshFilter>();
+                if (mat == null || mf == null || mf.sharedMesh == null) return;
+                if (mat.HasProperty("_ElemFrost")) mat.SetFloat("_ElemFrost", frost);
+                if (mat.HasProperty("_ElemMoss")) mat.SetFloat("_ElemMoss", moss);
+                if (windAmp > 0f)
+                    ElemWind(mat, t, mf.sharedMesh, windAmp, windDir, vertexAlpha: false, what: node);
             }
-            foreach (var n in new[] { "Rocks0", "Rocks1", "Rocks2", "Root2", "Root3" })
-                ElemMoss(n, 1.0f);
-            foreach (var n in new[] { "Log0", "Log1", "LeanTree", "Stump0", "Stump1", "Branches0", "Branches1" })
-                ElemMoss(n, 0.55f);
-            foreach (var n in new[] { "TrunksNear", "TrunksFar" })
-                ElemMoss(n, 0.30f);
+            // The canopy is ONE welded mesh at the identity transform, and its
+            // cards carry the freedom in vertex ALPHA (AddCard) — so it is the
+            // one material that takes the alpha path. 4.5 cm: see ElemWind for
+            // the argument against the canopy shadow map's 5.5 cm texel.
+            {
+                var cf = root.Find("Canopy");
+                var cm = cf == null ? null : cf.GetComponent<MeshFilter>();
+                if (cm != null && cm.sharedMesh != null)
+                {
+                    ElemWind(foliage, cf, cm.sharedMesh, 0.045f, windDir,
+                             vertexAlpha: true, what: "Canopy");
+                    // needles frost at the tips; they do not grow moss on
+                    // themselves — the moss in this wood is on what the needles
+                    // fall ONTO.
+                    foliage.SetFloat("_ElemFrost", 0.85f);
+                }
+            }
+            // The understory is NOT in the canopy shadow bake (only the trunks
+            // and the crowns are), so it gets a real breeze rather than a
+            // budgeted one: 8 cm at the tip of a metre-tall fern is a light wind,
+            // and its roots are pinned by the height weight.
+            foreach (var n in new[] { "Fern0", "Fern1", "Fern2" }) ElemFoliage(n, 0.9f, 0.9f, 0.080f);
+            foreach (var n in new[] { "Grass0", "Grass1" }) ElemFoliage(n, 0.9f, 0.7f, 0.090f);
+            foreach (var n in new[] { "Shrub0", "Shrub1", "Shrub2" }) ElemFoliage(n, 0.9f, 0.8f, 0.065f);
+            // the hanging/ground moss cards are already moss: they frost, and
+            // they barely move (a moss cushion is not a frond)
+            foreach (var n in new[] { "Moss0", "Moss1", "Moss2", "Moss3" }) ElemFoliage(n, 1.0f, 0f, 0.020f);
+
+            // THE GRASS AND MOSS THAT ARE NOT THERE YET. A ring of cards outside
+            // the play space, folded flat until Earth brings them up. Grass on
+            // the open ground and moss at the damp edges, in two meshes because
+            // they are two atlases — two draw calls, ~4k vertices, and not one
+            // fragment until the element rises.
+            {
+                const float span = 0.65f;
+                var grass = new Acc();
+                var mossA = new Acc();
+                int nG = 0, nM = 0, refused = 0;
+                for (int i = 0; i < 900; i++)
+                {
+                    float u = Hash3(i, 0, 0, 8401), w = Hash3(i, 1, 0, 8401);
+                    // area-uniform over an annulus that starts OUTSIDE the 9 m
+                    // play space (4.5 m) with a hand's margin, and stops where
+                    // GroundColor's own fade has taken the floor to a few percent
+                    float r = Mathf.Sqrt(Mathf.Lerp(4.9f * 4.9f, 11.5f * 11.5f, u));
+                    float ang = w * Mathf.PI * 2f;
+                    float x = Mathf.Sin(ang) * r, z = Mathf.Cos(ang) * r;
+                    // the trodden path is trodden: nothing grows in it
+                    if (PathDist(x, z) < 0.95f) { refused++; continue; }
+                    if (GrowthBlocked(x, z, 0.05f)) { refused++; continue; }
+                    // patchy: a meadow is patches, not a lawn
+                    float dens = 0.20f + 0.80f * Fbm2(x * 0.33f + 17f, z * 0.33f, 2, 8407);
+                    if (Hash3(i, 2, 0, 8401) > dens) continue;
+                    var p = new Vector3(x, ForestY(x, z), z);
+                    // The same darkness fade every other prop in this room wears,
+                    // but it does NOT bottom out as low: at the props' 0.04 floor
+                    // the first render of these cards was a scatter of black
+                    // scratches you could only find in a diff. 0.22, i.e. the
+                    // grass at the tree line recedes without disappearing.
+                    float lit = Mathf.SmoothStep(1f, 0.22f, Mathf.InverseLerp(5.5f, 12f, r));
+                    var tint = Grey(lit * (0.86f + 0.30f * Hash3(i, 3, 0, 8401)));
+                    // moss at the damp edge of the clearing and in under the
+                    // trees, grass where the moon still reaches
+                    bool isMoss = Hash3(i, 4, 0, 8401) < Mathf.InverseLerp(5.5f, 10.5f, r) * 0.75f;
+                    if (isMoss)
+                    {
+                        AddGrowthClump(mossA, p, 0.11f + 0.18f * Hash3(i, 5, 0, 8401), 4,
+                                       MossCards, 8500 + i, span, tint);
+                        nM++;
+                    }
+                    else
+                    {
+                        // 0.30-0.64 m: a tuft you can see over the litter from
+                        // standing height, which a 0.26 m one at eight metres is
+                        // not. Four cards, not three — three plumb cards leave a
+                        // yaw from which a tuft is two crossed lines.
+                        AddGrowthClump(grass, p, 0.30f + 0.34f * Hash3(i, 5, 0, 8401), 4,
+                                       GrassCards, 8500 + i, span, tint);
+                        nG++;
+                    }
+                }
+                Material GrowthMat(string file, string tex, Color tint, float frost, float wind)
+                {
+                    var m = NewRoomMat(file, "GloomhavenVR/EnvRoomCutout");
+                    m.SetTexture("_MainTex", Imp(tex));
+                    m.SetFloat("_Cutoff", 0.35f);
+                    m.SetFloat("_VCol", 1f);
+                    m.SetColor("_Tint", tint);
+                    m.SetFloat("_ElemGrow", 1.0f);
+                    m.SetFloat("_ElemFrost", frost);
+                    // w = 1: the fold weight and the wind weight are both the
+                    // vertex alpha AddGrowthCard wrote (height / span).
+                    m.SetVector("_ElemWind", new Vector4(wind, 0f, 0f, 1f));
+                    m.SetVector("_ElemWindDir", new Vector4(windDir.x, windDir.y, windDir.z, span));
+                    return m;
+                }
+                void PlaceGrowth(string node, string asset, Acc acc, Material m)
+                {
+                    var mesh = SaveMesh(asset, acc.Build(Path.GetFileNameWithoutExtension(asset)));
+                    var go = Place(root, node, mesh, Vector3.zero, Vector3.zero, Vector3.one, m);
+                    Defer(m, go.transform, 1f);
+                }
+                // night grass is grey-green, not the meadow green of the daylight
+                // photoscan — the same correction the bark and the needles got
+                // 0.45/0.52/0.38 against the needles' 0.21/0.25/0.20: grass
+                // catches the moon where a fir needle absorbs it, and this is
+                // the one new thing in the room that has to be FOUND rather than
+                // merely not look wrong.
+                PlaceGrowth("GrowthGrass", "Env_S_GrowthGrass.asset", grass,
+                            GrowthMat("S_GrowthGrass.mat", "grass_medium_02_alb",
+                                      new Color(0.36f, 0.42f, 0.30f), 0.9f, 0.070f));
+                PlaceGrowth("GrowthMoss", "Env_S_GrowthMoss.asset", mossA,
+                            GrowthMat("S_GrowthMoss.mat", "moss_01_alb",
+                                      new Color(0.29f, 0.35f, 0.24f), 1.0f, 0.025f));
+                Debug.Log($"[GloomhavenVR][Env] Forest growth: {nG} grass clumps "
+                          + $"({grass.Count / 4} cards) and {nM} moss clumps ({mossA.Count / 4} cards), "
+                          + $"{grass.Count + mossA.Count} verts total, {refused} refused for the path "
+                          + $"or a prop; ring 4.90-11.50 m, card span {span:F2} m. "
+                          + "With Earth down every card has zero area and costs no fragment.");
+            }
 
             // ELEMENT ART — the gated emitters (embers, snow, the gust, spores).
             AddElementFX(root, cellar: false);
 
             PaintContactAO(g, 0.45f, 0.55f);
             FlushRig(rig);
+            // SURFACE GROWTH — the coverage table. The forest floor's `place` is
+            // EnvGround's, which needs two terms this side cannot read back: the
+            // mud/litter blend (it IS in the mesh, so it is used) and the canopy
+            // visibility (baked into a texture, so it is ESTIMATED from the
+            // radius here and labelled as such).
+            Func<Vector3, Vector3, float> PlaceGround(bool moss) => (p, nn) =>
+            {
+                float r = new Vector2(p.x, p.z).magnitude;
+                float vis = Mathf.Lerp(1f, 0.35f, Mathf.InverseLerp(ClearR, ClearR + 4f, r));
+                float rim = GrowRim(r, rig.elemRad);
+                float blend = 0.55f;      // GroundColor's litter mean over the disc
+                return moss ? Mathf.Clamp01(0.55f * blend + 0.25f * (1f - vis) + 0.20f * rim)
+                            : Mathf.Clamp01(0.50f * vis + 0.30f * (1f - blend) + 0.20f * rim);
+            };
+            ReportGrowth("Forest", "Ground", g, "earth moss (canopy visibility estimated)",
+                         1.0f, 0.16f, 1.60f, rig.elemRad, 0.40f, PlaceGround(moss: true));
+            ReportGrowth("Forest", "Ground", g, "ice frost (canopy visibility estimated)",
+                         0.9f, 0.34f, 1.05f, rig.elemRad, 0.40f, PlaceGround(moss: false));
+            {
+                var tn = root.Find("TrunksNear");
+                if (tn != null)
+                    ReportGrowth("Forest", "TrunksNear", tn.gameObject, "earth moss", 1.6f,
+                                 0.10f, 1.90f, rig.elemRad, 0.50f, PlaceRoom(moss: true));
+            }
             ReportGrounding("Forest");
             // 'Ground' is the floor the board stands on and 'MoonShafts' are
             // light, not matter — everything else must stay outside the clearing.
             AssertPlaySpaceClear(root, "Forest", ForestPlaySpaceDia, "Ground", "MoonShafts");
             Debug.Log("[GloomhavenVR][Env] Night-forest room geometry assembled.");
+        }
+
+        // ================================================== SURFACE GROWTH ===
+        // The BAKE half of the frost/moss/wind round. The per-pixel mechanism and
+        // the whole argument live in the bundle's EnvGrowth.cginc; what is here is
+        //   * WHICH surfaces grow and how strongly (the susceptibilities),
+        //   * the GRASS AND MOSS THAT ARE NOT THERE YET — real cards, folded flat
+        //     onto their own base edge until Earth brings them up,
+        //   * the wind's amplitudes, chosen against the canopy shadow map,
+        //   * and the numbers a reader needs to check all of that without opening
+        //     Unity (ReportGrowth).
+        //
+        // USER FINDING, ModBuild 142 (hardware): "Bei Erde möchte das Wände und
+        // Böden teilweise mit Moos bewachsen - auch im Wald das die Stämme
+        // teilweise und der Boden mit Moos bzw. Gras bewachsen wird."
+        //
+        // The shader can turn a wall green where moss would be. It cannot make
+        // grass STAND UP out of a floor, and "der Boden mit Moos bzw. Gras
+        // bewachsen" is a request for something with a silhouette. So the two
+        // rooms get a growth mesh each: cards that exist in the asset from the
+        // first build and have ZERO AREA until the element reaches them.
+        //
+        // WHY NOT NEW GEOMETRY ON DEMAND: there is no runtime code in these
+        // rooms at all (script-free prefabs, permanent ruling), so anything that
+        // appears has to be geometry that was always there. A folded card costs
+        // its vertices and not one fragment, which is the cheapest form of
+        // "not there yet" this engine has.
+        //
+        // WHY THE CARDS MUST BE PLUMB: the fold is `p.y -= span * alpha * (1-g)`,
+        // i.e. straight down. A leaning card folded straight down lands as a
+        // horizontal SLIVER with real area, and a sliver rasterises fragments —
+        // the zero state would leak a few hundred lit pixels per room. Vertical
+        // cards fold onto their own base edge exactly, so the quad's area is
+        // exactly zero and the rasteriser produces nothing. The lean a tuft of
+        // grass needs comes from the yaw and height spread instead.
+
+        // Sub-rects of Imported/Textures/*_alb.png, found the way the fir twig
+        // atlas's Sprigs were: connected-component analysis of the alpha channel.
+        // Both are Poly Haven CARD plants rather than solid photoscans, so their
+        // textures are already atlases of isolated cutouts on clean transparency
+        // — which is exactly what a growth card wants and is the reason these two
+        // assets were chosen over inventing a sprite sheet.
+        //
+        // Each grass rect is a PAIR of blade clusters, not one blade: a single
+        // cluster is 4 cm wide on a 40 cm card and reads as a scratch at six
+        // metres, which is where most of these are.
+        private static readonly Rect[] GrassCards =
+        {
+            new Rect(0.0312f, 0.0273f, 0.2734f, 0.9492f),
+            new Rect(0.4512f, 0.1055f, 0.3848f, 0.8203f),
+            new Rect(0.6279f, 0.1055f, 0.3516f, 0.8711f),
+        };
+        // moss_01's nine cushions, the five that read as a patch of moss rather
+        // than as a torn leaf.
+        private static readonly Rect[] MossCards =
+        {
+            new Rect(0.7051f, 0.1152f, 0.1641f, 0.2402f),
+            new Rect(0.2637f, 0.1094f, 0.1641f, 0.2383f),
+            new Rect(0.0566f, 0.1621f, 0.1504f, 0.1934f),
+            new Rect(0.8281f, 0.6582f, 0.1094f, 0.1699f),
+            new Rect(0.6309f, 0.5371f, 0.1543f, 0.3027f),
+        };
+
+        // ---------------------------------------- the C# mirror of EnvGrowth
+        // Character for character the shader's, and it exists for one reason:
+        // "teilweise" is a number and the bake has to be able to PRINT it. The
+        // same reasoning, and the same standing risk, as the haunt schedule's
+        // mirror further up — if one side is edited the other must be.
+        private const float GrowFull = 0.60f;      // GHVR_GROW_FULL
+        private const float GrowEdge = 0.06f;      // GHVR_GROW_EDGE
+
+        private static float GFrac(float v) => v - Mathf.Floor(v);
+
+        private static float GrowHash(Vector3 p)
+        {
+            p = new Vector3(GFrac(p.x * 0.1031f), GFrac(p.y * 0.1031f), GFrac(p.z * 0.1031f));
+            float d = p.x * (p.z + 31.32f) + p.y * (p.y + 31.32f) + p.z * (p.x + 31.32f);
+            p = new Vector3(p.x + d, p.y + d, p.z + d);
+            return GFrac((p.x + p.y) * p.z);
+        }
+
+        private static float GrowNoise(Vector3 p)
+        {
+            var i = new Vector3(Mathf.Floor(p.x), Mathf.Floor(p.y), Mathf.Floor(p.z));
+            var f = p - i;
+            f = new Vector3(f.x * f.x * (3f - 2f * f.x), f.y * f.y * (3f - 2f * f.y),
+                            f.z * f.z * (3f - 2f * f.z));
+            float a = GrowHash(i), b = GrowHash(i + new Vector3(1, 0, 0));
+            float c = GrowHash(i + new Vector3(0, 1, 0)), d = GrowHash(i + new Vector3(1, 1, 0));
+            float e = GrowHash(i + new Vector3(0, 0, 1)), g = GrowHash(i + new Vector3(1, 0, 1));
+            float h = GrowHash(i + new Vector3(0, 1, 1)), k = GrowHash(i + new Vector3(1, 1, 1));
+            float lo = Mathf.Lerp(Mathf.Lerp(a, b, f.x), Mathf.Lerp(e, g, f.x), f.z);
+            float hi = Mathf.Lerp(Mathf.Lerp(c, d, f.x), Mathf.Lerp(h, k, f.x), f.z);
+            return Mathf.Lerp(lo, hi, f.y);
+        }
+
+        private static float GrowField(Vector3 p) => Mathf.Clamp01((GrowNoise(p) - 0.5f) * 2.4f + 0.5f);
+
+        private static float GrowAff(float field, float grain, float place) =>
+            Mathf.Clamp01(0.46f * field + 0.18f * grain + 0.36f * place);
+
+        private static float GrowAt(float a, float cover)
+        {
+            cover = Mathf.Clamp01(cover);
+            cover = cover * (2f - cover);          // THE EASE, see GhvrGrow
+            float T = Mathf.Lerp(1f + GrowEdge, GrowFull, cover);
+            return Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((a - (T - GrowEdge)) / (2f * GrowEdge)));
+        }
+
+        /// GhvrRim, in C#.
+        private static float GrowRim(float r, float rad) =>
+            Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((Mathf.Clamp01(r / Mathf.Max(rad, 0.01f)) - 0.18f) / 0.82f));
+
+        /// <summary>How much of one placed surface a given element actually
+        /// covers, at Strong and at the Waning plateau — the "teilweise" the user
+        /// asked for, as a measured fraction rather than an intention.
+        ///
+        /// It samples the object's REAL vertices in room space. The shader
+        /// samples the noise in each object's OWN rotated axes (see GhvrGrowQ),
+        /// so a given wall's pattern is not the one computed here — but the
+        /// distribution of the field is rotation-invariant, so the FRACTION is
+        /// exactly comparable, which is all this table claims. `grain` is the one
+        /// term that cannot be read back at bake time (it lives in the normal
+        /// map), so it is passed as a constant and named in the log; since grain
+        /// only ever ADDS affinity, a 0 here is a floor on the real coverage.
+        /// </summary>
+        private static void ReportGrowth(string room, string what, GameObject go,
+            string element, float susceptibility, float rampLo, float rampHi, float elemRad,
+            float grain, Func<Vector3, Vector3, float> place)
+        {
+            var mf = go.GetComponent<MeshFilter>();
+            if (mf == null || mf.sharedMesh == null) return;
+            var mesh = mf.sharedMesh;
+            var xf = go.transform;
+            var v = Verts(mesh);
+            var nrm = mesh.normals;
+            int step = Mathf.Max(1, v.Length / 6000);
+            float freq = 3.0f;                              // _ElemGrowFreq default
+            double sS = 0, sW = 0, aSum = 0, aSq = 0; int n = 0;
+            for (int i = 0; i < v.Length; i += step)
+            {
+                Vector3 p = xf.TransformPoint(v[i]);
+                Vector3 nn = nrm != null && nrm.Length == v.Length
+                    ? xf.TransformDirection(nrm[i]).normalized : Vector3.up;
+                float rr = GrowRim(new Vector2(p.x, p.z).magnitude, elemRad);
+                float a = GrowAff(GrowField(p * freq), grain, place(p, nn));
+                float cover = susceptibility * (rampLo + rampHi * rr);
+                sS += GrowAt(a, cover);
+                sW += GrowAt(a, cover * 0.40f);
+                aSum += a; aSq += a * (double)a; n++;
+            }
+            if (n == 0) return;
+            double mean = aSum / n;
+            double sd = System.Math.Sqrt(System.Math.Max(aSq / n - mean * mean, 0));
+            Debug.Log($"[GloomhavenVR][Env] {room} growth / {element} on '{what}': "
+                      + $"coverage {sS / n * 100.0:F1}% at Strong, {sW / n * 100.0:F1}% at Waning "
+                      + $"({n} surface samples; affinity mean {mean:F3} sd {sd:F3}, "
+                      + $"grain taken at {grain:F2}; susceptibility {susceptibility:F2}, "
+                      + $"ramp {rampLo:F2}+{rampHi:F2}*rim).");
+        }
+
+        /// The `place` recipe of EnvRoom.shader, mirrored — frost first on what
+        /// sees the sky and what the moon never touches, moss first at the foot.
+        private static Func<Vector3, Vector3, float> PlaceRoom(bool moss)
+        {
+            var moon = MoonDir.normalized;
+            return (p, nw) =>
+            {
+                float foot = Mathf.Clamp01(1f - p.y * 0.80f);
+                float sky = Mathf.Clamp01(nw.y);
+                float shade = 1f - Mathf.Clamp01(Vector3.Dot(nw, moon) * 0.5f + 0.5f);
+                return moss ? Mathf.Clamp01(0.52f * foot + 0.28f * shade + 0.20f * sky)
+                            : Mathf.Clamp01(0.42f * sky + 0.34f * shade + 0.24f * foot);
+            };
+        }
+
+        // ------------------------------------------------------------ the wind
+        /// <summary>Switch the wind on for one foliage material.
+        ///
+        /// THE AMPLITUDE IS THE WHOLE DECISION, and it is settled against the
+        /// canopy shadow map rather than by eye. That map is baked from the
+        /// STATIC canopy at 5.5 x 4.4 cm per texel; the crowns reach the floor
+        /// through a 4x4-box-filtered coverage at a seventh strength (CsFol) and
+        /// reach the moon shafts through a 0.22 m penumbra. EnvGrowth's wave is
+        /// analytically bounded to +-1, so the tip displacement is exactly `amp`
+        /// (x1.06 with the flutter): at 4.5 cm a bough tip moves under ONE texel
+        /// of the map it cast, and a fifth of the blades' penumbra. Nothing in
+        /// either receiver can resolve that, so the shadow and the leaves cannot
+        /// visibly disagree — and the number did not have to be found by
+        /// rendering, which a still preview could not have done anyway.
+        ///
+        /// The understory is not in that bake at all (only the trunks and the
+        /// canopy are), so it gets a real breeze instead of a budgeted one.</summary>
+        private static void ElemWind(Material m, Transform xf, Mesh mesh, float ampMetres,
+            Vector3 windWorld, bool vertexAlpha, string what)
+        {
+            float s = (xf.lossyScale.x + xf.lossyScale.y + xf.lossyScale.z) / 3f;
+            var b = mesh.bounds;
+            float span = Mathf.Max(b.size.y, 1e-3f);
+            var dir = xf.InverseTransformDirection(windWorld.normalized).normalized;
+            m.SetVector("_ElemWind", new Vector4(ampMetres / Mathf.Max(s, 1e-4f),
+                                                 b.min.y, 1f / span, vertexAlpha ? 1f : 0f));
+            var wd = m.GetVector("_ElemWindDir");
+            m.SetVector("_ElemWindDir", new Vector4(dir.x, dir.y, dir.z, wd.w));
+            Debug.Log($"[GloomhavenVR][Env] Wind on '{what}': tip {ampMetres * 100f:F1} cm "
+                      + $"(bound 1.06x, so {ampMetres * 106f:F1} cm worst case), weight from "
+                      + (vertexAlpha ? "vertex alpha (0 at the stem edge)"
+                                     : $"height over y={b.min.y:F2} across {span:F2} object units")
+                      + $", object scale {s:F2}.");
+        }
+
+        // ------------------------------------------------------- the cards
+        /// <summary>One plumb growth card standing on `basePt`. Vertex ALPHA is
+        /// the height above ITS OWN base divided by the mesh-wide `span`, which is
+        /// what lets one shader constant fold cards of a dozen different heights
+        /// each exactly onto its own base edge (EnvRoomCutout/_ElemGrow).
+        ///
+        /// THE CARD'S HEIGHT IS QUANTISED TO THE VERTEX COLOUR, and that is not
+        /// tidiness — it is the zero state. Unity's default vertex layout stores
+        /// the colour channel as four UNORM BYTES, so an alpha of h/span comes
+        /// back out of the shader rounded to the nearest 1/255. Fold by that
+        /// rounded value and the card lands up to span/510 — 0.6 mm — off its own
+        /// base edge, which at two metres is about half a pixel of sliver: the
+        /// FIRST bake of this feature leaked 22 to 32 lit pixels per cellar frame
+        /// with every element down, and it took an image diff against the
+        /// previous build to see them. Deriving the height FROM the quantised
+        /// alpha instead makes the two exact reciprocals of each other, so the
+        /// quad's top edge folds onto its bottom edge to within the rounding of
+        /// one float add (~60 nm) — far below the rasteriser's own sub-pixel
+        /// grid, i.e. no coverage at all, ever.</summary>
+        private static void AddGrowthCard(Acc a, Vector3 basePt, Vector3 right, float h,
+            Rect uv, Color tint, float span)
+        {
+            float w = Mathf.Round(h / Mathf.Max(span, 1e-4f) * 255f) / 255f;
+            h = span * w;
+            var top = new Vector3(0f, h, 0f);
+            var c0 = new Color(tint.r, tint.g, tint.b, 0f);
+            var c1 = new Color(tint.r, tint.g, tint.b, w);
+            var nrm = Vector3.Cross(Vector3.up, right).normalized;
+            int b = a.Count;
+            a.Vert(basePt - right, nrm, new Vector2(uv.xMin, uv.yMin), c0);
+            a.Vert(basePt + right, nrm, new Vector2(uv.xMax, uv.yMin), c0);
+            a.Vert(basePt + right + top, nrm, new Vector2(uv.xMax, uv.yMax), c1);
+            a.Vert(basePt - right + top, nrm, new Vector2(uv.xMin, uv.yMax), c1);
+            a.Quad(b);
+        }
+
+        /// <summary>A clump: `n` cards on one spot, fanned in yaw so it holds up
+        /// from every direction (never camera-facing — permanent ruling).</summary>
+        private static void AddGrowthClump(Acc a, Vector3 basePt, float h, int n,
+            Rect[] atlas, int seed, float span, Color tint)
+        {
+            for (int k = 0; k < n; k++)
+            {
+                var rect = atlas[(int)(Hash3(seed, k, 1, 8101) * atlas.Length) % atlas.Length];
+                float hh = h * (0.70f + 0.60f * Hash3(seed, k, 2, 8101));
+                float halfW = hh * 0.5f * (rect.width / Mathf.Max(rect.height, 1e-3f));
+                float ang = (k / (float)n + 0.42f * Hash3(seed, k, 3, 8101)) * Mathf.PI;
+                var right = new Vector3(Mathf.Sin(ang), 0f, Mathf.Cos(ang)) * halfW;
+                // the cards of one clump do not share a point: a tuft is a
+                // handful of blades a few centimetres apart, and stacking them on
+                // one axis is what makes a fan read as a paper windmill
+                var off = new Vector3((Hash3(seed, k, 4, 8101) - 0.5f) * h * 0.35f, 0f,
+                                      (Hash3(seed, k, 5, 8101) - 0.5f) * h * 0.35f);
+                AddGrowthCard(a, basePt + off, right, hh, rect, tint, span);
+            }
+        }
+
+        /// <summary>Does a prop already stand here? `Contacts` is the footprint
+        /// list the contact shading is painted from, so the growth gets the
+        /// room's own answer for free — as long as it is built BEFORE
+        /// PaintContactAO clears it, which is why both callers do.</summary>
+        private static bool GrowthBlocked(float x, float z, float pad)
+        {
+            foreach (var (f, _) in Contacts)
+                if (x > f.x0 - pad && x < f.x1 + pad && z > f.z0 - pad && z < f.z1 + pad)
+                    return true;
+            return false;
         }
 
         // ============================================ BEDDING A PHOTOSCAN IN

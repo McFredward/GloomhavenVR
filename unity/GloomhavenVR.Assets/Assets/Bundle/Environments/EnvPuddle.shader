@@ -49,6 +49,14 @@ Shader "GloomhavenVR/EnvPuddle"
         _CandRate ("Candle flicker rate (match its light slot)", Float) = 1
         _CandPhase ("Candle flicker phase (match its light slot)", Float) = 0
         _Fresnel ("Grazing-angle bias", Range(0,1)) = 0.85
+        // ELEMENT ART — AIR. The draught's direction (EnvRoomBuilder.DraftDir,
+        // OBJECT space) and the slope of the cat's paws it drags across the
+        // water. The puddle already ruffles under Air (ElemRippleAmp), but a
+        // rougher CONCENTRIC ripple is just a busier drip — it says the air is
+        // moving and not which way. These waves travel, and they travel the way
+        // the draught travels, so the water points at the window.
+        _DraftDir ("Draught direction (OBJECT space)", Vector) = (0,0,0,0)
+        _DraftWave ("Draught wave slope at full Air", Float) = 0
     }
 
     CGINCLUDE
@@ -56,9 +64,9 @@ Shader "GloomhavenVR/EnvPuddle"
     #include "EnvElement.cginc"
 
     fixed4 _Wet, _MoonCol, _CandCol, _SkyCol;
-    float4 _Center, _MoonDir, _CandPos;
+    float4 _Center, _MoonDir, _CandPos, _DraftDir;
     float _Radius, _Period, _Phase, _Impact, _RingFreq, _RingAmp, _RingCon, _Calm;
-    float _MoonPow, _CandPow, _CandRate, _CandPhase, _Fresnel;
+    float _MoonPow, _CandPow, _CandRate, _CandPhase, _Fresnel, _DraftWave;
     float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
     struct appdata { float4 vertex : POSITION; fixed4 color : COLOR; };
@@ -120,6 +128,18 @@ Shader "GloomhavenVR/EnvPuddle"
         return ((train * decay + train2 * 0.55) * _RingAmp + calm * _Calm) * amp;
     }
 
+    /// ELEMENT ART — AIR: one train of cat's paws, running along the draught.
+    /// Crosswise it is broken up by a slow second wave, because a wind ripple on
+    /// water is a set of short crests that do not line up, not a corrugation.
+    /// Returned in the same "slope units" as RippleH so the two can be added.
+    float WindH (float2 p, float t)
+    {
+        float2 d = p - _Center.xz;
+        float u = dot(d, _DraftDir.xz);                          // along the draught
+        float v = dot(d, float2(-_DraftDir.z, _DraftDir.x));     // across it
+        return sin(u * 7.3 - t * 3.1 + sin(v * 3.7 + t * 0.6) * 0.85);
+    }
+
     float3 RippleN (float3 opos, float t, float amp)
     {
         float2 d = opos.xz - _Center.xz;
@@ -161,6 +181,7 @@ Shader "GloomhavenVR/EnvPuddle"
                 GhvrElem e = GhvrElems();
                 float r = length(i.opos.xz - _Center.xz);
                 float h = RippleH(r, t, ElemRippleAmp(e));
+                if (e.air > 0.0) h += _DraftWave * e.air * WindH(i.opos.xz, t);
                 float m = saturate(i.vcol.a);
                 // ELEMENT ART: ice glaze. The multiply pass darkens the stone by
                 // _Wet; under Ice it stops darkening and starts PALING, which is
@@ -184,6 +205,28 @@ Shader "GloomhavenVR/EnvPuddle"
                 float t = _Time.y + _GhvrTimeOfs;
                 GhvrElem e = GhvrElems();
                 float3 N = RippleN(i.opos, t, ElemRippleAmp(e));
+                if (e.air > 0.0)
+                {
+                    // The cat's paws tilt the surface too, and that is where they
+                    // are actually SEEN: the moon's reflection breaks into bands
+                    // that crawl toward the stair door. Central-differenced over
+                    // 2 cm — an analytic gradient of the nested sine is three
+                    // more transcendentals for a normal that is then normalised
+                    // anyway. Left entirely outside the resting path so the
+                    // no-element frame keeps its exact radial normal.
+                    float2 p = i.opos.xz;
+                    // 0.30 of the authored slope, and the factor is arithmetic
+                    // rather than taste: the wave's own spatial frequency is 7.3
+                    // rad/m, so its DERIVATIVE is ~7x its amplitude. Feeding the
+                    // amplitude that the wet-darkening pass wants straight into a
+                    // normal would tilt the surface by more than a right angle
+                    // and the reflections would go to noise.
+                    float a = _DraftWave * e.air * 0.30;
+                    float w0 = WindH(p, t);
+                    float2 gr = float2(WindH(p + float2(0.02, 0), t) - w0,
+                                       WindH(p + float2(0, 0.02), t) - w0) * (a / 0.02);
+                    N = normalize(float3(N.x - gr.x, N.y, N.z - gr.y));
+                }
                 float3 V = normalize(i.ov);
                 float3 R = reflect(-V, N);
 

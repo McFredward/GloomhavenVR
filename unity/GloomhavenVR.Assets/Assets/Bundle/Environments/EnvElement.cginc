@@ -62,6 +62,18 @@
 //  Fire+Ice (embers rising through falling snow) and Air+Earth (a dust storm)
 //  are simple additive layering, and they read because each element owns a
 //  different sensory channel: colour, particle, motion and place.
+//
+//  THE MOON IS A CONTRACT, not a picture — read MOON PHASE at the bottom
+//  ---------------------------------------------------------------------
+//     float GhvrMoonLight();   // 1.0 = the moon is unobstructed and at its
+//                              // authored size; below 1 during the Dark
+//                              // eclipse, above 1 while Light swells it.
+//                              // Multiply any MOONLIGHT term by this:
+//                              //   dirGain = GhvrDirGain(e) * GhvrMoonLight();
+//  Dark slides the Earth's umbra across the disc and Light swells it, and both
+//  have to reach the ROOMS — the cellar's beam, the wood's shafts, the moon rim
+//  on the trunks — or the eclipse is a picture of an eclipse. One multiply buys
+//  the whole coupling: no uniform, no timing and no state at the call site.
 // ============================================================================
 #ifndef GHVR_ENV_ELEMENT_INCLUDED
 #define GHVR_ENV_ELEMENT_INCLUDED
@@ -169,5 +181,154 @@ float GhvrEmberBreath (float t, float phase)
 {
     return 0.82 + 0.30 * sin(t * 1.9 + phase) + 0.12 * sin(t * 4.7 + phase * 1.7);
 }
+
+// ============================================================== MOON PHASE
+//  THE MOON MOVES NOW. User finding, ModBuild 142 (verbatim):
+//    "6) Bei Dunkelheit sollte sich etwas vor den Mond Schieben - eher wie eine
+//        Mondfinsternis die auch das Licht beeinflusst.
+//     7) Bei der Helligkeit sollte der Mond anwachsen und mehr Licht abgeben."
+//
+//  THE CONTRACT — the one call a room shader owes, and the whole reason this
+//  block lives in the SHARED header instead of inside EnvStars:
+//
+//      float GhvrMoonLight();
+//      // 1.0 = the moon is unobstructed and at its authored size; below 1
+//      // during the eclipse, above 1 while Light swells it. Multiply any
+//      // MOONLIGHT term by this.
+//      //   e.g.  dirGain = GhvrDirGain(e) * GhvrMoonLight();
+//
+//  An eclipse that happened only in the sky would be a PICTURE of an eclipse.
+//  The user asked for the one "die auch das Licht beeinflusst", so the sky and
+//  the rooms have to fall together, in step, off ONE function: a room shader
+//  buys the entire coupling with a single multiply and owns no state, no timing
+//  and no uniform of its own. The moonbeam in the cellar, the shafts in the
+//  wood and the moon rim on the trunks all darken because the moon is being
+//  covered — cause and effect, in one glance.
+//
+//  SEMANTICS, exactly:
+//   * A pure function of _GhvrElemB and the shared clock. No extra uniform, no
+//     material property, nothing a consumer has to remember to set.
+//   * EXACTLY 1.0 whenever the master is 0, or Light and Dark are both 0 —
+//     including with the other four elements at full strength. It is safe to
+//     call unconditionally and the zero state stays bit-identical (rule 2).
+//   * DARK: 1.0 -> GHVR_ECL_FLOOR (0.34) as the umbra covers the disc, scaled
+//     by how far Dark is up. The driver is the disc's COVERED FRACTION, so the
+//     room dims on the very curve the shadow eats the moon on.
+//   * LIGHT: x (1 + GHVR_MOON_SWELL * light) = 1.34 at full Light — the same
+//     number the sprite grows by, NOT the disc's area (1.8x). The caller
+//     already multiplies GhvrDirGain (1.90x at full Light) and 1.90 * 1.80 is a
+//     headlight that flattens the night into a grey day; 1.90 * 1.34 = 2.55 is
+//     a moon you would call bright with a tree line that is still black.
+//   * The two compose: a swollen moon still gets eaten (1.34 * 0.34 = 0.46).
+//
+//  WHY THE ECLIPSE DIMS A SOURCE, when the split says Dark never dims sources:
+//  because this is not a dimming. It is an OCCLUSION — a shadow crosses in
+//  front, the covered part goes copper and the part still in the light stays
+//  exactly as bright as it was. The disc keeps its hard limb throughout (Dark
+//  still HARDENS it), there is simply less of it left. That difference is the
+//  thing the brief asks to be legible, and it is why the attenuation is driven
+//  by a geometric coverage and not by e.dark alone.
+//
+//  WHY A SHADOW AND NOT A BODY. "Etwas" could have been an opaque disc sliding
+//  past, which would also have to occult the STARS around the moon. Rejected:
+//  the user named the reference himself ("eher wie eine Mondfinsternis"), and
+//  in a real lunar eclipse nothing is in front of the moon at all — the moon
+//  walks into the Earth's shadow, the sky beside it is untouched, and the disc
+//  turns copper-red because the only light still reaching it has been bent
+//  through every sunrise on Earth at once. So: no star cull, no silhouette, no
+//  hard black edge — a soft curved terminator crossing the disc, and a colour
+//  nothing else in this sky can make. It is also the cheaper of the two.
+//
+//  THE PHASE IS ON THE SHARED CLOCK. EnvStars/EnvStarPoints once built their
+//  sky clock from raw _Time.y on purpose (the celestial hour angle is allowed
+//  to differ per client — see SkyAlternative's table); both now fold
+//  _GhvrTimeOfs in, and the eclipse would have to whatever they did. It is an
+//  EVENT: two players in one cellar must watch the same limb go dark at the
+//  same second, and the room dimming it drives is shared by construction.
+//    The sky's wrapped clock (SKY_PERIOD 2880 s) is an EXACT 96 eclipse
+//    periods, so a caller that hands over the wrapped clock and a caller that
+//    hands over the raw one compute the same phase. Change neither period
+//    without checking that one still divides the other.
+//
+//  WHAT COULD NOT BE DONE, and therefore why the transit repeats: a one-shot
+//  eclipse that BEGINS when Dark rises needs a start time — either a uniform
+//  ElementMood would have to publish (exactly the "extra uniform the consumers
+//  must set" this contract forbids) or per-client state (rule 4). So the
+//  transit free-runs on absolute phase, the way ElementMood's own Waning breath
+//  does and for the same reason, and Dark controls its DEPTH. The consequence,
+//  stated rather than hidden: if Dark comes up while the umbra is already
+//  centred, the first thing a player sees is a moon going copper without
+//  moving, and the slide off begins a second or two later. The umbra is clear
+//  of the disc for only 1.5 s of every 30, so the overwhelmingly likely first
+//  sight is a shadow already part-way across.
+// -----------------------------------------------------------------------------
+// The geometry is in units of the MOON'S OWN DISC RADIUS, so nothing here knows
+// the sprite's size, the sprite's extent or the moon's bearing. EnvStars is the
+// single place those meet, and it converts once.
+#define GHVR_ECL_PERIOD 30.0    // s, one full transit; 2880 / 30 = 96 exactly
+#define GHVR_ECL_UMBRA  1.35    // umbra radius, in moon radii. Earth's is ~2.6
+                                // at the moon's distance; 1.35 keeps totality
+                                // short and the curved terminator ON the disc
+                                // for longer, which is the half a player reads.
+#define GHVR_ECL_MISS   0.18    // perpendicular miss distance: the shadow does
+                                // NOT pass dead centre, so the bite is visibly
+                                // off-axis and totality stays brief
+#define GHVR_ECL_TRACK  2.47    // half-track = 1 + UMBRA + 0.12 clearance, so
+                                // the cycle starts and ends with the umbra
+                                // entirely off the disc and the wrap is silent
+#define GHVR_ECL_EDGE   0.085   // terminator softness, in moon radii — an
+                                // umbra cast through an atmosphere has no edge
+#define GHVR_ECL_FLOOR  0.34    // moonlight left at totality under full Dark.
+                                // NOT 0: a totally eclipsed moon is still there
+                                // and still coppery, and in the cellar the
+                                // moonbeam is the only light in the room.
+#define GHVR_MOON_SWELL 0.34    // disc radius gain at full Light
+
+/// The umbra's centre at time `t`, in moon-radius units from the disc's centre:
+/// x runs along the track, y is the fixed miss distance.
+float2 GhvrEclipseCentre (float t)
+{
+    float u = frac(t * (1.0 / GHVR_ECL_PERIOD));
+    return float2((u * 2.0 - 1.0) * GHVR_ECL_TRACK, GHVR_ECL_MISS);
+}
+
+/// Covered fraction of the disc, 0 (clear) .. 1 (total), from the separation of
+/// the two centres. A smoothstep between first and last contact rather than the
+/// exact circle-circle lens area: the two curves differ by a few percent in the
+/// middle of the partial phase — far below what an eye can read off a disc 2.8
+/// deg wide — and this is a term every lit pixel in two rooms pays for.
+float GhvrEclipseCover (float2 c)
+{
+    return 1.0 - smoothstep(GHVR_ECL_UMBRA - 1.0, GHVR_ECL_UMBRA + 1.0, length(c));
+}
+
+/// Radius scale of the moon's disc, and of its halo with it. EXACTLY 1 with
+/// Light down, so the sprite is sampled at its authored extent.
+float GhvrMoonSize (GhvrElem e)
+{
+    return 1.0 + GHVR_MOON_SWELL * e.light;
+}
+
+/// THE CONTRACT (see the block above). `t` is the shared clock; the
+/// GhvrMoonLight() macro below supplies it, and that is the form to call.
+float GhvrMoonLightAt (float t)
+{
+    GhvrElem e = GhvrElems();
+    if (e.live <= 0.0) return 1.0;
+    float cov = GhvrEclipseCover(GhvrEclipseCentre(t));
+    return GhvrMoonSize(e) * (1.0 - cov * e.dark * (1.0 - GHVR_ECL_FLOOR));
+}
+
+// A function-like MACRO rather than a function, and the reason is mechanical
+// rather than stylistic: the contract says GhvrMoonLight() takes no argument
+// and reads the shared clock itself, but every Env* shader declares
+// _GhvrTimeOfs AFTER it includes this header (see EnvRoom.shader), so a
+// function defined here cannot name it — and moving those declarations would
+// mean editing a dozen shaders to add one call. A macro expands at the CALL
+// SITE, where the uniform is in scope. Callers write GhvrMoonLight() and
+// nothing else: the signature they were given is the signature they use.
+// (A shader that has no _GhvrTimeOfs fails to compile ON THAT NAME, which is
+// the correct diagnosis: it is not on the shared clock yet.)
+#define GhvrMoonLight() GhvrMoonLightAt(_Time.y + _GhvrTimeOfs)
 
 #endif // GHVR_ENV_ELEMENT_INCLUDED

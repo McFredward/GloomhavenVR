@@ -416,7 +416,45 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 142;
+    public const ushort ModBuild = 143;
+    // Build 143: seven reported items, all environment craft. No wire change; the bump is the
+    // handshake key, and the BUNDLE IS REBUILT (65,331,900 bytes).
+    //
+    // THE RAT had no coat and did not enter its hole — both were ONE LINE each, and both are worth
+    // recording. Its entire albedo was a lerp between two greys 1.4 stops apart (measured on the
+    // shipped build: 43-53 luma, flat, over the whole animal); it now has a three-stop pigment
+    // ramp, two octaves of sin-free value noise evaluated in the AUTHORED position (so the fur
+    // does not swim as the body waves) and a bare-skin mask in the one free vertex channel. And
+    // the disappearance was `wp = lerp(P, wp, vis)` — a shrink written when the "hole" was a black
+    // rectangle painted on the wall. The animal now walks down a bore derived from its own route
+    // tangent (the south route arrives 60 deg off the wall normal, so the pocket is sheared to
+    // match), is hidden by stone after 47 cm, and PARKS there between crossings.
+    // REAL FIRE: six seats in the cellar, each with a cause in the frame (the crate under the lit
+    // candle, the bookshelf under its candle, a cask of spirits and its spill). A burning crate is
+    // not a big candle, so EnvFlame gained a bonfire branch with a wide low bed, tearing tongues
+    // and a temperature ramp. Nothing burns over the board.
+    // SURFACE GROWTH — ONE mechanism for Ice and Earth, which are the same problem: a coverage
+    // that ADVANCES and RETREATS through a fixed pattern, not a tint that fades. Every pixel has an
+    // AFFINITY (noise in room metres + the normal map's own grain + where frost/moss actually
+    // start: wall feet, mortar, shade, damp) and the element slides a THRESHOLD down through it.
+    // Cellar floor 40% moss / 36% frost at Strong; the board's own floor stays clear at any
+    // strength. Plus real grass and moss cards that FOLD FLAT onto their own base edge when the
+    // element is down — zero area, no fragments, exactly nothing at rest.
+    // WIND: the prior art says use the cubic-smoothed triangle wave, not sin() — Crytek, Unity
+    // Tree Creator and SpeedTree all do, for the same three reasons (no transcendentals, bounded
+    // time argument, |wave| <= 1 by construction). Tip amplitude 4.5 cm on the canopy, chosen
+    // AGAINST the canopy shadow map: that map is 5.5 cm per texel, so the baked shadow cannot
+    // visibly disagree with the leaves that move under it.
+    // MOON: Dark slides Earth's umbra across the disc with a Danjon copper gradient (a SHADOW, not
+    // a body — a body would have had to occult stars), Light swells it 1.34x in radius. Both drive
+    // GhvrMoonLight(), which the room shaders multiply into their moon term, so the wood darkens
+    // BECAUSE the moon is being covered. The eclipse is the first sky content with a position that
+    // moves, which is why EnvStars/EnvStarPoints now ride the shared clock.
+    // AND ONE INTEGRATION FAULT OF MY OWN MAKING, fixed at the merge: two lanes built the two
+    // halves of the element channel in the same round and each declared the uniforms it needed
+    // under the obvious name. It compiled everywhere EXCEPT in a shader that wanted both headers.
+    // EnvHaunt.cginc now includes EnvElement.cginc; one declaration, one struct.
+    //
     // Build 142: four reported items. No wire change; the bump is the handshake key, and the
     // BUNDLE IS REBUILT (65,226,455 bytes) — both players need the new plugin AND the new bundle.
     //

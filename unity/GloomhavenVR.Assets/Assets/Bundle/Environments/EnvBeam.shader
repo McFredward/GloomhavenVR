@@ -139,6 +139,12 @@ Shader "GloomhavenVR/EnvBeam"
         _Knee ("Reinhard knee", Range(0,4)) = 0.9
         _Shimmer ("Shimmer amount", Range(0,1)) = 0.12
         _ShimmerSpeed ("Shimmer speed", Range(0,2)) = 0.13
+        // ELEMENT ART — AIR. The direction the cellar's draught leaves the
+        // window along (EnvRoomBuilder.DraftDir, OBJECT space). Under Air the
+        // air in the shaft is not merely stirred harder: the stirring TRAVELS
+        // along this vector, so the one lit volume in the room shows the wind
+        // going the way the wind goes. Zero-length is a hard off.
+        _DraftDir ("Draught direction (OBJECT space)", Vector) = (0,0,0,0)
         // bar shadows
         _WinZ ("Window plane z (OBJECT space)", Float) = 0
         _BarX0 ("First bar x at the window plane", Float) = 0
@@ -192,12 +198,20 @@ Shader "GloomhavenVR/EnvBeam"
             #pragma fragment frag
             #pragma target 3.0
             #include "UnityCG.cginc"
+            // EnvHaunt.cginc, and NOT EnvElement.cginc beside it. The two cannot
+            // be included together today: EnvHaunt re-declares _GhvrElemA/B and
+            // — worse — defines a STRUCT called `GhvrElems`, which is the name of
+            // EnvElement's accessor FUNCTION. Including both is a redefinition
+            // error, proven by trying it. EnvHaunt publishes the same mood under
+            // its own name (GhvrHauntElems, already folded with the master), so
+            // this shader reads the elements through that. Both files belong to
+            // other lanes; the merge that gives them one channel is theirs.
             #include "EnvHaunt.cginc"
 
             fixed4 _Tint;
             float _HauntDepth, _HauntPeriod, _HauntCards, _HauntWatch;
             float4 _HauntEnv;
-            float4 _BeamOrg, _BeamDir;
+            float4 _BeamOrg, _BeamDir, _DraftDir;
             float _Len, _W0, _WK, _Ramp, _Decay, _EndFade, _Knee, _HullR, _Steps;
             float _Shimmer, _ShimmerSpeed;
             float _WinZ, _BarX0, _BarPitch, _BarDepth, _BarSig, _BarBlur, _BarFade;
@@ -311,21 +325,60 @@ Shader "GloomhavenVR/EnvBeam"
                     acc += dens; sAcc += dens * s; tAcc += dens * tk;
                 }
 
+                // ================================================ ELEMENT ART
+                // AIR, and this is the cellar's most legible draught cue because
+                // it is the ONLY lit air in the room: the shaft is where the wind
+                // comes in, so the wind can be seen in it.
+                //
+                // No "is anything up" branch, deliberately — GhvrHauntElems has
+                // already folded in the master, so with the feature off or the
+                // room inert `air` is exactly 0, `1.0 + 2.4*0` is exactly 1.0,
+                // and the multiply below is the identity. That is the same
+                // argument EnvHaunt.cginc's own element block makes, and it keeps
+                // the zero state bit-identical without a compare.
+                float air = GhvrHauntElems().air;
+                float shimAmt = _Shimmer * (1.0 + 2.4 * air);
+                float shimSpd = _ShimmerSpeed * (1.0 + 3.2 * air);
+
+                // MOON-LIGHT HOOK. A parallel lane is adding `GhvrMoonLight()` to
+                // EnvElement.cginc this round: 1.0 at rest, below 1 while a lunar
+                // eclipse crosses the moon under Dark, above 1 while Light swells
+                // it. This beam IS that moon and must follow it.
+                //
+                // It is NOT called yet, for two reasons and neither is laziness:
+                // the function is not in the include as of this build, and this
+                // shader cannot include EnvElement.cginc at all while
+                // EnvHaunt.cginc redeclares the same channel (see the include
+                // above). The one-line change when both are settled: replace the
+                // 1.0 below with GhvrMoonLight(). Nothing else here moves.
+                float moonGain = 1.0;   // <-- GhvrMoonLight()
+
                 // slow drifting density — motes and mist crossing the beam,
                 // taken at the density-weighted centroid of this ray's samples
                 float inv = 1.0 / max(acc, 1e-8);
                 float sm = sAcc * inv;
                 float3 dm = (cam + R * (tAcc * inv)) - _BeamOrg.xyz - D * sm;
-                float sh = 1.0 + _Shimmer * (sin(sm * 3.1 + t * _ShimmerSpeed * 5.3)
-                                           * sin(sm * 1.3 - t * _ShimmerSpeed * 2.9
+                float sh = 1.0 + shimAmt * (sin(sm * 3.1 + t * shimSpd * 5.3)
+                                           * sin(sm * 1.3 - t * shimSpd * 2.9
                                                  + dot(dm, D.yzx) * 2.7));
+                if (air > 0.0)
+                {
+                    // ...and a second, coarser modulation that TRAVELS along the
+                    // draught. Faster shimmer alone is only agitation; a pattern
+                    // with a direction is a draught, and this one runs the way
+                    // the room's own draught runs, out of the window and across
+                    // to the stair door. The same vector the flames lean along
+                    // and the motes drift along, so all three agree.
+                    float pd = dot(dm + D * sm, _DraftDir.xyz);
+                    sh = max(sh * (1.0 + 0.60 * air * sin(pd * 2.3 - t * 2.1)), 0.0);
+                }
 
                 // ...and the haunt's occlusion multiplies the whole integral,
                 // which is the physically right place for it: something is
                 // blocking the APERTURE, so every metre of the shaft behind it
                 // loses the same fraction at once, rather than a shadow crawling
                 // down the beam.
-                float I = _Tint.a * acc * dt * sh * i.haunt / _W0;
+                float I = _Tint.a * acc * dt * sh * i.haunt * moonGain / _W0;
                 I = I / (1.0 + I * _Knee);                 // cannot blow out
                 // sub-LSB dither, on the linear value: ±0.5/255 of the final
                 // 8-bit step, applied AFTER the knee so it cannot be amplified

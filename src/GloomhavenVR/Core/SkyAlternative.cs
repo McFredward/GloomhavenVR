@@ -1759,11 +1759,13 @@ internal static class SkyAlternative
     /// <item>THE MOON — already identical, and not by this clock: it does not ride the celestial
     /// rotation at all (<c>EnvStars.shader:28</c> — "it does NOT ride the celestial rotation"), it
     /// is the authored <c>_MoonDir</c> constant. Item A's board yaw is what makes it agree.</item>
-    /// <item>CELESTIAL ROTATION AND PER-STAR TWINKLE — cannot be reached from here: <c>EnvStars</c>
-    /// and <c>EnvStarPoints</c> build their sky clock from raw <c>fmod(_Time.y, SKY_PERIOD)</c>
-    /// without the offset (EnvStars.shader:119, EnvStarPoints.shader:88), so a bundle change would
-    /// be required. Left alone on purpose: nobody can point at a twinkle, the moon does not move
-    /// with it, and the shafts' use of the sky clock is a mote SHIMMER, not a direction.</item>
+    /// <item>CELESTIAL ROTATION AND PER-STAR TWINKLE — <b>now ON the shared clock</b> (ModBuild
+    /// 143). This entry used to say the sky clock could not be reached because <c>EnvStars</c> and
+    /// <c>EnvStarPoints</c> built it from raw <c>fmod(_Time.y, SKY_PERIOD)</c>; both shaders now
+    /// fold <c>_GhvrTimeOfs</c> in, because the LUNAR ECLIPSE needed it — an event with a position
+    /// that moves is the first sky content two players could catch each other disagreeing about,
+    /// and its 30 s period divides the 2880 s sky wrap exactly (96 periods) so the wrapped and the
+    /// raw clock give the same phase. The twinkle came along for free.</item>
     /// <item>SHOOTING STARS, FIREFLIES, DUST MOTES, FOG — Shuriken, per-client seeded. Meteors are
     /// the one arguable "event", but syncing them needs either a per-event packet or a
     /// deterministic re-seed plus a <c>Simulate</c> catch-up on a system whose emission is a rate,
@@ -1913,9 +1915,11 @@ internal static class SkyAlternative
                                ? "this client OWNS the clock (lowest player id, or nobody else shows this environment)"
                                : $"following player {_clockOwner}") +
                            $". Shared clock now {EnvClockSeconds:F2}s; the rat, the drip and its puddle " +
-                           "rings, the candle flicker, the canopy sway and the shafts' shimmer run on it. " +
-                           "The moon does not need it (fixed _MoonDir, board yaw) and the star rotation " +
-                           "cannot use it (no _GhvrTimeOfs in EnvStars/EnvStarPoints).");
+                           "rings, the candle flicker, the canopy sway, the shafts' shimmer, the " +
+                           "apparitions' schedule and — since ModBuild 143 — the star rotation and the " +
+                           "lunar eclipse run on it. The moon's DIRECTION never needed it (fixed " +
+                           "_MoonDir plus the board yaw); the eclipse crossing it does, which is what " +
+                           "put _GhvrTimeOfs into EnvStars/EnvStarPoints.");
     }
 
     /// <summary>Drop the shared clock back to the local one. Called from the teardown path: a

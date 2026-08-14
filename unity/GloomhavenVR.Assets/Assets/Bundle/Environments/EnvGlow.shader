@@ -31,6 +31,23 @@ Shader "GloomhavenVR/EnvGlow"
         // wisps and the rat's eyes are built with less of it, because a wisp that
         // turns orange is not a wisp any more.
         _ElemWarm ("Element: fire susceptibility", Range(0,2)) = 1
+
+        // REAL FIRE — the gate. The cellar's burning crates, barrels and shelf
+        // (EnvFlame's _FireGate) each carry a halo, and a halo for a fire that
+        // is not burning must not exist at all: with the gate on and Fire down
+        // the sphere is COLLAPSED to a point in the vertex shader, exactly as
+        // the gated flame cards and the gated particle emitters are. The default
+        // 0 is every halo that shipped before — the candles, the window, the
+        // wisps and the rat's eyes — and they are untouched.
+        //
+        // WHY A HALO AT ALL, and what it is standing in for: EnvRoom's baked
+        // light rig has exactly THREE point slots and all three are candles, so
+        // a fourth source cannot be added without that shader (a different lane
+        // this round). The halo is therefore the fire's light: a real world-space
+        // volume that brightens the air around the fire and washes the wall it
+        // stands against. It is not a substitute for a surface light and it is
+        // not pretending to be one — see BuildEnvironmentRooms' FIRE LIGHT note.
+        _ElemGate ("Element gate: 1 = exists only under Fire", Range(0,1)) = 0
     }
     SubShader
     {
@@ -49,6 +66,7 @@ Shader "GloomhavenVR/EnvGlow"
 
             fixed4 _Tint;
             float _Falloff, _Flicker, _Rate, _Phase, _Blink, _BlinkPeriod, _Away, _AwayPeriod, _ElemWarm;
+            float _ElemGate;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; };
@@ -57,6 +75,15 @@ Shader "GloomhavenVR/EnvGlow"
             v2f vert (appdata v)
             {
                 v2f o;
+                // REAL FIRE: collapse a gated halo whose element is down. Not an
+                // alpha of zero — that would still cost the fill of a sphere that
+                // covers a good part of the frame from close to.
+                if (_ElemGate > 0.5 && GhvrElems().fire <= 0.0)
+                {
+                    o.pos = float4(0, 0, 0, 1);
+                    o.wn = float3(0, 1, 0); o.wp = float3(0, 0, 0);
+                    return o;
+                }
                 o.pos = UnityObjectToClipPos(v.vertex);
                 o.wn = UnityObjectToWorldNormal(v.normal);
                 o.wp = mul(unity_ObjectToWorld, v.vertex).xyz;
@@ -98,6 +125,16 @@ Shader "GloomhavenVR/EnvGlow"
                 float ap = frac(t / max(_AwayPeriod, 0.01) + _Phase * 0.037);
                 float present = smoothstep(0.02, 0.10, ap) * smoothstep(0.47, 0.38, ap);
                 amp *= lerp(1.0, present, _Away);
+
+                // REAL FIRE: a gated halo RAMPS with its element rather than
+                // snapping on. ElementMood smooths over about a second and its
+                // waning plateau breathes 0.28..0.52, so a fire whose light
+                // arrived at full strength would throw away the one cue the
+                // smoothing exists to give — that the infusion is going out.
+                // sqrt for the same reason EnvFlame's gate takes it: the waning
+                // plateau is 0.40 and a fire that is dying back still lights the
+                // wall it stands against. Zero at zero, so nothing pops in.
+                if (_ElemGate > 0.5) amp *= sqrt(saturate(e.fire));
 
                 return fixed4(elemCol, core * _Tint.a * max(amp, 0.0) * elemAmp);
             }

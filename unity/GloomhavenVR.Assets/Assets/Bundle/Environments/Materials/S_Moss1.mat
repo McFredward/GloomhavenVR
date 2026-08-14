@@ -32,6 +32,12 @@ Material:
     m_Floats:
     - _BumpScale: 1
     - _Cutoff: 0.35
+    - _ElemFrost: 1
+    - _ElemGrow: 0
+    - _ElemGrowFreq: 3
+    - _ElemMoss: 0
+    - _ElemRad: 9.230767
+    - _ElemScl: 1.3000003
     - _HauntCards: 6
     - _HauntPeriod: 83
     - _HauntTremble: 0
@@ -46,6 +52,9 @@ Material:
     - _AmbUp: {r: 0.024, g: 0.029, b: 0.04, a: 1}
     - _DirCol: {r: 0.7, g: 0.79, b: 0.94, a: 1}
     - _DirDir: {r: -0.2621596, g: 0.6427071, b: -0.71986115, a: 0}
+    - _ElemCentre: {r: 3.0870097, g: 0.07061813, b: 4.520387, a: 0}
+    - _ElemWind: {r: 0.015384612, g: -0.0035477094, b: 24.767546, a: 0}
+    - _ElemWindDir: {r: 0.939629, g: 0, b: -0.34219489, a: 0}
     - _HauntEnv: {r: 0, g: 1, b: 1, a: 0}
     - _L0Col: {r: 0.11, g: 0.26, b: 0.16, a: 0.22}
     - _L0Pos: {r: 4.7809024, g: 0.7244643, b: 10.212223, a: 0.2363637}

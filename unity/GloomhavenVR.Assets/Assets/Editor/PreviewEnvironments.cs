@@ -95,6 +95,22 @@ namespace GloomhavenVR
             ("RatBeam", new Vector3(-1.70f, 0.45f, 0.90f), new Vector3(10, 308, 0), false, 50f),
             ("RatLow", new Vector3(-1.10f, 0.80f, -0.60f), new Vector3(9, 292, 0), false, 55f),
             ("RatEnd", new Vector3(1.2f, 0.85f, -1.4f), new Vector3(11, 215, 0), false, 55f),
+            // ---- the two MOUTHS, close and low (ModBuild 143) ----------------
+            // The old set had no frame in which the hole filled more than forty
+            // pixels, which is exactly how a rat that shrank to nothing instead
+            // of going in shipped twice. These look at each mouth from about
+            // where a kneeling player's head would be: near enough that the ring
+            // and the pocket are legible, and off to one side, because a mouth
+            // photographed dead-on cannot show that its bore leans.
+            ("RatHoleN", new Vector3(-3.75f, 0.32f, 3.92f), new Vector3(22, 336, 0), false, 40f),
+            // The SOUTH mouth is behind the crates (Crate0 at x=-1.55, Crate1 at
+            // x=-0.45), which is the authored ending — "it disappears under the
+            // crates" — so it can only be looked at down the 50 cm gap between
+            // them, and that is also the only line a player has on it.
+            ("RatHoleS", new Vector3(-1.05f, 0.42f, -2.90f), new Vector3(13, 176, 0), false, 30f),
+            // ...and one at standing height, which is the distance and angle the
+            // entry is really met at: a hole in a skirting seen from 1.3 m.
+            ("RatHoleSWide", new Vector3(-1.00f, 1.30f, -2.20f), new Vector3(29, 179, 0), false, 45f),
             // the cobwebs: the one the shelf candle reaches, and the one over
             // the stair door (the only two that are ever lit enough to judge)
             ("Web", new Vector3(2.60f, 2.20f, 1.20f), new Vector3(-6, 87, 0), false, 34f),
@@ -383,6 +399,36 @@ namespace GloomhavenVR
             "DripColumn", "WindowClose", "RatRun", "RatBeam", "RatLow", "RatEnd", "DarkCornerSW",
         };
 
+        // ---- THE RAT'S TWO MOUTHS, over the entry itself (ModBuild 143) -------
+        // A crossing lasts 2.4-9.2 s of a 26 s slot and the entry is 0.45 s of
+        // THAT, so the offsets above cannot land on it except by luck — which is
+        // how "it shrinks instead of going in" survived two rounds of previews.
+        // EnvRoomBuilder.RatPreviewClock SOLVES the shipped schedule for a given
+        // point of a given hole's entry, the same way the haunt series solves for
+        // an apparition, so there is no forced-visible code path here either.
+        //
+        // q is run progress: below 0 the animal is still in the hole, 1.0 is the
+        // mouth, above that it is going down the burrow (2.0 = parked).
+        // The north mouth gets BOTH series, and that is not redundancy: 43% of
+        // crossings run the route backwards and 30% turn round, so the north hole
+        // is walked into about as often as it is walked out of — and it is the
+        // one of the two that is not behind a crate.
+        private static readonly (string view, int hole, bool emerge)[] RatMouthViews =
+        {
+            ("RatHoleN", 0, true), ("RatHoleN", 0, false),
+            ("RatHoleS", 1, false), ("RatHoleSWide", 1, false),
+        };
+        private static readonly (string tag, float q)[] RatEnterSteps =
+        {
+            ("q90", 0.90f), ("q100", 1.00f), ("q112", 1.12f), ("q125", 1.25f),
+            ("q140", 1.40f), ("q160", 1.60f), ("q200", 2.00f),
+        };
+        private static readonly (string tag, float q)[] RatLeaveSteps =
+        {
+            ("e100", -1.00f), ("e060", -0.60f), ("e035", -0.35f), ("e015", -0.15f),
+            ("e000", 0.00f), ("e010", 0.10f),
+        };
+
         [MenuItem("GloomhavenVR/Render Environment Previews")]
         public static void RenderFromMenu() => Render();
 
@@ -558,6 +604,25 @@ namespace GloomhavenVR
                             if (v.name == null)
                                 throw new Exception($"TimeViews names an unknown view '{vn}'.");
                             if (WantView(v.name)) Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_" + tag);
+                        }
+                    }
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+                }
+
+                // ---- ...and the rat going into (and out of) its hole ----
+                if (env == "Env_Cellar" && !noTime)
+                {
+                    foreach (var (vn, hole, emerge) in RatMouthViews)
+                    {
+                        var v = Array.Find(Views, x => x.name == vn);
+                        if (v.name == null)
+                            throw new Exception($"RatMouthViews names an unknown view '{vn}'.");
+                        if (!WantView(v.name)) continue;
+                        foreach (var (tag, q) in emerge ? RatLeaveSteps : RatEnterSteps)
+                        {
+                            Shader.SetGlobalFloat("_GhvrTimeOfs",
+                                                  EnvRoomBuilder.RatPreviewClock(hole, q));
+                            Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_" + tag);
                         }
                     }
                     Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);

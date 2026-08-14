@@ -156,11 +156,22 @@ float4 _GhvrHaunt;
 // forcing.
 float4 _GhvrHauntForce;
 
-// The element mood, for flavour and for readability compensation. Same contract
-// as Core/ElementMood.cs: A = (Fire, Ice, Air, Earth), B = (Light, Dark,
-// Master, Peak), all 0..1, and the six are NOT pre-multiplied by the master.
-float4 _GhvrElemA;
-float4 _GhvrElemB;
+// The element mood, for flavour and for readability compensation. It comes from
+// EnvElement.cginc, which is the bundle's ONE quotation of Core/ElementMood.cs's
+// contract.
+//
+// THIS FILE USED TO DECLARE _GhvrElemA/_GhvrElemB AND A `GhvrElems` STRUCT OF
+// ITS OWN, and that was an integration accident worth recording: two lanes built
+// the two halves of the element channel in the same round, each declared the
+// uniforms it needed, and each picked the obvious name. The result compiled
+// everywhere EXCEPT in a shader that wanted both — EnvBeam, which needs the
+// haunt schedule (the apparition at the window dims the beam) AND the element
+// mood (Air stirs it, GhvrMoonLight() dims it during an eclipse). There
+// `GhvrElems` was a struct in one header and a function in the other, and the
+// uniforms were declared twice. Including EnvElement here instead is the fix:
+// one declaration of the channel, one struct, and any shader may take both
+// headers. Include guards on both make the double include harmless.
+#include "EnvElement.cginc"
 
 // ------------------------------------------------------------- the constants
 // Every one of these is mirrored in BuildEnvironmentRooms.cs, which measures
@@ -197,22 +208,16 @@ float GhvrHauntH (float n, float k)
 /// shader never has to remember to multiply. All zero when the element feature
 /// is off, which makes every use below a no-op — that is why nothing here needs
 /// an "is the element channel live" branch.
-struct GhvrElems
+/// Kept as a NAME, not as a second implementation: <c>GhvrElems()</c> from
+/// EnvElement.cginc already folds the master in and already returns zero for
+/// every field when the feature is off. This alias exists so the haunt shaders
+/// keep reading in their own vocabulary, and so a reader who greps for
+/// "GhvrHauntElems" still lands somewhere that explains the relationship.
+/// The returned <c>GhvrElem</c> carries one field the old local struct did not:
+/// <c>live</c> (peak x master), which is the single value to branch on.
+GhvrElem GhvrHauntElems ()
 {
-    float fire, ice, air, earth, light, dark;
-};
-
-GhvrElems GhvrHauntElems ()
-{
-    GhvrElems e;
-    float m = _GhvrElemB.z;
-    e.fire  = _GhvrElemA.x * m;
-    e.ice   = _GhvrElemA.y * m;
-    e.air   = _GhvrElemA.z * m;
-    e.earth = _GhvrElemA.w * m;
-    e.light = _GhvrElemB.x * m;
-    e.dark  = _GhvrElemB.y * m;
-    return e;
+    return GhvrElems();
 }
 
 /// One slot of the schedule, fully decided.
@@ -253,7 +258,7 @@ GhvrHaunt GhvrHauntAt (float t, float period, float cards)
     // more haunted, Light less. Deterministic (element state is bit-identical on
     // every client) and monotone in the dial, which is what keeps two players'
     // schedules nested rather than merely similar.
-    GhvrElems e = GhvrHauntElems();
+    GhvrElem e = GhvrHauntElems();
     float freq = saturate(_GhvrHaunt.y) * saturate(1.0 + 0.60 * e.dark - 0.35 * e.light);
     h.live = step(GhvrHauntH(h.slot, GHVR_HC_RATE), freq) * step(0.0001, _GhvrHaunt.x);
 

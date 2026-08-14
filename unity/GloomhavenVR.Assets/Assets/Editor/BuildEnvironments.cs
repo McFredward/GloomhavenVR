@@ -97,13 +97,99 @@ namespace GloomhavenVR
         public static readonly Vector3 MoonDir = new Vector3(0.49262f, 0.64279f, 0.58686f).normalized;
 
         // Moon sprite half-extent in gnomonic tan units (EnvStars/_MoonExtent).
-        // Env_Moon.png paints the disc out to r=0.22 of the sprite's 0.5 half-size
+        // Env_Moon.png paints the disc out to MoonSpriteDiscR of the sprite's 0.5 half-size
         // (MakeMoon), and the sprite spans +-_MoonExtent in tan units, so the
-        // DISC's angular radius is atan(0.44 * _MoonExtent) — everything outside
-        // that is halo. Both the sprite draw and the star cull derive from here,
-        // so they can never disagree about where the moon's edge is.
+        // DISC's angular radius is atan(2 * MoonSpriteDiscR * _MoonExtent) —
+        // everything outside that is halo. The sprite draw, the star cull and
+        // (ModBuild 143) the eclipse's umbra all derive from here, so they can
+        // never disagree about where the moon's edge is.
         private const float MoonExtent = 0.055f;
-        private static float MoonDiscRad => Mathf.Atan(0.44f * MoonExtent);   // ~1.4 deg
+        // ...and this is the ONE place the 0.22 is typed. It used to be typed
+        // twice — once as MakeMoon's R, once folded into the 0.44 below — and
+        // the eclipse needs it a third time, in the shader, which is the point
+        // at which a repeated constant stops being harmless.
+        private const float MoonSpriteDiscR = 0.22f;
+        private static float MoonDiscRad => Mathf.Atan(2f * MoonSpriteDiscR * MoonExtent);  // ~1.4 deg
+
+        // ---------------------------------------------------------- MOON PHASE
+        // MIRRORS EnvElement.cginc's GHVR_ECL_* / GHVR_MOON_SWELL. These live in
+        // the shader because GhvrMoonLight() must be callable from any room
+        // shader without a uniform to set (that is the contract); the copies
+        // here exist only so the bake LOG can state the eclipse's timing and
+        // size, which is the only way to check them without opening Unity.
+        // CHANGE ONE, CHANGE BOTH — the log below prints the numbers it derives,
+        // so a disagreement shows up as a log that does not match the picture.
+        public const float EclipsePeriod = 30f;   // s, one full transit
+        private const float EclipseUmbra = 1.35f; // umbra radius, in moon radii
+        private const float EclipseMiss = 0.18f;  // perpendicular miss distance
+        private const float EclipseTrack = 2.47f; // half-track, in moon radii
+        private const float EclipseFloor = 0.34f; // moonlight left at totality
+        private const float MoonSwell = 0.34f;    // disc radius gain at full Light
+
+        /// <summary>The C# mirror of EnvElement.cginc's GhvrMoonLight(), for the bake log.</summary>
+        private static float MoonLightAt(float t, float light, float dark)
+        {
+            float u = t / EclipsePeriod;
+            u -= Mathf.Floor(u);
+            float x = (u * 2f - 1f) * EclipseTrack;
+            float d = Mathf.Sqrt(x * x + EclipseMiss * EclipseMiss);
+            // HLSL smoothstep(edge0, edge1, x) written out — Mathf.SmoothStep is
+            // a different function (it interpolates BETWEEN its first two
+            // arguments), and using it here would quietly mis-state the log.
+            float s = Mathf.Clamp01((d - (EclipseUmbra - 1f)) * 0.5f);
+            float cov = 1f - s * s * (3f - 2f * s);
+            return (1f + MoonSwell * light) * (1f - cov * dark * (1f - EclipseFloor));
+        }
+
+        /// <summary>The eclipse and the swell, in numbers, in the bake log. This is the
+        /// only way to check the event's TIMING and SIZE without opening Unity: a still
+        /// preview shows the shadow somewhere on the disc but cannot show how fast it
+        /// got there, and nothing in the bundle carries the schedule at runtime.</summary>
+        private static void LogMoonPhase()
+        {
+            float discDeg = MoonDiscRad * Mathf.Rad2Deg;
+            float speed = 2f * EclipseTrack / EclipsePeriod;         // moon radii per second
+            // contacts: the centres are (U+1) apart at first/last contact and
+            // (U-1) apart at the edges of totality, and the track is offset by
+            // the miss distance, so each contact is a right triangle away.
+            float xFirst = Mathf.Sqrt(Mathf.Max((EclipseUmbra + 1f) * (EclipseUmbra + 1f)
+                                                - EclipseMiss * EclipseMiss, 0f));
+            float totArg = (EclipseUmbra - 1f) * (EclipseUmbra - 1f) - EclipseMiss * EclipseMiss;
+            float tFirst = (EclipseTrack - xFirst) / speed;
+            string totality = totArg <= 0f
+                ? "none (the umbra never covers the whole disc — partial phases only)"
+                : $"{(EclipseTrack - Mathf.Sqrt(totArg)) / speed:F2}..{EclipsePeriod - (EclipseTrack - Mathf.Sqrt(totArg)) / speed:F2} s "
+                  + $"({2f * Mathf.Sqrt(totArg) / speed:F2} s)";
+
+            var tbl = new System.Text.StringBuilder();
+            for (int k = 0; k < 8; k++)
+            {
+                float t = k * EclipsePeriod / 8f;
+                tbl.Append($" t={t:F2}s {MoonLightAt(t, 0f, 1f):F3}");
+            }
+
+            Debug.Log("[GloomhavenVR][Env] Moon eclipse (Dark) — these MIRROR EnvElement.cginc's "
+                      + "GHVR_ECL_* constants; if they disagree, the shader wins and this log is a lie.\n"
+                      + $"   period {EclipsePeriod:F1} s (sky wrap 2880 s = {2880f / EclipsePeriod:F1} periods exactly, "
+                      + "so the wrapped and the raw shared clock give the same phase)\n"
+                      + $"   umbra {EclipseUmbra:F2} moon radii = {EclipseUmbra * discDeg:F2} deg, "
+                      + $"miss {EclipseMiss:F2} R, track +-{EclipseTrack:F2} R\n"
+                      + $"   shadow speed {speed:F3} R/s = {speed * discDeg:F3} deg/s "
+                      + $"(it crosses the disc's own diameter in {2f / speed:F1} s)\n"
+                      + $"   first contact t={tFirst:F2} s, totality {totality}, "
+                      + $"last contact t={EclipsePeriod - tFirst:F2} s, "
+                      + $"disc entirely clear for {2f * tFirst:F2} s per cycle\n"
+                      + $"   GhvrMoonLight() at full Dark:{tbl} (floor {EclipseFloor:F2})");
+            Debug.Log($"[GloomhavenVR][Env] Moon swell (Light): radius x{1f + MoonSwell:F2} — disc "
+                      + $"{discDeg:F2} -> {Mathf.Atan(2f * MoonSpriteDiscR * MoonExtent * (1f + MoonSwell)) * Mathf.Rad2Deg:F2} deg, "
+                      + $"star cull {Mathf.Acos(Mathf.Cos(MoonDiscRad * 1.04f)) * Mathf.Rad2Deg:F2} -> "
+                      + $"{Mathf.Acos(1f - (1f - Mathf.Cos(MoonDiscRad * 1.04f)) * (1f + MoonSwell) * (1f + MoonSwell)) * Mathf.Rad2Deg:F2} deg. "
+                      + $"GhvrMoonLight() {MoonLightAt(0f, 1f, 0f):F3}; with GhvrDirGain's 1.90 a room sees "
+                      + $"{MoonLightAt(0f, 1f, 0f) * 1.90f:F2}x the authored moonlight, and the sprite itself "
+                      + "is x GhvrSrcGain = 2.10 on top of that.\n"
+                      + $"   Light AND Dark at once: GhvrMoonLight() at mid-eclipse "
+                      + $"{MoonLightAt(EclipsePeriod * 0.5f, 1f, 1f):F3} — a swollen moon still gets eaten.");
+        }
 
         // ------------------------------------------------------------ star sky
         // Yale Bright Star Catalogue (public domain) -> real star point sprites.
@@ -1382,7 +1468,10 @@ namespace GloomhavenVR
             var ivory = new Vector3(1.00f, 0.955f, 0.86f);
             var mareCol = new Vector3(0.56f, 0.585f, 0.61f); // grey-teal seas (deeper: the maria are the only face detail left at 2.8 deg)
             var lightDir = new Vector3(0.42f, 0.30f, 0.855f).normalized;
-            const float R = 0.22f; // small disc => plenty of sprite left for the halo
+            // small disc => plenty of sprite left for the halo. The constant is
+            // MoonSpriteDiscR, not a literal: EnvStars needs the same number to
+            // measure the eclipse's umbra against the disc (_MoonDiscR).
+            const float R = MoonSpriteDiscR;
             for (int y = 0; y < n; y++)
                 for (int x = 0; x < n; x++)
                 {
@@ -1948,6 +2037,8 @@ namespace GloomhavenVR
             stars.SetVector("_MoonDir", MoonDir);
             stars.SetColor("_MoonCol", new Color(1f, 0.98f, 0.92f));
             stars.SetFloat("_MoonExtent", MoonExtent);
+            // how much of the sprite is disc — the eclipse's unit of length
+            stars.SetFloat("_MoonDiscR", MoonSpriteDiscR);
 
             // ---- real catalogue stars (see BuildStarField / EnvStarPoints) ----
             var pts = LoadOrNewMat(MatDir + "/Sky_StarPoints.mat", "GloomhavenVR/EnvStarPoints");
@@ -1966,8 +2057,10 @@ namespace GloomhavenVR
             pts.SetVector("_MoonDir", MoonDir);
             pts.SetFloat("_MoonCos", Mathf.Cos(MoonDiscRad * 1.04f));
             Debug.Log($"[GloomhavenVR][Env] Moon: dir={MoonDir:F4} (az {Mathf.Atan2(MoonDir.x, MoonDir.z) * Mathf.Rad2Deg:F1} deg, "
-                      + $"alt {Mathf.Asin(MoonDir.y) * Mathf.Rad2Deg:F1} deg), disc radius {MoonDiscRad * Mathf.Rad2Deg:F2} deg, "
-                      + $"stars culled inside {Mathf.Acos(Mathf.Cos(MoonDiscRad * 1.04f)) * Mathf.Rad2Deg:F2} deg.");
+                      + $"alt {Mathf.Asin(MoonDir.y) * Mathf.Rad2Deg:F1} deg), disc radius {MoonDiscRad * Mathf.Rad2Deg:F2} deg "
+                      + $"(sprite disc R={MoonSpriteDiscR:F3}), stars culled inside "
+                      + $"{Mathf.Acos(Mathf.Cos(MoonDiscRad * 1.04f)) * Mathf.Rad2Deg:F2} deg.");
+            LogMoonPhase();
 
             AssetDatabase.SaveAssets();
         }

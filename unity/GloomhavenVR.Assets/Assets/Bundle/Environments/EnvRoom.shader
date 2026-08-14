@@ -62,11 +62,19 @@ Shader "GloomhavenVR/EnvRoom"
         _ElemFrost ("Element: ice frost susceptibility", Range(0,2)) = 1
         _ElemWarm ("Element: fire rim susceptibility", Range(0,2)) = 1
         _ElemMoss ("Element: earth green susceptibility", Range(0,2)) = 0
+        // SURFACE GROWTH (EnvGrowth.cginc). _ElemScl is this material's object
+        // units expressed in metres, written by ApplyRig beside _ElemCentre, so
+        // a 0.45 m patch of frost is 0.45 m on a prop scaled 2.0 as well as on
+        // the welded floor. Defaults are the identity: scale 1 and the density
+        // both rooms were tuned at.
+        _ElemScl ("Element: object units in metres", Float) = 1
+        _ElemGrowFreq ("Element: growth cells per metre", Float) = 3.0
     }
 
     CGINCLUDE
     #include "UnityCG.cginc"
     #include "EnvElement.cginc"
+    #include "EnvGrowth.cginc"
 
     sampler2D _MainTex; float4 _MainTex_ST;
     sampler2D _BumpMap;
@@ -74,7 +82,7 @@ Shader "GloomhavenVR/EnvRoom"
     fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col, _RimCol;
     float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _RimDir;
     float4 _ElemCentre;
-    float _ElemRad, _ElemFrost, _ElemWarm, _ElemMoss;
+    float _ElemRad, _ElemFrost, _ElemWarm, _ElemMoss, _ElemScl, _ElemGrowFreq;
 
     // PREVIEW-ONLY global clock offset. Never set at runtime (=> 0, the shipped
     // behaviour); EnvironmentsPreview sets it with Shader.SetGlobalFloat so a
@@ -168,6 +176,92 @@ Shader "GloomhavenVR/EnvRoom"
 
         float3 n_ts = UnpackNormal(tex2D(_BumpMap, i.uv));
         n_ts.xy *= _BumpScale;
+
+        // ================================================= SURFACE GROWTH ====
+        // ICE and EARTH, and they are ONE feature: a coverage that advances over
+        // this surface and retreats when the element falls. The mechanism, the
+        // affinity terms and the argument against the ModBuild 142 fade this
+        // replaces are all in EnvGrowth.cginc; what is chosen HERE is only where
+        // frost and moss each START on a wall, a flagstone or a trunk.
+        //
+        // It runs BEFORE the normal is assembled on purpose: a crust fills the
+        // relief it grew into, so the mask also flattens the normal map. That is
+        // the difference between something growing ON the stone and something
+        // painted over a picture of stone, and it costs one multiply.
+        //
+        // Behind the same single uniform compare as everything else, and then
+        // behind one more per element: with only Fire or Light up, neither noise
+        // is sampled at all.
+        GhvrElem e = GhvrElems();
+        float frost = 0.0, moss = 0.0, rr = 0.0;
+        if (e.live > 0.0)
+        {
+            float gt = _Time.y + _GhvrTimeOfs;
+            rr = GhvrRim(length(i.opos.xz - _ElemCentre.xz), _ElemRad, 0.18);
+            // the GEOMETRIC normal, not the mapped one: frost and moss follow
+            // the shape of the wall, and the texture's own bumps come in through
+            // `grain` instead, where they belong.
+            float3 gN = normalize(i.n) * face;
+            float3 gnw = normalize(mul((float3x3)unity_ObjectToWorld, gN));
+            float3 q = GhvrGrowQ(i.opos, _ElemCentre.xyz, _ElemScl, _ElemGrowFreq);
+            float creep = GhvrGrowCreep(q, gt);
+            // the joints, the chips and the fissures — the normal map's own
+            // departure from flat, which is exactly the map of where water sits
+            float grain = saturate((1.0 - n_ts.z) * 2.2);
+            // metres above the room's floor plane (_ElemCentre carries the room
+            // origin in THIS material's object space, so a barrel three metres
+            // out measures from the floor and not from its own pivot)
+            float hgt = (i.opos.y - _ElemCentre.y) * _ElemScl;
+            float foot = saturate(1.0 - hgt * 0.80);                 // gone by 1.25 m
+            float sky = saturate(gnw.y);                             // what the cold sees
+            float shade = 1.0 - saturate(dot(gN, normalize(_DirDir.xyz)) * 0.5 + 0.5);
+
+            // FROST starts where the cold does: on faces that look at the sky,
+            // on the side the moon never reaches, and low down where the cold
+            // air lies. Not primarily at the foot — that is moss's tell, and
+            // giving both the same one is what made ModBuild 142's two elements
+            // read as two colours of one stain.
+            float ice = e.ice * _ElemFrost;
+            if (ice > 0.0)
+            {
+                // The periphery weighting keeps ModBuild 142's job and changes
+                // its units: it is now a COVERAGE FRACTION and not an opacity,
+                // so the same shape needed different numbers. Inside a metre of
+                // the room centre the ramp is 0 and this is 0.15, which puts the
+                // threshold above the top of A — the board's own flagstones are
+                // not dusted at all, at any strength. At the walls it saturates.
+                frost = GhvrGrown(GhvrGrowField(q), grain,
+                                  saturate(0.42 * sky + 0.34 * shade + 0.24 * foot),
+                                  ice * (0.15 + 1.15 * rr), creep);
+            }
+
+            // MOSS starts where the damp is: the foot of the wall above all
+            // (0.52 of the whole affinity), the side that never dries, and the
+            // upward faces that catch what drips. A different noise offset from
+            // the frost's, so the two do not occupy the same patches when Ice
+            // and Earth are up together — moss under frost, not moss AS frost.
+            float ea = e.earth * _ElemMoss;
+            if (ea > 0.0)
+            {
+                // 0.10 in the middle against frost's 0.15, and a steeper ramp:
+                // moss is the slower, meaner grower, so the middle of the room
+                // must stay barer for it than for ice while the walls it starts
+                // from get more. The creep runs the OTHER WAY, so a frontier of
+                // moss and a frontier of frost never breathe in step.
+                moss = GhvrGrown(GhvrGrowField(q + 37.1), grain,
+                                 saturate(0.52 * foot + 0.28 * shade + 0.20 * sky),
+                                 ea * (0.10 + 1.90 * rr), -creep);
+            }
+
+            float lum = GhvrGrowLum(alb.rgb);
+            alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
+            alb.rgb = GhvrMossOn(alb.rgb, lum, moss);
+            // the crust fills what it grew into. Exactly 1.0 where nothing grew,
+            // so a lit-but-ungrown pixel is untouched.
+            n_ts.xy *= 1.0 - 0.62 * frost - 0.30 * moss;
+        }
+        // =====================================================================
+
         float3 N = normalize(i.t * n_ts.x + i.b * n_ts.y + i.n * n_ts.z);
         N *= face; // two-sided foliage: light the visible side
 
@@ -180,16 +274,14 @@ Shader "GloomhavenVR/EnvRoom"
         // their identity values — which is why the zero state is not merely
         // "close to" the tuned room but the same instructions on the same data.
         // See EnvElement.cginc for the contract and for the Light/Dark split.
-        GhvrElem e = GhvrElems();
+        // (`e` and the periphery ramp `rr` are hoisted above, where SURFACE
+        // GROWTH needs them; the mood is read once for the whole shader.)
         float ambGain = 1.0, srcGain = 1.0, dirGain = 1.0, hardMul = 1.0, flickMul = 1.0;
         float3 elemAdd = float3(0, 0, 0);
         float3 rimTint = float3(1, 1, 1);
         if (e.live > 0.0)
         {
             float t = _Time.y + _GhvrTimeOfs;
-            // where this pixel is, as a fraction of the way out to the walls
-            float2 dc = i.opos.xz - _ElemCentre.xz;
-            float rr = GhvrRim(length(dc), _ElemRad, 0.18);
 
             ambGain = GhvrAmbGain(e);
             srcGain = GhvrSrcGain(e);
@@ -202,31 +294,9 @@ Shader "GloomhavenVR/EnvRoom"
             // Air's cellar channel ("the authored draught strengthens").
             flickMul = 1.0 + 1.20 * e.air;
 
-            // ---- ICE: frost blooms on the stone, from the outside in --------
-            // A THRESHOLD, not a fade: frost forms in patches and spreads, so
-            // coverage is thresholded against the surface's own tone (alb.g, one
-            // free channel of a texture already sampled) and against how much of
-            // the sky the surface can see. Upward faces frost first, walls
-            // later, undersides never — which is what a cellar in a cold snap
-            // and a forest floor at dawn actually look like.
-            // REJECTED: a procedural noise field for the patches. It would have
-            // cost a 3D hash per pixel over every opaque surface in the room for
-            // a pattern the albedo already contains.
-            // 0.28 + 0.95*rr, not 0.42 + 0.85: the first bake put 29% coverage on
-            // the flagstones the board stands on, and the board's own floor is
-            // the one surface an element may not repaint. This leaves the middle
-            // of the play space at ~9% and still reaches full coverage at the
-            // walls — the frost creeps in from the outside, which is also what
-            // frost does.
-            float cov = e.ice * _ElemFrost * (0.28 + 0.95 * rr);
-            float frost = saturate(cov * 1.45 - 0.32)
-                        * saturate(nw.y * 0.70 + 0.34)
-                        * saturate(alb.g * 1.7 + 0.12);
-            // keep the surface's own modelling: the frost takes its brightness
-            // from the albedo it sits on, so a dark stone frosts dark.
-            alb.rgb = lerp(alb.rgb, float3(0.70, 0.80, 0.96) * (0.50 + 0.55 * alb.g), frost);
-            // ...and frost is a diffuse white, so it also answers the ambient a
-            // little more strongly than wet stone does.
+            // ---- ICE: the frost is grown above; here is what it does to the
+            // LIGHT. A frost crust is a diffuse white, so it answers the room's
+            // ambient more strongly than the wet stone under it did.
             ambGain += 0.30 * frost;
             // the moon rim goes cold with Ice (the forest's Ice channel)
             rimTint = lerp(float3(1, 1, 1), float3(0.70, 0.88, 1.30), saturate(e.ice));
@@ -243,15 +313,20 @@ Shader "GloomhavenVR/EnvRoom"
                      * (e.fire * _ElemWarm * 0.26 * inward * (0.30 + 0.70 * graze * graze)
                         * GhvrEmberBreath(t, rr * 5.3));
 
-            // ---- EARTH: moss takes, roots take, stone does not --------------
-            // A tint TOWARD green rather than an added green: moss is pigment,
-            // not light, and an additive green over dark bark glows like a
-            // screen. _ElemMoss is 0 on everything the builder does not
-            // explicitly consider growable.
-            float damp = e.earth * _ElemMoss;
-            alb.rgb *= lerp(float3(1, 1, 1), float3(0.74, 1.16, 0.72), saturate(damp));
-            // the damp sheen: a grazing-angle wet gloss, cold and very small.
-            elemAdd += float3(0.05, 0.085, 0.055) * (damp * graze * graze * (0.5 + 0.5 * rr));
+            // ---- EARTH: the moss is grown above; here is only its SHEEN.
+            // A grazing-angle wet gloss, cold and very small, and now weighted
+            // by the coverage rather than by the element — a wall that has not
+            // been grown on is not wet, which is the tell that gave ModBuild
+            // 142's whole-surface green away even where the tint was subtle.
+            //
+            // A THIRD of what it was, and the reason is the coverage weighting
+            // itself: spread over a whole trunk at the element's strength it was
+            // a wash worth 0.085 on a surface lit at 0.05, which was invisible
+            // as a sheen and merely lifted everything a little. Concentrated
+            // into the patches it now lit them like little lamps — the first
+            // render of this round showed the moss on the near trunks reading
+            // PALER than the bark, which is the exact opposite of moss.
+            elemAdd += float3(0.014, 0.026, 0.017) * (moss * graze * graze * (0.5 + 0.5 * rr));
         }
         // =====================================================================
 

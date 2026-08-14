@@ -31,6 +31,11 @@
 //      away from its own shafts would be a far worse lie than a moon that hangs
 //      still. It is drawn LAST here, so it covers band and dust; the catalogue
 //      stars behind it are killed in EnvStarPoints (see _MoonCos there).
+//      ModBuild 143: it is also the only thing in this sky that CHANGES on its
+//      own. Under Dark the Earth's umbra crosses it (30 s, coppery, soft-edged)
+//      and under Light it swells; both are painted from EnvElement.cginc's MOON
+//      PHASE helpers, the same ones GhvrMoonLight() hands the rooms, so the
+//      moon you see and the moonlight you stand in can never disagree.
 //
 // Directions are taken in OBJECT space (normalize of the dome vertex), NOT from
 // the camera-relative world vector: the catalogue stars are real geometry in
@@ -85,6 +90,17 @@ Shader "GloomhavenVR/EnvStars"
         _MoonDir ("Moon direction (object space)", Vector) = (0.6,0.37,0.71,0)
         _MoonCol ("Moon color", Color) = (1,0.98,0.92,1)
         _MoonExtent ("Moon half-extent (tan units)", Range(0.01,0.4)) = 0.115
+        // How much of the sprite is MOON and not halo — MakeMoon's own R, handed
+        // over rather than retyped. The eclipse measures its umbra against the
+        // DISC (EnvElement.cginc works in moon radii), so it is the one number
+        // that turns sprite uv into that unit, and the shader must not guess it.
+        // The default is DELIBERATELY NOT the authored 0.22: a material only
+        // serialises a property it was set to a DIFFERENT value than the
+        // shader's default, so a matching default would have left the builder's
+        // SetFloat a silent no-op and the coupling an illusion — the number
+        // would have been typed twice and agreed by luck. 0.25 is close enough
+        // to be a sane fallback and far enough to make the write real.
+        _MoonDiscR ("Moon disc radius (sprite units)", Range(0.05,0.5)) = 0.25
     }
     SubShader
     {
@@ -108,7 +124,7 @@ Shader "GloomhavenVR/EnvStars"
             fixed4 _TopCol, _HorizonCol, _MoonCol, _HazeCol, _MwWarm, _MwCool;
             float _RotSpeed, _MwGain, _MwThin, _MwThick, _MwBulge, _MwDust;
             float _DustGain, _DustDens, _DustScale, _DustCore;
-            float _Extinct, _HazeAmt, _MoonExtent;
+            float _Extinct, _HazeAmt, _MoonExtent, _MoonDiscR;
             float4 _Pole, _GalX, _GalY, _GalZ, _MoonDir;
 
             struct appdata { float4 vertex : POSITION; };
@@ -299,6 +315,15 @@ Shader "GloomhavenVR/EnvStars"
                 // ICE takes the moon cold — the forest's authored Ice channel is
                 // "a cold cast on the moon term", and the moon in the sky and the
                 // moon rim on the trunks (EnvRoom) must agree about its colour.
+                //
+                // MOON PHASE (EnvElement.cginc). The moon is redrawn here rather
+                // than tinted in place, because under Light it is a DIFFERENT
+                // SIZE: the sprite's extent is scaled, so disc and halo grow
+                // together and the moon stays one object instead of a disc
+                // rattling around inside a fixed glow. Under Dark the Earth's
+                // umbra slides across it. Both are painted from the shared
+                // helpers, so the light this shader shows and the light
+                // GhvrMoonLight() hands the rooms cannot disagree.
                 GhvrElem e = GhvrElems();
                 if (e.live > 0.0)
                 {
@@ -308,16 +333,81 @@ Shader "GloomhavenVR/EnvStars"
                         // re-apply the moon OVER the darkened field: it is drawn
                         // last for exactly this reason, and under Dark it has to
                         // survive at full strength or the split has no anchor.
+                        float mext = _MoonExtent * GhvrMoonSize(e);
                         float3 right2 = normalize(cross(float3(0, 1, 0), md));
                         float3 up2 = cross(md, right2);
                         float3 p2 = u / mt;
-                        float2 muv2 = float2(dot(p2, right2), dot(p2, up2)) / (2.0 * _MoonExtent) + 0.5;
+                        float2 muv2 = float2(dot(p2, right2), dot(p2, up2)) / (2.0 * mext) + 0.5;
                         if (all(muv2 > 0.0) && all(muv2 < 1.0))
                         {
                             fixed4 mc2 = tex2D(_MoonTex, muv2);
-                            float3 mcol = _MoonCol.rgb * GhvrSrcGain(e);
+
+                            // Into the unit the shared helpers speak: q is the
+                            // position on the disc, 1 = the limb. Because muv2
+                            // was built from the SCALED extent, the umbra scales
+                            // with the moon — a swollen moon gets a proportionally
+                            // swollen shadow, so the eclipse looks like the same
+                            // event whatever Light is doing, instead of the swell
+                            // silently making the bite look smaller.
+                            float2 q = (muv2 - 0.5) / _MoonDiscR;
+                            float inDisc = 1.0 - smoothstep(0.94, 1.06, length(q));
+
+                            // THE SWELL IS READ ON THE HALO, NOT ON THE FACE.
+                            // The source gain is 2.1 at full Light and the disc
+                            // is already painted just under white, so applying it
+                            // flat blows the maria out and the moon stops being a
+                            // moon — it becomes a lamp, which is exactly the
+                            // "headlight" the brief warns about, in the sky
+                            // instead of on the ground. The disc takes a third of
+                            // the gain and the halo takes all of it: bigger moon,
+                            // far bigger glow, face still legible. (A real bright
+                            // moon in damp air is read by its glow too.)
+                            float src = GhvrSrcGain(e);
+                            float3 mcol = _MoonCol.rgb * lerp(src, 1.0 + 0.35 * (src - 1.0), inDisc);
                             mcol = lerp(mcol, mcol * float3(0.74, 0.88, 1.22), saturate(e.ice));
-                            col = lerp(col, mc2.rgb * mcol, mc2.a);
+
+                            // ---- THE ECLIPSE ---------------------------------
+                            // `t` is SkyTime(): the SHARED clock, wrapped at
+                            // SKY_PERIOD. That wrap is exactly 96 eclipse
+                            // periods, so this sky and a room shader handing
+                            // GhvrMoonLight() the unwrapped clock stand at the
+                            // same phase — the disc you see and the light you
+                            // stand in are the same instant of the same event.
+                            float2 ec = GhvrEclipseCentre(t);
+                            float dd = length(q - ec);
+                            float umb = (1.0 - smoothstep(GHVR_ECL_UMBRA - GHVR_ECL_EDGE,
+                                                          GHVR_ECL_UMBRA + GHVR_ECL_EDGE, dd)) * e.dark;
+                            // the penumbra: a wide, weak grey wash ahead of the
+                            // umbra. It is what makes the shadow read as ARRIVING
+                            // rather than switching on at first contact.
+                            float pen = (1.0 - smoothstep(GHVR_ECL_UMBRA,
+                                                          GHVR_ECL_UMBRA * 1.8, dd)) * e.dark;
+                            // Danjon: an eclipsed moon is NOT a flat red disc.
+                            // The umbral edge is bright copper and the core is a
+                            // much darker grey-brown, and the gradient between
+                            // them is the whole reason it reads as a shadow with
+                            // depth instead of a coloured filter laid over.
+                            // The numbers are DARK on purpose. The first bake used
+                            // roughly twice these and the covered half read as
+                            // orange PAINT laid over the moon rather than as a
+                            // moon in shadow: an umbral surface has to lose most
+                            // of its luminance, and only then does the colour
+                            // read as the little light that bent around an
+                            // atmosphere to get there.
+                            float core = 1.0 - smoothstep(0.0, GHVR_ECL_UMBRA, dd);
+                            float3 umbCol = lerp(float3(0.46, 0.170, 0.085),
+                                                 float3(0.155, 0.052, 0.040), core);
+                            float3 tint = lerp(float3(1, 1, 1), umbCol, umb);
+                            tint *= 1.0 - 0.18 * pen * (1.0 - umb);
+                            // ...and the HALO is scattered moonlight, so it dies
+                            // with the disc AS A WHOLE — one global coverage term
+                            // outside the limb, not a shadow painted on the glow
+                            // (a halo with a bite out of it is a sprite with a
+                            // hole in it, which is the tell of a fake).
+                            float halo = 1.0 - 0.85 * GhvrEclipseCover(ec) * e.dark;
+                            tint = lerp(float3(halo, halo, halo), tint, inDisc);
+
+                            col = lerp(col, mc2.rgb * mcol * tint, mc2.a);
                         }
                     }
                 }

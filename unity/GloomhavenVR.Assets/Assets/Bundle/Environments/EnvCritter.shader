@@ -12,9 +12,10 @@
 //   * the gait is in the vertices: a dart-and-pause speed profile, a body bob at
 //     stride frequency, a lateral spine wave, four legs on two alternating
 //     phases, and a tail that trails and whips (weights authored in the mesh's
-//     vertex colours: r = tail, g = leg, b = leg phase);
-//   * it emerges from one hole and vanishes into another (a smooth shrink at
-//     both ends), and it is INVISIBLE — collapsed to a point — in between.
+//     vertex colours: r = tail, g = leg, b = leg phase, a = bare skin);
+//   * it walks OUT OF one hole and INTO another, along that hole's own bore, and
+//     spends the rest of the slot parked down the burrow behind the pocket's
+//     cap — hidden by stone, never by a scale term (see THE BURROW below).
 //
 // Script-free: everything above is _Time in the vertex shader. The critter node
 // sits at IDENTITY under RoomGeo and its mesh is authored in rat-local metres,
@@ -58,13 +59,72 @@
 // for the gait, where a last-bit difference is a last-bit difference.
 // The C# builder mirrors H() line for line, so the bake log's route/interval/
 // speed ranges are measurements of this code and not a description of it.
+//
+// ============================================================================
+// MODBUILD 143, USER FINDING: "Wenn sie verschwindet in einem loch geht sie auch
+// nicht durch das Loch sondern wird kleiner und verschwindet dann." Correct, and
+// it was one line: `wp = lerp(P, wp, vis)` collapsed the whole animal onto its
+// own path point over the last 10% of the run, and the header above admitted it
+// ("a smooth shrink at both ends"). ModBuild 140 had meanwhile given the two
+// holes a real bent pocket 13-15 cm deep with a stone ring — and nothing ever
+// went into it.
+//
+// THE BURROW. There is no scale term left anywhere in this file. The animal is
+// at 1:1 at every instant of every slot; it disappears the way an animal
+// disappears, by going somewhere the stone is in the way:
+//   * the run is now [-qb, 1+qb] instead of [0, 1]. Outside [0,1] the curve
+//     parameter is pinned at its endpoint and the animal instead travels down
+//     that hole's BURROW: P += A*b + B*b^2 - up*drop*b^4, b = 0 at the mouth and
+//     1 at the far end. A is the bore (direction x travel), B the pocket's own
+//     sideways crookedness, and the quartic drop is the burrow going down under
+//     the wall footing — it is 4 mm at the pocket's cap and 45 cm at the end,
+//     i.e. it does nothing at all to what you can see.
+//   * b is held at 1 for the whole of the wait, and for a quiet slot. The rat is
+//     not "not drawn" between crossings: it is standing in the burrow, past the
+//     cap of a blind pocket, and the C# gate proves the travel is long enough to
+//     put its TAIL TIP past that cap (RatBurrowClear).
+//   * the heading turns from the curve's tangent onto the bore over the last
+//     14% of the run and the first third of the burrow, so it lines up with the
+//     hole and slips in rather than sliding into the wall sideways. The bore is
+//     itself derived from the route's own tangent at that endpoint (RatBore),
+//     which is why the residual is small enough to blend away.
+//   * every vertex knows its own depth INTO the pocket (v2f.uv.y), and the
+//     fragment darkens it toward the pocket's own values. So the head goes dark
+//     while the hips are still lit: the animal is swallowed by the hole rather
+//     than faded out as a whole. That darkening is cosmetic — pull it out and
+//     the animal still vanishes, because the stone is what hides it.
+//
+// THE COAT, same round, same report: "Die Maus sieht aus hätte sie keine
+// Textur." It had none: the fragment was `lerp(_BellyTint, _Tint, uv.x)` between
+// two near-identical greys, and in the moonbeam that is a white blob. There is
+// no albedo map here and there could not easily be one (the mesh is nine
+// interpenetrating tubes with a per-part uv, not an unwrapped body), so the coat
+// is procedural and painted in the animal's OWN AUTHORED SPACE — v.vertex/
+// v.normal, before the gait moves anything — which is what stops the fur from
+// swimming through the skin as the body waves. See "the coat" in frag().
 // ============================================================================
 Shader "GloomhavenVR/EnvCritter"
 {
     Properties
     {
-        _Tint ("Fur colour", Color) = (0.20,0.17,0.15,1)
-        _BellyTint ("Belly colour", Color) = (0.30,0.26,0.24,1)
+        // ---- THE COAT. Three pigments and a skin, not one flat tint --------
+        // RAT SKIN, ModBuild 143. A rat is not one colour: the back is a dark
+        // umber, the flank two stops up from it, the belly pale and warm, and
+        // the tail, feet, ears and nose are not fur at all. The ramp between
+        // them rides the mesh's own authored normal (uv.x = 0.5+0.5*n.y out of
+        // AddTube), and the bare parts ride the vertex colour's ALPHA, which was
+        // 1 everywhere and unread until this round.
+        _Tint ("Coat — flank", Color) = (0.31,0.265,0.235,1)
+        _BackTint ("Coat — back/dorsal", Color) = (0.165,0.140,0.124,1)
+        _BellyTint ("Coat — belly", Color) = (0.55,0.49,0.44,1)
+        _SkinTint ("Bare skin — tail, feet, ears, nose", Color) = (0.44,0.32,0.30,1)
+        // Fur is value noise in the animal's own space. x/y are the contrast of
+        // the fine strands and of the coarse mottle; z/w the ring frequency and
+        // depth of the tail's scales.
+        _Fur ("strand contrast, mottle contrast, tail rings, ring depth", Vector) = (0.30,0.20,26,0.16)
+        // Cell sizes, 1/m: fine (across the body, along it), coarse (ditto). The
+        // across/along asymmetry is what makes strands instead of speckle.
+        _FurCell ("fine across, fine along, coarse across, coarse along", Vector) = (215,48,62,19)
 
         _W0 ("Path P0 (room space)", Vector) = (0,0,0,0)
         _W1 ("Path P1", Vector) = (0,0,1,0)
@@ -88,6 +148,20 @@ Shader "GloomhavenVR/EnvCritter"
         _Peak ("turn-back apex: lo, span (0..1 of the curve)", Vector) = (0.35,0.40,0,0)
         _Wob1 ("P1 wander: ampX, ampZ, biasX, biasZ (m)", Vector) = (0.50,0.80,-0.46,0)
         _Wob2 ("P2 wander: ampX, ampZ, biasX, biasZ (m)", Vector) = (0.12,0.32,-0.12,0.28)
+
+        // ---- THE BURROW behind each mouth (see the MODBUILD 143 block) ------
+        // Hole 0 is the one at _W0, hole 1 the one at _W3, and both of these are
+        // MEASURED off the pocket AddRatHole really built — its bore, its depth,
+        // its sideways crookedness and the gap between the route's endpoint and
+        // the wall plane. Typing them here instead would be typing a second copy
+        // of a hole that already exists.
+        _Hole0A ("Hole 0 burrow: xyz = bore * travel (m), w = drop at travel 1", Vector) = (0,0,0.53,0.45)
+        _Hole0B ("Hole 0 burrow: xyz = sideways bend at travel 1, w = mouth gap (m)", Vector) = (0,0,0,0.08)
+        _Hole1A ("Hole 1 burrow: xyz = bore * travel (m), w = drop at travel 1", Vector) = (0,0,-0.53,0.45)
+        _Hole1B ("Hole 1 burrow: xyz = sideways bend at travel 1, w = mouth gap (m)", Vector) = (0,0,0,0.06)
+        _BurTime ("Seconds one burrow travel takes", Float) = 0.45
+        _BurStride ("Strides walked over one burrow travel", Float) = 1.3
+        _PocketD ("Depth the pocket goes dark over (m)", Float) = 0.14
 
         // ---- HAUNT: the stare -------------------------------------------------
         // The cheapest creepy easter egg in the whole feature, and one of the
@@ -160,11 +234,13 @@ Shader "GloomhavenVR/EnvCritter"
             // master switch) and GhvrHauntAt (is this haunt slot quiet?).
             #include "EnvHaunt.cginc"
 
-            fixed4 _Tint, _BellyTint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col, _ShaftCol;
+            fixed4 _Tint, _BackTint, _BellyTint, _SkinTint;
+            fixed4 _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col, _ShaftCol;
             float4 _W0, _W1, _W2, _W3, _DirDir, _L0Pos, _L1Pos, _L2Pos, _ShaftP, _ShaftD;
-            float4 _Timing, _Modes, _Peak, _Wob1, _Wob2;
+            float4 _Timing, _Modes, _Peak, _Wob1, _Wob2, _Fur, _FurCell;
+            float4 _Hole0A, _Hole0B, _Hole1A, _Hole1B;
             float _Period, _RunTime, _Phase, _Dart, _Stride, _Scale, _PtHard, _ShaftR, _Skip;
-            float _Stare, _HauntPeriod, _HauntCards;
+            float _Stare, _HauntPeriod, _HauntCards, _BurTime, _BurStride, _PocketD;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             #define GHVR_PI   3.14159265
@@ -174,15 +250,19 @@ Shader "GloomhavenVR/EnvCritter"
             {
                 float4 vertex : POSITION;
                 float3 normal : NORMAL;
-                float2 uv     : TEXCOORD0;   // x = belly..back blend
-                fixed4 color  : COLOR;       // r tail weight, g leg weight, b leg phase
+                float2 uv     : TEXCOORD0;   // x = belly..back blend, y = along the part
+                fixed4 color  : COLOR;       // r tail, g leg, b leg phase, a bare skin
             };
             struct v2f
             {
                 float4 pos  : SV_POSITION;
                 float3 opos : TEXCOORD0;     // ROOM space (see header)
                 float3 n    : TEXCOORD1;
-                float2 uv   : TEXCOORD2;
+                // x belly..back, y depth INTO the pocket (m, negative = out in the
+                // room), z bare-skin weight, w along the part (0 = rump/base)
+                float4 uv   : TEXCOORD2;
+                float3 alp  : TEXCOORD3;     // AUTHORED rat-local position — the coat is painted here
+                float3 aln  : TEXCOORD4;     // AUTHORED rat-local normal
             };
 
             // The route of ONE crossing: the authored curve with its two middle
@@ -216,6 +296,42 @@ Shader "GloomhavenVR/EnvCritter"
                 x = frac(x * (x + 31.70));
                 x = frac(x * (x + 17.31));
                 return frac(x * (x + 43.19));
+            }
+
+            // How the animal moves down a burrow: fast at the mouth, easing off
+            // as it goes. x = 0 at the mouth, 1 at the far end, and this is
+            // strictly increasing (d/dx = 1.35 - 0.7x > 0), which matters —
+            // the legs are driven off distance covered, and a parameter that
+            // went backwards for a frame would moonwalk the animal into the
+            // stone. It also very nearly matches the speed the run arrives at,
+            // so there is no visible step in pace at the mouth.
+            float BurEase (float x) { return x * (1.35 - 0.35 * x); }
+
+            // ---- the coat's noise (see "the coat" in frag) ---------------------
+            // NOT the schedule's H(). H() is a schedule hash: it must produce the
+            // same bits on every GPU because two clients disagreeing about it
+            // would show two different animals. This one paints fur, where a
+            // last-bit disagreement is a last-bit disagreement — so it is free to
+            // be the cheaper, better-distributed integer-lattice hash. It is
+            // still sin()-free, because there is no reason for it not to be.
+            float Hf3 (float3 p)
+            {
+                float3 q = frac(p * 0.3183099 + float3(0.11, 0.27, 0.53));
+                q += dot(q, q.yzx + 33.33);
+                return frac((q.x + q.y) * q.z);
+            }
+            // Trilinear value noise. Smoothstep on the cell fraction, so the
+            // strands have soft ends instead of the lattice's own diamonds.
+            float VN (float3 p)
+            {
+                float3 i = floor(p), f = frac(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float2 dx = float2(1, 0);
+                float a = lerp(Hf3(i),               Hf3(i + dx.xyy), f.x);
+                float b = lerp(Hf3(i + dx.yxy),      Hf3(i + dx.xxy), f.x);
+                float c = lerp(Hf3(i + dx.yyx),      Hf3(i + dx.xyx), f.x);
+                float d = lerp(Hf3(i + dx.yxx),      Hf3(i + dx.xxx), f.x);
+                return lerp(lerp(a, b, f.y), lerp(c, d, f.y), f.z);
             }
 
             float Flicker (float amt, float phase, float rate)
@@ -279,10 +395,45 @@ Shader "GloomhavenVR/EnvCritter"
                 float start = per * (_Timing.x + _Timing.y * hStart);
                 float q = (sIn - start) / runT;         // run progress, 0..1
 
-                // in the hole before, in a hole after, and identically zero for
-                // the whole of the wait (both smoothsteps clamp outside 0..1)
-                float vis = live * smoothstep(0.0, 0.07, q) * smoothstep(1.0, 0.90, q);
                 float qc = saturate(q);
+
+                // ------------------------------------------------- IN THE BURROW
+                // qb is the entry, measured in q: the burrow takes _BurTime
+                // seconds whatever the run's own pace. Clamped at 0.40 so the two
+                // ends can never meet in the middle of a very short crossing —
+                // the fastest turn-back in the schedule runs 2.3 s, which puts qb
+                // at 0.20, but a future tuning pass must not be able to make the
+                // animal emerge and re-enter at the same instant.
+                float qb = clamp(_BurTime / runT, 0.02, 0.40);
+                float bIn  = BurEase(saturate(-q / qb));         // 1 parked, 0 at the mouth
+                float bOut = BurEase(saturate((q - 1.0) / qb));  // 0 at the mouth, 1 parked
+                float endSide = step(0.5, q);                    // which end of the run we are at
+                // ...and for the whole of the wait, and for a quiet slot, the
+                // animal is PARKED at b = 1: down the burrow, behind the pocket's
+                // cap. That is where "invisible between crossings" comes from
+                // now — stone, not a collapsed vertex.
+                float bur = max(lerp(bIn, bOut, endSide), 1.0 - live);
+
+                // which mouth this end of the run uses. A straight crossing comes
+                // out of `rev` and goes into the other one; a turn-back goes back
+                // into the one it came from, which is the whole point of it.
+                float holeIn  = rev;
+                float holeOut = lerp(1.0 - rev, rev, turn);
+                float hole = lerp(holeIn, holeOut, endSide);
+                float4 hA = lerp(_Hole0A, _Hole1A, hole);
+                float4 hB = lerp(_Hole0B, _Hole1B, hole);
+                float3 hEnd = lerp(_W0.xyz, _W3.xyz, hole);
+                float b2 = bur * bur;
+                // bore, then the pocket's own sideways crookedness, then the
+                // burrow going down under the footing. The drop is b^6 and not
+                // b^2 for one reason, and the C# gate enforces it: it has to be
+                // millimetres over the whole stretch the animal can still be SEEN
+                // on (2 mm at the pocket's cap) and tens of centimetres at the
+                // far end, where it is what puts the parked animal under the
+                // wall's footing instead of in mid-air behind it.
+                float3 burP = hA.xyz * bur + hB.xyz * b2 - float3(0, 1, 0) * (hA.w * b2 * b2 * b2);
+                float3 burD = hA.xyz + 2.0 * hB.xyz * bur;   // tangent, pointing INTO the wall
+                float3 boreN = normalize(hA.xyz);
 
                 // dart and pause. sin(4*pi*q) instead of the old sin(13*q): it
                 // vanishes at BOTH ends, so the warp cannot push the rat past its
@@ -327,7 +478,7 @@ Shader "GloomhavenVR/EnvCritter"
                 float trv   = lerp(p, (p < 0.5 ? sh : 2.0 - sh), turn);
                 float u     = rev + (1.0 - 2.0 * rev) * peak * shape;
 
-                float3 P = Bez(u, d1, d2);
+                float3 P = Bez(u, d1, d2) + burP;
                 float3 T = BezD(u, d1, d2);
                 T.y = 0.0;
                 // Heading as an ANGLE, not as a signed tangent: a reversed run
@@ -339,11 +490,40 @@ Shader "GloomhavenVR/EnvCritter"
                 float2 t2 = normalize(T.xz + float2(1e-5, 0));
                 float ang = atan2(t2.x, t2.y)
                           + GHVR_PI * (rev + turn * smoothstep(0.42, 0.58, p));
+
+                // ...and at the ends, that heading turns onto the hole's BORE. An
+                // animal aims at its hole: without this the rat arrives at the
+                // south mouth on the curve's own tangent, which is 60 degrees off
+                // the wall's normal, and slides into the stone sideways. The bore
+                // itself is derived from this same tangent (RatBore, clamped to
+                // 34 degrees of lean), so the residual here is ~22 degrees at the
+                // south hole and nothing at the north one.
+                //
+                // The alignment starts BEFORE the mouth — 45% of it over the last
+                // 14% of the run — because that is when a rat lines itself up,
+                // and because a turn that only began at the mouth would be a
+                // snap. As an ANGLE with the difference wrapped to [-pi,pi], for
+                // the same reason the heading itself is an angle: a lerp of two
+                // direction vectors takes the short way through zero length.
+                float3 hd = burD * (endSide * 2.0 - 1.0);   // out of the hole, or into it
+                float angB = atan2(hd.x, hd.z);
+                float dB = angB - ang;
+                dB = dB - GHVR_2PI * floor(dB / GHVR_2PI + 0.5);
+                ang += dB * max(smoothstep(0.0, 0.38, bur), 0.45 * smoothstep(0.86, 1.0, qc));
+
                 float3 fwd = float3(sin(ang), 0, cos(ang));
                 float3 up = float3(0, 1, 0);
                 float3 right = normalize(cross(up, fwd));
 
-                float stride = trv * peak * _Stride * GHVR_2PI;
+                // The gait rides DISTANCE COVERED, and the two burrows are part of
+                // the distance — an animal that froze its legs the moment its nose
+                // entered the hole would be a bug you cannot unsee. Written as
+                // (1 - bIn) + surface + bOut rather than as a branch because that
+                // sum is monotone across both handovers: bIn is identically 0 for
+                // everything past the middle of the run and bOut identically 0 for
+                // everything before it.
+                float stride = ((1.0 - bIn) * _BurStride + trv * peak * _Stride
+                                + bOut * _BurStride) * GHVR_2PI;
                 float tailW = v.color.r, legW = v.color.g, legPh = v.color.b;
                 // How much of the animal is "head": 0 at the shoulders, 1 at the
                 // muzzle. Read off the authored z rather than a fifth vertex
@@ -400,9 +580,15 @@ Shader "GloomhavenVR/EnvCritter"
                 float3 wp = P + right * lp.x + up * lp.y + fwd * lp.z;
                 // body bob at stride frequency — a scurrying rat is never level
                 wp.y += 0.009 * abs(sin(stride * 0.5));
-                // vanish into the hole: shrink onto the path point, not onto the
-                // world origin, so it never streaks across the room
-                wp = lerp(P, wp, vis);
+
+                // THIS VERTEX's own depth into the pocket, in metres: negative out
+                // in the room, 0 at the wall plane, positive down the hole. Per
+                // VERTEX and not per animal, which is the whole point — the head
+                // is in the dark while the hips are still in the candlelight, and
+                // that gradient is what "being swallowed" looks like. hB.w is the
+                // gap between the route's endpoint and the wall plane, measured
+                // along the bore by the builder.
+                float pd = dot(wp - hEnd, boreN) - hB.w;
 
                 // The head's normals turn with the head. Skipping this would leave
                 // the one part of the animal the player is looking at during a
@@ -416,18 +602,74 @@ Shader "GloomhavenVR/EnvCritter"
                 o.pos = UnityObjectToClipPos(float4(wp, 1.0));
                 o.opos = wp;
                 o.n = nw;
-                o.uv = float2(v.uv.x, vis);
+                o.uv = float4(v.uv.x, pd, v.color.a, v.uv.y);
+                // The coat is painted in the AUTHORED pose, not the animated one:
+                // pass the vertex as it was written, before _Scale, before the
+                // spine wave and before the legs move. Paint it in `wp` instead
+                // and the fur swims over the skin every time the body flexes.
+                o.alp = v.vertex.xyz;
+                o.aln = v.normal;
                 return o;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
-                // vis == 0 => the whole animal has collapsed to a point; clip it
-                // so no degenerate sliver can flash on the floor
-                clip(i.uv.y - 0.004);
-
+                // No clip() and no early out. There is nothing left to hide: the
+                // animal is always at full size, and when it is not on the floor
+                // it is down the burrow with 12-15 cm of pocket, a stone cap and
+                // 30 cm of wall between it and the room. (The cost of that
+                // is one always-drawn 364-triangle object whose fragments are
+                // rejected by early-Z, against the old always-drawn 364-triangle
+                // object collapsed onto a point. It is the same object.)
                 float3 N = normalize(i.n);
-                fixed4 alb = lerp(_BellyTint, _Tint, saturate(i.uv.x));
+
+                // ------------------------------------------------------ THE COAT
+                // RAT SKIN, ModBuild 143 — "sieht aus hätte sie keine Textur".
+                // Four things, in the order they matter at 2-3 m in a candle-lit
+                // cellar:
+                //  1. PIGMENT. Back, flank, belly. The ramp rides uv.x, which
+                //     AddTube writes as 0.5 + 0.5*sin(ring angle) — i.e. exactly
+                //     the dorsal-ventral coordinate, and it is defined on the end
+                //     caps too, which a normal-based blend is not.
+                //  2. FUR. Two octaves of value noise in the animal's own
+                //     authored space, with cells four times longer along the body
+                //     than across it: that anisotropy is the difference between
+                //     strands and speckle. Multiplicative, so it survives being
+                //     lit by a candle at one end of the room and the moon at the
+                //     other.
+                //  3. THE BARE PARTS. Tail, feet, ears and nose are not fur, and
+                //     a tail the same value as the body is the single clearest
+                //     tell that a model is untextured. Authored per vertex in the
+                //     colour ALPHA (RatMesh), which was constant 1 and unread.
+                //  4. CONTACT. The underside is not merely paler pigment, it is
+                //     also in its own shadow — belly, inner legs and feet. Two
+                //     terms, because pigment and occlusion are different facts:
+                //     a pale belly that is not darkened reads as a lamp.
+                float3 alp = i.alp;
+                float3 aln = normalize(i.aln);
+                float skin = saturate(i.uv.z);
+
+                float dv = saturate(i.uv.x);
+                float3 coat = lerp(_BellyTint.rgb, _Tint.rgb, smoothstep(0.10, 0.66, dv));
+                coat = lerp(coat, _BackTint.rgb, smoothstep(0.62, 0.99, dv));
+
+                float fine   = VN(alp * float3(_FurCell.x, _FurCell.x, _FurCell.y));
+                float coarse = VN(alp * float3(_FurCell.z, _FurCell.z, _FurCell.w) + 11.3);
+                float fur = (fine - 0.5) * _Fur.x + (coarse - 0.5) * _Fur.y;
+                coat *= 1.0 + fur * (1.0 - skin);
+
+                // the scaly tail (and, harmlessly, four 5 mm feet): rings along
+                // the part's own length coordinate, which AddTube already writes
+                float ring = abs(frac(i.uv.w * _Fur.z) * 2.0 - 1.0);
+                coat = lerp(coat, _SkinTint.rgb * (1.0 - _Fur.w * 0.5 + _Fur.w * ring), skin);
+
+                // ...and the shadow the animal casts on itself. saturate(-aln.y)
+                // is how far the surface faces the floor; the height term stops
+                // it darkening the back of a rolled-over tail.
+                float ao = 1.0 - 0.42 * saturate(-aln.y)
+                                     * saturate(1.0 - (alp.y - 0.010) / 0.060);
+                fixed4 alb = fixed4(coat * ao, 1.0);
+
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
                 float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5);
                 light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz)));
@@ -441,6 +683,21 @@ Shader "GloomhavenVR/EnvCritter"
                 float3 perp = rel - bd * dot(rel, bd);
                 float k = exp(-dot(perp, perp) / max(_ShaftR * _ShaftR, 1e-4));
                 light += _ShaftCol.rgb * (k * saturate(dot(N, -bd) * 0.65 + 0.35));
+
+                // ...and inside the pocket, nothing lights anything. uv.y is this
+                // vertex's own depth into the hole (see the vertex shader), so the
+                // gradient runs across the animal and not over it: the head is
+                // already in the dark while the hips are still lit. It follows the
+                // recess's own vertex colours, which go 0.24 at the mouth to 0.07
+                // at the cap, because the animal and the stone it is standing in
+                // have to be lit by the same nothing.
+                //
+                // This is NOT what makes it disappear. Delete the line and the rat
+                // still goes away on time — it is behind a stone cap by then, and
+                // the bake log measures exactly when. It is here so the last
+                // second before that reads as darkness swallowing an animal
+                // rather than as an animal driving into a wall.
+                light *= lerp(1.0, 0.07, smoothstep(-0.015, _PocketD, i.uv.y));
 
                 return fixed4(alb.rgb * light, 1.0);
             }

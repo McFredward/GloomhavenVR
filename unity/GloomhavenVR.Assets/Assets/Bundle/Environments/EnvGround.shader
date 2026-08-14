@@ -62,6 +62,21 @@ Shader "GloomhavenVR/EnvGround"
         // block at CsFol below. "black" is "no crowns".
         _CsFol ("Canopy mass (R,G = near/far depth, B,A = their coverage)", 2D) = "black" {}
         _CsFolP ("Crown reach, 1/release, 1/onset (encoded depth), strength", Vector) = (0,0,0,0)
+
+        // ---- ELEMENT ART / SURFACE GROWTH (EnvElement.cginc, EnvGrowth.cginc) ----
+        // KNOWN GAP OF ModBuild 142, paid here. Earth and Ice reached the forest's
+        // rocks, roots and deadfall (EnvRoom materials) and stopped dead at the
+        // FLOOR, because this shader belonged to another lane that round — so the
+        // user's "auch im Wald ... der Boden mit Moos bzw. Gras bewachsen" had
+        // nowhere to land. The frame comes from the same ApplyRig write every
+        // other lit material gets; the defaults are harmless and the feature is
+        // off until the master is up.
+        _ElemCentre ("Element: room centre (OBJECT space)", Vector) = (0,0,0,0)
+        _ElemRad ("Element: room outer radius (object units)", Float) = 6
+        _ElemScl ("Element: object units in metres", Float) = 1
+        _ElemFrost ("Element: ice frost susceptibility", Range(0,2)) = 0
+        _ElemMoss ("Element: earth moss susceptibility", Range(0,2)) = 0
+        _ElemGrowFreq ("Element: growth cells per metre", Float) = 3.0
     }
     SubShader
     {
@@ -73,6 +88,11 @@ Shader "GloomhavenVR/EnvGround"
             #pragma fragment frag
             #pragma target 3.0        // four albedo/normal reads plus seven shadow taps
             #include "UnityCG.cginc"
+            #include "EnvElement.cginc"
+            #include "EnvGrowth.cginc"
+
+            float4 _ElemCentre;
+            float _ElemRad, _ElemScl, _ElemFrost, _ElemMoss, _ElemGrowFreq;
 
             sampler2D _MainTex; float4 _MainTex_ST;
             sampler2D _BumpMap;
@@ -295,10 +315,67 @@ Shader "GloomhavenVR/EnvGround"
                 float3 n_ts = lerp(UnpackNormal(tex2D(_BumpMap, i.uv)),
                                    UnpackNormal(tex2D(_BumpMap2, i.uv2)), blend);
                 n_ts.xy *= _BumpScale;
+
+                // The moon's visibility at this fragment, hoisted out of the
+                // light sum below because SURFACE GROWTH asks it a question the
+                // lighting does not: how much SKY does this patch of floor have
+                // over it. Same call, same value, same place in the product.
+                float vis = CsVisible(CsCoord(i.opos));
+
+                // ============================================ SURFACE GROWTH ==
+                // The forest floor's own answer to "Frost auf dem Boden" and
+                // "der Boden mit Moos bzw. Gras bewachsen". The mechanism is
+                // EnvGrowth.cginc's; what this floor knows that a wall does not
+                // is WHERE ITS WATER IS — vcol.a is the heightfield generator's
+                // mud/litter blend, painted wet-hollows-first, so `blend` IS the
+                // damp map and moss can simply be told to follow it.
+                GhvrElem e = GhvrElems();
+                float frost = 0.0, moss = 0.0;
+                if (e.live > 0.0)
+                {
+                    float gt = _Time.y + _GhvrTimeOfs;
+                    float rr = GhvrRim(length(i.opos.xz - _ElemCentre.xz), _ElemRad, 0.18);
+                    float3 q = GhvrGrowQ(i.opos, _ElemCentre.xyz, _ElemScl, _ElemGrowFreq);
+                    float creep = GhvrGrowCreep(q, gt);
+                    float grain = saturate((1.0 - n_ts.z) * 2.2);
+
+                    // FROST: the clearing frosts and the wood under the canopy
+                    // does not, which is a real thing about cold nights and is
+                    // free here — `vis` is the canopy shadow the trees already
+                    // cast. Then the dry leaf litter takes it before the mud.
+                    float ice = e.ice * _ElemFrost;
+                    if (ice > 0.0)
+                    {
+                        frost = GhvrGrown(GhvrGrowField(q), grain,
+                                          saturate(0.50 * vis + 0.30 * (1.0 - blend) + 0.20 * rr),
+                                          ice * (0.34 + 1.05 * rr), creep);
+                    }
+                    // MOSS: the wet hollows first (0.55 of the affinity is the
+                    // mud blend), then the shaded ground under the crowns, then
+                    // outward. The board sits on the lit middle of the clearing,
+                    // which is the driest and most open ground there is, so this
+                    // ordering keeps it clear for a second reason beyond `rr`.
+                    float ea = e.earth * _ElemMoss;
+                    if (ea > 0.0)
+                    {
+                        moss = GhvrGrown(GhvrGrowField(q + 37.1), grain,
+                                         saturate(0.55 * blend + 0.25 * (1.0 - vis) + 0.20 * rr),
+                                         ea * (0.16 + 1.60 * rr), -creep);
+                    }
+                    float lum = GhvrGrowLum(alb.rgb);
+                    alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
+                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss);
+                    n_ts.xy *= 1.0 - 0.62 * frost - 0.30 * moss;
+                }
+                // =============================================================
+
                 float3 N = normalize(i.t * n_ts.x + i.b * n_ts.y + i.n * n_ts.z);
 
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
-                float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5);
+                // frost answers the ambient more strongly than wet leaf litter,
+                // exactly as it does on EnvRoom's stone. Exactly 1.0 with no ice.
+                float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5)
+                               * (1.0 + 0.30 * frost);
                 // USER FINDING, ModBuild 137 (hardware): "... ich würde hier
                 // gerne das die Bäume entsprechende Schatten werfen." Half of
                 // "the trees cast shadows" is the trunk shadows lying across the
@@ -306,7 +383,7 @@ Shader "GloomhavenVR/EnvGround"
                 // term. It can only subtract — see the _CsMap block in the
                 // Properties for why nothing here can get brighter.
                 light += _DirCol.rgb * (_DirScale * saturate(dot(N, normalize(_DirDir.xyz)))
-                                        * CsVisible(CsCoord(i.opos)));
+                                        * vis);
                 light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00);
                 light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83);
                 light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19);
