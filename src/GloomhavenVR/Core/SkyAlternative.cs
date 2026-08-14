@@ -838,6 +838,9 @@ internal static class SkyAlternative
         }
 
         HideGameSphere();
+        // THE ROOM'S KIND, before anything that reads it. One float compare per frame once settled;
+        // see GhvrIndoorId for why the two rooms have to be distinguishable at all.
+        ApplyIndoor(style);
         EnsureEnvironment(style, anchor);
         TickEnvClock(); // the shared-clock walk — one float compare once settled (EnvClockSeconds)
 
@@ -1825,6 +1828,53 @@ internal static class SkyAlternative
     private static bool _timeOfsWritten;   // the uniform has been written at least once
     private static readonly int GhvrTimeOfsId = Shader.PropertyToID("_GhvrTimeOfs");
 
+    /// <summary>
+    /// THE ROOM'S KIND, as a shader global: <c>1</c> while the CELLAR stands, <c>0</c> while the
+    /// forest does, <c>0</c> while no environment stands at all.
+    ///
+    /// <para>WHY IT EXISTS (user report, ModBuild 146): "Der 'Hell'-Effekt im Keller ... es soll
+    /// wirklich den Mondschein heller machen statt den ganzen Raum." The element gains in
+    /// <c>EnvElement.cginc</c> are shared by both rooms, and the two rooms want OPPOSITE things
+    /// from Light — the forest clearing is supposed to brighten (his own ruling one round earlier:
+    /// "Licht und Dunkelheit beeinflussen zwar den Mond aber nicht die Lichtverhältnisse in der
+    /// Lichtung"), while the cellar is supposed to keep its darkness and put the whole gain into
+    /// the moonlight coming through the window. Without a way to tell the two apart, one of those
+    /// two rulings has to lose.</para>
+    ///
+    /// <para>WHY A GLOBAL AND NOT A MATERIAL FLOAT. A per-material property would have to be
+    /// declared in nine shaders and written in <c>ApplyRig</c>, which means a re-bake and a
+    /// regenerated prefab for what is a single constant per room — and it would put the change on
+    /// the one file (<c>BuildEnvironmentRooms.cs</c>) that every other lane this round also has to
+    /// touch. A global costs one <c>SetGlobalFloat</c> when the style changes and nothing at all
+    /// per frame, and it follows the established pattern of <c>_GhvrTimeOfs</c>, <c>_GhvrElemA/B</c>
+    /// and <c>_GhvrHaunt</c>: the environment publishes NUMBERS, the shaders decide what to do with
+    /// them.</para>
+    ///
+    /// <para>It is presentation only and NEVER goes on the wire — every client derives it from its
+    /// own style dial, exactly as it derives which room to instantiate.</para>
+    /// </summary>
+    private static readonly int GhvrIndoorId = Shader.PropertyToID("_GhvrIndoor");
+
+    /// <summary>Last value pushed to <see cref="GhvrIndoorId"/>, so the write is one float compare
+    /// per frame in the settled case. NaN forces the first write.</summary>
+    private static float _indoorWritten = float.NaN;
+
+    /// <summary>Publish <see cref="GhvrIndoorId"/> for the style now standing. Called from the
+    /// active branch of <see cref="Tick"/> and from the teardown paths.</summary>
+    private static void ApplyIndoor(SkyStyle style)
+    {
+        float v = style == SkyStyle.Cellar ? 1f : 0f;
+        if (v == _indoorWritten)
+            return;
+        _indoorWritten = v;
+        Shader.SetGlobalFloat(GhvrIndoorId, v);
+        VRLog.Info("Core", $"ENV ROOM KIND: _GhvrIndoor = {v:F0} ({(v > 0f ? "CELLAR — indoors" : "not indoors")}). " +
+                           "The element gains read it to tell the two rooms apart: the cellar keeps its " +
+                           "darkness and spends Light on the moonbeam through the window, the forest " +
+                           "clearing brightens. Presentation only — never on the wire; every client " +
+                           "derives it from its own style dial.");
+    }
+
     /// <summary>Above this error the correction is a JUMP, not a walk: at that size the two clocks
     /// were never the same clock (a fresh adoption, a re-election, a scene reload that reset
     /// <c>_Time.y</c>), and walking there would take minutes of visibly wrong phase.</summary>
@@ -2012,6 +2062,8 @@ internal static class SkyAlternative
         _nextHealLogTime = 0f;
         ResetRoomState();
         ResetEnvClock(); // no environment ⇒ no shared clock; the global goes back to the shipped 0
+        ApplyIndoor(SkyStyle.Default); // ...and no room ⇒ not indoors, or a torn-down cellar would
+                                       // leave every shader in the game believing it still stands
         _active = false;
         _loggedActive = false;
     }

@@ -87,6 +87,34 @@
 float4 _GhvrElemA;
 float4 _GhvrElemB;
 
+// WHICH ROOM IS STANDING: 1 in the CELLAR, 0 in the forest, 0 when nothing
+// stands. A global, written by Core/SkyAlternative.ApplyIndoor whenever the
+// style changes, for the same reason and by the same rules as the two lines
+// above — see that method for the full argument.
+//
+// WHY THE ROOMS HAVE TO BE TELLABLE APART AT ALL. The gains below are shared by
+// both rooms, and the user has ruled OPPOSITE things for the two of them. The
+// forest clearing is supposed to brighten under Light ("Licht und Dunkelheit
+// beeinflussen zwar den Mond aber nicht die Lichtverhältnisse in der Lichtung",
+// ModBuild 144). The cellar is not ("Der 'Hell'-Effekt im Keller ... es soll
+// wirklich den Mondschein heller machen statt den ganzen Raum", ModBuild 146):
+// indoors, Light must go into the moonlight coming through the window and leave
+// the room's own darkness — and its candles, which he ruled untouchable a round
+// earlier — exactly where they are. Without this float one of those two rulings
+// has to lose.
+//
+// It is a PRESENTATION constant, never a wire value: every client derives it
+// from its own style dial, exactly as it derives which room to instantiate.
+float _GhvrIndoor;
+
+/// 1 indoors (the cellar), 0 outdoors (the forest) — and 0 when no environment
+/// stands, so a shader that is somehow still resident falls back to the outdoor
+/// behaviour, which is the one that matches the game's own lighting.
+float GhvrIndoor ()
+{
+    return saturate(_GhvrIndoor);
+}
+
 /// The mood, already folded with ElementMood's master. Nothing downstream ever
 /// has to remember to multiply, and nothing has to test whether the channel is
 /// live: when the feature is off every field is 0 and every use is a no-op.
