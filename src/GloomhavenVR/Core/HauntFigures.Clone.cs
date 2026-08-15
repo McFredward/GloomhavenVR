@@ -354,8 +354,39 @@ internal static partial class HauntFigures
         /// <c>_Color</c> and both multiplied the albedo, writing both would square the darkening and
         /// a figure meant to sit at a fiftieth of its albedo would sit at a two-thousandth — black, in a
         /// black room, i.e. an event that never happened.</para>
+        ///
+        /// <para><b>ModBuild 150: <c>_Diffuse</c> IS THE ONE THAT BIT, AND IT BIT THROUGH A MISSING
+        /// TYPE CHECK.</b> The ModBuild 149 hardware log carries an ordinary Unity error next to the
+        /// material dump (Player.log:4606, :11405):
+        /// <c>Material 'MO_Cultist_HighPriest_MAT_2Side (Instance)' with Shader
+        /// 'Amp_Char_Shader_2Side' doesn't have a color property '_Diffuse'</c>. On that shader
+        /// <c>_Diffuse</c> is the albedo TEXTURE — <c>Material.HasProperty</c> answers TRUE for it
+        /// (it exists, it is simply not a colour), <c>GetColor</c> logs that error and returns
+        /// <c>(0,0,0,0)</c>, and the near-black guard below then dropped the material silently. So a
+        /// material with no colour lever at all went through the same door as a material authored
+        /// black, and the log said nothing except a stray engine error nobody attributed. That is why
+        /// <see cref="Bind"/> now resolves the property TYPE from the shader before reading it, and
+        /// why <see cref="Diag.Materials"/> prints, per material, which of these names it declares
+        /// AND with what type.</para>
         /// </summary>
         private static readonly string[] TintNames = { "_MOD_TINT", "_Color", "_Tint", "_TintColor", "_Diffuse" };
+
+        /// <summary>Second pass, and only reached when NONE of <see cref="TintNames"/> is a colour on
+        /// this shader: any Color-typed property whose name reads like an albedo tint. Substring
+        /// match, lower-cased, so a shader nobody in this project has ever seen still gets a lever.
+        /// <see cref="TintNever"/> is checked FIRST and wins — it is what keeps this off the
+        /// emissive, rim and highlight colours, which are added to the albedo rather than
+        /// multiplying it and would BRIGHTEN a figure this side is trying to put out.</summary>
+        private static readonly string[] TintLike = { "tint", "colour", "color", "albedo", "diffuse", "base" };
+
+        /// <summary>Colour properties that are never an albedo multiply. Checked before
+        /// <see cref="TintLike"/>, so <c>_GlowColor</c> and <c>_HighlightColour</c> — both of which
+        /// Amp_Char_Shader_2Side really does declare (Player.log:11417) — can never be picked.</summary>
+        private static readonly string[] TintNever =
+        {
+            "glow", "emiss", "rim", "outline", "highlight", "spec", "fog", "shadow", "cinder",
+            "dissolve", "burn", "fresnel", "sss", "subsurface",
+        };
 
         /// <summary>One material's darkening lever plus the value it shipped with. The ORIGINAL is
         /// captured before this side writes anything, and every write is
@@ -378,6 +409,28 @@ internal static partial class HauntFigures
         /// <summary>Which property name <see cref="Collect"/> settled on, for the log. Empty when no
         /// material declared any of them, which is the case the renderer fallback exists for.</summary>
         private static string _tintName = string.Empty;
+
+        /// <summary>One human-readable verdict per material, in <see cref="Mats"/> order, written by
+        /// <see cref="Bind"/> and printed by <see cref="Diag.Materials"/>. THIS IS THE LINE THE LAST
+        /// ROUND DID NOT HAVE: "2 of 3 material(s)" said that one material carried no lever and
+        /// nothing at all about WHICH, on what shader, or why — and the missing one turned out to be
+        /// three quarters of what the player could actually see.</summary>
+        private static readonly List<string> Verdicts = new(16);
+
+        /// <summary>
+        /// A shader that DOES declare a working <c>_MOD_TINT</c>, kept for the session so a creature
+        /// whose every material is un-tintable can still borrow one. It is captured from a material
+        /// on a real apparition rather than looked up: <c>Shader.Find</c> only sees shaders in
+        /// Resources or in the always-included list, and these live in an npc asset bundle.
+        ///
+        /// <para>See <see cref="Donate"/> for what it is used for and for the one naming rule that
+        /// stops it being used on an unrelated shader.</para>
+        /// </summary>
+        private static Shader? _donor;
+
+        /// <summary>How many materials this apparition had to be moved onto <see cref="_donor"/>,
+        /// for the census line. Diagnostics only.</summary>
+        private static int _donated;
 
         /// <summary>The last COMBINED scalar written (envelope × room light), so the per-frame write
         /// is skipped when neither moved. -1 forces the first write.</summary>
@@ -403,6 +456,54 @@ internal static partial class HauntFigures
 
         private static int _fails;
 
+        // ---- THE GAIT ------------------------------------------------------------------------------
+
+        /// <summary>How fast the path this apparition is walking moves it, in world metres per
+        /// second, handed down from <see cref="HauntFigures.Arm"/>. Zero for a figure that stands.</summary>
+        private static float _gaitSpeed;
+
+        /// <summary>The <c>RunBlend</c> weight <see cref="Gait"/> derived from
+        /// <see cref="_gaitSpeed"/>, or -1 before it has run (in which case the event's authored
+        /// value is used).</summary>
+        private static float _gaitBlend = -1f;
+
+        /// <summary>
+        /// THE GROUND A HUMANOID GAIT CYCLE COVERS AT SCALE 1, in metres, and it is the ONE number in
+        /// this derivation that is an assumption rather than a measurement — so it is named, stated
+        /// once, and printed in the log beside everything it produces.
+        ///
+        /// <para>1.35 m is two steps of a ~1.8 m biped at an unhurried walk. The clips this feature
+        /// plays are single gait cycles (<c>LivingCorpse_Walk_v001</c> 0.87 s,
+        /// <c>LivingBones_Run_v001</c> 0.93 s, <c>Savvas_LavaFlow_Move_v001</c> 1.67 s,
+        /// <c>Hound_Move</c> 0.50 s), so a creature at scale <c>s</c> whose cycle lasts <c>T</c>
+        /// implies a ground speed of <c>1.35 * s / T</c> at full blend. The value cannot be read off
+        /// the clip because the travel is INSIDE the clip's root motion and this feature switches
+        /// root motion off (see <see cref="AnimPin"/>) — <c>AnimationClip.averageSpeed</c> would
+        /// answer it, but only for clips that carry root curves, and the ModBuild 149 measurement
+        /// says these do not carry them on the animator's own transform.</para>
+        ///
+        /// <para>IF THE NEXT ROUND WANTS TO MOVE ONE NUMBER, IT IS THIS ONE. The log line printed by
+        /// <see cref="Gait"/> gives the speed, the scale, the clip length and the implied stride
+        /// together, so raising or lowering it is a single arithmetic step from what the log
+        /// says.</para>
+        /// </summary>
+        private const float StrideMetres = 1.35f;
+
+        /// <summary>Names that mark the locomotion clip in a controller that has no walk STATE — see
+        /// the ANIMATION block in the class doc for why "Idle-Run" is a blend and not a state
+        /// machine. Tried in order; the first match wins.</summary>
+        private static readonly string[] WalkClipNames = { "walk", "_run", "run_", "move", "locomotion" };
+
+        /// <summary>Below this the Idle-Run tree is more idle than locomotion and the pose reads as
+        /// standing still while the body glides — which is the user's "teleportiert sich" seen from
+        /// the outside. Under it the blend is held here and <c>Animator.speed</c> takes the
+        /// difference instead. See <see cref="Gait"/>.</summary>
+        private const float MinBlend = 0.60f;
+
+        /// <summary>The most the clip may be played faster than authored. A creature hurrying by 60%
+        /// still looks like the creature; one at 3x looks like a fast-forward.</summary>
+        private const float MaxClipSpeed = 1.60f;
+
         /// <summary>Three consecutive failures and the whole feature stands down for the session —
         /// see <see cref="Disable"/>. Three rather than one because a single failure is
         /// indistinguishable from a bundle that happened to be mid-eviction, and rather than "keep
@@ -414,10 +515,14 @@ internal static partial class HauntFigures
 
         /// <summary>Begin building an apparition. Returns immediately; <see cref="Drive"/> finishes
         /// the job over the following frames.</summary>
+        /// <param name="metresPerSecond">How fast this run's path moves the figure. 0 for a figure
+        /// that stands — see <see cref="Gait"/> for what a non-zero value does to the animator.</param>
         internal static void Request(string model, CClass.ENPCModel picked, in HauntEvent ev,
-                                     Transform parent, Transform? room, SkyStyle style)
+                                     Transform parent, Transform? room, SkyStyle style,
+                                     float metresPerSecond)
         {
             Release("a new apparition was armed");
+            _gaitSpeed = Mathf.Max(metresPerSecond, 0f);
             _wantModel = model;
             _wantEnum = picked;
             _wantHeight = ev.Height;
@@ -452,11 +557,136 @@ internal static partial class HauntFigures
             }
         }
 
+        // ---- the gait ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// MATCH THE LEGS TO THE TRAVEL. One <c>RunBlend</c> weight and one <c>Animator.speed</c>,
+        /// derived once per apparition from the path's real speed, the creature's real scale and the
+        /// real length of its own locomotion clip.
+        ///
+        /// <para><b>THE USER REPORT THIS ANSWERS, verbatim (ModBuild 149):</b> "Das Teleportieren der
+        /// Figuren die sich bewegen ist nach wie vor da." The ModBuild 148 instrument that was built
+        /// to find it has already ruled out the obvious cause: <see cref="AnimPin"/> measured 0.00 mm
+        /// of clip-carried travel on the animator's own transform over a whole apparition
+        /// (Player.log:11824's neighbour at :4678), so the ANCHOR is smooth and
+        /// <c>applyRootMotion = false</c> is holding. What is left is the gait.</para>
+        ///
+        /// <para><b>WHAT <c>RunBlend</c> ACTUALLY IS, from the game rather than from inference.</b>
+        /// It is the blend weight of the "Idle-Run" tree, driven per frame in
+        /// <c>ActorBehaviour.DoTransform</c> (:546-547) toward <c>m_TargetAnimSpeed</c>. And
+        /// <c>m_TargetAnimSpeed</c> is DIMENSIONLESS, in roughly 0..1 — it carries no metres and no
+        /// seconds:</para>
+        /// <list type="bullet">
+        /// <item>a move of more than one hex ramps it at <c>+1.0 per second</c> up to a hard
+        /// <c>Mathf.Min(..., 1f)</c> (:493) — so the game's own SUSTAINED travel sits at <b>1.0</b>,
+        /// not at a half;</item>
+        /// <item>a single-hex hop runs an ease-in/ease-out triangle on the remaining distance with a
+        /// floor of +0.2 (:503-509), i.e. 0.2 at the ends and about 1.2 in the middle;</item>
+        /// <item>every "stop" path writes it to exactly 0 (:353, :523, :538, :598).</item>
+        /// </list>
+        /// <para>So 0.55 — which every event in this file held, at every speed, for every creature —
+        /// is the game's value for a figure that is <b>barely moving</b>, played while the body glides
+        /// at 1.41 m/s (Player.log:11824) or 1.62 m/s (:13130). Half the pose is a standing idle: the
+        /// feet do not keep up, so the body appears to jump forward between footfalls, which is
+        /// exactly what "teleportiert sich" describes from the outside.</para>
+        ///
+        /// <para><b>THE MAPPING.</b> The Idle-Run tree interpolates between a clip that covers no
+        /// ground and one that covers a full gait cycle, so to first order — exactly at both
+        /// endpoints — ground speed is <c>blend x implied</c>, where</para>
+        /// <code>
+        ///   implied = StrideMetres * creatureScale / walkClipSeconds     [m/s at full blend]
+        ///   want    = pathSpeed / implied                                [dimensionless]
+        /// </code>
+        /// <para>which for the roster in the ModBuild 149 census gives, at that build's 1.62 m/s:
+        /// Living Corpse (scale 0.878, 0.87 s) implied 1.36 -> 1.19; Living Bones (1.258, 0.93 s)
+        /// implied 1.83 -> 0.89; High Cultist (1.636, 1.67 s) implied 1.32 -> 1.22. Every one of them
+        /// wanted roughly TWICE the 0.55 it was given.</para>
+        ///
+        /// <para><b>AND WHERE THE BLEND ALONE CANNOT ANSWER, THE CLIP RATE DOES.</b> Below
+        /// <see cref="MinBlend"/> the tree is more idle than locomotion and the pose reads as
+        /// standing while gliding — the very failure this method exists to remove — so the blend is
+        /// held at that floor and <c>Animator.speed</c> takes the remainder; above 1 the blend is
+        /// pinned at 1 and the clip is played faster, up to <see cref="MaxClipSpeed"/>. That is what
+        /// keeps the Hound honest: its <c>Hound_Move</c> cycle is 0.50 s, so it implies well over
+        /// 2 m/s and a shared path speed would otherwise leave it half-blended.</para>
+        ///
+        /// <para><b>THE OTHER DIRECTION OF THE FIX IS IN <c>HauntFigures.Events.cs</c></b>, where
+        /// <c>ForestCross</c>'s hold was lengthened so the crossing is a stroll rather than a march.
+        /// Both halves were needed: this one stops the feet sliding at any speed, that one chooses a
+        /// speed worth walking at.</para>
+        /// </summary>
+        private static void Gait(float scale)
+        {
+            if (_animator == null)
+                return;
+
+            // A figure that stands gets the event's authored value, which is 0 for all three of them.
+            if (_gaitSpeed <= 0.01f)
+            {
+                _animator.speed = 1f;
+                _gaitBlend = -1f;
+                return;
+            }
+
+            float clip = WalkClipSeconds(_animator);
+            float implied = StrideMetres * Mathf.Max(scale, 0.05f) / Mathf.Max(clip, 0.05f);
+            float want = _gaitSpeed / Mathf.Max(implied, 0.01f);
+
+            float blend = Mathf.Clamp(want, MinBlend, 1f);
+            float rate = Mathf.Clamp(want / blend, 1f / MaxClipSpeed, MaxClipSpeed);
+            _gaitBlend = blend;
+            _animator.speed = rate;
+
+            VRLog.Info("Core", $"HAUNT FIGURES gait for '{_wantModel}': the path moves it at "
+                + $"{_gaitSpeed:F2} m/s; its own locomotion clip is {clip:F2}s long and it is built at "
+                + $"scale {scale:F3}, so at full blend it covers {StrideMetres:F2} m x {scale:F3} / "
+                + $"{clip:F2}s = {implied:F2} m/s. The blend that speed deserves is therefore "
+                + $"{want:F2}, driven as RunBlend {blend:F2} with Animator.speed {rate:F2} "
+                + $"(the blend is clamped to [{MinBlend:F2}, 1.00] because below that the Idle-Run "
+                + "tree is more idle than locomotion and the clip rate carries the remainder "
+                + $"instead, capped at {MaxClipSpeed:F2}x). IT USED TO BE A CONSTANT 0.55 FOR EVERY "
+                + "CREATURE AT EVERY SPEED, and that is what the user photographed as 'teleportiert "
+                + "sich': RunBlend is the Idle-Run BLEND WEIGHT (ActorBehaviour.cs:546-547), not a "
+                + "speed, and the game's own sustained travel drives it to 1.0 "
+                + "(m_TargetAnimSpeed, ActorBehaviour.cs:493 — dimensionless, 0..1). The one "
+                + $"ASSUMED number here is the {StrideMetres:F2} m a gait cycle covers at scale 1; "
+                + "everything else on this line is measured, so moving it is one arithmetic step.");
+        }
+
+        /// <summary>The length of this controller's locomotion clip, in seconds — the cycle whose
+        /// ground travel <see cref="Gait"/> is matching. Falls back to 1.0 s, which is close enough
+        /// to every clip in the ModBuild 149 census that a miss costs a blend step rather than a
+        /// gait.</summary>
+        private static float WalkClipSeconds(Animator a)
+        {
+            RuntimeAnimatorController? rac = a.runtimeAnimatorController;
+            if (rac == null)
+                return 1f;
+            AnimationClip[] clips = rac.animationClips;
+            for (int n = 0; n < WalkClipNames.Length; n++)
+            {
+                for (int i = 0; i < clips.Length; i++)
+                {
+                    AnimationClip c = clips[i];
+                    if (c == null || c.length <= 0.05f)
+                        continue;
+                    if (c.name.ToLowerInvariant().Contains(WalkClipNames[n]))
+                        return c.length;
+                }
+            }
+            return 1f;
+        }
+
         // ---- drive ------------------------------------------------------------------------------------
 
         /// <summary>
         /// One frame: finish the build if it is still in flight, then pose, animate and shade what
         /// exists. <paramref name="presence"/> is the event's envelope, 0..1.
+        ///
+        /// <para><paramref name="runBlend"/> is the event's AUTHORED value and is used only for a
+        /// figure that stands. A figure that travels is driven by <see cref="Gait"/> instead, from
+        /// its own speed, scale and clip length — see there for why a constant was the whole of the
+        /// teleport report.</para>
         /// </summary>
         internal static void Drive(float presence, float runBlend)
         {
@@ -471,7 +701,7 @@ internal static partial class HauntFigures
             using (PerfMonitor.Scope("Env.HauntFigDrive"))
             {
                 if (_animator != null && _hasRunBlend)
-                    _animator.SetFloat(RunBlendParam, runBlend);
+                    _animator.SetFloat(RunBlendParam, _gaitBlend >= 0f ? _gaitBlend : runBlend);
 
                 // THE ROOM'S LIGHT, RE-SAMPLED WHERE THE FIGURE NOW STANDS, AND IT RUNS FIRST.
                 // Inside the same [Perf] step as the rest of the drive on purpose: it is a handful
@@ -688,6 +918,9 @@ internal static partial class HauntFigures
                 pin.Target = _animator.transform;
                 pin.Seat = _animator.transform.localPosition;
                 _pin = pin;
+
+                // ...and the GAIT, which needs the finished scale and the live controller. See Gait.
+                Gait(scale);
             }
 
             PerfMonitor.Count("HauntFig.Spawns");
@@ -818,15 +1051,63 @@ internal static partial class HauntFigures
                     if (m == null)
                         continue;
                     Mats.Add(m);
-                    BindTint(m);
+                    // A DONOR IS A SHADER THAT DECLARES _MOD_TINT, not merely one that bound: Donate
+                    // binds that exact property, so a donor picked because it happened to declare
+                    // _Color would fail its own verification and revert every time.
+                    Bind(m);
+                    if (_donor == null && ColourPropId(m.shader, TintNames[0]) >= 0)
+                        _donor = m.shader;
                 }
             }
+
+            // ...and only now, with a donor in hand, the materials that could not find a lever of
+            // their own. See Donate.
+            for (int i = 0; i < Mats.Count; i++)
+                Donate(Mats[i], i);
 
             Diag.Materials(_wantModel, "BEFORE", -1f);
         }
 
+        // ---- the darkening lever, per material -----------------------------------------------------
+
+        /// <summary>Is this shader property a COLOUR, and what is it called? Returns -1 when the
+        /// shader does not declare <paramref name="name"/> at all or declares it as something else —
+        /// a texture, a float, a vector.
+        ///
+        /// <para><b>THIS FUNCTION IS THE ModBuild 150 FIX.</b> <c>Material.HasProperty</c> answers
+        /// "does this name exist", NOT "is it a colour", and <c>Amp_Char_Shader_2Side</c> declares
+        /// <c>_Diffuse</c> as the albedo TEXTURE. The old binder asked <c>HasProperty</c>, called
+        /// <c>GetColor</c>, got an engine error and an all-zero colour back, and then dropped the
+        /// material through the near-black guard as if it had been authored black. Three of the High
+        /// Cultist's four materials — its skirt and both ribbon sets, i.e. every saturated magenta
+        /// pixel in Figur_hell.jpg — went out at full authored brightness for that reason.</para>
+        /// </summary>
+        private static int ColourPropId(Shader? sh, string name)
+        {
+            if (sh == null)
+                return -1;
+            int count = sh.GetPropertyCount();
+            for (int p = 0; p < count; p++)
+            {
+                if (sh.GetPropertyName(p) != name)
+                    continue;
+                return sh.GetPropertyType(p) == ShaderPropertyType.Color
+                           ? Shader.PropertyToID(name)
+                           : -1;
+            }
+            return -1;
+        }
+
         /// <summary>
-        /// Find this material's darkening lever and remember what it shipped with.
+        /// Find this material's darkening lever and remember what it shipped with. Returns true when
+        /// one was found, and always appends exactly one line to <see cref="Verdicts"/> so the census
+        /// can say per material what happened.
+        ///
+        /// <para><b>THREE PASSES, IN THIS ORDER.</b> (1) the named candidates, type-checked; (2) any
+        /// Color-typed property whose name reads like an albedo tint and is not on
+        /// <see cref="TintNever"/>; (3) nothing, and the material is handed to <see cref="Donate"/>.
+        /// The second pass exists because the first is a list of names this project happens to know,
+        /// and the shader that broke ModBuild 149 was one nobody had looked at.</para>
         ///
         /// <para><b>A NEAR-BLACK ORIGINAL IS REFUSED AND THE NEXT CANDIDATE IS TRIED</b>, which is the
         /// one guard this needs. The write is <c>original * k</c>, so a property that happens to be
@@ -834,23 +1115,151 @@ internal static partial class HauntFigures
         /// shader really does multiply the albedo by it the model would already be black before this
         /// side touched it — i.e. the property is not what this code thinks it is. Skipping to the
         /// next candidate turns a silent no-op into a working lever on the shaders where one exists,
-        /// and into the renderer fallback where none does.</para>
+        /// and into the donor swap where none does.</para>
         /// </summary>
-        private static void BindTint(Material m)
+        private static bool Bind(Material m)
         {
+            Shader? sh = m.shader;
+            string shName = sh != null ? sh.name : "<null>";
+
+            // WHAT THIS SHADER DECLARES, recorded whether or not a lever is found — this is the half
+            // of the answer the last round had to guess at.
+            var declared = new StringBuilder(96);
             for (int i = 0; i < TintNames.Length; i++)
             {
-                int id = Shader.PropertyToID(TintNames[i]);
-                if (!m.HasProperty(id))
+                int id = ColourPropId(sh, TintNames[i]);
+                if (id < 0)
                     continue;
                 Color c = m.GetColor(id);
+                if (declared.Length > 0)
+                    declared.Append(", ");
+                declared.Append($"{TintNames[i]}=({c.r:F3},{c.g:F3},{c.b:F3})");
                 if (c.r + c.g + c.b < 0.02f)
+                {
+                    declared.Append(" [near-black, refused]");
                     continue;
+                }
                 Tints.Add(new TintTarget(m, id, c));
                 if (_tintName.Length == 0)
                     _tintName = TintNames[i];
+                Verdicts.Add($"'{m.name}' [{shName}] LEVER {TintNames[i]} "
+                             + $"= ({c.r:F3},{c.g:F3},{c.b:F3}); declares {declared}");
+                return true;
+            }
+
+            // PASS 2 — anything Color-typed that reads like an albedo tint.
+            int scanned = 0;
+            int count = sh != null ? sh.GetPropertyCount() : 0;
+            for (int p = 0; p < count; p++)
+            {
+                if (sh!.GetPropertyType(p) != ShaderPropertyType.Color)
+                    continue;
+                scanned++;
+                string name = sh.GetPropertyName(p);
+                string low = name.ToLowerInvariant();
+                if (Any(low, TintNever) || !Any(low, TintLike))
+                    continue;
+                Color c = m.GetColor(name);
+                if (c.r + c.g + c.b < 0.02f)
+                    continue;
+                Tints.Add(new TintTarget(m, Shader.PropertyToID(name), c));
+                if (_tintName.Length == 0)
+                    _tintName = name;
+                Verdicts.Add($"'{m.name}' [{shName}] LEVER {name} (found by scanning the shader's "
+                             + $"{scanned} colour propertie(s), not by name) "
+                             + $"= ({c.r:F3},{c.g:F3},{c.b:F3})");
+                return true;
+            }
+
+            Verdicts.Add($"'{m.name}' [{shName}] NO LEVER — of {TintNames.Length} named candidates it "
+                         + $"declares {(declared.Length > 0 ? declared.ToString() : "NONE as a colour")}, "
+                         + $"and none of its {scanned} colour propertie(s) is an albedo tint. This is "
+                         + "the material that was drawn at FULL authored brightness in ModBuild 149.");
+            return false;
+        }
+
+        private static bool Any(string haystack, string[] needles)
+        {
+            for (int i = 0; i < needles.Length; i++)
+                if (haystack.Contains(needles[i]))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// THE LAST LEVER: move a material that has none of its own onto a SIBLING shader that has
+        /// one.
+        ///
+        /// <para><b>WHY THIS IS LEGITIMATE AND NOT A HACK.</b> The shader that broke ModBuild 149 is
+        /// <c>Amp_Char_Shader_2Side</c> and the one right beside it on the same creature is
+        /// <c>Amp_Char_Shader</c>. They are two variants of ONE Amplify graph — the ModBuild 149
+        /// material dump prints both property sets side by side (Player.log:4612-4620) and they agree
+        /// on every albedo, dissolve, emissive and opacity input; the 2Side variant adds
+        /// <c>_2Sided_Invis_Fix</c>, <c>_HighlightStrength</c> and friends and drops
+        /// <c>_MOD_TINT</c>. Unity re-binds a material's saved property values BY NAME when the
+        /// shader is assigned, so the swap keeps the albedo texture, the cutout and the emissive map
+        /// and gains the one property this side needs.</para>
+        ///
+        /// <para><b>THE NAMING RULE IS THE SAFETY PROPERTY.</b> The swap only happens when the
+        /// donor's name is a PREFIX of the material's own shader name — <c>Amp_Char_Shader</c> ⊂
+        /// <c>Amp_Char_Shader_2Side</c>. That is what makes "sibling variant of the same graph" a
+        /// test rather than a hope, and it is why an unrelated shader can never be moved onto a
+        /// character shader by accident.</para>
+        ///
+        /// <para><b>WHAT IT COSTS, stated honestly.</b> The donor is single-sided, so the skirt and
+        /// the ribbons lose their back faces. At the albedo multiplier these figures are drawn with
+        /// (0.015 in the cellar, 0.049 in the wood) a missing back face is a slightly darker dark,
+        /// and the alternative is the saturated magenta the user photographed. <c>_Cull</c> is set to
+        /// 0 where the donor exposes it, which restores two-sidedness outright on any shader that
+        /// declares the pass state as a property; where it does not, the loss stands.</para>
+        ///
+        /// <para><b>IT IS VERIFIED AND REVERTED.</b> If the material comes out of the swap still
+        /// without a colour lever, the original shader is put back and the material is left alone —
+        /// a figure with one bright piece is bad, a figure with one INVISIBLE piece is broken.</para>
+        /// </summary>
+        private static void Donate(Material m, int index)
+        {
+            if (index >= Verdicts.Count || !Verdicts[index].Contains("NO LEVER"))
+                return;
+            Shader? donor = _donor;
+            Shader? own = m.shader;
+            if (donor == null || own == null || donor == own || !own.name.StartsWith(donor.name))
+                return;
+
+            m.shader = donor;
+            int id = ColourPropId(donor, TintNames[0]);
+            if (id < 0)
+            {
+                m.shader = own;   // it did not take — see THE LAST LEVER
+                Verdicts[index] += $" The donor swap to '{donor.name}' was tried and REVERTED: the "
+                                   + $"donor does not declare {TintNames[0]} as a colour either.";
                 return;
             }
+
+            Color c = m.GetColor(id);
+            if (c.r + c.g + c.b < 0.02f)
+                c = Color.white;   // the donor's default for an input the 2Side variant never had
+            Tints.Add(new TintTarget(m, id, c));
+            _donated++;
+            if (_tintName.Length == 0)
+                _tintName = TintNames[0];
+
+            // Two-sidedness back where the donor exposes the pass state as a property. Guarded by
+            // type, for exactly the reason ColourPropId exists.
+            int cullCount = donor.GetPropertyCount();
+            for (int p = 0; p < cullCount; p++)
+            {
+                if (donor.GetPropertyName(p) != "_Cull")
+                    continue;
+                ShaderPropertyType t = donor.GetPropertyType(p);
+                if (t is ShaderPropertyType.Float or ShaderPropertyType.Range)
+                    m.SetFloat("_Cull", 0f);   // CullMode.Off
+                break;
+            }
+
+            Verdicts[index] += $" DONOR SWAP: moved from '{own.name}' onto '{donor.name}', which does "
+                               + $"declare {TintNames[0]}, so it is darkened with everything else. It "
+                               + "loses back-face rendering unless the donor exposes _Cull.";
         }
 
         private static bool IsVfx(Renderer r)
@@ -974,18 +1383,65 @@ internal static partial class HauntFigures
                     m.SetFloat(_toggleId, 0f);
             }
 
+            Vector3 w = Lighting.Chroma;
             for (int i = 0; i < Tints.Count; i++)
             {
                 TintTarget t = Tints[i];
                 if (t.Mat == null)
                     continue;
                 Color c = t.Original;
+
+                // ---- THE DESATURATION, and it is the half of "an die Lichtverhältnisse
+                // angeglichen" a multiply cannot express ------------------------------------------
+                //
+                // A UNIFORM MULTIPLY PRESERVES SATURATION. That is arithmetic: scaling all three
+                // channels by k leaves (max-min)/max exactly where it was, so a saturated colour
+                // comes out of the darkening exactly as saturated as it went in, and the eye finds a
+                // saturated patch in a dark surround far more easily than a neutral one of the same
+                // luminance. Figur_hell.jpg is that failure photographed: linearising it and
+                // splitting the figure by saturation gives 9057 magenta pixels and 15831 neutral
+                // ones at the SAME mean luminance (0.0190 against 0.0184) — and it is only the
+                // magenta the user's sentence is about. Between ModBuild 148 and 149 the figure's
+                // luminance ratio against the trunk behind it fell from 16.0 to 5.8 while the mean
+                // saturation of everything still visible ROSE from 0.253 to 0.437. The darkening
+                // worked and made the problem more colourful.
+                //
+                // WHAT AN OBJECT SEEN BY ALMOST NO LIGHT ACTUALLY LOOKS LIKE is nearly colourless,
+                // twice over: the light itself is one narrow colour (a moon, a candle) so every
+                // surface reflects that colour rather than its own, and below about 0.01 cd/m^2 the
+                // eye is running on rods, which have no colour channel at all. So the albedo is
+                // pulled toward its OWN Rec.709 luma times the ROOM'S chromaticity — the figure
+                // keeps its light and dark, loses its hue, and what hue survives is the room's.
+                //
+                // LUMINANCE IS PRESERVED BY CONSTRUCTION, which is why this is a separate lever from
+                // Level and not a second, hidden darkening: luma(lerp(c, luma(c)*w, s)) = luma(c)
+                // for any s, because luma(w) is 1 by definition (see Lighting.Chroma).
+                float y = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                float s = Desaturation;
+                float r = Mathf.Lerp(c.r, y * w.x, s);
+                float g = Mathf.Lerp(c.g, y * w.y, s);
+                float b = Mathf.Lerp(c.b, y * w.z, s);
+
                 // ALPHA IS NOT TOUCHED. On every one of the candidate properties it means opacity or
                 // nothing at all, and this pass is a darkening rather than a fade to transparent —
                 // a see-through monster is the "leuchtende Silhouette" the last round removed.
-                t.Mat.SetColor(t.Prop, new Color(c.r * k, c.g * k, c.b * k, c.a));
+                t.Mat.SetColor(t.Prop, new Color(r * k, g * k, b * k, c.a));
             }
         }
+
+        /// <summary>
+        /// How far toward colourless the albedo is pulled before it is darkened, 0..1. See THE
+        /// DESATURATION in <see cref="Shade"/> for the argument and for the photograph it is fitted
+        /// to.
+        ///
+        /// <para><b>0.85 AND NOT 1.0, deliberately.</b> A full collapse to luma would make every
+        /// creature in the roster the same grey-blue, and the last 15% of hue is what still tells a
+        /// Living Corpse from a High Cultist when a player is looking straight at one — which is the
+        /// state the whole feature is FOR. On the magenta that owns Figur_hell.jpg (roughly
+        /// (0.80,0.10,0.60), saturation 0.88) it lands the result at saturation 0.16 without moving
+        /// its luminance at all.</para>
+        /// </summary>
+        private const float Desaturation = 0.85f;
 
         // ---- teardown ---------------------------------------------------------------------------------
 
@@ -1082,6 +1538,10 @@ internal static partial class HauntFigures
             _spawned = false;
             _lastShade = -1f;
             _tintName = string.Empty;
+            Verdicts.Clear();
+            _donated = 0;
+            _gaitSpeed = 0f;
+            _gaitBlend = -1f;
             _voiced = false;
             _wantModel = string.Empty;
             _wantParent = null;
@@ -1322,6 +1782,16 @@ internal static partial class HauntFigures
                                                        //   the ambient's share as well as its own
             private const float MoonSwell = 0.34f;     // GHVR_MOON_SWELL
             private const float EclipseFloor = 0.05f;  // GHVR_ECL_FLOOR
+            // ...and the two ModBuild 150 added for the LIGHT+DARK MIXTURE. USER: "Licht und
+            // Dunkelheit zusammen ist im Keller garnicht sichtbar, es sollte schon so ein Mittelweg
+            // sein, dass beides grob erkennbar ist." Both carry `li * dk`, so no state with either
+            // element at zero can move by a single bit — which is what makes adding them here safe
+            // without re-verifying every one of the 64 subsets on this side too.
+            private const float AmbDefend = 0.35f;     // GHVR_AMB_DEFEND — Light gives back part of
+                                                       //   Dark's crush on the ambient
+            private const float EclipseRelief = 0.38f; // GHVR_ECL_RELIEF — Light lifts the eclipse's
+                                                       //   ATTENUATION; no geometry moves, so the sky
+                                                       //   keeps its total eclipse and its copper
 
             /// <summary>Element indices in the game's own <c>EElement</c> order, as
             /// <see cref="ElementMood.Live"/> takes them.</summary>
@@ -1443,8 +1913,37 @@ internal static partial class HauntFigures
             //   * UnlitLevel 0.05 (was 0.20). The fallback for "the rig could not be read" was
             //     brighter than either room's real answer, which made a bundle mismatch look like a
             //     spotlight. It is now at the darker end of what the rooms really deliver.
+            //
+            // ================ ModBuild 150: WHY 149's FIVEFOLD CUT READ AS "NO DIFFERENCE" =======
+            //
+            // USER RULING on the ModBuild 149 build, verbatim: "Die Figuren sind alle voll und hell
+            // sichtbar wie zuvor, ich sehe keinen Unterschied." (cellar) and "Auch hier sind die
+            // Figuren noch viel zu gut zu sehen statt eine Silhouette im dunklen Schatten zu sein
+            // (siehe Figur_hell.jpg)." (wood). The cellar figure's multiplier had just gone from
+            // 0.100 to 0.020 — a factor of five — so "no difference" is a statement about a
+            // mechanism, not about a number, and TWO mechanisms turned out to be behind it:
+            //
+            //   1. THREE OF THE HIGH CULTIST'S FOUR MATERIALS WERE NEVER TINTED AT ALL
+            //      (Player.log:11409, "'_MOD_TINT' on 1 of 4 material(s)"), and the Living Bones'
+            //      cloth was the third of its three (Player.log:4608). Those materials are exactly
+            //      the magenta skirt and ribbons in Figur_hell.jpg, and they carry 37% of everything
+            //      the figure emits in that frame. Multiplying the other 63% by five while a third
+            //      of the light does not move is a change a person can miss. See TintNames and Bind
+            //      for the type bug that caused it.
+            //   2. THE REMAINDER GOT MORE SATURATED AS IT GOT DARKER — see THE DESATURATION in
+            //      Shade for the measurement.
+            //
+            // AND THE MAPPING ITSELF IS STILL A LITTLE HIGH, measured off Figur_hell.jpg the same way
+            // the two ModBuild 148 frames were: over the figure's already-darkened NEUTRAL pixels the
+            // 90th-percentile linear luminance is 0.0291 against 0.0050 for the trunk beside it, so
+            // 5.8x the surface behind it where the standing target is about 2x. Holding DarkFloor and
+            // taking LightGain 0.34 -> 0.20 puts the wood at Level 0.049 (was 0.078) and the cellar
+            // at 0.015 (was 0.021), i.e. that same neutral measurement at about 3.6x before the two
+            // mechanisms above are counted at all. It is a factor of 1.7 and not the full 2.9,
+            // because points 1 and 2 are the large corrections in this build and over-darkening on
+            // top of them risks the failure the user has NOT reported — a figure nobody can find.
             private const float DarkFloor = 0.006f;   // a creature is never fully black while present
-            private const float LightGain = 0.34f;    // room luminance -> albedo multiplier
+            private const float LightGain = 0.20f;    // room luminance -> albedo multiplier
             private const float MaxLevel = 0.30f;     // never at full albedo: it is a thing in the dark
             private const float UnlitLevel = 0.05f;   // the rig could not be read at all
 
@@ -1459,6 +1958,23 @@ internal static partial class HauntFigures
             /// it was given, which is correct and free.</para>
             /// </summary>
             internal static float Level { get; private set; } = UnlitLevel;
+
+            /// <summary>
+            /// The COLOUR of the light the room delivers, normalised so its own Rec.709 luminance is
+            /// exactly 1 — i.e. the room's chromaticity with its brightness divided out. The forest's
+            /// (0.1895,0.2150,0.2575) comes out as (0.891,1.011,1.211): moonlight, slightly blue.
+            ///
+            /// <para><b>WHAT IT IS FOR.</b> <see cref="Shade"/> pulls the creature's albedo toward
+            /// <c>luma(albedo) * Chroma</c> before multiplying it down — see THE DESATURATION there.
+            /// It is a separate property from <see cref="Level"/> because the two answer different
+            /// questions: Level is how much light there is, this is what colour it is, and a uniform
+            /// multiply can only ever answer the first.</para>
+            ///
+            /// <para>The default is the cool neutral a moonlit room converges on, so a figure whose
+            /// rig could not be read still desaturates toward something plausible rather than toward
+            /// a colour of exactly zero, which would be a fade to black.</para>
+            /// </summary>
+            internal static Vector3 Chroma { get; private set; } = new(0.92f, 1.00f, 1.16f);
 
             /// <summary>The raw room luminance the last <see cref="Level"/> was computed from, and a
             /// once-per-apparition latch for the line that prints it. Diagnostics only — this is the
@@ -1660,8 +2176,9 @@ internal static partial class HauntFigures
                 float dk = ElementMood.Live(ElemDark);
                 float ind = _indoor ? 1f : 0f;
                 float ambGain = Mathf.Max(1f + Mathf.Lerp(AmbLiftOut, AmbLiftIn, ind) * li * (1f - dk)
-                                          - 0.80f * dk, 0f);
-                float moon = (1f + MoonSwell * li) * (1f - dk * (1f - EclipseFloor));
+                                          - 0.80f * dk * (1f - AmbDefend * li), 0f);
+                float moon = (1f + MoonSwell * li)
+                             * (1f - dk * (1f - EclipseFloor) * (1f - EclipseRelief * li));
                 float dirGain = Mathf.Max(1f + Mathf.Lerp(DirLiftOut, DirLiftIn, ind) * li
                                           - 0.45f * dk * (1f - li), 0f) * moon;
 
@@ -1718,6 +2235,11 @@ internal static partial class HauntFigures
                 float lum = 0.2126f * a.x + 0.7152f * a.y + 0.0722f * a.z;
                 Level = Mathf.Clamp(DarkFloor + LightGain * Mathf.Max(lum, 0f), DarkFloor, MaxLevel);
                 _measured = lum;
+                // ...and the same constant term with its brightness divided out. Guarded: a room
+                // whose rig evaluates to nothing keeps the cool neutral default rather than
+                // publishing a chromaticity of zero, which Shade would read as "desaturate to black".
+                if (lum > 1e-5f)
+                    Chroma = a / lum;
 
                 if (!_levelLogged)
                 {
@@ -1830,6 +2352,12 @@ internal static partial class HauntFigures
             {
                 "_InvisibilityControl", "_Glow", "_Opacity", "_Toggle_Dissolve",
                 "_MainTex", "_Alb", "_BumpMap", "_Color", "_Tint", "_TintColor", "_Cutoff",
+                // ...and the lever itself, which was NOT on this list through ModBuild 149 — so the
+                // AFTER dump never actually showed the number it had just written, and "the tint
+                // landed" stayed an inference rather than a reading. _Diffuse is here for the
+                // opposite reason: on Amp_Char_Shader_2Side it is a TEXTURE, and seeing it printed
+                // as one is what closes the question this round opened.
+                "_MOD_TINT", "_Diffuse",
             };
 
             /// <summary>...and anything else that could plausibly be making a figure glow or
@@ -1872,9 +2400,23 @@ internal static partial class HauntFigures
                                        + "being switched on at half presence and cannot be darkened at "
                                        + "all. The property list below is what the next round should pick "
                                        + "a lever from.")
+                              + $" It is also DESATURATED by {Desaturation:F2} toward the room's own "
+                              + $"light colour {Lighting.Chroma:F3} before being multiplied, because a "
+                              + "uniform multiply preserves saturation and a saturated patch survives "
+                              + "darkening far better than a neutral one — see THE DESATURATION in "
+                              + "Shade()."
                               + "\n  The DISSOLVE is switched hard off (_Toggle_Dissolve = 0, "
                               + "_InvisibilityControl = 0): its emissive burn edge was the 'schwarze "
-                              + "Flecken' and half of the 'voll angestrahlt' report.\n");
+                              + "Flecken' and half of the 'voll angestrahlt' report.\n"
+                              + "  PER-MATERIAL VERDICT — which lever each material got, on which "
+                              + "shader, or exactly why it got none. THIS IS THE LINE THAT WAS "
+                              + "MISSING: 'on 2 of 3 material(s)' named a count and not a culprit, and "
+                              + "the culprit was three quarters of what the player could see.\n");
+                    for (int i = 0; i < Verdicts.Count && i < MaxRenderers * MaxMaterialsPerRenderer; i++)
+                        sb.Append($"    {i}: {Verdicts[i]}\n");
+                    if (_donated > 0)
+                        sb.Append($"    {_donated} material(s) were moved onto a sibling shader to gain a "
+                                  + "lever at all — see Donate() for what that costs.\n");
 
                     int shown = 0;
                     for (int i = 0; i < Rends.Count && shown < MaxRenderers; i++)

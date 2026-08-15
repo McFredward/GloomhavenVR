@@ -39,8 +39,10 @@ namespace GloomhavenVR.Core;
 /// </list>
 /// <para>A SECOND global, <c>_GhvrHauntForce</c>, carries the Erweitert menu's TEST TRIGGER — one
 /// button per apparition, so a tester does not have to wait out the schedule. Its contract is
-/// documented at <see cref="ForceChannelName"/>; it is local, held until the tester releases it, and
-/// never on the wire.</para>
+/// documented at <see cref="ForceChannelName"/>; it is held until the tester releases it, and SINCE
+/// 2026-08-15 IT IS SYNCHRONISED (extension record 32, <c>Net/RemoteTestTriggers</c>) — a debug press
+/// is seen by everyone in the session, filtered by each client's own environment dial and
+/// <see cref="EasterEggs"/> switch. The global itself is still written only here.</para>
 ///
 /// <para><b>WHY THE DIAL IS A SUBSET AND NOT A RESHUFFLE — the one non-obvious thing in this
 /// feature.</b> The user asked for two things that pull against each other: a frequency setting,
@@ -54,6 +56,25 @@ namespace GloomhavenVR.Core;
 /// The shipped default is deliberately 0.5 rather than 1.0 so the dial has room in BOTH directions
 /// without ever having to invent an event, which is the only thing that could break the guarantee.
 /// </para>
+///
+/// <para><b>AND IN MULTIPLAYER THE DIAL IS THE HOST'S — user ruling, 2026-08-15 (verbatim): "Die
+/// Häufigkeit von Easter Eggs (da alle es ja synchron sehen sollen) soll vom HOST genommen werden im
+/// MP."</b> The paragraph above solved the "same places, same seconds" half and settled for NESTED
+/// sets; the user has now asked for the same SET as well, and because the dial is a threshold over a
+/// schedule that is already identical, one number does it — see <see cref="EffectiveFrequency"/>.
+/// The subset argument is not withdrawn: it is still exactly what a client does with whatever number
+/// is in force, which is why taking the host's number is enough and no event ever goes on the wire.
+/// <see cref="EasterEggs"/> deliberately does NOT travel with it; that one is the player's own
+/// permission and is covered under LOCAL SETTINGS HAVE PRECEDENCE below.</para>
+///
+/// <para><b>LOCAL SETTINGS HAVE PRECEDENCE — user ruling, 2026-08-15 (verbatim): "Die Events können
+/// verständlicherweise nur syncen, wenn die Spieler die selbe Umgebung eingestellt haben. Das soll
+/// lokal eingestellt sein. Genauso, wenn lokal der Spieler Events oder Elemente ausgeschaltet hat
+/// sieht er sie auch nicht. D.h. die lokalen Einstellungen haben Vorrang."</b> The wire carries the
+/// SCHEDULE OVERRIDE; the local settings carry the PERMISSIONS. Nothing that arrives on the wire —
+/// not a forced apparition, not a host frequency — can switch this feature on for a player who has
+/// switched it off, and nothing reaches a player whose environment dial differs from the sender's.
+/// The full five-point contract is written once, at <c>NetProtocol.ExtIdTestForce</c>.</para>
 ///
 /// <para><b>MULTIPLAYER: ZERO NEW WIRE BYTES, and that is the design rather than an omission.</b>
 /// Everything an apparition does is a pure function of <see cref="SkyAlternative.EnvClockSeconds"/>
@@ -80,9 +101,13 @@ namespace GloomhavenVR.Core;
 /// toggle. The full quotation and the argument are in Haunt.Schedule.cs's header, which is where the
 /// schedule the cues resolve against lives.</para>
 /// </summary>
-/// <remarks>CLASSIFICATION: LOCAL — a presentation setting, ZERO wire. The CONTENT it gates is
-/// GLOBAL by construction (a pure function of the shared environment clock), which is why no wire
-/// field exists for either. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// <remarks>CLASSIFICATION: the two SETTINGS are LOCAL — <see cref="EasterEggs"/> is a comfort and
+/// optional-content switch and is never transmitted or overridden, and <see cref="Frequency"/> is a
+/// local dial that a multiplayer session takes from the environment-clock owner instead (extension
+/// record 31's sixth byte, user ruling 2026-08-15). The scheduled CONTENT is GLOBAL by construction
+/// (a pure function of the shared environment clock) and needs no wire field. The TEST-TRIGGER
+/// OVERRIDE is GLOBAL and IS on the wire since 2026-08-15 (extension record 32). See
+/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal static partial class Haunt
 {
     // ---- the contract, as identifiers -----------------------------------------------------------
@@ -172,23 +197,122 @@ internal static partial class Haunt
             + "that ruling was reversed (Haunt.Schedule.cs's header quotes the reversal). "
             + "Nothing ever appears over the board, in the way of anything you need to read, or "
             + "close enough to reach — they are background, they are rare, and two never happen at "
-            + "once. Every player in the game sees the SAME event in the SAME place at the SAME "
-            + "moment: it is computed from the shared environment clock, so it needs no network "
-            + "traffic and changes nothing about the game. OFF removes them completely and costs "
-            + "nothing at all. Only inside a running scenario, and only with the Cellar or Night "
-            + "forest environment selected; mixed reality switches them off. Applies live.");
+            + "once. Every player who has this switched on AND the same environment selected sees "
+            + "the SAME event in the SAME place at the SAME moment: the schedule is computed from "
+            + "the shared environment clock, so the events themselves need no network traffic, and "
+            + "in a multiplayer session the frequency is taken from the same client that owns that "
+            + "clock so everyone shows the same set of them. THIS SWITCH ITSELF IS ALWAYS YOURS and "
+            + "is never sent or taken from anyone: if you turn the horror off you will not see it, "
+            + "whatever the other players have set or trigger. Nothing about this changes the game. "
+            + "OFF removes them completely and costs nothing at all. Only inside a running scenario, "
+            + "and only with the Cellar or Night forest environment selected; mixed reality switches "
+            + "them off. Applies live.");
 
         Frequency = file.Bind("Haunt", "Frequency", Defaults.HauntFrequency,
             new ConfigDescription(
                 "How often the easter eggs happen. 0.5 (the default) is roughly one every three "
                 + "minutes per environment. Lower is rarer, 0 is the same as switching them off, 1 "
-                + "shows every one the schedule holds (about one every 80 seconds). This is a LOCAL "
-                + "setting and it does not break the shared timing: the schedule itself is the same "
-                + "on every client, and this only decides how many of its events your client shows "
-                + "— so a player on a lower setting sees fewer of exactly the same events in "
-                + "exactly the same places, never different ones. Has no effect at all while "
-                + "'EasterEggs' is off. Applies live.",
+                + "shows every one the schedule holds (about one every 80 seconds). IN A "
+                + "MULTIPLAYER SESSION THIS VALUE COMES FROM THE HOST — the same client that owns "
+                + "the shared environment clock — so that everyone in the same environment sees the "
+                + "same events and not merely the same places: your own slider then has no effect "
+                + "until you leave the session, when it takes over again immediately. It is only "
+                + "ever a number, never a switch: it cannot turn the easter eggs on for you, and "
+                + "with 'EasterEggs' off it does nothing at all. Alone, or before a host value has "
+                + "arrived, your own setting governs. The schedule itself is the same on every "
+                + "client either way, and this only decides how many of its events are shown — a "
+                + "lower value shows fewer of exactly the same events in exactly the same places, "
+                + "never different ones. Applies live.",
                 new AcceptableValueRange<float>(0f, 1f)));
+    }
+
+    // ---- HOST-DRIVEN FREQUENCY (multiplayer) ------------------------------------------------------
+    //
+    // USER RULING, 2026-08-15 (verbatim): "Die Häufigkeit von Easter Eggs (da alle es ja synchron
+    // sehen sollen) soll vom HOST genommen werden im MP."
+    //
+    // WHY ONE NUMBER IS THE WHOLE FEATURE. The dial is a THRESHOLD over a per-slot hash
+    // (H(slot, RATE) < frequency, EnvHaunt.cginc and its C# mirror in Haunt.Schedule.cs), and the
+    // hash is a function of the SHARED clock and nothing else. Two clients on the same number
+    // therefore select the same slots, in the same order, forever — no event, no schedule and no
+    // timing goes on the wire, only this float. That is also why the old "nested subsets" design was
+    // not wrong, merely insufficient: it guaranteed same-place/same-second and settled for a subset,
+    // and the user has now asked for the set itself.
+    //
+    // "THE HOST" IS THE ENVIRONMENT-CLOCK OWNER, and deliberately NOT a second notion of host. That
+    // election already exists (Net/NetAvatarDriver.ResolveEnvClock: the lowest player id among
+    // everyone reporting the SAME environment style, self included, evaluated identically on every
+    // machine with no handshake). Inventing a Bolt-host concept here would create two authorities
+    // over one environment that could disagree about which client is in charge of it — and the
+    // frequency is evaluated against exactly the clock that election hands out, so they must be the
+    // same client by construction. The value rides that election's own record (extension record 31's
+    // sixth byte) for the same reason.
+    //
+    // THE MASTER SWITCH DOES NOT TRAVEL WITH IT. EasterEggs stays local, is never sent and is never
+    // taken from anyone — see the class doc's LOCAL SETTINGS HAVE PRECEDENCE paragraph. A number can
+    // only ever change how many of a thing you see; it must never be able to make you see a thing
+    // you switched off.
+
+    /// <summary>The host's frequency while one is in force, or a negative number for "none — use the
+    /// local dial". Written only by <see cref="SetHostFrequency"/> / <see cref="ClearHostFrequency"/>,
+    /// both of which are driven by the environment-clock election.</summary>
+    private static float _hostFrequency = -1f;
+
+    private static int _hostFrequencyOwner;
+
+    /// <summary>
+    /// The frequency actually in force: the host's while a multiplayer session hands one down,
+    /// otherwise the player's own dial. It is the ONE reader of <see cref="Frequency"/> that matters
+    /// — <see cref="Tick"/> publishes it and <c>Resolve</c> mirrors it, and they must agree or the
+    /// environment SOUNDS would fire on a different subset of slots than the pictures.
+    /// </summary>
+    internal static float EffectiveFrequency =>
+        _hostFrequency >= 0f ? Mathf.Clamp01(_hostFrequency) : Mathf.Clamp01(Frequency.Value);
+
+    /// <summary>
+    /// A multiplayer session has elected <paramref name="ownerPlayerId"/> as the owner of this
+    /// client's environment, and this is their frequency. Idempotent, and it logs once per real
+    /// change — "my frequency slider does nothing" is otherwise a whole hardware round to explain.
+    /// </summary>
+    internal static void SetHostFrequency(int ownerPlayerId, float frequency)
+    {
+        float clamped = Mathf.Clamp01(float.IsNaN(frequency) || float.IsInfinity(frequency) ? 0f : frequency);
+        if (_hostFrequencyOwner == ownerPlayerId && _hostFrequency >= 0f
+            && Mathf.Abs(_hostFrequency - clamped) <= WriteEpsilon)
+            return;
+
+        float mine = _bound ? Mathf.Clamp01(Frequency.Value) : clamped;
+        _hostFrequency = clamped;
+        _hostFrequencyOwner = ownerPlayerId;
+        VRLog.Info("Core", $"HAUNT FREQUENCY: taking {clamped:F2} from player {ownerPlayerId}, the owner "
+                           + "of this client's shared environment clock — the user's ruling is that the "
+                           + "frequency comes from the HOST in multiplayer so that everyone in the same "
+                           + "environment sees the same events and not merely the same places. This "
+                           + $"client's own dial says {mine:F2} and is IGNORED while the session lasts"
+                           + (Mathf.Abs(mine - clamped) <= WriteEpsilon
+                                  ? " (the two happen to agree, so nothing visibly changes)"
+                                  : "; it takes over again the moment this client leaves")
+                           + ". The schedule itself is unchanged and still needs no traffic: the dial "
+                           + "is a threshold over a hash of the shared clock, so one number is all it "
+                           + "takes for two clients to select the same slots. The 'EasterEggs' switch "
+                           + "is NOT taken from the host and never will be — a number may change how "
+                           + "many apparitions you see, never whether you see any.");
+    }
+
+    /// <summary>No host frequency applies any more (single player, no peer in this environment, or
+    /// this client IS the owner). The local dial governs again from the next tick.</summary>
+    internal static void ClearHostFrequency(string why)
+    {
+        if (_hostFrequency < 0f)
+            return;
+
+        float was = _hostFrequency;
+        int owner = _hostFrequencyOwner;
+        _hostFrequency = -1f;
+        _hostFrequencyOwner = 0;
+        VRLog.Info("Core", $"HAUNT FREQUENCY: player {owner}'s {was:F2} no longer applies ({why}); this "
+                           + "client's own dial governs again from the next tick"
+                           + (_bound ? $", at {Mathf.Clamp01(Frequency.Value):F2}." : "."));
     }
 
     // ---- TEST TRIGGER — one button per apparition -------------------------------------------------
@@ -203,12 +327,31 @@ internal static partial class Haunt
     // about them is a hash of the shared clock inside EnvHaunt.cginc. So the trigger is published the
     // way everything else about this feature is — one uniform, one writer, see ForceChannelName.
     //
-    // MULTIPLAYER: ZERO WIRE, and here that is not even a decision to defend. A haunt is not state;
-    // the schedule is a pure function of the shared clock. Forcing one changes what THIS client's
-    // shader draws and nothing else — a peer keeps computing and showing the real schedule, and there
-    // is no value anywhere for the two to disagree about. THE LATCH DOES NOT WEAKEN THAT: it changes
-    // how long this client draws differently, not what any client publishes, so a force left standing
-    // for an hour is exactly as invisible to a peer as one that lasted a second.
+    // MULTIPLAYER: ON THE WIRE SINCE 2026-08-15, and the paragraph that stood here said the opposite.
+    // It read: "ZERO WIRE, and here that is not even a decision to defend. A haunt is not state; the
+    // schedule is a pure function of the shared clock. Forcing one changes what THIS client's shader
+    // draws and nothing else." USER RULING (verbatim): "Auch wenn jemand im Debugmenu ein Event
+    // startet sollte dies auch von ALLEN im Multiplayer sichtbar sein statt nur lokal, also
+    // synchronisiert werden."
+    //
+    // EVERY FACTUAL CLAUSE OF THE OLD PARAGRAPH IS STILL TRUE and none of them was the question. A
+    // haunt still is not game state, the schedule still is a pure function of the shared clock, and
+    // there still is no value the game could desync over. What was wrong was the inference: "it
+    // cannot break anything" is not an argument that a tester's press should be invisible to the
+    // people sitting at the same table.
+    //
+    // WHAT TRAVELS IS THE LATCH, NOT THE ANIMATION — extension record 32 (Net/RemoteTestTriggers):
+    // one style byte, one card id, two element masks and the press time on the shared clock. Every
+    // receiver evaluates that against its own copy of the same clock, so both headsets play the same
+    // apparition, in the same place, on the same second, and the loop stays in phase from one
+    // 8-byte statement because the anchor sent is the PRESS time and never the current run.
+    //
+    // LOCAL SETTINGS HAVE PRECEDENCE, which is why this file needed almost no change: a peer's force
+    // is refused at the door by Net/RemoteTestTriggers.Drive unless the receiver's own environment
+    // dial matches the sender's AND their EasterEggs switch is on, so it never becomes a latch here
+    // at all. The `!EasterEggs.Value && !Forcing` gate in Tick therefore still means exactly what it
+    // always meant — a LOCAL press overrides the LOCAL switch, on the tester's own headset, by their
+    // own hand — and a remote one cannot reach it.
 
     /// <summary>
     /// How many forceable events a haunted room has — the card count both rooms are built with
@@ -427,6 +570,18 @@ internal static partial class Haunt
     /// the test page asks once per row after every press so the tester can see which.</summary>
     internal static bool IsForced(int id) => _forceId >= 0 && _forceId == id;
 
+    /// <summary>The latched apparition's card index, or -1 for none. Read by the net layer
+    /// (<c>Net/RemoteTestTriggers</c>) both to publish the local latch and to decide whether a peer's
+    /// latch is already standing here — reading the truth back out of this one field is what makes
+    /// that reconciliation idempotent, which matters because <see cref="Force"/> is a TOGGLE.</summary>
+    internal static int ForcedId => _forceId;
+
+    /// <summary>Shared-clock time the latch was PRESSED — not the current run, which
+    /// <see cref="Tick"/> moves forward one loop at a time. It is what goes on the wire, because it
+    /// is constant while the latch stands and therefore lets two clients loop the same apparition
+    /// from the same origin with no further traffic.</summary>
+    internal static float ForcedLatchedAt => _forceLatchedAt;
+
     /// <summary>
     /// TOGGLE one apparition's latch: play it, and keep replaying it, until this same button is
     /// pressed again. Returns false — and says why in the log — when there is no haunted room to play
@@ -459,7 +614,22 @@ internal static partial class Haunt
     /// feature off would be drawn nowhere.</para>
     /// </summary>
     /// <param name="id">Event id — the room's card index, 0..<see cref="EventCount"/>−1.</param>
-    internal static bool Force(int id)
+    internal static bool Force(int id) => Force(id, float.NaN);
+
+    /// <summary>
+    /// As <see cref="Force(int)"/>, but anchored at a GIVEN shared-clock time instead of "now".
+    ///
+    /// <para>The net layer adopts a peer's latch through this overload (extension record 32): the
+    /// record carries the moment the tester PRESSED, so both clients loop the apparition from the
+    /// same origin with the same period and stay in phase forever without another byte. Anchoring at
+    /// "now" instead would put the two headsets a packet's latency apart permanently, and would make
+    /// a late-joining client's phase depend on when it happened to arrive.</para>
+    ///
+    /// <para>A non-finite <paramref name="sinceSharedClock"/> means "now", which is what the local
+    /// button's overload passes — the two callers therefore share one implementation and there is
+    /// exactly one place that writes the latch.</para>
+    /// </summary>
+    internal static bool Force(int id, float sinceSharedClock)
     {
         if (!_bound)
             Rig.RenderQuality.Bind();
@@ -498,7 +668,9 @@ internal static partial class Haunt
         int dropped = _forceId;
         SkyStyle room = SkyAlternative.Style.Value;
         _forceId = id;
-        _forceSince = SkyAlternative.EnvClockSeconds;
+        _forceSince = float.IsNaN(sinceSharedClock) || float.IsInfinity(sinceSharedClock)
+            ? SkyAlternative.EnvClockSeconds
+            : sinceSharedClock;
         _forceLatchedAt = _forceSince;
         _forceLooped = false;
         float loop = ForceLoopSeconds(room, id);
@@ -514,7 +686,7 @@ internal static partial class Haunt
                                     + "apparitions at once is not a capability this channel has. "
                                   : string.Empty)
                            + $"{ForceChannelName} = ({id + 1:F1}, {_forceSince:F2}, 0, 0) and "
-                           + $"{ChannelName} = (master 1, frequency {Mathf.Clamp01(Frequency.Value):F2}, "
+                           + $"{ChannelName} = (master 1, frequency {EffectiveFrequency:F2}, "
                            + "0, 0) from the next tick; while the latch stands, the shader plays this "
                            + "one event from phase (clock - y) / duration and suppresses the scheduled "
                            + $"ones. IT LOOPS every {loop:F2}s — the card's own authored "
@@ -530,9 +702,16 @@ internal static partial class Haunt
                                     + "collapses every apparition to a point and there would be nothing "
                                     + "to judge; the setting itself is untouched and stands again the "
                                     + "moment the latch goes")
-                           + ". LOCAL TEST AID ONLY: a haunt is not game state and not on the wire — a "
-                           + "peer keeps computing the real schedule from the same shared clock and is "
-                           + "unaffected. Only this headset draws differently.");
+                           + ". SYNCHRONISED SINCE 2026-08-15: this latch goes on the wire as extension "
+                           + "record 32 whenever THIS client owns the override, so every player in the "
+                           + "session who has the same environment selected and 'EasterEggs' on plays "
+                           + "the same apparition, in the same place, on the same second — the record "
+                           + "carries the PRESS time, and each client evaluates it against its own copy "
+                           + "of the shared environment clock, so the loop stays in phase without a "
+                           + "single further byte. It is still not game state: no schedule and no "
+                           + "animation travels, and a peer whose environment differs or whose switch "
+                           + "is off simply does not see it and is NOT desynced. See "
+                           + "Net/RemoteTestTriggers for who owns the override and how it is released.");
         return true;
     }
 
@@ -689,7 +868,11 @@ internal static partial class Haunt
             }
         }
 
-        float freq = Mathf.Clamp01(Frequency.Value);
+        // THE HOST'S NUMBER IN A SESSION, the player's own dial otherwise — see EffectiveFrequency.
+        // Resolve() reads the SAME property, and it has to: the C# mirror decides which slots make a
+        // SOUND and the shader decides which make a picture, so a divergence here would be a cue with
+        // nothing to cue.
+        float freq = EffectiveFrequency;
 
         // MASTER IS 1 WHILE A FORCE STANDS even if the player's switch is off — see Force(): with 0
         // the shader collapses every apparition's quad and the forced event would be drawn nowhere.
@@ -713,13 +896,21 @@ internal static partial class Haunt
                                         + "setting itself is off and takes over again the moment the "
                                         + "latch is released")
                                + ". "
-                               + $"{ChannelName} = (master 1, frequency {freq:F2}, 0, 0). Everything the "
+                               + $"{ChannelName} = (master 1, frequency {freq:F2}"
+                               + (_hostFrequency >= 0f
+                                      ? $" TAKEN FROM PLAYER {_hostFrequencyOwner}, the owner of this "
+                                        + "client's shared environment clock; the local dial says "
+                                        + $"{Mathf.Clamp01(Frequency.Value):F2} and is ignored for the "
+                                        + "session"
+                                      : " from this client's own dial — no host value applies")
+                               + ", 0, 0). Everything the "
                                + "apparitions do is a pure function of the SHARED environment clock "
-                               + "(SkyAlternative.EnvClockSeconds), so every player in this scenario sees the "
-                               + "same event in the same place at the same second with ZERO wire traffic. The "
-                               + "frequency dial is a monotone SUBSET of that one schedule, never a different "
-                               + "schedule — a lower setting shows fewer of exactly the same events, not "
-                               + "other ones.");
+                               + "(SkyAlternative.EnvClockSeconds), so every player in this scenario who has "
+                               + "the same environment selected sees the same event in the same place at the "
+                               + "same second with ZERO wire traffic for the events themselves. The frequency "
+                               + "is a monotone SUBSET selector over that one schedule, never a different "
+                               + "schedule — which is exactly why taking one number from the host is enough "
+                               + "to make the SETS identical too.");
         }
         _zeroed = false;
     }

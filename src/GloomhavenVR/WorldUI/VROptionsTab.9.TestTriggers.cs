@@ -53,17 +53,28 @@ namespace GloomhavenVR.WorldUI;
 /// (scenario end, VR stand-down, mixed reality, a style change) still drops every latch on its way
 /// out — both StandDown implementations clear the force BEFORE their own idempotence guard.</para>
 ///
-/// <para><b>MULTIPLAYER: HARMLESS BY CONSTRUCTION, which is worth stating because the project's
-/// standing rule is that everything is synchronised 1:1 and this is a deliberate, narrow exception.</b>
-/// A press changes only what THIS client draws, and THE LATCH DOES NOT CHANGE THAT — it changes how
-/// long, not what. The element force is applied between sensing and publishing in
-/// <see cref="ElementMood"/> — the game's element board is read and never written, for one latched
-/// element or for six, which matters because that board is a desync invariant the game compares every
-/// round (the full citation is in ElementMood, at the override). A haunt force is a shader global; a
-/// haunt is not state at all, so a peer keeps computing the real schedule from the shared clock and
-/// is unaffected, including while this client loops a forced one. Nothing here goes on the wire,
-/// nothing here is a game action, and there is no value anywhere for two clients to disagree
-/// about — a peer cannot tell that a latch is standing at all.</para>
+/// <para><b>MULTIPLAYER: SYNCHRONISED SINCE 2026-08-15, and this paragraph used to argue the exact
+/// opposite.</b> It read: "HARMLESS BY CONSTRUCTION ... A press changes only what THIS client draws
+/// ... Nothing here goes on the wire ... a peer cannot tell that a latch is standing at all." The
+/// user has ruled otherwise, verbatim: "Auch wenn jemand im Debugmenu ein Event startet sollte dies
+/// auch von ALLEN im Multiplayer sichtbar sein statt nur lokal, also synchronisiert werden."</para>
+///
+/// <para>What the old paragraph got RIGHT is untouched and is why the change cost this file two
+/// lines: the element force is still applied between sensing and publishing in
+/// <see cref="ElementMood"/>, so the game's element board — a desync invariant it compares every
+/// round — is still read and never written, for one latched element or for six; and a haunt force is
+/// still only a shader global over a schedule that is not state. Nothing here is a game action and
+/// there is still no value the game could desync over. What travels is the LATCH SET (extension
+/// record 32, <c>Net/RemoteTestTriggers</c>): a style, a card id, six element bits per column and the
+/// press time on the shared clock. Every receiver evaluates that against its own copy of the same
+/// clock, so a press is seen by everyone, in the same place, on the same second.</para>
+///
+/// <para><b>AND THE LOCAL SETTINGS STILL WIN</b> (user ruling, same day: "die lokalen Einstellungen
+/// haben Vorrang"). A peer's press reaches this client only if its own environment dial matches
+/// theirs and the relevant feature switch is on; otherwise it is a silent no-op, and a player who
+/// has switched the horror or the element response off is NOT desynced and is never corrected.
+/// The local view is never routed through the network either: the button below calls
+/// <c>Force</c> directly and the environment answers on the same frame, exactly as it did before.</para>
 ///
 /// <para><b>NO NEW CONFIG ENTRIES, deliberately.</b> The ten-file localisation footprint an option
 /// costs (bound description, German description, catalog name, curated row, dependency rule, …) buys
@@ -150,8 +161,12 @@ internal static partial class VROptionsTab
         BuildHeader(ContentRoot, Loc.Mod("vr_tt_page"), "h_vr_tt_page");
 
         // FOUR NOTES, AND THEY ARE THE FEATURE'S SAFETY RAILS, not decoration:
-        //   1. what it does not touch (local only, nothing sent, no game state) — the standing
-        //      "everything is synchronised" rule means a reader must be told where the exception is;
+        //   1. what it does and does not touch. It USED to read "local only, nothing sent, no game
+        //      state" and be an exception to the standing "everything is synchronised" rule; since
+        //      2026-08-15 it is not an exception at all — a press is shared with every player who
+        //      has the same environment and the feature on — and what the note has to carry now is
+        //      the part that is still true and still surprising: no GAME state changes, and the
+        //      other players' own settings still decide what they see;
         //   2. HOW THE ROWS BEHAVE — press = on and stays on, press again = off, several elements at
         //      once. It is the first note a tester needs and the one thing about this page that is
         //      not guessable from a row that says "Feuer"; it is also where the user's own reason
@@ -189,6 +204,11 @@ internal static partial class VROptionsTab
                                   + "Both channels go back to the real state; nothing else is touched.");
             ElementMood.ClearForce("the tester pressed 'all test triggers off'");
             Haunt.ClearForce("the tester pressed 'all test triggers off'");
+            // …AND EVERY PEER'S TOO. The stop row is this page's guarantee that one press gets back
+            // to the real state, and since 2026-08-15 the override is shared — so the guarantee has
+            // to reach the people who are seeing it. Taking ownership with an empty set is what
+            // makes the net layer transmit its explicit release burst.
+            Net.RemoteTestTriggers.NoteLocalPress("all test triggers off");
             RefreshLatchRows();
         }, asAction: true);
         rows++;
@@ -215,6 +235,12 @@ internal static partial class VROptionsTab
                              () =>
                              {
                                  ElementMood.Force(element, waning);
+                                 // AFTER the force, never before: NoteLocalPress only says "this
+                                 // client owns the shared override now", and it publishes whatever
+                                 // the two channels hold at that moment. Calling it first would
+                                 // broadcast the state before the press.
+                                 Net.RemoteTestTriggers.NoteLocalPress($"element {element} "
+                                                                       + (waning ? "waning" : "strong"));
                                  RefreshLatchRows();
                              }, asAction: true),
                 () => LatchCaption(name, ElementMood.IsForced(element, waning)));
@@ -322,6 +348,7 @@ internal static partial class VROptionsTab
                 BuildLinkRow(ContentRoot, LatchCaption(caption, Haunt.IsForced(id)), () =>
                 {
                     Haunt.Force(id);
+                    Net.RemoteTestTriggers.NoteLocalPress($"apparition {id}");
                     RefreshLatchRows();
                 }, asAction: true),
                 () => LatchCaption(caption, Haunt.IsForced(id)));

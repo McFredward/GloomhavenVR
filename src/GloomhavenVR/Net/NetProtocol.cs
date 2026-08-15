@@ -416,7 +416,104 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 149;
+    public const ushort ModBuild = 150;
+    // Build 150: THE DEBUG TEST TRIGGERS AND THE EASTER-EGG FREQUENCY ARE SYNCHRONISED. Three user
+    // rulings in one round, and the third governs the other two:
+    //   * "Auch wenn jemand im Debugmenu ein Event startet sollte dies auch von ALLEN im
+    //     Multiplayer sichtbar sein statt nur lokal, also synchronisiert werden." -> NEW extension
+    //     record 32 (DEBUG TEST-TRIGGER OVERRIDE, 8 bytes): the latched apparition and the latched
+    //     element mixture, plus the shared-clock time the apparition was PRESSED. A state, never a
+    //     stream - each client evaluates it against its own copy of the shared environment clock.
+    //     Ownership is LAST WRITER WINS over one shared set; the release is EXPLICIT (an all-zero
+    //     record burst), with staleness only as the backstop.
+    //   * "Die Haeufigkeit von Easter Eggs (da alle es ja synchron sehen sollen) soll vom HOST
+    //     genommen werden im MP." -> extension record 31 grew a SIXTH BYTE, the haunt frequency in
+    //     hundredths. It rides the clock record so that "the host" and "the environment-clock owner"
+    //     cannot be two different clients. The dial is a threshold over a hash of that very clock,
+    //     so one number makes every client's SET of events identical, not merely nested.
+    //   * "die lokalen Einstellungen haben Vorrang." -> the wire carries the SCHEDULE OVERRIDE, the
+    //     local settings carry the PERMISSIONS. [Sky] Style, [Haunt] EasterEggs and [Elements]
+    //     EnvironmentResponse are never transmitted and never overridden; a synced override reaches
+    //     a client only where the environment dial matches AND that client's own switch is on. A
+    //     player with a feature off is not desynced and is never corrected.
+    // WIRE: additive only. Format stays v3 - record 32 is a new TLV old readers skip by length, and
+    // record 31's sixth byte is skipped the same way. Every packet of every player who is not
+    // holding a debug latch is byte-identical to build 149's.
+    //
+    // ...AND THE SAME BUILD CARRIES THE ENVIRONMENT ROUND, whose through-line is that FOUR OF THE
+    // SIX FINDINGS WERE ALREADY ANSWERED BY THE INSTRUMENTS 149 SHIPPED. That is the point worth
+    // keeping: every one of these was read out of Player.log before a line was changed.
+    //
+    // THE FIGURES WERE STILL BRIGHT BECAUSE OF A TYPE BUG, and Unity had been printing it all along:
+    // "Material 'MO_Cultist_HighPriest_MAT_2Side' with Shader 'Amp_Char_Shader_2Side' doesn't have a
+    // color property '_Diffuse'". On that shader `_Diffuse` is the albedo TEXTURE. HasProperty
+    // answers TRUE (the name exists), GetColor logs that error and returns (0,0,0,0), and BindTint's
+    // near-black guard - written for a deliberately black cloth - then dropped the material
+    // SILENTLY. Every miss is Amp_Char_Shader_2Side and every hit is Amp_Char_Shader; the base game
+    // has the same hole (Choreographer gates its own monster tint on shader.name == "Amp_Char_
+    // Shader"). Measured on the user's photograph: the untinted material carried 37% of everything
+    // the figure emitted, and between builds the figure/trunk ratio fell 16.0 -> 5.8 while the mean
+    // saturation of what remained ROSE 0.253 -> 0.437 - a uniform multiply was making the figure
+    // MORE COLOURFUL as it darkened it. Now: the property TYPE is resolved off the shader, a
+    // material with no lever is donated onto a sibling shader that has one (verified and reverted if
+    // it does not take), and the darkening DESATURATES toward the room's own light colour, which is
+    // what an object seen by almost no light really does.
+    //
+    // "TELEPORTIERT SICH" WAS THE GAIT, and 149's AnimPin proved it by measuring 0.00 mm of clip
+    // travel. RunBlend is a BLEND WEIGHT, not a speed, and the mod held it at 0.55 for every
+    // creature at every speed. ActorBehaviour ramps it at +1.0/s into a hard clamp at 1.0, so the
+    // game's sustained travel sits at ONE and 0.55 is its value for something barely moving: half a
+    // standing idle played over a 1.4 m/s glide, which is exactly what "the body jumps between
+    // footfalls" looks like. Now derived from speed, creature scale and the walk clip's own length;
+    // and the wood's crossing was slowed 1.62 -> 1.06 m/s, so it strolls instead of hurrying.
+    //
+    // THE SHELF BANG had three independent faults and only one was the level. (1) POSITION: the
+    // fallback returned the welded haunt catalogue's bounds - and card 5 IS NOT IN IT (the bake
+    // prints "0 verts"), so x/z averaged the apparitions that are not the shelf, while y came from a
+    // bounds box HauntPropMesh deliberately expands by twice the object height so a fallen bookcase
+    // is not frustum-culled. The floor was read out of a bounds lie: 107 world units out, on the
+    // other side of the room. (2) ROLLOFF, the term nobody had costed: the logged 0.264 is what was
+    // WRITTEN; at the head pose in the log Unity's curve took another 4.6 dB and 0.156 arrived - and
+    // fixing the position alone would have made it 0.044, QUIETER than the round he complained
+    // about. minMeters now spans the room. (3) SPECTRUM: 149 moved 19.6% above 1 kHz and that was
+    // not enough - 72.7% still sat under 200 Hz, and more of the rest was above 5 kHz than in the
+    // whole 1-5 kHz band. The envelope was never the defect; the CREST FACTOR was, at 15 dB, so most
+    // of the user's written exception was being spent on one inaudible noise sample. Added the
+    // BOARDS (a 18 mm pine shelf's first five plate modes are 525-2098 Hz, exactly the empty band)
+    // and one soft-clip. Through a 200 Hz high-pass: +7.4 dB at the same peak, 0.156 -> 0.528 at his
+    // own settings. (4) And it was usually DROPPED: one debounce latch served both event streams, so
+    // a test latch overwrote it and the real card 5 re-entered 8.7 s into its 25 s span with every
+    // contact already in the past. Now two latches, and an event joined too late is skipped WHOLE -
+    // never a creak with no landing.
+    //
+    // THE ICE'S BLACK STRIPES were a periodic lattice a comment had asserted was irregular. Three
+    // fixed wave vectors on a plane give straight, parallel, unbroken level sets; incommensurate
+    // PERIODS vary the cell size and never the direction. Autocorrelation of the seam signal along a
+    // 6 m line, worst over eight bearings: +0.923 at a 14.4 cm lag -> +0.166 at a different lag on
+    // every bearing. And the second half was a judgement call made the wrong way: A CRACK IN ICE IS
+    // BRIGHT. A fracture surface scatters; the boundary now reads +37% instead of -63%.
+    //
+    // LIGHT+DARK TOGETHER WAS BLACK because Dark won twice - it crushed the ambient to a fifth with
+    // no Light term AND eclipsed the moon. Three new terms, every one carrying `light * dark`, so no
+    // state with either element at zero moves by a single bit (verified: worst deviation 0.000e+00
+    // over the whole grid). The cellar at both-full goes from ambient 0.200 / moon 0.161 to 0.480 /
+    // 1.322: a dim room with a distinctly brighter shaft.
+    //
+    // THE FIRE'S LOOP-AND-SNAP was measured, not guessed, with a new uniform preview time series:
+    // frame-to-frame difference dips 3.22x at t = 1.765 s, and 1/_PuffHz = 1.818 s. EVERY PUFF CARD
+    // IN EVERY FIRE RAN AT EXACTLY THE SAME RATE - only the phases were spread, which hides synchrony
+    // in a still and does nothing to the ensemble's period. Per-card rates now span 1.42-2.53 s and
+    // the dip is 1.11x. The erosion wrap was suspected, checked and CLEARED (the wrap is an offset,
+    // so 149's tileV change could not have broken it) - but the atlas's coarse octave is not
+    // perfectly tileable (seam step 1.49x an ordinary row) and there is now a bake gate that
+    // measures it. THE HOVERING BLOBS were tamed rather than deleted (three element pairings live
+    // entirely on those cards): born inside the tongue mass, out before they clear it, and cooled to
+    // smoke by an age term. AND THE BURNING TRUNK IS NOW A GLOW, on the user's own instruction - the
+    // sector of flame cards climbing the bark is deleted, because an additive sheet pushed clear of
+    // the wood has stereo parallax against it BY CONSTRUCTION and no placement can fix that. The
+    // coal window became a capsule about the seat's axis, so the bark reads charred with fire in its
+    // fissures, brightest at the root and monotone fading to nothing by 2 m.
+    //
     // Build 149: seventeen user findings in one round, and the through-line is A CLASS OF BUG rather
     // than a list of defects: AN ELEMENT STRENGTH MULTIPLYING A FREQUENCY THAT IS THEN MULTIPLIED BY
     // ABSOLUTE TIME. No wire change; the BUNDLE IS REBUILT and must be reinstalled - nearly all of
@@ -2839,7 +2936,8 @@ internal static class NetProtocol
     ///
     /// <para>RECORD-ID CLAIM, 2026-08-11: this change takes id 30 — the first of the free range the
     /// record-29 note left open. Declared beside record 8 because the held-figure records belong
-    /// together. Ids in use are now 1..17, 22..30; 18..21 stay reserved; 31+ are free.</para>
+    /// together. Ids in use are now 1..17, 22..32 (31 = SHARED ENVIRONMENT CLOCK, 32 = DEBUG
+    /// TEST-TRIGGER OVERRIDE, both declared below); 18..21 stay reserved; 33+ are free.</para>
     ///
     /// <para>WHY IT EXISTS (user request 2026-08-11, verbatim: "Ich möchte, dass die Größe der
     /// Figur in der Hand änderbar ist. Dabei stelle ich mir vor, dass ich mit der anderen Hand zu
@@ -2922,9 +3020,67 @@ internal static class NetProtocol
     /// </summary>
     public const byte ExtIdEnvClock = 31;
 
-    /// <summary>Payload length of <see cref="ExtIdEnvClock"/>: one style byte + u32 milliseconds
-    /// LE. A reader requires at least this much before it trusts the record.</summary>
+    /// <summary>Payload length of <see cref="ExtIdEnvClock"/> BEFORE the frequency byte — one style
+    /// byte + u32 milliseconds LE. A reader requires at least this much before it trusts the
+    /// record; the LENGTH byte, not this constant, is what a reader walks by.</summary>
     public const int EnvClockRecordBytes = 5;
+
+    /// <summary>
+    /// Payload length of <see cref="ExtIdEnvClock"/> WITH the haunt-frequency byte — the length
+    /// every current sender writes. The extra byte is <c>round(frequency × 100)</c>, 0..100.
+    ///
+    /// <para><b>USER RULING, 2026-08-15 (verbatim):</b> "Die Häufigkeit von Easter Eggs (da alle es
+    /// ja synchron sehen sollen) soll vom HOST genommen werden im MP." The apparition schedule is a
+    /// THRESHOLD over a per-slot hash (<c>H(slot, RATE) &lt; frequency</c>, <c>EnvHaunt.cginc</c>),
+    /// so two clients on different dials see NESTED sets rather than the same set — a player at 0.9
+    /// sees a strict superset of a player at 0.5. That nesting was the original design and it is
+    /// exactly what the ruling overturns. Because it is a threshold on a schedule that is already
+    /// identical, ONE NUMBER makes the sets identical too: no event ever goes on the wire.</para>
+    ///
+    /// <para><b>WHY IT RIDES RECORD 31 RATHER THAN A RECORD OF ITS OWN.</b> "The host" must be the
+    /// same client that already owns this environment — the clock owner elected from this very
+    /// record (the lowest player id reporting the same style). Two records could disagree about who
+    /// that is for a packet or two, and a frequency taken from one client while the clock comes from
+    /// another is a schedule evaluated against someone else's seconds. Carrying both in ONE record
+    /// makes the pair atomic by construction, at the cost of one byte on a record that is only
+    /// written while a haunted environment really stands.</para>
+    ///
+    /// <para><b>ADDITIVE WITHIN THE RECORD.</b> A reader that only knows the 5-byte form still
+    /// requires <c>len &gt;= 5</c>, reads the style and the clock exactly as before, and steps over
+    /// the sixth byte with the record's own length — the same mechanism
+    /// <see cref="BoardUiRecordBytesWithCap"/> uses. No new record id, no wire-version bump.</para>
+    ///
+    /// <para><b>THE MASTER SWITCH DELIBERATELY DOES NOT TRAVEL.</b> <c>[Haunt] EasterEggs</c> stays
+    /// LOCAL and there is no bit here for it. The standing settings ruling is that a setting may
+    /// only configure OPTIONAL CONTENT and COMFORT, and this one is both: a player who switched the
+    /// horror off must not have it switched back on by whoever happens to own the clock. A client
+    /// with it off simply sees nothing, which is not a disagreement anyone in the room can observe;
+    /// a client forced to see horror it opted out of is a real harm. Do not "complete" this feature
+    /// by syncing the switch.</para>
+    /// </summary>
+    public const int EnvClockRecordBytesWithFrequency = 6;
+
+    /// <summary>The largest haunt-frequency code <see cref="ExtIdEnvClock"/> can carry: the dial is
+    /// 0..1 and travels in hundredths, so 100 is 1.0. A higher code is a corrupt or newer sender and
+    /// is CLAMPED rather than dropped — the value is a threshold with no meaning outside [0,1], and
+    /// clamping it lands on "show every event the schedule holds", which is a picture rather than an
+    /// error.</summary>
+    public const byte EnvClockFrequencyMaxCode = 100;
+
+    /// <summary>Quantize a 0..1 haunt frequency to its wire hundredths code. NaN/non-finite degrade
+    /// to 0 — "show nothing" is the safe direction for a number that gates content, and it is the
+    /// same answer the dial's own 0 gives.</summary>
+    public static byte EncodeHauntFrequency(float frequency)
+    {
+        if (float.IsNaN(frequency) || float.IsInfinity(frequency))
+            return 0;
+        int code = UnityEngine.Mathf.RoundToInt(frequency * 100f);
+        return (byte)UnityEngine.Mathf.Clamp(code, 0, EnvClockFrequencyMaxCode);
+    }
+
+    /// <summary>Decode a haunt-frequency code back to 0..1, clamped to the code ceiling.</summary>
+    public static float DecodeHauntFrequency(int code) =>
+        code <= 0 ? 0f : (code >= EnvClockFrequencyMaxCode ? 1f : code / 100f);
 
     /// <summary>The largest <see cref="ExtIdEnvClock"/> style code a reader will believe. It is
     /// <c>SkyStyle.SwampNight</c> = 2, the last style that has animated content; a higher value is a
@@ -2932,6 +3088,166 @@ internal static class NetProtocol
     /// must never be decided by a code this build cannot name. Default (0) and OffBlack (3) are not
     /// written at all — see the record doc.</summary>
     public const byte EnvClockMaxStyleCode = 2;
+
+    // ---- record 32: DEBUG TEST-TRIGGER OVERRIDE ------------------------------------------------
+    // RECORD-ID CLAIM, 2026-08-15: this change takes id 32 — the first of the free range the
+    // record-31 note left open. Ids in use are now 1..17, 22..32; 18..21 stay reserved for the
+    // parallel round that claimed them; 33+ are free. No existing record was widened for it.
+
+    /// <summary>
+    /// Extension record id: THE ERWEITERT MENU'S TEST-TRIGGER OVERRIDE — which apparition and which
+    /// element moods the sender has LATCHED from the debug page, so that every player in the room
+    /// sees the same thing at the same moment.
+    ///
+    /// <para><b>USER RULING, 2026-08-15 (verbatim):</b> "Auch wenn jemand im Debugmenu ein Event
+    /// startet sollte dies auch von ALLEN im Multiplayer sichtbar sein statt nur lokal, also
+    /// synchronisiert werden."</para>
+    ///
+    /// <para><b>THIS REVERSES A DECISION THAT WAS WRITTEN INTO THE CODE, and the old argument is
+    /// worth stating because it was not wrong, only answering a different question.</b> Both
+    /// overrides were built as LOCAL test aids and said so in as many words: a haunt is not game
+    /// state (a peer keeps computing the real schedule from the same shared clock), and the element
+    /// force is applied between SENSING and PUBLISHING so the game's element board — a desync
+    /// invariant the game compares every round — is read and never written. Both of those facts are
+    /// STILL TRUE and both still hold with this record: nothing here is game state, nothing here
+    /// touches <c>ElementInfusionBoardManager</c>, and the end-of-round compare still has nothing to
+    /// disagree about. What changed is the REQUIREMENT: the user wants the tester's press to be
+    /// visible to everyone, and "it cannot desync the game" was never an argument that it should be
+    /// invisible.</para>
+    ///
+    /// <para><b>LAYOUT — <see cref="TestForceRecordBytes"/> = 8 bytes:</b></para>
+    /// <code>
+    ///   [0] style        — the sender's ENVIRONMENT DIAL (SkyStyle: 0 Default, 1 Cellar,
+    ///                      2 SwampNight, 3 OffBlack). A COMPARISON KEY and nothing else.
+    ///   [1] haunt        — forced apparition card index PLUS ONE; 0 = none. Same +1 convention as
+    ///                      the shader channel _GhvrHauntForce.x, and for the same reason: it makes
+    ///                      card 0 expressible without a second flag.
+    ///   [2] strongMask   — bit i set = element i latched to STRONG   (i = EElement order, 0..5)
+    ///   [3] waningMask   — bit i set = element i latched to WANING
+    ///   [4..7] u32 LE    — the SHARED-CLOCK millisecond at which the apparition latch was PRESSED.
+    /// </code>
+    ///
+    /// <para><b>THE GOVERNING RULE — LOCAL SETTINGS ARE A FILTER ON THE SYNCED STATE, NEVER THE
+    /// OTHER WAY ROUND. USER RULING, 2026-08-15 (verbatim):</b> "Die Events können verständlicherweise
+    /// nur syncen, wenn die Spieler die selbe Umgebung eingestellt haben. Das soll lokal eingestellt
+    /// sein. Genauso, wenn lokal der Spieler Events oder Elemente ausgeschaltet hat sieht er sie auch
+    /// nicht. D.h. die lokalen Einstellungen haben Vorrang. Sind die Spieler aber in der selben
+    /// Umgebung und haben die Events oder Element-Effekte eingeschaltet sollen all diese Spieler die
+    /// Effekte zusammen gleichzeitig gesynced erleben."</para>
+    ///
+    /// <para><b>THE MENTAL MODEL THAT FOLLOWS FROM IT: the wire carries the SCHEDULE OVERRIDE, the
+    /// local settings carry the PERMISSIONS.</b> This record may say WHAT is happening. It may never
+    /// say whether this client is allowed to opt out of it. Written out, and it is written out here
+    /// because it is the contract the next reader will otherwise erode one exception at a time:</para>
+    /// <list type="number">
+    /// <item><c>[Sky] Style</c> — THE ENVIRONMENT — stays LOCAL, is never transmitted as an
+    /// instruction and is never overridden. A player in the cellar while another is in the forest is
+    /// a legitimate state, not a desync.</item>
+    /// <item>A synced override applies ONLY where the receiver's own dial equals the sender's. That
+    /// is why the style is in the record at all. A mismatch is a silent, logged NO-OP — never an
+    /// error, never a fallback to some other apparition, and never a reason to correct anybody.</item>
+    /// <item><c>[Haunt] EasterEggs</c> OFF ⇒ the receiver draws NO apparition, whatever any peer has
+    /// forced. The local force may still override the local switch — that is the debug aid, on the
+    /// tester's own headset, by their own press — but a PEER's force may not. Switching somebody's
+    /// horror back on for them is exactly the harm the standing settings ruling exists to prevent.</item>
+    /// <item><c>[Elements] EnvironmentResponse</c> OFF ⇒ the receiver draws NO element effect, same
+    /// rule and same reason. <c>[Elements] ResponseStrength</c> is deliberately NOT treated as a
+    /// permission: it is a MAGNITUDE the player chose, it scales a synced force exactly as it scales
+    /// a real infusion, and showing somebody an intensity they did not configure would be a
+    /// different lie. It is not host-driven and the user has not asked for it to be.</item>
+    /// <item>Style equal AND the local switch on ⇒ the effect is genuinely shared: same event, same
+    /// place, same second. That is the whole point of the round.</item>
+    /// </list>
+    ///
+    /// <para>A client that has the feature off IS NOT DESYNCED and must not be logged as one. It has
+    /// exercised a setting, which is the one thing a setting is for.</para>
+    ///
+    /// <para><b>THE STYLE IS THE DIAL, NOT RECORD 31'S KEY</b>, and the difference is the point.
+    /// Record 31 asks "is a shell with animated content really standing" and answers 0 for Default,
+    /// for OffBlack and under mixed reality, because it is negotiating a CLOCK that only those two
+    /// shells need. This record asks the user's own question — "haben die Spieler die selbe Umgebung
+    /// eingestellt" — which is about the SETTING, so Default and OffBlack are real answers here and
+    /// two players who are both on Default are in the same environment. It also means a player in
+    /// mixed reality still matches their own dial, which is what lets the ELEMENT half keep reaching
+    /// them: the element mood deliberately keeps publishing under passthrough.</para>
+    ///
+    /// <para><b>WHY A STATE AND NOT A STREAM.</b> Both subsystems are pure functions of the shared
+    /// environment clock (<see cref="ExtIdEnvClock"/>, already synchronised), so a receiver that
+    /// knows WHICH override is latched can evaluate it against its own copy of that clock and arrive
+    /// at the same picture, frame for frame, with no further traffic. Sending poses or phases would
+    /// cost a stream to reproduce something both ends can compute.</para>
+    ///
+    /// <para><b>WHY THE PRESS TIME AND NOT THE CURRENT RUN.</b> A latched apparition LOOPS, and the
+    /// loop is nothing but the C# side moving <c>_GhvrHauntForce.y</c> forward by one period at a
+    /// time. Sending that moving anchor would change the record's bytes every few seconds and would
+    /// let a late packet shove a receiver's run forward mid-play. The PRESS time never moves while
+    /// the latch stands, so the record is constant, and both ends loop from the same origin with the
+    /// same period — identical phase, forever, from one 8-byte statement.</para>
+    ///
+    /// <para><b>BOTH HALVES ARE STYLE-GATED</b>, which the ruling settles: the user's sentence names
+    /// "Events oder Element-Effekte" together, under one condition ("in der selben Umgebung"). An
+    /// earlier draft of this record applied the element half regardless of style, on the argument
+    /// that <c>ElementMood</c> is scoped to the SCENARIO rather than to a shell. That argument is
+    /// true of the element mood itself and it is not the question the user answered.</para>
+    ///
+    /// <para><b>THE ELEMENT HALF CARRIES NO ANCHOR, deliberately.</b> An element force is a STATE:
+    /// each client's own <c>ElementMood</c> poll sees the column change and anchors its 1 s ramp
+    /// then, exactly as it does for a real infusion. That leaves the same bounded DETECTION SKEW a
+    /// real infusion already has (a frame of polling plus the packet), which is a few percent of the
+    /// ramp; the waning BREATH, the part with a phase to get wrong, is an absolute function of the
+    /// shared clock and is therefore already identical.</para>
+    ///
+    /// <para><b>MASKS, NOT AN INDEX, because the element half is explicitly about MIXTURES</b> (the
+    /// user's own reason for the latch: "So kann ich die Mischungen besser testen"). Two masks
+    /// rather than two bits per element keeps the record readable in a hex dump and leaves the
+    /// "both bits set" case available as a corruption signal — an element cannot be in two columns,
+    /// so a reader drops such an element from BOTH masks rather than guessing which was meant.</para>
+    ///
+    /// <para><b>ABSENCE IS MEANINGFUL AND IS THE COMMON CASE</b>: the record is written only while
+    /// the sender OWNS a standing override, plus a short explicit-release burst after the last latch
+    /// goes. Every player who is not holding a debug latch emits the exact bytes previous builds
+    /// emitted. An ALL-ZERO record is legal and is that explicit release — it is how a receiver
+    /// learns "the override is over" without waiting out a staleness timeout.</para>
+    ///
+    /// <para><b>CARD IDENTITY IS NOT INVOLVED.</b> The payload is an environment style, an
+    /// apparition index within a bundled room prefab, six element bits and a clock reading. Nothing
+    /// here names a card, an actor or a player.</para>
+    /// </summary>
+    public const byte ExtIdTestForce = 32;
+
+    /// <summary>Payload length of <see cref="ExtIdTestForce"/>: style + haunt code + two element
+    /// masks + u32 press-time millis LE. A reader requires at least this much before it trusts the
+    /// record.</summary>
+    public const int TestForceRecordBytes = 8;
+
+    /// <summary>The largest environment-dial code <see cref="ExtIdTestForce"/> can carry —
+    /// <c>SkyStyle.OffBlack</c> = 3, the last value the dial has. It mirrors <c>Core.SkyStyle</c>,
+    /// which cannot be referenced from here: this file is compiled into the wire tests without the
+    /// Core half of the mod. Unlike <see cref="EnvClockMaxStyleCode"/> this INCLUDES Default (0) and
+    /// OffBlack (3), because the question here is "the same setting", not "an animated shell is
+    /// standing".</summary>
+    public const byte TestForceMaxStyleCode = 3;
+
+    /// <summary>What a style code this build cannot name is rewritten to on read. It is deliberately
+    /// a value no dial can ever produce, so the receiver's plain equality test fails and the whole
+    /// override becomes a NO-OP — which is also, by the same code path, a RELEASE of anything that
+    /// sender had previously applied here. Dropping the record instead would leave a stale override
+    /// standing until the staleness backstop, which is exactly the failure the explicit-release path
+    /// exists to avoid.</summary>
+    public const byte TestForceStyleUnknown = 255;
+
+    /// <summary>Every bit <see cref="ExtIdTestForce"/>'s element masks define today — the six real
+    /// elements of the game's own <c>EElement</c> order. Masked on both write and read, so a newer
+    /// sender's extra bits can never light a meaning here.</summary>
+    public const byte TestForceElementMask = 0x3F;
+
+    /// <summary>The largest apparition card count a haunted room has, and therefore the largest
+    /// <see cref="ExtIdTestForce"/> haunt code a reader will believe (the code is index + 1, so 6
+    /// means card 5). It mirrors <c>Core.Haunt.EventCount</c>, which cannot be referenced from here:
+    /// this file is compiled into the wire tests without the Core half of the mod. A higher code is
+    /// a corrupt or newer sender and the APPARITION half is dropped whole — the element half of the
+    /// same record survives, because a poisoned field must not cost a sound one its meaning.</summary>
+    public const byte TestForceMaxHauntCode = 6;
 
     /// <summary>The neutral held-stretch milli-factor: 1000 = 1.0× = "no manual stretch". The
     /// writer omits the record when both slots quantize to this, so absence and neutrality are the

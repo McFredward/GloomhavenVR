@@ -204,7 +204,11 @@ internal static partial class Haunt
         float light = ElementMood.Live(4);
         float ice = ElementMood.Live(1);
 
-        float freq = Mathf.Clamp01(Frequency.Value) * Mathf.Clamp01(1f + 0.60f * dark - 0.35f * light);
+        // EffectiveFrequency, not Frequency.Value: in a multiplayer session the dial comes from the
+        // environment-clock owner (user ruling 2026-08-15), and this mirror MUST threshold on the
+        // same number the shader does or the cues would fire on a different subset of slots than the
+        // pictures. It is Clamp01'd inside the property.
+        float freq = EffectiveFrequency * Mathf.Clamp01(1f + 0.60f * dark - 0.35f * light);
         float master = EasterEggs.Value ? 1f : 0f;
         bool live = Step(H(slot, HcRate), freq) * Step(0.0001f, master) > 0.5f;
 

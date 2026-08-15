@@ -702,6 +702,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 _pendingExtras.Clear();
                 DestroyAllAvatars();
                 PlayerBadges.RestoreAll();
+                // The two world-wide peer tables go with the avatars: nothing of a peer's may
+                // outlive the mode that says their packets do not exist. The debug override's Reset
+                // deliberately leaves this client's OWN latches standing — they are the tester's.
+                _peerEnv.Clear();
+                Core.Haunt.ClearHostFrequency("flat-net mode: no peer's environment applies here");
+                RemoteTestTriggers.Reset();
                 VRLog.Info("Net", "FLAT-NET MODE ACTIVE: remote avatars/boards torn down; mod "
                                   + "send + receive gated for the rest of the session.");
             }
@@ -1465,7 +1471,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !decisionChanged && !decisionStateChanged && !decisionWidgetChanged
             && !useBarsChanged
             && !capLabelsChanged && !focusChanged && !trackSelChanged && !trackOrderChanged
-            && !emptyFanHintChanged && !tuningChanged && !itemClipChanged)
+            && !emptyFanHintChanged && !tuningChanged && !itemClipChanged
+            // A DEBUG PRESS PRE-EMPTS THE CADENCE. It is a discrete, human-paced act whose entire
+            // purpose is to be looked at, so up to 200 ms of cadence latency between two headsets is
+            // exactly the "did that work?" the test page exists to remove. Also true throughout the
+            // explicit-release burst, so the ALL-ZERO record is repeated rather than sent once into
+            // an unreliable stream.
+            && !RemoteTestTriggers.SendDue)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1490,7 +1502,26 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HasEnvClock = true;
             extras.EnvClockStyle = envStyle;
             extras.EnvClockMillis = Core.SkyAlternative.EnvClockMillis;
+            // …AND ITS SIXTH BYTE, THE HAUNT FREQUENCY (user ruling 2026-08-15: "Die Haeufigkeit von
+            // Easter Eggs (da alle es ja synchron sehen sollen) soll vom HOST genommen werden im
+            // MP"). It rides the clock record rather than one of its own so that "the host" and "the
+            // clock owner" can never be two different clients: the frequency is a threshold over a
+            // hash of exactly the clock this record negotiates. We publish OUR OWN dial here — the
+            // election below is what decides whose is actually used, and a follower's byte is simply
+            // never read by anyone.
+            extras.HasEnvClockFrequency = true;
+            extras.EnvClockFrequencyCode =
+                NetProtocol.EncodeHauntFrequency(Core.Haunt.Frequency != null
+                                                     ? Core.Haunt.Frequency.Value
+                                                     : Defaults.HauntFrequency);
         }
+
+        // DEBUG TEST-TRIGGER OVERRIDE (extension record 32). USER RULING, verbatim: "Auch wenn
+        // jemand im Debugmenu ein Event startet sollte dies auch von ALLEN im Multiplayer sichtbar
+        // sein statt nur lokal, also synchronisiert werden." Writes nothing at all unless THIS
+        // client owns a standing override or is stating its explicit release, so every packet of
+        // every session in which nobody opened the debug page is byte-identical to build 149's.
+        RemoteTestTriggers.Sample(ref extras);
 
         if (board != null)
         {
@@ -2675,9 +2706,18 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     if (p.HasEnvClock)
                         _peerEnv[kv.Key] = new PeerEnvClock(p.EnvClockStyle, p.EnvClockMillis,
                                                             Time.unscaledTime,
-                                                            Time.timeSinceLevelLoad);
+                                                            Time.timeSinceLevelLoad,
+                                                            p.HasEnvClockFrequency,
+                                                            p.EnvClockFrequencyCode);
                     else
                         _peerEnv.Remove(kv.Key);
+
+                    // DEBUG TEST-TRIGGER OVERRIDE (record 32). Kept in a static table for the same
+                    // reason the environment clock is: its consumers are two world-wide channels
+                    // (Haunt and ElementMood), not properties of this peer's body. A packet WITHOUT
+                    // the record forgets the peer's entry, which is what every player who is not
+                    // holding a debug latch transmits.
+                    RemoteTestTriggers.ApplyPeer(kv.Key, in p);
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
@@ -2685,19 +2725,32 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
 
         ResolveEnvClock();
+        RemoteTestTriggers.Resolve(_transport != null ? _transport.LocalPlayerId : 0);
     }
 
     /// <summary>A peer's last environment-clock reading (extension record 31) and when it
     /// arrived.</summary>
     private readonly struct PeerEnvClock
     {
-        public PeerEnvClock(byte style, uint millis, float at, float localAt)
+        public PeerEnvClock(byte style, uint millis, float at, float localAt,
+                            bool hasFrequency, byte frequencyCode)
         {
             Style = style;
             Millis = millis;
             At = at;
             LocalAt = localAt;
+            HasFrequency = hasFrequency;
+            FrequencyCode = frequencyCode;
         }
+
+        /// <summary>Whether this peer's clock record carried its sixth byte. False for a peer built
+        /// before 2026-08-15 — and then the local dial governs here, which is exactly what those
+        /// builds did.</summary>
+        public readonly bool HasFrequency;
+
+        /// <summary>The peer's haunt frequency in hundredths. Adopted ONLY from the elected clock
+        /// owner: a peer that merely sent one is not the host of anything.</summary>
+        public readonly byte FrequencyCode;
 
         public readonly byte Style;
         public readonly uint Millis;
@@ -2755,6 +2808,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 VRLog.Info("Net", "ENV SYNC: no environment shown locally — nothing to synchronise " +
                                   "(the peer's choice never overrides the local one).");
             }
+            // NO ENVIRONMENT, NO HOST FREQUENCY. The local dial governs again immediately — which is
+            // also what happens the moment this client leaves the session.
+            Core.Haunt.ClearHostFrequency("no environment is shown locally");
             return;
         }
 
@@ -2762,6 +2818,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         int owner = 0;                 // 0 = us
         uint ownerMillis = 0;
         float ownerLocalAt = 0f;
+        bool ownerHasFreq = false;
+        byte ownerFreqCode = 0;
         int matching = 0, differing = 0;
         float now = Time.unscaledTime;
         foreach (KeyValuePair<int, PeerEnvClock> kv in _peerEnv)
@@ -2783,12 +2841,37 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             owner = kv.Key;
             ownerMillis = kv.Value.Millis;
             ownerLocalAt = kv.Value.LocalAt;
+            ownerHasFreq = kv.Value.HasFrequency;
+            ownerFreqCode = kv.Value.FrequencyCode;
         }
 
         if (owner != 0)
             Core.SkyAlternative.FollowEnvClock(owner, ownerMillis, ownerLocalAt);
         else
             Core.SkyAlternative.OwnEnvClock();
+
+        // THE HAUNT FREQUENCY COMES FROM THE SAME CLIENT AS THE CLOCK (user ruling 2026-08-15: "Die
+        // Haeufigkeit von Easter Eggs (da alle es ja synchron sehen sollen) soll vom HOST genommen
+        // werden im MP"), and that is not a coincidence to be tidied away later: the dial is a
+        // THRESHOLD over a hash of the very clock elected above, so a frequency taken from one client
+        // while the seconds come from another would be a schedule evaluated against somebody else's
+        // time. There is deliberately no second notion of host anywhere in this feature.
+        //
+        // THE ELECTION ALREADY DOES THE SCOPING THE RULING ASKS FOR. Only peers reporting the SAME
+        // style are candidates, so a mismatched peer's byte is never read here — there is nothing to
+        // skip and no bytes wasted, because the record it rides is written anyway for the clock.
+        //
+        // WE OWN IT ⇒ NO HOST VALUE APPLIES. A client that is the reference uses its own dial, which
+        // is also the single-player case and the "no peer has the same environment" case — the same
+        // call, for the same reason SkyAlternative.OwnEnvClock is.
+        if (owner != 0 && ownerHasFreq)
+            Core.Haunt.SetHostFrequency(owner, NetProtocol.DecodeHauntFrequency(ownerFreqCode));
+        else
+            Core.Haunt.ClearHostFrequency(owner == 0
+                                              ? "this client owns the environment clock, so its own "
+                                                + "dial is the reference"
+                                              : $"the clock owner (player {owner}) is an older build "
+                                                + "that does not transmit a frequency");
 
         if (owner == _loggedEnvOwner && localStyle == _loggedEnvStyle)
             return;
@@ -2874,6 +2957,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 NetFigures.ReleaseRemote(id); // drop any figure this peer was holding
                 NetPlayerActors.ForgetAvatarFetch(id); // a rejoin gets a fresh attempt budget
                 Board.CharacterFocus.ForgetPeer(id);   // …and their focus outline goes with them
+                _peerEnv.Remove(id);                   // …and they stop being a clock/host candidate
+                RemoteTestTriggers.ForgetPeer(id);     // …and any debug override they owned is released
             }
         }
     }
@@ -2893,6 +2978,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             NetPlayerActors.ForgetAvatarFetch(playerId);
             Board.CharacterFocus.ForgetPeer(playerId);
         }
+        // OUTSIDE the avatar branch on purpose: a peer can own a debug override without this client
+        // ever having built an avatar for them (construction can fail and back off), and an override
+        // that outlives the person holding it is the one failure this record may not have.
+        RemoteTestTriggers.ForgetPeer(playerId);
     }
 
     private void DestroyAllAvatars()

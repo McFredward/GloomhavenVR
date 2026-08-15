@@ -39,7 +39,13 @@ Shader "GloomhavenVR/EnvRoomCutout"
         _Sway ("Sway amplitude (m)", Range(0,0.3)) = 0
         _SwayRate ("Sway rate", Float) = 0.55
         _SwayPhase ("Sway phase", Float) = 0
-        _SwayDir ("Sway direction (OBJECT space)", Vector) = (0,0,1,0)
+        // xyz = the sway direction in OBJECT space. w = THE WHIRL: how freely
+        // this material's silk may orbit about that direction (0 = a membrane,
+        // it may only go perpendicular to itself; 1 = a thread held at one end).
+        // The default is 0, so every material that has never heard of this — the
+        // forest's ferns, grass, moss and canopy, and every cobweb SHEET — is
+        // bit-identical. See THE WHIRL in the vertex shader.
+        _SwayDir ("Sway direction (OBJECT space), w = whirl", Vector) = (0,0,1,0)
 
         // HAUNT — the cobweb tremble. 0 (the default) is a hard off: every
         // material that does not set _HauntTremble skips the whole block below,
@@ -179,8 +185,12 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 // it ripples rather than translating as a slab
                 float t = _Time.y + _GhvrTimeOfs;
                 float st = t * _SwayRate + _SwayPhase;
-                float s = (sin(st) * 0.62 + sin(st * 1.73 + 2.1) * 0.38)
-                          * _Sway * v.color.r;
+                // sincos rather than two sins: the COSINES are the quadrature
+                // partners THE WHIRL needs below, and on every target here they
+                // come out of the same special-function pair as the sines.
+                float2 sw, cw;
+                sincos(float2(st, st * 1.73 + 2.1), sw, cw);
+                float s = (sw.x * 0.62 + sw.y * 0.38) * _Sway * v.color.r;
 
                 // HAUNT — the tremble. A uniform branch, so it is coherent across
                 // every invocation and the materials that leave _HauntTremble at 0
@@ -251,6 +261,91 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 // the flow.
                 if (e.live > 0.0) s = s * (1.0 + 1.20 * e.air) + _Sway * v.color.r * (0.90 * e.air);
                 p.xyz += _SwayDir.xyz * s;
+
+                // ============================================== THE WHIRL ====
+                // USER, ModBuild 149: "Wind gefaellt mir sehr gut, nur eine
+                // Kleinigkeit noch: An einer Stelle im Keller haengt so ein
+                // Faden (Spinnweben) von einem Balken herab, auch der sollte bei
+                // Wind etwas mehr herumwirbeln."
+                //
+                // EVERYTHING ABOVE MOVES ON ONE AXIS, and for a SHEET that is
+                // right — a membrane with a pinned rim has exactly one degree of
+                // freedom. A thread held at ONE end has three: it is torsionally
+                // free at the bottom, so a draught does not swing it in a plane,
+                // it makes the tip ORBIT. That is the whole of the complaint: the
+                // strand was a pendulum in a room where everything else was
+                // already turning.
+                //
+                // SO IT GETS A SECOND AXIS, and three things about it matter:
+                //  * WHICH axis. cross(object up, _SwayDir) — the horizontal
+                //    perpendicular to the draught. No new vector, no new
+                //    property: for a strand _SwayDir is already DraftDir, so the
+                //    orbit is automatically square to the lean the room agrees
+                //    on, and if a material ever set a VERTICAL _SwayDir the cross
+                //    degenerates and the term switches itself off rather than
+                //    exploding.
+                //  * IN QUADRATURE. The slow carrier is COS of exactly the two
+                //    arguments `s` took the SIN of, so the two axes together are
+                //    a circle of 0.62 with a circle of 0.38 rolling round it at
+                //    1.73x — an epicycle, which never closes and never repeats.
+                //    A second INDEPENDENT wobble would only have made the line
+                //    the tip travels along a fatter line.
+                //  * ONLY A STRAND DOES IT. _SwayDir.w is the per-material whirl
+                //    and it is 0 for every sheet and for all of the forest, so
+                //    this whole block is a uniform branch that those materials
+                //    never enter. The strands hanging off the beams run at 1.0;
+                //    the four streamers in the window at 0.30, because they hang
+                //    between bars 23.9 cm apart and 1.0 would swing them through
+                //    the ironwork (0.30 keeps the tip inside +-3.9 cm of x).
+                //
+                // AND IT OBEYS "AN ELEMENT MAY NOT MOVE A FREQUENCY"
+                // (EnvGrowth.cginc). He asked for a FASTER whirl under wind and
+                // that is exactly the shape of this project's most repeated bug:
+                // Air on a rate, times an absolute clock in the thousands of
+                // seconds, scrubs the phase by hundreds of cycles during the 1 s
+                // ramp — and it looks CORRECT AT t = 0, which is why it keeps
+                // shipping. So the speed-up is TWO CARRIERS AT FIXED RATES that
+                // Air CROSSFADES, the same repair GhvrWind and EnvBeam took: the
+                // slow one at _SwayRate and the fast one at 2.35x _SwayRate, both
+                // running off the shared clock forever, with Air touching nothing
+                // but the two weights.
+                //
+                // MEASURED, worst per-frame tip step at 90 Hz across the whole
+                // 1 s ramp, with the ramp started at five points on the shared
+                // clock (strand B, tip, both axes):
+                //     t0 =      0 s   30 s   600 s   1800 s   3600 s
+                //     this     2.59   1.45    1.31     2.78     1.83  mm
+                //     if Air
+                //     scaled
+                //     the rate 2.62  34.07  263.88   186.15   168.95  mm
+                // The right-hand row is the bug, and note that it is CORRECT AT
+                // t = 0 — which is the whole reason it is hard to catch and the
+                // reason this table exists. The shipped row does not contain t:
+                // the offset is sum_i A_i(air) * C_i(f_i * t + phi_i) with every
+                // f_i constant, so |d/dt| is bounded by the amplitudes and the
+                // fixed rates alone.
+                if (_SwayDir.w > 1e-4 && e.live > 0.0)
+                {
+                    float3 oc = cross(float3(0.0, 1.0, 0.0), _SwayDir.xyz);
+                    float ol = length(oc);
+                    float3 oax = oc * (ol > 1e-3 ? 1.0 / ol : 0.0);
+
+                    float slow = cw.x * 0.62 + cw.y * 0.38;
+                    float ft = t * (_SwayRate * 2.35) + _SwayPhase;
+                    float2 fw = cos(float2(ft, ft * 1.73 + 2.1));
+                    float fast = fw.x * 0.62 + fw.y * 0.38;
+                    // AMPLITUDE ONLY: 0.35 of the in-plane billow at rest (a
+                    // hanging thread always turns a little — the cellar's draught
+                    // is permanent) growing to 2.20 at full Air, which is exactly
+                    // what the in-plane axis grows to, so the tip's path opens
+                    // from a flat ellipse into a full loop instead of just
+                    // getting longer. e.live rather than a constant on the first
+                    // term so the whole thing is continuous through the master's
+                    // own ramp and EXACTLY zero with the channel down.
+                    p.xyz += oax * (lerp(slow, fast, saturate(e.air))
+                                    * _Sway * v.color.r * _SwayDir.w
+                                    * (0.35 * e.live + 1.85 * e.air));
+                }
 
                 // ================================ SURFACE GROWTH + THE WIND ==
                 // Two vertex effects on one weight, because they want the same

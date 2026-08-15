@@ -346,7 +346,10 @@ float GhvrGrown (float field, float grain, float place, float cover, float creep
 //  the corner and the frost on the wall behind it are made of the same four
 //  ideas and cannot read as two different substances:
 //    PLATES   three crossing plane waves at incommensurate directions and
-//             frequencies. NOT an angular term: EnvPuddle's own note records
+//             frequencies, DOMAIN-WARPED so their level sets are not straight
+//             (see THE STRIPES WERE A LATTICE below — the unwarped version of
+//             this sentence is what ModBuild 149 shipped and what the user
+//             photographed). NOT an angular term: EnvPuddle's own note records
 //             that sin(ang*k) makes a ROSETTE — k identical spokes meeting at a
 //             singular point, a flower painted on the floor — and a wall has no
 //             centre to hang one on in the first place. Plates are a cartesian
@@ -361,22 +364,26 @@ float GhvrGrown (float field, float grain, float place, float cover, float creep
 //             not three more wave evaluations.
 //    GRAIN    trapped air (isolated bright specks, a product of two of the same
 //             waves raised to a power) and the PLATE BOUNDARIES (a network of
-//             hairlines where the coarse waves cross zero). The puddle's cracks
-//             are radial because a puddle freezes from its rim inward toward one
-//             centre; a wall does not, so the boundary network is the honest
-//             form of the same "this is the sharpest edge in it, and it is what
-//             says SOLID cheaply".
+//             BRIGHT hairlines where the coarse waves cross zero, appearing in
+//             regions rather than everywhere). The puddle's cracks are radial
+//             because a puddle freezes from its rim inward toward one centre; a
+//             wall does not, so the boundary network is the honest form of the
+//             same "this is the sharpest edge in it, and it is what says SOLID
+//             cheaply".
 //    RELIEF   and the normal is no longer flattened but REPLACED — the crust
 //             buries a quarter of the stone's own bump and lays its own on top.
 //             A frozen surface is more structured and more specular than a wet
 //             one, not less.
 //
 //  COST, because this runs on every wall, floor and prop fragment in the cellar
-//  and on the whole forest floor: three dot3, one sincos3, and about forty mads
-//  — measured as +36 ALU and +6 transcendental slots against the shipped
-//  function, ALL of it inside the existing `if (ice > 0.0)` branch, which is a
-//  uniform compare on a global. With Ice down not one of these instructions is
-//  executed and the surface is bit-identical to the shipped build.
+//  and on the whole forest floor: six dot3, two sincos3, and about seventy mads
+//  — +36 ALU and +6 transcendental slots against the ModBuild 142 function for
+//  the crust itself, and the warp that ModBuild 150 added on top of it is +30
+//  ALU and +3 transcendental more (three warp dots, one sincos3, six float3 mads
+//  for the chain rule, one smoothstep). ALL of it inside the existing
+//  `if (ice > 0.0)` branch, which is a uniform compare on a global. With Ice
+//  down not one of these instructions is executed and the surface is
+//  bit-identical to the shipped build.
 //
 //  REJECTED: sampling a tiling ice TEXTURE, which is what the verdict literally
 //  asks for ("gib den Eisflecken eventuell auch noch eine Eis-Textur"). It needs
@@ -390,19 +397,126 @@ float GhvrGrown (float field, float grain, float place, float cover, float creep
 //  BLOBBY field, and ice is not blobby — it is faceted. The patch noise already
 //  does the blobby job one level up, as the frontier.
 
+// ================== THE STRIPES WERE A LATTICE, AND A CRACK IS BRIGHT ========
+//  USER VERDICT, ModBuild 149 (hardware, verbatim, and BOTH rooms):
+//    Cellar: "Das Eis auf dem Boden hat so komische schwarze Streifen (siehe
+//            eis_boden.jpg)."
+//    Forest: "Auch hier sind beim Eis diese schwarzen Streifen zu sehen wie im
+//            Screenshot im Keller."
+//  The photograph is a regular diagonal criss-cross of thin dark lines lying
+//  over the whole frosted floor. It reads as painted-on lattice, or as grout.
+//
+//  TWO INDEPENDENT FAULTS, and this block fixes both. The paragraph that used
+//  to stand under f.seam claimed "three incommensurate families cut the crust
+//  into irregular cells, and the frontier and the patch field break the
+//  residual regularity long before the eye can find it". The photograph is the
+//  counter-example, and the claim was wrong on its own terms:
+//
+//  (1) INCOMMENSURATE PERIODS DO NOT BUY IRREGULARITY IN DIRECTION. Three plane
+//      waves have three FIXED wave vectors; on a flat floor every zero crossing
+//      of every family is a straight line, all of a family's lines are parallel,
+//      and they run unbroken from wall to wall. Incommensurate |k| only means
+//      the cells are not all the same SIZE — they are still a parallelogram
+//      tiling, and a parallelogram tiling four metres wide is the most visible
+//      thing in the room. MEASURED (autocorrelation of the seam signal along a
+//      6 m line across a floor, 0.25 mm samples, eight bearings): the shipped
+//      field peaks at +0.92 at a lag of 14 cm. That is not "residual".
+//      THE FIX IS A DOMAIN WARP. Each family's phase is displaced by two of
+//      three LONG waves (1.5-2.6 m) before it is evaluated, so a plate boundary
+//      MEANDERS: its local wave vector turns by up to 22-24 degrees and its
+//      phase wanders by +-4.2 rad, i.e. two thirds of a cycle either way over a
+//      couple of metres. The warp is far too weak to fold the field (the worst
+//      perturbation is 44% of the smallest |K|, so the level sets never double
+//      back and no plate turns inside out) and it does not touch a single
+//      amplitude, so the crust's height swing is the same +-0.046 to the digit.
+//      MEASURED after: worst peak +0.17, i.e. 5.6x weaker, and the residue sits
+//      at a different lag on every bearing — which is what "no periodicity"
+//      looks like in this statistic, since a genuinely periodic signal peaks at
+//      the SAME lag from every direction that crosses it.
+//      REJECTED: value noise (GhvrGrowNoise) as the warp. It is genuinely
+//      aperiodic and it is eight hashes PER WARP AXIS, i.e. ~240 ALU on every
+//      frosted fragment of two whole rooms, against +30 for three more sines.
+//      REJECTED: rotating the wave vectors per region. A rotation needs a
+//      region, a region needs a boundary, and a visible boundary between two
+//      tilings is worse than one tiling.
+//
+//  (2) A CRACK IN ICE IS BRIGHT. The shipped line was `ice *= 1 - 0.42*seam`
+//      and its comment defended the sign: "a hairline that is DARKER than what
+//      it separates is a crack; one that is brighter is a weld". That is the
+//      wrong way round for ice and it is the whole of the word "schwarze". A
+//      fracture surface inside ice is a mass of internal reflections — it
+//      SCATTERS the light that reaches it, which is why every crack in a frozen
+//      puddle, every plate boundary in lake ice and every pressure ridge
+//      photographs WHITER than the sheet around it. Dark hairlines in a pale
+//      surface are what grout is, and grout is exactly what he saw.
+//      So the boundary now BRIGHTENS by 45%, and multiplicatively rather than
+//      as an additive white: it rides the same (0.34 + 0.95*lum) the plate body
+//      does, so a boundary in a black corner of the cellar stays dark and only
+//      a lit one flares. Sharpness — not darkness — was always what read as
+//      SOLID, and a bright hairline is exactly as sharp.
+//      (EnvPuddle keeps its own cracks DARK and stays as it is. Nobody has
+//      complained about them and the reason is legible in the code: there are
+//      four of them, they are radial, they are confined to one 60 cm sheet and
+//      they are paired with the bright IceLip. Four dark radials on a small
+//      disc is a broken pane; a lattice of them across a whole floor is tiling.)
+//
+//  (3) AND THEY DO NOT COVER EVERYTHING. Even meandering and bright, a network
+//      that is present at every point of the floor is a texture rather than a
+//      feature. The boundaries are now gated by a coarse field built from two
+//      of the warp waves that were computed anyway — free — so some square
+//      metres of the crust are a clean sheet and others are visibly cracked.
+//      MEASURED: the fraction of surface with seam > 0.5 falls from 15.8% to
+//      5.1%, and the mean seam from 0.160 to 0.064.
+//
+//  WHAT IS DELIBERATELY UNCHANGED, because it is not what he objected to and
+//  because the crust's structure was the whole point of the round before: the
+//  dome height (9*h, +-41% of the plate body), the trapped air, the analytic
+//  normal and GHVR_FROST_RELIEF. The gradient is still EXACT — the chain rule
+//  through the warp is carried in ke0/ke1/ke2 below, verified against a central
+//  difference to 1e-5 — so the shading still agrees with the height it claims.
+// ----------------------------------------------------------------------------
+
 /// Half-amplitudes of the three plate waves, in metres of relief, and their wave
 /// vectors in rad/m. |k0| = 28.5 (22 cm plates), |k1| = 34.8 (18 cm), |k2| = 64.4
 /// (9.8 cm) — a quilt with a coarse family, a medium one and a fine chatter, none
-/// of them commensurate with any other, so the pattern never repeats inside a
-/// room. The total height swing is +-0.046 m of "relief units"; what turns that
-/// into a slope is GHVR_FROST_RELIEF below.
+/// of them commensurate with any other. That was never enough on its own (see
+/// THE STRIPES WERE A LATTICE); what makes the quilt irregular is the warp.
+/// The total height swing is +-0.046 m of "relief units"; what turns that into a
+/// slope is GHVR_FROST_RELIEF below.
 #define GHVR_FROST_K0 float3( 23.0,   9.0,  14.0)
 #define GHVR_FROST_K1 float3(-11.0,  27.0, -19.0)
 #define GHVR_FROST_K2 float3( 41.0, -37.0,  31.0)
+
+/// THE WARP. Three LONG waves — |W| = 4.25, 2.44, 3.26 rad/m, i.e. 1.48 m,
+/// 2.58 m and 1.93 m — whose sines displace the plate waves' phases and whose
+/// cosines (free from the same sincos) carry the chain rule into the gradient.
+/// They are metre-scale on purpose: a warp shorter than a plate would shred the
+/// plates instead of bending them, and a warp longer than the room would tilt
+/// the whole lattice without breaking it, which is the same lattice.
+#define GHVR_FROST_W0 float3( 2.30, -1.10,  3.40)
+#define GHVR_FROST_W1 float3(-1.90,  1.30, -0.80)
+#define GHVR_FROST_W2 float3( 0.90,  2.70, -1.60)
+/// ...and how far they push, in RADIANS of plate phase. Each family takes two
+/// of the three warps, at these two weights, so its meander has two scales and
+/// is not itself a regular wiggle. 2.60 + 1.60 = 4.20 rad of total excursion =
+/// 0.67 of a plate period either way. Raising them further starts to fold the
+/// field: the perturbation of a family's wave vector is bounded by
+/// WA*|Wj| + WB*|Wk|, which is 11.6, 15.3 and 15.0 rad/m against |K| of 28.4,
+/// 34.8 and 63.3 — 44% at worst, and a fold needs 100%.
+#define GHVR_FROST_WA 2.60
+#define GHVR_FROST_WB 1.60
+/// Half-width of a plate boundary, in units of |sin| — 0.11 is about 3.5 mm of
+/// hairline on a 22 cm plate. It was 0.20 (6.4 mm) and that width is half of
+/// why the lattice was the dominant feature of the floor rather than a detail
+/// in it.
+#define GHVR_FROST_SEAM 0.11
+
 /// How much of the crust's own gradient reaches the normal. The raw gradient
 /// reaches 1.73, i.e. 60 degrees, which is crumpled foil; 0.35 caps the crust at
-/// atan(0.61) = 31 degrees at the steepest ridge — the same number EnvPuddle's
-/// _IceRelief 0.45 lands its sheet at (22 deg) plus a little, because a frost
+/// atan(0.49) = 26 degrees at the 99th percentile of the ridges (measured over a
+/// 7 m cube; the warp moved that from 25.4 to 26.1 deg, since a warped family's
+/// local |k| is a little larger than its nominal one) — the same neighbourhood
+/// EnvPuddle's _IceRelief 0.45 lands its sheet at (22 deg), because a frost
 /// crust on stone is rougher than a sheet that froze flat on water.
 #define GHVR_FROST_RELIEF 0.35
 
@@ -426,18 +540,44 @@ struct GhvrFrostIce
 /// field does (see GhvrGrowQ).
 GhvrFrostIce GhvrFrostCrust (float3 pm)
 {
-    float3 arg = float3(dot(pm, GHVR_FROST_K0),
-                        dot(pm, GHVR_FROST_K1) + 1.7,
-                        dot(pm, GHVR_FROST_K2) + 3.1);
+    // THE WARP FIRST. Three long waves, one sincos3; the sines bend the plates
+    // and the cosines are what the gradient below needs to stay exact.
+    float3 warg = float3(dot(pm, GHVR_FROST_W0),
+                         dot(pm, GHVR_FROST_W1) + 0.9,
+                         dot(pm, GHVR_FROST_W2) + 2.3);
+    float3 wsn, wcs;
+    sincos(warg, wsn, wcs);
+
+    // Each family is displaced by TWO of the three warps, and each takes a
+    // different pair, so no two families meander together — three lattices that
+    // bend in step are still a lattice.
+    float3 arg = float3(dot(pm, GHVR_FROST_K0)
+                            + GHVR_FROST_WA * wsn.y + GHVR_FROST_WB * wsn.z,
+                        dot(pm, GHVR_FROST_K1) + 1.7
+                            + GHVR_FROST_WA * wsn.z + GHVR_FROST_WB * wsn.x,
+                        dot(pm, GHVR_FROST_K2) + 3.1
+                            + GHVR_FROST_WA * wsn.x + GHVR_FROST_WB * wsn.y);
     float3 sn, cs;
     sincos(arg, sn, cs);
+
+    // THE LOCAL WAVE VECTORS, i.e. d(arg)/dpm — the chain rule through the warp,
+    // which is what keeps the gradient below an EXACT gradient of f.h rather
+    // than a plausible-looking vector field. Drop these three lines and the
+    // normal disagrees with the height by up to 44%, which is a lit ridge that
+    // is not where the shading says it is. Six float3 mads.
+    float3 ke0 = GHVR_FROST_K0 + GHVR_FROST_WA * wcs.y * GHVR_FROST_W1
+                               + GHVR_FROST_WB * wcs.z * GHVR_FROST_W2;
+    float3 ke1 = GHVR_FROST_K1 + GHVR_FROST_WA * wcs.z * GHVR_FROST_W2
+                               + GHVR_FROST_WB * wcs.x * GHVR_FROST_W0;
+    float3 ke2 = GHVR_FROST_K2 + GHVR_FROST_WA * wcs.x * GHVR_FROST_W0
+                               + GHVR_FROST_WB * wcs.y * GHVR_FROST_W1;
 
     GhvrFrostIce f;
     f.h    = 0.022 * sn.x + 0.015 * sn.y + 0.009 * sn.z;
     // d/dpm of the line above. Free: the cosines came out of the same sincos.
-    f.grad = GHVR_FROST_K0 * (0.022 * cs.x)
-           + GHVR_FROST_K1 * (0.015 * cs.y)
-           + GHVR_FROST_K2 * (0.009 * cs.z);
+    f.grad = ke0 * (0.022 * cs.x)
+           + ke1 * (0.015 * cs.y)
+           + ke2 * (0.009 * cs.z);
     // TRAPPED AIR. The product of the coarse and the fine wave is near +1 only
     // in small lens-shaped regions where both are near +1 or both near -1, and
     // the ninth power keeps just those: isolated specks a centimetre or two
@@ -447,14 +587,25 @@ GhvrFrostIce GhvrFrostCrust (float3 pm)
     // as a spatial CURVE has no branch to pick, so an ulp of vendor difference
     // moves a bubble by a micron instead of deciding whether it exists.
     f.bub = pow(saturate(sn.x * sn.z), 9.0);
-    // THE PLATE BOUNDARIES. Each wave's zero crossings are a family of parallel
-    // lines on any surface; three incommensurate families cut the crust into
-    // irregular cells, and the frontier and the patch field break the residual
-    // regularity long before the eye can find it. This is the sharpest edge in
-    // the whole covering, and sharpness is what reads as SOLID — it is the term
-    // that most separates ice from a wet patch.
-    float3 e = 1.0 - smoothstep(0.0, 0.20, abs(sn));
-    f.seam = saturate(e.x + e.y + e.z * 0.6);
+    // THE PLATE BOUNDARIES, and every clause of this is now an answer to
+    // "komische schwarze Streifen" — see THE STRIPES WERE A LATTICE.
+    //  * they are the zero crossings of the WARPED phases, so they meander;
+    //  * MAX, not a sum. A sum piles three families up at every crossing into a
+    //    blob and saturates there, which is what put a visible NODE at every
+    //    vertex of the tiling — the strongest cue the eye had that the thing was
+    //    periodic at all. A max leaves a network of crossing hairlines;
+    //  * the fine family (9.8 cm) is down at 0.40 and the medium at 0.85: the
+    //    finest family is the densest one, and it is the one that turns a
+    //    network into a hatch;
+    //  * and the whole network is gated by a COARSE field made of two warp waves
+    //    that are already in registers, so the crust is a clean sheet in some
+    //    square metres and cracked in others. 0.12 rather than 0 at the bottom:
+    //    a plate boundary that vanished completely would make the gate itself
+    //    visible as a shape.
+    float3 e = 1.0 - smoothstep(0.0, GHVR_FROST_SEAM, abs(sn));
+    float net = max(max(e.x, e.y * 0.85), e.z * 0.40);
+    float patch = smoothstep(0.14, 0.74, 0.5 + 0.5 * wsn.x * wsn.z);
+    f.seam = saturate(net * (0.12 + 1.30 * patch));
     return f;
 }
 
@@ -480,18 +631,27 @@ GhvrFrostIce GhvrFrostCrustZero ()
 /// the joints and the pitting back into the frost, which is what tells the eye
 /// it is looking at frost ON something rather than at a hole cut in the floor.
 ///
-/// ...AND THE CRUST'S OWN THREE TERMS, which are what ModBuild 151 adds. 9.0*h
-/// spans 0.59..1.41, i.e. a plate's dome is nearly two and a half times its
-/// trough — the strongest single cue, and the one that makes the patch read as
-/// having a top surface at all. The boundaries darken by up to 42% (a hairline
-/// that is DARKER than what it separates is a crack; one that is brighter is a
-/// weld) and the bubbles are added rather than lerped, because trapped air
-/// scatters light out of the solid and is not a colour of it.
+/// ...AND THE CRUST'S OWN THREE TERMS. 9.0*h spans 0.59..1.41, i.e. a plate's
+/// dome is nearly two and a half times its trough — the strongest single cue,
+/// and the one that makes the patch read as having a top surface at all. The
+/// boundaries BRIGHTEN by up to 45% (a fracture in ice scatters; see A CRACK IN
+/// ICE IS BRIGHT above — this factor used to be 1 - 0.42*seam and it is the
+/// whole of the word "schwarze") and the bubbles are added rather than lerped,
+/// because trapped air scatters light out of the solid and is not a colour of it.
+///
+/// THE BOUNDARY IS MULTIPLICATIVE AND THE BUBBLE IS NOT, and that difference is
+/// deliberate: a bubble is a body of its own with its own albedo, so it adds a
+/// fixed white; a fracture has no substance at all, it only returns more of the
+/// light the plate was already getting, so it multiplies and inherits the
+/// (0.34 + 0.95*lum) that carries the stone's own modelling through. That is
+/// what stops a hairline in a black cellar corner from glowing.
+/// MEASURED, over a 7 m cube: at lum 0.15 / 0.42 / 0.80 the boundary now sits
+/// 37-38% above the plate body it separates, where it used to sit at 63% OF it.
 /// Exactly the shipped function when the crust is zero: 9*0 = 0, seam 0, bub 0.
 float3 GhvrFrostOn (float3 alb, float lum, float m, GhvrFrostIce f)
 {
     float3 ice = float3(0.66, 0.76, 0.94) * (0.34 + 0.95 * lum);
-    ice *= (1.0 + 9.0 * f.h) * (1.0 - 0.42 * f.seam);
+    ice *= (1.0 + 9.0 * f.h) * (1.0 + 0.45 * f.seam);
     ice += float3(0.95, 0.98, 1.00) * (f.bub * 0.30);
     return lerp(alb, ice, m);
 }

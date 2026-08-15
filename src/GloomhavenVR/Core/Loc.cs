@@ -613,7 +613,11 @@ internal static partial class Loc
         // that states the interaction (vr_tt_latch).
         ["vr_tt_page"] = Pair("Test triggers", "Test-Auslöser"),
         ["h_vr_tt_page"] = Pair("A test aid: switch element responses and apparitions on and off by hand instead of waiting for the game. Nothing here changes the game or your settings.", "Eine Testhilfe: Elementwirkungen und Erscheinungen von Hand an- und ausschalten, statt auf das Spiel zu warten. Nichts hier verändert das Spiel oder deine Einstellungen."),
-        ["vr_tt_local"] = Pair("Local only: nothing is sent, no game state changes — only what you see here.", "Nur lokal: nichts wird gesendet, kein Spielzustand ändert sich — nur was du selbst siehst."),
+        // WAS "Local only: nothing is sent…" until 2026-08-15, when the user ruled that a debug
+        // press must be visible to everyone. The note now has to carry the two things that ARE
+        // still true and are the ones a player would otherwise get wrong: no GAME state changes,
+        // and every other player's own settings still decide what they see.
+        ["vr_tt_local"] = Pair("Shared with the other players: they see what you switch on here, if they have the same environment and the effect switched on. No game state changes.", "Wird mit den Mitspielern geteilt: sie sehen, was du hier einschaltest — sofern sie dieselbe Umgebung und den Effekt eingeschaltet haben. Am Spielzustand ändert sich nichts."),
         // THE INTERACTION, in one line. It is the first thing a tester needs and the one thing about
         // this page that cannot be guessed from a row that says "Feuer" — and the second sentence
         // answers the user's own reason for asking ("so kann ich die Mischungen besser testen") in

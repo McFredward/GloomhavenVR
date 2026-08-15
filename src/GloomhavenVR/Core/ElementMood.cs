@@ -91,6 +91,13 @@ namespace GloomhavenVR.Core;
 /// bit-identical on every client, ZERO wire"). The only thing that is NOT automatically identical
 /// is the SMOOTHING, which is why the curve is driven by the shared clock — see below.</para>
 ///
+/// <para><b>THE ONE EXCEPTION, and it is not this state: THE DEBUG TEST OVERRIDE.</b> Since
+/// 2026-08-15 the Erweitert page's element latches ARE on the wire (extension record 32,
+/// <c>Net/RemoteTestTriggers</c>) on the user's ruling that a debug press must be visible to
+/// everyone. That does not touch the paragraph above: what travels is a pair of six-bit masks
+/// describing a LIE this file tells between sensing and publishing, never the game's element board,
+/// which is still read and never written on every client.</para>
+///
 /// <para><b>THE CURVE.</b> Each element carries a 0..1 intensity rather than the raw enum:</para>
 /// <list type="bullet">
 /// <item><c>Strong</c> → target <b>1.00</b>, rock steady. This is the state the player also HEARS
@@ -150,7 +157,9 @@ namespace GloomhavenVR.Core;
 /// </summary>
 /// <remarks>CLASSIFICATION: GLOBAL — scenario-wide game state, bit-identical on every client and
 /// desync-checked by the game itself, ZERO wire. Same classification and same reasoning as
-/// <c>Net/RemoteElementStrip</c>. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// <c>Net/RemoteElementStrip</c>. The DEBUG TEST OVERRIDE laid over it is also GLOBAL and IS on the
+/// wire since 2026-08-15 (extension record 32); the two settings stay LOCAL and are never
+/// transmitted or overridden. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal static class ElementMood
 {
     // ---- the contract, as identifiers -----------------------------------------------------------
@@ -260,8 +269,37 @@ internal static class ElementMood
     // compare — the one failure mode this project's standing "everything is synchronised 1:1" rule
     // exists to prevent. The override instead lives between SENSING and PUBLISHING: the game's board
     // is read exactly as before and never written, and only the number this file hands to the shaders
-    // is substituted. Nothing goes on the wire, nothing is game state, and a peer's client is
-    // bit-identical throughout — the only thing that differs is what THIS headset draws.
+    // is substituted. Nothing is game state and every client's copy of the game's board is
+    // bit-identical throughout.
+    //
+    // WHAT DID CHANGE, 2026-08-15: THE OVERRIDE ITSELF IS NOW SYNCHRONISED. The sentence that closed
+    // the paragraph above used to read "Nothing goes on the wire ... the only thing that differs is
+    // what THIS headset draws", and the user has ruled otherwise (verbatim): "Auch wenn jemand im
+    // Debugmenu ein Event startet sollte dies auch von ALLEN im Multiplayer sichtbar sein statt nur
+    // lokal, also synchronisiert werden."
+    //
+    // NOTHING ABOUT THE PLACEMENT ARGUMENT ABOVE IS WEAKENED BY THAT, which is the whole reason it
+    // cost this file no code at all. What travels is a pair of six-bit MASKS in extension record 32
+    // (Net/RemoteTestTriggers) — "these elements are being pretended into these columns" — and a
+    // receiver applies them through the very same Force/ClearForce buttons the tester presses. So the
+    // game's ElementInfusionBoardManager is still read and never written, on every client, however
+    // many elements are latched; the end-of-round desync compare (codes 117/118) still has nothing to
+    // disagree about; and the only thing that is now shared is the LIE, which is what was asked for.
+    //
+    // NO ANCHOR IS SENT WITH THE MASKS, deliberately. An element force is a STATE: each client's own
+    // poll below sees the column change and anchors its own 1 s ramp then, exactly as it does for a
+    // real infusion, leaving the same bounded detection skew a real infusion already has. The part
+    // with a phase to get wrong — the waning BREATH — is an absolute function of the shared clock and
+    // is therefore already identical on every client that shares it.
+    //
+    // LOCAL SETTINGS HAVE PRECEDENCE (user ruling, same day): a peer's force is refused at the door
+    // by Net/RemoteTestTriggers.Drive unless the receiver's own environment dial matches the sender's
+    // AND their EnvironmentResponse switch is on, so a remote force can never become a latch here and
+    // can never switch this feature on for someone who switched it off. The `!EnvironmentResponse.Value
+    // && !Forcing` gate in Tick therefore still means what it always meant — a LOCAL press overrides
+    // the LOCAL switch, by the tester's own hand. ResponseStrength is NOT treated as a permission: it
+    // is a magnitude the player chose and it scales a synced force exactly as it scales a real
+    // infusion, which is the same reason Force() already refuses to override it.
     //
     // FOLLOW-UP USER REQUEST (hardware, verbatim): "In der Triggertestview möchte ich wenn ich etwas
     // triggere das es dauerhaft an ist und mit erneutem toggle wieder ausgemacht wird. So kann ich
@@ -440,12 +478,17 @@ internal static class ElementMood
                                     + "multiplies by 0 and this latch will be INVISIBLE — that is the "
                                     + "dial, not a fault"
                                   : string.Empty)
-                           + ". LOCAL TEST AID ONLY: the game's element board "
-                           + "(ElementInfusionBoardManager) is READ and never written — however many "
-                           + "elements are latched and however long they stand — so nothing goes on "
-                           + "the wire, no game state changes and the end-of-round desync compare "
+                           + ". SYNCHRONISED SINCE 2026-08-15: the latch set goes on the wire as "
+                           + "extension record 32 whenever THIS client owns the override, so every "
+                           + "player who has the same environment selected and 'EnvironmentResponse' "
+                           + "on sees the same mixture at the same moment. It is still NOT game state: "
+                           + "the game's element board (ElementInfusionBoardManager) is READ and never "
+                           + "written on any client — however many elements are latched and however "
+                           + "long they stand — so the end-of-round desync compare "
                            + "(ScenarioState.CompareStates codes 117/118) has nothing to disagree "
-                           + "about. Only this headset draws differently.");
+                           + "about. What travels is six bits per column, never the board and never a "
+                           + "ramp; each client anchors its own. A peer whose environment differs or "
+                           + "whose switch is off simply does not see it and is NOT desynced.");
         return true;
     }
 
@@ -779,6 +822,17 @@ internal static class ElementMood
     /// end, mixed reality, teardown) is a moment at which the environment itself is disappearing —
     /// there is nothing left to fade. Coming back is the ramped direction: the next live tick
     /// re-anchors every element at 0 and fades the mood in over <see cref="RampSeconds"/>.</para>
+    ///
+    /// <para><b>A SYNCED RELEASE DOES NOT COME THROUGH HERE, and that was checked rather than
+    /// assumed (2026-08-15).</b> When a peer drops the shared override — by pressing the row again,
+    /// by the stop row, by leaving, or by their environment tearing down — the net layer releases
+    /// this client's copy through <see cref="ClearForce(int,string)"/>, one element at a time. That
+    /// path deliberately re-anchors nothing: the next tick reads the real column, sees it differ and
+    /// RAMPS back over <see cref="RampSeconds"/>, exactly as a real Strong→Inert transition does. So
+    /// a remote release fades and nobody's trees snap. The instant answer here stays reserved for the
+    /// routes it was written for, all of which are LOCAL: this player's own off-switch, and the
+    /// moments at which the environment itself is going away. Do not "unify" the two — an off-switch
+    /// that takes a second to answer reads as broken, which is the defect this contract prevents.</para>
     /// </summary>
     /// <param name="why">Named in the one log line this emits, so a log reader can tell "the player
     /// turned it off" from "the scenario ended" without guessing.</param>
@@ -884,7 +938,8 @@ internal static class ElementMood
                     sb.Append("; ").Append((ElementInfusionBoardManager.EElement)i)
                       .Append(" since ").Append(ForceSince[i].ToString("F2")).Append('s');
             }
-            sb.Append(" (local only, no wire)");
+            sb.Append(" (synchronised as extension record 32 when this client owns the override; "
+                      + "the game's board is still never written)");
         }
 
         sb.Append(" | master ").Append(master.ToString("F2"))
@@ -905,7 +960,7 @@ internal static class ElementMood
           .Append((WaningPlateau - WaningEbbAmplitude).ToString("F2")).Append("..")
           .Append((WaningPlateau + WaningEbbAmplitude).ToString("F2")).Append(" every ")
           .Append(WaningEbbPeriodSeconds.ToString("F1")).Append("s on the shared environment clock.");
-        sb.Append(" | NO WIRE, on purpose: the element board is scenario-wide state the game itself "
+        sb.Append(" | NO WIRE FOR THE BOARD, on purpose: the element board is scenario-wide state the game itself "
                   + "serializes (ScenarioState.cs:110/704/846), restores (:1374) and desync-checks "
                   + "every round with codes 117/118 (:1992-2032, run from "
                   + "Choreographer.StartMPEndOfRoundCompare, Choreographer.cs:14320-14340), so it is "

@@ -1256,15 +1256,95 @@ internal static class GoldenVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
             01               // tail: 1 record
-            1F 05            // record: id 31 (shared environment clock), len 5
+            1F 06            // record: id 31 (shared environment clock), len 6
             01               // style 1 = Cellar
             87 D6 12 00      // clock 1234567 ms, u32 LE
-            "), ext, m, "the clock record is [id 31][len 5][style][u32 millis LE]");
-        t.Equal(18, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 5 = 18 bytes");
+            00               // haunt frequency 0/100 (not set on this state)
+            "), ext, m, "the clock record is [id 31][len 6][style][u32 millis LE][freq]");
+        t.Equal(19, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 6 = 19 bytes");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState env1), "and it parses");
         t.True(env1.HasEnvClock, "the clock record is delivered");
         t.Equal(1, (int)env1.EnvClockStyle, "with the style key intact");
         t.Equal(1234567L, (long)env1.EnvClockMillis, "and the millisecond reading intact");
+
+        // -- THE SIXTH BYTE: THE HOST'S HAUNT FREQUENCY (user ruling 2026-08-15) -------------
+        // "Die Häufigkeit von Easter Eggs (da alle es ja synchron sehen sollen) soll vom HOST
+        // genommen werden im MP." The dial is a THRESHOLD over a per-slot hash of THIS record's
+        // clock, so one number makes two clients select the same slots — which is why it rides
+        // this record rather than one of its own: "the host" and "the clock owner" must be the
+        // same client by construction, not by two elections agreeing.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasEnvClock = true,
+            EnvClockStyle = 2,
+            EnvClockMillis = 1000u,
+            HasEnvClockFrequency = true,
+            EnvClockFrequencyCode = 50,   // the shipped default, 0.5
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1F 06
+            02               // style 2 = SwampNight
+            E8 03 00 00      // clock 1000 ms
+            32               // frequency 50/100 = 0.50
+            "), ext, m, "the frequency is the SIXTH byte, hundredths, behind the clock");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState freq1), "and it parses");
+        t.True(freq1.HasEnvClockFrequency, "the frequency byte is delivered");
+        t.Equal(50, (int)freq1.EnvClockFrequencyCode, "at its wire code");
+        t.True(NetProtocol.DecodeHauntFrequency(freq1.EnvClockFrequencyCode) == 0.5f,
+               "and decodes to exactly 0.5");
+
+        // THE 5-BYTE RECORD IS STILL READ — the pre-ruling shape, and the ONLY compatibility case
+        // that matters here: a peer on an older build sends five bytes, this reader takes the
+        // style and the clock exactly as before and leaves HasEnvClockFrequency FALSE, which is
+        // what makes the receiver keep its OWN dial. Additive within the record; no id was spent.
+        byte[] fiveByteClock = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1F 05            // id 31, len 5 — the shape every build before 2026-08-15 wrote
+            01 87 D6 12 00
+            ");
+        t.True(PresenceSerializer.TryRead(fiveByteClock, fiveByteClock.Length, out PresenceState old5),
+               "a 5-byte clock record still parses");
+        t.True(old5.HasEnvClock && old5.EnvClockStyle == 1 && old5.EnvClockMillis == 1234567u,
+               "with the style and the clock exactly as before");
+        t.True(!old5.HasEnvClockFrequency,
+               "and NO frequency — so the receiver keeps its own dial, the pre-ruling behaviour");
+
+        // The quantizer and its fail-safe direction, pinned as numbers. A frequency is a threshold
+        // with no meaning outside [0,1], so both ends CLAMP rather than drop — but a non-finite
+        // float degrades to 0 ("show nothing"), never to 1, because the safe direction for a
+        // number that gates content is less of it.
+        t.Equal(0, (int)NetProtocol.EncodeHauntFrequency(0f), "0.0 encodes to 0");
+        t.Equal(100, (int)NetProtocol.EncodeHauntFrequency(1f), "1.0 encodes to 100");
+        t.Equal(50, (int)NetProtocol.EncodeHauntFrequency(0.5f), "0.5 encodes to 50");
+        t.Equal(100, (int)NetProtocol.EncodeHauntFrequency(4f), "an impossible high dial clamps to 100");
+        t.Equal(0, (int)NetProtocol.EncodeHauntFrequency(-1f), "a negative dial clamps to 0");
+        t.Equal(0, (int)NetProtocol.EncodeHauntFrequency(float.NaN),
+                "NaN encodes to 0 — never trust a float, and less content is the safe direction");
+        t.True(NetProtocol.DecodeHauntFrequency(200) == 1f,
+               "an over-range code decodes to 1.0 rather than being dropped: it is a threshold, and "
+               + "clamping lands on a picture where dropping would land on a disagreement");
+        t.True(NetProtocol.DecodeHauntFrequency(-5) == 0f, "and an under-range code on 0");
+
+        // A WRITER THAT OVER-STATES THE CODE IS CLAMPED ON THE WAY OUT TOO, so a bug upstream can
+        // never put a byte on the wire that this build's own reader would have to repair.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasEnvClock = true,
+            EnvClockStyle = 1,
+            EnvClockMillis = 0u,
+            HasEnvClockFrequency = true,
+            EnvClockFrequencyCode = 250,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1F 06
+            01 00 00 00 00
+            64               // 250 clamped to 100 BY THE WRITER
+            "), ext, m, "an over-range frequency is clamped on the sending side as well");
 
         // The swamp, with every bit of the u32 set: the reading is an unsigned wall clock, so the
         // top byte must survive the round trip unsigned (a signed read would deliver -1 and the
@@ -1278,10 +1358,11 @@ internal static class GoldenVectors
         t.Wire(Hex.Bytes(@"
             31 52 56 47 03 01 80 00
             80 00 01
-            1F 05
+            1F 06
             02               // style 2 = SwampNight
             FF FF FF FF      // clock 4294967295 ms — the u32 ceiling
-            "), ext, m, "the swamp's clock rides the same 5-byte record");
+            00               // frequency 0/100 (not set on this state)
+            "), ext, m, "the swamp's clock rides the same record");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState env2), "and it parses");
         t.Equal(2, (int)env2.EnvClockStyle, "the swamp style key is delivered");
         t.Equal(4294967295L, (long)env2.EnvClockMillis, "and the full u32 survives UNSIGNED");
@@ -1374,6 +1455,217 @@ internal static class GoldenVectors
                "a truncated stretch record still parses the packet");
         t.True(cutStretch.HasMaskSize, "the mask size ahead of the tail survives");
         t.True(!cutStretch.HasHeldStretch, "and the incomplete record is simply not delivered");
+
+        // -- 7i4. DEBUG TEST-TRIGGER OVERRIDE (extension record 32) ------------------------
+        // USER RULING, verbatim: "Auch wenn jemand im Debugmenu ein Event startet sollte dies auch
+        // von ALLEN im Multiplayer sichtbar sein statt nur lokal, also synchronisiert werden."
+        // [style][haunt+1][strongMask][waningMask][u32 pressTimeMillis LE]: the latch, never the
+        // animation. Both subsystems are pure functions of the shared environment clock, so a
+        // receiver that knows WHICH override stands evaluates it against its own copy of that clock
+        // and draws the same thing on the same second - which is why the anchor sent is the PRESS
+        // time and not the current run: a looping latch would otherwise change the record's bytes
+        // every few seconds and let a late packet shove a receiver's run forward mid-play.
+        t.Case("7i4. extras, debug test-trigger override record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTestForce = true,
+            TestForceStyle = 1,                   // SkyStyle.Cellar - the DIAL, not record 31's key
+            TestForceHauntCode = 4,               // apparition card 3, sent as index + 1
+            TestForceStrongMask = 0x01,           // Fire strong
+            TestForceWaningMask = 0x20,           // Dark waning
+            TestForceHauntSinceMillis = 1234567u, // pressed at 1234.567 s of shared clock
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            20 08            // record: id 32 (debug test-trigger override), len 8
+            01               // style 1 = Cellar (the environment DIAL)
+            04               // haunt code 4 = card 3
+            01               // strong mask: bit 0 = Fire
+            20               // waning mask: bit 5 = Dark
+            87 D6 12 00      // press time 1234567 ms, u32 LE
+            "), ext, m, "the override is [id 32][len 8][style][haunt+1][strong][waning][u32 ms LE]");
+        t.Equal(21, m, "header 7 + count 1 + block 2 + tail 1 + 2 + 8 = 21 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState tf1), "and it parses");
+        t.True(tf1.HasTestForce, "the override record is delivered");
+        t.Equal(1, (int)tf1.TestForceStyle, "with the style key intact");
+        t.Equal(4, (int)tf1.TestForceHauntCode, "the apparition code intact");
+        t.Equal(0x01, (int)tf1.TestForceStrongMask, "the strong mask intact");
+        t.Equal(0x20, (int)tf1.TestForceWaningMask, "the waning mask intact");
+        t.Equal(1234567L, (long)tf1.TestForceHauntSinceMillis, "and the press time intact");
+
+        // THE ALL-ZERO RECORD IS LEGAL AND IS THE EXPLICIT RELEASE, which is the one place this
+        // record breaks the tail's usual "empty writes nothing" rule - on purpose. Every other
+        // record omits itself when it has nothing to say; here "I have nothing latched any more" is
+        // precisely the statement a receiver is waiting for, and dropping it would make every peer
+        // wait out a staleness timeout instead of releasing on a packet.
+        m = PresenceSerializer.Write(new PresenceState { HasTestForce = true }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            20 08
+            00 00 00 00
+            00 00 00 00      // every field zero - 'the override is over'
+            "), ext, m, "an all-zero override record IS written: it is the explicit release");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState tfRelease), "and it parses");
+        t.True(tfRelease.HasTestForce, "and is DELIVERED rather than dropped as empty");
+        t.Equal(0, (int)tfRelease.TestForceHauntCode, "with nothing forced");
+        t.Equal(0, tfRelease.TestForceStrongMask + tfRelease.TestForceWaningMask,
+                "and no element latched");
+
+        // ABSENT WHEN NOBODY IS HOLDING A LATCH - the backward-compatibility argument for the
+        // sender side, and the reason this record costs an ordinary session nothing: a player who
+        // never opened the debug page is byte-for-byte a pre-record-32 sender, tail and all.
+        m = PresenceSerializer.Write(default, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 00"), ext, m,
+               "no override -> no record, no tail, no block: byte-identical to build 149");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noTf), "and it parses");
+        t.True(!noTf.HasTestForce, "with HasTestForce false (nobody is holding a debug latch)");
+
+        // A MIXTURE OF ELEMENTS AND NO APPARITION - the case the element half exists for ("So kann
+        // ich die Mischungen besser testen"). Masks, not an index, precisely so this is expressible.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasTestForce = true,
+            TestForceStyle = 0,          // SkyStyle.Default: a legal answer here, unlike record 31
+            TestForceStrongMask = 0x3F,  // all six strong
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            20 08
+            00 00 3F 00
+            00 00 00 00
+            "), ext, m, "all six elements strong, no apparition, on the Default environment");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState tfMix), "and it parses");
+        t.Equal(0x3F, (int)tfMix.TestForceStrongMask, "the whole mixture survives");
+
+        // OUT-OF-RANGE HAUNT ID: the code is index + 1 and the largest room has six cards, so 7 or
+        // above names a card that does not exist. It is dropped to 0 rather than clamped - a card
+        // that does not exist must never resolve to one that does - and the ELEMENT half of the
+        // same record survives, the same per-field sanitization rule record 30 states for its two
+        // stretch slots.
+        byte[] badHaunt = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            20 08
+            01 FF 04 00      // haunt code 255: no room has 255 cards
+            00 00 00 00
+            ");
+        t.True(PresenceSerializer.TryRead(badHaunt, badHaunt.Length, out PresenceState tfBadId),
+               "an out-of-range apparition id still parses the packet");
+        t.True(tfBadId.HasTestForce, "and the record is delivered");
+        t.Equal(0, (int)tfBadId.TestForceHauntCode, "with the impossible apparition dropped to none");
+        t.Equal(0x04, (int)tfBadId.TestForceStrongMask, "and the element half untouched beside it");
+
+        // OUT-OF-RANGE STYLE: rewritten to TestForceStyleUnknown rather than dropped. The consumer
+        // compares it against its own dial, so a value no dial can produce makes the whole override
+        // a no-op - AND, by that same code path, a RELEASE of anything that sender had applied here.
+        // Dropping the record instead would leave a stale override standing until the backstop.
+        byte[] badStyle = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            20 08
+            09 02 01 00      // style 9: no SkyStyle value
+            00 00 00 00
+            ");
+        t.True(PresenceSerializer.TryRead(badStyle, badStyle.Length, out PresenceState tfBadStyle),
+               "an unnameable environment style still parses the packet");
+        t.True(tfBadStyle.HasTestForce, "and the record is still DELIVERED (it must be releasable)");
+        t.Equal(NetProtocol.TestForceStyleUnknown, (int)tfBadStyle.TestForceStyle,
+                "with the style rewritten to a value no dial can ever match");
+
+        // UNDEFINED MASK BITS are masked off, so a newer sender's seventh element cannot light a
+        // meaning in this build; and an element claimed in BOTH columns is dropped from BOTH,
+        // because an element cannot be Strong and Waning at once and guessing would invent state.
+        byte[] dirtyMasks = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            20 08
+            01 00 C3 42      // strong 1100_0011, waning 0100_0010 -> bits 6/7 undefined, bit 1 both
+            00 00 00 00
+            ");
+        t.True(PresenceSerializer.TryRead(dirtyMasks, dirtyMasks.Length, out PresenceState tfDirty),
+               "a mask with undefined and contradictory bits still parses");
+        t.Equal(0x01, (int)tfDirty.TestForceStrongMask,
+                "bits 6/7 are not defined and bit 1 was claimed twice - only Fire survives strong");
+        t.Equal(0x00, (int)tfDirty.TestForceWaningMask,
+                "and the doubly-claimed element is dropped from the waning mask too, never guessed");
+
+        // A TRUNCATED record (claims 8 payload bytes, delivers 4): the tail is abandoned
+        // mid-record, everything parsed before it survives, nothing throws - and crucially the
+        // record is NOT delivered, so a torn packet cannot look like an explicit release.
+        byte[] cutTf = Hex.Bytes("31 52 56 47 03 01 80 00 90 00 C8 01 20 08 01 04 01 20");
+        t.True(PresenceSerializer.TryRead(cutTf, cutTf.Length, out PresenceState cutForce),
+               "a truncated override record still parses the packet");
+        t.True(cutForce.HasMaskSize, "the mask size ahead of the tail survives");
+        t.True(!cutForce.HasTestForce,
+               "and the incomplete record is not delivered - a torn packet is not a release");
+
+        // BACKWARD COMPATIBILITY, the direction that actually ships: a peer built BEFORE record 32
+        // sees it as an unknown 8-byte record, steps over it by its length, and reads what it does
+        // know behind it. (Same assertion shape as records 8 and 30: unknown id 99 stands in for
+        // how the old build's reader classifies id 32.)
+        byte[] oldTfReader = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02               // 2 records
+            63 08 01 04 01 20 87 D6 12 00   // id 99, len 8 -- record 32 as an OLD READER sees it
+            03 07 01 00 30 2E 31 2E 30      // id 3, mod version: build 1, '0.1.0'
+            ");
+        t.True(PresenceSerializer.TryRead(oldTfReader, oldTfReader.Length, out PresenceState oldTf),
+               "an 8-byte record this build does not know is skipped, and the packet parses");
+        t.True(!oldTf.HasTestForce, "the unknown record delivers nothing (as on a pre-record-32 peer)");
+        t.True(oldTf.HasModVersion, "and the record behind it is read past it");
+
+        // ID ORDER: the override rides the tail LAST, behind the environment clock it is evaluated
+        // against. Both records travel in one packet whenever a tester in a haunted room holds a
+        // latch, which is the common case for this feature.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasEnvClock = true, EnvClockStyle = 1, EnvClockMillis = 1000u,
+            HasEnvClockFrequency = true, EnvClockFrequencyCode = 50,
+            HasTestForce = true, TestForceStyle = 1, TestForceHauntCode = 1,
+            TestForceHauntSinceMillis = 500u,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00
+            02               // tail: 2 records, in id order
+            1F 06 01 E8 03 00 00 32       // id 31: clock 1000 ms, frequency 0.50
+            20 08 01 01 00 00 F4 01 00 00 // id 32 behind it: card 0, pressed at 500 ms
+            "), ext, m, "the override rides the tail after the clock record (id order 31, 32)");
+
+        // TWO PEERS, SAME CLOCK, SAME OVERRIDE => SAME EVALUATED STATE. This is the property the
+        // whole record exists for, and it is expressible here because both halves of the wire
+        // contract are pure: two clients that decode the same bytes hold the same (card, anchor),
+        // and the phase each will play is (theirClock - anchor), so the DIFFERENCE between their
+        // two phases is exactly the difference between their two clocks - which extension record 31
+        // has already driven to zero. Nothing about the picture is transmitted; both sides compute
+        // it. Asserted as the decode equality plus that algebra, because a shader phase is the one
+        // thing this harness cannot run.
+        byte[] shared = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            20 08 02 03 00 08 40 9C 00 00
+            ");
+        bool readA = PresenceSerializer.TryRead(shared, shared.Length, out PresenceState peerA);
+        bool readB = PresenceSerializer.TryRead(shared, shared.Length, out PresenceState peerB);
+        t.True(readA && readB, "the same bytes decode on two peers");
+        t.True(peerA.TestForceHauntCode == peerB.TestForceHauntCode
+               && peerA.TestForceHauntSinceMillis == peerB.TestForceHauntSinceMillis
+               && peerA.TestForceStrongMask == peerB.TestForceStrongMask
+               && peerA.TestForceWaningMask == peerB.TestForceWaningMask
+               && peerA.TestForceStyle == peerB.TestForceStyle,
+               "and deliver a bit-identical override - so with one shared clock the phase each side "
+               + "plays, (clock - anchor), is identical too");
+        t.Equal(40000L, (long)peerA.TestForceHauntSinceMillis,
+                "the anchor is the PRESS time (40.000 s), which never moves while the latch stands "
+                + "- that is what keeps a looping apparition in phase with no further traffic");
 
         // -- 7j. BOARD TOOLTIP (extension record 9) ----------------------------------------
         // The tooltip parked in the sender's board tooltip area, UTF8, capped and truncated on

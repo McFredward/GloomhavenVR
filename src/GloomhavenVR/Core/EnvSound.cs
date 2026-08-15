@@ -275,27 +275,65 @@ internal static class EnvSound
     //  stated, and PlayShot still clamps — it just clamps against a different constant for this one
     //  call. See ScheduleShelfContacts for the three cues that pass it in.
 
-    /// <summary>The bookshelf's arrival on the floor, before master. 0.55 against the 0.080 this cue
-    /// shipped with — <b>+16.7 dB</b>.
+    /// <summary>The bookshelf's arrival on the floor, before master. 1.10 against the 0.080 this cue
+    /// shipped with and the 0.55 of ModBuild 149 — <b>+22.8 dB</b> on the original, <b>+6.0 dB</b> on
+    /// the round the user still called "viel zu leise".
     ///
-    /// <para>WHAT IT REACHES: at the default dial the master is 0.75, so the source volume is 0.41
-    /// on Unity's 0..1 scale, against 1.0 for a game cue at full level. That is a bang the player
-    /// cannot miss and is still not the loudest thing in the room, which is the honest reading of
-    /// "einen lauten Knall" from someone whose standing rule is that the environment comes second.
-    /// Under the duck — i.e. while the game itself is making any sound — it lands at 0.14, still
-    /// louder than the 0.060 the un-ducked shipped cue managed.</para>
+    /// <para><b>WHY 0.55 DID NOT REACH HIM, MEASURED OFF HIS OWN LOG</b> (Player.log:7406, the one
+    /// arrival in that session that fired un-ducked). The line reports SOURCE VOLUME 0.264 — and that
+    /// is what was written to the source, not what reached the ear. The source stood at
+    /// (-43.49, -9.97, 32.05) with a minDistance of 1.2 perceived m = 16.5 world units, and the head
+    /// was at (-46.00, 9.30, 12.03) (Heartbeat #20, two lines earlier), i.e. 27.9 world units away.
+    /// Unity's logarithmic rolloff is min/d past the minimum, so the SPATIALISER took another
+    /// <b>-4.6 dB</b> off it and the bang arrived at 0.156. THE DISTANCE ATE MORE THAN A THIRD OF THE
+    /// EXCEPTION, and it is about to eat far more, because fixing the POSITION (see
+    /// <see cref="ShelfFloorContact"/>) moves the source from 27.9 to about 100 world units away —
+    /// the wrong point happened to be near the player. At the shipped 1.2 m minimum that would have
+    /// been 0.044, i.e. quieter than the round he complained about. So the rolloff is fixed in the
+    /// same edit; see the <c>minMeters</c> argument in <see cref="ScheduleShelfContacts"/>.</para>
     ///
-    /// <para>THE LEVEL IS ONLY HALF OF WHY HE COULD NOT HEAR IT. The other half was the clip: 97% of
-    /// its energy sat below 500 Hz, in the band a Quest 3 speaker does not reproduce. Raising the
-    /// gain without fixing that would have produced a louder inaudibility. Both are fixed; see
-    /// <c>EnvSoundBank.MakeFall</c>.</para></summary>
-    private const float ShelfImpactGain = 0.55f;
+    /// <para>WHAT IT REACHES NOW, with the rolloff flat across the room: at the DEFAULT dial the
+    /// master is 0.75, so the source volume is 0.825 on Unity's 0..1 scale against 1.0 for a game cue
+    /// at full level, and the spatialiser no longer takes anything off it anywhere inside the cellar.
+    /// At the reporting user's own settings (game volume 0.64, master 0.480) it is 0.528, against the
+    /// 0.156 he heard — <b>+10.6 dB</b>. Under the duck it lands at 0.578 / 0.370 rather than at
+    /// 0.289 / 0.185, because this cue's duck has a floor of its own
+    /// (<see cref="ShelfImpactDuckFloor"/>).</para>
+    ///
+    /// <para>THE LEVEL IS ONLY HALF OF WHY HE COULD NOT HEAR IT. The other half is the clip, and it
+    /// was only half fixed too: ModBuild 149 moved 19.6% of the energy above 1 kHz but left 72.7% of
+    /// it BELOW 200 Hz, where a Quest 3 speaker gives nothing back, and only 7.6% in the 1-5 kHz band
+    /// where the speaker and the ear are both at their best. That is measured, not assumed, and so is
+    /// the rebuild that fixes it; see <c>EnvSoundBank.MakeFall</c>.</para></summary>
+    private const float ShelfImpactGain = 1.10f;
 
     /// <summary>...and the ceiling the exception is clamped against, in place of
-    /// <see cref="MaxEmitterGain"/> and for this cue only. 0.60 leaves the constant above a little
-    /// room to be tuned upward on hardware without a second edit here, and stops it from ever being
-    /// tuned into "louder than the game", which is not what was granted.</summary>
-    private const float ShelfImpactCeiling = 0.60f;
+    /// <see cref="MaxEmitterGain"/> and for this cue only. 1.20 leaves the constant above a little
+    /// room to be tuned upward on hardware without a second edit here.
+    ///
+    /// <para>PAST 1.0 IS NOT PAST THE GAME, and the difference matters. The number this ceiling
+    /// bounds is a gain BEFORE the master, and the master at the shipped dial is 0.75 — so a gain of
+    /// 1.20 is a source volume of 0.90, still under a game cue at full level. Only a player who has
+    /// also pushed the environment dial past 1.33 can drive the product past 1.0, and Unity clamps
+    /// <c>AudioSource.volume</c> there; the dial simply stops getting louder. That is the correct
+    /// end for a dial the player chose to turn up, and it is stated here rather than discovered.</para></summary>
+    private const float ShelfImpactCeiling = 1.20f;
+
+    /// <summary>How far this ONE cue is allowed to duck. The ambience as a whole falls to
+    /// <see cref="DuckFloor"/> = 0.35 while the game is making any sound; the bang falls no further
+    /// than 0.70.
+    ///
+    /// <para><b>WHY THE EXCEPTION NEEDS THIS TO MEAN ANYTHING.</b> In the user's own session THREE of
+    /// the five arrivals that fired were ducked (Player.log:8847, :8942 — "duck 0.35"), so the cue he
+    /// was asked to judge was 9 dB down more often than it was not. The duck exists so that a
+    /// CONTINUOUS BED does not sit under the game's speech and cues; the argument does not transfer
+    /// to a 40 ms transient, which is the class doc's own duration argument applied to the one place
+    /// it is strongest. It still ducks — the permission is to be loud, not to be unstoppable — it
+    /// simply cannot be ducked into inaudibility.</para>
+    ///
+    /// <para>SCOPE: the arrival and its rebound only. The righting is not part of the exception and
+    /// ducks the whole way, like everything else in the feature.</para></summary>
+    private const float ShelfImpactDuckFloor = 0.70f;
 
     /// <summary>What the dial multiplies up to at its maximum of 2. The cap is why the dial cannot
     /// be turned into a problem: at 2.0 the loudest emitter reaches 0.16 x 1.5 = 0.24, still far
@@ -429,6 +467,12 @@ internal static class EnvSound
     private static long _lastRatSlot = long.MinValue;
     private static float _lastHauntStart = float.NaN;
     private static int _lastHauntCard = -1;
+    // ...and the SAME PAIR AGAIN, for the Advanced menu's forced apparitions only. A forced event is
+    // a second, independent stream of events over the same cards, and until ModBuild 150 the two
+    // shared one latch — so a tester pressing test buttons over a running scheduled event made the
+    // scheduled stream forget what it had already played and fire it a second time. See TickHaunt.
+    private static float _lastForcedStart = float.NaN;
+    private static int _lastForcedCard = -1;
 
     private static int _nextShot;
 
@@ -440,6 +484,12 @@ internal static class EnvSound
     // the correct number.
     private static Transform? _dripNode;
     private static Transform? _ratNode;
+
+    /// <summary>The bookcase's own node ('Shelf', BuildTippingShelf's <c>Place</c> call), or null in
+    /// a room that has none. It is the ONLY thing that knows where the shelf stands and which way it
+    /// falls; see <see cref="ShelfFloorContact"/> for why the apparition catalogue could not answer
+    /// either question.</summary>
+    private static Transform? _shelfNode;
 
     // ---- the authored schedule, mirrored ------------------------------------------------------------
     //
@@ -574,6 +624,12 @@ internal static class EnvSound
         // Resolve the event nodes ONCE — see the fields' comment for why this may not be per event.
         _dripNode = Find(roomGo.transform, "Drip", "Puddle");
         _ratNode = Find(roomGo.transform, "Rat");
+        // THE BOOKCASE ITSELF. Exact name, and exact is what makes it safe: the room also carries
+        // 'CandlesShelf', 'ShelfTop', 'ShelfMid', 'WebShelf' and 'WaxShelf', every one of which is a
+        // thing standing ON the shelf rather than the shelf. A prefix search would have taken
+        // whichever the walk reached first, which is precisely the class of near-miss that put the
+        // last three rounds' bang in the middle of the room.
+        _shelfNode = style == SkyStyle.Cellar ? Find(roomGo.transform, "Shelf") : null;
 
         _built = true;
         _builtStyle = style;
@@ -883,10 +939,18 @@ internal static class EnvSound
     /// the duck, and the two volume sliders the player already set inside the GAME's own audio
     /// options. Item 4 of the "never intrusive" list.
     /// </summary>
-    private static float Master()
+    private static float Master() => MasterWith(_duck);
+
+    /// <summary>As <see cref="Master"/>, with the duck REPLACED. One caller passes anything but the
+    /// live duck: the bookshelf's arrival, which floors it at <see cref="ShelfImpactDuckFloor"/>.
+    /// Written as a parameter rather than as a second formula so that the dial, the ceiling and the
+    /// game's two volume sliders are applied in exactly one place — an exception that re-derived the
+    /// chain would be an exception that stopped obeying the player's sliders the day one of them
+    /// moved.</summary>
+    private static float MasterWith(float duck)
     {
         float dial = Mathf.Clamp(Gain.Value, 0f, 2f) * (MasterCeiling / 2f);
-        return dial * _duck * GameVolume();
+        return dial * duck * GameVolume();
     }
 
     /// <summary>
@@ -1141,9 +1205,28 @@ internal static class EnvSound
         if (clock < at)
             return;
 
-        // Fire once per (start, card). Both are needed: a forced event keeps the same start for its
-        // whole hold, and two different cards can share a start only across a clock jump.
-        if (Mathf.Approximately(_lastHauntStart, slot.StartClock) && _lastHauntCard == slot.Card)
+        // Fire once per (start, card), and on TWO SEPARATE LATCHES — one for the events the shared
+        // schedule produces and one for the Advanced menu's forced ones.
+        //
+        // WHY TWO, AND IT IS THE ANSWER TO A REPORTED DEFECT. Player.log:8629 and :8691 both schedule
+        // the SAME shelf event (start 432.56s), 15 s apart, and both then have every contact dropped
+        // as stale. The single latch had not failed on its own terms — it had been OVERWRITTEN. The
+        // tester was using the test buttons: he latched apparition 0 (:8563, :8598), which wrote
+        // (430.45, card 0) and then (437.35, card 0) over the latch; released it at 441.28, at which
+        // point Resolve went back to the real schedule and returned card 5 — a different pair, so it
+        // fired; then latched apparition 1 at 447.73 (another overwrite) and released THAT at 456.03,
+        // at which point card 5 was still running and was, by the same argument, a different pair
+        // again. A forced event is a different STREAM of events and must not be able to make the
+        // scheduled stream forget what it has already played.
+        //
+        // ONE LATCH PER STREAM IS ENOUGH, and that is a property of the schedule rather than an
+        // assumption: scheduled events never overlap (the bake measures the shortest quiet gap
+        // between the end of one and the start of the next at 27 s), so between two visits to the
+        // same scheduled event there can be no OTHER scheduled event to evict it.
+        bool seen = slot.Forced
+            ? Mathf.Approximately(_lastForcedStart, slot.StartClock) && _lastForcedCard == slot.Card
+            : Mathf.Approximately(_lastHauntStart, slot.StartClock) && _lastHauntCard == slot.Card;
+        if (seen)
             return;
         // ...and never fire for an event that has already finished — which is what would otherwise
         // happen on the frame the environment stands up in the middle of a slot.
@@ -1151,29 +1234,87 @@ internal static class EnvSound
         if (clock > slot.StartClock + runs + 1.5f)
             return;
 
-        _lastHauntStart = slot.StartClock;
-        _lastHauntCard = slot.Card;
+        if (slot.Forced)
+        {
+            _lastForcedStart = slot.StartClock;
+            _lastForcedCard = slot.Card;
+        }
+        else
+        {
+            _lastHauntStart = slot.StartClock;
+            _lastHauntCard = slot.Card;
+        }
 
-        // A SILENT CARD IS DEBOUNCED LIKE ANY OTHER and then simply makes no sound — the two lines
-        // above have already run. Doing it in that order rather than returning early is what keeps
-        // one apparition equal to at most one visit to this code, so a silent card cannot re-enter
-        // on the next frame and cannot schedule anything twice.
+        // A SILENT CARD IS DEBOUNCED LIKE ANY OTHER and then simply makes no sound — the lines above
+        // have already run. Doing it in that order rather than returning early is what keeps one
+        // apparition equal to at most one visit to this code, so a silent card cannot re-enter on the
+        // next frame and cannot schedule anything twice.
         if (!audible)
             return;
 
+        // ================================ THE MID-FLIGHT JOIN =========================================
+        //
+        //  ALL OF THE EVENT OR NONE OF IT. Until ModBuild 150 this method would fire a cue up to the
+        //  event's whole run plus 1.5 s late, on the reasoning that a cue is better than silence when
+        //  the environment stands up in the middle of a slot. The bookshelf disproved it, and the
+        //  proof is in the user's log rather than in an argument: at Player.log:8630 the creak fired
+        //  8.7 s into a 25 s event, and the contacts it then scheduled were ABSOLUTE times on the
+        //  shared clock (which is right — see ScheduleShelfContacts) that had ALREADY PASSED. Three
+        //  lines later all of them were dropped as stale (:8631, :8632). So the player heard the
+        //  bookcase begin to lean and then never heard it land, twice, which is worse than either
+        //  hearing the whole thing or hearing nothing: a cue with no consequence is a cue that says
+        //  the feature is broken.
+        //
+        //  So the cue's own lateness is now BUDGETED, and the budget is DeferredStaleSeconds — the
+        //  same constant the deferred queue drops on — because that is what makes the whole event
+        //  coherent by construction rather than by coincidence. If the lead cue is inside its budget,
+        //  every contact behind it is at least (its own phase offset - the budget) ahead of the
+        //  clock: for the shelf the nearest is the arrival at +4.5 s, so it is still 2.4 s in the
+        //  future and the queue cannot drop it. If the lead cue is outside the budget, nothing at all
+        //  is played for this event.
+        //
+        //  IT IS DEBOUNCED FIRST, deliberately: the event is latched above, so a skipped event is
+        //  skipped ONCE and cannot be reconsidered on the next frame as the clock walks further past
+        //  it. And it is logged once, because "the shelf fell and I heard nothing" has to be
+        //  attributable to a decision rather than to a hole.
+        if (clock > at + DeferredStaleSeconds)
+        {
+            VRLog.Info("Core", $"ENV SOUND {style} card {slot.Card} SKIPPED ENTIRELY — this client " +
+                               $"reached the event {clock - at:F2}s after its cue was due (cue at " +
+                               $"{at:F2}s, event starts {slot.StartClock:F2}s and runs {runs:F2}s, " +
+                               $"clock {clock:F2}s), which is past the {DeferredStaleSeconds:F1}s " +
+                               "budget. Joining an event in flight means every contact behind the " +
+                               "lead cue is already in the past, and a creak with no landing behind " +
+                               "it is worse than silence — so the WHOLE event is silent. Nothing is " +
+                               "broken; the next event plays in full. This is normally the " +
+                               "environment standing up mid-slot, or an Advanced-menu latch being " +
+                               "released over a scheduled event that was already running.");
+            return;
+        }
+
         Vector3 pos = HauntPosition(slot.Card);
-        PlayShot(EnvSoundBank.Bank(clip), pos, gain, minM, maxM, 1f);
 
         // The cellar's bookshelf (card 5) is the one apparition whose sound is not a hint but a
-        // physical consequence — it tips over, hits a stone floor and later rights itself.
-        if (style == SkyStyle.Cellar && slot.Card == 5)
+        // physical consequence — it tips over, hits a stone floor and later rights itself. Its cues
+        // ALSO come off the shelf's own node rather than off the apparition catalogue: the creak is
+        // the carcass taking the lean, so it sounds from the middle of the standing body, and the
+        // contacts sound from the floor (ScheduleShelfContacts). Before ModBuild 150 both came from
+        // the catalogue's bounds centre, i.e. from the middle of the room.
+        bool shelf = style == SkyStyle.Cellar && slot.Card == 5;
+        Vector3 cueAt = shelf ? ShelfCarcass(pos) : pos;
+
+        PlayShot(EnvSoundBank.Bank(clip), cueAt, gain, minM, maxM, 1f);
+
+        if (shelf)
             ScheduleShelfContacts(slot.StartClock, runs, clock, pos);
 
         VRLog.Info("Core", $"ENV SOUND haunt cue: {style} card {slot.Card} -> {clip} at shared clock " +
                            $"{clock:F2}s, lead {lead:+0.00;-0.00}s on an event that starts " +
                            $"{slot.StartClock:F2}s and runs {runs:F2}s" +
                            (slot.Forced ? " — FORCED from the Advanced menu" : " — scheduled") +
-                           $". Gain {gain:F3} before master; position {pos:F2}.");
+                           $". Gain {gain:F3} before master; position {cueAt:F2}" +
+                           (shelf ? " (the SHELF's own carcass, not the apparition catalogue)" : "") +
+                           ".");
     }
 
     // ---- the bookshelf's contacts ----------------------------------------------------------------
@@ -1246,6 +1387,42 @@ internal static class EnvSound
     private const float ShelfReboundLevel = 0.18f;
 
     /// <summary>
+    /// The impact's minDistance, in PERCEIVED metres. Everything inside this radius hears the bang at
+    /// full level; past it Unity's logarithmic curve takes min/d as usual, out to the same 24 m
+    /// maximum every other cue has.
+    ///
+    /// <para><b>8 m IS THE CELLAR, NOT A FUDGE.</b> The room the bake builds is about 10.7 x 10 m of
+    /// floor, so its half-diagonal is 7.3 m: a source at 8 m of minimum is flat everywhere INSIDE the
+    /// room and starts falling only outside it. That is the whole intent, stated as a number — the
+    /// permission granted was for the bang to be loud, and a bang whose audibility depends on which
+    /// corner of a small stone cellar the player happens to be leaning over is not loud, it is a
+    /// lottery. The three previous rounds all lost most of the exception to exactly that lottery
+    /// (see <see cref="ShelfImpactGain"/> for the arithmetic off the user's own log).</para>
+    ///
+    /// <para><b>AND IT IS THE PHYSICALLY HONEST CURVE HERE, which is why it is not simply "turn the
+    /// rolloff off".</b> Two independent reasons, both specific to this sound:
+    /// <list type="bullet">
+    ///   <item>THE SOURCE IS NOT A POINT. It is a 2.06 m carcass landing on its whole face at once.
+    ///   The 1/d law is the far field of a point source; the near field of a radiator that size does
+    ///   not begin to obey it until several metres out.</item>
+    ///   <item>THE ROOM IS A SEALED STONE BOX. Past the critical distance of a reverberant space the
+    ///   direct field stops dominating and the level goes FLAT — that is what a bang in a cellar
+    ///   does, and it is the one thing about this event everybody has already heard in a real
+    ///   building. This project ships no reverb (see the class doc), so a flat rolloff inside the
+    ///   room is the cheapest correct model of the room, not the absence of a model.</item>
+    /// </list></para>
+    ///
+    /// <para>maxMeters is untouched at 24: the permission is for the impact to be loud where it is,
+    /// not for it to reach further.</para></summary>
+    private const float ShelfImpactMinMeters = 8f;
+
+    /// <summary>...and the righting's, which is NOT part of the exception and is deliberately
+    /// smaller: 6 m still covers the room's centre, so the recovery does not vanish when the contact
+    /// point is corrected, but it audibly falls off across the floor where the bang does not. A mass
+    /// dragging itself upright is a local event; a bang is not.</summary>
+    private const float ShelfSettleMinMeters = 6f;
+
+    /// <summary>
     /// Put the bookshelf's three remaining sounds on the queue the moment its cue fires: the arrival
     /// on the floor, the rebound's second contact 0.624 s later, and the righting. See the block
     /// comment above for where every one of those times comes from.
@@ -1266,46 +1443,59 @@ internal static class EnvSound
     /// <c>DurationMul</c>. Ice stretches it by up to 35%, and everything here scales with it because
     /// the shader's phase does.</param>
     /// <param name="now">Shared-clock seconds this frame. Diagnostics only.</param>
-    /// <param name="pos">Where the apparition IS, from <see cref="HauntPosition"/> — the renderer
-    /// bounds centre of whatever node resolved. The contacts are placed on the FLOOR under it rather
-    /// than at it; see <see cref="ShelfFloorContact"/>.</param>
+    /// <param name="pos">ONLY A FALLBACK, and it is passed rather than resolved here so the log line
+    /// can print both: it is <see cref="HauntPosition"/>'s answer, the renderer bounds centre of
+    /// whatever apparition node resolved, which for card 5 is the welded catalogue's middle and is
+    /// not the shelf at all. The contacts are placed from the SHELF'S OWN NODE and only fall back to
+    /// this if that node is missing; see <see cref="ShelfFloorContact"/>.</param>
     private static void ScheduleShelfContacts(float start, float runs, float now, Vector3 pos)
     {
         float arrival = start + runs * ShelfArrivalPhase;
         float rebound = start + runs * ShelfReboundPhase;
         float rise = start + runs * ShelfRisePhase;
 
-        // THE SOUND COMES FROM THE FLOOR, not from the middle of the bookcase. See below.
-        Vector3 floor = ShelfFloorContact(pos);
+        // THE SOUND COMES FROM WHERE THE CARCASS MEETS THE FLAGSTONES, and getting that point right
+        // is fault (a) of three in the ModBuild 149 report. See ShelfFloorContact.
+        Vector3 floor = ShelfFloorContact(pos, out string via);
 
         // THE BANG. Everything about this call is the user's exception being spent: the gain is
         // ShelfImpactGain rather than a fraction of MaxEmitterGain, the ceiling passed to PlayShot is
-        // ShelfImpactCeiling rather than MaxEmitterGain, and the cue is LABELLED so that the next
-        // hardware round can read the played level and the clip's measured peak straight out of
-        // Player.log instead of inferring them.
+        // ShelfImpactCeiling rather than MaxEmitterGain, the duck has a floor of its own, and the cue
+        // is LABELLED so that the next hardware round can read the played level and the clip's
+        // measured peak straight out of Player.log instead of inferring them.
         //
-        // minMeters comes DOWN from 2 to 1.2 as well, and that is a level change in disguise: under
-        // logarithmic rolloff the level past the minimum goes as min/d, so a lower minimum steepens
-        // the whole curve — which for a bang is the right shape, since a bookcase hitting a stone
-        // floor is emphatically a thing that happens in ONE PLACE. maxMeters stays at 24: the
-        // permission is for the impact to be loud where it is, not for it to reach further.
+        // minMeters GOES UP, from 1.2 to ShelfImpactMinMeters, and it is the single biggest level
+        // change in this edit — bigger than the gain constant. The 1.2 m minimum was chosen on the
+        // argument that "a bookcase hitting a stone floor is emphatically a thing that happens in ONE
+        // PLACE", which is true of the EVENT and false of the SOUND FIELD. Under logarithmic rolloff
+        // the level past the minimum goes as min/d, so at the 7.3 perceived metres the player
+        // actually stood at (Player.log, Heartbeat #20 against the corrected contact point) a 1.2 m
+        // minimum is -15.6 dB — the spatialiser was taking more off the bang than the whole
+        // exception put on it. See ShelfImpactMinMeters for why the honest curve for THIS sound in
+        // THIS room is flat.
         Defer(arrival, EnvSoundClip.Fall, floor,
-              gain: ShelfImpactGain, minMeters: 1.2f, maxMeters: 24f, pitch: 1f,
-              cap: ShelfImpactCeiling, label: "SHELF ARRIVAL ON THE FLOOR (the loud one)");
+              gain: ShelfImpactGain, minMeters: ShelfImpactMinMeters, maxMeters: 24f, pitch: 1f,
+              cap: ShelfImpactCeiling, label: "SHELF ARRIVAL ON THE FLOOR (the loud one)",
+              duckFloor: ShelfImpactDuckFloor);
 
         // Pitched slightly UP, because a lighter contact of the same body excites its higher modes
         // relatively more — the low mode needs momentum the rebound no longer has. 1.06 is small
         // enough not to read as a transposition and large enough to read as a lighter touch. It
-        // rides the same exception because it is the same contact 0.624 s later — 0.18 of it, i.e.
-        // 0.099, which is under MaxEmitterGain anyway and passes the ceiling only for consistency.
+        // rides the same exception because it is the same contact 0.624 s later — 0.18 of it.
         Defer(rebound, EnvSoundClip.Fall, floor,
-              gain: ShelfImpactGain * ShelfReboundLevel, minMeters: 1.2f, maxMeters: 24f,
-              pitch: 1.06f, cap: ShelfImpactCeiling, label: "SHELF REBOUND (second contact)");
+              gain: ShelfImpactGain * ShelfReboundLevel, minMeters: ShelfImpactMinMeters,
+              maxMeters: 24f, pitch: 1.06f, cap: ShelfImpactCeiling,
+              label: "SHELF REBOUND (second contact)", duckFloor: ShelfImpactDuckFloor);
 
         // The righting is NOT part of the exception: it is a mass coming slowly back up, the half
-        // that is meant to be unsettling rather than loud, and it stays inside the ordinary budget.
+        // that is meant to be unsettling rather than loud, it ducks the whole way and it stays inside
+        // the ordinary budget. Its rolloff still has to move with the position fix, though, or the
+        // correction would silently DELETE it: at 2 perceived metres of minimum it reached 0.026 of
+        // full scale from the old (wrong, and accidentally nearby) point and would reach 0.007 from
+        // the right one. ShelfSettleMinMeters keeps it where it was — audible, and still plainly
+        // further away than the bang, which is what it is.
         Defer(rise, EnvSoundClip.Settle, floor,
-              gain: 0.055f, minMeters: 2f, maxMeters: 24f, pitch: 1f,
+              gain: 0.055f, minMeters: ShelfSettleMinMeters, maxMeters: 24f, pitch: 1f,
               label: "SHELF RIGHTING");
 
         // ONE LINE, ONCE PER SHELF EVENT — which is at most once every ~83 s in the cellar and only
@@ -1315,7 +1505,6 @@ internal static class EnvSound
         // the whole verification, and nobody working on this can hear it. Each of the three cues
         // ALSO logs when it actually fires or is dropped (see Deferred.Label), so a missing bang can
         // now be attributed rather than guessed at.
-        HauntPosition(5, out _, out string via);
         VRLog.Info("Core", $"ENV SOUND shelf contacts scheduled from EnvShelfTip's own phase — the "
                            + $"event starts {start:F2}s and runs {runs:F2}s (26.002s authored x the "
                            + "slot's DurationMul, which Ice stretches by up to 35%), so: creak now "
@@ -1331,10 +1520,16 @@ internal static class EnvSound
                            + $"berührt\"): gain {ShelfImpactGain:F2} against the {MaxEmitterGain:F2} "
                            + "every other emitter is capped at, which is "
                            + $"{20f * Mathf.Log10(ShelfImpactGain / 0.080f):F1} dB over the cue he "
-                           + "could not hear. PLACED ON THE FLOOR at "
-                           + $"{floor:F2} (apparition node '{via}', bounds centre {pos:F2}) — an "
-                           + "impact sounds from where two things touch, not from the middle of the "
-                           + "carcass.");
+                           + $"could not hear, it ducks no further than {ShelfImpactDuckFloor:F2} "
+                           + $"(everything else goes to {DuckFloor:F2}), and its rolloff is FLAT out "
+                           + $"to {ShelfImpactMinMeters:F1} perceived m so the whole cellar is inside "
+                           + "it. PLACED AT THE CONTACT: "
+                           + $"{floor:F2}, derived from node '{via}' at {(_shelfNode != null ? _shelfNode.position.ToString("F2") : "(none)")} "
+                           + $"along its own forward {(_shelfNode != null ? _shelfNode.forward.ToString("F2") : "(none)")} by "
+                           + $"{ShelfHalfDepthMeters + 0.5f * ShelfHeightMeters:F2} authored m — the "
+                           + "CENTRE OF THE FALLEN FACE, i.e. where two things touch, not the "
+                           + $"apparition catalogue's middle ({pos:F2}), which is what the last three "
+                           + "rounds used and which is not even the same object.");
     }
 
     /// <summary>The lead on card 5's own creak, named so that <see cref="CueFor"/> and the
@@ -1431,7 +1626,12 @@ internal static class EnvSound
                 // commits to the lean. The three contacts are scheduled from the shader's own phase
                 // constants by ScheduleShelfContacts — see the block comment there, and see the user
                 // report that made it necessary.
-                default: clip = EnvSoundClip.Creak; gain = 0.045f; lead = ShelfLead; minM = 2f; maxM = 20f; return true;
+                //
+                // Its rolloff is ShelfSettleMinMeters, not 2 m, for the reason the righting's is:
+                // the cue now sounds from the SHELF (TickHaunt) instead of from the middle of the
+                // room, which is several metres further from the player, and a 2 m minimum would
+                // have made the position fix silently delete the lead cue as well.
+                default: clip = EnvSoundClip.Creak; gain = 0.045f; lead = ShelfLead; minM = ShelfSettleMinMeters; maxM = 24f; return true;
             }
         }
 
@@ -1469,77 +1669,143 @@ internal static class EnvSound
     /// whose name starts with <c>Haunt</c>, then the welded catalogue node the current bake produces
     /// (<c>Haunts</c>, BuildEnvironmentRooms.cs:4759), then the room root. Only the last of those is
     /// a real degradation, and it degrades to "the sound is in the room" rather than to silence.</para>
+    ///
+    /// <para><b>IT NO LONGER HANDS BACK A FLOOR, and that removal is a bug fix rather than a
+    /// tidy-up.</b> It used to return <c>bounds.min.y</c> of whatever resolved, and the bookshelf's
+    /// contacts used that as "the flagstones". On the welded catalogue that number is not a floor at
+    /// all — the mesh covers travelling apparitions and the bake expands its bounds to cover the
+    /// travel — and it put the bang metres under the room. Nothing asks this function for a floor
+    /// any more; the one caller that needed one asks the object that has one (see
+    /// <see cref="ShelfFloorContact"/>).</para>
     /// </summary>
-    private static Vector3 HauntPosition(int card) => HauntPosition(card, out _, out _);
-
-    /// <summary>As above, and it also hands back the FLOOR under the apparition and the name of the
-    /// node that resolved — the two things the bookshelf's contacts need and the ordinary cues do
-    /// not. See <see cref="ShelfFloorContact"/> for why a contact wants a different point from a
-    /// breath.</summary>
-    private static Vector3 HauntPosition(int card, out float floorY, out string via)
+    private static Vector3 HauntPosition(int card)
     {
         Transform room = _root!.transform.parent!;
 
         Transform? exact = Find(room, "Haunt" + card);
         if (exact != null)
-            return Center(exact, "Haunt" + card, out floorY, out via);
+            return Center(exact);
 
         foreach (Transform t in FindByPrefix(room, "Haunt"))
-            return Center(t, t.name, out floorY, out via);
+            return Center(t);
 
-        return Center(room, room.name + " (ROOM ROOT — no apparition node resolved)", out floorY, out via);
+        return Center(room);
 
         // The RENDERER's bounds centre, not the transform origin: a welded apparition card's pivot
         // is wherever the mesh builder happened to leave it, while the bounds centre is where the
-        // thing visibly IS. Falls back to the transform when there is nothing to measure — and then
-        // the floor is the transform too, which is the honest answer for "we could not measure it".
-        static Vector3 Center(Transform t, string name, out float floor, out string resolved)
+        // thing visibly IS. Falls back to the transform when there is nothing to measure, which is
+        // the honest answer for "we could not measure it".
+        static Vector3 Center(Transform t)
         {
-            resolved = name;
             var r = t.GetComponentInChildren<Renderer>();
-            if (r == null)
-            {
-                floor = t.position.y;
-                return t.position;
-            }
-            floor = r.bounds.min.y;
-            return r.bounds.center;
+            return r == null ? t.position : r.bounds.center;
         }
     }
 
-    /// <summary>
-    /// Where the bookshelf's contacts SOUND FROM: the point directly under the apparition's centre,
-    /// on the floor.
-    ///
-    /// <para><b>WHY NOT SIMPLY THE APPARITION'S CENTRE, which is what every other cue uses.</b> A
-    /// breath, a creak and a drag come from a whole body and the bounds centre is the right answer
-    /// for all of them. An IMPACT does not: it happens at the one place two things touch, and for a
-    /// bookcase going over that is the floor line, a metre or more below the carcass's middle. At
-    /// this room's rig scale that is tens of world units of separation, and the user's report is
-    /// specifically that the sound of the shelf reaching the floor is missing — placing it in the
-    /// air above the floor is a way of getting it half right.</para>
-    ///
-    /// <para><b>AND THE FALLBACK IS HONEST ABOUT ITSELF.</b> The hardware log shows card 5 resolving
-    /// through the second link of <see cref="HauntPosition"/>'s chain, not the first — there is no
-    /// <c>Haunt5</c> node, so the position is the welded CATALOGUE's bounds, which covers every
-    /// apparition in the room. Its bottom is still the floor those apparitions stand on, which is
-    /// what this needs; its x/z is the catalogue's centre rather than the shelf's, which this cannot
-    /// fix from here. The scheduling log line prints the node that resolved and the final point, so
-    /// the day the content lane names a per-card node this improves without a code change and the
-    /// log says that it did.</para>
-    /// </summary>
-    private static Vector3 ShelfFloorContact(Vector3 centre)
-    {
-        if (_root == null || _root.transform.parent == null)
-            return centre;
+    // ---- WHERE THE BOOKCASE ACTUALLY IS ------------------------------------------------------------
+    //
+    //  THE THIRD ROUND ON THIS BUG, and the first two both placed the sound somewhere else entirely.
+    //  Player.log:7391, verbatim:
+    //
+    //      PLACED ON THE FLOOR at (-43.49, -9.97, 32.05) (apparition node 'Haunts',
+    //      bounds centre (-43.49, 6.98, 32.05))
+    //
+    //  BOTH COORDINATES ARE WRONG AND FOR TWO DIFFERENT REASONS.
+    //
+    //   * x/z. There is no `Haunt5` node, so HauntPosition fell through to the second link of its
+    //     chain and returned the WELDED HAUNT CATALOGUE's bounds centre — a single mesh covering
+    //     every apparition in the room, whose centre is the middle of the cellar. And card 5 is not
+    //     even IN it: the bake reports "[5] grp2 Shelf kind 4 — 0 verts, bbox 0.00x0.00x0.00 m",
+    //     because the shelf is not drawn by the catalogue at all. It is its own prop
+    //     (Env_C_ShelfTip) posed by its own shader. So the fallback was averaging the positions of
+    //     the apparitions that are not the shelf.
+    //   * y. `bounds.min.y` of that same catalogue, which is not a floor: the welded mesh contains
+    //     TRAVELLING apparitions and the bounds the bake expands to cover their travel, so its
+    //     bottom is far under the flagstones. The number the log prints (17 world units below the
+    //     mesh's own centre, in a room whose whole ceiling is 3.4 m) says so on its face.
+    //
+    //  Together they put the bang about 107 world units — nearly eight perceived metres — from where
+    //  the bookcase hits, on the far side of the room and below the floor. It happened to land NEAR
+    //  THE PLAYER, which is why the level looked better in the log than it was; see ShelfImpactGain.
+    //
+    //  THE FIX IS TO ASK THE SHELF. `Shelf` is a real node with a real transform: BuildTippingShelf
+    //  places it at CellarShelfAt with the room's own yaw, and the fall is READ OFF THAT TRANSFORM
+    //  ("The shelf falls along its own forward", BuildEnvironmentRooms.cs). So the transform carries
+    //  every fact this needs — where the footprint is, where the floor is, and which way the carcass
+    //  goes — in world space, already scaled and yawed by the room frame, without this file knowing
+    //  the room's placement, its 11.905x art scale or the rig scale.
+    //
+    //  WHY NOT THE RENDERER BOUNDS, which is what every other cue here uses. Because the shelf's mesh
+    //  bounds are DELIBERATELY A LIE: HauntPropMesh ends with `bb.Expand(2.0f * bb.size.y)` so that a
+    //  bookcase lying two metres from where it stood is not frustum-culled. Its centre is still the
+    //  standing carcass but its min.y is 2 m of authored art below the flagstones — the same trap the
+    //  catalogue's bounds set, in the shelf's own mesh. The transform has no such expansion.
 
-        Vector3 body = HauntPosition(5, out float floorY, out _);
-        // Guard the measurement rather than trusting it: a renderer with no mesh reports a degenerate
-        // bounds, and a floor ABOVE the body's own centre is not a floor. Fall back to the centre,
-        // which is where the cue used to be and is never worse than silence.
-        if (float.IsNaN(floorY) || float.IsInfinity(floorY) || floorY > body.y)
-            return centre;
-        return new Vector3(body.x, floorY, body.z);
+    /// <summary>How far along its own forward the carcass's fallen face is centred, in AUTHORED
+    /// METRES of the room's art — the room frame scales it (x11.905 in the shipped cellar) and this
+    /// file never has to know by how much.
+    ///
+    /// <para>DERIVED, from the two numbers BuildTippingShelf measures off the placed prop and prints:
+    /// the standing box is 0.58 x 2.06 x 1.37 m and the fall is about the base edge on its forward
+    /// face, i.e. half the depth (0.29) ahead of the anchor. Rotated 90 degrees about that edge the
+    /// carcass lies flat, reaching one full height (2.06) further along the same direction — so the
+    /// FACE that slaps the flagstones spans [0.29, 2.35] and its centre is at 0.29 + 2.06/2 = 1.32.
+    /// An impact sounds from where two things touch, and for a body that lands flat that is the whole
+    /// face, whose acoustic centre is its middle. It is NOT the anchor (that is where the shelf
+    /// STOOD, a metre and a half behind the contact) and it is NOT the top board (that is one end of
+    /// it).</para>
+    ///
+    /// <para>MIRRORED, like <see cref="ShelfArrivalPhase"/> and <see cref="DripPeriod"/>: if the bake
+    /// re-cuts the carcass, this moves with it. The bake states both halves on its own
+    /// "Cellar SHELF is now a haunt" line, so the two can be checked against each other from one
+    /// log.</para></summary>
+    private const float ShelfHalfDepthMeters = 0.29f;
+    private const float ShelfHeightMeters = 2.06f;
+
+    /// <summary>
+    /// Where the bookshelf's contacts SOUND FROM: the centre of the fallen carcass's footprint, on
+    /// the flagstones. See the block comment above for what was there before and why it was two
+    /// separate errors.
+    /// </summary>
+    /// <param name="fallback">Used only if the shelf node cannot be resolved at all — the apparition
+    /// position the ordinary cue path produced. It is a bad answer and the log says so; it is kept
+    /// because it is never worse than silence.</param>
+    /// <param name="via">What actually resolved, for the scheduling log line. The point of naming it
+    /// is that the day the bake renames the node this degrades VISIBLY instead of drifting back into
+    /// the middle of the room.</param>
+    private static Vector3 ShelfFloorContact(Vector3 fallback, out string via)
+    {
+        Transform? shelf = _shelfNode;
+        if (shelf == null)
+        {
+            via = "NO 'Shelf' NODE — falling back to the apparition position, which is NOT the shelf";
+            return fallback;
+        }
+
+        // TransformVector and not `shelf.forward * d`: the vector goes through the whole parent
+        // chain, so the authored metres above become world units at whatever scale the room frame was
+        // placed at, with no constant here to fall out of step with SkyAlternative's placement. The
+        // room's scale is uniform, so this is a rotate-and-scale and nothing is skewed.
+        Vector3 along = shelf.TransformVector(
+            new Vector3(0f, 0f, ShelfHalfDepthMeters + 0.5f * ShelfHeightMeters));
+
+        // The FLOOR is the node's own y and nothing else: the bake stands the prop on the flagstones
+        // (`Rest(go, null, 0.015f, pos)`, "on ground sink=0.015 dy=-0.013"), so the transform sits on
+        // the floor by construction. No bounds are read here — see the block comment.
+        via = shelf.name;
+        return new Vector3(shelf.position.x + along.x, shelf.position.y, shelf.position.z + along.z);
+    }
+
+    /// <summary>Where the CARCASS is while it is still standing and creaking — the same node, at
+    /// half its own height. The lead cue is not an impact and must not come off the floor: a bookcase
+    /// committing to a lean creaks along its whole body.</summary>
+    private static Vector3 ShelfCarcass(Vector3 fallback)
+    {
+        Transform? shelf = _shelfNode;
+        if (shelf == null)
+            return fallback;
+        Vector3 up = shelf.TransformVector(new Vector3(0f, 0.5f * ShelfHeightMeters, 0f));
+        return shelf.position + up;
     }
 
     /// <summary>
@@ -1552,13 +1818,16 @@ internal static class EnvSound
     /// contacts pass <see cref="ShelfImpactCeiling"/> under the written permission recorded there.
     /// A per-call ceiling rather than an unclamped path, so the exception is still a number compared
     /// against a stated maximum.</param>
+    /// <param name="duckFloor">How far this cue is allowed to duck, 0..1 — 0 (the default) means
+    /// "the whole way", which is what every caller but the bookshelf's two impacts passes. See
+    /// <see cref="ShelfImpactDuckFloor"/>.</param>
     /// <returns>The volume actually written to the source on Unity's 0..1 scale — gain, clamped,
     /// times the master — or 0 if nothing played. RETURNED rather than recomputed by the caller
     /// because a log line that states a level nobody set is worse than no log line: this is the
     /// number the headset was handed.</returns>
     private static float PlayShot(AudioClip? clip, Vector3 world, float gain,
                                   float minMeters, float maxMeters, float pitch,
-                                  float cap = MaxEmitterGain)
+                                  float cap = MaxEmitterGain, float duckFloor = 0f)
     {
         if (clip == null || Shots.Count == 0)
             return 0f;
@@ -1566,7 +1835,7 @@ internal static class EnvSound
         Voice v = Shots[_nextShot];
         _nextShot = (_nextShot + 1) % Shots.Count;
 
-        float volume = Mathf.Min(gain, cap) * Master();
+        float volume = Mathf.Min(gain, cap) * MasterWith(Mathf.Max(_duck, Mathf.Clamp01(duckFloor)));
         v.Go.transform.position = world;
         v.Source.clip = clip;
         v.Source.pitch = Mathf.Clamp(pitch, 0.5f, 2f);
@@ -1689,6 +1958,7 @@ internal static class EnvSound
 
         _dripNode = null;
         _ratNode = null;
+        _shelfNode = null;
 
         _built = false;
         _builtStyle = SkyStyle.Default;
@@ -1700,6 +1970,8 @@ internal static class EnvSound
         _lastRatSlot = long.MinValue;
         _lastHauntStart = float.NaN;
         _lastHauntCard = -1;
+        _lastForcedStart = float.NaN;
+        _lastForcedCard = -1;
         ClearDeferred();
         _squeakAt = float.NaN;
         _squeakFrom = null;
@@ -1736,6 +2008,7 @@ internal static class EnvSound
         internal EnvSoundClip Clip;
         internal float Gain;
         internal float Cap;            // the ceiling Gain is clamped against — see PlayShot
+        internal float DuckFloor;      // how far this cue may duck, 0 = all the way — see PlayShot
         internal float Pitch;
         internal float MinMeters;
         internal float MaxMeters;
@@ -1772,7 +2045,8 @@ internal static class EnvSound
     /// </summary>
     private static void Defer(float at, EnvSoundClip clip, Vector3 pos, float gain,
                               float minMeters, float maxMeters, float pitch,
-                              float cap = MaxEmitterGain, string? label = null)
+                              float cap = MaxEmitterGain, string? label = null,
+                              float duckFloor = 0f)
     {
         int slot = -1;
         float soonest = float.MaxValue;
@@ -1797,6 +2071,7 @@ internal static class EnvSound
             Clip = clip,
             Gain = gain,
             Cap = cap,
+            DuckFloor = duckFloor,
             Pitch = pitch,
             MinMeters = minMeters,
             MaxMeters = maxMeters,
@@ -1857,7 +2132,7 @@ internal static class EnvSound
 
             AudioClip? clip = EnvSoundBank.Bank(cue.Clip);
             float volume = PlayShot(clip, cue.Pos, cue.Gain,
-                                    cue.MinMeters, cue.MaxMeters, cue.Pitch, cue.Cap);
+                                    cue.MinMeters, cue.MaxMeters, cue.Pitch, cue.Cap, cue.DuckFloor);
             if (cue.Label == null)
                 continue;
 
@@ -1866,10 +2141,13 @@ internal static class EnvSound
             // what the clip itself contains — measured off the finished buffer on the DEVICE, at the
             // device's own sample rate, not quoted from a doc comment (EnvSoundBank.MeasuredShape).
             EnvSoundBank.MeasuredShape(clip, out float peak, out float peakAt);
+            float effDuck = Mathf.Max(_duck, Mathf.Clamp01(cue.DuckFloor));
             VRLog.Info("Core", $"ENV SOUND {cue.Label} FIRED — {cue.Clip} at shared clock " +
                                $"{clock:F2}s (due {cue.At:F2}s, {(clock - cue.At) * 1000f:F0} ms late). " +
                                $"GAIN {cue.Gain:F3} before master, ceiling {cue.Cap:F2}, master " +
-                               $"{Master():F3} (duck {_duck:F2}, dial {Gain.Value:F2}, game volume " +
+                               $"{MasterWith(effDuck):F3} (duck {effDuck:F2} — live duck {_duck:F2} " +
+                               $"floored at {cue.DuckFloor:F2} for this cue, dial {Gain.Value:F2}, " +
+                               $"game volume " +
                                $"{GameVolume():F2}) => SOURCE VOLUME {volume:F3} on Unity's 0..1 " +
                                $"scale, where a game cue at full level is 1.0. CLIP PEAK {peak:F3} " +
                                $"reached {peakAt * 1000f:F2} ms in — a peak at the start is an " +
@@ -2017,6 +2295,32 @@ internal static class EnvSound
           .Append("CLOCK: every event reads SkyAlternative.EnvClockSeconds, ")
           .Append("so the drip, the rat and the haunt cues land on the same frame on every client ")
           .Append("with ZERO wire bytes.");
+
+        // THE BOOKCASE, SAID AT BUILD RATHER THAN AT THE FIRST EVENT. Its cues are the loudest thing
+        // this feature makes and their position comes off ONE node; if that node is missing, the bang
+        // goes back to the middle of the room and the next report is another round of "aus der
+        // falschen Stelle". A shelf event happens at most every ~83 s and only for one card in six,
+        // so waiting for one to find out is minutes of a test session. This is one clause, once.
+        if (style == SkyStyle.Cellar)
+        {
+            sb.Append(" SHELF: ");
+            if (_shelfNode == null)
+            {
+                sb.Append("NO 'Shelf' NODE UNDER THE ROOM — the bookcase's creak, its arrival on the ")
+                  .Append("floor and its righting will all fall back to the apparition catalogue's ")
+                  .Append("bounds centre, which is the MIDDLE OF THE ROOM and not the shelf. If the ")
+                  .Append("bake renamed the node, rename it here.");
+            }
+            else
+            {
+                Vector3 contact = ShelfFloorContact(Vector3.zero, out _);
+                sb.Append("standing at ").Append(_shelfNode.position.ToString("F2"))
+                  .Append(", facing ").Append(_shelfNode.forward.ToString("F2"))
+                  .Append(", so it will fall onto ").Append(contact.ToString("F2"))
+                  .Append(" — that point, and not the apparition catalogue, is where the bang, the ")
+                  .Append("rebound and the righting sound from.");
+            }
+        }
 
         VRLog.Info("Core", sb.ToString());
     }

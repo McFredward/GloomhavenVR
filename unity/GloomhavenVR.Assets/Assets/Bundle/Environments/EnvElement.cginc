@@ -228,6 +228,13 @@ GhvrElem GhvrElemsZero ()
                                 // on every moonlit face — against 2.55x before,
                                 // with the room's own floor now held at 1.00.
 //
+// ...AND THE FIFTH, WHICH IS THE ONLY THING LIGHT AND DARK SHARE.
+#define GHVR_AMB_DEFEND   0.35  // how much of Dark's whole-room crush LIGHT
+                                // gives back. See LIGHT AND DARK TOGETHER
+                                // below; it multiplies e.light * e.dark and
+                                // nothing else, so every state in which one of
+                                // the two is down is untouched to the bit.
+//
 // WHERE 1.40 COMES FROM, because "how much" is the whole of this round's verdict
 // and a number picked by eye would be the fourth complaint. It is a TRANSFER,
 // measured off the cellar itself rather than chosen: the preview harness was run
@@ -273,12 +280,115 @@ GhvrElem GhvrElemsZero ()
 // mask on _DirCol in the cellar — the forest already has exactly that
 // (EnvGround's _CsMap canopy shadow), and the cellar has nothing.
 
+// ==================== LIGHT AND DARK TOGETHER MUST BOTH BE LEGIBLE ==========
+//  USER VERDICT, ModBuild 149 (hardware, cellar, verbatim): "Licht und
+//  Dunkelheit zusammen ist im Keller garnicht sichtbar, es sollte schon so ein
+//  Mittelweg sein, dass beides grob erkennbar ist."
+//
+//  HE IS RIGHT AND THE CODE SAYS WHY. Dark used to win the combination TWICE
+//  over, in two places that do not know about each other:
+//      GhvrAmbGain     - 0.80 * e.dark            regardless of Light
+//      GhvrMoonLightAt eclipse total at full Dark  regardless of Light
+//  so at full Light + full Dark the cellar stood at a FIFTH of its ambient with
+//  its moon at 0.067, i.e. a composite moonlight of 2.40 * 0.067 = 0.16x. The
+//  candles are untouchable indoors and were the only thing left; nothing in the
+//  room said "Licht" at all. Two elements at full strength and one picture.
+//
+//  WHAT IS NOT THE FIX. Reverting either constant. GHVR_AMB_LIFT_IN = 0.00 is a
+//  standing ruling ("statt den ganzen Keller mehr zu beleuchten mach
+//  ausschliesslich das Licht aus dem Kellerfenster vom Mond heller"), the
+//  eclipse floor of 0.05 is another ("den Mondschein extrem zu reduzieren"), and
+//  each was the answer to a verdict he gave twice. He is not asking for either
+//  to be undone; he is asking for the MIXTURE to have a picture of its own.
+//
+//  SO THE FIX TOUCHES ONLY THE PRODUCT. Every term added by this round carries
+//  the factor e.light * e.dark, which means:
+//      Light alone  — bit-identical to ModBuild 149, in both rooms.
+//      Dark alone   — bit-identical to ModBuild 149, in both rooms.
+//      nothing up   — bit-identical, exactly 1.0, as rule 2 requires.
+//  There is no state that he has already approved that can move. Three terms:
+//
+//   1. LIGHT PARTIALLY DEFENDS THE AMBIENT (GHVR_AMB_DEFEND, below). Dark's
+//      whole-room crush goes from -0.80 to -0.52 when Light is also at full,
+//      i.e. the room sits at 0.48 instead of 0.20. THE INVARIANT THE 151 RULING
+//      ACTUALLY STATED IS KEPT EXACTLY: the indoor ambient can still never
+//      exceed 1.00 at any strength of anything, so no pixel in this room
+//      brightens ABOVE ITS RESTING VALUE except because the moon reaches it.
+//      Light does not light the cellar; it declines to let Dark black it out.
+//      That distinction is the whole of why this is not the thing he rejected.
+//   2. LIGHT PARTIALLY LIFTS THE ECLIPSE (GHVR_ECL_RELIEF, at the eclipse
+//      block). It does NOT uncover the disc: the umbra, the coverage, the
+//      Danjon ramp and the copper are all untouched, so the SKY still shows a
+//      total eclipse and Dark keeps its entire visual signature. What rises is
+//      how much light the eclipsed moon still delivers — 0.05 of it at full Dark
+//      alone, 0.41 with Light also up. A blood moon under the Light element is a
+//      brighter blood moon, which is what "the two compose" has to mean when
+//      both are at full.
+//   3. AND LIGHT'S SHARE STAYS IN THE WINDOW. GhvrDirGainThrown used to split
+//      the indoor gain at the constant 1.0. That was right while Dark could
+//      only ever push the gain below 1 — but with (2) the L+D gain is 1.32, so
+//      the old split handed the WHOLE ROOM the resting moonlight and the cellar
+//      stopped being dark at all (measured: 78% of its resting level, i.e. Dark
+//      would have become the invisible one). The split point is now the gain
+//      LIGHT-DOWN, which is what the ruling meant in the first place: the room
+//      gets whatever Dark leaves it, and everything Light adds arrives through
+//      the opening or does not arrive. At Dark = 0 that reference is exactly 1.0
+//      and the function is character-for-character the shipped one.
+//
+//  THE COMPOSITE GAINS, all four corners and the two midpoints, stated the way
+//  the constants above are. AMB is GhvrAmbGain; MOON is
+//  GhvrDirGain x GhvrMoonLight, i.e. what the beam, the pool, the puddle's
+//  mirror and every moonlit face ride; THROW/ROOM is that gain after
+//  GhvrDirGainThrown's indoor mask.
+//
+//    CELLAR          AMB     MOON in throw   MOON in the rest of the room
+//      nothing      1.000        1.000            1.000
+//      Light  1.0   1.000        3.216            1.000     (all unchanged)
+//      Dark   1.0   0.200        0.0275           0.0275    (all unchanged)
+//      L 1.0 D 1.0  0.480        1.322            0.0275    (was 0.200/0.161/0.161)
+//      L 0.5 D 1.0  0.340        0.398            0.0275
+//      L 1.0 D 0.5  0.740        2.269            0.407
+//    FOREST          AMB     MOON (no mask outdoors)
+//      nothing      1.000        1.000
+//      Light  1.0   1.850        2.546            (unchanged)
+//      Dark   1.0   0.200        0.0275           (unchanged)
+//      L 1.0 D 1.0  0.480        1.046            (was 0.200 / 0.127)
+//      L 0.5 D 1.0  0.340        0.330
+//      L 1.0 D 0.5  1.165        1.796
+//  Monotone in both arguments — checked on a 41 x 41 grid of (Light, Dark) in
+//  both rooms, on all four quantities, with no violation and no dead zone:
+//  raising Light never darkens anything and raising Dark never brightens
+//  anything. (The one column to read carefully is the cellar's "rest of the
+//  room": it is the LIGHT-DOWN gain by construction, so it depends on Dark
+//  alone — 1.000 at D = 0, 0.407 at D = 0.5, 0.0275 at D = 1. That IS the rule,
+//  and it is why that column does not move when Light does.)
+//
+//  WHAT THE MIXTURE NOW LOOKS LIKE, which is the thing he asked for: a cellar at
+//  about half its resting ambient with its far corners still swallowed, three
+//  untouched candle pools, and a moonshaft through the window at 1.32x — the
+//  brightest thing in the room by a factor of nearly three over the room around
+//  it, against 3.22x when Light rules alone and 0.0275x when Dark does. Dim
+//  room, distinctly brighter shaft, copper moon in the sky. Beides grob
+//  erkennbar, and neither element had to lose its own ruling to get there.
+//
+//  REJECTED: averaging the two gains (a "Mittelweg" read literally). It makes
+//  the mixture the arithmetic mean of two pictures, which is a grey room — the
+//  wash this whole split exists to avoid — and it also breaks the corners: the
+//  mean of Light-alone and Dark-alone is not Light-alone when Dark is 0.
+//  REJECTED: letting Light cancel the eclipse outright above some strength.
+//  A threshold is a cliff, and a cliff in an element mix is a state the player
+//  cannot aim at. Every term here is linear in e.light.
+
 /// Ambient/hemisphere gain: the room's own floor of light. Light lifts it only
 /// while Dark is not up (that is the (1 - dark) factor) AND only OUTDOORS (see
 /// GHVR_AMB_LIFT_IN); Dark crushes it to a fifth in both rooms, which is the
-/// cellar's own ruling ("den Raum insgesamt deutlich dunkler") and the wood's.
+/// cellar's own ruling ("den Raum insgesamt deutlich dunkler") and the wood's —
+/// EXCEPT that Light now defends GHVR_AMB_DEFEND of that crush, so the two
+/// together leave the room at 0.48 rather than at 0.20 (LIGHT AND DARK TOGETHER
+/// above). Both single-element states are unchanged to the bit.
 /// REJECTED: letting Light win the ambient too — then Light+Dark is a wash,
-/// i.e. exactly the grey average the brief forbids.
+/// i.e. exactly the grey average the brief forbids. Defending 0.35 of the crush
+/// is not winning it: the indoor ceiling is still exactly 1.00.
 /// REJECTED, and this is the one worth recording: leaving a SMALL indoor lift
 /// (0.15-0.20) on the grounds that a brighter beam really does bounce off the
 /// flagstones and fill the room a little. It is physically true and it is
@@ -288,7 +398,8 @@ GhvrElem GhvrElemsZero ()
 float GhvrAmbGain (GhvrElem e)
 {
     float lift = lerp(GHVR_AMB_LIFT_OUT, GHVR_AMB_LIFT_IN, GhvrIndoor());
-    return max(1.0 + lift * e.light * (1.0 - e.dark) - 0.80 * e.dark, 0.0);
+    return max(1.0 + lift * e.light * (1.0 - e.dark)
+                   - 0.80 * e.dark * (1.0 - GHVR_AMB_DEFEND * e.light), 0.0);
 }
 
 /// The gain for a source that is OUTSIDE the room: the moon's disc and its halo,
@@ -350,10 +461,20 @@ float GhvrSrcHard (GhvrElem e)
 /// in the puddle (EnvPuddle) and the cold rim on anything with a _RimCol — so
 /// they cannot move apart, and there is exactly one place to look when the next
 /// verdict says "more" or "less".
-float GhvrDirGain (GhvrElem e)
+///
+/// SPELT WITH ITS TWO ELEMENTS EXPLICIT so that GhvrDirGainThrown can ask what
+/// this gain would be with LIGHT HELD DOWN — which is the reference its indoor
+/// mask splits at (see LIGHT AND DARK TOGETHER, term 3). One function, two
+/// callers, no chance of the mask splitting at a formula the room is not using.
+float GhvrDirGainLD (float light, float dark)
 {
     float lift = lerp(GHVR_DIR_LIFT_OUT, GHVR_DIR_LIFT_IN, GhvrIndoor());
-    return max(1.0 + lift * e.light - 0.45 * e.dark * (1.0 - e.light), 0.0);
+    return max(1.0 + lift * light - 0.45 * dark * (1.0 - light), 0.0);
+}
+
+float GhvrDirGain (GhvrElem e)
+{
+    return GhvrDirGainLD(e.light, e.dark);
 }
 
 // ============ ...AND INDOORS IT MAY ONLY BRIGHTEN WHAT THE WINDOW SEES =======
@@ -394,7 +515,20 @@ float GhvrDirGain (GhvrElem e)
 //  is eclipsed, and an eclipsed moon stops lighting the whole room and not just
 //  the part of it in the window's throw — "den Raum insgesamt deutlich dunkler"
 //  (ModBuild 143) is a whole-room instruction and stays one. So the gain is
-//  split at 1.0 and only the part above it is masked.
+//  split at the gain LIGHT WOULD NOT HAVE CHANGED, and only the part above it is
+//  masked.
+//
+//  THAT SPLIT POINT WAS THE CONSTANT 1.0 UNTIL ModBuild 150, and 1.0 was only
+//  ever right by accident: while nothing could push the gain above 1 except
+//  Light, "above 1" and "Light's doing" were the same set. Once Light lifts the
+//  eclipse (LIGHT AND DARK TOGETHER, term 2) they part company — the L+D gain is
+//  1.32, so a split at 1.0 would have handed the WHOLE cellar the full resting
+//  moonlight while the eclipse was total, i.e. bought Light's legibility with
+//  Dark's. The reference is now GhvrDirGainLD(0, dark) * GhvrMoonLightLD(0,
+//  dark): what this room would have if Light were down. It equals 1.0 exactly
+//  whenever Dark is 0, so every state anybody has ruled on is untouched, and the
+//  sentence it implements is the user's own — "ausschliesslich das Licht aus dem
+//  Kellerfenster heller", not "the room is never darker than resting".
 //
 //  THE COMPOSITE GAINS THIS PRODUCES, stated the way the constants above are:
 //    nothing up                      1.00 everywhere, EXACTLY (min(1,1)=1 and
@@ -403,7 +537,8 @@ float GhvrDirGain (GhvrElem e)
 //    full Light, in the throw        3.22x   — unchanged from ModBuild 146
 //    full Light, outside the throw   1.00x   — was 3.22x; this is the fix
 //    full Dark (totality)            0.0275x everywhere, unchanged
-//    full Light + full Dark          2.40x in the throw, 1.00x outside
+//    full Light + full Dark          1.32x in the throw, 0.0275x outside
+//                                         (ModBuild 150; was 0.16x / 0.16x)
 //    the forest                      untouched at every strength (the mask is
 //                                         lerped out by GhvrIndoor())
 //  The beam volume, the moon's mirror in the puddle and the disc in the sky do
@@ -469,16 +604,11 @@ float GhvrMoonWindow (float3 opos, float3 centre, float scl, float3 dirObj,
          * smoothstep(win.y - f, win.y, h.y) * (1.0 - smoothstep(win.w, win.w + f, h.y));
 }
 
-/// GhvrDirGain x GhvrMoonLight, with the INDOOR brightening confined to `throw_`
-/// and the darkening left alone. See the block above for the rule and for every
-/// composite gain it produces. Outdoors it is bit-identical to the product,
-/// whatever `throw_` is.
-float GhvrDirGainThrown (GhvrElem e, float moonLight, float throw_)
-{
-    float g = GhvrDirGain(e) * moonLight;
-    float gIn = min(g, 1.0) + max(g - 1.0, 0.0) * saturate(throw_);
-    return lerp(g, gIn, GhvrIndoor());
-}
+// GhvrDirGainThrown, which is the function this block is about, is DEFINED AT
+// THE BOTTOM OF THIS FILE and not here. It has to be: since ModBuild 150 its
+// split point is the moonlight this room would have with Light down, and the
+// eclipse it reads that from is declared further down. The doc block stays here
+// because this is where the rule is argued.
 
 // --------------------------------------------------------- THE PERIPHERY
 /// The periphery ramp: 0 at the middle of the play space, 1 out at the walls /
@@ -678,6 +808,18 @@ float GhvrEmberBreath (float t, float phase)
 #define GHVR_ECL_FLOOR  0.05    // moonlight left under full Dark. See THE FLOOR
                                 // IS 0.05 above for where the number comes from
                                 // and why it is not 0.
+#define GHVR_ECL_RELIEF 0.38    // how much of the eclipse's ATTENUATION the
+                                // Light element lifts. It multiplies
+                                // light * dark and nothing else, so Dark alone
+                                // still reaches the 0.05 floor exactly and
+                                // Light alone is untouched; at full Light the
+                                // eclipsed moon delivers 0.41 instead of 0.05.
+                                // NOTHING GEOMETRIC MOVES — the umbra, the
+                                // coverage, the offset centre and the Danjon
+                                // ramp are all as they were, so the disc in the
+                                // sky is the same total eclipse at every mix and
+                                // Dark keeps its whole picture. See LIGHT AND
+                                // DARK TOGETHER MUST BOTH BE LEGIBLE above.
 #define GHVR_MOON_SWELL 0.34    // disc radius gain at full Light
 
 /// The umbra's centre, in moon-radius units from the disc's centre. A CONSTANT
@@ -725,12 +867,26 @@ float GhvrMoonSize (GhvrElem e)
 /// shader is on the shared epoch; and the day a future round wants the moon to
 /// do anything at all again, the clock is already threaded through every call
 /// site in the bundle. (The compiler drops the argument; it costs nothing.)
+///
+/// SPELT WITH ITS TWO ELEMENTS EXPLICIT, for the same reason GhvrDirGainLD is:
+/// GhvrDirGainThrown needs "what would this be with Light down" and must read it
+/// out of the one formula the rooms are actually using.
+///   * light: the swell, exactly as before.
+///   * dark:  the eclipse, exactly as before EXCEPT for the (1 - RELIEF*light)
+///            factor, which is 1 whenever Light is down.
+float GhvrMoonLightLD (float light, float dark)
+{
+    float cov = GhvrEclipseCover(GhvrEclipseCentre());
+    return (1.0 + GHVR_MOON_SWELL * light)
+         * (1.0 - cov * dark * (1.0 - GHVR_ECL_FLOOR)
+                            * (1.0 - GHVR_ECL_RELIEF * light));
+}
+
 float GhvrMoonLightAt (float t)
 {
     GhvrElem e = GhvrElems();
     if (e.live <= 0.0) return 1.0;
-    float cov = GhvrEclipseCover(GhvrEclipseCentre());
-    return GhvrMoonSize(e) * (1.0 - cov * e.dark * (1.0 - GHVR_ECL_FLOOR));
+    return GhvrMoonLightLD(e.light, e.dark);
 }
 
 // A function-like MACRO rather than a function, and the reason is mechanical
@@ -744,5 +900,27 @@ float GhvrMoonLightAt (float t)
 // (A shader that has no _GhvrTimeOfs fails to compile ON THAT NAME, which is
 // the correct diagnosis: it is not on the shared clock yet.)
 #define GhvrMoonLight() GhvrMoonLightAt(_Time.y + _GhvrTimeOfs)
+
+/// GhvrDirGain x GhvrMoonLight, with the INDOOR brightening confined to `throw_`
+/// and the darkening left alone. See ...AND INDOORS IT MAY ONLY BRIGHTEN WHAT
+/// THE WINDOW SEES, far above, for the rule and for every composite gain it
+/// produces. Outdoors it is bit-identical to the product, whatever `throw_` is.
+///
+/// IT LIVES DOWN HERE, past the eclipse, because `base` — the gain this room
+/// would have with the Light element down — is what the mask splits at, and
+/// that reference needs GhvrMoonLightLD. `moonLight` still comes in as an
+/// argument rather than being recomputed: the caller has already paid for it,
+/// and outdoors this function must be the caller's own product to the bit.
+///
+/// base == 1.0 EXACTLY whenever Dark is 0 (GhvrDirGainLD(0,0) = 1 and
+/// GhvrMoonLightLD(0,0) = 1), so with Dark down this is character for character
+/// the ModBuild 151 function, including its zero state.
+float GhvrDirGainThrown (GhvrElem e, float moonLight, float throw_)
+{
+    float g = GhvrDirGain(e) * moonLight;
+    float base = GhvrDirGainLD(0.0, e.dark) * GhvrMoonLightLD(0.0, e.dark);
+    float gIn = min(g, base) + max(g - base, 0.0) * saturate(throw_);
+    return lerp(g, gIn, GhvrIndoor());
+}
 
 #endif // GHVR_ENV_ELEMENT_INCLUDED

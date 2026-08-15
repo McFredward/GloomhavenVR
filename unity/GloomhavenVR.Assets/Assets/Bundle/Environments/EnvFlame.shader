@@ -866,16 +866,85 @@ Shader "GloomhavenVR/EnvFlame"
                     // is short already and the multiply is on the whole fire.
                     tall *= 1.0 - 0.42 * pair.earth;
 
-                    // ---- THE DETACHED PUFF, i.e. the thing that was missing.
+                    // ---- THE PUFF, i.e. the top of the plume.
                     // A card that leaves the fire, rises, cools and goes out, on
                     // its own cycle, from its own place in that cycle. frac() of
                     // a clock is a pure function with no state and no birth
                     // event: at any instant the puffs of one fire are spread
                     // through their lives because UV1.w spreads them, and a
                     // player who looks away and back sees a different set.
+                    //
+                    // ============ "SIE SCHWEBEN UND GEHÖREN NICHT DAZU" ========
+                    // USER, hardware, ModBuild 149, and it is the SECOND round
+                    // in which he has rejected this population in his own words
+                    // ("Feuerherde die über dem Baum schweben", then "Diese
+                    // tanzenden Feuer die einfach darüber schweben mag ich nicht
+                    // so wirklich weil sie erscheinen als ob sie schweben und
+                    // nicht dazu gehören").
+                    //
+                    // He is right, and the reason is physics rather than taste.
+                    // A parcel of gas that has genuinely left the luminous zone
+                    // of a fire cools below incandescence within a few tens of
+                    // centimetres: what detaches from a fire and stays visible
+                    // is SMOKE, which is dark, and EMBERS, which are points. It
+                    // is never a 40 cm sheet of flame-coloured light hanging in
+                    // clear air a metre over the fuel — and this pass is
+                    // ADDITIVE, so the one thing it cannot draw is the dark
+                    // thing that is actually up there.
+                    //
+                    // The cue is not lost by taming it, because the cue is
+                    // already carried twice: the SPARKS are the pieces that
+                    // leave (his own verdict this round, verbatim: "Die Funken
+                    // gefallen mir gut"), and the three pairings below are what
+                    // a piece BECOMES. What this card goes back to being is the
+                    // top of the plume — born inside the tongues, rising a
+                    // third of a fire-height, and out before it can clear the
+                    // flame body. See EnvRoomBuilder.FireMesh for the geometry
+                    // half (birth height 0.30-0.55 -> 0.10-0.30 of the fire,
+                    // rise 0.38-0.68 -> 0.20-0.36) and for where the energy the
+                    // shorter life gives up is put back.
                     if (kind > 1.5)
                     {
-                        age = frac(bt * (_PuffHz / max(_FireHz, 0.01)) + v.fp.w);
+                        // ======= A POPULATION WITH ONE PERIOD IS A LOOP ========
+                        // USER, hardware, ModBuild 149: "Das Feuer zieht in
+                        // einem Loop in eine Richtung, glitcht dann zurück und
+                        // beginnt diesen Loop von vorne."
+                        //
+                        // MEASURED, not guessed. The preview harness renders a
+                        // 60-frame series 33 ms apart (ENV_PREVIEW_FIRELOOP);
+                        // differenced against its own first frame, the burning
+                        // snag's flame crop has a sharp similarity minimum at
+                        // t = 1.77-1.80 s — SSD 0.0017 against a series mean of
+                        // 0.0055, a 3.2x dip — and 1 / _PuffHz = 1 / 0.55 =
+                        // 1.818 s. The whole fire repeats at the puff period,
+                        // because EVERY puff card in it ran at exactly that
+                        // rate and only their PHASES were spread. Spreading
+                        // phase makes the population look unsynchronised at any
+                        // one instant; it does nothing at all to the period of
+                        // the ensemble, and the period is what the eye finds
+                        // when it watches for two seconds.
+                        //
+                        // On top of that each card's motion inside its cycle is
+                        // MONOTONE — climb*age up and drift*age downwind — and
+                        // then it teleports back to its birth point. That is
+                        // "zieht in eine Richtung ... glitcht dann zurück ...
+                        // von vorne", exactly, one card at a time.
+                        //
+                        // THE RULE, and it is the same one the erosion wrap
+                        // obeys one screen down: A WRAPPING QUANTITY IS ONLY
+                        // INVISIBLE IF ITS WRAP IS A PERIOD OF EVERYTHING THAT
+                        // READS IT — and if a whole POPULATION shares one wrap,
+                        // the population itself is the thing that reads it and
+                        // the picture has that period whatever the phases are.
+                        // So the rate is now per card as well: `tp` is this
+                        // card's own turn (COLOR.r, already spread by Hash3),
+                        // and 0.72..1.28 of the authored rate puts the cycles
+                        // between 1.42 s and 2.53 s. The mean is unchanged, so
+                        // "a fire sheds something about every quarter second"
+                        // still holds; what is gone is the single number that
+                        // every piece in the room was counting to.
+                        age = frac(bt * (_PuffHz / max(_FireHz, 0.01))
+                                      * (0.72 + 0.56 * tp) + v.fp.w);
                         // ---- WHAT A DETACHED PIECE IS, and it is the one thing
                         // the pairings change about a CARD rather than about a
                         // number. All three are products of two elements, so a
@@ -897,16 +966,50 @@ Shader "GloomhavenVR/EnvFlame"
                         // which is the same alpha envelope the ember already has:
                         // smoke outlives an ember by a long way, steam a little,
                         // a smoulder hardly at all.
-                        float tail = 0.30 + 0.55 * pr.x + 0.22 * pr.y - 0.14 * pr.z;
-                        cardA = smoothstep(0.0, 0.10, age)
-                              * (1.0 - smoothstep(tail, 1.0, age));
+                        //
+                        // ---- ModBuild 150: THE ENVELOPE IS THE WHOLE FIX -----
+                        // The shipped pair was (fade in over 0..0.10, fade out
+                        // over 0.30..1.00), i.e. a mean envelope of 0.60 spread
+                        // over the ENTIRE cycle: the card was drawn, at some
+                        // brightness, for every instant of its rise, and the
+                        // last half of that rise is above the flame body. That
+                        // is the hovering blob, in one number.
+                        //
+                        // `tEnd` is when the piece is GONE, and it is clamped
+                        // under 1 on purpose: at age = 1 the card teleports
+                        // back to its birth point, so anything still carrying
+                        // alpha there is a visible reset — the second half of
+                        // the user's "glitcht dann zurück". The fade-out starts
+                        // at a fifth of that, so the piece is at full strength
+                        // only while it is still inside the tongues and spends
+                        // the rest of its short life going out.
+                        //
+                        // In still air (every pr = 0) that is 0.11..0.55, a
+                        // mean envelope of 0.285 against 0.600 — and with the
+                        // rise cut to 0.20-0.36 fire-heights in the mesh, the
+                        // card's base has moved 0.20 x 0.55 = 0.11 of a
+                        // fire-height by the time it is out. It cannot clear
+                        // the flame it came from, which is the requirement.
+                        float tEnd = min(0.55 + 0.42 * pr.x + 0.18 * pr.y
+                                              - 0.12 * pr.z, 0.98);
+                        cardA = smoothstep(0.0, 0.08, age)
+                              * (1.0 - smoothstep(tEnd * 0.20, tEnd, age));
                         // FIRE+AIR: MORE GLUT, and it lives longer because it is
                         // being fed on the way. His own example, so it is the one
                         // that has to be unmistakable — the piece is visible over
                         // three quarters of its cycle instead of a third, which
                         // is the same thing as several times as many in the air.
+                        //
+                        // KEPT, and kept LONG, because a piece that is being
+                        // thrown downwind at half a metre a second is not the
+                        // thing he objected to: a hovering blob is one that
+                        // does not appear to be going anywhere. What it may not
+                        // do is still be drawn at age 1, so the fade now ends
+                        // at 0.96 instead of at exactly 1.0 — a card that is
+                        // cut off at the wrap is a pop whatever else is right.
                         cardA = max(cardA, smoothstep(0.0, 0.07, age)
-                                           * (1.0 - smoothstep(0.55 + 0.40 * pair.air, 1.0, age))
+                                           * (1.0 - smoothstep(0.42 + 0.30 * pair.air,
+                                                               0.80 + 0.16 * pair.air, age))
                                            * saturate(pair.air * 1.6));
                     }
                 }
@@ -1291,8 +1394,21 @@ Shader "GloomhavenVR/EnvFlame"
                     // fire. One MAD, and `age` is already the parameter — so
                     // this is a modulation of an existing term and not a second
                     // colour path, the same rule the pairings above follow.
-                    float cool = i.fx.y + 0.42 * i.pr.z + 0.18 * i.pr.y
-                               + _Tier * i.fire.y;
+                    //
+                    // ...and `age` enters at GHVR_PUFF_COOL and not at 1.0 —
+                    // ModBuild 150. A piece now dies at 0.55 of its cycle
+                    // instead of at 1.0 (see the envelope in the vertex
+                    // shader), so at the shipped weight it only ever reached
+                    // 0.55 of the way along the cooling axis and the LAST
+                    // thing the player saw of it was still orange. "Anything
+                    // leaving the flame body loses its colour and its
+                    // brightness fast" is the requirement, and 1.90 x 0.55 =
+                    // 1.05 puts a piece at the tip stop — (0.60, 0.085, 0.018),
+                    // a third of the body's luminance and almost monochrome
+                    // red — by the time it goes out. `age` is exactly 0 on a
+                    // bed or a tongue card, so this reaches nothing else.
+                    float cool = i.fx.y * GHVR_PUFF_COOL + 0.42 * i.pr.z
+                               + 0.18 * i.pr.y + _Tier * i.fire.y;
                     float3 fc = GhvrFireRamp(_BaseCol.rgb, _CoreCol.rgb, _TipCol.rgb,
                                              i.fx.x, cool);
                     // ...and WHAT a detached piece is made of. Both of these are

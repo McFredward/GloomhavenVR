@@ -8863,6 +8863,42 @@ namespace GloomhavenVR
         // silently the wrong brightness.
         private static readonly float[] ArtE = { 1.729f, 0.797f, 2.007f };
 
+        // ============================== ENERGY BOOKKEEPING, ModBuild 150 =======
+        // THIS ROUND DOES NOT RE-DERIVE ArtE, AND THE REASON IS WORTH STATING
+        // because the rule one paragraph up says to. ArtE measures ONE thing:
+        // how much of an atlas cell's mask survives the erosion over a full
+        // scroll cycle (fire_atlas_pipeline.simulate_erosion). This round
+        // touches neither the atlas, nor the Erode* constants, nor the fragment
+        // expression that consumes them — the cells and the field are
+        // byte-identical — so every number in the table above is still exactly
+        // the measurement it was. What moved is the layer ArtE sits ON TOP of:
+        // the authored per-card alpha and the puff's temporal envelope. Re-
+        // running the pipeline would print the same three factors.
+        //
+        // WHAT DID MOVE, and it is held roughly constant by arithmetic rather
+        // than by eye. Drawn energy per card is (quad area) x (COLOR.a) x (the
+        // mean of the temporal envelope over a cycle, which is 1 for bed and
+        // tongue and only puffs have one at all). Integrated over the Hash3
+        // distributions of every card in a fire, weighted 0.38 / 0.42 / 0.20:
+        //
+        //   term                      ModBuild 149      ModBuild 150
+        //   puff envelope mean          0.600             0.285
+        //   puff COLOR.a          0.151..0.351      0.120..0.281
+        //   bed COLOR.a           0.294..0.467      0.311..0.495   (x1.06)
+        //   tongue COLOR.a        0.088..0.264      0.108..0.327   (x1.24)
+        //   puff share of the fire      12.7 %             4.8 %
+        //   FIRE TOTAL                  1.000              1.008
+        //
+        // i.e. the detached population's contribution is cut by nearly two
+        // thirds, the fire draws the same energy to within a per cent, and the
+        // difference is in the BODY — which is what the user's verdict asks
+        // for: he rejected the things hovering over the fire, not the fire.
+        // Painted area PER CARD does not move at all (no th or tw changed), so
+        // the three kinds stay comparable with every earlier round's numbers.
+        // The forest ROOM's total does move, and for an unrelated reason: the
+        // snag's upper fire is gone (AddForestFire), which is 22 cards and 66
+        // quads out of that room's budget.
+
         // ==================================================== THE ROSETTE ========
         // USER VERDICT, hardware, ModBuild 147: "Es sind mehrere sichtbare
         // 'Striche' auf den assets drauf."
@@ -8968,7 +9004,12 @@ namespace GloomhavenVR
         private static Mesh FireMesh(string name, float radius, float height, int cards, int seed,
                                      float bedFrac = 0.38f, FireFoot? foot = null)
         {
-            if (!FireGateProven) { FireCardNormalGateSelfTest(); FireGateProven = true; }
+            if (!FireGateProven)
+            {
+                FireCardNormalGateSelfTest();
+                FireErosionWrapGate();
+                FireGateProven = true;
+            }
             var fp = foot ?? FireFoot.Disc;
             // the ellipse frame: `along` and the XZ vector perpendicular to it
             var axA = new Vector3(fp.along.x, 0f, fp.along.y);
@@ -9045,32 +9086,79 @@ namespace GloomhavenVR
                     cell = 0f;
                     kind = 0f;                       // GHVR_FKIND_BED
                     rise = 0f; cyc = 0f;
+                    // ...and x1.06 on the energy — ModBuild 150. See the PUFF
+                    // branch below: the detached population's share of the
+                    // fire's drawn energy falls from 12.7 % to 4.8 % and the
+                    // difference is put back into the BODY, which is where the
+                    // user's own verdict says it belongs ("die tanzenden Feuer
+                    // ... mag ich nicht", the bed and the tongues are not in
+                    // the complaint). Only 6 % of it goes here: the seat of a
+                    // fire is the one thing in either room that is MEANT to
+                    // clip (see _BaseCol) and it is already at 0.29..0.47
+                    // after ArtE, so most of the compensation goes to the
+                    // tongues instead, which are the part that reads as flame.
                     col = new Color(h1,
                                     0.04f + 0.06f * h2,          // barely surges
                                     0f,                          // and never leans
-                                    0.17f + 0.10f * h3);         // carries the mass
+                                    0.180f + 0.106f * h3);       // carries the mass
                 }
                 else if (isPuff)
                 {
-                    // it starts inside the upper body and leaves
-                    y0 = height * (0.30f + 0.25f * h2);
+                    // ========= "SIE SCHWEBEN UND GEHÖREN NICHT DAZU" =========
+                    // USER, hardware, ModBuild 149, the SECOND round in which
+                    // he has rejected this population: "Diese tanzenden Feuer
+                    // die einfach darüber schweben mag ich nicht so wirklich
+                    // weil sie erscheinen als ob sie schweben und nicht dazu
+                    // gehören." (ModBuild 148's wording was "Feuerherde die
+                    // über dem Baum schweben".) EnvFlame's PUFF block carries
+                    // the physics and the shader half; this is the geometry.
+                    //
+                    // WHY IT LOOKED DETACHED IS THAT IT WAS, BY CONSTRUCTION.
+                    // A card was born with its BASE at 0.30..0.55 of the fire's
+                    // height — the tongues top out near 0.76 unstretched, so it
+                    // started inside them — and then rose a further 0.38..0.68
+                    // while the erosion and the ramp kept it flame-coloured for
+                    // its whole cycle. At the end of its life its base was at
+                    // up to 1.23 fire-heights and its top at 1.72: a bright
+                    // sheet 40 cm across, standing in clear air a fire-height
+                    // above anything burning. At the play space's 2-5 m that is
+                    // not "a piece of the fire", it is a separate object,
+                    // because the eye groups by contiguity long before it
+                    // groups by colour.
+                    //
+                    // SO IT GOES BACK TO BEING THE TOP OF THE PLUME. Born at
+                    // 0.10..0.30, i.e. squarely inside the tongue mass (whose
+                    // bases sit at -0.06 and whose tips reach 0.76), and rising
+                    // 0.20..0.36 over a life that is now over at 0.55 of the
+                    // cycle. Worst case at death: base 0.30 + 0.55 x 0.36 =
+                    // 0.50, top 0.99 fire-heights — still overlapping the
+                    // flame it came out of, at every age, in every fire in both
+                    // rooms. Nothing detaches, so nothing can hover.
+                    y0 = height * (0.10f + 0.20f * h2);
                     th = height * (0.22f + 0.16f * h3);
                     tw = th * (0.85f + 0.45f * h4);
                     cell = 3f;
                     kind = 2f;                       // GHVR_FKIND_PUFF
-                    // 0.38..0.68 and not 0.55..0.95 — ModBuild 149. A puff is
-                    // born at up to 0.55 of the height and carries 0.49 of it
-                    // in card, so at the shipped rise the top of a detached
-                    // piece was at 1.99 fire-heights before `tall` and the
-                    // pairings, and EnvFire.cginc's ceiling block traces the
-                    // product past four. The ceiling now bounds the tail of
-                    // that distribution; this brings its BODY down, so the
-                    // ceiling is a backstop rather than the thing shaping the
-                    // fire — nothing should be compressed by it in still air.
-                    rise = height * (0.38f + 0.30f * h5);
+                    // 0.20..0.36 and not 0.38..0.68 (ModBuild 149) or 0.55..0.95
+                    // (148). The two previous rounds each halved the excursion
+                    // and each time the piece still cleared the flame; the
+                    // number that decides it is not the rise on its own but
+                    // (birth + card + rise x lifetime), and that product is
+                    // written out above. It is now 0.99 fire-heights, against
+                    // EnvFire.cginc's GHVR_FIRE_SOFT of 1.05 — so in still air
+                    // nothing is compressed by the ceiling at all and the
+                    // ceiling is finally the backstop it was meant to be.
+                    rise = height * (0.20f + 0.16f * h5);
                     cyc = h4;                        // its place in its own cycle
+                    // ...and 0.060 + 0.080 h3 and not 0.075 + 0.10: a parcel of
+                    // gas that has left the luminous zone is DIMMER than the
+                    // flame it left, and after the ArtE compensation (x2.007,
+                    // the largest of the three) this was the brightest card
+                    // kind per unit area in the whole fire. See the ENERGY
+                    // BOOKKEEPING block above ArtE for what the population's
+                    // share becomes and where the difference goes.
                     col = new Color(h1, 0.25f + 0.25f * h2, outw,
-                                    0.075f + 0.10f * h3);
+                                    0.060f + 0.080f * h3);
                 }
                 else
                 {
@@ -9138,8 +9226,16 @@ namespace GloomhavenVR
                     // which is the one artefact that says "this is a stack of
                     // quads" out loud. The peak of a fire still clips; what it
                     // does not do any more is clip over its whole area.
+                    // ...and x1.24 — ModBuild 150, and this is where the energy
+                    // the detached population gives up is put back. See the
+                    // ENERGY BOOKKEEPING block above ArtE. The tongues and not
+                    // the bed, because the bed already clips at the seat by
+                    // design and because the tongues are the part of a fire
+                    // that reads as flame from the play space; 0.09..0.26 goes
+                    // to 0.11..0.33, which is still under half of the first
+                    // bake's 0.40..0.60 that produced the white-slab artefact.
                     col = new Color(h1, 0.55f + 0.45f * h2, outw,
-                                    0.11f + 0.14f * (1f - outw) + 0.08f * h3);
+                                    0.136f + 0.174f * (1f - outw) + 0.099f * h3);
                 }
 
                 // ---- the art compensation, applied once, in one place --------
@@ -9200,6 +9296,123 @@ namespace GloomhavenVR
             m.RecalculateBounds();
             AssertFireCardNormals(m, name);
             return m;
+        }
+
+        // ========================= THE EROSION WRAP GATE ========================
+        // ModBuild 150, and it exists because of a rule this project has now
+        // been bitten by twice:
+        //
+        //   A SCROLLING FIELD IS SEAMLESS ONLY IF ITS WRAP DISTANCE IS AN EXACT
+        //   PERIOD OF EVERYTHING THAT READS IT — and A COMMENT IS NOT A GUARD.
+        //
+        // The erosion scroll is the one term in the fire that is monotone in
+        // time and then discontinuous: EnvFlame's `texPh` is frac()'d in the
+        // vertex shader and consumed as the V of a tap on the atlas, so once per
+        // 1 / (FireHz x ErodeScroll) = 0.275 s the sampled V jumps by exactly
+        // one. That jump is invisible if and only if the field really has period
+        // 1 in V. It does, by construction — one octave at ErodeFieldTilesR
+        // tiles over the image and one at ErodeFieldTilesG, both integers — and
+        // the two Erode* tilings above cannot break it, because they multiply
+        // the CARD's uv and the wrap is an offset ADDED to it. That is the
+        // finding of this round's investigation and it is checked here rather
+        // than asserted in prose, because ModBuild 149 moved ErodeTileV from
+        // 0.72 to 1.35 with nothing in the bake able to notice if it had.
+        //
+        // TWO CHECKS, and the second is the one that would actually fire:
+        //   1. THE ARITHMETIC. ErodeWrapV must be a whole number of periods of
+        //      both octaves. A pipeline change from an integer tiling to a
+        //      fractional one (or a shader change that wrapped at something
+        //      other than 1) stops the bake here.
+        //   2. THE IMAGE. The arithmetic is only worth anything if the PNG on
+        //      disk is genuinely periodic, i.e. if the source noise the pipeline
+        //      rank-equalises was seamless. That is a property of an imported
+        //      .tga nobody in this repository controls, so it is MEASURED: the
+        //      mean |step| across the image's own V seam, against the mean
+        //      |step| between two adjacent rows anywhere. A tileable field puts
+        //      that ratio at 1.
+        //
+        // MEASURED ON THE SHIPPED ATLAS: R 1.49x, G 0.83x. The R octave — three
+        // quarters of the field — has a seam half again as hard as an ordinary
+        // row step, which is a real (if small) artefact climbing every card at
+        // 3.6 Hz. It is NOT fixable from this file: the fix is one line in
+        // Assets/Editor/fire_atlas_pipeline.py's erosion_field(), which this
+        // lane does not own — cross-fade the coarse octave with a rolled copy of
+        // itself, or build R the way G is already built (an integer tiling of a
+        // downsample, which is exactly seamless and is why G measures 0.83).
+        // The gate is therefore set at 3.0: it catches a field that has stopped
+        // tiling at all, and it PRINTS the ratio every bake so the 1.49 cannot
+        // quietly become 4.
+        private static void FireErosionWrapGate()
+        {
+            // ---- 1. the arithmetic -------------------------------------------
+            foreach (var (tiles, ch) in new[] { (ErodeFieldTilesR, 'R'), (ErodeFieldTilesG, 'G') })
+            {
+                float periods = ErodeWrapV * tiles;   // 1 period = 1/tiles of V
+                if (tiles < 1 || Mathf.Abs(periods - Mathf.Round(periods)) > 1e-4f)
+                    throw new Exception(
+                        $"EnvFlame's erosion scroll wraps by {ErodeWrapV:F3} of texture V, which is "
+                        + $"{periods:F3} periods of the {ch} octave (fire_atlas_pipeline builds it "
+                        + $"at {tiles} tiles over the image). A wrap that is not a WHOLE number of "
+                        + "periods is a visible jump in every fire in both rooms, once per "
+                        + $"{1f / (FireHz * ErodeScroll):F3} s — the user reported exactly that as "
+                        + "\"das Feuer zieht in einem Loop ... glitcht dann zurück\". Either the "
+                        + "field's tiling or the shader's wrap has to move so the two agree.");
+            }
+
+            // ---- 2. the image ------------------------------------------------
+            // The atlas is imported non-readable (it is data, not art — see the
+            // DataTextures branch in ImportBundleTextures), so the PNG is decoded
+            // into a throwaway texture rather than read off the imported one.
+            string path = ImpTex + "/fire_atlas_alb.png";
+            if (!File.Exists(path))
+                throw new Exception($"{path} is missing — FireAtlas() reports the same thing with "
+                                    + "the instructions for regenerating it.");
+            var probe = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+            if (!probe.LoadImage(File.ReadAllBytes(path), false))
+                throw new Exception($"{path} could not be decoded for the erosion wrap gate.");
+            int w = probe.width, h = probe.height;
+            var px = probe.GetPixels();
+            UnityEngine.Object.DestroyImmediate(probe);
+            var line = new System.Text.StringBuilder(
+                "[GloomhavenVR][Env] FIRE erosion wrap gate: EnvFlame scrolls the field by "
+                + $"{ErodeWrapV:F2} of texture V once per {1f / (FireHz * ErodeScroll):F3} s "
+                + $"({ErodeFieldTilesR} / {ErodeFieldTilesG} tiles over the image = "
+                + $"{ErodeWrapV * ErodeFieldTilesR:F0} / {ErodeWrapV * ErodeFieldTilesG:F0} "
+                + "whole periods, so the jump is a no-op in exact arithmetic).");
+            for (int ch = 0; ch < 2; ch++)
+            {
+                double seam = 0, adj = 0;
+                for (int x = 0; x < w; x++)
+                {
+                    float top = ch == 0 ? px[x].r : px[x].g;
+                    float bot = ch == 0 ? px[(h - 1) * w + x].r : px[(h - 1) * w + x].g;
+                    seam += Mathf.Abs(top - bot);
+                }
+                for (int y = 1; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                    {
+                        float a = ch == 0 ? px[y * w + x].r : px[y * w + x].g;
+                        float b = ch == 0 ? px[(y - 1) * w + x].r : px[(y - 1) * w + x].g;
+                        adj += Mathf.Abs(a - b);
+                    }
+                double sm = seam / w, am = adj / ((double)w * (h - 1));
+                double ratio = sm / System.Math.Max(am, 1e-9);
+                line.Append($"\n    seam:   {(ch == 0 ? 'R' : 'G')} octave — mean |step| across the "
+                            + $"V seam {sm:F4} against {am:F4} between ordinary rows ({ratio:F2}x). "
+                            + "1.00x is a field that tiles exactly; the R octave has never quite "
+                            + "done so (see the block above for the one-line pipeline fix).");
+                if (ratio > 3.0)
+                    throw new Exception(
+                        $"fire_atlas_alb.png's {(ch == 0 ? 'R' : 'G')} erosion octave is not "
+                        + $"tileable in V: its seam step is {ratio:F2}x an ordinary row step. "
+                        + "EnvFlame wraps the scroll by exactly one image height every "
+                        + $"{1f / (FireHz * ErodeScroll):F3} s, so every fire in both rooms would "
+                        + "visibly jump at that rate. Fix erosion_field() in "
+                        + "Assets/Editor/fire_atlas_pipeline.py (the G octave's integer tiling of a "
+                        + "downsample is the shape that is exactly seamless) and regenerate the "
+                        + "atlas.");
+            }
+            Debug.Log(line.ToString());
         }
 
         // ============================ THE WINDING AND NORMAL GATE ===============
@@ -9733,6 +9946,21 @@ namespace GloomhavenVR
         private const float ErodeTileU = 0.95f, ErodeTileV = 1.35f;
         private const float ErodeScroll = 0.79f, ErodeBoost = 1.08f;
         private const float ErodeAmount = 0.78f, ErodeBase = 0.34f, ErodeFine = 0.26f;
+
+        // ================== THE FIELD'S OWN TILING, AND THE WRAP ===============
+        // ModBuild 150. How many times each octave of the erosion field repeats
+        // ACROSS THE WHOLE ATLAS IMAGE, mirrored from fire_atlas_pipeline.py's
+        // erosion_field(): R is the source at one tile over the 512 image, G is
+        // an integer 4x4 tiling of a 4x downsample of it. These two numbers are
+        // NOT the Erode* tiling above — those say how much of the field one CARD
+        // sees; these say what the field's period IS. FireErosionWrapGate is the
+        // check that the shader's wrap is a whole number of both, and the block
+        // there is the argument for why a comment saying so was not enough.
+        private const int ErodeFieldTilesR = 1, ErodeFieldTilesG = 4;
+        // ...and the distance the scroll jumps when it wraps, in texture V.
+        // EnvFlame pre-frac()s the scroll in the vertex shader (`texPh`), so the
+        // jump is exactly one unit of texture V and nothing else.
+        private const float ErodeWrapV = 1.0f;
 
         // ================================ THE FACE FADE, AS SHIPPED =============
         // (cos of the angle at which a card is GONE, cos of the angle at which it
@@ -10558,94 +10786,80 @@ namespace GloomhavenVR
                                     + "generator really placed (see the block above) — if the band "
                                     + "table or the 1-in-9 dead rule changed, this search has to be "
                                     + "widened rather than a position typed in.");
-            // The fires hug the trunk: their radius comes from the trunk's own
+            // The fire hugs the trunk: its radius comes from the trunk's own
             // radius at that height (HauntTrunkRadius, the same function the
             // apparition that hides behind a tree is sized by), so a thin snag
             // gets a thin fire and a thick one a broad one.
-            // ============ "DIE FEUERHERDE SCHWEBEN ÜBER DEM BAUM" =============
-            // USER, hardware, ModBuild 149: "Weiterhin ist das Problem noch
-            // nicht gelöst bei einem Baum, dass die Feuerherde über dem Baum
-            // schweben. Es soll direkt auf dem Baum sitzen und am Besten
-            // darunter eine Glut sichtbar sein, dass es glaubwürdig aussieht."
             //
-            // THIS IS NOT A SEATING BUG, IT IS A GAP. Both fires were seated
-            // correctly — Snag0 on the root flare, Snag1 as a sector pressed
-            // against the bark — and the ModBuild 149 preview
-            // env_swamp_FireSnag_efireS shows them both hugging the trunk
-            // exactly as authored. What it also shows, and what the user is
-            // pointing at, is the SEVENTY CENTIMETRES OF DARK BARK BETWEEN
-            // THEM: Snag0's tongues topped out near y = 1.10 and Snag1's cards
-            // began at 1.76, so the tree carried two separate patches of fire
-            // with cold wood in the middle. An upper patch that is not
-            // connected to anything below it does not read as a burning tree at
-            // any brightness; it reads as a hearth hanging in the air, which is
-            // the user's word, twice, in two rounds.
+            // ====== "LASS DEN STAMM AN DIESER STELLE EINFACH GLÜHEN" ==========
+            // USER, hardware, ModBuild 149, and it is an INSTRUCTION rather than
+            // a report: "Am Baumstamm die Feuerchen sind immer noch nicht direkt
+            // auf dem Mesh sondern schweben darüber. Hier würde ich gerne einen
+            // anderen Approach: Lass den Stamm an dieser Stelle einfach glühen
+            // statt aktives Feuer."
             //
-            // Fire climbs. A trunk alight two metres up is alight ALL THE WAY
-            // DOWN, because that is how it got there, and the fix is therefore
-            // continuity and not placement: the upper fire comes down from 1.85
-            // to 0.95 and both grow, so that Snag1's LOWEST card bases (its
-            // bedFrac is 0, so they are spread up the burning face from -0.04 to
-            // +0.30 of its own height, i.e. y = 0.86..1.23) sit INSIDE Snag0's
-            // flame, which reaches 1.10 unstretched and 1.47 at full lick. The
-            // two now overlap by 0.2 m of authored card and 0.6 m of surged
-            // flame, and the column of fire on the bark is unbroken from the
-            // litter at the root to y = 2.0.
+            // THREE ROUNDS HAVE ANSWERED THIS WITH GEOMETRY AND ALL THREE HAVE
+            // FAILED, and the reason is worth writing down because it is not a
+            // bug: ModBuild 148 moved the upper fire off the trunk's axis onto a
+            // 150-degree sector against the bark, ModBuild 149 brought it down
+            // from 1.85 to 0.95 so it stood in the root fire's own flames — and
+            // the user still photographs cards floating in front of the wood.
+            // He is right and no placement can fix it. A flame card is a
+            // VERTICAL SHEET pushed out of the trunk by its radius plus a
+            // handspan (it has to be, or it is a plane through the wood — the
+            // ModBuild 148 fault), it is drawn additively with no depth write,
+            // and it therefore has parallax against the bark behind it from
+            // every angle except dead ahead. In a headset that parallax is
+            // stereo, i.e. it is not a subtlety: the sheet is measurably in
+            // front of the trunk because it IS in front of the trunk.
             //
-            // WHY NOT ONE TALL FIRE INSTEAD. A single 2 m fire is one `radius`
-            // and one footprint, so it would be either a 0.95 m-wide column two
-            // metres tall (a bonfire with a tree in it) or a narrow one with no
-            // root flare. Two fires is what lets the base be a wide RING of
-            // burning litter round the flare and the upper part a narrow SECTOR
-            // on the side that caught — the two silhouettes a burning snag
-            // actually has, which is the ModBuild 148 FireFoot argument and is
-            // not worth undoing to close a gap that moving one number closes.
+            // So the upper fire is gone, and the trunk glows instead. Not a
+            // decal and not a light: EnvFire.cginc's GHVR_GLUT_COALS already
+            // draws hard-thresholded incandescent fissures in the SEAT ASSET'S
+            // OWN SURFACE — char crust with heat coming out of the cracks — and
+            // it measured p99/p50 = 6.4x on this very bark last round. What it
+            // could not do was climb: its window was a sphere about a seat that
+            // has to stand 0.40 m clear of the bark, so gq^5 down the trunk ran
+            // 0.361 / 0.719 / 0.458 / 0.064 / 0.000 at 0.0 / 0.55 / 1.0 / 1.5 /
+            // 2.0 m above the litter — a bright patch at knee height with dark
+            // wood over it. GHVR_GLUT_COL turns that window into a vertical
+            // CAPSULE of the fire's own size and the same five heights read
+            // 0.719 / 0.719 / 0.719 / 0.502 / 0.085: full strength over the
+            // bottom 1.1 m, still 70 % of it at 1.5 m, out by 2.4 m — brightest
+            // where the fire is, dying out up the trunk, and ON the mesh at
+            // every pixel because it is the mesh's own shading. The full
+            // argument and the table are in EnvFire.cginc.
+            //
+            // WHAT KEEPS BURNING, AND WHY. Snag0, the ring of burning litter at
+            // the root flare, stays exactly as it was. He did not ask for the
+            // tree to stop burning — he asked for the flames ON THE BARK to stop
+            // being cards in front of it — and Snag0 is the one fire at this
+            // site that is not on bark at all: it stands on the ground, inside
+            // its own footprint, and it is the thing the glow above it is
+            // supposed to be the consequence of. A trunk that glowed with
+            // nothing alight underneath would be the hovering hearth again with
+            // the flames taken out. The SPARKS are also untouched, at the height
+            // they were ("Die Funken gefallen mir gut", this round, verbatim):
+            // embers coming off a charred glowing column is what a snag that has
+            // been burning for a while does.
             var foot = TrunkAt(snag, 0.10f);
             var mid = TrunkAt(snag, 0.95f);
             float rFoot = HauntTrunkRadius(snag, 0.10f), rMid = HauntTrunkRadius(snag, 0.95f);
-            // ...and the direction the CLEARING is in, which is where a fire on
-            // this trunk has to stand: the player watches it from in there.
-            var toClear2 = new Vector2(-foot.x, -foot.z).normalized;
             // the root flare is burning widest — that is where the litter is, and
             // it is a RING round the trunk rather than a disc through it (see
             // FireFoot). At `lift` = the trunk's own radius the innermost card
             // stands against the bark instead of inside the wood, which is what
             // stops the shipped build's flames crossing the trunk diagonally.
-            // 1.15 and not 1.05: the top of this fire is what the fire above it
-            // has to stand in, so its reach is now load-bearing rather than
-            // cosmetic — see the continuity block above.
+            // 1.15 and not 1.05: it is now the ONLY flame on this tree, so its
+            // reach is what says how far up the trunk caught — and it is the
+            // lower half of the glowing column above it.
             // ...and 36 cards and not 42, which is the fill budget being held
             // rather than spent: a card's area goes as the fire's height
-            // SQUARED, so 1.05 -> 1.15 is +20 % of painted area on its own and
-            // the two fires together came out +18 % on the room. Fewer, taller
-            // cards over a taller column is the same density of flame; more
-            // cards would have been the same fire drawn twice.
+            // SQUARED, so 1.05 -> 1.15 is +20 % of painted area on its own.
+            // Fewer, taller cards over a taller column is the same density of
+            // flame; more cards would have been the same fire drawn twice.
             Fire("Snag0", foot, rFoot * 1.5f, 1.15f, 36, 0f, 7501, 0.050f,
                  foot: FireFoot.Ring(rFoot * 0.90f));
-            // ...and it is climbing the bark, narrower, taller, and with NO BED:
-            // see FireMesh's bedFrac. A bed is the part of a fire that lies on
-            // something; two metres up a trunk there is nothing to lie on, and
-            // the first bake's bed cards there read as a white slab nailed across
-            // the tree.
-            //
-            // ============== "SIE SITZT NICHT DIREKT AUF DEN ASSETS" ============
-            // feuer2.jpg is this fire, and the fault is geometric and total: the
-            // cards were scattered on a DISC CENTRED ON THE TRUNK'S AXIS, so
-            // every one of them was a plane through the wood — the back half
-            // depth-rejected against the bark and the FRONT half painted over it.
-            // That is the fire plastered diagonally across the trunk, and no
-            // amount of shader work could have touched it.
-            //
-            // A fire licking up a standing trunk is on ONE SIDE of it, on the
-            // surface, on the side that caught. So: a 150-degree sector opening
-            // toward the clearing (the side the player is on and the side away
-            // from the moon, which is why this snag was chosen at all), pushed
-            // out by the trunk's own measured radius at that height plus a
-            // handspan, on a footprint two thirds as wide as it was. Not one card
-            // is inside the wood now, and the fire hugs the bark instead of
-            // crossing it.
-            Fire("Snag1", mid, rMid * 1.0f, 1.10f, 22, 2.6f, 7502, 0.055f, bedFrac: 0f,
-                 foot: FireFoot.Face(toClear2, 150f / 360f, rMid + 0.06f));
             // ---- THE HALO, AND IT WAS A FLOATING HEARTH IN ITS OWN RIGHT ----
             // It was a 2.70 m ball centred 0.75 m above the root flare — i.e. a
             // sphere of light whose middle coincided with no burning surface,
@@ -10916,16 +11130,21 @@ namespace GloomhavenVR
             AssertFireSeatCores("Forest", rig.fires, log);
             log.Append(FireAspectLine());
             log.Append(FirePaintLine());
-            log.Append($"    seats: the SNAG's mid fire is a {150f:F0} deg sector on the bark, "
-                       + $"pushed out by the trunk's own {rMid:F2} m radius (it used to be a disc "
-                       + $"through the axis, i.e. half of every card inside the wood — feuer2.jpg); "
-                       + $"the LOG's three are ellipses on the deadfall's measured axis, "
-                       + $"{logHalfW * 2f:F2} m of bark wide, so no card hangs off its flank "
-                       + "(feuer1.jpg).\n");
-            log.Append($"    glut: coals on every burning surface, at {FireCoreK * 1.45f:F2} x each "
-                       + "seat's range, on a biased slow breath — the user's own \"eine Glut beim "
-                       + "Holz\". It is the term that makes the deadfall look CONSUMED rather "
-                       + "than lit.\n");
+            log.Append($"    seats: the SNAG carries ONE fire now — the ring of burning litter at "
+                       + $"the root flare. The sector that climbed the bark is GONE (user, "
+                       + $"ModBuild 149: \"Lass den Stamm an dieser Stelle einfach glühen statt "
+                       + $"aktives Feuer\"); the trunk above it is charred and glowing instead, "
+                       + $"which is the glut line below. The LOG's three are ellipses on the "
+                       + $"deadfall's measured axis, {logHalfW * 2f:F2} m of bark wide, so no card "
+                       + $"hangs off its flank (feuer1.jpg). Trunk radius at the old sector's "
+                       + $"height was {rMid:F2} m.\n");
+            log.Append($"    glut: coals on every burning surface, in a CAPSULE — "
+                       + $"{FireCoreK * 1.45f:F2} x each seat's range across, extended "
+                       + $"{FireCoreK * 0.50f:F2} x it up and down along world up, on a biased "
+                       + "slow breath. The column is what lets the char CLIMB a standing surface "
+                       + "instead of dying half a metre up it, and it is what replaces the flame "
+                       + "cards on the snag's bark; the user's own \"eine Glut beim Holz\". It is "
+                       + "the term that makes the deadfall look CONSUMED rather than lit.\n");
             log.Append($"    wash: rgb ({rig.fireWash.r:F2},{rig.fireWash.g:F2},"
                        + $"{rig.fireWash.b:F2}) at +-{rig.fireWash.a * 100f:F0} % flicker, "
                        + $"{rig.fireHz:F1} Hz — the same Hz the flames burn at. Deliberately below "
@@ -11598,7 +11817,12 @@ namespace GloomhavenVR
             // does, and four irregular sheets cost 0.6k triangles between them.
             var webTex = Imp("cobweb_alb");
             var strandTex = AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Strand.png");
-            Material WebMat(string n, Texture2D tex, float tint, float sway, float phase, Vector3 swayDir)
+            // `whirl` is the w of _SwayDir: how freely this silk may ORBIT about
+            // its sway axis. 0 for a SHEET, which is a membrane with a pinned rim
+            // and has exactly one degree of freedom; > 0 only for a thread held
+            // at one end. See THE WHIRL in EnvRoomCutout's vertex shader.
+            Material WebMat(string n, Texture2D tex, float tint, float sway, float phase,
+                            Vector3 swayDir, float whirl = 0f)
             {
                 var m = NewRoomMat($"C_Web{n}.mat", "GloomhavenVR/EnvRoomCutout");
                 m.SetTexture("_MainTex", tex);
@@ -11614,7 +11838,8 @@ namespace GloomhavenVR
                 m.SetFloat("_Sway", sway);
                 m.SetFloat("_SwayRate", 0.42f);
                 m.SetFloat("_SwayPhase", phase);
-                m.SetVector("_SwayDir", swayDir.normalized);
+                var sd = swayDir.normalized;
+                m.SetVector("_SwayDir", new Vector4(sd.x, sd.y, sd.z, whirl));
                 // HAUNT — the tremble. Every web and every loose strand in the
                 // cellar answers the same invisible card, so the whole room's silk
                 // shivers at once: one web twitching is a draught, all of them
@@ -11639,11 +11864,11 @@ namespace GloomhavenVR
                 Defer(m, go.transform, 1f);
             }
             void Strand(string n, Vector3 anchor, Vector3 drop, Vector3 wide,
-                        int col, float sway, float phase, float tint)
+                        int col, float sway, float phase, float tint, float whirl)
             {
                 var mesh = SaveMesh($"Env_C_Strand{n}.asset",
                     StrandMesh(anchor, drop, wide, col, 3, 9, 810 + n.Length * 7));
-                var m = WebMat("Strand" + n, strandTex, tint, sway, phase, wide);
+                var m = WebMat("Strand" + n, strandTex, tint, sway, phase, wide, whirl);
                 var go = Place(root, "Strand" + n, mesh, Vector3.zero, Vector3.zero, Vector3.one, m);
                 Defer(m, go.transform, 1f);
             }
@@ -11807,7 +12032,18 @@ namespace GloomhavenVR
                            // there while it flutters +-25 cm about that.
                            DraftDir * (0.140f + 0.050f * Hash3(9800 + k, 2, 0, 9811)),
                            k % 3, 0.100f + 0.030f * Hash3(9800 + k, 3, 0, 9811),
-                           0.4f + 1.9f * k, 1.05f);
+                           0.4f + 1.9f * k, 1.05f,
+                           // WHIRL 0.30 and not 1.0, and the reason is the
+                           // ironwork rather than taste: these hang AT a bar,
+                           // between bars 23.9 cm apart, and the orbit is square
+                           // to DraftDir — i.e. 0.456 of it is in x, straight
+                           // across the gap. At 1.0 the tip would reach 13 cm of
+                           // x at full Air and swing through the next bar; 0.30
+                           // keeps it inside +-3.9 cm. They are also the one silk
+                           // in the room the user has already approved as it is
+                           // ("Wind gefaellt mir sehr gut"), so they get the
+                           // physics and not the amplitude.
+                           0.30f);
                     webNames.Add($"Env_C_StrandBar{k}");
                     // ...and for a streamer it is the DRIFT it was authored with,
                     // which is what G3 measures the free end against.
@@ -11968,7 +12204,11 @@ namespace GloomhavenVR
                           + "with a 0.90-amplitude down-wind LEAN on top, which is 1.2-1.5 deg of "
                           + "travel from the seated eye 4.9 m away. Backlit by the beam and the sky "
                           + "patch, which is why this is the one place in the room where moving silk "
-                          + "reads at all.");
+                          + "reads at all. The four streamers also WHIRL at 0.30 (ModBuild 150, user: "
+                          + "\"auch der sollte bei Wind etwas mehr herumwirbeln\"), i.e. up to 8.6 cm "
+                          + "of orbit square to the draught at full Air, of which 3.9 cm is across "
+                          + $"the {barGap * 100f:F1} cm bar gap — the beam strands run that term at "
+                          + "1.0 and these do not, because they hang between iron.");
             }
 
             // 5. LOOSE STRANDS. What sells a web as silk rather than as a decal
@@ -11976,8 +12216,23 @@ namespace GloomhavenVR
             //    the beams and the shelf web, each with the dust it has caught,
             //    swinging on the same draught as the flames (DraftDir) and much
             //    more freely than the sheets — they are held at ONE end.
+            //
+            //    AND THEY ARE THE ONES THAT WHIRL. USER, ModBuild 149: "An einer
+            //    Stelle im Keller haengt so ein Faden (Spinnweben) von einem
+            //    Balken herab, auch der sollte bei Wind etwas mehr herumwirbeln."
+            //    That is A, B or C — the three that hang off a beam. They get
+            //    whirl 1.0, i.e. the tip's orbit opens to the full width of the
+            //    in-plane billow at full Air, and the term is worth 12.1, 15.4
+            //    and 13.6 cm on the three of them. NOT a bigger _Sway: he did not
+            //    ask for a bigger swing, he asked for a different KIND of motion,
+            //    and the difference between a line and a loop is what the eye
+            //    reads as a thread rather than a pendulum. The clearance is the
+            //    thing to check when these move, because the orbit is square to
+            //    the draught: A is 30 cm off the east wall and reaches 5.5 cm of
+            //    x, C is 72 cm off the west wall and reaches 6.2 cm.
             Strand("A", new Vector3(hw - 0.30f, CH - 0.28f, 1.52f),
-                   new Vector3(0.02f, -0.62f, 0.04f), DraftDir * 0.075f, 0, 0.055f, 0.7f, 0.95f);
+                   new Vector3(0.02f, -0.62f, 0.04f), DraftDir * 0.075f, 0, 0.055f, 0.7f, 0.95f,
+                   1.0f);
             // B hangs off the beam ABOVE THE CRATE CANDLE. Its first home was
             // over the middle of the room, where nothing lights it: a thread
             // 2 cm wide in a black room is not a detail, it is nothing. A loose
@@ -11985,9 +12240,11 @@ namespace GloomhavenVR
             // (Its drop stays short for another reason: below y = 2.20
             // AssertPlaySpaceClear counts geometry as intruding on the players.)
             Strand("B", new Vector3(-1.30f, CH - 0.30f, -2.62f),
-                   new Vector3(-0.03f, -0.62f, 0.02f), DraftDir * 0.090f, 1, 0.070f, 2.6f, 0.95f);
+                   new Vector3(-0.03f, -0.62f, 0.02f), DraftDir * 0.090f, 1, 0.070f, 2.6f, 0.95f,
+                   1.0f);
             Strand("C", new Vector3(-hw + 0.72f, CH - 0.34f, -hd + 0.66f),
-                   new Vector3(0.04f, -0.74f, 0.03f), DraftDir * 0.080f, 2, 0.062f, 4.4f, 0.75f);
+                   new Vector3(0.04f, -0.74f, 0.03f), DraftDir * 0.080f, 2, 0.062f, 4.4f, 0.75f,
+                   1.0f);
 
             // ------------------------------------------------------- the haunts
             // HAUNT SOLID — the creepy easter eggs, as real geometry. Six events,

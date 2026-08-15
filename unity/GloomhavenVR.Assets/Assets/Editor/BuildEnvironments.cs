@@ -131,6 +131,12 @@ namespace GloomhavenVR
         private const float EclipseCy = -0.759f;   // in moon radii
         private const float EclipseFloor = 0.05f;  // moonlight left under full Dark
         private const float MoonSwell = 0.34f;     // disc radius gain at full Light
+        // GHVR_ECL_RELIEF, ModBuild 150. USER: "Licht und Dunkelheit zusammen ist im Keller
+        // garnicht sichtbar." Light lifts the eclipse's ATTENUATION so the mixture is legible;
+        // it carries `light * dark`, so every state with either element at zero is bit-identical
+        // to what shipped. Mirrors EnvElement.cginc — this log would otherwise print a number the
+        // room no longer uses, which is the whole reason the log exists.
+        private const float EclipseRelief = 0.38f;
 
         /// <summary>The C# mirror of EnvElement.cginc's GhvrMoonLight(), for the bake log.
         /// No time argument any more — see MOON HELD above.</summary>
@@ -142,7 +148,8 @@ namespace GloomhavenVR
             // arguments), and using it here would quietly mis-state the log.
             float s = Mathf.Clamp01((d - (EclipseUmbra - 1f)) * 0.5f);
             float cov = 1f - s * s * (3f - 2f * s);
-            return (1f + MoonSwell * light) * (1f - cov * dark * (1f - EclipseFloor));
+            return (1f + MoonSwell * light)
+                   * (1f - cov * dark * (1f - EclipseFloor) * (1f - EclipseRelief * light));
         }
 
         /// <summary>The held eclipse and the swell, in numbers, in the bake log. A still
@@ -201,7 +208,11 @@ namespace GloomhavenVR
                       + $"{MoonLightAt(1f, 0f) * 1.90f:F2}x the authored moonlight, and the sprite itself "
                       + "is x GhvrSrcGain = 2.10 on top of that.\n"
                       + $"   Light AND Dark at once: GhvrMoonLight() {MoonLightAt(1f, 1f):F3} "
-                      + "— a swollen moon still gets eaten.");
+                      + $"— a swollen moon still gets eaten, but GHVR_ECL_RELIEF {EclipseRelief:F2} "
+                      + "lifts it far enough that the mixture is legible instead of black. USER, "
+                      + "ModBuild 149 hardware: \"Licht und Dunkelheit zusammen ist im Keller "
+                      + "garnicht sichtbar, es sollte schon so ein Mittelweg sein, dass beides grob "
+                      + "erkennbar ist.\"");
         }
 
         // ------------------------------------------------------------ star sky

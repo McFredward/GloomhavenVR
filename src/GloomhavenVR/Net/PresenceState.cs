@@ -326,6 +326,58 @@ internal struct PresenceState
     public uint EnvClockMillis;
 
     /// <summary>
+    /// True when the environment-clock record also carried its sixth byte, the sender's HAUNT
+    /// FREQUENCY (<see cref="NetProtocol.EnvClockRecordBytesWithFrequency"/>). Absence means a
+    /// 5-byte record — the shape every build before 2026-08-15 wrote — and the receiver then keeps
+    /// its OWN dial, which is exactly the pre-ruling behaviour.
+    /// </summary>
+    public bool HasEnvClockFrequency;
+
+    /// <summary>The sender's haunt frequency in hundredths (0..100). Meaningful only when
+    /// <see cref="HasEnvClockFrequency"/>; adopted only from the elected clock owner, never from any
+    /// peer that merely sent it. Decode with <see cref="NetProtocol.DecodeHauntFrequency"/>.</summary>
+    public byte EnvClockFrequencyCode;
+
+    /// <summary>
+    /// True when this packet carries the DEBUG TEST-TRIGGER OVERRIDE (extension record
+    /// <see cref="NetProtocol.ExtIdTestForce"/>): which apparition and which element moods the
+    /// sender has latched from the Erweitert test page. Written ONLY while the sender OWNS a
+    /// standing override, plus a short explicit-release burst after its last latch goes — so every
+    /// player who is not holding a debug latch emits the exact bytes previous builds emitted.
+    ///
+    /// <para>An ALL-ZERO payload is LEGAL and is the explicit release; it is why this flag alone
+    /// opens the extension tail and why the emptiness test lives in the SAMPLER
+    /// (<c>RemoteTestTriggers.Sample</c>) rather than in the serializer, unlike every other record
+    /// here. Delivering "nothing is latched" is the whole point of the burst.</para>
+    /// </summary>
+    public bool HasTestForce;
+
+    /// <summary>The sender's ENVIRONMENT DIAL (<c>SkyStyle</c>: 0 Default, 1 Cellar, 2 SwampNight,
+    /// 3 OffBlack) — a COMPARISON KEY and never an instruction. It gates BOTH halves of the
+    /// override: the user's condition is "die selbe Umgebung eingestellt", which is about the
+    /// SETTING, so this is deliberately the dial and not <see cref="EnvClockStyle"/>'s "an animated
+    /// shell is really standing" key. An unnameable code arrives as
+    /// <see cref="NetProtocol.TestForceStyleUnknown"/>, which can never match.</summary>
+    public byte TestForceStyle;
+
+    /// <summary>Forced apparition card index PLUS ONE, 0 = none — the same +1 convention the shader
+    /// channel uses. Sanitized on read against <see cref="NetProtocol.TestForceMaxHauntCode"/>.</summary>
+    public byte TestForceHauntCode;
+
+    /// <summary>Bit i = element i latched to STRONG, in the game's own <c>EElement</c> order.
+    /// Masked to <see cref="NetProtocol.TestForceElementMask"/> on both ends.</summary>
+    public byte TestForceStrongMask;
+
+    /// <summary>Bit i = element i latched to WANING. An element set in BOTH masks cannot exist and
+    /// is dropped from both on read.</summary>
+    public byte TestForceWaningMask;
+
+    /// <summary>Shared-clock millisecond at which the apparition latch was PRESSED — not the current
+    /// run. Constant while the latch stands, which is what lets both ends loop from the same origin
+    /// with no further traffic. Meaningful only when <see cref="TestForceHauntCode"/> is non-zero.</summary>
+    public uint TestForceHauntSinceMillis;
+
+    /// <summary>
     /// True when this packet carries the BOARD TOOLTIP the sender is reading (extension record
     /// <see cref="NetProtocol.ExtIdBoardTooltip"/>) — the game's hover tooltip while it is parked
     /// in their control board's tooltip area. Written only while such a tooltip is really shown
@@ -936,8 +988,19 @@ internal struct PresenceState
 ///                        follow the lowest player id reporting the SAME style, which makes the rat,
 ///                        the drip, the candle flicker and the shafts' shimmer happen at the same
 ///                        moment for everyone. Written only while such an environment really stands
-///                        — never on the game's own sky, OffBlack or MR, see
-///                        NetProtocol.ExtIdEnvClock)
+///                        — never on the game's own sky, OffBlack or MR. A SIXTH BYTE carries the
+///                        sender's HAUNT FREQUENCY in hundredths, adopted from the elected clock
+///                        owner so every client thresholds the same schedule at the same number
+///                        (user ruling 2026-08-15); a 5-byte record is an older peer and the
+///                        receiver keeps its own dial. See NetProtocol.ExtIdEnvClock)
+///                        32 DEBUG TEST-TRIGGER OVERRIDE ([style][haunt+1][strongMask][waningMask]
+///                        [u32 pressTimeMillis LE] — which apparition and which element moods the
+///                        sender has latched on the Erweitert test page, so that a debug press is
+///                        seen by everyone rather than only by the tester (user ruling 2026-08-15).
+///                        A STATE, never a stream: each receiver evaluates it against its own copy
+///                        of the shared environment clock. Written only while the sender OWNS a
+///                        standing override plus a short explicit-release burst; an ALL-ZERO payload
+///                        is that release, see NetProtocol.ExtIdTestForce)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -1158,7 +1221,17 @@ internal static class PresenceSerializer
                           // or an older bundle) writes NO clock record, so it must not open the tail
                           // either — that is what keeps every such packet byte-identical to the
                           // previous build's, and it is the whole economic case for record 31.
-                          || (state.HasEnvClock && state.EnvClockStyle != 0);
+                          || (state.HasEnvClock && state.EnvClockStyle != 0)
+                          // THE ONE RECORD WHOSE GATE IS THE FLAG ALONE, and the exception is the
+                          // feature rather than an oversight: an ALL-ZERO test-force payload is the
+                          // EXPLICIT RELEASE ("the override is over"), so the usual "empty writes no
+                          // record" rule would delete the very statement the receiver is waiting
+                          // for. The emptiness test therefore lives in the SAMPLER
+                          // (RemoteTestTriggers.Sample), which sets this flag only while an override
+                          // is owned here or a release burst is running — that is what keeps every
+                          // packet of every player who is not holding a debug latch byte-identical
+                          // to the previous build's.
+                          || state.HasTestForce;
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -1806,7 +1879,7 @@ internal static class PresenceSerializer
                     records++;
                 }
                 if (state.HasEnvClock && state.EnvClockStyle != 0
-                    && i + 2 + NetProtocol.EnvClockRecordBytes <= buffer.Length)
+                    && i + 2 + NetProtocol.EnvClockRecordBytesWithFrequency <= buffer.Length)
                 {
                     // SHARED ENVIRONMENT CLOCK (31): [style][u32 clockMillis LE] — the sender's
                     // environment and the reading every _Time-driven effect of it runs on (the rat,
@@ -1819,13 +1892,55 @@ internal static class PresenceSerializer
                     // OffBlack and MR emit exactly the bytes previous builds emitted, and absence is
                     // the "nothing to synchronise" signal — no sentinel value exists.
                     // Appended LAST, in id order behind record 30, per the tail's id-order contract.
+                    //
+                    // THE SIXTH BYTE IS THE HAUNT FREQUENCY (user ruling 2026-08-15: "Die
+                    // Häufigkeit von Easter Eggs (da alle es ja synchron sehen sollen) soll vom
+                    // HOST genommen werden im MP"). It rides HERE rather than in a record of its
+                    // own so that "the host" and "the clock owner" are decided by one election on
+                    // one arrival — see EnvClockRecordBytesWithFrequency. Always written; a reader
+                    // that only knows the 5-byte form steps over it by the record's own length.
                     buffer[i++] = NetProtocol.ExtIdEnvClock;
-                    buffer[i++] = (byte)NetProtocol.EnvClockRecordBytes;
+                    buffer[i++] = (byte)NetProtocol.EnvClockRecordBytesWithFrequency;
                     buffer[i++] = state.EnvClockStyle;
                     buffer[i++] = (byte)(state.EnvClockMillis & 0xFF);
                     buffer[i++] = (byte)((state.EnvClockMillis >> 8) & 0xFF);
                     buffer[i++] = (byte)((state.EnvClockMillis >> 16) & 0xFF);
                     buffer[i++] = (byte)((state.EnvClockMillis >> 24) & 0xFF);
+                    buffer[i++] = state.EnvClockFrequencyCode > NetProtocol.EnvClockFrequencyMaxCode
+                        ? NetProtocol.EnvClockFrequencyMaxCode
+                        : state.EnvClockFrequencyCode;
+                    records++;
+                }
+                if (state.HasTestForce
+                    && i + 2 + NetProtocol.TestForceRecordBytes <= buffer.Length)
+                {
+                    // DEBUG TEST-TRIGGER OVERRIDE (32): [style][haunt+1][strongMask][waningMask]
+                    // [u32 pressTimeMillis LE] — which apparition and which element moods the
+                    // Erweitert test page has latched HERE, so that every player in the room draws
+                    // the same thing at the same moment (user ruling 2026-08-15: "Auch wenn jemand
+                    // im Debugmenu ein Event startet sollte dies auch von ALLEN im Multiplayer
+                    // sichtbar sein statt nur lokal"). Nothing here is game state: the game's
+                    // element board is still read and never written, and a haunt was never state at
+                    // all — this record only says WHICH override is latched, and each receiver
+                    // evaluates it against its own copy of the shared environment clock.
+                    //
+                    // NO EMPTINESS GATE, on purpose: an all-zero payload is the EXPLICIT RELEASE.
+                    // The sampler is what guarantees the record is absent while nothing is owned.
+                    // Appended LAST, in id order behind record 31, per the tail's id-order contract.
+                    buffer[i++] = NetProtocol.ExtIdTestForce;
+                    buffer[i++] = (byte)NetProtocol.TestForceRecordBytes;
+                    buffer[i++] = state.TestForceStyle > NetProtocol.TestForceMaxStyleCode
+                        ? NetProtocol.TestForceStyleUnknown
+                        : state.TestForceStyle;
+                    buffer[i++] = state.TestForceHauntCode > NetProtocol.TestForceMaxHauntCode
+                        ? (byte)0
+                        : state.TestForceHauntCode;
+                    buffer[i++] = (byte)(state.TestForceStrongMask & NetProtocol.TestForceElementMask);
+                    buffer[i++] = (byte)(state.TestForceWaningMask & NetProtocol.TestForceElementMask);
+                    buffer[i++] = (byte)(state.TestForceHauntSinceMillis & 0xFF);
+                    buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 8) & 0xFF);
+                    buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 16) & 0xFF);
+                    buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 24) & 0xFF);
                     records++;
                 }
                 buffer[countAt] = records;
@@ -2933,7 +3048,66 @@ internal static class PresenceSerializer
                                                           | (buffer[i + 2] << 8)
                                                           | (buffer[i + 3] << 16)
                                                           | (buffer[i + 4] << 24));
+
+                            // THE SIXTH BYTE — the sender's haunt frequency in hundredths, present
+                            // only from 2026-08-15 on. A 5-byte record is a peer that predates the
+                            // host-frequency ruling; leaving the flag false there is exactly right,
+                            // because the receiver then keeps its OWN dial, which is what those
+                            // builds did. CLAMPED rather than dropped (see EnvClockFrequencyMaxCode):
+                            // the value is a threshold with no meaning outside [0,1].
+                            if (len >= NetProtocol.EnvClockRecordBytesWithFrequency)
+                            {
+                                byte code = buffer[i + 5];
+                                state.HasEnvClockFrequency = true;
+                                state.EnvClockFrequencyCode =
+                                    code > NetProtocol.EnvClockFrequencyMaxCode
+                                        ? NetProtocol.EnvClockFrequencyMaxCode
+                                        : code;
+                            }
                         }
+                    }
+                    else if (id == NetProtocol.ExtIdTestForce
+                             && len >= NetProtocol.TestForceRecordBytes)
+                    {
+                        // DEBUG TEST-TRIGGER OVERRIDE: [style][haunt+1][strong][waning][u32 ms LE].
+                        // Sanitized FIELD BY FIELD (never trust the wire), and never by dropping the
+                        // record — an unusable field must degrade to "this does not apply here",
+                        // which the consumer already knows how to RELEASE, rather than to silence,
+                        // which it would have to wait out:
+                        //   * a style code this build cannot name is rewritten to
+                        //     TestForceStyleUnknown, a value no dial can produce. The receiver's
+                        //     equality test then fails and the whole override becomes a no-op — and
+                        //     by the same path a release of whatever that sender had applied here.
+                        //   * a haunt code above the largest room's card count is dropped to 0
+                        //     rather than clamped; a card that does not exist must not resolve to a
+                        //     card that does.
+                        //   * both masks are reduced to their DEFINED bits, and an element claimed
+                        //     in BOTH columns is dropped from both — an element cannot be Strong and
+                        //     Waning at once, and guessing which was meant would be inventing state.
+                        // An ALL-ZERO record survives all of this and IS DELIVERED: it is the
+                        // sender's explicit "nothing is latched any more", and dropping it would
+                        // leave the receiver waiting out a staleness timeout instead.
+                        byte tfStyle = buffer[i];
+                        byte tfHaunt = buffer[i + 1];
+                        if (tfStyle > NetProtocol.TestForceMaxStyleCode)
+                            tfStyle = NetProtocol.TestForceStyleUnknown;
+                        if (tfHaunt > NetProtocol.TestForceMaxHauntCode)
+                            tfHaunt = 0;
+                        byte strong = (byte)(buffer[i + 2] & NetProtocol.TestForceElementMask);
+                        byte waning = (byte)(buffer[i + 3] & NetProtocol.TestForceElementMask);
+                        byte both = (byte)(strong & waning);
+                        strong &= (byte)~both;
+                        waning &= (byte)~both;
+
+                        state.HasTestForce = true;
+                        state.TestForceStyle = tfStyle;
+                        state.TestForceHauntCode = tfHaunt;
+                        state.TestForceStrongMask = strong;
+                        state.TestForceWaningMask = waning;
+                        state.TestForceHauntSinceMillis = (uint)(buffer[i + 4]
+                                                                 | (buffer[i + 5] << 8)
+                                                                 | (buffer[i + 6] << 16)
+                                                                 | (buffer[i + 7] << 24));
                     }
                     else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
                     {

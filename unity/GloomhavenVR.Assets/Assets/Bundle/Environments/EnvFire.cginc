@@ -142,7 +142,23 @@
 // numbers are mirrored there; change one, change both.
 #define GHVR_FKIND_BED    0.0   // the seat: wide, low, crowded, nearly steady
 #define GHVR_FKIND_TONGUE 1.0   // rises out of the bed, surges, leans, tears
-#define GHVR_FKIND_PUFF   2.0   // detaches, rises, reddens, dies
+#define GHVR_FKIND_PUFF   2.0   // the plume top: rises out of the body, reddens, dies
+
+// ...and how hard a puff COOLS over its own life, as a multiplier on `age`
+// where it enters GhvrFireRamp's cooling axis (EnvFlame's fragment).
+//
+// ModBuild 150, and it is the colour half of "sie schweben und gehören nicht
+// dazu". A parcel that has left the luminous zone of a fire is not flame
+// -coloured for long — it drops out of incandescence within a few tens of
+// centimetres — so the one thing a detached card may not do is stay orange
+// while it climbs. The piece now dies at 0.55 of its cycle (EnvFlame's
+// envelope), so at the old implicit weight of 1.0 it never got past the middle
+// of the ramp; 1.90 x 0.55 = 1.05 lands it on the tip stop, which is a third of
+// the body's luminance and almost monochrome red, before it goes out.
+//
+// It is exactly 0 on bed and tongue cards (their `age` is 0), so this constant
+// cannot reach the flame body.
+#define GHVR_PUFF_COOL 1.90
 
 // ------------------------------------------------- HOW HIGH A FIRE MAY GO
 // USER, hardware, ModBuild 149: "Feuer zieht nun solche Fäden bis ganz weit
@@ -261,6 +277,53 @@ float4 _FireRide;                         // xyz: 1 = this seat stands on the sh
 // tighter window than this stops reaching the bark at all. What changed is the
 // EXPONENT, below: the reach is the same and the shape inside it is not.
 #define GHVR_GLUT_REACH 1.45
+// ...and the coals lie in a COLUMN, not in a ball: half the length of that
+// column, in core radii, measured along WORLD UP about the seat.
+//
+// ============ "LASS DEN STAMM AN DIESER STELLE EINFACH GLÜHEN" ==============
+// USER, hardware, ModBuild 150, about the fire climbing the burning snag's
+// bark. The flame cards that used to stand on that trunk are gone (see
+// AddForestFire); what has to replace them is charred wood with heat coming out
+// of it, over the height the fire reached — and the coal term could not do that,
+// because its window was a SPHERE about a point.
+//
+// The arithmetic, on the snag as the bake really builds it. The seat has to
+// stand OUT of the trunk or N.L is negative on every triangle of it
+// (AddForestFire's snagSeat), so it sits 0.40 m clear of the bark and 0.55 m
+// above the litter, and the coal window is 1.45 x 1.09 = 1.58 m. gq^5 down the
+// bark, against height above the ground:
+//
+//     y            0.00   0.55   1.00   1.50   2.00
+//     sphere       0.361  0.719  0.458  0.064  0.000
+//     capsule      0.719  0.719  0.719  0.502  0.085
+//
+// The sphere's whole usable band was the half metre either side of the seat: a
+// bright patch at knee height with the trunk dark above it, which is a LIGHT
+// SHINING ON WOOD and is the second copy of the wash this term was condemned for
+// being in ModBuild 149.
+//
+// A fire is a vertical structure and so is the char it leaves. So the coal
+// distance is now measured to a SEGMENT — the seat, extended GHVR_GLUT_COL core
+// radii up and down along world up — instead of to the seat point. On the snag
+// that is +-0.55 m, so the window is a capsule that holds the bark at full
+// strength from the litter to 1.10 m, is still at 70 % of that at 1.50 m and is
+// out by 2.4 m. The root flare KEEPS its coals — it GAINS them, because the
+// segment reaches down as well, which is why it is symmetric — and the column
+// above it is what the user asked for: brightest where the fire is, fading up
+// the trunk, and on the mesh's own surface at every pixel.
+//
+// 0.50 AND NOT MORE, and the cellar is the bound. The same capsule applies to
+// every seat in both rooms, in proportion to that seat's own core: 0.34 m on the
+// crate stack, 0.40 m on the casks, 0.33 m on the bookshelf. That is char
+// running a hand's breadth further up the masonry behind a burning crate, which
+// is what a burning crate does to a wall — at 1.0 the crate's capsule plus its
+// 0.98 m window would have reached the cellar's ceiling, which is a chimney and
+// not a fire.
+//
+// The WASH is deliberately NOT a capsule: it is a point light, its
+// inverse-square core is tuned as one, and stretching it would put a fire's pool
+// on surfaces it does not reach. Only `gq` sees the segment.
+#define GHVR_GLUT_COL 0.50
 // The size of a lump of charcoal, in cells per metre. 1/22 m = 4.5 cm, which
 // is a piece of a burnt board; the second octave at 3.1x is the 1.5 cm fissure
 // between two of them. See GhvrGlutCoals.
@@ -762,7 +825,22 @@ float GhvrFireSeatOne (float3 seat, float invRange,
     // tighter than 1.45 would stop reaching it at all. Tightening the SHAPE
     // inside a fixed window is the only move that is available here, and
     // GHVR_GLUT_K carries the peak back up to where it can be seen.
-    float gq = saturate(1.0 - d2 * c2 * (1.0 / (GHVR_GLUT_REACH * GHVR_GLUT_REACH)));
+    //
+    // ---- ModBuild 150: THE WINDOW IS A CAPSULE, NOT A BALL ------------------
+    // See GHVR_GLUT_COL. The distance is taken to a vertical SEGMENT through the
+    // seat rather than to the seat, so the char climbs the standing surface the
+    // fire is against instead of dying half a metre up it. `upO` is world up in
+    // THIS material's object space — three dot products, and it has to be
+    // derived rather than assumed, because a prop that was placed with a tilt
+    // (or a bookshelf mid-topple) has an object +Y that is not up and would put
+    // the column across the wood instead of along it.
+    float3 upO = normalize(mul((float3x3)unity_WorldToObject, float3(0.0, 1.0, 0.0)));
+    // half the column, in the same object units invRange is already in
+    float hc = GHVR_GLUT_COL * GHVR_FIRE_CORE_K / max(invRange, 1e-4);
+    // the nearest point of the segment {seat + upO*u : |u| <= hc}
+    float3 gv = lv + upO * clamp(-dot(lv, upO), -hc, hc);
+    float gd2 = max(dot(gv, gv), 1e-8);
+    float gq = saturate(1.0 - gd2 * c2 * (1.0 / (GHVR_GLUT_REACH * GHVR_GLUT_REACH)));
     float gq2 = gq * gq;
     glut += gq2 * gq2 * gq
             * saturate((dot(N, L) + 0.55) * (1.0 / 1.55))

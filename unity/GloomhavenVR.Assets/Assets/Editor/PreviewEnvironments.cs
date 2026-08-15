@@ -13,6 +13,7 @@
 // board (2.02/1.66 m in the cellar, 2.80/2.30 m in the wood — see THE PLAYER'S
 // HEAD). 1280x720 PNGs go to $ENV_PREVIEW_OUT (or ./env-previews when unset).
 using System;
+using System.Globalization;
 using System.IO;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -1236,6 +1237,40 @@ namespace GloomhavenVR
                                       $"_{tagPrefix}{Mathf.RoundToInt(t * 1000f):D4}");
                             }
                         }
+                    }
+
+                    // ---- THE LOOP HUNT, ModBuild 150 -----------------------
+                    // USER, hardware, ModBuild 149: "Das Feuer zieht in einem
+                    // Loop in eine Richtung, glitcht dann zurueck und beginnt
+                    // diesen Loop von vorne."
+                    //
+                    // Neither shipped series can settle that claim. FAST spans
+                    // 0.385 s and SLOW steps 240 ms, so a wrap whose period is
+                    // anywhere between them is either invisible or aliased —
+                    // and the erosion scroll's period is 1/(FireHz*ErodeScroll)
+                    // = 0.275 s, i.e. exactly in that hole. A DISCONTINUITY is
+                    // a claim about consecutive frames and can only be settled
+                    // by a series that is uniform in time and long enough to
+                    // contain at least two wraps of whatever is being hunted.
+                    //
+                    // ENV_PREVIEW_FIRELOOP="count,step[,air]" renders `count`
+                    // frames `step` seconds apart, tagged _pl<ms>, on the fire
+                    // views. It is OFF by default (it is a diagnostic, not a
+                    // review set: 60 frames x 7 views is 420 PNGs) and it is
+                    // the instrument the frame-to-frame displacement numbers in
+                    // .planning/fire-loop-measurement.md were taken with.
+                    string loopSpec = Environment.GetEnvironmentVariable("ENV_PREVIEW_FIRELOOP");
+                    if (!string.IsNullOrEmpty(loopSpec))
+                    {
+                        var pc = loopSpec.Split(',');
+                        int n = int.Parse(pc[0], CultureInfo.InvariantCulture);
+                        float step = float.Parse(pc[1], CultureInfo.InvariantCulture);
+                        float air = pc.Length > 2
+                            ? float.Parse(pc[2], CultureInfo.InvariantCulture) : 0f;
+                        var ph = new float[n];
+                        for (int k = 0; k < n; k++) ph[k] = k * step;
+                        FireSeries(fireViews, ph, "pl",
+                                   new Vector4(1f, 0f, air, 0f), new Vector4(0f, 0f, 1f, 1f));
                     }
 
                     // Fire alone, fast then slow. _GhvrElemA = (Fire, Ice, Air,

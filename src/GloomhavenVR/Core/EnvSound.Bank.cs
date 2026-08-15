@@ -500,6 +500,47 @@ internal static class EnvSoundBank
         }
     }
 
+    /// <summary>
+    /// SATURATE a buffer through <c>tanh</c>, in place, normalised so that a full-scale input still
+    /// comes out full scale. <paramref name="drive"/> is how hard: 0 leaves the buffer alone, 1 is
+    /// barely there, 3 compresses the top of the range about three to one.
+    ///
+    /// <para><b>WHY A GENERATOR IN THIS FILE IS ALLOWED A MASTERING STEP AT ALL</b> — the only one,
+    /// and only on the one clip the user has granted an exception for. Every level in this feature is
+    /// decided by a PEAK: the generators end in <see cref="Normalise"/> and
+    /// <c>EnvSound.PlayShot</c> clamps a gain. What the ear judges an impact by is not its peak but
+    /// its energy over roughly the twenty milliseconds it integrates over, and the two came apart
+    /// badly here. The measured crest factor of the ModBuild 149 arrival is <b>15 dB</b> — the peak
+    /// is ONE SAMPLE of the contact's noise burst, so fifteen of the exception's decibels were being
+    /// spent on a sample nobody can hear, and every other part of the bang was fifteen decibels down
+    /// from the level the budget said it was at.</para>
+    ///
+    /// <para><b>AND ON THIS HARDWARE THE DISTORTION IS THE POINT, not a side effect.</b> The clip's
+    /// weight lives in a 78 Hz carcass mode; a Quest 3 speaker reproduces essentially nothing below
+    /// about 150-250 Hz, so that mode arrives as silence. Saturation puts its harmonics at 156, 234,
+    /// 312 Hz — inside the band the speaker DOES have — and the ear fuses a harmonic series back into
+    /// its missing fundamental. This is the same mechanism every small-speaker "bass enhancement"
+    /// uses, obtained here for free out of a step that was worth doing anyway.</para>
+    ///
+    /// <para>MEASURED, on the finished buffer: the loudest 20 ms window, after a 200 Hz high pass
+    /// standing in for the headset's own low-end rolloff, goes from 0.157 to 0.369 — <b>+7.4 dB at
+    /// exactly the same peak</b>. See <see cref="MakeFall"/>'s table.</para>
+    /// </summary>
+    private static void SoftClip(float[] d, float drive)
+    {
+        if (!(drive > 0f))
+            return;
+        // Normalise to unity FIRST, so `drive` means the same thing whatever the buffer arrived at —
+        // a saturator whose amount depends on the caller's incoming level is a saturator nobody can
+        // reason about.
+        Normalise(d, 1f);
+        // System.Math.Tanh and not Mathf: net472 has no MathF, and this runs once per session on a
+        // buffer of 43k samples inside a bank build that already takes ~100 ms.
+        float k = (float)System.Math.Tanh(drive);
+        for (int i = 0; i < d.Length; i++)
+            d[i] = (float)System.Math.Tanh(drive * d[i]) / k;
+    }
+
     // ---- the bed --------------------------------------------------------------------------------
 
     private static AudioClip MakeBed(int rate)
@@ -1279,12 +1320,18 @@ internal static class EnvSoundBank
     /// nothing this short can mask a syllable.</summary>
     private const float FallCrackTau = 0.0016f;
 
-    /// <summary>The crack's band. Deliberately NOT the body's: 320 Hz keeps the crack out of the
-    /// carcass modes so it reads as a separate surface rather than as brightness on the boom, and
-    /// 7.2 kHz is where a wood-on-stone contact stops carrying useful information and starts
-    /// carrying hiss.</summary>
+    /// <summary>The crack's band — and, since ModBuild 150, the boards' band too, because they are
+    /// the same event on the same buffer. Deliberately NOT the body's: 320 Hz keeps it out of the
+    /// carcass modes so it reads as a separate surface rather than as brightness on the boom.
+    ///
+    /// <para>THE CEILING COMES DOWN, 7.2 kHz to 5.0. The old corner was justified as "where a
+    /// wood-on-stone contact stops carrying useful information and starts carrying hiss", and the
+    /// measurement says the corner was above that point rather than at it: 12.1% of the ModBuild 149
+    /// clip's energy sat above 5 kHz, more than the 7.6% in the entire 1-5 kHz band where the
+    /// headset speaker and the ear are both at their best. 5.0 kHz moves that energy down into the
+    /// band that reaches the player instead of spending it on air.</para></summary>
     private const float FallCrackLoHz = 320f;
-    private const float FallCrackHiHz = 7200f;
+    private const float FallCrackHiHz = 5000f;
 
     /// <summary>The contents arriving: how many, and the window they land in. Nine over 0.035-0.42 s,
     /// which is a shelf's worth of books falling half a metre onto a floor that is already there.
@@ -1312,15 +1359,98 @@ internal static class EnvSoundBank
     private const float FallScatterTau = 0.0035f;
     private const float FallScatterExponent = 1.6f;
 
-    /// <summary>How loud the two new terms are built RELATIVE to the body, before the single
+    /// <summary>How loud the two ModBuild 149 terms are built RELATIVE to the body, before the
     /// <see cref="Normalise"/> that ends the generator. These are the numbers that decide the
     /// clip's SPECTRUM rather than its level: raising them moves energy out of the 78-160 Hz band a
-    /// headset speaker cannot reproduce and into the band it can. Measured over the finished buffer,
-    /// 2.4/1.1 puts 19.6% of the clip's energy above 1 kHz (against 1.9% before) and moves the
-    /// spectral centroid from 184 Hz to 1824 Hz, while leaving four fifths of the energy in the
-    /// boom — so it is a bookcase, not a snare drum.</summary>
+    /// headset speaker cannot reproduce and into the band it can.</summary>
     private const float FallCrackMix = 2.4f;
     private const float FallScatterMix = 1.1f;
+
+    // =============================================================================================
+    //  THE BOARDS — ModBuild 150, and this is the term that turns a TICK into a BANG.
+    // =============================================================================================
+    //
+    //  USER RULING, verbatim, on the ModBuild 149 build: "Beim Impact vom Bücherregal kommt der Sound
+    //  a) aus der falschen Stelle, b) viel zu leise, c) kein Knall wie man ihn erwarten würde."
+    //  ("...c) not a bang the way you would expect one.")
+    //
+    //  ModBuild 149 said 19.6% of the energy was above 1 kHz and called that fixed. RE-MEASURED off
+    //  the finished buffer, band by band, that number was hiding the actual shape:
+    //
+    //        0-200 Hz  72.7 %      <- still the great majority, and STILL the band a Quest 3
+    //      200-500 Hz   5.2 %         speaker gives nothing back in
+    //      500-1k Hz    2.5 %
+    //        1-2k Hz    1.6 %
+    //        2-5k Hz    5.9 %
+    //       5-24k Hz   12.1 %      <- and most of what IS above 1 kHz is up HERE, where a
+    //                                 wood-on-stone contact is hiss rather than information
+    //      centroid 1824 Hz, energy in the 1-5 kHz band where the speaker and the ear are both
+    //      at their best: SEVEN POINT SIX PER CENT.
+    //
+    //  So on the hardware the clip was a 1.6 ms click with nothing behind it, over a boom the
+    //  transducer could not make. That is not a bang; a bang is a click WITH A BODY. And the body was
+    //  missing because the only resonances in the clip were the carcass's bulk modes at 78 and
+    //  135 Hz — the box as a whole — with a 950 Hz ceiling over everything else.
+    //
+    //  WHAT WAS ACTUALLY MISSING: THE BOARDS. A bookcase is not one body, it is a stack of thin
+    //  panels, and when it lands they all flex at once. A shelf board is about 0.55 x 0.30 m of 18 mm
+    //  pine; for a plate, f_mn = (pi/2) * sqrt(D/rho.h) * ((m/a)^2 + (n/b)^2), and pine's
+    //  sqrt(E h^2 / 12 rho) is 23.2 m^2/s at that thickness. That puts its first five modes at
+    //
+    //      (1,1) 525    (2,1) 885    (3,1) 1489    (1,2) 1737    (2,2) 2098  Hz
+    //
+    //  which is exactly the 0.5-2 kHz band the whole event had nothing in. These are DERIVED, not
+    //  chosen, and they are what a wooden bang sounds like: the low boom is the box, the crack is the
+    //  contact, and this is the WOOD.
+    //
+    //  REJECTED:
+    //    * SIMPLY RAISING FallCrackMix FURTHER. The crack is 1.6 ms of noise; more of it is a louder
+    //      click, and a click is what the report says the clip already is.
+    //    * MOVING THE CARCASS MODES UP. They are derived from the box's own dimensions and are the
+    //      "weight" the event needs. The boards are a SECOND source, not a re-tuning of the first.
+    //    * A LONGER CLIP. "Kein Knall" is about the first 50 ms. The clip is still 0.9 s and the
+    //      scatter still ends inside 0.42 s; nothing here is a clatter.
+
+    /// <summary>The shelf boards' first five plate modes, Hz — see the block comment for the plate
+    /// formula they come out of. They are inharmonic by construction (the ratios are sums of squares,
+    /// not integers), which is what keeps a wooden bang from having a NOTE.</summary>
+    private static readonly float[] FallBoardHz = { 525f, 885f, 1489f, 1737f, 2098f };
+
+    /// <summary>Q of those modes. TEN, and it is chosen the same way <see cref="FallCarcassQ"/> is:
+    /// constant Q means constant CYCLES, and Q/pi = 3.2 cycles for every one of the five. Under about
+    /// four cycles the ear cannot extract a pitch, so the boards give the bang WEIGHT and no note —
+    /// the same test the carcass's own modes are held to, applied to a panel that is stiffer, thinner
+    /// and (with books on it) just as heavily damped. In time constants: 6.1 ms at 525 Hz down to
+    /// 1.5 ms at 2098 Hz.</summary>
+    private const float FallBoardQ = 10f;
+
+    /// <summary>How fast a board reaches its full amplitude. A plate mode is not excited by a
+    /// mathematical delta — the contact force builds over the millisecond or two the surfaces take to
+    /// conform — and this is that rise.
+    ///
+    /// <para>IT IS ALSO WHAT KEEPS THE PEAK WHERE IT BELONGS. With no rise, five modes starting at
+    /// phase zero reach a coherent maximum at t = 0 together with the crack, and the whole clip's
+    /// peak (which is what <see cref="Normalise"/> and therefore the entire level budget is measured
+    /// against) gets spent on a coincidence. With it, the crack owns the first millisecond and the
+    /// boards own the twenty after it, which is both the honest physics and the envelope of a
+    /// bang.</para></summary>
+    private const float FallBoardRise = 0.0015f;
+
+    /// <summary>How loud the boards are built relative to the body, and the tilt across them.
+    ///
+    /// <para>THE TILT IS NOT TASTE. At constant Q a mode's energy goes as amplitude^2 / f, so equal
+    /// amplitudes would put four times the energy in the lowest mode as in the highest and the clip
+    /// would ring at 525 Hz. <c>amp ∝ sqrt(f)</c> — i.e. <c>(f/f0)^0.5</c>, written below as the
+    /// reciprocal power — makes the ENERGY flat across the five, which is what a broadband impulse
+    /// striking a plate actually deposits.</para></summary>
+    private const float FallBoardMix = 2.5f;
+    private const float FallBoardTilt = 0.5f;
+
+    /// <summary>How hard the finished buffer is saturated — see <see cref="SoftClip"/>, which is
+    /// where the whole argument for having a saturator at all is written down. 3.0 recovers about
+    /// 5 dB of the 15 dB crest factor and generates the harmonics that let a headset speaker imply a
+    /// 78 Hz mode it cannot reproduce.</summary>
+    private const float FallDrive = 3.0f;
 
     /// <summary>
     /// THE BOOKSHELF ARRIVING. The impact is at <c>t = 0</c>: this clip is an EVENT, and the caller
@@ -1333,23 +1463,39 @@ internal static class EnvSoundBank
     /// when. See EnvSound's shelf schedule.</para>
     ///
     /// <para><b>MEASURED, off the finished buffers</b> (generated outside Unity against the same
-    /// arithmetic and the same seed; the DEVICE's own figures for peak and attack are printed by
-    /// <c>EnvSound</c>'s shelf-contact log line, from <see cref="MeasuredShape"/>):</para>
+    /// arithmetic and the same seed, and cross-checked: the replica reproduces ModBuild 149's peak,
+    /// attack, RMS and centroid to the digit. The DEVICE's own figures for peak and attack are
+    /// printed by <c>EnvSound</c>'s shelf-contact log line, from <see cref="MeasuredShape"/>):</para>
     /// <code>
-    ///                    peak    peak at   90% of peak     RMS   E&gt;1kHz  centroid  audible
-    ///   NEW (149)       0.980    1.31 ms      1.04 ms    0.0455   19.6%   1824 Hz   ~428 ms
-    ///   ModBuild 148    0.850    1.44 ms      1.31 ms    0.0548    1.9%    184 Hz   ~231 ms
-    ///   SHIPPED (147)   0.850     854 ms          -      0.1195      -         -   ~1900 ms
+    ///                    peak    peak at   90% of peak     RMS   E&gt;1kHz  centroid   -20 dB in
+    ///   NEW (150)       0.980    2.44 ms      0.19 ms    0.0697   33.2%   1530 Hz       27 ms
+    ///   ModBuild 149    0.980    1.31 ms      1.04 ms    0.0455   19.6%   1824 Hz       40 ms
+    ///   ModBuild 148    0.850    1.44 ms      1.31 ms    0.0548    1.9%    184 Hz          -
+    ///   SHIPPED (147)   0.850     854 ms          -      0.1195      -         -          -
+    ///
+    ///   energy by band          0-200  200-500  500-1k   1-2k   2-5k  5-24k    1-5 kHz
+    ///   NEW (150)               26.9%     5.3%   34.5%  17.3%  10.0%   5.9%      27.3%
+    ///   ModBuild 149            72.7%     5.2%    2.5%   1.6%   5.9%  12.1%       7.6%
     /// </code>
-    /// <para>ModBuild 148 already moved the peak from 854 ms to 1.4 ms, so the clip PEAKED ON ITS
-    /// CONTACT and the attack was never the problem — 90% of peak in 1.3 ms is not a slow attack by
-    /// any measure. What ModBuild 149 changes is the SPECTRUM: the energy above 1 kHz goes from 1.9%
-    /// to 19.6% and the centroid from 184 Hz to 1824 Hz, which is the difference between an event a
-    /// headset speaker cannot reproduce and one it can. Through a one-pole 200 Hz high pass — a
-    /// crude stand-in for the Quest 3's own low-end rolloff — the new clip's peak is <b>+5.7 dB</b>
-    /// on the old one, and with <c>EnvSound.ShelfImpactGain</c>'s +16.7 dB on top of that the peak
-    /// the headset is actually handed goes from 0.028 to 0.365, i.e. <b>+22.5 dB</b>. The four
-    /// fifths of the energy still under 500 Hz are the boom, and they are untouched.</para>
+    /// <para><b>WHAT EACH ROUND ACTUALLY FIXED, so the next one does not re-fix a solved half.</b>
+    /// ModBuild 148 moved the peak from 854 ms to 1.4 ms, so the clip has PEAKED ON ITS CONTACT ever
+    /// since and the ATTACK HAS NEVER BEEN THE DEFECT — 90% of peak in 1.0 ms was not a slow attack
+    /// and neither is 0.19 ms. Nor was the decay: 40 ms to -20 dB is already a bang's envelope rather
+    /// than a thump's. ModBuild 149 then moved the centroid, and its own headline number (19.6% above
+    /// 1 kHz) is true and was not enough: 72.7% of the energy was still under 200 Hz where the
+    /// hardware gives nothing back, and of what WAS above 1 kHz more sat above 5 kHz than in the
+    /// whole 1-5 kHz band. The clip was a click over an inaudible boom.</para>
+    ///
+    /// <para>ModBuild 150 adds the term that was missing — THE BOARDS, five derived plate modes
+    /// between 525 and 2098 Hz (see THE BOARDS) — brings the contact's ceiling down from 7.2 kHz to
+    /// 5.0, trims the two sub-audible carcass modes by 3.3 dB, and ends the generator in
+    /// <see cref="SoftClip"/>. The 1-5 kHz band goes from 7.6% to 27.3% and the sub-200 Hz share from
+    /// 72.7% to 26.9%. The number that matters most is neither of those: through a one-pole 200 Hz
+    /// high pass — a crude stand-in for the Quest 3's own low-end rolloff — the LOUDEST 20 ms WINDOW,
+    /// which is roughly what the ear integrates an impact over, goes from 0.157 to <b>0.369, i.e.
+    /// +7.4 dB, at exactly the same peak sample</b>. On top of that
+    /// <c>EnvSound.ShelfImpactGain</c> and the rolloff fix beside it add another 10.6 dB of level
+    /// that the clip's own peak cannot show.</para>
     /// </summary>
     private static AudioClip MakeFall(int rate)
     {
@@ -1384,10 +1530,18 @@ internal static class EnvSoundBank
                 s += Mathf.Sin(2f * Mathf.PI * FallSlabHz * t) * Mathf.Exp(-t / FallSlabTau) * 0.55f;
 
             // ---- 3. THE CARCASS. Two modes, inharmonic, and both dead inside three cycles.
+            //
+            // BUILT 3.3 dB QUIETER than ModBuild 149 (0.80/0.42 -> 0.55/0.30), and the reason is the
+            // limiter at the bottom of this method rather than the physics. These two modes are the
+            // clip's biggest EXCURSION and they are at 78 and 135 Hz, which a Quest 3 speaker turns
+            // into nothing; every decibel of headroom they take is a decibel the saturator has to
+            // give back out of the parts that DO reach the player. They are still the largest single
+            // band in the finished clip (26.9% under 200 Hz) — this is the weight being kept in
+            // proportion, not removed.
             if (t < 0.35f)
             {
-                s += Mathf.Sin(2f * Mathf.PI * FallModeHz * t) * Mathf.Exp(-aLo * t) * 0.80f;
-                s += Mathf.Sin(2f * Mathf.PI * hi * t) * Mathf.Exp(-aHi * t) * 0.42f;
+                s += Mathf.Sin(2f * Mathf.PI * FallModeHz * t) * Mathf.Exp(-aLo * t) * 0.55f;
+                s += Mathf.Sin(2f * Mathf.PI * hi * t) * Mathf.Exp(-aHi * t) * 0.30f;
             }
 
             // ---- 4. THE LOAD. Broadband, late, and soft-edged — books do not click.
@@ -1408,6 +1562,31 @@ internal static class EnvSoundBank
         {
             float t = i / (float)rate;
             h[i] += hr.Next() * Mathf.Exp(-t / FallCrackTau) * FallCrackMix;
+        }
+
+        // ---- 5b. THE BOARDS. The shelves and the side panels flexing, which is the term that makes
+        // this a BANG rather than a click over an inaudible boom — see THE BOARDS above for the plate
+        // formula the five frequencies come out of and for the measurement that says why it was
+        // needed. It sits in the CONTACT buffer, not the body's, because it belongs to the contact's
+        // band and not to the carcass's 950 Hz ceiling; and it draws NOTHING from `hr`, so the crack
+        // above and the scatter below keep the draw sequence they were measured with.
+        //
+        // 0.12 s of buffer is a bound, not a fade: the longest of the five has a 6.1 ms time constant
+        // and is 170 dB down by then.
+        int boardLen = (int)(rate * 0.12f);
+        for (int m = 0; m < FallBoardHz.Length; m++)
+        {
+            float f = FallBoardHz[m];
+            float aB = Mathf.PI * f / FallBoardQ;
+            // amp ∝ sqrt(f) — flat ENERGY across the five at constant Q. See FallBoardTilt.
+            float amp = FallBoardMix * Mathf.Pow(f / FallBoardHz[0], FallBoardTilt);
+            for (int i = 0; i < boardLen && i < n; i++)
+            {
+                float t = i / (float)rate;
+                h[i] += Mathf.Sin(2f * Mathf.PI * f * t)
+                        * (1f - Mathf.Exp(-t / FallBoardRise))
+                        * Mathf.Exp(-aB * t) * amp;
+            }
         }
 
         // ---- 6. THE SCATTER. The contents arriving behind the carcass. The times come from
@@ -1446,12 +1625,20 @@ internal static class EnvSoundBank
         // ...and the floor, below the lowest real mode: DC out, sub-audible excursion out.
         HighPass(d, rate, 55f);
 
-        // ONE SUM, ONE NORMALISE. The peak of the finished buffer is the crack, which is what an
-        // arrival on a stone floor peaks on. 0.98 rather than the body's old 0.85: this is the one
-        // clip the user has explicitly asked to be loud, and leaving 15% of headroom unused in the
-        // BUFFER would only have to be bought back in the gain, where it is capped.
+        // ONE SUM, THEN THE SATURATOR, THEN ONE NORMALISE. The peak of the finished buffer is still
+        // the contact, which is what an arrival on a stone floor peaks on. 0.98 rather than the
+        // body's old 0.85: this is the one clip the user has explicitly asked to be loud, and leaving
+        // 15% of headroom unused in the BUFFER would only have to be bought back in the gain, where
+        // it is capped.
+        //
+        // SoftClip is the ONE mastering step in this file and it is spent here, on the one clip that
+        // carries a written exception. Its own doc comment carries the argument and the measurement;
+        // the short version is that the peak this normalise sets was a single noise sample 15 dB
+        // above everything the ear actually integrates, so the level budget was being spent on
+        // something inaudible.
         for (int i = 0; i < n; i++)
             d[i] += h[i];
+        SoftClip(d, FallDrive);
         Normalise(d, 0.98f);
         return Finish("Fall", d, rate);
     }

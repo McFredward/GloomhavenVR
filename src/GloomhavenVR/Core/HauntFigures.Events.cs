@@ -65,9 +65,19 @@ internal static partial class HauntFigures
         /// 0 leaves the model at its authored size.</summary>
         internal readonly float Height;
 
-        /// <summary>The animator's <c>RunBlend</c> float — 0 stands still, ~0.5 walks, ~1 runs
-        /// (ActorBehaviour.cs:79). See ANIMATION in HauntFigures.Clone.cs for why this and a
-        /// transform of our own is the ONLY way to make a game monster travel.</summary>
+        /// <summary>The animator's <c>RunBlend</c> float — a BLEND WEIGHT and not a speed
+        /// (ActorBehaviour.cs:79, :546-547): 0 stands still, 1 is what the game itself drives during
+        /// any sustained travel. See ANIMATION in HauntFigures.Clone.cs for why this and a transform
+        /// of our own is the ONLY way to make a game monster travel.
+        ///
+        /// <para><b>SINCE ModBuild 150 THIS IS ONLY READ FOR A FIGURE THAT STANDS</b> — i.e. where
+        /// it is 0 anyway. A figure that TRAVELS has its blend derived per apparition from the path's
+        /// real speed, the creature's real scale and its own locomotion clip; the authored constant
+        /// (0.55 for the forest crossing, at every speed and for every creature) was the whole of the
+        /// user's teleport report. <c>Clone.Gait</c> carries the argument and the arithmetic. The
+        /// field is kept because a future STANDING event may legitimately want a non-zero
+        /// idle-shuffle, and because the log prints it beside the derived value so the two can be
+        /// compared.</para></summary>
         internal readonly float RunBlend;
 
         /// <summary>Room-local direction the figure faces when it is not travelling. Zero means
@@ -353,10 +363,24 @@ internal static partial class HauntFigures
     ///
     /// <para><b>THE CAST.</b> Something that walks and is recognisably wrong: a Living Corpse
     /// shambling, a Hound trotting, a Living Bones striding. All base-game.</para>
+    ///
+    /// <para><b>IT STROLLS NOW — ModBuild 150, and it is the second half of the teleport fix.</b>
+    /// The hold was 2.40 s, which put 6.80 m of path into a 4.20 s event: 1.62 m/s, a brisk human
+    /// walk, for a corpse. Combined with a <c>RunBlend</c> nailed to 0.55 that was a half-blended
+    /// idle played over a full-speed glide, which is precisely what the user reported twice as
+    /// "teleportiert sich" (see <c>Clone.Gait</c> for the decompiled evidence and the mapping).
+    /// <c>Clone.Gait</c> now matches the legs to whatever speed this event asks for, so the speed
+    /// itself became a free choice — and 4.60 s of hold puts the same 6.80 m into 6.40 s, i.e.
+    /// 1.06 m/s. A thing that strolls between the trunks is at least as frightening as one that
+    /// hurries, it sits comfortably inside every creature's own clip rate (the ModBuild 149 census
+    /// implies 1.32–1.83 m/s at full blend), and it buys the trunks more time to do the work the
+    /// block above credits them with: more separate glimpses of the same thing rather than one
+    /// continuous view. The 83 s slot beat (Haunt.Schedule.cs:73) is two orders above this, so a
+    /// longer event cannot collide with the next one.</para>
     /// </summary>
     private static readonly HauntEvent ForestCross = new(
         2, "the thing that passes between the trunks",
-        reveal: 1.00f, hold: 2.40f, fade: 0.80f,
+        reveal: 1.00f, hold: 4.60f, fade: 0.80f,
         from: new Vector3(-2.26f - 3.4f * 0.985f, 0f, -12.80f - 3.4f * -0.174f),
         to: new Vector3(-2.26f + 3.4f * 0.985f, 0f, -12.80f + 3.4f * -0.174f),
         height: 2.20f,
@@ -720,7 +744,16 @@ internal static partial class HauntFigures
         // that is read back rather than mirrored, and why it is delivered as per-renderer SH rather
         // than as real Unity lights. The style goes with it because the two rooms answer the element
         // channel differently and _GhvrIndoor is what tells them apart on the GPU side.
-        Clone.Request(_model, picked, ev, _anchor.transform, _room, style);
+        // THE PATH'S REAL SPEED, handed down so the legs can be matched to it. It is computed here
+        // rather than in the clone factory because it is a property of the EVENT — the authored
+        // path length divided by this run's own duration, which the schedule has already varied by
+        // DurationMul. See Clone.Gait for what is done with it and for the decompiled evidence that
+        // RunBlend is a blend weight rather than a speed.
+        float travel = (PathAt(style, ev, 1f) - start).magnitude;
+        float seconds = Mathf.Max(ev.Seconds * _durMul, 0.01f);
+        float speed = ev.From == ev.To ? 0f : travel / seconds;
+
+        Clone.Request(_model, picked, ev, _anchor.transform, _room, style, speed);
 
         VRLog.Info("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) armed at shared clock "
                            + $"{_startClock:F2}s for {ev.Seconds * _durMul:F2}s — model '{_model}' ({picked}), "
@@ -734,10 +767,12 @@ internal static partial class HauntFigures
                                     // an asset bundle, and a mismatch between them is foot slide.
                                     // The census line prints the clip lengths beside this one, so a
                                     // reader has both halves in the same log.
-                                    + $" — {(PathAt(style, ev, 1f) - start).magnitude:F2} m in "
-                                    + $"{ev.Seconds * _durMul:F2}s = "
-                                    + $"{(PathAt(style, ev, 1f) - start).magnitude / Mathf.Max(ev.Seconds * _durMul, 0.01f):F2} m/s "
-                                    + $"with RunBlend held at {ev.RunBlend:F2}")
+                                    + $" — {travel:F2} m in {seconds:F2}s = {speed:F2} m/s. RunBlend is "
+                                    + "NO LONGER the authored constant it was through ModBuild 149 "
+                                    + $"({ev.RunBlend:F2} at every speed, for every creature): it is "
+                                    + "derived from this speed, the creature's scale and its own "
+                                    + "locomotion clip — see the HAUNT FIGURES gait line for the "
+                                    + "arithmetic")
                            + $". Creature and direction are hashes of "
                            + $"slot {slotIndex:F0} on channels 9 and 10, so every client in this scenario "
                            + "picked the same ones. Its albedo is multiplied down to the room's own light "
