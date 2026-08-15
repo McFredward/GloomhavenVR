@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 138`**, awaiting its hardware run (MP test still outstanding). Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 147` shipped; 148 in flight.** Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-14
 
@@ -125,6 +125,46 @@ FanCloseDuration` note in that script.
 ## 4. Where the project stands — recent rounds
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
+
+- **ModBuild 148** (in flight) — the second pass over the SAME nine subjects, and the through-line is
+  that **four separate findings had a cause other than the one reported**. Worth reading as a set:
+  * **"Die Figuren teleportieren sich"** was not a jump but a **full rebuild**: a latched trigger's
+    loop period is event length PLUS a gap, and in that gap the event counted as ended, so the clone,
+    its materials, its Addressables child and its light bind were destroyed and rebuilt. Nine `armed
+    at` lines 2.5 s apart on one latch in the log prove it. 147's guard against exactly this was
+    **dead code** — the gap retired the figure before a re-anchor could ever be recognised.
+  * **"Die Texturen laden zu langsam"** was our own dissolve. A half-streamed texture is flat grey; it
+    is never a swirl with holes shaped like a noise field.
+  * **"Die Figuren sind voll angestrahlt"** — and 147's fix could never have worked: **SH is additive
+    ambient**, it can add light and never remove it, and the game's own scene lights reach the mod
+    layer and cannot be masked per renderer. The lever that does work was found in the game rather
+    than guessed: `Choreographer.cs:826` names the character shader `Amp_Char_Shader` and drives
+    `_MOD_TINT`, a whole-model albedo tint. GENERAL RULE: **to make something darker you need a
+    multiplicative term; no amount of ambient will do it.**
+  * **"Die Pfütze ist verschwunden"** — it never was. A LOCATE pass returned 45,895 px with `Cull
+    Back` and 45,895 with `Cull Off`, identical to the pixel. It was unrecognisable: its sheen's
+    Fresnel was half angle-INDEPENDENT (milk, edge to edge) and its rim is a 32 cm feather, so it had
+    no edge to be seen by. And **the bright patch that survives full Dark is not the puddle at all** —
+    it is the moonbeam's landing pool, 31 cm away, on a particle path with **no moonlight term**.
+  * **The moss is DELETED**, on his fourth complaint. The general rule is the one that generalises
+    furthest this round: **a function of the albedo has no silhouette** — it computes inside the
+    object's own outline, which is the definition of a stain. Three rounds each answered the
+    *adjective* and were each right about it and wrong about the category.
+  * Measured while fixing the sound: the shelf's impact fired **3.68 s early**, when the shelf had
+    leaned about one degree; the ice was **Q ≈ 157**, a tuning fork, on a 0.45 s beat inside the band
+    the ear reads as rhythm.
+  * **The forest's growth annulus is r ∈ [4.90, 11.50] m against a 4.5 m play radius** — nothing grows
+    in the clearing the player stands in, which is why Earth never changed it.
+
+- **ModBuild 147** — nine user findings, eight lanes: the apparitions became the game's own monsters,
+  the fire's "zappeln" was a spectral ASSIGNMENT fault (a 40 cm tongue driven from the 3.6 cm band),
+  the wind fault was **an element strength multiplying a FREQUENCY** in all three of plants, fire and
+  trees, the window gained a real sky behind it, the shelf fell on the pendulum separatrix and stood
+  up on that same curve rewound, Light indoors moved out of the ambient and into the moon, and the
+  moss became fungi. **Bundle 66,332,888 bytes.** Found in passing: BOTH JAMBS of the window reveal
+  had been wound inside out since they were written — the **fifth** mesh in this project wound against
+  its own viewer — and the wisp ambience had never played, because the bake names that node
+  `WispWisp`.
 
 - **ModBuild 146** — **HOTFIX: 145 froze on the loading screen.** No wire change, **bundle
   UNCHANGED from 145** (C#-only — reinstall the plugin, keep the bundle).
