@@ -126,7 +126,7 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 154** (commit `PENDING`, bundle 67,148,369 bytes) — two reports, **one shape of fault:
+- **ModBuild 154** (commit `c7af67e`, bundle 67,148,369 bytes) — two reports, **one shape of fault:
   a lever that was built, logged and shipped without ever being reached.**
   * **The figures' darkening never executed once in 153.** `Shader.Find("GloomhavenVR/HeadUnlit")`
     returned null — `Shader.Find` resolves only shaders that are already **loaded**, and a bundled
