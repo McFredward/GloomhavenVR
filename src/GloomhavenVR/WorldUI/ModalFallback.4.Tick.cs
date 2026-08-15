@@ -648,13 +648,16 @@ internal static partial class ModalFallback
         //     re-derived THIS tick is re-placed in the same tick (one-shot, see TickPoseRePlace).
         TickPoseRePlace();
 
-        // 5c. LOST-MENU RECALL (incident fix): a floated STICKY full-screen menu whose game
-        //     window is still OPEN blocks card/board input BY DESIGN — so it must never be
-        //     lost off-view (the user laser-carried the ESC menu away, it drifted out of
-        //     sight, and every later trigger aimed at the cards hit its grab zone: the whole
-        //     session read as "cards can't be picked up" with no visible reason). Runs after
-        //     the grab follow so it sees the final host pose of this tick.
-        TickMenuRecall();
+        // 5c. LEVEL-MESSAGE CHAIN POSE: record where the player is reading the scripted message
+        //     chain, so the NEXT hint spawns there. Runs after the grab follow so it sees the
+        //     final host pose of this tick — for a gripped window that is the hand's current spot.
+        //
+        //     THIS STEP NO LONGER MOVES ANYTHING. Until ModBuild 149 it was TickMenuRecall, and it
+        //     re-placed any open, never-grabbed menu that had been out of view for 6 s or was more
+        //     than 4 m away. The user ruled that out ("Die Fenster ... sollen dort dauerhaft fest
+        //     sitzen wenn sie nicht aktiv verschoben werden"); the ruling block is at the top of
+        //     ModalFallback.6.MenuGuard.cs and says what still rescues a genuinely lost window.
+        TickLevelMessageChain();
 
         // Issue #9 (multi-highlight): mark EVERY parallel-open sub-window's ESC-menu tab, not just
         // the single one the game's single-select toggle group leaves 'on'. Runs after the

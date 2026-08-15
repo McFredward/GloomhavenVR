@@ -133,23 +133,18 @@ internal static partial class ModalFallback
         /// </summary>
         public Canvas? WindowCanvas;
 
-        /// <summary>
-        /// LOST-MENU RECALL: unscaled time-stamp since when this panel's host has been
-        /// CONTINUOUSLY out of the head view (or beyond the recall distance). 0 = currently
-        /// visible / grabbed / not tracked. When the elapsed span exceeds
-        /// <see cref="RecallOutOfViewSeconds"/> the panel is re-placed in front of the HMD
-        /// (<see cref="TickMenuRecall"/>) so an OPEN menu can never be invisibly lost while
-        /// it blocks card/board input.
-        /// </summary>
-        public float OutOfViewSince;
+        // OutOfViewSince — the recall's dwell stamp — is DELETED with the recall itself
+        // (ModBuild 149, user ruling; the block is at the top of ModalFallback.6.MenuGuard.cs).
+        // Nothing writes it any more, so leaving it would be a field that always reads 0 and an
+        // invitation to restart the timer. Do not re-add it.
 
         /// <summary>
         /// LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): the last scripted message
         /// key (<see cref="CurrentLevelMessageKey"/>) seen displayed in this level-message
         /// group window. The tutorial chains messages through ONE kept-alive float, so a key
         /// CHANGE means a new hint just re-showed inside the existing panel at its previous
-        /// pose — <see cref="TickMenuRecall"/> then CAPTURES that live pose into the shared
-        /// chain store (<see cref="_chainPose"/>; it no longer re-places the panel — position
+        /// pose — <see cref="TickLevelMessageChain"/> then CAPTURES that live pose into the shared
+        /// chain store (<see cref="_chainPose"/>; it never re-places the panel — position
         /// continuity superseded the brief re-show recall). Seeded at convert so the first
         /// tick never mis-reads the just-placed pose as a message change. Null for
         /// non-level-message windows / before the first message.

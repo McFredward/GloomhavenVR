@@ -176,29 +176,19 @@ namespace GloomhavenVR
             // ...and one at standing height, which is the distance and angle the
             // entry is really met at: a hole in a skirting seen from 1.3 m.
             ("RatHoleSWide", new Vector3(-1.00f, 1.30f, -2.20f), new Vector3(29, 179, 0), false, 45f),
-            // ...and the two that watch the MOON POOL.
-            //
-            // THE NAMES ARE STALE AND ARE KEPT ON PURPOSE. HauntDoor/HauntDoorOff
-            // were framed on "the door of light at the top of the stair" — a dim
-            // warm rectangle at the far end of the stair shaft. That rectangle was
-            // DELETED (user, ModBuild 148: "Bei 'Gesicht am Boden' dem Effekt im
-            // Keller leuchtet einfach nur der Ausgang einfarbig. Lösch das") and
-            // card 2 now holds the SWELL: the water at the far edge of the moon
-            // pool lifts, holds and sinks, at (-3.92, 0, 2.58). The old stations
-            // looked 4 degrees ABOVE the horizon down a 6 m shaft, so since that
-            // swap they have photographed an empty doorway — a frame that is
-            // indistinguishable from a regression, which is what this lane was
-            // asked to fix. RENAMING them would break every previous lane's
-            // evidence trail (the files are compared by name across render sets),
-            // so the aim moves and the name does not.
-            //
-            // Both look DOWN at the water from the two postures that exist in this
-            // room: 1.55 m across the pool, and a low raking one from the far side
-            // where the moonbeam's own landing point is behind the swell — a mass
-            // rising at the edge of the one lit patch, which is the composition the
-            // card was authored for.
-            ("HauntDoor", new Vector3(-1.95f, 1.55f, 1.55f), new Vector3(35, 298, 0), false, 46f),
-            ("HauntDoorOff", new Vector3(-3.30f, 0.60f, 0.55f), new Vector3(16, 343, 0), false, 44f),
+            // (THE TWO THAT WATCHED THE MOON POOL are gone with what they
+            // watched. They were called HauntDoor/HauntDoorOff — a name that had
+            // already outlived one event, since it was framed on the door of light
+            // at the top of the stair and then re-aimed at the SWELL that replaced
+            // it. ModBuild 149 deleted the swell as well, on the user's order
+            // ("Der 'Oben an eine Treppe geht eine Tür auf' Effekt ist kaputt,
+            // stattdessen kommt eine Art Zylinder aus der Pfütze. Lösch diesen
+            // Effekt komplett"), and cellar card 2 now draws nothing at all. A
+            // station aimed at a card that draws nothing renders a frame that is
+            // indistinguishable from a regression, which is the one thing this
+            // harness must never produce — so the stations go rather than being
+            // re-aimed a third time.)
+
             // (EIGHTEEN HAUNT VIEWS WERE DELETED HERE, ModBuild 146. Every one of
             // them was aimed at an imported apparition FIGURE — the bust at the
             // window and its shadow, the head on the flagstones, the strider in the
@@ -379,12 +369,18 @@ namespace GloomhavenVR
             // ...and the tremble draws nothing at all: it is judged on the WEBS,
             // so its frames are the two web close-ups, shot at its own instants.
             ("HauntWeb", new Vector3(2.90f, 2.05f, 1.35f), new Vector3(-25, 91, 0), false, 38f),
-            // FOREST. Cards: Face, Eyes, Watcher, Cross, Loom, Hang. Aimed off the
-            // same bearings the builder places them on (BuildForestRoom's haunt
-            // block), from the seated eye at the middle of the clearing — which is
-            // where the player is, and therefore the only place the framing of a
-            // background easter egg can honestly be judged.
-            ("HauntEyes", Eye, new Vector3(-1, 288, 0), false, 16f),
+            // (FOREST — AND THERE IS NOTHING LEFT TO AIM AT. The station here was
+            // "HauntEyes", pointed at bearing 288 from the seated eye in the middle
+            // of the clearing. All three of the wood's cards are schedule
+            // placeholders since ModBuild 149 deleted the eyeshines ("Entferne den
+            // 'Augen' Effekt im Wald komplett inklusive aller sounds und assets"),
+            // so this room contributes no geometry to EnvHaunt at all and there is
+            // no apparition in it for a preview to photograph. What happens in the
+            // wood now is two REAL GAME MONSTERS, spawned at runtime by
+            // HauntFigures against the live scene, and this harness renders the
+            // prefab: it cannot photograph them, and saying so here is more use
+            // than an empty PNG.)
+
             // ...and one wide frame per room at the same instants: the brief is
             // "eher im Hintergrund", and the only way to check that an apparition
             // is NOT intrusive is to look at the room the way a player would and
@@ -420,8 +416,15 @@ namespace GloomhavenVR
             ("FireCrateLow", new Vector3(-0.35f, 0.62f, -2.40f), new Vector3(-2, 214, 0), false, 40f),
             ("FireSpill", new Vector3(-1.85f, 1.15f, -2.05f), new Vector3(17, 231, 0), false, 45f),
             ("FireSpillLow", new Vector3(-1.90f, 0.45f, -2.10f), new Vector3(1, 231, 0), false, 45f),
-            ("FireShelf", new Vector3(2.70f, 1.85f, 0.90f), new Vector3(6, 84, 0), false, 42f),
-            ("FireShelfLow", new Vector3(2.85f, 1.05f, 1.05f), new Vector3(19, 82, 0), false, 42f),
+            // ModBuild 149: BOTH SHELF STATIONS WERE AIMED AT WHERE THE SHELF USED TO BE.
+            // They looked +X from z = +0.90 on yaw 84, and the bookcase has stood at
+            // CellarShelfAt (4.86, -3.15) since the round that moved it — so every preview
+            // either lane has taken of "the shelf fire" for several builds was a picture of a
+            // BARE WALL, and that is why a fire floating 18.6 cm above a shelf board survived a
+            // whole round of previews and had to be found on hardware by the user. A preview
+            // station that points at nothing does not fail; it renders, and it agrees with you.
+            ("FireShelf", new Vector3(2.90f, 1.50f, -2.55f), new Vector3(-4, 108, 0), false, 42f),
+            ("FireShelfLow", new Vector3(3.30f, 0.95f, -2.45f), new Vector3(-15, 117, 0), false, 42f),
             // ...and the room WITH the fires in it, from the board: "bedrohlich"
             // is a property of a room, not of a sprite.
             ("FireRoom", new Vector3(0f, 1.40f, 0f), new Vector3(2, 232, 0), false, 75f),
@@ -586,10 +589,9 @@ namespace GloomhavenVR
             ("HauntHandsWide", 1, new Vector3(0.10f, 5.10f, 2.80f)),
             ("HauntHandsHead", 1, new Vector3(0.10f, 5.10f, 2.80f)),
             ("HauntHandsBoard", 1, new Vector3(0.10f, 5.10f, 2.80f)),
-            // card 2 is the SWELL in the moon pool (the name of the view is stale
-            // and deliberately kept — see the station list)
-            ("HauntDoor", 2, new Vector3(2.2f, 3.0f, 1.6f)),
-            ("HauntDoorOff", 2, new Vector3(2.2f, 3.0f, 1.6f)),
+            // (CARD 2 HAS NO SHOTS. It held the stair-top door and then the swell
+            // in the moon pool, and both were deleted on the user's order; it is a
+            // schedule placeholder now and draws nothing. See the station list.)
             ("HauntWeb", 3, new Vector3(0.0f, 1.1f, 0.9f)),
             // the bookshelf: 0.001 + 26 + 0.001 s, the whole of it hold
             ("HauntShelf", 5, new Vector3(0.001f, 26f, 0.001f)),
@@ -608,17 +610,16 @@ namespace GloomhavenVR
             ("HeadBoardC", 5, new Vector3(0.001f, 26f, 0.001f)),
         };
 
-        // The wood draws exactly ONE haunt now — the pair of eyeshines. Its other
-        // two cards (Watcher, Cross) are placeholders for runtime monsters and its
-        // other three (Face, Loom, Hang) are retired outright.
+        // THE WOOD DRAWS NO HAUNTS AT ALL, so this table is empty and that is the
+        // finished state rather than a gap. Its three cards are all placeholders:
+        // card 0 held the eyeshines and was deleted outright in ModBuild 149
+        // ("Entferne den 'Augen' Effekt im Wald komplett inklusive aller sounds und
+        // assets"), and cards 1 and 2 are played at runtime by real game monsters
+        // that this harness cannot spawn. The array and its loop are kept rather
+        // than special-cased away: the day the wood gets a drawn apparition again,
+        // one row here is the whole change.
         private static readonly (string view, int card, Vector3 env)[] ForestHaunts =
-        {
-            ("HauntEyes", 0, new Vector3(1.6f, 3.0f, 0.8f)),
-            // ...and the same event from the player's real eye height, standing
-            // and at the board. See the cellar's note.
-            ("HeadS", 0, new Vector3(1.6f, 3.0f, 0.8f)),
-            ("HeadBoardS", 0, new Vector3(1.6f, 3.0f, 0.8f)),
-        };
+            Array.Empty<(string, int, Vector3)>();
 
         // THE ELEMENT COMPENSATION, which is a requirement and therefore has to be
         // photographed rather than asserted: under full LIGHT a dark apparition
@@ -1123,7 +1124,13 @@ namespace GloomhavenVR
                 if (Environment.GetEnvironmentVariable("ENV_PREVIEW_NOHAUNT") != "1")
                 {
                     var shots = env == "Env_Cellar" ? CellarHaunts : ForestHaunts;
-                    int cards = 6;
+                    // THE ROOM'S OWN COUNT, not the maximum. The two rooms stopped
+                    // agreeing in ModBuild 147 (six in the cellar, three in the
+                    // wood) and this had said 6 for both ever since — which would
+                    // solve the schedule for the wrong slot in the wood. It is
+                    // moot while ForestHaunts is empty and it must not be wrong
+                    // when it stops being.
+                    int cards = env == "Env_Cellar" ? 6 : 3;
                     // dial 1.0: every scheduled slot fires. That is a real shipped
                     // setting, not a debug mode — the frames below are what a
                     // player with the frequency slider at maximum sees.
@@ -1149,12 +1156,12 @@ namespace GloomhavenVR
                         // silhouette events (one per room) whose readability is the
                         // thing the user warned could be lost.
                         // The silhouette events those two indices used to name are
-                        // gone (ModBuild 146). The readability-under-Light/Dark
-                        // question is still real, so it moves to the two events
-                        // that are still DRAWN and are still nearly black: the
-                        // cellar's handprints and the wood's eyeshines.
-                        bool moodShot = (env == "Env_Cellar" && card == 1)
-                                        || (env != "Env_Cellar" && card == 0);
+                        // gone (ModBuild 146), and so is the wood's own last drawn
+                        // card (ModBuild 149 — the eyeshines). The
+                        // readability-under-Light/Dark question is still real and
+                        // there is exactly ONE event left in either room that is
+                        // both drawn and nearly black: the cellar's handprints.
+                        bool moodShot = env == "Env_Cellar" && card == 1;
                         if (!moodShot) continue;
                         float hold = EnvRoomBuilder.HauntPreviewClock(
                             card, cards, envv.x, envv.y, envv.z, 0.55f);

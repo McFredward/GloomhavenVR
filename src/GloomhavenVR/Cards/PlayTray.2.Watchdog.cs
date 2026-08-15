@@ -42,8 +42,14 @@ internal sealed partial class PlayTray
     //   * the pin holder's scale was baked ONCE at pin time from the rig's lossy scale, so a
     //     later world-grab zoom silently rescaled the pinned board's world OFFSET with it.
     // So the safety net must be UNCONDITIONAL and per-frame, not event-driven. It mirrors the
-    // proven LOST-MENU RECALL in WorldUI.ModalFallback.TickMenuRecall: dwell timer, generous
-    // envelope, never yank a board the user is holding, one loud log line stating WHY.
+    // then-proven LOST-MENU RECALL in WorldUI.ModalFallback: dwell timer, generous envelope,
+    // never yank a board the user is holding, one loud log line stating WHY.
+    //
+    // THAT PRECEDENT NO LONGER EXISTS. ModBuild 149 deleted the menu recall outright — dwell
+    // timer AND distance clause — on the same user ruling the block below states for the tray
+    // ("Die Fenster sollen ... dort dauerhaft fest sitzen wenn sie nicht aktiv verschoben
+    // werden"). The paragraph above is kept as the history of how this watchdog was arrived at,
+    // not as a live cross-reference: nothing in WorldUI recalls anything on a timer any more.
 
     // ---------------------------------------------------- THE AUTOMATIC RECALL IS GONE (RULING)
     //

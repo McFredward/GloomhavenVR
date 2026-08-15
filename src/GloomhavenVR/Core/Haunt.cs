@@ -238,6 +238,39 @@ internal static partial class Haunt
     /// </summary>
     internal static int CardsIn(SkyStyle style) => style == SkyStyle.SwampNight ? 3 : 6;
 
+    /// <summary>
+    /// True for a card that OCCUPIES A SCHEDULE SLOT AND SHOWS NOTHING — an event the user has had
+    /// deleted, whose index cannot be removed.
+    ///
+    /// <para><b>WHY A DELETED EVENT STILL HAS A CARD.</b> ModBuild 149 deleted two effects outright
+    /// on hardware rulings: the wood's eyeshines ("Entferne den 'Augen' Effekt im Wald komplett
+    /// inklusive aller sounds und assets") and the cellar's stair-top door, which had been rebuilt as
+    /// a swell in the moon pool and which the user saw as "eine Art Zylinder aus der Pfütze"
+    /// ("Lösch diesen Effekt komplett"). Neither index could go with them:
+    /// <c>EnvHaunt.cginc</c>'s group partition requires the room's card count to be a positive
+    /// multiple of <c>GHVR_HAUNT_GROUPS</c> = 3 (the cginc says so at the top of
+    /// <c>GhvrHauntAtRaw</c>, and the bake asserts it), the wood has exactly three cards and the
+    /// cellar exactly six, so dropping either would leave a count of two or five and make a third of
+    /// all slots index a card that does not exist. Both are therefore <c>HKindNone</c> placeholders
+    /// in the bake: the slot still comes round, and nothing at all happens in it.</para>
+    ///
+    /// <para><b>WHAT READS THIS.</b> Two things that would otherwise ADVERTISE a deleted event: the
+    /// Advanced-menu test page, which must not draw a button whose entire effect is that nothing
+    /// happens, and the environment sound, which must not play a cue for a picture that is not
+    /// there. It is deliberately NOT read by <see cref="Resolve"/> — the schedule is a mirror of the
+    /// GPU's and may not diverge from it by so much as a branch, and a slot that resolves to an inert
+    /// card is exactly what the GPU also resolves. THE QUIET IS THE POINT: one slot in three (wood)
+    /// or one in six (cellar) is now a beat in which nothing happens, which is a better haunting than
+    /// a metronome.</para>
+    ///
+    /// <para>The ids are the bake's array order — grep <c>HAUNT FORCE ID TABLE</c> in
+    /// <c>BuildEnvironmentRooms.cs</c>, one table beside each catalogue. It lists the OTHER
+    /// placeholders too (the cobweb tremble, the two figure-played cards); those are not inert,
+    /// because something really happens in their slot.</para>
+    /// </summary>
+    internal static bool IsInert(SkyStyle style, int card) =>
+        style == SkyStyle.SwampNight ? card == 0 : card == 2;
+
     // FOLLOW-UP USER REQUEST (hardware, verbatim): "In der Triggertestview möchte ich wenn ich etwas
     // triggere das es dauerhaft an ist und mit erneutem toggle wieder ausgemacht wird. So kann ich
     // die Mischungen besser testen." One press latches, the same press again releases, and NOTHING

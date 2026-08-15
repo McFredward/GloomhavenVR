@@ -416,7 +416,127 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 148;
+    public const ushort ModBuild = 149;
+    // Build 149: seventeen user findings in one round, and the through-line is A CLASS OF BUG rather
+    // than a list of defects: AN ELEMENT STRENGTH MULTIPLYING A FREQUENCY THAT IS THEN MULTIPLIED BY
+    // ABSOLUTE TIME. No wire change; the BUNDLE IS REBUILT and must be reinstalled - nearly all of
+    // this is shader and geometry, not DLL.
+    //
+    // THE FREQUENCY SCRUB, found THREE TIMES in three unrelated files. `t` is the shared environment
+    // clock and reaches thousands of seconds, so an expression like `GhvrWave4(t * (0.612 + 1.05 *
+    // storm))` sweeps its argument by 1.05 * t CYCLES while `storm` ramps 0 -> 1 over one second -
+    // 1890 periods at t = 1800 s, against a carrier that runs at 1.6. The phase scrubs chaotically
+    // for exactly the ramp and then locks. THE SIGNATURE THAT IDENTIFIES IT BEYOND DOUBT IS THAT IT
+    // IS CORRECT AT t = 0, which is why every preview and every early test passed.
+    //   * EnvGrowth.GhvrWind (the trees and plants) - the user's item 4, "zucken die Baeume extrem
+    //     unnatuerlich ... fuer ca 1s". Measured worst per-frame tip step across the ramp:
+    //     1.78 mm at t=0 but 63.39 mm at t=30 s, 51.52 at 1800, 54.64 at 3600 - against 4.31 mm/frame
+    //     for the motion a HELD full Air has anyway, i.e. 10-15x the storm's own speed. Fixed by two
+    //     carriers at FIXED rates that `storm` crossfades: endpoints bit-identical at rest and at
+    //     full Air, worst step now <= 3.31 mm at every clock.
+    //   * EnvBeam's shimmer - same shape, found by sweeping every Air consumer, fixed the same way.
+    //   * EnvFire.GhvrFireHz - the flame bands AND, through GhvrFireSeats, the seated wash and the
+    //     glut on every room and ground surface. Removed outright rather than crossfaded: 4.6 ->
+    //     7.13 Hz under Air put the fire above the rate the user rejected in ModBuild 145, so the
+    //     air term had no business in the rate at all. Worst per-frame brightness step is now flat
+    //     in the clock (0.153-0.165 at every t, against a shipped 0.308 at t=0 and 1.021 at t=30).
+    // Both other shader families were then audited term by term; all remaining element factors
+    // multiply an amplitude, a distance, a colour or a threshold on an already-wrapped age.
+    //
+    // THE FIRE, fifth attempt, and every one of the user's four complaints had a measurable cause.
+    //   * "Faeden bis ganz weit nach oben": THE EROSION FIELD IS SAMPLED IN CARD UV, AND UV IS NOT
+    //     SQUARE IN METRES. On a card 0.39 as wide as tall, a field cell at tiling (0.85, 0.72)
+    //     measured 0.46 x 1.39 card-heights - 3.02:1 vertical. The holes were the threads. Re-tiled
+    //     to (0.95, 1.35) (1.28:1); _Lick 0.48 -> 0.34; slimmest drawn quad 3.24:1 -> 2.28:1 and
+    //     4.80:1 -> 3.05:1 after lick; a C1 soft ceiling now bounds total reach, which nothing knew.
+    //     NOTE the rejected fix: squaring the cell by LOWERING tileU left under a third of a period
+    //     across a card, the erosion stopped breaking card EDGES, and cards became legible as
+    //     straight-edged parallelograms. Raising tileV is the correct move.
+    //   * "Feuerherde schweben ueber dem Baum": not a seating fault - a 0.70 m GAP of unlit bark
+    //     between Snag0 topping out at 1.10 and Snag1 starting at 1.76. Bridged (Snag1 to 0.95 m,
+    //     heights up) so its lowest card bases sit inside Snag0's flame. And Halo("Snag") was a
+    //     2.70 m ball centred 0.75 m above the root flare and reaching 0.55 m UNDERGROUND - the
+    //     largest object in the frame and a floating hearth in its own right; 1.35 -> 0.80 m at
+    //     0.028. Halo("Log")'s hard-typed y = 0.42 is now derived from the measured seats.
+    //   * "es fehlt mir die Glut auf dem Asset": the term was never absent, it was a SMOOTH ORANGE
+    //     WASH, which on wood reads as a light shining on wood. GhvrGlutCoals adds two octaves of
+    //     object-space value noise, hard-thresholded so most of the area is dark crust and the light
+    //     comes out of the fissures. Measured by rendering the forest twice with GHVR_GLUT_K = 0 and
+    //     differencing: p99/p50 of the added light was ~1.0 (a wash) and is now 57x on the deadfall,
+    //     6.6x on the snag, 10.9x on the shelf board.
+    //   * "wenn Wind an ist sind die Strahlen extrem lang": drift = rise * age^2 * (0.35 + 3.10*air)
+    //     threw an ember 3.4 m downwind while it climbed 2.3 on a fire one metre tall, and the age^2
+    //     piled the population at the far end so what remained was a thin evenly spaced LINE. Now
+    //     linear in age at (0.35 + 0.80*air). A fourth ray-maker two rounds of shortening had missed:
+    //     the lean was weighted by height-up-CARD, so a 40 cm puff 1.5 m up was sheared its full
+    //     0.55 m over its own height - a 54 deg skew, i.e. a diagonal shard. Now weighted by
+    //     height-in-FIRE, so high puffs translate rigidly.
+    //
+    // THE CELLAR SHELF FIRE FLOATED 18.6 cm ABOVE A BOARD, and the preview that should have caught it
+    // WAS AIMED AT A BARE WALL. shelfTop came from SurfaceYAt at the shelf's CENTRE while the fire
+    // stands 14 cm in front of it, and RayDown returns the HIGHEST triangle, which on a carcass is
+    // the top panel; ShelfMid was then placed at shelfTop - 0.60 = 1.448 with the real board at
+    // 1.262. New SurfaceLevelsAt returns every downward hit clustered at 5 cm, and both fires are on
+    // measured boards, sized to their bays. Separately, PreviewEnvironments' two shelf stations had
+    // pointed at the shelf's OLD position for several builds - a preview station that points at
+    // nothing does not fail, it renders, and it agrees with you.
+    //
+    // THE FIGURES' DARKNESS, and an honest negative result. The canopy hypothesis is TRUE about the
+    // bake - S_Ground takes the moon at _DirScale 0.38 and multiplies it again by a canopy shadow
+    // bottoming at 0.25, so the floor keeps 9.5% of the moon the figure's SH gets at 100% - and it is
+    // still the WRONG LEVER, because Amp_Char_Shader has no ForwardBase pass and never samples light
+    // probes at all: the SH is a measuring instrument, not a light. Measured on the user's own two
+    // photographs (linearised, p90 figure vs the surface behind it): forest 6.9x the nearest trunk,
+    // cellar 17.0x the masonry. Applying the canopy correction collapses the two rooms' luminance
+    // ratio to 1.55 against a wanted ratio of 7.8, and the two-point fit then demands DarkFloor
+    // = -0.13. The mapping stops being expressible, so the correction is LOGGED AND NOT APPLIED.
+    // Retuned instead: DarkFloor 0.045 -> 0.006 (it was three times the cellar's whole wanted answer,
+    // so in the darkest room the floor WAS the answer and the measurement did nothing), LightGain
+    // 1.30 -> 0.34, MaxLevel 0.80 -> 0.30 (it needed lum 0.58 and was never reachable, i.e. never a
+    // clamp), UnlitLevel 0.20 -> 0.05. Forest Level 0.321 -> 0.0783, cellar 0.100 -> 0.0205.
+    //
+    // "TELEPORTIERT SICH IMMER NOCH" - the loop is NOT the cause this time, and the proof is
+    // arithmetic: for ForestCross the envelope is exactly 0 across the whole 1.40 s wrap gap, and
+    // Shade needs presence * Level > 0.0015, i.e. 13 cm along a 6.8 m path. What the round DID find,
+    // in the decompiled game rather than by inference, is that this file's own doc was wrong about
+    // root motion: ActorBehaviour.ApplyMotion harvests and cancels it every LateUpdate, which is why
+    // nothing in the game ever assigns applyRootMotion - the prefabs ship with it ON. A new AnimPin
+    // now pins the animator's transform and RECORDS the largest drift it ever cancelled, printed once
+    // per process, so the next hardware round reads the answer instead of arguing it. Plus a hard
+    // interlock: a run whose u ever regresses, or that is within 0.12 s of a restart, is blanked.
+    //
+    // TWO APPARITIONS DELETED ON USER RULING - the wood's eyeshines ("Entferne den 'Augen' Effekt im
+    // Wald komplett inklusive aller sounds und assets"; there were TWO independent pairs, one of them
+    // never gated on any schedule) and the cellar's stair-top event, whose "Zylinder aus der Pfuetze"
+    // was the swell that had replaced the door. Both slots stay as inert placeholders because the
+    // never-the-same-event-twice guarantee partitions the catalogue into GHVR_HAUNT_GROUPS = 3 equal
+    // groups; new Haunt.IsInert keeps the test page and the sound from advertising them, and the
+    // test-menu numbering is deliberately NOT closed up so "I pressed 3" still means card 3.
+    //
+    // THE BEAM DIMMED FOR 2.10 s LONGER THAN THE APPARITION IT WATCHES, in every build since 146:
+    // HauntWindowEnv held the retired bust's 3.2/2.6/1.8 = 7.60 s while Haunt.CardSeconds(Cellar, 0)
+    // and this file's own comments moved to the figure's 5.50 s. The comment beside it WARNS ABOUT
+    // EXACTLY THIS FAILURE. scripts/check-mirrors.sh lints C# against C# and cannot see a bake
+    // constant, so AssertHauntCards now compares the two and FAILS THE BAKE - proven to fire by
+    // putting the shipped value back.
+    //
+    // ALSO: the ice was ONE LERP TOWARD A CONSTANT BLUE with both call sites then FLATTENING the
+    // normal, i.e. a puddle by construction - now plates, trapped-air specks, boundary hairlines, a
+    // real normal and a moon lobe (local structure 4.6-9.2x). Light in the cellar reached every
+    // surface because the moon is modelled as an unoccluded directional - now traced back to the
+    // window plane, so full Light is 3.22x inside the throw and EXACTLY 1.00x outside it (two views
+    // with no throw are byte-identical). The candle halos had escaped the winding-fix retune on a
+    // comment that cited two element rulings which say nothing about authored alpha - 0.60 -> 0.110,
+    // and the visible edge is ~9x softer. The window's aperture glow kept 54% of itself under full
+    // Dark because GhvrSrcGain is the identity indoors; it now rides GhvrMoonLight like every other
+    // moon term (-86% blue). Three permanently glowing spheres deleted from the wood. Cobwebs on the
+    // window bars with a steady down-wind LEAN (the old sway is zero-mean and shows no direction).
+    // Ivy on the cellar walls under Earth, 265 leaf cards, zero area with the element down, on a CC0
+    // ambientCG texture. The bookshelf's impact was scheduled and played all along and was SPECTRALLY
+    // inaudible - 97% of its energy below 500 Hz into a speaker that returns nothing under ~200 Hz;
+    // rebuilt with a broadband crack and a scatter, and (by the user's explicit exception) loud:
+    // +22.5 dB at the transducer. The ice sound and the timed menu recall are DELETED, not disabled.
+    //
     // Build 148: the SECOND pass over the same subjects, and the through-line is that FOUR separate
     // findings had a cause other than the one reported. No wire change; the BUNDLE IS REBUILT.
     //

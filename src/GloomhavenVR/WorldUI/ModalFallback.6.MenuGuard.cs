@@ -158,180 +158,124 @@ internal static partial class ModalFallback
     // the lost-menu recall below. The level-message CHAIN pose continuity above is a separate,
     // still-standing ruling and is untouched.
 
-    // ---- lost-menu recall (incident fix) ------------------------------------------------
+    // ------------------------------------------------- THE AUTOMATIC RECALL IS GONE (RULING) --
+    //
+    // DO NOT RE-ADD A TIME-, DISTANCE- OR VISIBILITY-BASED RECALL FOR FLOATED WINDOWS. DO NOT
+    // DELETE THIS BLOCK BECAUSE THERE IS NO CODE UNDER IT — the absence of the code IS the
+    // invariant, exactly as it is for the control board (Cards/PlayTray.2.Watchdog.cs's own
+    // ruling block, same user, same reasoning, one round earlier).
+    //
+    // WHAT USED TO BE HERE: for every floated sticky full-screen menu, every end-of-scenario
+    // results window and every level-message window whose game window was open, a per-frame
+    // envelope — the host's centre outside the head frustum (0.2 viewport slack) OR farther than
+    // 4 real metres from the head — with a 6 s dwell, after which the window was RE-PLACED in
+    // front of the HMD. It did exactly what it was written to do, and that is the bug.
+    //
+    // USER RULING, ModBuild 149, verbatim: "Bitte entferne, dass die Menü-Fenster nach einer Zeit
+    // immer in das Sichtfeld springen. Die Fenster sollen einmal zu Beginn im Sichtfeld spawnen
+    // (was sie tun) dann aber dort dauerhaft fest sitzen wenn sie nicht aktiv verschoben werden."
+    // ("Please remove the menu windows jumping into view after a while. The windows should spawn
+    // in view ONCE at the start (which they do) and then sit there PERMANENTLY unless they are
+    // actively moved.")
+    //
+    // WHY NO SETTING. Standing ruling: a setting may only configure optional content or comfort,
+    // and anything whose OFF state breaks the flow is removed outright instead. This is not
+    // optional content — it is a window moving on its own, which the user has now ruled against
+    // twice for two different objects.
+    //
+    // WHY THE DISTANCE HALF WENT TOO, and this was the one genuinely open question. It was worth
+    // keeping only if it were an unreachability RESCUE rather than a placement preference. It is
+    // not: a never-grabbed window sits where it spawned, ~1.2 m in front of the head, so the only
+    // way to be 4 m from it is for the PLAYER to have moved — and "the player walked away from a
+    // window they left open" is the normal state of a parked window, not evidence of a glitch.
+    // That is word for word the finding that killed the board's recall ("the player is not looking
+    // at it and it is more than an arm away is the NORMAL state of a pinned board"), and an
+    // envelope that fires on a normal state cannot be tuned into one that does not.
+    //
+    // WHAT STILL RECOVERS A GENUINELY LOST WINDOW — three things, none of which moves anything on
+    // its own:
+    //   * the MODAL ESCAPE CHORD (ModalFallback.7.Close.cs, TickEscapeChord): non-dominant A/X
+    //     held ~1 s closes the top floated modal from anywhere, whatever it is and wherever it
+    //     is. This is the guaranteed one and it exists precisely for this case (test #17,
+    //     "floating modals must always be closable");
+    //   * PRESENCE REGAIN (RefloatOpenWindows, ModalFallback.8.Convert.cs): taking the headset
+    //     off and putting it back on re-floats every window the player has NOT grab-moved. That
+    //     is a deliberate physical action, not a timer, so it is not what the ruling forbids;
+    //   * the window's own X / native buttons, for every window that has them.
+    //
+    // WHAT REMAINS BELOW is the LEVEL-MESSAGE CHAIN POSE capture, which was tangled up in the
+    // recall loop and is a SEPARATE, still-standing ruling (2026-08-02): a scripted message chain
+    // must keep landing where the player last read it. It moves nothing; it only records where a
+    // window is, so the NEXT one spawns there.
 
     /// <summary>
-    /// LOST-MENU RECALL: for each floated STICKY full-screen-menu panel (ESC/Options family)
-    /// — and, since the Sieg/Niederlage rework, each end-of-scenario results window
-    /// (<see cref="IsResultsPanel"/>: grabbable, no X, blocking → must never be lost) —
-    /// whose game window is OPEN, track how long its host has been continuously outside the
-    /// head camera's view frustum (center test with a generous margin) OR farther than
-    /// <see cref="RecallDistanceMeters"/> (real scale) from the head. After
-    /// <see cref="RecallOutOfViewSeconds"/> the panel is RECALLED: re-placed with the exact
-    /// placement used at float time (in front of the HMD at reading distance, upright,
-    /// facing the user) — grabbable panels via <see cref="GrabbableModal.PlaceFrameAt"/>
-    /// (placing the host directly would be snapped back by the next follow tick, the
-    /// RefloatOpenWindows lesson), others via <see cref="PlaceAtHmd"/>. This guarantees the
-    /// user always SEES the menu that is blocking card/board input. The timer resets
-    /// whenever the panel is visible, while a hand grips it (the user is deliberately
-    /// carrying it — never yank it out of their grip), and on recall. Unscaled time — the
-    /// pause menu may freeze timeScale.
+    /// LEVEL-MESSAGE CHAIN POSE, per frame. The tutorial chains its scripted messages through ONE
+    /// kept-alive float, and the user ruling of 2026-08-02 is that the chain keeps the pose the
+    /// player last read it at — including a pose they deliberately parked out of the current view.
+    /// So this records, and never places:
     ///
-    /// <para>LEVEL-MESSAGE participation (torbogen report 2026-08-02, reconciled with the
-    /// chain-pose ruling): the two level-message group windows (tutorial box / action strip)
-    /// participate in the slow TIMER recall only — the deadlock safety net for a genuinely
-    /// lost blocking box. The IMMEDIATE "re-place when a new message re-shows out of view"
-    /// path that briefly shipped here is SUPERSEDED by position continuity (user ruling):
-    /// a message-key change (<see cref="CurrentLevelMessageKey"/>) now CAPTURES the live
-    /// pose into the shared chain store (<see cref="_chainPose"/>) instead of yanking a
-    /// deliberately parked window back to the gaze.</para>
+    /// <list type="bullet">
+    ///   <item>while a level-message window is GRIPPED, the shared chain pose follows the hand
+    ///   live (the host follows the grab frame every tick, so this reads the current spot) — without
+    ///   it, a window that spawns while its predecessor is still in-hand lands on the stale
+    ///   pre-grab spot;</item>
+    ///   <item>on a message-KEY change, the pose the previous hint was read at is captured, and
+    ///   becomes the spot the next scripted window of any kind lands on (TryConvertWindow rule 2).</item>
+    /// </list>
+    ///
+    /// <para>Unscaled time is no longer read here at all: with the recall gone there is no timer,
+    /// which is what made the pause menu's frozen timeScale relevant in the first place.</para>
     /// </summary>
-    private static void TickMenuRecall()
+    private static void TickLevelMessageChain()
     {
         if (Converted.Count == 0)
             return;
-        Camera? head = CanvasConversion.WorldCamera;
-        if (head == null)
-            return;
-        float now = Time.unscaledTime;
-        float scale = Mathf.Max(PanelLayout.WorldScale, 0.01f);
-        Vector3 headPos = head.transform.position;
 
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
-            // Sticky full-screen menus (ESC/Options family) with their game window OPEN
-            // participate — those gate input while open. So do the now-grabbable
-            // Sieg/Niederlage results windows (user request A): they BLOCK the scenario-end
-            // flow, carry no X, and can only be advanced through their native buttons, so a
-            // results window the user carried away and lost would be an invisible hard lock —
-            // the recall guarantees it always comes back into view. And so do the LEVEL-MESSAGE
-            // group windows (torbogen report): the tutorial chains scripted messages through
-            // ONE kept-alive float, so a panel out of view is an unreadable (often blocking)
-            // tutorial step. Closed/sticky-hidden floats, other non-sticky modals and panels
-            // on their way out are left alone.
-            bool isLevelMsg = IsLevelMessageWindow(wp.Window);
-            bool recallable = wp.Window != null
-                              && ((wp.Sticky && wp.FullScreenMenu) || IsResultsPanel(wp.Window.ID)
-                                  || isLevelMsg);
-            // Level-message ground truth: IsOpen can momentarily read false during the game's
-            // hide→show handover (deadlock #2) while the window is genuinely displayed — accept
-            // IsVisible too, mirroring LevelMessageWindowOpen.
-            bool windowLive = wp.Window != null
-                              && (wp.Window.IsOpen || (isLevelMsg && wp.Window.IsVisible));
-            if (!recallable || wp.UserClosing || !windowLive
-                || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
-            {
-                wp.OutOfViewSince = 0f;
+            // ONLY the level-message family reaches the store. The sticky full-screen menus and the
+            // results windows used to be walked here as well — they were the RECALL's clients, not
+            // the chain's, and with the recall gone they have no business in this loop at all.
+            if (!IsLevelMessageWindow(wp.Window))
                 continue;
-            }
-            // A gripped panel is being deliberately placed — never recall mid-carry.
+            // Ground truth: IsOpen can momentarily read false during the game's hide-to-show
+            // handover (deadlock #2) while the window is genuinely displayed — accept IsVisible too,
+            // mirroring LevelMessageWindowOpen. A window on its way out must not seed the chain.
+            if (wp.Window == null || wp.UserClosing
+                || !(wp.Window.IsOpen || wp.Window.IsVisible)
+                || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+                continue;
+
+            // GRIPPED: follow the hand live. The host follows the grab frame every tick, so this
+            // reads the spot the player is holding the chain at right now. Without it, a scripted
+            // window that spawns while its predecessor is still in-hand — or whose predecessor's
+            // key changes mid-carry, which skips the edge below — lands on the stale pre-grab spot.
             if (wp.Grab != null && wp.Grab.IsGrabbed)
             {
-                // CHAIN CONTINUITY: a gripped level message re-anchors the SHARED chain pose
-                // LIVE (the host follows the grab frame every tick, so this reads the hand's
-                // current spot). Without it, a scripted window that spawns while its
-                // predecessor is still in-hand — or whose predecessor's message key changes
-                // mid-carry (this branch skips the key-change capture below) — would land on
-                // the stale pre-grab spot instead of where the player is holding the chain.
-                if (isLevelMsg)
-                    StoreChainPose(wp);
-                wp.OutOfViewSince = 0f;
-                continue;
-            }
-
-            Vector3 pos = wp.Panel.HostGo.transform.position;
-            bool visible = IsInHeadView(head, pos)
-                           && Vector3.Distance(headPos, pos) <= RecallDistanceMeters * scale;
-
-            // LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): a message-key change
-            // means the NEXT hint of the chain just re-showed inside the kept-alive float at
-            // its previous pose — exactly what the ruling wants, so nothing is re-placed here
-            // (the re-show recall that briefly lived at this spot is superseded: continuity
-            // WINS, even when the player parked the window out of the current view). The key
-            // change is instead a CAPTURE EDGE for the shared chain store: the pose the
-            // previous hint was read at (grab-moves included — this reads the live host pose)
-            // becomes the spot the NEXT scripted window of ANY kind lands on (TryConvertWindow rule
-            // 2). Runs before the visibility bookkeeping so a parked-out-of-view chain still
-            // captures every approved pose.
-            if (isLevelMsg)
-            {
-                string? key = CurrentLevelMessageKey(wp.Window);
-                if (key != null && !string.Equals(key, wp.LastLevelMessageKey, StringComparison.Ordinal))
-                {
-                    wp.LastLevelMessageKey = key;
-                    StoreChainPose(wp);
-                }
-            }
-
-            // USER-OWNED POSE (user ruling 2026-08-04, THE reported jump): once the player has
-            // grabbed this window, its pose is theirs - deliberately parking a window OUT of
-            // the view is a wanted state ("manchmal schiebe ich sie absichtlich zur Seite"),
-            // and this very timer was what yanked it back every 6 s (hardware log: repeated
-            // "MODAL RECALL: 'UI Options Window_unified' was open but out of view for 6s"
-            // lines). Skip the recall for user-moved windows FOREVER, whatever the timer
-            // reads; the chain-pose capture above still ran, so level-message continuity
-            // keeps following the player's spot. Untouched windows (never grabbed) keep the
-            // full recall as the lost-blocking-window deadlock insurance; a user-moved window
-            // the player genuinely loses still has the X and the modal escape chord.
-            if (wp.Grab != null && wp.Grab.UserMoved)
-            {
-                wp.OutOfViewSince = 0f;
-                continue;
-            }
-
-            if (visible)
-            {
-                wp.OutOfViewSince = 0f;
-                continue;
-            }
-            if (wp.OutOfViewSince <= 0f)
-            {
-                wp.OutOfViewSince = now;
-                continue;
-            }
-            float outFor = now - wp.OutOfViewSince;
-            if (outFor < RecallOutOfViewSeconds)
-                continue;
-
-            // RECALL — the same placement the window floated with (user request A: with the
-            // panel's size passed along, the recall pose also avoids the control board /
-            // other open modals; the panel itself is excluded from the obstacle set).
-            if (wp.Grab != null)
-            {
-                Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
-                if (!ComputeHmdPose(out Vector3 p, out Quaternion r, out _, 0, half, wp.Panel,
-                        isLevelMsg))
-                    continue; // no head pose this tick — retry next tick, timer keeps running
-                wp.Grab.PlaceFrameAt(p, r);
-            }
-            else
-            {
-                PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, isLevelMsg);
-            }
-            // Chain continuity: a recalled level message has a NEW player-visible pose — make
-            // it the chain's stored pose too, or a close/reopen gap right after the recall
-            // would jump the next hint back to the very lost spot the timer just rescued the
-            // window from.
-            if (isLevelMsg)
                 StoreChainPose(wp);
-            float wasOutFor = now - wp.OutOfViewSince; // > 0 by construction (timer path only)
-            wp.OutOfViewSince = 0f;
-            VRLog.Info("WorldUI", $"MODAL RECALL: '{wp.Window!.name}' was open but out of view for " +
-                                  $"{wasOutFor:F0}s — recalled in front of the HMD (it blocks card/board " +
-                                  "input while open).");
+                continue;
+            }
+
+            // A MESSAGE-KEY CHANGE IS THE CAPTURE EDGE (user ruling 2026-08-02): the next hint of
+            // the chain has just re-shown inside the kept-alive float at its previous pose, and
+            // nothing is re-placed — continuity WINS, including for a window the player parked out
+            // of the current view. What the edge does is REMEMBER: the pose the previous hint was
+            // read at (grab-moves included, since this reads the live host pose) becomes the spot
+            // the next scripted window of ANY kind lands on (TryConvertWindow rule 2).
+            string? key = CurrentLevelMessageKey(wp.Window);
+            if (key != null && !string.Equals(key, wp.LastLevelMessageKey, StringComparison.Ordinal))
+            {
+                wp.LastLevelMessageKey = key;
+                StoreChainPose(wp);
+            }
         }
     }
 
-    /// <summary>Panel center inside the head frustum (with <see cref="RecallViewMargin"/> slack,
-    /// so a half-on-screen menu at the view edge still counts as visible).</summary>
-    private static bool IsInHeadView(Camera head, Vector3 worldPos)
-    {
-        Vector3 vp = head.WorldToViewportPoint(worldPos);
-        return vp.z > 0f
-               && vp.x >= -RecallViewMargin && vp.x <= 1f + RecallViewMargin
-               && vp.y >= -RecallViewMargin && vp.y <= 1f + RecallViewMargin;
-    }
+    // IsInHeadView lived here and is GONE with the automatic recall (see the ruling block above):
+    // whether a floated window is currently in the player's view is not a reason to move it, so
+    // nothing in this file may test it. Left as a comment so that re-adding the helper reads as
+    // re-adding the recall, which is what it would be.
 
     // ---- full-screen-menu selection guard (P6 flicker fix) ------------------------------
 

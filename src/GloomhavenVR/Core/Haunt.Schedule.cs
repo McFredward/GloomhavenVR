@@ -242,8 +242,8 @@ internal static partial class Haunt
     /// three numbers to keep in step instead of one.</para>
     ///
     /// <para>The ids are the array order, which is also the id table the test buttons use (grep
-    /// HAUNT FORCE ID TABLE). Cellar: 0 Window, 1 Hands, 2 Floor, 3 Tremble, 4 Stair, 5 Shelf.
-    /// Forest: 0 Face, 1 Eyes, 2 Watcher, 3 Cross, 4 Loom, 5 Hang.</para>
+    /// HAUNT FORCE ID TABLE). Cellar: 0 Window, 1 Hands, 2 (quiet), 3 Tremble, 4 Stair, 5 Shelf.
+    /// Forest: 0 (quiet), 1 Watcher, 2 Cross — three cards, not six, since ModBuild 147.</para>
     /// </summary>
     internal static float CardSeconds(SkyStyle style, int card)
     {
@@ -264,7 +264,12 @@ internal static partial class Haunt
         return style == SkyStyle.SwampNight
             ? card switch
             {
-                0 => 3.0f,   // Eyes    1.1 + 1.4 + 0.5
+                // 0 + 2.0 + 0. NOTHING HAPPENS IN THIS SLOT — the eyeshines were deleted in
+                // ModBuild 149 ("Entferne den 'Augen' Effekt im Wald komplett inklusive aller sounds
+                // und assets") and only the index survives, because the group partition needs a card
+                // count that is a multiple of three and this room has exactly three. See
+                // Haunt.IsInert, which is what stops the test page and the sound advertising it.
+                0 => 2.0f,   // (quiet) 0 + 2.0 + 0
                 1 => 8.5f,   // Watcher 3.5 + 5.0 + 0    — a FIGURE plays this (HauntFigures)
                 _ => 4.2f,   // Cross   1.0 + 2.4 + 0.8  — a FIGURE plays this (HauntFigures)
             }
@@ -272,7 +277,12 @@ internal static partial class Haunt
             {
                 0 => 5.50f,  // Window  0.35 + 4.80 + 0.35 — a FIGURE plays this (HauntFigures)
                 1 => 8.0f,   // Hands   2.8 + 2.2 + 3.0
-                2 => 6.8f,   // Door    2.2 + 3.0 + 1.6   — NEW: the stair-top door, no body at all
+                // 0 + 2.0 + 0. NOTHING HAPPENS IN THIS SLOT either. This index has now outlived
+                // three events — the head on the flagstones, the stair-top door of light, and the
+                // swell in the moon pool that replaced it — and the user deleted the last of them in
+                // ModBuild 149 ("Lösch diesen Effekt komplett"). The cellar has six cards and the
+                // partition needs a multiple of three, so the index stays and the event does not.
+                2 => 2.0f,   // (quiet) 0 + 2.0 + 0
                 3 => 2.0f,   // Tremble 0 + 1.1 + 0.9 — draws nothing at all; the webs shiver
                 // Stair 0.30 + 2.00 + 0.30. A FIGURE plays this, and this number is NOT the figure's
                 // any more: since the walk became a standing watcher the figure runs 7.0 s

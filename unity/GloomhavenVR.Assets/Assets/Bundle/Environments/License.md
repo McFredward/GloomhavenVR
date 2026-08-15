@@ -152,6 +152,50 @@ The loose hanging strands (`Textures/Env_Strand.png`) are still generated —
   — a vertically stacked cluster, but wholly inside the trunk's shadow band, so
   the brackets are darker than the lit bark around them.
 
+### Climbing ivy (`ivy_alb.png`)
+
+- **Asset**: **ambientCG "Leaf Set 017"** — <https://ambientcg.com/a/LeafSet017>
+  — an *Atlas* asset (`creationMethod` `PBRPhotogrammetry`, released
+  2020-05-10), tagged `ivy`, `leaf`, `leaves`, `set`, `vine`. Six photoscanned
+  ivy leaves on a clean opacity map, downloaded as `LeafSet017_2K-PNG.zip`
+  (Color + Opacity are the only two maps used).
+- **License**: **CC0 1.0 Universal**, stated verbatim at
+  <https://docs.ambientcg.com/license/>: “All ambientCG assets are provided
+  under the Creative Commons CC0 1.0 Universal License”, with the explicit
+  permission to “copy, modify, distribute and perform the assets, even for
+  commercial purposes” and to “include the raw files in your project, for
+  example a video game”, and “You don't need to give credit but I would of
+  course appreciate it, if you did it anyways.” No attribution required;
+  credited here with thanks. Re-read at source on **2026-08-15**, immediately
+  before download.
+- **Why this one**: the cellar's Earth growth was three populations of PATCHES
+  (wall cushions, floor-joint tufts, crust fungus) and the user asked for ivy,
+  which is a LINE — it starts on the floor and climbs, and that direction is
+  what a patch can never say. Poly Haven has **no** ivy or vine asset at all
+  (its full model and texture indexes were queried for
+  ivy/vine/creeper/climb: the single hit is `wine_bottles_01`, tagged
+  “vineyard”). ambientCG has two ivy sets; **017** is the one also tagged
+  `vine`, and its six leaves are cleanly separated with the asset's own opacity
+  map, so nothing had to be keyed by hand.
+- **Not used, but evaluated** (recorded so a future round need not repeat the
+  search): ambientCG `LeafSet029` (tagged `ivy` but not `vine`, same licence —
+  a fine second source if more leaf shapes are ever wanted); Wikimedia Commons
+  was not needed and was not searched, because a CC0 asset with a shipped
+  opacity map beats a photograph that would have to be segmented.
+- **Modifications** (reproducible: `Assets/Editor/ivy_pipeline.py`, python3 +
+  numpy + Pillow): connected-component analysis of the shipped opacity mask to
+  find the six leaves and reject the nine 1–4 px specks that come with it;
+  2048 → 1024 by **premultiplied** area mean, so no transparent texel can weight
+  into an opaque neighbour; un-premultiply; then a 64-round nearest-opaque
+  bleed over the whole transparent region, so mip generation cannot pull a
+  black texel into a leaf edge. Result: 1024×1024 RGBA8, 34.7 % coverage above
+  the cutoff, 0.98 % of texels partially transparent (a one-texel ramp).
+- **Sub-rects**: six, printed by the pipeline script as a `Rect[]` literal and
+  pasted into `BuildEnvironmentRooms` at the ivy block (they are card data, not
+  part of this file).
+- **Raw source not committed**, per this project's standing rule: the zip is
+  downloaded, keyed and discarded; only `ivy_alb.png` ships.
+
 ### Handprints (`handprints_alb.png`)
 
 - **Asset**: three real photographed handprints, keyed by this project out of

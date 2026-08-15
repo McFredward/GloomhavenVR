@@ -55,7 +55,7 @@ namespace GloomhavenVR
         public const float CellarPlaySpaceDia = 6.5f;
 
         // ==================================== THE GROUND CARPET, AND ITS PROOF
-        // USER VERDICT, ModBuild 149: the vegetation has to be visible "auch zB
+        // USER VERDICT, ModBuild 148: the vegetation has to be visible "auch zB
         // im Wald INNERHALB der Lichtung" — inside the clearing he actually
         // stands in. The measured gap that sentence is about: the forest growth
         // annulus ran r 4.90-11.50 m against a 4.50 m play radius, i.e. the
@@ -3582,6 +3582,107 @@ namespace GloomhavenVR
             // opening, so a window that cannot show the moon fails the bake
             // rather than shipping and being found on hardware.
             AssertMoonThroughWindow(wx0, wy0, wx1, wy1, hd);
+            // ...and the SECOND gate, which is a mirror rather than a promise.
+            // ModBuild 151 made Light's indoor lift land only on what this
+            // opening can throw the moon onto (EnvElement.cginc, ...AND INDOORS
+            // IT MAY ONLY BRIGHTEN WHAT THE WINDOW SEES), and the two shaders
+            // that mask by it carry the opening as PROPERTY DEFAULTS because the
+            // pass that would write them per material is not this lane's. A
+            // default is a copy, and a copy drifts — so every bake reads the
+            // copy back out of the shader and fails the build if it disagrees
+            // with the hole the wall mesh was actually cut to.
+            AssertMoonWindowMirror(wx0, wy0, wx1, wy1, hd);
+
+            // THE MIRROR ITSELF. Three copies of the same geometry are checked,
+            // and each is a copy for a reason that could not be avoided rather
+            // than for convenience:
+            //   * _MoonWin / _MoonWinZ on EnvRoom and EnvRoomCutout — property
+            //     DEFAULTS, because the light rig that would write them per
+            //     material belongs to another lane. Read straight back off a
+            //     throwaway Material, which is exactly what every baked material
+            //     will be born with.
+            //   * GHVR_MOON_DIR in EnvElement.cginc — the moon in ROOM axes. It
+            //     cannot be _DirDir, which is per material and in that
+            //     material's own frame; the throw has to be traced in the room's
+            //     frame or a yawed barrel would test the wrong window.
+            //   * the `a` bearing constant inside GhvrMoonWindow — the same
+            //     vector's horizontal part, pre-normalised so the shader does
+            //     not pay a normalize per fragment for a compile-time constant.
+            // A shader cannot be asked what its #defines are, so the last two are
+            // read out of the source text. That is ugly and it is still the right
+            // trade: the alternative is three numbers that agree today.
+            void AssertMoonWindowMirror(float x0, float y0, float x1, float y1, float winZ)
+            {
+                var want = new Vector4(x0, y0, x1, y1);
+                foreach (var shaderName in new[] { "GloomhavenVR/EnvRoom",
+                                                   "GloomhavenVR/EnvRoomCutout" })
+                {
+                    var sh = Shader.Find(shaderName)
+                             ?? throw new Exception($"{shaderName} is missing, so the cellar's "
+                                                    + "Light lift has no window to be confined to.");
+                    var probe = new Material(sh);
+                    Vector4 win = probe.GetVector("_MoonWin"), pln = probe.GetVector("_MoonWinZ");
+                    UnityEngine.Object.DestroyImmediate(probe);
+                    if ((win - want).magnitude > 0.002f || Mathf.Abs(pln.x - winZ) > 0.002f)
+                        throw new Exception(
+                            $"{shaderName}'s _MoonWin default is {win} at plane z {pln.x:F3}, but "
+                            + $"the wall was cut to {want} at z {winZ:F3}. Light's indoor lift is "
+                            + "masked by that rectangle (EnvElement.cginc, ...AND INDOORS IT MAY "
+                            + "ONLY BRIGHTEN WHAT THE WINDOW SEES), so a stale copy would put the "
+                            + "moon pool somewhere the moon does not go — and the beam, which reads "
+                            + "the real opening, would land beside it.");
+                    if (pln.y < 0.05f || pln.y > 0.60f)
+                        throw new Exception($"{shaderName}'s _MoonWin feather is {pln.y:F3} m. Below "
+                                            + "5 cm the moon pool has a hard rectangular edge and "
+                                            + "reads as a projected slide; above 60 cm it is not a "
+                                            + "throw any more, it is the room lift this round "
+                                            + "removed.");
+                }
+                string cginc = File.ReadAllText(Root + "/EnvElement.cginc");
+                Vector3 Read3(string pattern, string what)
+                {
+                    var mm = System.Text.RegularExpressions.Regex.Match(cginc, pattern);
+                    if (!mm.Success)
+                        throw new Exception($"EnvElement.cginc no longer spells {what} in the form "
+                                            + "this gate reads. The gate is the only thing keeping "
+                                            + "the moon's room-space bearing in step with "
+                                            + "EnvironmentsBuilder.MoonDir — fix the pattern, do not "
+                                            + "delete the check.");
+                    var v = new float[mm.Groups.Count - 1];
+                    for (int k = 0; k < v.Length; k++)
+                        v[k] = float.Parse(mm.Groups[k + 1].Value,
+                                           System.Globalization.CultureInfo.InvariantCulture);
+                    return v.Length == 2 ? new Vector3(v[0], 0f, v[1])
+                                         : new Vector3(v[0], v[1], v[2]);
+                }
+                const string num = @"\s*(-?[0-9.]+)\s*";
+                var moon = MoonDir.normalized;
+                var shMoon = Read3($@"#define\s+GHVR_MOON_DIR\s+float3\({num},{num},{num}\)",
+                                   "GHVR_MOON_DIR");
+                if ((shMoon - moon).magnitude > 5e-4f)
+                    throw new Exception($"GHVR_MOON_DIR is {shMoon:F6} but EnvironmentsBuilder."
+                                        + $"MoonDir.normalized is {moon:F6}. The window's throw is "
+                                        + "traced along that vector, so the moon pool would be drawn "
+                                        + "in one place and lit from another.");
+                var flat = new Vector3(moon.x, 0f, moon.z).normalized;
+                var shFlat = Read3($@"const float2 a = float2\({num},{num}\);",
+                                   "the moon's horizontal bearing");
+                if ((shFlat - flat).magnitude > 5e-4f)
+                    throw new Exception($"GhvrMoonWindow's bearing constant is {shFlat:F6} but the "
+                                        + $"moon's horizontal bearing is {flat:F6}. That constant is "
+                                        + "what recovers a yawed material's rotation, so every prop "
+                                        + "in the room would test a window turned by the error.");
+                Debug.Log("[GloomhavenVR][Env] Cellar LIGHT THROW mirror OK (user, ModBuild 151: "
+                          + "\"Bei 'Licht' im Keller statt den ganzen Keller mehr zu beleuchten mach "
+                          + "ausschliesslich das Licht aus dem Kellerfenster vom Mond heller\"): "
+                          + $"EnvRoom and EnvRoomCutout both mask Light's indoor lift with the "
+                          + $"opening x {x0:F3}..{x1:F3}, y {y0:F3}..{y1:F3} at z {winZ:F2}, "
+                          + $"feathered 0.22 m, traced along {MoonDir.normalized:F4}. Composite "
+                          + "gains: 3.22x in the throw at full Light (unchanged), EXACTLY 1.00x "
+                          + "outside it (was 3.22x), 0.0275x everywhere at full Dark (unchanged). "
+                          + "The beam, the moon pool and the puddle's mirror ARE the throw and are "
+                          + "deliberately not masked.");
+            }
             AddNightOutsideWindow(root, winMid, wx0, wy0, wx1, wy1, hd);
 
             // Reveal (jambs + head + cill). Without it the wall is a zero-
@@ -4126,7 +4227,7 @@ namespace GloomhavenVR
 
                 // the aperture itself glows cold, so the window reads as the
                 // source and not as a hole with something bright behind it
-                // ModBuild 149: 0.34 -> 0.085. Same story as the fire halos —
+                // ModBuild 148: 0.34 -> 0.085. Same story as the fire halos —
                 // this alpha was authored against a sphere that drew nothing but
                 // its own limb, and once the winding was fixed the aperture came
                 // back as a solid blue-white ball hanging in the window instead
@@ -4141,6 +4242,20 @@ namespace GloomhavenVR
                 // is per-material and not GhvrIndoor() — all three of EnvGlow's
                 // clients are indoors and they want three different answers.)
                 winGlowMat.SetFloat("_ElemCandle", 0f);
+                // ...and THIS is the flag that answers the other half of it.
+                // USER, ModBuild 149, with Kellerfenster_Dunkel.jpg: "Bei
+                // Dunkelheit im Keller über dem Kellerfenster ist noch so etwas
+                // helles zu sehen entferne das." Measured on that bake, the
+                // aperture kept 54 % of its rest brightness at full Dark (mean
+                // over the opening (19.6, 28.2, 49.9) -> (8.4, 13.6, 27.0)) in a
+                // room whose every other moonlight term was down to 0.0275x —
+                // because indoors GhvrSrcGain is exactly 1.0 and EnvGlow's only
+                // remaining Dark term is a 35 % subtraction. The aperture glow IS
+                // moonlight, so it goes on the moon's own contract instead: at
+                // full Dark the held eclipse takes it to 0.0325 and the oval is
+                // gone. See THE MOONLIGHT FLAG in EnvGlow.shader for why this is
+                // per-material and not "every indoor halo".
+                winGlowMat.SetFloat("_ElemMoon", 1f);
                 winGlowMat.SetFloat("_Falloff", 2.0f);
                 // ...and it is the APERTURE'S OWN SIZE, not a pair of numbers that
                 // happened to fit the old one. (0.52, 0.34) was 0.467 and 0.541
@@ -4323,7 +4438,49 @@ namespace GloomhavenVR
                     // sphere sitting inside a flickering pool of light
                     var g = NewRoomMat($"C_Glow{n}.mat", "GloomhavenVR/EnvGlow");
                     g.SetColor("_Tint", new Color(1f, 0.55f, 0.20f, glowA));
-                    g.SetFloat("_Falloff", 2.2f);
+                    // ---- ModBuild 149: THE BALL AROUND THE CANDLES ----------
+                    // USER, verbatim: "Seit deiner letzten Änderung haben die
+                    // Kerzen im Keller eine visible Kugel drumrum mach das
+                    // weicher." (kerzen.jpg)
+                    //
+                    // THESE THREE HALOS ESCAPED THE ModBuild 149 RETUNE, and the
+                    // reason is written down two thousand lines below in
+                    // AddCellarFire's Halo(): "The candle halos are not touched
+                    // either -- two standing user rulings say the candle glow may
+                    // not change, in either direction." That reads the rulings
+                    // one clause too wide. Both of them are about the ELEMENTS
+                    // ("Auch bei DUNKELHEIT sollte es keinen Einfluss auf den
+                    // Kerzenschein haben") and they are enforced by _ElemCandle
+                    // below, which is exactly the mechanism that lets these
+                    // numbers be re-authored without touching what Light and Dark
+                    // do to them: at every element state the halo is the same
+                    // halo, and that is the whole of what was promised.
+                    //
+                    // WHAT WAS MEASURED. The winding fix made this sphere visible
+                    // for the first time and it came out at alpha 0.60 (0.50 /
+                    // 0.55) against 0.026-0.040 on every fire halo in the room —
+                    // fifteen to twenty times. On the CandleTable preview the
+                    // core reads 202/255 red over a wall at ~50, i.e. the halo
+                    // ALONE adds ~150 levels: an opaque additive ball, and an
+                    // opaque disc always shows its own silhouette.
+                    //
+                    // THE EDGE IS THE FALLOFF AND THE PEAK, NOT THE RADIUS. With
+                    // core = (1-d^2)^(fall/2), the halo's last visible level
+                    // (1/255) sits at d = 0.995 for (a 0.60, fall 2.2): the whole
+                    // drop from 12/255 to nothing happens inside the outer half
+                    // percent of the disc, which at this distance is nine pixels.
+                    // At (a 0.11, fall 3.6) the same crossing is at d = 0.93 and
+                    // the slide from 22/255 to nothing takes the outer 40 % of the
+                    // radius — about 0.2 levels per pixel, i.e. below the point
+                    // where a boundary can exist at all. The RADII go up rather
+                    // than down for the same reason (0.30/0.24/0.27 ->
+                    // 0.38/0.30/0.34): a wider sphere spreads that same gradient
+                    // over more pixels and puts the warm light back over the area
+                    // it used to cover, which is the half of the brief that says
+                    // the same amount of light with no visible boundary. Every
+                    // radius still clears its own wall by at least 0.21 m, so no
+                    // halo can be cut into a hard disc by the masonry behind it.
+                    g.SetFloat("_Falloff", 3.6f);
                     // THE CANDLES ARE UNTOUCHABLE. User, twice: "anstatt die
                     // Kerzenscheine, die sollte identisch beiben" and "Auch bei
                     // Dunkelheit sollte es keinen Einfluss auf den Kerzenschein
@@ -4354,12 +4511,21 @@ namespace GloomhavenVR
             var candleTable = new Vector3(3.72f, tableTop, 2.95f);
             var candleShelf = new Vector3(shelfSpot.x, shelfTop, shelfSpot.z);
             var candleCrate = new Vector3(-1.55f, crateTop, -3.95f);
+            // (glowR, glowA): ModBuild 149, see THE BALL AROUND THE CANDLES in
+            // CandleGroup. 0.30/0.60 -> 0.38/0.11, 0.24/0.50 -> 0.30/0.092,
+            // 0.27/0.55 -> 0.34/0.10 — the three alphas keep their old ratios to
+            // each other exactly, so the table group is still the brightest of
+            // the three and the shelf's the dimmest.
             CandleGroup("Table", 0, candleTable,
-                new[] { (0.16f, 0f, 0f), (0.11f, 0.07f, 0.04f), (0.085f, -0.05f, 0.06f) }, 0.30f, 0.60f);
-            // ...and THIS one is standing on the bookshelf that topples.
-            CandleGroup("Shelf", 1, candleShelf, new[] { (0.12f, 0f, 0f) }, 0.24f, 0.50f,
+                new[] { (0.16f, 0f, 0f), (0.11f, 0.07f, 0.04f), (0.085f, -0.05f, 0.06f) }, 0.38f, 0.110f);
+            // ...and THIS one is standing on the bookshelf that topples. Its
+            // radius is the one held back: the shelf stands 0.53 m off the east
+            // wall, so 0.30 m is as far as this halo can grow before the masonry
+            // starts cutting it — which would be the hard-edged disc this change
+            // exists to remove, arrived at from the other direction.
+            CandleGroup("Shelf", 1, candleShelf, new[] { (0.12f, 0f, 0f) }, 0.30f, 0.092f,
                         onShelf: true);
-            CandleGroup("Crate", 2, candleCrate, new[] { (0.14f, 0f, 0f), (0.09f, 0.06f, -0.05f) }, 0.27f, 0.55f);
+            CandleGroup("Crate", 2, candleCrate, new[] { (0.14f, 0f, 0f), (0.09f, 0.06f, -0.05f) }, 0.34f, 0.100f);
 
             // rig fixup: light sources sit just above the tallest flame of each group
             rig.points[0].pos = candleTable + new Vector3(0, 0.22f, 0);
@@ -4833,8 +4999,236 @@ namespace GloomhavenVR
                                  Vector3.one, fgm);
                 Defer(fgm, fgGo.transform, 1f);
                 ReportCardBill("Cellar", "Earth fungus", fungE, PreviewEye, true);
+
+                // ---- ...AND THE IVY EARTH SENDS UP THE WALLS ----------------
+                // USER, ModBuild 151 (verbatim): "Lass bei Erde im Keller an den
+                // Wänden auch noch teilweise Efeu sprießen."
+                //
+                // WHAT THE ROOM ALREADY HAD, and why none of it is ivy. Earth's
+                // cellar statement was three populations that all say the same
+                // thing about height: cushions in a band that stops at 1.35 m,
+                // tufts in the floor joints, crust fungus from 0.95 to 2.20 m.
+                // Every one of them is a PATCH — a thing that sits where it is.
+                // Ivy is the opposite kind of plant and that is the whole point
+                // of adding it: it is a LINE. It starts on the floor, it climbs,
+                // and its direction is legible from across the room in a way a
+                // patch never is, because a vertical run three feet long reads as
+                // one object with a beginning and an end.
+                //
+                // "TEILWEISE" IS A NUMBER AND IT IS 0.85 m OF CANDIDATE PITCH,
+                // against the cushions' 0.19 and the Earth fungus's 0.22 — one
+                // candidate every four cushions, through a patch mask that then
+                // refuses more than half of them. What comes out is a dozen
+                // runners on three walls: enough that every wall has one and no
+                // wall has a curtain of them. A wall covered in ivy is a ruin;
+                // he asked for a cellar with some ivy in it.
+                //
+                // HOW A RUNNER IS BUILT, and every clause is the plant rather
+                // than the composition:
+                //   * IT CLIMBS FROM THE FLOOR. The first leaf is at 4-9 cm and
+                //     the run reaches 0.55-1.75 m. Ivy roots at the bottom of a
+                //     damp wall; it does not begin at chest height, which is
+                //     exactly what would have happened if this had been another
+                //     scatter of cards in a band.
+                //   * IT FOLLOWS THE JOINTS WHERE IT CAN. A climbing stem takes
+                //     the vertical joint it started in and jogs sideways along a
+                //     bed joint when the vertical one runs out, so the stem here
+                //     climbs straight and steps sideways at a fixed COURSE PITCH
+                //     of 0.30 m. That number is AUTHORED AND NOT READ, and the
+                //     honest reason is that this room has a mask for the FLOOR's
+                //     mortar (SnapToJoint, read out of the flagstone albedo) and
+                //     none for the walls: medieval_blocks_05 is tiled at 3.4 m
+                //     with a per-wall offset, so a course height read off it
+                //     would be right on one wall and wrong on the others. 0.30 m
+                //     is the block height that texture actually shows at that
+                //     tiling, measured off the albedo once, by eye, and said so.
+                //   * THE LEAVES ALTERNATE. Ivy is distichous-ish on a climbing
+                //     shoot: leaves left and right of the stem, not radially, and
+                //     each one on a short petiole standing PROUD of the wall. So
+                //     the cards alternate sides by 0.35-0.60 of their own width
+                //     and stand 2.2 cm proud at the foot rising to 4.2 cm at the
+                //     tip — the growing end lifts away from the stone, which is
+                //     the silhouette that makes a vine read as a vine and not as
+                //     a decal of one.
+                //   * IT TAPERS. A leaf at the tip is 0.55x the one at the foot:
+                //     the growing end is young.
+                //
+                // PLUMB, like everything else that folds (EnvGrowth.cginc, WHY
+                // THE CARDS MUST BE PLUMB) — the lean of a real vine is bought
+                // with the stem's own wander and the alternation, not by tilting
+                // a card that then has to fold onto a line it does not lie on.
+                //
+                // ITS OWN MESH AND ITS OWN MATERIAL, unlike the wall cushions
+                // which are welded into C_Growth: a material carries one albedo,
+                // and ivy_alb is not moss_01_alb. It is also the reason `span`
+                // can be 0.14 here rather than the cushions' 0.40 — the fold
+                // height must EXCEED the tallest card in ITS OWN mesh and no
+                // more, and the tallest ivy leaf is 9.4 cm. (The caveat this
+                // round was handed said a vine wants a TALLER span than 0.40;
+                // that is true of a vine drawn as one tall card, and it is the
+                // shape that was rejected here — a 1.5 m card of painted ivy has
+                // one silhouette for the whole plant and repeats visibly at the
+                // three sizes the room needs. A chain of leaf cards has a
+                // silhouette per leaf and folds to nothing exactly.)
+                //
+                // WHAT EARTH DOES TO IT IS THE SAME FRONTIER EVERYTHING ELSE
+                // GETS, and it is worth being honest about one consequence: the
+                // grow-in threshold is sampled at each CARD's own position, so a
+                // runner does not unroll strictly from the bottom up — it comes
+                // in patches that spread, the same way the grass and the
+                // cushions do. Making it monotonic in height would need a height
+                // term inside GhvrGrowCard, i.e. in the one function the forest's
+                // 11.5k-vertex grass meshes also run, for a difference nobody has
+                // asked for. At g = 0 every card has exactly zero area, which is
+                // the requirement.
+                //
+                // THE TEXTURE IS CC0 AND WAS FOUND, NOT DRAWN: ambientCG
+                // "Leaf Set 017" (tags {ivy, leaf, leaves, set, vine}, CC0 1.0,
+                // https://docs.ambientcg.com/license/, verified 2026-08-15) —
+                // six photoscanned ivy leaves on a clean opacity map. Poly Haven
+                // has no ivy at all (both indexes queried in full). The keying,
+                // the premultiplied resize and these six rects are reproducible:
+                // Assets/Editor/ivy_pipeline.py. See License.md.
+                var ivyCards = new[]
+                {
+                    new Rect(0.0503f, 0.6733f, 0.3301f, 0.3105f),
+                    new Rect(0.6206f, 0.6836f, 0.2524f, 0.2632f),
+                    new Rect(0.0635f, 0.3218f, 0.3418f, 0.3091f),
+                    new Rect(0.6265f, 0.3628f, 0.2832f, 0.2422f),
+                    new Rect(0.0449f, 0.0122f, 0.3857f, 0.2944f),
+                    new Rect(0.5913f, 0.0229f, 0.3076f, 0.2861f),
+                };
+                const float ivySpan = 0.14f;      // > the tallest ivy leaf (9.4 cm)
+                const float ivyCourse = 0.30f;    // the masonry's course height
+                var ivy = new Acc();
+                var ivyAnchors = new List<(Vector3 at, Vector3 outw)>();
+                int runners = 0, leaves = 0;
+                float tallestLeaf = 0f;
+                for (int r = 0; r < 3; r++)
+                {
+                    int n = Mathf.RoundToInt(runs[r].len / 0.85f);
+                    for (int i = 0; i < n; i++)
+                    {
+                        int sd = 9900 + r * 181 + i;
+                        float u = (i + 0.12f + 0.76f * Hash3(sd, 0, 0, 9911)) / n * runs[r].len;
+                        var foot = runs[r].o + runs[r].a * u;
+                        // the SAME patch mask the cushions and the floor tufts
+                        // use, so the ivy climbs out of the places the wall is
+                        // already green rather than out of bare stone
+                        if (Hash3(sd, 1, 0, 9911) > 0.24f + 0.52f
+                                                    * Fbm2(foot.x * 0.42f, foot.z * 0.42f, 2, 8317))
+                            continue;
+                        if (NearRat(foot) || GrowthBlocked(foot.x, foot.z, 0.14f)) { blocked++; continue; }
+                        float top = 0.55f + 1.20f * Hash3(sd, 2, 0, 9911);
+                        float pitch = 0.085f + 0.030f * Hash3(sd, 3, 0, 9911);
+                        float lat = (Hash3(sd, 4, 0, 9911) - 0.5f) * 0.16f;   // where the stem starts
+                        int side = Hash3(sd, 5, 0, 9911) < 0.5f ? 1 : -1;     // which way it jogs
+                        float y = 0.04f + 0.05f * Hash3(sd, 6, 0, 9911);
+                        int leaf = 0;
+                        while (y <= top && leaf < 24)
+                        {
+                            float f = y / Mathf.Max(top, 1e-3f);              // 0 at the foot, 1 at the tip
+                            // the stem's own wander: straight up the vertical
+                            // joint, one step sideways per masonry course
+                            float stem = lat + side * ivyCourse * 0.11f
+                                             * Mathf.Floor(y / ivyCourse)
+                                       + (Hash3(sd, 20 + leaf, 0, 9911) - 0.5f) * 0.012f;
+                            float hh = (0.075f + 0.019f * Hash3(sd, 40 + leaf, 0, 9911))
+                                       * Mathf.Lerp(1.0f, 0.55f, f);
+                            tallestLeaf = Mathf.Max(tallestLeaf, hh);
+                            var rect = ivyCards[(int)(Hash3(sd, 60 + leaf, 0, 9911) * ivyCards.Length)
+                                                % ivyCards.Length];
+                            float halfW = hh * 0.5f * (rect.width / Mathf.Max(rect.height, 1e-3f));
+                            // alternate left and right of the stem, by a fraction
+                            // of the leaf's own width so consecutive leaves
+                            // overlap the way a shoot's do
+                            float off = ((leaf & 1) == 0 ? 1f : -1f) * halfW
+                                        * (0.70f + 0.50f * Hash3(sd, 80 + leaf, 0, 9911));
+                            // the growing end stands further off the stone
+                            float proud = 0.022f + 0.020f * f;
+                            var at = foot + runs[r].a * (stem + off) + runs[r].inw * proud;
+                            at.y = CellarFloorY(at.x, at.z) + y;
+                            AddGrowthCard(ivy, at, runs[r].a * halfW, hh, rect, Grey(1f), ivySpan);
+                            ivyAnchors.Add((at - runs[r].inw * proud, runs[r].inw));
+                            leaves++; leaf++;
+                            y += pitch * Mathf.Lerp(1.0f, 0.72f, f);          // internodes shorten
+                        }
+                        runners++;
+                    }
+                }
+                if (runners < 6 || leaves < 60)
+                    throw new Exception($"The cellar grew {runners} ivy runners / {leaves} leaves. "
+                                        + "\"Teilweise\" is sparse, not absent — a mask that refuses "
+                                        + "nearly every candidate leaves Earth with no climbing "
+                                        + "growth at all, which is the one thing this population "
+                                        + "exists to add.");
+                if (tallestLeaf > ivySpan)
+                    throw new Exception($"An ivy leaf is {tallestLeaf:F3} m on a mesh whose fold span "
+                                        + $"is {ivySpan:F3} m — see AddGrowthCard.");
+                // WHICH SIDE MUST AN IVY LEAF BE SEEN FROM? Out of its own wall,
+                // and from nowhere else — the same claim the cushions and the
+                // Earth fungus make, gated separately because it is a different
+                // mesh with a different anchor per card. PAIRED anchors (one per
+                // card, in build order), which is exact: every leaf stands on one
+                // known point of one known face.
+                AssertFacesOut(ivy, ivyAnchors, "Cellar ivy");
+                var ivyMesh = SaveMesh("Env_C_Ivy.asset", ivy.Build("Env_C_Ivy"));
+                var ivm = NewRoomMat("C_Ivy.mat", "GloomhavenVR/EnvRoomCutout");
+                ivm.SetTexture("_MainTex", Imp("ivy_alb")
+                    ?? throw new Exception("Imported/Textures/ivy_alb.png is missing — Earth's ivy "
+                                           + "would be untextured white cards. Rebuild it with "
+                                           + "python3 Assets/Editor/ivy_pipeline.py; the CC0 source "
+                                           + "and its licence are in License.md."));
+                ivm.SetFloat("_Cutoff", 0.35f);
+                ivm.SetFloat("_VCol", 1f);
+                // ivy_alb is a daylight photoscan of live leaves and it is BRIGHT
+                // — measured, its opaque texels average 0.521 of luminance
+                // against moss_01_alb's 0.233, i.e. 2.24x. In a cellar lit by
+                // three candles that has to come down or the one green thing in
+                // the room glows, and this tint takes it to 0.207 against the
+                // cushions' tinted 0.114.
+                //
+                // SO THE IVY IS 1.8x THE MOSS AND THAT IS DELIBERATE, stated
+                // because the obvious reading of the numbers is that it should
+                // have been matched. Two reasons not to: a waxy ivy leaf really
+                // does reflect more than a moss cushion — that is most of what
+                // tells them apart in a dark room — and an ivy card is a small
+                // ISOLATED shape where a cushion card is filled edge to edge, so
+                // equal albedo would make the ivy the less visible of the two
+                // and the user asked to be able to SEE it.
+                // It is also tinted COLDER: G/R 1.27 and B/R 0.94 against the
+                // moss's 1.16 and 0.82. Two greens that differ tell the eye
+                // there are two plants; two that match read as one texture used
+                // twice.
+                ivm.SetColor("_Tint", new Color(0.33f, 0.42f, 0.31f));
+                ivm.SetFloat("_ElemGrow", 1.0f);
+                // ...and it frosts with everything else. Ivy under frost is the
+                // one place in this room where Earth and Ice are on the same
+                // square centimetre and both still read.
+                ivm.SetFloat("_ElemFrost", 0.9f);
+                // no wind: a cellar has a draught, and the draught is on the
+                // candles and the silk in the window. w = 1 selects vertex ALPHA
+                // as the fold weight, which is what _ElemGrow needs.
+                ivm.SetVector("_ElemWind", new Vector4(0f, 0f, 0f, 1f));
+                ivm.SetVector("_ElemWindDir", new Vector4(0f, 0f, 1f, ivySpan));
+                var ivyGo = Place(root, "Ivy", ivyMesh, Vector3.zero, Vector3.zero, Vector3.one, ivm);
+                Defer(ivm, ivyGo.transform, 1f);
+                ReportCardBill("Cellar", "Earth ivy", ivy, PreviewEye, true);
+                Debug.Log($"[GloomhavenVR][Env] Cellar EARTH IVY (user: \"Lass bei Erde im Keller an "
+                          + $"den Wänden auch noch teilweise Efeu sprießen\"): {runners} runners on "
+                          + $"the N/S/E walls carrying {leaves} leaf cards ({ivy.Count} verts), "
+                          + $"climbing from {0.04f:F2}-0.09 m to 0.55-1.75 m at a candidate pitch of "
+                          + "0.85 m — one candidate per four wall cushions, and the patch mask then "
+                          + $"refuses over half, which is what \"teilweise\" is made of. Leaves "
+                          + $"4.1-9.4 cm, tapering to 0.55x at the growing tip, alternating left and "
+                          + "right of a stem that climbs vertically and steps sideways every "
+                          + $"{ivyCourse:F2} m of masonry course, standing 2.2 cm proud at the foot "
+                          + $"and 4.2 cm at the tip. Card span {ivySpan:F2} m; with Earth down every "
+                          + "card is folded onto its own base edge and has exactly zero area. "
+                          + "Texture: ambientCG LeafSet017, CC0 1.0 (see License.md).");
+
                 var cellarAll = new Acc();
-                cellarAll.Append(acc); cellarAll.Append(fungE);
+                cellarAll.Append(acc); cellarAll.Append(fungE); cellarAll.Append(ivy);
                 ReportCardBill("Cellar", "ALL EARTH-GATED GROWTH", cellarAll, PreviewEye, true);
                 ReportCardBill("Cellar", "bracket fungi (always on)", fung, PreviewEye, false);
                 Debug.Log($"[GloomhavenVR][Env] Cellar EARTH FUNGUS: {growCaps} plumb fungus cards on "
@@ -6568,7 +6962,12 @@ namespace GloomhavenVR
         private const int HKindCross = 2;   // a solid that travels across the event
         private const int HKindNone = 3;    // no geometry; a schedule placeholder
         private const int HKindProp = 4;    // always drawn; the clock only tips it
-        private const int HKindEyes = 5;    // a solid with a blink
+        // (5 WAS "EYES" — a solid with a blink lag in its sway lane. It is deleted
+        // here and in EnvHaunt.shader together, ModBuild 149: the wood's eyeshines
+        // were the only card that ever used it and the user had them removed
+        // outright. The number is left UNUSED rather than reassigned, so that a
+        // bundle built before this round and a plugin built after it cannot agree
+        // about a kind by accident.)
 
         // ---- the events OTHER shaders react to ------------------------------
         // Three shaders answer a haunt they do not draw (EnvBeam dims, the cobwebs
@@ -6576,24 +6975,43 @@ namespace GloomhavenVR
         // exact envelope of the event it is watching. Those numbers therefore live
         // HERE, once, and both the catalogue below and the material setup read
         // them — because a beam that dimmed for 7.6 s while the silhouette lasted
-        // 8.0 s would be a bug nobody could see the cause of.
+        // 8.0 s would be a bug nobody could see the cause of. THAT IS NOT A
+        // HYPOTHETICAL: it is what shipped from ModBuild 146 to 149, because the
+        // constant below was left on the retired bust's numbers while the comment
+        // beside the card was updated to the figure's. Writing the rule down is not
+        // the same as obeying it; the mirror check is.
         // STILL SIX after ModBuild 146, and the count is not a coincidence: the
         // never-the-same-event-twice guarantee partitions the catalogue into
         // GHVR_HAUNT_GROUPS = 3 equal groups, so a room's card count has to be a
         // multiple of three or one slot in six indexes past the end of the array
         // and draws nothing. The head on the flagstones was retired with the rest
-        // of the imported figures and its slot went to a NEW, figure-free event —
-        // the door of light at the top of the stair. The catalogue is now
-        // Window / Hands / Door / Tremble / Stair / Shelf, and the two cards after
-        // the replaced one each moved down... nothing: only the NAME at index 2
-        // changed, so Tremble and Stair kept their indices and only the SHELF is
-        // where it always was. (The FOREST is the room whose count really fell —
+        // of the imported figures; its slot then held the door of light at the top
+        // of the stair, then the swell in the moon pool, and the user has now
+        // rejected all three (ModBuild 149: "Lösch diesen Effekt komplett"). The
+        // catalogue is Window / Hands / (quiet) / Tremble / Stair / Shelf, and no
+        // index has ever moved: only the NAME at index 2 changed, three times, so
+        // Tremble and Stair kept theirs and the SHELF is where it always was.
+        // (The FOREST is the room whose count really fell —
         // 6 to 3 — which is why Haunt.EventCount can no longer be one shared
         // constant.)
         private const int HauntCellarCards = 6;
         private const int HauntCardWindow = 0;    // the slot the thing outside the window uses
         private const int HauntCardTremble = 3;   // the invisible card the webs answer
-        private static readonly Vector4 HauntWindowEnv = new Vector4(3.2f, 2.6f, 1.8f, 0f);
+        // ModBuild 149: 3.2 / 2.6 / 1.8 (= 7.60 s) -> 0.35 / 4.80 / 0.35 (= 5.50 s).
+        // The card's own comment has claimed the figure's envelope since ModBuild 146 and the
+        // CONSTANT WAS NEVER MOVED WITH IT: the bust's numbers stayed here while a game monster
+        // took over the slot, so EnvBeam dimmed the shaft for 7.6 s over a 5.5 s apparition and
+        // left it dark for two seconds after the thing had gone — the exact failure the paragraph
+        // above warns about, committed by the paragraph that warns about it.
+        private static readonly Vector4 HauntWindowEnv = new Vector4(0.35f, 4.80f, 0.35f, 0f);
+
+        /// <summary>The other half of the one bake/src mirrored pair in this file:
+        /// <c>Haunt.CardSeconds(SkyStyle.Cellar, 0)</c> in
+        /// <c>src/GloomhavenVR/Core/Haunt.Schedule.cs</c>. AssertHauntCards compares
+        /// <see cref="HauntWindowEnv"/>'s sum against it on every bake. It is a separate constant
+        /// rather than a comment because from ModBuild 146 to 149 the comment WAS the guard and the
+        /// two numbers were 2.10 s apart the whole time.</summary>
+        private const float CellarWindowSeconds = 5.50f;
         private static readonly Vector4 HauntTrembleEnv = new Vector4(0f, 1.1f, 0.9f, 0f);
         // THE BOOKSHELF'S OWN CARD. User, cellar 11: "Wie wär es wenn das
         // Bücherregal umkippt, und sich dann nach ner Zeit wieder von selbst
@@ -6703,7 +7121,7 @@ namespace GloomhavenVR
             public Vector3 rotAxis;  // one-shot rotation axis (unit)
             public float rotAngle;   // radians of it, over the event
             public float pivotY;     // that rotation's pivot, metres above the anchor
-            public float shape;      // damped sway amplitude (rad), or EYES blink lag
+            public float shape;      // damped sway amplitude (rad)
             public float reveal, hold, fade;  // the envelope, seconds
             public Color key;        // the KEY light's colour...
             public Vector3 keyDir;   // ...and the direction it comes FROM (unit)
@@ -7196,6 +7614,34 @@ namespace GloomhavenVR
                 throw new Exception($"{room} haunts: {cards.Length} cards is not a positive multiple of "
                                     + $"{HauntGroups}. The 'never the same event twice running' guarantee is "
                                     + "the slot-mod-3 group partition, and it needs equal, non-empty groups.");
+
+            // ---- THE ONE CARD WHOSE LENGTH IS SHARED WITH src/, CHECKED HERE -----------------
+            // The cellar's window card is the only one where a number in this file and a number in
+            // src/GloomhavenVR/Core/Haunt.Schedule.cs MUST be equal: EnvBeam dims the moonbeam for
+            // exactly this envelope, and the runtime spawns the figure for exactly CardSeconds. They
+            // drifted from ModBuild 146 to 149 — this file kept the retired bust's 3.2/2.6/1.8 while
+            // the C# table and this file's own comments moved to the figure's 0.35/4.80/0.35 — so
+            // the shaft went dark for 2.10 s after the apparition had gone, in every shipped build.
+            // Nothing caught it: scripts/check-mirrors.sh lints C# against C# and cannot see a bake
+            // constant. This assert is the guard, and it is deliberately a BAKE ERROR rather than a
+            // log line, because the last four builds prove a comment is not a guard.
+            //
+            // PROVEN TO FIRE, ModBuild 149: HauntWindowEnv was put back to the shipped 3.2/2.6/1.8
+            // and BuildAll failed with "Cellar haunt 'Window' (card 0) sums to 7.600 s but
+            // Haunt.CardSeconds(Cellar, 0) is 5.500 s". The gate is known to fire, not assumed to.
+            if (room == "Cellar")
+            {
+                var w = cards[HauntCardWindow];
+                float sum = w.reveal + w.hold + w.fade;
+                if (Mathf.Abs(sum - CellarWindowSeconds) > 1e-3f)
+                    throw new Exception($"Cellar haunt '{w.name}' (card {HauntCardWindow}) sums to {sum:F3} s "
+                                        + $"but Haunt.CardSeconds(Cellar, 0) is {CellarWindowSeconds:F3} s. "
+                                        + "EnvBeam dims the moonbeam for THIS envelope while the runtime runs "
+                                        + "the figure for THAT one, so any difference leaves the shaft dark "
+                                        + "after the thing has gone (or lit while it is still there). Change "
+                                        + "HauntWindowEnv and Haunt.Schedule.cs's `0 => 5.50f` together, or "
+                                        + "not at all.");
+            }
 
             float rLim = playDia * 0.5f;
             float nearest = float.MaxValue; string nearestName = "-";
@@ -8381,6 +8827,30 @@ namespace GloomhavenVR
         //   puff        0.1512      0.0850      0.562
         //   ArtE (bed, tongue, puff) = 1.671, 0.798, 2.046
         //
+        // ---- ModBuild 149 RE-DERIVED IT, because the erosion moved ---------
+        // The Erode* block below changes tileU/tileV, scroll, amount and base
+        // (the anisotropy that was drawing the user's "Fäden"), which is
+        // exactly the change this table exists to absorb. Re-derived by running
+        // the pipeline's own simulate_erosion() against the new constants — the
+        // ATLAS IS BYTE-IDENTICAL (md5 1b6963f8…, checked), because the ERODE_*
+        // constants feed only the simulation and never the image:
+        //
+        //   cell      mask mean   eroded mean   ratio
+        //   bed         0.1310      0.1010      0.771
+        //   tongueA     0.2682      0.1875      0.699
+        //   tongueB     0.2167      0.1501      0.693
+        //   puff        0.1512      0.0866      0.573
+        //   ArtE (bed, tongue, puff) = 1.729, 0.797, 2.007
+        //
+        // The tongue factor does not move at all to three decimals and the
+        // other two move by under 4 %, which is the honest measure of how
+        // little a re-TILING of a field changes how much of it there is — the
+        // change is in the SHAPE of what survives, which is the whole point.
+        // The re-derivation is `.planning/fire-arte-recompute.py`; the
+        // pipeline's own ERODE_* block still carries the ModBuild 148 values
+        // and has to be brought into step by the lane that owns it (this round
+        // does not own Assets/Editor/fire_atlas_pipeline.py — see the report).
+        //
         // The DRAWN EXTENTS are unchanged to three decimals (0.404 x 0.138
         // against 0.404 x 0.139, and so on down the four), so ArtW and ArtH
         // above are still the numbers the ModBuild 147 measurement produced and
@@ -8391,7 +8861,7 @@ namespace GloomhavenVR
         // copy. If EnvFlame's _ErodeParams/_ErodeMix are changed without
         // re-running it, this table is stale and every fire in both rooms is
         // silently the wrong brightness.
-        private static readonly float[] ArtE = { 1.671f, 0.798f, 2.046f };
+        private static readonly float[] ArtE = { 1.729f, 0.797f, 2.007f };
 
         // ==================================================== THE ROSETTE ========
         // USER VERDICT, hardware, ModBuild 147: "Es sind mehrere sichtbare
@@ -8588,7 +9058,16 @@ namespace GloomhavenVR
                     tw = th * (0.85f + 0.45f * h4);
                     cell = 3f;
                     kind = 2f;                       // GHVR_FKIND_PUFF
-                    rise = height * (0.55f + 0.40f * h5);
+                    // 0.38..0.68 and not 0.55..0.95 — ModBuild 149. A puff is
+                    // born at up to 0.55 of the height and carries 0.49 of it
+                    // in card, so at the shipped rise the top of a detached
+                    // piece was at 1.99 fire-heights before `tall` and the
+                    // pairings, and EnvFire.cginc's ceiling block traces the
+                    // product past four. The ceiling now bounds the tail of
+                    // that distribution; this brings its BODY down, so the
+                    // ceiling is a backstop rather than the thing shaping the
+                    // fire — nothing should be compressed by it in still air.
+                    rise = height * (0.38f + 0.30f * h5);
                     cyc = h4;                        // its place in its own cycle
                     col = new Color(h1, 0.25f + 0.25f * h2, outw,
                                     0.075f + 0.10f * h3);
@@ -8607,11 +9086,45 @@ namespace GloomhavenVR
                     // nailed across the trunk. Fire on bark starts wherever the
                     // bark caught.
                     y0 = bed == 0 ? height * (0.30f * h4 - 0.04f) : -height * 0.06f;
-                    th = height * Mathf.Lerp(1f, 0.45f, outw) * (0.62f + 0.30f * h2);
-                    // WIDE, and that is the lesson of both previous bakes: a
-                    // tongue as narrow as a candle flame IS a candle flame,
-                    // however many of them there are.
-                    tw = th * (0.58f + 0.34f * h3);
+                    // ==================== "ES ZIEHT FÄDEN" =====================
+                    // USER, hardware, ModBuild 149: "Feuer zieht nun solche
+                    // Fäden bis ganz weit nach oben, das sieht nicht realistisch
+                    // aus", with feuer3.jpg (one hairline beside a trunk) and
+                    // feuer4.jpg (a bundle of them off an ember bed). The
+                    // ModBuild 149 preview env_swamp_FireCrate_efireS shows them
+                    // as plainly as the screenshots do: six or eight narrow pale
+                    // spindles standing over the crate, which is a picture of
+                    // candles and not of a fire.
+                    //
+                    // THE DRAWN ASPECT IS THE FAULT AND IT COMPOUNDS TWICE.
+                    // A quad's drawn width is tw x ArtW[1] x QuadWidthK =
+                    // tw x 0.80 x 2/3, so the shipped (0.58..0.92) put it at
+                    // 0.31 to 0.49 of its own height — a card between two and
+                    // three and a quarter times taller than it is wide BEFORE
+                    // anything moves. Then EnvFlame's `lick` multiplies the
+                    // HEIGHT ONLY (p.y *= tall * lick, the width is not in that
+                    // line) by up to 1.48, taking the worst card to 4.8:1. And
+                    // then the erosion carves that card into two or three
+                    // rifts ACROSS its width, so what is actually drawn is
+                    // 12:1 or worse. That is a thread, and no amount of colour
+                    // or motion work reaches it.
+                    //
+                    // SHORT AND BROAD is what a real tongue is, and it is the
+                    // other half of the same fix: the height comes down by a
+                    // fifth and the width goes up by two fifths, which puts the
+                    // drawn aspect at 0.44 to 0.66 (mean 0.55, i.e. under 2:1)
+                    // and at 0.33 to 0.49 after the reduced lick — under 3:1 at
+                    // the very worst card in either room. It costs NOTHING in
+                    // fill: quad area goes as th^2 x (the width factor), so
+                    // 0.818^2 x 1.37 = 0.92, i.e. 8 % LESS painted area than
+                    // the cards it replaces.
+                    th = height * Mathf.Lerp(1f, 0.45f, outw) * (0.50f + 0.26f * h2);
+                    // WIDE, and that is the lesson of three bakes now: a tongue
+                    // as narrow as a candle flame IS a candle flame, however
+                    // many of them there are — and once the erosion is cutting
+                    // holes in it, a tongue only a little narrower than that is
+                    // a bundle of threads.
+                    tw = th * (0.82f + 0.42f * h3);
                     cell = 1f + Mathf.Floor(h5 * 2f);            // one of two shapes
                     kind = 1f;                       // GHVR_FKIND_TONGUE
                     rise = 0f; cyc = 0f;
@@ -9058,6 +9571,54 @@ namespace GloomhavenVR
             return new Vector3(x, y + raise, z);
         }
 
+        /// <summary>Every horizontal surface a downward ray meets at (x,z), from
+        /// the top down — ModBuild 149, and it exists because `SurfaceYAt`
+        /// answers a question a BOOKCASE cannot be asked.
+        ///
+        /// <para>USER, hardware, ModBuild 149: "Im Keller schwebt ein Feuerherd
+        /// das auf dem Regal sein sollte über einem Brett statt auf einem
+        /// Brett." `SurfaceYAt` is `RayDown`, and `RayDown` returns the HIGHEST
+        /// triangle it hits (its own comment says so). On a solid prop — a
+        /// crate, a cask, a table — the highest triangle IS the surface a thing
+        /// stands on, which is why that function has been right everywhere else.
+        /// A bookcase is not solid: it is a carcass with boards inside it, and
+        /// at any (x,z) through the opening a ray meets the TOP PANEL first, the
+        /// board under it second, the next board third. So the shelf fire was
+        /// seated on the top panel and drawn against the open bay below it —
+        /// fire over a board rather than on one, exactly as reported.</para>
+        ///
+        /// <para>Hits are clustered at `merge` metres so that one board's two
+        /// decimated triangles, and the sag across a worn photoscanned plank,
+        /// count once. What comes back is the levels themselves, so a caller can
+        /// say "the second board down" and mean it, and a re-scanned or
+        /// re-scaled bookcase moves its fires with it instead of leaving them at
+        /// a typed offset — the same discipline as FireSeatOn, applied to a prop
+        /// that has more than one surface.</para></summary>
+        private static List<float> SurfaceLevelsAt(GameObject support, float x, float z,
+                                                   float merge = 0.05f)
+        {
+            var (w, t) = WorldMesh(support);
+            var ys = new List<float>();
+            for (int i = 0; i < t.Length; i += 3)
+            {
+                Vector3 a = w[t[i]], b = w[t[i + 1]], c = w[t[i + 2]];
+                float det = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+                if (det > -1e-9f && det < 1e-9f) continue;             // edge-on
+                float l1 = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / det;
+                if (l1 < -1e-4f || l1 > 1.0001f) continue;
+                float l2 = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / det;
+                if (l2 < -1e-4f || l2 > 1.0001f) continue;
+                if (1f - l1 - l2 < -1e-4f) continue;
+                ys.Add(l1 * a.y + l2 * b.y + (1f - l1 - l2) * c.y);
+            }
+            ys.Sort();
+            ys.Reverse();
+            var lv = new List<float>();
+            foreach (var y in ys)
+                if (lv.Count == 0 || lv[lv.Count - 1] - y > merge) lv.Add(y);
+            return lv;
+        }
+
         /// <summary>How hard the draught works a flame standing at `at`, as
         /// EnvFlame's _AirGust.
         ///
@@ -9117,9 +9678,61 @@ namespace GloomhavenVR
         //   BASE       ...and its share at the FOOT. A flame is anchored where
         //              it is fed and its seat may not dissolve.
         //   FINE       the fine octave's share of the field.
-        private const float ErodeTileU = 0.85f, ErodeTileV = 0.72f;
-        private const float ErodeScroll = 0.42f, ErodeBoost = 1.08f;
-        private const float ErodeAmount = 0.88f, ErodeBase = 0.22f, ErodeFine = 0.26f;
+        //
+        // ============ THE FIELD WAS SAMPLED IN UV AND UV IS NOT SQUARE =========
+        // ModBuild 149, and this is the second half of "es zieht Fäden" (the
+        // first is the card aspect, in FireMesh). The field is sampled at
+        // (uv.x * tileU, uv.y * tileV) — i.e. in CARD UV — so one period of it
+        // spans (cardWidth / tileU) across and (cardHeight / tileV) up. Those
+        // are metres, and the card is not square: at the shipped 0.85 / 0.72 on
+        // a card 0.39 as wide as it is tall, a field cell measured 0.46 x 1.39
+        // card-heights. THE HOLES THE EROSION CUTS WERE THEMSELVES THREE TIMES
+        // TALLER THAN THEY WERE WIDE, on a card that was already 3:1, and the
+        // product of the two is the thread in feuer3.jpg. Nobody authored a
+        // vertical rift; the anisotropy of the sampling made every rift one.
+        //
+        // THE FIX IS TO RAISE tileV, NOT TO LOWER tileU, and the first bake of
+        // this round is why that distinction is worth a paragraph. Lowering
+        // tileU to 0.34 does make a field cell square in metres — and it also
+        // takes the number of field periods ACROSS a card from 0.85 down to
+        // 0.34, which is most of a card with no variation across it at all. The
+        // render of that (env_swamp_FireSnag_efair, first ModBuild 149 bake) is
+        // unambiguous: the erosion stopped breaking a card's LEFT AND RIGHT
+        // edges, so the drawn mass took the atlas cell's own outline uniformly
+        // and half a dozen cards became legible as straight-edged
+        // parallelograms — the slab artefact, bought back at the price of the
+        // threads. The field has to be fine ACROSS to keep an edge ragged and
+        // fine UP to keep a rift short, and those are not in conflict: they
+        // are both satisfied by a SMALLER CELL, i.e. by more periods in both
+        // directions rather than fewer in one.
+        //
+        // So: 0.85 -> 0.95 across (edge breakup preserved, marginally better)
+        // and 0.72 -> 1.35 up. On the new card aspect (drawn width 0.55 x
+        // height, from FireMesh) a field cell is now 0.579 x 0.741 card-heights
+        // — 1.28:1 tall, against the 3.02:1 that was drawing the user's Fäden —
+        // and a card spans 0.95 of a period across and 1.35 up, so there are
+        // one or two rifts stacked up a tongue instead of one running its whole
+        // length. That is a flame necking off into rounded puffs, which is what
+        // it does.
+        //
+        // SCROLL IS RE-DERIVED, NOT KEPT: it is in field periods per fire cycle
+        // and a period is now 0.741 of a card instead of 1.389, so holding the
+        // world rise speed of a feature needs 0.42 x (1.35/0.72) = 0.79. That
+        // keeps it at the 2.69 card-heights per second the ModBuild 148 note
+        // measured and named as a flame's own rise — about 1 m/s on a 40 cm
+        // tongue, unchanged for the third round running.
+        //
+        // AMOUNT AND BASE: 0.88/0.22 -> 0.78/0.34. The height weight runs
+        // (base .. 1) up the card, so at 0.22 the cut at the tip was four and a
+        // half times the cut at the foot and the top of every tongue was being
+        // eaten to lace — which is where feuer3's thread is brightest and where
+        // the temperature ramp has already made it dark red. A flame is still
+        // anchored where it is fed (that is what `base` is for and it is still
+        // well under 1); it is now anchored twice as hard, and the tip is torn
+        // rather than dissolved.
+        private const float ErodeTileU = 0.95f, ErodeTileV = 1.35f;
+        private const float ErodeScroll = 0.79f, ErodeBoost = 1.08f;
+        private const float ErodeAmount = 0.78f, ErodeBase = 0.34f, ErodeFine = 0.26f;
 
         // ================================ THE FACE FADE, AS SHIPPED =============
         // (cos of the angle at which a card is GONE, cos of the angle at which it
@@ -9130,6 +9743,16 @@ namespace GloomhavenVR
         // cannot become a stereo disagreement.
         private static readonly Vector4 FireFaceFade =
             new Vector4(Mathf.Cos(75f * Mathf.Deg2Rad), Mathf.Cos(38f * Mathf.Deg2Rad), 0f, 0f);
+
+        // ================================ THE FÄDEN NUMBERS, AS SHIPPED ========
+        // EnvFlame's `lick` scales a card's HEIGHT and not its width, so it is
+        // the term that turns an aspect into a thread; it is named here because
+        // the bake LOG has to state the post-lick aspect and a log that recomputed
+        // it from a literal would drift from the material. See FireAspectLine.
+        private const float FireLick = 0.34f;
+        // ...and EnvFire.cginc's GHVR_FIRE_CAP, mirrored for the same log line.
+        // Change one, change both: this is a reported number, not a driving one.
+        private const float FireCapK = 1.75f;
 
         // How much a card's distance out of the seat cools it (EnvFlame/_Tier).
         // 0.30 puts the outermost tongue a third of the way further along the
@@ -9143,6 +9766,9 @@ namespace GloomhavenVR
         /// every one of these twice and a fire is pure overdraw.</summary>
         private static float FirePaintedM2;
         private static int FireQuads;
+        /// The slimmest quad any fire in the room builds, height per width. See
+        /// the aspect measurement in BuildFireCards and FireMesh's FÄDEN block.
+        private static float FireSlimmest;
 
         /// <summary>The fill budget, stated so the next round can compare like
         /// with like — ModBuild 148.
@@ -9167,6 +9793,18 @@ namespace GloomhavenVR
         /// <para>The raw quad area below is the mesh's own, measured off the
         /// built vertices rather than derived from the authored numbers.</para>
         /// </summary>
+        /// The ONE line the "es zieht Fäden" round is judged on: how slim the
+        /// slimmest thing in the room is, before and after the vertical-only
+        /// stretch, against the ceiling that bounds how high any of it goes.
+        private static string FireAspectLine() =>
+            $"    aspect: slimmest quad {FireSlimmest:F2}:1 (height:width) as built, "
+            + $"{FireSlimmest * (1f + FireLick):F2}:1 after EnvFlame's `lick` (which scales the "
+            + $"HEIGHT ONLY, _Lick {FireLick:F2}). Was 3.24:1 -> 4.80:1 at ModBuild 149, which is "
+            + "what the user photographed as Fäden — and the erosion then cut each of those into "
+            + "two or three rifts across the width. Nothing drawn is more than a few times taller "
+            + $"than it is wide now, and nothing reaches past {FireCapK:F2} x its own fire's "
+            + "height (EnvFire.cginc's GHVR_FIRE_CAP).\n";
+
         private static string FirePaintLine() =>
             $"    quads: {FireQuads} quads, {FirePaintedM2:F2} m^2 of quad, "
             + $"{FirePaintedM2 * 2f / Mathf.PI:F2} m^2 mean PROJECTED (the number MultiPass "
@@ -9219,9 +9857,15 @@ namespace GloomhavenVR
             m.SetFloat("_FireH", height);     // the ramp is measured up the FIRE
             m.SetFloat("_Sway", 0.055f);
             m.SetFloat("_Flicker", 0.55f);
-            // 0.48: a tongue that can grow to 1.5x its own length is visible from
-            // four metres and still belongs to the mass it comes out of.
-            m.SetFloat("_Lick", 0.48f);
+            // 0.34, down from 0.48 — ModBuild 149, and it is the third of the
+            // three multiplies that made a thread. `lick` scales p.y and NOT
+            // the width (EnvFlame: `p.y *= tall * lick`), so every point of it
+            // is spent making an already narrow card narrower: at 0.48 the
+            // worst tongue went from 3.2:1 to 4.8:1 purely by surging. At 0.34
+            // the same card reaches 1.34x instead of 1.48x — still plainly a
+            // tongue that leaps, and 0.44:1 x 1.34 = under 3:1 at the very
+            // worst card in either room instead of nearly 5:1.
+            m.SetFloat("_Lick", FireLick);
             m.SetFloat("_Flare", 0.20f);
             // THE RATE, in Hz, and the same constant the wash on the stone is
             // written with (LightRig.fireHz). See FireHz for the measurement that
@@ -9263,8 +9907,16 @@ namespace GloomhavenVR
             for (int q = 0; q * 4 + 3 < mv.Length; q++)
             {
                 int b = q * 4;
-                FirePaintedM2 += (mv[b + 1] - mv[b]).magnitude * (mv[b + 3] - mv[b]).magnitude;
+                float qw = (mv[b + 1] - mv[b]).magnitude, qh = (mv[b + 3] - mv[b]).magnitude;
+                FirePaintedM2 += qw * qh;
                 FireQuads++;
+                // ...AND THE ASPECT, measured off the built vertices — ModBuild
+                // 150. "Es zieht Fäden" is a statement about the shape of what
+                // is drawn, so the bake has to be able to state that shape or
+                // the next round is guessing again. Recorded as the SLIMMEST
+                // quad in the room, in units of height per width, and again
+                // after EnvFlame's `lick` has stretched the height only.
+                if (qw > 1e-5f) FireSlimmest = Mathf.Max(FireSlimmest, qh / qw);
             }
             return Place(root, $"Fire{n}", mesh, seat, Vector3.zero, Vector3.one, m);
         }
@@ -9285,7 +9937,7 @@ namespace GloomhavenVR
                 : throw new Exception("Cellar fire: prop 'Barrel1' is missing — the cask cannot burn.");
 
             int tris = 0, fires = 0, particles = 0, emitters = 0;
-            FirePaintedM2 = 0f; FireQuads = 0;   // the fill budget, per room
+            FirePaintedM2 = 0f; FireQuads = 0; FireSlimmest = 0f;   // the fill budget, per room
 
             // Every fire's seat, so the log has one list to read.
             var seats = new List<(string n, Vector3 at, float r, float h, int cards)>();
@@ -9331,7 +9983,7 @@ namespace GloomhavenVR
             // second, flatter copy of the same light. What is left is what a halo
             // honestly is: the AIR around a fire glowing.
             //
-            // ---- ModBuild 149: AND DIVIDED BY FOUR AGAIN, ON MEASURED PIXELS --
+            // ---- ModBuild 148: AND DIVIDED BY FOUR AGAIN, ON MEASURED PIXELS --
             // Every alpha in this file was authored BLIND. Env_GlowSphere shipped
             // wound inside out, so under Cull Back the far shell rasterised,
             // dot(N,V) was negative across the entire disc and a halo's whole
@@ -9345,9 +9997,29 @@ namespace GloomhavenVR
             // The NEAR halos go 0.15/0.14/0.12/0.14 -> 0.038/0.035/0.030/0.035.
             // The WALL WASHES (C_FireWash*, 0.026-0.028) are NOT touched: a wash
             // is already an order below the near halo and it is the term that
-            // makes the masonry behind a fire look lit. The candle halos are not
-            // touched either -- two standing user rulings say the candle glow may
-            // not change, in either direction.
+            // makes the masonry behind a fire look lit.
+            //
+            // ---- AND THE CANDLE HALOS ARE A DIFFERENT LANE'S, NOT A NO-GO ----
+            // This block used to say that the candle halos "are not touched
+            // either -- two standing user rulings say the candle glow may not
+            // change, in either direction". THAT WAS A MISREADING AND IT COST A
+            // ROUND. The two rulings are
+            //     "anstatt die Kerzenscheine, die sollte identisch beiben."
+            //     "Auch bei Dunkelheit sollte es keinen Einfluss auf den
+            //      Kerzenschein haben."
+            // and both are about the ELEMENTS: a candle's pool may not be
+            // reshaped by Fire, Light or Dark. They are enforced centrally and
+            // mechanically by `_ElemCandle` on the material and by
+            // GhvrSrcGain/GhvrSrcHard being the exact identity indoors — i.e.
+            // by construction, not by nobody touching the numbers. Neither
+            // ruling says one word about a candle halo's own AUTHORED ALPHA,
+            // and reading them as if it did is why the candle halos were the
+            // one family left out of the post-winding-fix retune above and why
+            // the user has since filed kerzen.jpg against them. They have been
+            // re-authored since (alpha 0.60 -> 0.110, falloff 2.2 -> 3.6,
+            // radius 0.30 -> 0.38) by the lane that owns them. What this fire
+            // lane may not do is edit them, which is ownership and not a
+            // ruling.
             void Halo(string n, Vector3 at, float r, float alpha, Vector3 wallAt,
                       float wallR, float wallAlpha, float phaseOfs, bool onShelf = false)
             {
@@ -9365,7 +10037,7 @@ namespace GloomhavenVR
                 // the "painted ball with an edge" read no amount of dimming fixes.
                 // At 3.10 the same halo is at 0.08 of peak by 0.9 r and 0.65 at
                 // half r: a core with air round it. Measured on the first
-                // ModBuild 149 bake (alpha alone, edge unchanged), the cellar
+                // ModBuild 148 bake (alpha alone, edge unchanged), the cellar
                 // crate halo still washed the barrel two metres to its right.
                 g.SetFloat("_Falloff", 3.10f);
                 g.SetFloat("_Flicker", 0.85f);
@@ -9514,8 +10186,63 @@ namespace GloomhavenVR
             // ...and this is the site that TOPPLES. Both fires and the near halo
             // ride the shelf; the wall wash and the sparks do not (see their
             // blocks for why, and the bake log states it).
-            var shelfSeat = new Vector3(OnShelf(-0.14f, 0f).x, shelfTop, OnShelf(-0.14f, 0f).z);
-            Fire("ShelfTop", shelfSeat, 0.30f, 0.52f, 28, 0f, 7405, 0.045f, onShelf: true);
+            // ============ "ÜBER EINEM BRETT STATT AUF EINEM BRETT" ============
+            // USER, hardware, ModBuild 149. Both faults are here and both are
+            // the same mistake made twice:
+            //
+            //  1. THE HEIGHT WAS MEASURED SOMEWHERE ELSE. `shelfTop` comes from
+            //     `SurfaceYAt(shelf, shelfSpot)` two thousand lines away, at the
+            //     shelf's OWN centre — and the fire stands at OnShelf(-0.14, 0),
+            //     14 cm in front of it. On a bookcase those are different
+            //     surfaces, not the same surface sampled twice.
+            //  2. `SurfaceYAt` IS THE WRONG QUESTION ON A CARCASS. It returns
+            //     the topmost triangle, which on this prop is the top panel,
+            //     and the fire was drawn against the open bay beneath it. See
+            //     SurfaceLevelsAt for the whole argument.
+            //
+            // And the second fire made the same bet a second time: ShelfMid was
+            // `shelfTop - 0.60`, a typed offset into the carcass which is right
+            // only while the carcass is exactly that deep — the same class of
+            // number as the `z = 0.70` that left a fire hanging in mid-air two
+            // rounds ago and is called out four lines below.
+            //
+            // Both are MEASURED now, at the fire's own (x,z), off the boards the
+            // prop really has. The levels are logged so a future round can see
+            // what it is standing on rather than infer it.
+            var shelfXZ = OnShelf(-0.14f, 0f);
+            var shelfObj = root.Find("Shelf")?.gameObject
+                           ?? throw new Exception("Cellar fire: prop 'Shelf' is missing — the "
+                                                  + "bookcase cannot burn, and its two fires have "
+                                                  + "no boards to be seated on.");
+            var boards = SurfaceLevelsAt(shelfObj, shelfXZ.x, shelfXZ.z);
+            if (boards.Count < 2)
+                throw new Exception($"Cellar fire: a ray down at ({shelfXZ.x:F2},{shelfXZ.z:F2}) "
+                                    + $"finds only {boards.Count} surface(s) on 'Shelf'. The two "
+                                    + "fires on it are seated on the bookcase's own boards since "
+                                    + "ModBuild 149 (see SurfaceLevelsAt) — if the prop was "
+                                    + "replaced by a solid one, seat them on its top instead of "
+                                    + "re-typing an offset.");
+            // THE BOARD AND NOT THE PANEL. Level 0 is the top panel, whose upper
+            // face is the lid of the bookcase; a fire that only sits on the lid
+            // of a thing does not read as the thing being alight, which is the
+            // note the ModBuild 148 comment below already makes. Level 1 is the
+            // first real board, and it is where the top fire goes.
+            int topIdx = Mathf.Min(1, boards.Count - 1);
+            var shelfSeat = new Vector3(shelfXZ.x, boards[topIdx], shelfXZ.z);
+            // ...AND A FIRE IN A BAY IS AS TALL AS ITS BAY. Moving these two off
+            // the lid and onto boards puts a ceiling over each of them for the
+            // first time, and the first render of it (env_cellar_FireShelfLow,
+            // ModBuild 149) shows a 0.52 m flame standing on a board with 0.40 m
+            // of headroom going straight up through the board above and out of
+            // the top of the bookcase. 0.78 of the bay leaves the plume licking
+            // out at the FRONT of its bay, which is where a fire in a bookcase
+            // goes, and is derived from the same measured levels as the seat so
+            // it cannot drift from the prop either.
+            float BayH(List<float> lv, int i) =>
+                i > 0 ? Mathf.Max(lv[i - 1] - lv[i], 0.10f) : 0.60f;
+            Fire("ShelfTop", shelfSeat, 0.30f,
+                 Mathf.Min(0.52f, BayH(boards, topIdx) * 0.78f),
+                 28, 0f, 7405, 0.045f, onShelf: true);
             // out of the shelf itself, below the top boards — a bookshelf burns
             // from the inside out, and a fire that only sits on the lid of a
             // thing does not read as the thing being alight.
@@ -9533,15 +10260,34 @@ namespace GloomhavenVR
             // off the shelf's own top board rather than typed as well, so a
             // re-scanned or re-scaled bookshelf keeps its fire at the same place
             // in its own carcass.
-            var shelfMid = new Vector3(OnShelf(-0.26f, 0f).x, shelfTop - 0.60f,
-                                       OnShelf(-0.26f, 0f).z);
-            Fire("ShelfMid", shelfMid, 0.24f, 0.38f, 22, 2.3f, 7406, 0.045f, onShelf: true);
+            var midXZ = OnShelf(-0.26f, 0f);
+            var midBoards = SurfaceLevelsAt(shelfObj, midXZ.x, midXZ.z);
+            // ...the next board down that is far enough below the top fire's
+            // own board to be a different bay rather than the same one sampled
+            // twice. Derived, not typed: `shelfTop - 0.60` was a bet on the
+            // carcass's depth (see the block above).
+            int midIdx = midBoards.FindIndex(y => y < shelfSeat.y - 0.20f);
+            if (midIdx < 0)
+                throw new Exception($"Cellar fire: no board on 'Shelf' under "
+                                    + $"({midXZ.x:F2},{midXZ.z:F2}) more than 0.20 m below the top "
+                                    + $"fire's board at {shelfSeat.y:F2} m. The bookcase's fires "
+                                    + "are measured off its own boards since ModBuild 149; a prop "
+                                    + "with one shelf needs one fire, not a typed offset.");
+            var shelfMid = new Vector3(midXZ.x, midBoards[midIdx], midXZ.z);
+            Fire("ShelfMid", shelfMid, 0.24f,
+                 Mathf.Min(0.38f, BayH(midBoards, midIdx) * 0.78f),
+                 22, 2.3f, 7406, 0.045f, onShelf: true);
             // ...and the WALL WASH behind it had the same z = 0.70 for the same
             // reason and is derived now too. It deliberately does not RIDE the
             // shelf (the wall does not fall over); riding and being derived are
             // different questions and this one was only ever wrong about the
             // second.
-            Halo("Shelf", shelfSeat + new Vector3(-0.05f, 0.28f, 0f), 0.62f, 0.035f,
+            // ...and the NEAR halo is a bay's size now, not a bookcase's: 0.62 m
+            // of radius is a 1.24 m ball, which was wider than the whole carcass
+            // and passed through three boards. Same argument as the forest
+            // snag's and the deadfall's — a halo is the air immediately around a
+            // flame, so it belongs inside the bay the flame is in.
+            Halo("Shelf", shelfSeat + new Vector3(-0.05f, 0.15f, 0f), 0.34f, 0.030f,
                  new Vector3(hw - 0.50f, 1.85f, CellarShelfAt.z), 1.40f, 0.026f, 0f,
                  onShelf: true);
             Sparks("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 16, 7.5f);
@@ -9640,7 +10386,17 @@ namespace GloomhavenVR
                 log.Append($"    lights: {f.name,-7} seat ({f.pos.x,6:F2},{f.pos.y,5:F2},"
                            + $"{f.pos.z,6:F2})  range {f.range:F2} m"
                            + (f.ridesShelf ? "  RIDES THE TIPPING SHELF" : "") + "\n");
+            log.Append("    boards: 'Shelf' surfaces under the two fires, measured (ModBuild 149 — "
+                       + "SurfaceYAt returns the topmost triangle, which on a CARCASS is the top "
+                       + "panel and not the board the fire lies on): at "
+                       + $"({shelfXZ.x:F2},{shelfXZ.z:F2}) "
+                       + string.Join(", ", boards.Select(y => $"{y:F3}"))
+                       + $" -> ShelfTop on {shelfSeat.y:F3}; at ({midXZ.x:F2},{midXZ.z:F2}) "
+                       + string.Join(", ", midBoards.Select(y => $"{y:F3}"))
+                       + $" -> ShelfMid on {shelfMid.y:F3} (was shelfTop {shelfTop:F3} and "
+                       + $"shelfTop-0.60 = {shelfTop - 0.60f:F3}).\n");
             AssertFireSeatCores("Cellar", rig.fires, log);
+            log.Append(FireAspectLine());
             log.Append(FirePaintLine());
             log.Append($"    glut: coals on every burning surface, at {FireCoreK * 1.45f:F2} x each "
                        + "seat's range, on a biased slow breath (rise 0.19 s, fall 0.43 s) — the "
@@ -9698,7 +10454,7 @@ namespace GloomhavenVR
         {
             var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
             int tris = 0, fires = 0, particles = 0, emitters = 0;
-            FirePaintedM2 = 0f; FireQuads = 0;   // the fill budget, per room
+            FirePaintedM2 = 0f; FireQuads = 0; FireSlimmest = 0f;   // the fill budget, per room
             var seats = new List<(string n, Vector3 at, float r, float h, int cards)>();
 
             void Fire(string n, Vector3 seat, float radius, float height, int cards,
@@ -9711,7 +10467,7 @@ namespace GloomhavenVR
                 seats.Add((n, seat, radius, height, cards));
             }
 
-            // ModBuild 149: 0.16/0.14/0.15 -> 0.040/0.035/0.038. See the cellar
+            // ModBuild 148: 0.16/0.14/0.15 -> 0.040/0.035/0.038. See the cellar
             // Halo()'s block for the whole argument -- these alphas were authored
             // against a halo that was never drawn, and the first bake that really
             // drew them put a 2.7 m cream ball round the burning snag. Divided by
@@ -9723,11 +10479,17 @@ namespace GloomhavenVR
                 var g = NewRoomMat($"S_FireGlow{n}.mat", "GloomhavenVR/EnvGlow");
                 g.SetFloat("_ElemCandle", 0f);          // fire, not a candle
                 g.SetColor("_Tint", new Color(1f, 0.45f, 0.15f, alpha));
-                // 3.00, up from 1.70 — see the cellar Halo()'s block. The wood is
-                // the room where this matters most: its background is 0.0007
-                // linear, so ANY broad additive disc out here is a hard-edged
-                // object rather than light in air.
-                g.SetFloat("_Falloff", 3.00f);
+                // 4.20, up from 3.00 and from 1.70 before that — see the cellar
+                // Halo()'s block. The wood is the room where this matters most:
+                // its background is 0.0007 linear, so ANY broad additive disc
+                // out here is a hard-edged object rather than light in air, and
+                // 3.00 was still not enough to hide one. The ModBuild 149 bake's
+                // env_swamp_FireBrush_efireS shows the brushwood halo as a
+                // hard-rimmed orange DOME standing on the forest floor beside
+                // the fire — a glowing ball, which is a thing the user has filed
+                // in its own right. At 4.20 the same halo is at 0.016 of peak by
+                // 0.9 r (against 0.083 at 3.00) and the rim is gone.
+                g.SetFloat("_Falloff", 4.20f);
                 g.SetFloat("_Flicker", 0.85f);
                 g.SetFloat("_Rate", FireHz * FireHaloRate);
                 g.SetFloat("_Phase", phaseOfs);
@@ -9800,9 +10562,47 @@ namespace GloomhavenVR
             // radius at that height (HauntTrunkRadius, the same function the
             // apparition that hides behind a tree is sized by), so a thin snag
             // gets a thin fire and a thick one a broad one.
+            // ============ "DIE FEUERHERDE SCHWEBEN ÜBER DEM BAUM" =============
+            // USER, hardware, ModBuild 149: "Weiterhin ist das Problem noch
+            // nicht gelöst bei einem Baum, dass die Feuerherde über dem Baum
+            // schweben. Es soll direkt auf dem Baum sitzen und am Besten
+            // darunter eine Glut sichtbar sein, dass es glaubwürdig aussieht."
+            //
+            // THIS IS NOT A SEATING BUG, IT IS A GAP. Both fires were seated
+            // correctly — Snag0 on the root flare, Snag1 as a sector pressed
+            // against the bark — and the ModBuild 149 preview
+            // env_swamp_FireSnag_efireS shows them both hugging the trunk
+            // exactly as authored. What it also shows, and what the user is
+            // pointing at, is the SEVENTY CENTIMETRES OF DARK BARK BETWEEN
+            // THEM: Snag0's tongues topped out near y = 1.10 and Snag1's cards
+            // began at 1.76, so the tree carried two separate patches of fire
+            // with cold wood in the middle. An upper patch that is not
+            // connected to anything below it does not read as a burning tree at
+            // any brightness; it reads as a hearth hanging in the air, which is
+            // the user's word, twice, in two rounds.
+            //
+            // Fire climbs. A trunk alight two metres up is alight ALL THE WAY
+            // DOWN, because that is how it got there, and the fix is therefore
+            // continuity and not placement: the upper fire comes down from 1.85
+            // to 0.95 and both grow, so that Snag1's LOWEST card bases (its
+            // bedFrac is 0, so they are spread up the burning face from -0.04 to
+            // +0.30 of its own height, i.e. y = 0.86..1.23) sit INSIDE Snag0's
+            // flame, which reaches 1.10 unstretched and 1.47 at full lick. The
+            // two now overlap by 0.2 m of authored card and 0.6 m of surged
+            // flame, and the column of fire on the bark is unbroken from the
+            // litter at the root to y = 2.0.
+            //
+            // WHY NOT ONE TALL FIRE INSTEAD. A single 2 m fire is one `radius`
+            // and one footprint, so it would be either a 0.95 m-wide column two
+            // metres tall (a bonfire with a tree in it) or a narrow one with no
+            // root flare. Two fires is what lets the base be a wide RING of
+            // burning litter round the flare and the upper part a narrow SECTOR
+            // on the side that caught — the two silhouettes a burning snag
+            // actually has, which is the ModBuild 148 FireFoot argument and is
+            // not worth undoing to close a gap that moving one number closes.
             var foot = TrunkAt(snag, 0.10f);
-            var mid = TrunkAt(snag, 1.85f);
-            float rFoot = HauntTrunkRadius(snag, 0.10f), rMid = HauntTrunkRadius(snag, 1.85f);
+            var mid = TrunkAt(snag, 0.95f);
+            float rFoot = HauntTrunkRadius(snag, 0.10f), rMid = HauntTrunkRadius(snag, 0.95f);
             // ...and the direction the CLEARING is in, which is where a fire on
             // this trunk has to stand: the player watches it from in there.
             var toClear2 = new Vector2(-foot.x, -foot.z).normalized;
@@ -9811,7 +10611,16 @@ namespace GloomhavenVR
             // FireFoot). At `lift` = the trunk's own radius the innermost card
             // stands against the bark instead of inside the wood, which is what
             // stops the shipped build's flames crossing the trunk diagonally.
-            Fire("Snag0", foot, rFoot * 1.5f, 1.05f, 42, 0f, 7501, 0.050f,
+            // 1.15 and not 1.05: the top of this fire is what the fire above it
+            // has to stand in, so its reach is now load-bearing rather than
+            // cosmetic — see the continuity block above.
+            // ...and 36 cards and not 42, which is the fill budget being held
+            // rather than spent: a card's area goes as the fire's height
+            // SQUARED, so 1.05 -> 1.15 is +20 % of painted area on its own and
+            // the two fires together came out +18 % on the room. Fewer, taller
+            // cards over a taller column is the same density of flame; more
+            // cards would have been the same fire drawn twice.
+            Fire("Snag0", foot, rFoot * 1.5f, 1.15f, 36, 0f, 7501, 0.050f,
                  foot: FireFoot.Ring(rFoot * 0.90f));
             // ...and it is climbing the bark, narrower, taller, and with NO BED:
             // see FireMesh's bedFrac. A bed is the part of a fire that lies on
@@ -9835,9 +10644,26 @@ namespace GloomhavenVR
             // handspan, on a footprint two thirds as wide as it was. Not one card
             // is inside the wood now, and the fire hugs the bark instead of
             // crossing it.
-            Fire("Snag1", mid, rMid * 1.0f, 0.95f, 24, 2.6f, 7502, 0.055f, bedFrac: 0f,
+            Fire("Snag1", mid, rMid * 1.0f, 1.10f, 22, 2.6f, 7502, 0.055f, bedFrac: 0f,
                  foot: FireFoot.Face(toClear2, 150f / 360f, rMid + 0.06f));
-            Halo("Snag", foot + new Vector3(0f, 0.75f, 0f), 1.35f, 0.040f, 0f);
+            // ---- THE HALO, AND IT WAS A FLOATING HEARTH IN ITS OWN RIGHT ----
+            // It was a 2.70 m ball centred 0.75 m above the root flare — i.e. a
+            // sphere of light whose middle coincided with no burning surface,
+            // reaching from 0.55 m BELOW the ground to 2.15 m up. The ModBuild
+            // 149 preview shows it as a hard-edged cream disc standing behind
+            // the trunk, wider than the tree and brighter than the flames in
+            // front of it, and it is the single largest object in the frame the
+            // user called a hovering hearth. The user has filed the free
+            // -standing glowing balls separately; this one is a fire's own halo
+            // and is therefore this lane's.
+            //
+            // It is now what a halo honestly is — the air immediately around
+            // the flame glowing — so it sits ON the fire it belongs to (0.45 m
+            // up, inside Snag0's own tongues) at 0.80 m instead of 1.35, and at
+            // 0.028 instead of 0.040. Radius x0.59 is x0.35 of the screen area
+            // it painted, and the surfaces it was standing in for are lit by
+            // the wash and now genuinely reddened by the coals.
+            Halo("Snag", foot + new Vector3(0f, 0.45f, 0f), 0.80f, 0.028f, 0f);
             Sparks("Snag", mid + new Vector3(0f, 0.45f, 0f), 0.28f, 22, 9.0f);
 
             // ---- 2. THE DEADFALL LOG at the clearing edge --------------------
@@ -9887,6 +10713,9 @@ namespace GloomhavenVR
                 }
                 var (lw, lt) = WorldMesh(logGo.gameObject);
                 var logMid = new Vector3(mean.x, 0f, mean.y);
+                // the three measured seat heights, summed — the halo below is
+                // derived from them rather than typed. See its own block.
+                float logSeatY = 0f;
                 for (int i = 0; i < 3; i++)
                 {
                     // 0.62 of the half-length, not 1.0: the ends of a photoscanned
@@ -9932,10 +10761,25 @@ namespace GloomhavenVR
                     float acrossR = Mathf.Max(halfW - 0.72f * rAlong, 0.05f) / rAlong;
                     Fire($"Log{i}", at, rAlong, 0.42f, 22, 1.3f * i, 7510 + i, 0.045f,
                          foot: FireFoot.Along(new Vector2(la.x, la.z), acrossR));
+                    logSeatY += at.y;
                     if (i == 1) Sparks("Log", at + new Vector3(0f, 0.24f, 0f), 0.30f, 16, 6.5f);
                 }
-                logMid.y = 0.42f;
-                Halo("Log", logMid, 1.10f, 0.035f, 1.9f);
+                // ---- AND THIS HALO WAS TYPED, WHICH IS THE SAME FAULT -------
+                // `logMid.y = 0.42f` was the one height in this function that
+                // was not measured: a 2.20 m ball centred 0.42 m up, over a
+                // deadfall whose burning surface the three seats above measure
+                // at 0.14-0.16 m. So its middle stood 0.27 m above the bark in
+                // clear air and its lower half was underground — a soft ball
+                // coinciding with nothing, which is a floating hearth by the
+                // same argument as the snag's above, and it would have survived
+                // any re-scan or re-placement of the log unchanged.
+                //
+                // It is derived now (the mean of the three seats the fires
+                // actually stand on, plus a third of the fire's own height, so
+                // it sits INSIDE the flames), and it is a halo's size rather
+                // than a site's: 1.10 -> 0.72 m, 0.035 -> 0.028.
+                logMid.y = logSeatY / 3f + 0.42f * 0.34f;
+                Halo("Log", logMid, 0.72f, 0.028f, 1.9f);
                 logSeat = logMid;
                 logHalfW = halfW; logHalf = half;
             }
@@ -9948,7 +10792,13 @@ namespace GloomhavenVR
             // them stand up as volumes.
             var brush = new Vector3(-6.9f, ForestY(-6.9f, -5.0f) + 0.06f, -5.0f);
             Fire("Brush", brush, 0.62f, 0.40f, 50, 3.4f, 7520, 0.040f);
-            Halo("Brush", brush + new Vector3(0f, 0.26f, 0f), 0.95f, 0.038f, 3.4f);
+            // ...and this one is INSIDE its own flames now (0.14 m up on a
+            // 0.40 m fire) and half the radius, for the same reason as the
+            // snag's and the deadfall's: a halo is the air immediately around a
+            // flame, and a 1.90 m ball over a 0.40 m bed of burning brushwood
+            // is a light with no source in it. See the falloff block above for
+            // the render this one comes from.
+            Halo("Brush", brush + new Vector3(0f, 0.14f, 0f), 0.58f, 0.026f, 3.4f);
             Sparks("Brush", brush + new Vector3(0f, 0.18f, 0f), 0.52f, 18, 7.5f);
 
             // ================= THE LIGHT ======================================
@@ -9975,8 +10825,24 @@ namespace GloomhavenVR
             // the trunk's own face was still near zero and the burning tree stayed
             // blue-grey. Half a metre out is roughly where the luminous sheet of
             // a fire licking up a trunk actually stands.
+            //
+            // ---- ModBuild 149: 0.55 -> 0.40, AND THE REASON IS THE COALS -----
+            // This seat is the only handle the GLUT has on where it lands: the
+            // coals are a window on the same distance the wash uses (EnvFire's
+            // GhvrFireSeatOne) and there is no channel to give them a seat of
+            // their own — that is stated in EnvFire.cginc's "ADDS NO CHANNEL"
+            // block and is still true. So every centimetre this seat stands off
+            // the bark is a centimetre of coal window spent crossing thin air.
+            // At +0.55 the nearest bark was 0.78 m from the seat and, under the
+            // tightened gq^5 falloff this round needs for the coals to read as
+            // coals at all, that is 0.19 of the peak. At +0.40 it is 0.68 m and
+            // 0.27 — a 40 % gain on the ONE surface the user has now twice asked
+            // to see glowing, bought with N.L on the same bark falling from 0.71
+            // to 0.62, which is 13 % of a wash term that is not the complaint.
+            // (+0.20, the value ModBuild 148 rejected, would be N.L 0.34: that
+            // rejection stands and this is not a step back toward it.)
             var snagSeat = foot + new Vector3(0f, 0.55f, 0f)
-                           + toClearing * (rFoot + 0.55f);
+                           + toClearing * (rFoot + 0.40f);
             // ---- ModBuild 148: THE RANGES COME IN, AND WHY THIS IS THE ROOM --
             // USER, on feuer1.jpg: the fire "sitzt nicht direkt auf den assets",
             // and the wash is the second half of that. Several square metres of
@@ -10048,6 +10914,7 @@ namespace GloomhavenVR
                 log.Append($"    lights: {f.name,-6} seat ({f.pos.x,6:F2},{f.pos.y,5:F2},"
                            + $"{f.pos.z,6:F2})  range {f.range:F2} m\n");
             AssertFireSeatCores("Forest", rig.fires, log);
+            log.Append(FireAspectLine());
             log.Append(FirePaintLine());
             log.Append($"    seats: the SNAG's mid fire is a {150f:F0} deg sector on the bark, "
                        + $"pushed out by the trunk's own {rMid:F2} m radius (it used to be a disc "
@@ -10410,13 +11277,49 @@ namespace GloomhavenVR
             //               next cut has to be made — and it should probably also
             //               learn the moon gain, for exactly the reason the pool
             //               just did.
+            //
+            //               0.09 -> 0.14, ModBuild 151, AND THE HAND-OVER ABOVE
+            //               IS TAKEN UP: this round owns EnvPuddle, the lobe is
+            //               cut from 0.80 to 0.92 of iceMask (i.e. to 8% of the
+            //               water's mirror) and the body's dark pedestal from
+            //               0.35 to 0.15, so the budget the lobe was spending on
+            //               being a MIRROR is spent on being a SOLID instead.
+            //               That matters for the verdict this round is answering
+            //               — "Im Keller die Blauen Flecken von Eis ... sehen
+            //               eher wie Wasserpfützen aus" — because every cue that
+            //               says solid (the plates, the trapped air, the growing
+            //               edge, and the fact that it is visible from straight
+            //               above at all) lives in `body`, and every cue that
+            //               says water lives in the lobe.
+            //
+            //               IT IS A REARRANGEMENT AND NOT A RAISE, and both ends
+            //               are checked:
+            //                 * the MIRROR loses 0.139 of its coefficient, which
+            //                   at the sheet's specular peak is 0.139 x 1.16 x
+            //                   _MoonCol(1.25) x fres = up to 0.20 linear;
+            //                 * the BODY gains 0.05 x _IceCol(0.92) = 0.046.
+            //                 So the brightest pixel of the sheet goes DOWN and
+            //                 the flat, structured middle of it goes up — which
+            //                 is exactly the axis the complaint is on.
+            //                 * and the DARK end goes down too, not merely stays:
+            //                   0.09 x (0.35 + 0.65 x 0.0275) = 0.0331 was the
+            //                   shipped {Dark, Ice} residual; it is now
+            //                   0.14 x (0.15 + 0.85 x 0.0275) = 0.0243, i.e. 27%
+            //                   LESS. ModBuild 147 cut this number because an
+            //                   ungated sheet was the only bright thing left in a
+            //                   room the user had asked to go black; that finding
+            //                   is not reopened, it is answered harder.
+            //               MEASURED after the change, full Ice, Puddle preview:
+            //               see the report. The preview is brighter than the
+            //               headset, so the number that matters is the RATIO to
+            //               the moon pool in the same frame, not the level.
             //   _IceRelief  the dome and the interlocking plates, in slope. 0.45
             //               tilts the sheet by up to ~22 deg at the ridges, which
             //               is enough to break the (already broadened, already
             //               dimmed) moon into scattered glints and not enough to
             //               make the surface read as crumpled foil.
             pud.SetColor("_IceCol", new Color(0.66f, 0.76f, 0.92f, 1f));
-            pud.SetFloat("_IceBody", 0.09f);
+            pud.SetFloat("_IceBody", 0.14f);
             pud.SetFloat("_IceRelief", 0.45f);
             Place(root, "Puddle", puddleMesh, Vector3.zero, Vector3.zero, Vector3.one, pud);
             {
@@ -10791,7 +11694,284 @@ namespace GloomhavenVR
                       new Vector3(0f, 0.19f, 0f),
                       new Rect(0.10f, 0.30f, 0.80f, 0.40f), 0.022f, 0.011f, 5.2f, 1.10f);
             }
-            // 4. LOOSE STRANDS. What sells a web as silk rather than as a decal
+            // 4. ON THE BARS, AND STREAMING INTO THE ROOM. USER, ModBuild 151:
+            //    "Luft im Keller gefällt mir nun viel besser - noch eine Idee:
+            //     Häng irgendwas an die Gitterstäbe beim Keller zB Spinnweben
+            //     das dann durch den Wind in eine Richtung weht um visuell noch
+            //     besser visible zu machen."
+            //
+            //    THE POINT IS EVIDENCE, NOT DECORATION. He is asking for the
+            //    draught to become VISIBLE, and the window is the one place in
+            //    this room where that claim can be made honestly: it is where the
+            //    air comes in, and it is the only place where a moving thing is
+            //    SILHOUETTED against something bright — the beam and the sky
+            //    patch behind the opening — instead of being a grey thread in a
+            //    black room. Every other web in the cellar is lit by a candle at
+            //    best. Backlighting is worth more here than any amplitude.
+            //
+            //    THE MOTION IS AUTHORED FOR LEGIBILITY AT FIVE METRES, which is
+            //    where the player is. The sheets billow 0.055-0.075 m against the
+            //    room's other webs at 0.011-0.030, and the streamers — held at
+            //    ONE end, so vertex red reaches 1.0 at the free tip and the whole
+            //    end swings, where a sheet's rim is pinned all round — run at
+            //    0.10-0.13. From the seated eye that is 4.9 m away, i.e. 1.2-1.5
+            //    degrees of travel, far above the eye's threshold for MOTION,
+            //    which is the quantity that matters here rather than size. Under
+            //    full Air it is x2.20 of that AND held down-wind by 0.90 of the
+            //    authored amplitude (EnvRoomCutout, ELEMENT ART: THE DRAUGHT), so
+            //    raising Air blows the silk into the room and PINS it there
+            //    instead of merely shaking it harder — which is the difference
+            //    between "there is wind" and "the wind comes from over there".
+            //
+            //    WHICH WAY EACH KIND MOVES IS PHYSICS AND NOT A SETTING. A sheet
+            //    strung between two bars is a membrane with two fixed edges and
+            //    can only go perpendicular to itself, so WebMat gives it its own
+            //    normal (here exactly -Z, i.e. into the room) as _SwayDir. A
+            //    loose strand is held at one end and trails, so it gets DraftDir.
+            //    Both are what a draught through a barred window really does.
+            //
+            //    THE GEOMETRY IS RE-DERIVED, NOT COPIED. barCount and barGap are
+            //    recomputed from the same snapped opening and the same 0.2386 m
+            //    pitch the bars themselves are built from (see the bar block),
+            //    because a web strung between bars that are not where it thinks
+            //    they are is a web hanging in mid-air. The gate at the end of
+            //    this block is what makes that safe: it measures every card
+            //    against the bars the bake actually built.
+            {
+                var wbh = SnappedHole(WindowHole, CW, CH, WallCell);
+                float bx0 = -hw + wbh.xMin, bx1 = -hw + wbh.xMax;
+                float by0 = wbh.yMin, by1 = wbh.yMax;
+                int barCount = Mathf.Max(1, Mathf.RoundToInt((bx1 - bx0) / 0.2386f) - 1);
+                float barGap = (bx1 - bx0) / (barCount + 1);
+                float barZ = hd + RevealDepth * 0.45f;
+                float BarX(int i) => bx0 + barGap * (i + 1);
+
+                var webNames = new List<string>();
+                var webAnchors = new List<(Vector3 at, Vector3 outw)>();
+
+                // The sheets: torn silk across every SECOND gap between bars, in
+                // the lower half of the opening. WebWindow already spans the
+                // upper half of the whole aperture, so these hang under it rather
+                // than over it — two layers of silk across one window is a
+                // curtain, and a curtain over the beam is what ModBuild 136
+                // ruled out ("a web across the whole window would put a texture
+                // over the beam's source"). Every second gap, not every one, for
+                // the same reason: the light between them is the thing the
+                // silhouette is read against.
+                for (int g = 0; g < barCount - 1; g += 2)
+                {
+                    float xm = (BarX(g) + BarX(g + 1)) * 0.5f;
+                    float yc = by0 + (by1 - by0) * (0.30f + 0.16f * Hash3(9700 + g, 0, 0, 9711));
+                    float hv = (by1 - by0) * (0.15f + 0.07f * Hash3(9700 + g, 1, 0, 9711));
+                    Sheet("Bar" + g,
+                          new Vector3(xm, yc, barZ),
+                          new Vector3(barGap * 0.5f, 0f, 0f),       // bar to bar
+                          new Vector3(0f, hv, 0f),                  // down the gap
+                          new Rect(0.06f + 0.10f * g, 0.10f, 0.44f, 0.52f),
+                          // a big belly for the area: a web in a draught is
+                          // already blown slack before the element ever rises
+                          0.045f + 0.015f * Hash3(9700 + g, 2, 0, 9711),
+                          0.055f + 0.020f * Hash3(9700 + g, 3, 0, 9711),
+                          1.3f + 2.1f * g, 1.05f);
+                    webNames.Add($"Env_C_WebBar{g}");
+                    // for a sheet the second vector is unused (G3 is a streamer
+                    // claim); the anchor is its centre on the bar plane.
+                    webAnchors.Add((new Vector3(xm, yc, barZ), Vector3.back));
+                }
+
+                // ...and the streamers, which are the part that actually reads
+                // from the play space. 0.42-0.55 m of drop, starting in the upper
+                // half of the opening, drifting into the room along DraftDir.
+                // They live at z 4.75 — inside the embrasure, three metres behind
+                // the play space and two metres above the floor — so nothing here
+                // can come near a player or the board.
+                for (int k = 0; k < 4; k++)
+                {
+                    int b = (k * 2) % barCount;
+                    float yTop = by0 + (by1 - by0) * (0.62f + 0.30f * Hash3(9800 + k, 0, 0, 9811));
+                    var at = new Vector3(BarX(b), yTop, barZ);
+                    Strand("Bar" + k, at,
+                           new Vector3(0.01f, -(0.42f + 0.13f * Hash3(9800 + k, 1, 0, 9811)), 0.02f),
+                           // `wide` is BOTH the ribbon's width vector and its
+                           // drift sweep in StrandMesh, so it cannot be made
+                           // large to buy a bigger lean — 0.30 m of drift is a
+                           // 30 cm wide ribbon, which is a sheet and not a
+                           // thread. 0.14-0.19 m is the widest a torn streamer
+                           // can be and still read as silk, against the room's
+                           // other three at 0.075-0.090. THE BLOWING IS THE
+                           // ELEMENT'S JOB, which is what the user asked for in
+                           // as many words ("das dann DURCH DEN WIND in eine
+                           // Richtung weht"): at rest these hang almost plumb
+                           // with a slight trail, and under full Air the shader
+                           // carries the free end 10.4 cm down-wind and holds it
+                           // there while it flutters +-25 cm about that.
+                           DraftDir * (0.140f + 0.050f * Hash3(9800 + k, 2, 0, 9811)),
+                           k % 3, 0.100f + 0.030f * Hash3(9800 + k, 3, 0, 9811),
+                           0.4f + 1.9f * k, 1.05f);
+                    webNames.Add($"Env_C_StrandBar{k}");
+                    // ...and for a streamer it is the DRIFT it was authored with,
+                    // which is what G3 measures the free end against.
+                    webAnchors.Add((at, DraftDir * (0.140f + 0.050f * Hash3(9800 + k, 2, 0, 9811))));
+                }
+
+                // THE GATE. Neither WebSheetMesh nor StrandMesh had one before
+                // this round, and the generic AssertFacesOut could not be
+                // borrowed: its "not behind the face it grows from" test is
+                // written for a CARD standing off a wall, and a hanging ribbon's
+                // own half-width legitimately reaches 7 cm to either side of its
+                // anchor. Run against these meshes it fails on correct geometry
+                // (measured: 10 vertices, 3.3 cm — the first bake of this block).
+                // A gate that has to be loosened until it passes is a gate that
+                // has been blinded, so this one states the claims that are
+                // actually true of silk hung in a window:
+                //
+                //  G1 (WINDING) — every triangle wound with the normal its own
+                //     vertices carry. EnvRoomCutout is `Cull Off`, so a reversed
+                //     card does NOT vanish, it is LIT FROM BEHIND — black silk in
+                //     front of a moonbeam, which in a preview is indistinguishable
+                //     from a web that is simply in shadow. This is the project's
+                //     single most repeated bug (seven shipped instances).
+                //  G2 (THE EMBRASURE) — no vertex may pass the reveal's OUTER
+                //     face. Inward is where the room is and the silk may reach as
+                //     far into it as it likes; outward there is 55 cm of masonry
+                //     and then the night.
+                //  G3 (DOWN-WIND) — a streamer's FREE END must be down-wind of
+                //     its anchor, by more than half the drift it was authored
+                //     with. This is the claim the whole feature exists to make
+                //     ("das dann durch den Wind in eine Richtung weht"), and it
+                //     is the one a sign error in DraftDir would break silently:
+                //     a streamer trailing UP-wind still looks like a cobweb, it
+                //     just tells the player the draught runs the other way.
+                //
+                // AND IT IS WATCHED FAILING BEFORE IT IS BELIEVED. BarSilkGate
+                // is run once on a deliberately REVERSED copy of the first mesh
+                // (triangles flipped, geometry mirrored about the bar plane and
+                // the drift negated) and is required to throw all three ways.
+                // Inward/face-down winding is this project's most repeated bug;
+                // a gate nobody has seen fire is a comment.
+                void BarSilkGate(Mesh m, string what, Vector3 anchor, Vector3 drift, bool strand)
+                {
+                    var v = m.vertices; var nr = m.normals; var tr = m.triangles;
+                    int wound = 0;
+                    for (int k = 0; k < tr.Length; k += 3)
+                    {
+                        var g = Vector3.Cross(v[tr[k + 1]] - v[tr[k]], v[tr[k + 2]] - v[tr[k]]);
+                        if (g.sqrMagnitude < 1e-14f) continue;
+                        if (Vector3.Dot(g.normalized, nr[tr[k]]) <= 0f) wound++;
+                    }
+                    if (wound > 0)
+                        throw new Exception($"{what}: {wound} of {tr.Length / 3} triangles are wound "
+                                            + "against the normal their own vertices carry, so they "
+                                            + "are lit from behind — black silk in front of the "
+                                            + "moonbeam. See G1 at ON THE BARS.");
+                    float outer = hd + RevealDepth;
+                    foreach (var p in v)
+                        if (p.z > outer - 0.02f)
+                            throw new Exception($"{what}: a vertex at z {p.z:F3} has passed the "
+                                                + $"reveal's outer face at {outer:F2} — the silk is "
+                                                + "hanging in the masonry, or outside the wall. "
+                                                + "See G2 at ON THE BARS.");
+                    if (!strand) return;
+                    // the free end is the vertex ring with the greatest vertex
+                    // RED, which StrandMesh authors as f*f — 0 at the anchor, 1
+                    // at the tip (it is the same weight the sway is scaled by).
+                    var cols = m.colors;
+                    float best = 0f; var tip = Vector3.zero; int nTip = 0;
+                    foreach (var c in cols) best = Mathf.Max(best, c.r);
+                    for (int k = 0; k < v.Length; k++)
+                        if (cols[k].r >= best - 1e-4f) { tip += v[k]; nTip++; }
+                    tip /= Mathf.Max(nTip, 1);
+                    float run = Vector3.Dot(tip - anchor, drift.normalized);
+                    // 0.08 of the authored drift, and the number is arithmetic
+                    // rather than taste. StrandMesh sweeps its centreline by
+                    // `0.35*f^2 + 0.10*(fbm-0.5)` of `wide`, so a CORRECT tip
+                    // lands at 0.30-0.40 of it, less the ~1.8 cm the drop's own
+                    // x/z jitter takes back — 2.4 cm of 16 cm, i.e. 0.15, at the
+                    // authored numbers (measured). A REVERSED drift lands it at
+                    // -0.06 m, i.e. NEGATIVE. Anywhere in between is impossible,
+                    // so the threshold only has to separate the two and is set
+                    // at half the smaller margin. Making it tight enough to also
+                    // police the SIZE of the lean would be measuring the wrong
+                    // thing: at rest a streamer hangs nearly plumb on purpose,
+                    // and the lean is the element's (EnvRoomCutout, THE DRAUGHT).
+                    if (run <= drift.magnitude * 0.08f)
+                        throw new Exception($"{what}: its free end is {run * 100f:F1} cm down-wind of "
+                                            + $"its anchor, against an authored drift of "
+                                            + $"{drift.magnitude * 100f:F1} cm. A streamer that does "
+                                            + "not trail down-wind is telling the player the draught "
+                                            + "runs the other way. See G3 at ON THE BARS.");
+                }
+                int webVerts = 0, webQuads = 0;
+                for (int wi = 0; wi < webNames.Count; wi++)
+                {
+                    var wm = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/" + webNames[wi] + ".asset")
+                             ?? throw new Exception($"{webNames[wi]} was not written, so the "
+                                                    + "window-bar silk cannot be gated. See ON THE "
+                                                    + "BARS.");
+                    bool strand = webNames[wi].Contains("Strand");
+                    if (wi == 0)
+                    {
+                        // THE SELF-TEST, on the first mesh — which is once per
+                        // bake, because this block runs once and no other caller
+                        // exists. A reversed copy must fail all three ways.
+                        var bad = UnityEngine.Object.Instantiate(wm);
+                        var bv = bad.vertices; var bt = bad.triangles;
+                        for (int k = 0; k < bt.Length; k += 3) (bt[k + 1], bt[k + 2]) = (bt[k + 2], bt[k + 1]);
+                        for (int k = 0; k < bv.Length; k++)
+                            bv[k] = new Vector3(bv[k].x, bv[k].y, 2f * (hd + RevealDepth) - bv[k].z);
+                        bad.vertices = bv; bad.triangles = bt;
+                        int caught = 0;
+                        // one probe per claim, each breaking exactly one:
+                        //  0 — G1/G2: the reversed, mirrored copy
+                        //  1 — G3: the real mesh against a drift pointing UP-wind
+                        //  2 — G3: the real mesh against a drift pointing UP
+                        foreach (var probe in new[] { 0, 1, 2 })
+                        {
+                            try
+                            {
+                                if (probe == 0)
+                                    BarSilkGate(bad, "[GATE SELF-TEST]", webAnchors[wi].at,
+                                                DraftDir, false);
+                                else if (probe == 1)
+                                    BarSilkGate(wm, "[GATE SELF-TEST]", webAnchors[wi].at,
+                                                -webAnchors[wi].outw, true);
+                                else
+                                    BarSilkGate(wm, "[GATE SELF-TEST]", webAnchors[wi].at,
+                                                Vector3.up * 0.16f, true);
+                            }
+                            catch (Exception) { caught++; }
+                        }
+                        UnityEngine.Object.DestroyImmediate(bad);
+                        if (caught != 3)
+                            throw new Exception($"The window-bar silk gate caught {caught} of 3 "
+                                                + "deliberately broken meshes. A gate that does not "
+                                                + "fire is a comment — see ON THE BARS.");
+                        Debug.Log("[GloomhavenVR][Env] window-bar silk gate SELF-TEST passed: a "
+                                  + "reversed-winding mesh, a mirrored one and an up-wind streamer "
+                                  + "were each rejected (G1, G2, G3). The gate below is therefore "
+                                  + "known to fire, not assumed to.");
+                    }
+                    BarSilkGate(wm, $"Cellar window-bar silk '{webNames[wi]}'",
+                                webAnchors[wi].at, webAnchors[wi].outw, strand);
+                    webVerts += wm.vertexCount;
+                    webQuads += wm.triangles.Length / 6;
+                }
+                Debug.Log($"[GloomhavenVR][Env] Cellar WINDOW-BAR SILK (user: \"Häng irgendwas an die "
+                          + "Gitterstäbe beim Keller zB Spinnweben das dann durch den Wind in eine "
+                          + $"Richtung weht\"): {(barCount - 1 + 1) / 2} sheets strung across the "
+                          + $"{barGap * 100f:F1} cm gaps between {barCount} bars at z {barZ:F3}, plus "
+                          + $"4 loose streamers 42-55 cm long trailing along DraftDir "
+                          + $"{DraftDir.x:F2},{DraftDir.z:F2}; {webNames.Count} meshes, {webVerts} "
+                          + $"verts, {webQuads} quads at rest and the same at "
+                          + "full Air (silk is not element-gated geometry — only its motion is). "
+                          + "Billow 5.5-7.5 cm and streamer swing 10-13 cm, x2.20 under full Air "
+                          + "with a 0.90-amplitude down-wind LEAN on top, which is 1.2-1.5 deg of "
+                          + "travel from the seated eye 4.9 m away. Backlit by the beam and the sky "
+                          + "patch, which is why this is the one place in the room where moving silk "
+                          + "reads at all.");
+            }
+
+            // 5. LOOSE STRANDS. What sells a web as silk rather than as a decal
             //    is the stuff that came adrift from it: three threads hanging off
             //    the beams and the shelf web, each with the dust it has caught,
             //    swinging on the same draught as the flames (DraftDir) and much
@@ -10877,11 +12057,20 @@ namespace GloomhavenVR
                 //               is crossing in front of the window.
                 //   1  Hands    handprints blooming on the wet wall by the puddle.
                 //               The one flat card left in either room.
-                //   2  Swell    NEW (ModBuild 149): something under the moon pool
-                //               lifts the water into a smooth back, holds three
-                //               seconds and sinks. No figure, no face, nothing
-                //               shown. Replaces the lit rectangle at the top of
-                //               the stair shaft, which the user rejected.
+                //   2  (quiet) DELETED, ModBuild 149, on the user's own order:
+                //               "Der 'Oben an eine Treppe geht eine Tür auf' Effekt
+                //               ist kaputt, stattdessen kommt eine Art Zylinder aus
+                //               der Pfütze. Lösch diesen Effekt komplett." He is
+                //               describing the SWELL, which is what this card had
+                //               become one round earlier when the stair-top door of
+                //               light was itself deleted; from the diorama posture a
+                //               surface of revolution rising out of the puddle reads
+                //               as a cylinder and not as water. The slot survives
+                //               because the group partition needs a multiple of
+                //               three cards and this room has six; the EVENT does
+                //               not. Nothing is drawn, no figure is spawned, no cue
+                //               is played and the Advanced-menu page does not draw a
+                //               button for it (Haunt.IsInert).
                 //   3  Tremble  draws nothing: every COBWEB in the room shivers
                 //               (EnvRoomCutout). A tester pressing this button has
                 //               to be told to look at the webs, not at the room.
@@ -10891,14 +12080,23 @@ namespace GloomhavenVR
                 //   5  Shelf    THE BOOKSHELF TIPS OVER and stands itself back up.
                 //               It is always on screen; this button only starts it.
                 //
-                // STILL SIX. The head that lay on the flagstones went with the rest
-                // of the figures (ModBuild 146) and no game monster can lie on a
-                // floor and look up — but the group partition needs a multiple of
-                // three, so its slot cannot be dropped. It held the door for one
-                // round and holds the swell now, and the swell gives the room back
-                // what point 3 of the ModBuild 146 losses said it had lost: an
-                // event at FLOOR LEVEL, in the moonlight, where the player is
-                // already looking.
+                // STILL SIX, AND CARD 2 HAS NOW OUTLIVED THREE EVENTS. The head
+                // that lay on the flagstones went with the rest of the figures
+                // (ModBuild 146); the door of light at the top of the stair
+                // replaced it and was rejected ("leuchtet einfach nur der Ausgang
+                // einfarbig. Lösch das"); the swell in the moon pool replaced THAT
+                // and was rejected in turn ("eine Art Zylinder aus der Pfütze").
+                // The slot cannot be dropped — the group partition needs a multiple
+                // of three — so it is now simply quiet, and the honest reading of
+                // three rejections in three rounds is that this slot's problem is
+                // not its content. Every one of the three was in frame from the
+                // diorama posture, at the far end of a room the player is looking
+                // down into, with nothing around it to give it scale; what reads as
+                // an apparition there is a THING WITH A SILHOUETTE, which is why the
+                // two events in this room that survive are both game monsters. The
+                // cost is stated rather than hidden: the cellar has lost its only
+                // event at floor level, and point 3 of the ModBuild 146 losses is
+                // outstanding again.
                 // ============================================================
                 //
                 // THE LIGHT COLOURS BELOW ARE THE ROOM'S OWN, and that is the whole
@@ -11056,128 +12254,72 @@ namespace GloomhavenVR
                         why = "west wall south of the stair doorway, three life-size prints "
                               + "descending 1.46 -> 0.94 m over 0.84 m of wall, the last a smear",
                     },
-                    // [2] SOMETHING UNDER THE WATER. Card name "Swell".
+                    // [2] NOTHING HAPPENS HERE — A SCHEDULE PLACEHOLDER, and the
+                    // third event in three rounds to be deleted out of this one
+                    // slot.
                     //
-                    // USER, ModBuild 148, verbatim: "Bei 'Gesicht am Boden' dem
-                    // Effekt im Keller leuchtet einfach nur der Ausgang
-                    // einfarbig. Lösch das und denke dir was anderes aus was
-                    // wirklich Horror verbreiten könnte."
+                    // USER RULING, ModBuild 148 hardware, verbatim: "Der 'Oben an
+                    // eine Treppe geht eine Tür auf' Effekt ist kaputt, stattdessen
+                    // kommt eine Art Zylinder aus der Pfütze. Lösch diesen Effekt
+                    // komplett."
                     //
-                    // WHAT WAS HERE AND WHY IT FAILED. A dim warm rectangle faded
-                    // up at the top of the stair shaft — one flat box, 1.5 x 1.6 m,
-                    // meant to read as a door opening onto a lit room. It read as
-                    // exactly what it was: a lit panel. Three faults, and all
-                    // three are structural rather than tuning:
-                    //   1. NO FORM. A rectangle of even colour has no silhouette,
-                    //      no shading and no parallax; it is the flat card this
-                    //      whole catalogue was rebuilt to get away from ("generell
-                    //      keine 2D Pappaufsteller").
-                    //   2. IT ONLY EXISTED FROM ONE VIEWPOINT. It sat 0.90 m up at
-                    //      the far end of a 6 m shaft, i.e. about 4 degrees ABOVE
-                    //      the horizon from a standing head. The player's usual
-                    //      posture is looking DOWN at the board (HeadBoardC pitches
-                    //      29 degrees down, and its 60 degree frame then reaches
-                    //      only 1 degree above the horizon) — so from the diorama
-                    //      view, which is most of the time, the event was off the
-                    //      top of the screen entirely.
-                    //   3. LIGHT IS THE WRONG NOUN. Every other source in this
-                    //      room flickers, and a rectangle that fades up evenly and
-                    //      holds perfectly still reads as a UI element.
+                    // HE IS RIGHT ON BOTH HALVES OF THAT SENTENCE and the second
+                    // half is the interesting one. The door he pressed the button
+                    // for HAD already been deleted — he had rejected it himself one
+                    // round earlier ("leuchtet einfach nur der Ausgang einfarbig.
+                    // Lösch das") — and what the same card played instead was a
+                    // SWELL: a surface of revolution, sunk under the flagstones,
+                    // rising 0.16 m out of the moon pool over 2.2 s, holding three
+                    // seconds and sinking. So the effect was not broken in the sense
+                    // of a bug; it was a different effect wearing the old button's
+                    // caption, and it read to him as a cylinder coming out of the
+                    // puddle. Both halves are fixed by the same deletion, and the
+                    // caption went with it (Loc.cs no longer carries vr_tt_hc_2).
                     //
-                    // WHAT REPLACES IT. The moon pool is the only bright thing on
-                    // this floor and the room has spent ten minutes teaching the
-                    // player to watch it: the drip falls into it every 2.85 s, the
-                    // moonbeam lands in it, and the rat crosses it. For two
-                    // seconds the water at its far edge LIFTS — a smooth back
-                    // 0.89 m across, with the water it displaces standing in a
-                    // low collar round its foot —
-                    // holds three seconds without moving, and sinks. Nothing comes
-                    // out. Nothing is ever shown.
+                    // WHY THE SWELL READ AS A CYLINDER, recorded because the profile
+                    // was carefully designed and the design was not the problem. It
+                    // was a lathe whose silhouette went out to a low skirt, over a
+                    // lip, into a trough and up into a dome — the shape a water
+                    // surface makes when something under it pushes up, and NOT the
+                    // shape of any solid. That silhouette only exists FROM THE SIDE.
+                    // The posture this room is really watched from is the diorama
+                    // one, looking DOWN at the board from above the walls, and from
+                    // there a surface of revolution presents concentric rings and
+                    // its own vertical extent as a straight edge: a cylinder. Two
+                    // earlier bakes had already been rejected for the same reason
+                    // in different words ("a flying saucer", "a plate"), which in
+                    // hindsight was the same finding three times.
                     //
-                    // WHY IT FRIGHTENS, stated as what the player perceives and
-                    // when. He is told two things and shown neither: that the
-                    // puddle is not two centimetres deep, and that whatever is in
-                    // it came far enough to see him and then STOPPED. The horror
-                    // is in the hold — three seconds of a mass that has surfaced
-                    // and is not doing anything. And unlike a figure it cannot be
-                    // resolved, dismissed or looked at properly, because there is
-                    // nothing there to resolve.
+                    // THE PATTERN THIS SLOT HAS ESTABLISHED, since the next person
+                    // to fill it will want to know: a head on the flagstones, a
+                    // rectangle of light and a mound in a puddle have all been
+                    // rejected here, and what the two surviving cellar events have
+                    // in common is that both are a CREATURE WITH A SILHOUETTE seen
+                    // through a real opening. Nothing that is a surface, a panel or
+                    // a mass on the floor has ever survived contact with the
+                    // look-down view.
                     //
-                    // IT WORKS FROM BOTH VIEWPOINTS BY CONSTRUCTION, which is the
-                    // fault that killed the door. It is at FLOOR LEVEL, so it is
-                    // in frame from the diorama posture (looking down at the board
-                    // it is 24 degrees below the horizon, dead centre of a
-                    // down-pitched view) and equally in frame from a standing or
-                    // seated head looking across the room. There is no head
-                    // attitude in this room from which the floor is not visible.
-                    //
-                    // FIGURE-FREE, and deliberately: the game-monster apparitions
-                    // are another lane's and already hold cards 0 and 4. Nothing
-                    // here is posed, animated or humanoid — it is a surface of
-                    // revolution that goes up and comes down again.
-                    //
-                    // 4.69 m from the room centre, 4.24 m at its nearest vertex,
-                    // against a 3.25 m PlaySpace radius — the closest card in the
-                    // catalogue and still a metre outside the board's air. It is
-                    // ON the far half of the puddle (PuddleAt +/- PuddleR = 0.72 m)
-                    // and therefore on wet stone, and it is on the side of the
-                    // puddle AWAY from the beam's landing point, so what the eye
-                    // gets is a dark mass rising at the edge of the one lit patch
-                    // rather than a shape lit from inside it.
+                    // THE CARD CANNOT GO WITH IT: the cellar has six cards and
+                    // EnvHaunt.cginc's group partition needs a positive multiple of
+                    // GHVR_HAUNT_GROUPS (3), which AssertHauntCards enforces from
+                    // this side. Five cards would make a third of every group-2 slot
+                    // index a card that does not exist.
                     new HauntCard
                     {
-                        name = "Swell", kind = HKindSolid,
-                        // y = -0.115: the solid is authored SUNK. Its bottom pole
-                        // sits 0.17 m under the flagstones at rest and the floor's
-                        // own depth rejects it (EnvHaunt is Transparent+2 with
-                        // ZTest LEqual and the floor is opaque), so what rises
-                        // through the water is a surface breaking it and not a
-                        // ball descending onto it. At full travel the bottom pole
-                        // is still 0.02 m under the floor — it never once shows
-                        // its own underside, which is the failure a lifted closed
-                        // solid has.
-                        at = new Vector3(-3.92f, -0.115f, 2.58f),
-                        facing = new Vector3(0.835f, 0f, -0.550f),
-                        height = 0.25f, wide = 1.0f, yaw = 0f,
-                        // IT RISES, and it rises slightly TOWARD the room. 0.16 m
-                        // along (up + 0.34 * toCentre) is 0.152 m of lift and
-                        // 0.052 m of approach: enough that the thing is measurably
-                        // nearer at the end of the hold than at the start, and far
-                        // too little to be a charge.
-                        move = (Vector3.up + new Vector3(0.835f, 0f, -0.550f) * 0.34f).normalized,
-                        moveAmt = 0.16f,
-                        // the water is disturbed as it comes: a damped rock about
-                        // the sightline, dead by the middle of the reveal.
-                        rotAxis = new Vector3(0.550f, 0f, 0.835f), rotAngle = 0.05f, pivotY = 0f,
-                        shape = 0.055f,
-                        // UNCHANGED ENVELOPE, deliberately: 2.2 + 3.0 + 1.6 = 6.8 s
-                        // is what PreviewEnvironments' HauntDoor/HauntDoorOff shots
-                        // solve the shipped schedule against (that file is another
-                        // lane's this round), so changing it would silently move
-                        // every preview of this card off the event.
-                        reveal = 2.2f, hold = 3.0f, fade = 1.6f,
-                        // THE ROOM'S OWN LIGHT AND NO OTHER. The key is the moon,
-                        // arriving down MoonDir, because the moonbeam is what
-                        // lands here — this is the only apparition in either room
-                        // standing in a light the player can see the source of.
-                        // A top-lit dome over a dark floor is the most
-                        // unambiguously three-dimensional thing this shader can
-                        // draw, which is the exact opposite of the flat panel it
-                        // replaces.
-                        // MEASURED TWICE AND DIVIDED BY TEN IN TOTAL. Bake 1
-                        // put the crown at 0.285 linear over a floor at 0.030 —
-                        // white porcelain, i.e. this round's painted-ball failure
-                        // moved indoors. Bake 2 (0.052) still measured a mean of
-                        // 0.035 over a floor at 0.009 in the LOOK-DOWN view, which
-                        // is the posture that matters, and read as a stone basin.
-                        // These numbers put the moonward crown at ~0.024 and the
-                        // flank at ~0.006 against 0.009 of wet floor: brighter
-                        // than the water along one edge and darker than it
-                        // everywhere else, which is what a mass in a lit pool is.
-                        key = new Color(0.026f, 0.029f, 0.035f), keyDir = moon,
-                        fillAmt = 0.10f, opacity = 0.95f, rim = 0.30f,
-                        why = "a 0.89 m back lifts out of the moon pool with the water pushed out into "
-                              + "a collar round it, holds 3 s and sinks; nothing comes out",
+                        name = "Quiet", kind = HKindNone,
+                        // The anchor stays on the far edge of the moon pool where
+                        // the swell stood, at floor level rather than sunk: nothing
+                        // is drawn, and a card that draws nothing has no business
+                        // being under the floor where the room-box gate has to think
+                        // about it.
+                        at = new Vector3(-3.92f, 0f, 2.58f),
+                        facing = new Vector3(0.835f, 0f, -0.550f), height = 0.05f,
+                        // 0 + 2.0 + 0 — the same shape the tremble beside it uses.
+                        reveal = 0f, hold = 2.0f, fade = 0f,
+                        key = Color.black, keyDir = moon, opacity = 0f,
+                        why = "nothing at all: the stair-top door and the swell that replaced it were both "
+                              + "deleted on the user's order and only the schedule slot survives (the card "
+                              + "count must stay a multiple of three)",
                     },
                     // [3] THE TREMBLE. Draws NOTHING. Its whole existence is to
                     // occupy a schedule slot that EnvRoomCutout watches: every
@@ -11293,86 +12435,18 @@ namespace GloomhavenVR
                             (h, cs, i, piece) =>
                             {
                                 var c = cs[i];
-                                if (c.name == "Swell")
-                                {
-                                    // TWO SURFACES OF REVOLUTION, and the PROFILE
-                                    // is the whole design. A hemisphere is a ball
-                                    // and reads as one (see the wood's eyeshines,
-                                    // same round, same complaint); what makes this
-                                    // read as WATER is that the profile carries
-                                    // the displaced water with it — it goes out to
-                                    // a wide low skirt, up over a raised lip, back
-                                    // down into a trough and only then climbs into
-                                    // the dome. That silhouette does not belong to
-                                    // any solid object; it is what a surface does
-                                    // when something under it pushes up.
-                                    //
-                                    // A LATHE AND NOT AN ELLIPSOID, and a UNIFORM
-                                    // merge scale: LatheMesh's normals come out of
-                                    // RecalculateNormals, i.e. out of the real
-                                    // geometry, so a rotation keeps them exact.
-                                    // (MergeInto does not inverse-transpose a
-                                    // scale, so a squashed lathe would be shaded
-                                    // against normals that are not its own — which
-                                    // on a shape whose entire content is a top-lit
-                                    // crown is the whole picture.)
-                                    //
-                                    // Radius 0 at both ends, so both poles close.
-                                    //
-                                    // MONOTONIC IN y, AND ONE SOLID, AND THE
-                                    // BAKES ARE WHY. The first profile had a raised
-                                    // lip, a trough behind it and then the dome,
-                                    // plus a separate torus at 0.68 m for the
-                                    // ripple. Seen from the LOOK-DOWN posture —
-                                    // which is the posture this event exists for —
-                                    // that is three concentric bright circles, and
-                                    // it read as a flying saucer. The second was
-                                    // one surface but too FLAT (0.19 m of rise on a
-                                    // 1.26 m base, aspect 0.30), and a shallow
-                                    // mound lit from 40 degrees up presents a large
-                                    // evenly-lit top: it read as a plate. This one
-                                    // is 0.256 m on a 0.886 m base, aspect 0.58 —
-                                    // a BACK. The crown turns away from the moon
-                                    // fast enough that the shading grades from
-                                    // 0.045 to 0.005 across the shape from every
-                                    // one of the four stations, which is what makes
-                                    // a silhouette instead of a disc.
-                                    var swell = new[]
-                                    {
-                                        new Vector2(0.000f, -0.058f),
-                                        new Vector2(0.170f, -0.055f),
-                                        new Vector2(0.310f, -0.045f),
-                                        // THE RIM IS ROUNDED OVER FIVE POINTS AND
-                                        // THE GATE IS WHY. An earlier profile
-                                        // turned through ~170 degrees in ONE
-                                        // segment at the widest point; LatheMesh's
-                                        // normals come from RecalculateNormals,
-                                        // which averages across that knife edge,
-                                        // and AssertClosedAndOutward failed the
-                                        // build with 34 of 680 triangles
-                                        // disagreeing with their own vertex normal.
-                                        // A surface of revolution has to turn its
-                                        // 180 degrees in steps a vertex normal can
-                                        // represent.
-                                        new Vector2(0.395f, -0.028f),
-                                        new Vector2(0.432f, -0.010f),
-                                        new Vector2(0.443f,  0.008f),
-                                        new Vector2(0.436f,  0.020f),
-                                        new Vector2(0.415f,  0.032f),   // the shoulder of water
-                                        new Vector2(0.372f,  0.046f),
-                                        new Vector2(0.320f,  0.072f),
-                                        new Vector2(0.262f,  0.110f),
-                                        new Vector2(0.196f,  0.155f),
-                                        new Vector2(0.126f,  0.200f),
-                                        new Vector2(0.062f,  0.238f),
-                                        new Vector2(0.000f,  0.256f),
-                                    };
-                                    var sm = LatheMesh(swell, 34);
-                                    MergeInto(piece, sm, c.at, Quaternion.identity,
-                                              Vector3.one, Color.white);
-                                    UnityEngine.Object.DestroyImmediate(sm);
-                                }
-                                else if (c.name == "Hands")
+                                // (THE SWELL was built here: a 34-segment lathe
+                                // whose profile went out to a skirt, over a lip,
+                                // into a trough and up into a 0.256 m dome, merged
+                                // at the card's anchor and sunk 0.115 m under the
+                                // flagstones so that what broke the water was a
+                                // surface and never a ball descending onto one. It
+                                // is DELETED with its card — see the card's own
+                                // block for why a surface of revolution reads as a
+                                // cylinder from the posture this room is watched
+                                // from, and for the three-round pattern that says
+                                // this slot wants a creature or nothing.)
+                                if (c.name == "Hands")
                                 {
                                     // THREE marks, THREE atlas tiles, THREE
                                     // envelopes — one card. Each is its own small
@@ -13867,55 +14941,48 @@ namespace GloomhavenVR
             SProp("Moss2", "moss_01", "moss_01", new Vector3(-6.1f, 0, 3.2f), 110, 1.6f, cutout: true, sink: 0.02f);
             SProp("Moss3", "moss_01", "moss_01", new Vector3(3.4f, 0, -4.8f), 260, 1.2f, cutout: true, sink: 0.02f);
 
-            // ------------------------------------------------- lights in the dark
-            // Small additive spheres, world-anchored, no billboarding (EnvGlow
-            // falls off toward its own silhouette so it reads as a halo from any
-            // direction and in stereo).
-            var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
-            Material Glow(string n, Vector3 p, float r, Color c, float falloff,
-                          float elemWarm = 0.35f, string prefix = "Wisp")
-            {
-                var m = NewRoomMat($"S_Glow{n}.mat", "GloomhavenVR/EnvGlow");
-                m.SetColor("_Tint", c);
-                m.SetFloat("_Falloff", falloff);
-                // ELEMENT ART: these halos still answer the Light/Dark split in
-                // full (they are SOURCES — see EnvGlow), but they only take a
-                // THIRD of Fire's warm push. A will-o'-the-wisp that turns
-                // ember-orange is not a will-o'-the-wisp any more, and the cold
-                // marsh green out among the trunks is the one colour in this wood
-                // that is doing narrative work.
-                m.SetFloat("_ElemWarm", elemWarm);
-                Place(root, prefix + n, glowMesh, p, Vector3.zero, Vector3.one * r, m);
-                return m;
-            }
-
-            // ================= THE EYESHINE IS A RETROREFLECTION ==============
-            // USER, ModBuild 148: "Bei der 'Fratze' im Wald erscheinen einfach so
-            // zwei Tennisbälle. Nicht sehr viel Horror."
+            // ---------------------------------------- THERE ARE NO FREE-STANDING
+            // ---------------------------------------- LIGHTS IN THIS WOOD ANY MORE
             //
-            // A tapetum lucidum sends the light BACK the way it came, in a lobe a
-            // few tens of degrees wide. That is the whole difference between an
-            // eye and a bead: an eye is bright only from near the axis the light
-            // arrived down, and it goes out when you step off it. EnvGlow's
-            // _Shine/_ShineAxis is that lobe; this helper aims it, and it aims it
-            // at the ONE place in this room the light and the viewer are both at
-            // — the clearing, where the board is and where the only fire in the
-            // wood burns. (The moon cannot do this job: it stands at bearing 40
-            // deg and 40 deg up, i.e. 68 deg of azimuth away from the sightline
-            // to either pair, so a lobe honestly keyed to it would never fire at
-            // all. A retroreflection needs a light NEXT TO THE EYE THAT SEES IT,
-            // and in this wood that light is the clearing's own.)
-            void Shine(Material m, Vector3 at, float exponent)
-            {
-                // aimed at the clearing centre at head height (the wood's own
-                // standing eye is 2.80 m, seated 2.30 — see PreviewEnvironments'
-                // HeadY), so BOTH the in-room view and the look-down-at-the-board
-                // view sit inside the lobe and a walk to the edge of the play
-                // space takes you out of it.
-                var axis = (new Vector3(0f, 2.40f, 0f) - at).normalized;
-                m.SetFloat("_Shine", 1f);
-                m.SetVector("_ShineAxis", new Vector4(axis.x, axis.y, axis.z, exponent));
-            }
+            // A `Glow(name, pos, radius, tint, falloff)` helper stood here and
+            // built every additive halo in the forest through one `Env_GlowSphere`
+            // instance. TWO USER RULINGS in the same round emptied it of callers —
+            // the three standing wisps and both eyeshine pairs, see the two blocks
+            // below — so the helper, its mesh handle and its `Shine()` companion
+            // are gone with them rather than left as a loaded gun. The cellar still
+            // has halos (candles, the window aperture, the fires, the rat's eyes)
+            // and builds them inline; only the WOOD is now free of them.
+            //
+            // If a future round wants a light out among the trunks again, it needs
+            // an OBJECT that is holding it. That is the whole content of the two
+            // rulings below and it is not a tuning question.
+
+            // ============= THERE ARE NO EYES IN THIS WOOD ANY MORE ============
+            // USER RULING, ModBuild 148 hardware, verbatim: "Entferne den 'Augen'
+            // Effekt im Wald komplett inklusive aller sounds und assets."
+            //
+            // THAT IS THE END OF A THREE-ROUND ARGUMENT AND IT IS WORTH ONE
+            // PARAGRAPH, because the next person to read "glint of eyes" in the
+            // original brief will want to build it again. The wood carried TWO
+            // independent pairs, and the user shot both:
+            //   * a PERMANENT pair at 12.5 m on bearing 135, part of the original
+            //     "gelegentliches Irrlicht, Glitzern von Augen" brief. He
+            //     photographed it as two yellow dots in an otherwise black wood
+            //     (.planning/debug/Kugeln.jpg, and again at the left edge of
+            //     Sichtbarkeit.jpg).
+            //   * a SCHEDULED pair on card 0, which ModBuild 149 had just rebuilt
+            //     as two additive retroreflective shines set into a near-black
+            //     animal — because the round before that he had called the flat
+            //     version "zwei Tennisbälle. Nicht sehr viel Horror."
+            // The retroreflection was the right physics (a tapetum returns light
+            // down a narrow cone, so an eye is bright only near the axis the light
+            // came down) and it did not save the effect: two bright points at 8
+            // to 12 m in a room whose whole design is "you cannot see that far in
+            // a wood at night" are the two brightest things in the frame whatever
+            // lobe is on them. THE HELPER THAT AIMED THAT LOBE IS DELETED WITH ITS
+            // ONLY THREE CALLERS. EnvGlow still declares _Shine/_ShineAxis and
+            // nothing in either room writes them any more; that shader belongs to
+            // another lane and is deliberately left alone.
 
             // ModBuild 134: the halos keep their brightness while everything
             // around them loses two thirds of its own. They are the "occasional
@@ -13923,7 +14990,7 @@ namespace GloomhavenVR
             // out there, so they are left alone deliberately — the contrast they
             // gain is the point.
             //
-            // ---- ModBuild 149: THE ALPHAS ARE ALL DIVIDED BY ABOUT FOUR -------
+            // ---- ModBuild 148: THE ALPHAS ARE ALL DIVIDED BY ABOUT FOUR -------
             // Every _Tint.a in this file was authored against a halo that WAS
             // NEVER DRAWN: Env_GlowSphere shipped wound inside out, so under
             // EnvGlow's Cull Back the far shell rasterised, dot(N,V) was negative
@@ -13936,45 +15003,46 @@ namespace GloomhavenVR
             // around a source glowing, not a painted sphere with an edge.
             // ...and the RADIUS and the FALLOFF go with the alpha, because a
             // will-o'-the-wisp 1.1 m across with a hard limb is a beach ball
-            // whatever its brightness. 0.55 -> 0.34 m and falloff 2.4 -> 4.2 is a
-            // 0.68 m sphere whose visible core is about a third of that: a small
-            // soft light with air round it, which is the only thing the phrase
-            // "gelegentliches Irrlicht" can mean.
-            Glow("Wisp", new Vector3(-4.6f, 0.95f, -6.2f), 0.34f, new Color(0.42f, 1f, 0.60f, 0.045f), 4.2f);
-            // the lantern is the only FIRE in the wood, so it takes Fire in full
-            Glow("Lantern", new Vector3(9.2f, 1.45f, -7.4f), 0.48f, new Color(1f, 0.60f, 0.24f, 0.048f), 3.8f, 1f);
-            Glow("Far", new Vector3(-11.5f, 1.1f, 8.2f), 0.44f, new Color(0.55f, 0.95f, 0.70f, 0.028f), 4.4f);
+            // whatever its brightness.
+            //
+            // ---- ModBuild 149: THE THREE STANDING WISPS ARE DELETED ----------
+            // USER, verbatim, with Kugeln.jpg: "In der Map sind nun dauerhaft so
+            // leuchtende Kugeln. Die sehen nicht gut aus - entferne die. Die
+            // kleinen blinkenden als auch die größeren."
+            //
+            // WHAT WAS THERE, and why re-tuning it could not have worked:
+            //   WispWisp    (-4.6, 0.95, -6.2)  r 0.34  a 0.045  fall 4.2
+            //   WispLantern ( 9.2, 1.45, -7.4)  r 0.48  a 0.048  fall 3.8
+            //   WispFar     (-11.5, 1.1,  8.2)  r 0.44  a 0.028  fall 4.4
+            // Three additive spheres hanging in open air, attached to no object,
+            // present in every frame the wood is ever drawn in. The last round
+            // shrank and dimmed them on the theory that "gelegentliches Irrlicht"
+            // was a size problem; it is not, it is the word GELEGENTLICH. A light
+            // that is always there and never moves is not an occasional wisp, it
+            // is a lamp with nothing holding it up — which is exactly what the
+            // photo shows and exactly what "dauerhaft" says. There is no radius
+            // or alpha at which a permanent unattached sphere becomes occasional,
+            // so the sphere goes.
+            //
+            // WHAT IS NOT TOUCHED, deliberately: the fireflies (BuildEnvironments
+            // 3097-3100 / 3154-3184) are 3-7 cm insects that MOVE, and the user
+            // has praised the flying sparks before — a moving mote and a hanging
+            // ball are two different objects and only one of them was complained
+            // about.
+            //
+            // Glow() and Shine() ARE GONE TOO. Both rulings landed in the same
+            // round and between them they took every caller: the wisps here, and
+            // the two eyeshine pairs in the block above. NOTHING of the
+            // "gelegentliches Irrlicht, Glitzern von Augen" brief survives in the
+            // wood — which is the honest state of it, and better recorded here
+            // than half-kept as an unused helper somebody re-wires by accident.
 
-            // THE PAIR THAT NEVER MOVES, at 12.5 m on bearing 135 deg. It is the
-            // permanent half of "occasional wisp, glint of eyes" and it stays —
-            // but it is rebuilt as an eyeshine instead of as two lamps:
-            //   * a NARROW LOBE aimed at the clearing (Shine, above). Walk to the
-            //     edge of the 9.0 m play disc and they dim to about half.
-            //   * SMALLER and TIGHTER: 3.4 and 2.7 cm against 4.5 and 4.5, with
-            //     the falloff exponent up from 3.2 to 4.6/4.2, so what is left is
-            //     a bright core with a little air around it rather than a filled
-            //     disc. A 4.5 cm bead at 12.5 m read as a 9 cm ball — which is a
-            //     tennis ball, to within 3 cm.
-            //   * NOT A MATCHED PAIR: different sizes, different colours,
-            //     different heights, and two blink periods (5.9 s and 7.3 s) that
-            //     are coprime enough never to close together twice running. Two
-            //     eyes that blink together belong to a face; two that do not
-            //     belong to something that is not built like one.
-            var eyeDir = new Vector3(Mathf.Sin(2.35f), 0f, Mathf.Cos(2.35f));
-            var eyeAt = eyeDir * 12.5f + Vector3.up * 1.55f;
-            var eyeSide = Vector3.Cross(Vector3.up, eyeDir).normalized * 0.06f;
-            var eyeLAt = eyeAt - eyeSide;
-            var eyeRAt = eyeAt + eyeSide + Vector3.up * 0.022f;
-            var gEyeL = Glow("EyeL", eyeLAt, 0.034f, new Color(1f, 0.88f, 0.45f, 0.60f), 4.6f);
-            Shine(gEyeL, eyeLAt, 12f);
-            gEyeL.SetFloat("_Blink", 1f);
-            gEyeL.SetFloat("_BlinkPeriod", 5.9f);
-            gEyeL.SetFloat("_Phase", 0.0f);
-            var gEyeR = Glow("EyeR", eyeRAt, 0.027f, new Color(1f, 0.83f, 0.39f, 0.48f), 4.2f);
-            Shine(gEyeR, eyeRAt, 12f);
-            gEyeR.SetFloat("_Blink", 1f);
-            gEyeR.SetFloat("_BlinkPeriod", 7.3f);
-            gEyeR.SetFloat("_Phase", 2.7f);
+            // (THE PAIR THAT NEVER MOVED stood here: two additive spheres at
+            // 12.5 m on bearing 135, blinking on 5.9 s and 7.3 s, the permanent
+            // half of "occasional wisp, glint of eyes". IT IS DELETED. It was NOT
+            // gated on any schedule, so unlike the card-0 pair it was in the frame
+            // for the whole session, which is what the user's Kugeln.jpg is a
+            // picture of.)
 
             // ------------------------------------------------------- the haunts
             // HAUNT SOLID — the creepy easter eggs, as real geometry. See the
@@ -14017,29 +15085,42 @@ namespace GloomhavenVR
 
                 var watcherAt = OnGround(162f, 16.5f, 0f);
                 var crossAt = OnGround(190f, 13.0f, 0f);
-                // 0.75 m and 9.0 m on bearing 288: the old placement was measured
-                // against nothing and the preview showed the result —
-                // env_swamp_HauntEyes was a picture of two BOULDERS, with the
-                // apparition entirely behind them. Half occluded is the goal;
-                // entirely occluded is a slot in which nothing happens.
-                var eyesAt = OnGround(288f, 8.2f, 0.98f);
+                // Card 0 is a SCHEDULE PLACEHOLDER now and draws nothing (see the
+                // id table below), but it still needs a position: AssertHauntCards
+                // checks every card's facing against the room centre, and the id
+                // table's own log line prints where each card sits. It keeps the
+                // bearing the deleted event had, so a reader comparing two bake
+                // logs across the deletion sees the same anchor and not a move.
+                var quietAt = OnGround(288f, 8.2f, 0.98f);
 
                 // ============================================================
                 // HAUNT FORCE ID TABLE — FOREST. Same channel and same rules as
                 // the cellar's (see EnvHaunt.cginc, _GhvrHauntForce); the id is
                 // the index in the array below.
-                //   0  Eyes     ModBuild 149: an ANIMAL at 8.2 m — a near-black
-                //               mass that takes the trunks behind it out of the
-                //               frame — with two additive, retroreflective,
-                //               out-of-step eyeshines set in its head. The mass is
-                //               drawn here; the two shines are EnvGlow spheres
-                //               gated onto this same card (see the card's block).
-                //               The only thing this room still DRAWS.
+                //   0  (quiet) DELETED, ModBuild 149, on the user's own order:
+                //               "Entferne den 'Augen' Effekt im Wald komplett
+                //               inklusive aller sounds und assets." The slot
+                //               survives because the group partition needs a
+                //               multiple of three cards and this room has exactly
+                //               three; the EVENT does not. Nothing is drawn, no
+                //               figure is spawned, no cue is played and the
+                //               Advanced-menu page does not draw a button for it
+                //               (Haunt.IsInert). One slot in three in this room is
+                //               now a beat in which nothing happens.
                 //   1  Watcher  draws nothing here: one of the GAME'S OWN monsters
                 //               stands between the trunks and does nothing at all
                 //               (HauntFigures card 2, renumbered 2 -> 1).
                 //   2  Cross    draws nothing here: a game monster walks across a
                 //               gap (HauntFigures card 3, renumbered 3 -> 2).
+                //
+                // SO THIS ROOM NOW DRAWS NOTHING AT ALL FROM THIS SHADER, and that
+                // is worth stating plainly rather than leaving to be discovered:
+                // all three forest cards are placeholders, the welded catalogue is
+                // empty of geometry, and what happens in the wood is two game
+                // monsters and one quiet slot. The mesh, the material and the
+                // BuildHaunts call are kept because the SCHEDULE is still real —
+                // the runtime figures resolve their slots through it, and a room
+                // with no catalogue at all would have no card count to partition.
                 //
                 // THREE, not six, and the wood lost more than the cellar did. The
                 // head behind the trunk, the 3.05 m hunched mass and the BODY
@@ -14068,105 +15149,63 @@ namespace GloomhavenVR
                     // gar nicht". Nothing in the game's roster can lean a head out
                     // from behind a trunk, so this event is gone rather than
                     // hollowed out.)
-                    // [0] THE THING THE EYES BELONG TO.
                     //
-                    // USER, ModBuild 148, verbatim: "Bei der 'Fratze' im Wald
-                    // erscheinen einfach so zwei Tennisbälle. Nicht sehr viel
-                    // Horror."
+                    // [0] NOTHING HAPPENS HERE — A SCHEDULE PLACEHOLDER, and the
+                    // only one in either room with no replacement behind it.
                     //
-                    // He is describing the failure exactly. What this card drew
-                    // was two ellipsoids, 76 mm and 56 mm across, at CONSTANT
-                    // brightness, alpha-blended, with nothing behind them. Three
-                    // things were wrong and none of them was the size:
+                    // USER RULING, ModBuild 148 hardware, verbatim: "Entferne den
+                    // 'Augen' Effekt im Wald komplett inklusive aller sounds und
+                    // assets."
                     //
-                    //   1. THEY WERE PAINT, NOT LIGHT. EnvHaunt's apparition pass
-                    //      is Blend SrcAlpha OneMinusSrcAlpha, so a bead can never
-                    //      be brighter than the colour baked into its vertices. A
-                    //      0.17 key came out as a flat grey-yellow disc — the look
-                    //      of a painted ball, because that is what it was. An
-                    //      eyeshine is LIGHT and belongs in an ADDITIVE shader.
-                    //   2. NO LOBE. A real eyeshine is a RETROREFLECTION: the
-                    //      tapetum returns light down a narrow cone about the
-                    //      direction it arrived from. Two discs that are equally
-                    //      bright from everywhere are two balls. And there is no
-                    //      geometric fix — the projected area of any convex shape
-                    //      falls off as cos(theta) at best, which at 20 degrees off
-                    //      axis is still 94 %.
-                    //   3. NOTHING TO BELONG TO. Eyes with no occluder behind them
-                    //      are two objects floating in a wood.
+                    // WHAT IS BEING DELETED, so that nobody rebuilds it a fourth
+                    // time. This slot held two eyes in the understory through three
+                    // rounds and three completely different implementations:
+                    //   1. two flat ellipsoids in the alpha-blended apparition pass
+                    //      — "zwei Tennisbälle. Nicht sehr viel Horror.";
+                    //   2. those beads plus a near-black five-ellipsoid ANIMAL for
+                    //      them to belong to, so that the eyes sat in a hole in the
+                    //      wood with a silhouette around it;
+                    //   3. the eyes moved out of this shader entirely and into two
+                    //      ADDITIVE EnvGlow spheres carrying a real retroreflective
+                    //      lobe, gated onto this card, because an eyeshine is light
+                    //      and an alpha-blended bead can never be brighter than the
+                    //      colour baked into its vertices.
+                    // Every one of those was a correct answer to the previous
+                    // complaint and the effect was rejected anyway. THE LESSON IS
+                    // NOT ABOUT THE SHADER: this room's whole design is "hinter den
+                    // Bäumen soll es so dunkel sein das man sich nicht traut", and a
+                    // pair of bright points at 8 m is the brightest thing in that
+                    // frame no matter what physics is on it. There is nothing left
+                    // to fix; there is only the effect, and it is gone.
                     //
-                    // SO THE CARD IS SPLIT IN TWO, along the line the shaders draw.
-                    //   * THIS CARD draws the ANIMAL — a near-black head, neck,
-                    //     muzzle, brow and shoulder mass, welded as KIND_SOLID at
-                    //     opacity 0.95, which is enough to take the trunks behind
-                    //     it out of the frame. That is the fix for (3): the eyes
-                    //     now sit in a hole in the wood, and the hole has a
-                    //     silhouette.
-                    //   * THE EYESHINES THEMSELVES are two EnvGlow spheres
-                    //     (BuildForestAtmosphere, "HauntEyeL"/"HauntEyeR"),
-                    //     ADDITIVE, gated onto THIS card through
-                    //     GhvrHauntPresence and carrying a real retroreflective
-                    //     lobe. That is the fix for (1) and (2), and it is the
-                    //     only place either could have been fixed: EnvHaunt.shader
-                    //     belongs to another lane this round, so the eyes had to
-                    //     move to a shader that could carry the physics.
-                    // Both halves read the SAME period, the SAME card index and the
-                    // SAME authored envelope, through the same function — so the
-                    // animal and its eyes cannot come and go at different times.
+                    // THE CARD CANNOT GO WITH IT. EnvHaunt.cginc requires the
+                    // room's card count to be a positive multiple of
+                    // GHVR_HAUNT_GROUPS (3) and AssertHauntCards enforces it from
+                    // this side; the wood has exactly three cards, so deleting one
+                    // would leave two and make a third of every slot index a card
+                    // that does not exist. It is therefore an HKindNone placeholder
+                    // exactly like the two below it — the difference being that
+                    // those two are played by a real game monster and this one is
+                    // played by nobody.
                     //
-                    // BARELY RESOLVABLE, ON PURPOSE. The only light out here is the
-                    // moon at bearing 40 deg, and this animal stands at bearing
-                    // 288 — i.e. it is lit ACROSS THE SHOULDER, one raked side and
-                    // a dark flank, which is the placement rule the two apparitions
-                    // that nobody could see were moved to obey. It is not lit from
-                    // in front and it is never fully legible; what the player gets
-                    // is a mass, and two eyes that are certain.
+                    // AND THE QUIET IS NOT A LOSS. One slot in three in this room
+                    // now passes with nothing in it, which is a better haunting than
+                    // a metronome: the user's standing brief for these is "was that
+                    // there?", and an event that fires every single slot is an
+                    // exhibit.
                     new HauntCard
                     {
-                        name = "Eyes", kind = HKindSolid,
-                        at = eyesAt, facing = ToClearing(eyesAt), height = 1.15f,
-                        // 0.98 m and 8.2 m, not 0.75 m and 9.0: at 0.75 the pair sat
-                        // behind the boulder group on that bearing and the preview
-                        // was a picture of a rock.
-                        //
-                        // `shape` is a damped rock about the vertical through the
-                        // eyes, dead by a third of the way in — the weight shift of
-                        // something that has just stopped moving. (It used to be
-                        // the blink lag; the blink now lives in the two glow
-                        // materials' own periods, which is where an eyelid belongs.)
-                        shape = 0.085f, rotAxis = Vector3.up, rotAngle = 0f, pivotY = 0f,
-                        // 5.4 s and not 3.0. THREE SECONDS IS TOO SHORT TO
-                        // PHOTOGRAPH and, it turns out, too short to see: the
-                        // preview solves the shipped schedule for a given fraction
-                        // of the run, and on a three-second event the frames at
-                        // 0.55 and 0.88 came back empty while the one at 0.25
-                        // showed both beads perfectly. UNCHANGED, and it has to
-                        // be: PreviewEnvironments (another lane's file this round)
-                        // solves this card's clock against 1.6/3.0/0.8, and the two
-                        // glow materials mirror the same three numbers.
-                        reveal = 1.6f, hold = 3.0f, fade = 0.8f,
-                        // A COAT, NOT A BEAD. This key is now the animal's, and it
-                        // is the moon on black fur: the wrapped lambert puts the
-                        // moonward shoulder at 0.052 and the flank at 0.006, i.e.
-                        // it is a silhouette with one edge in it. (The eyes' own
-                        // brightness is no longer in this number at all — see the
-                        // two glow materials.)
-                        // MEASURED AND DIVIDED BY FOUR. The first ModBuild 149
-                        // bake put the mass at a mean of 0.028 linear against a
-                        // forest background of 0.00070 — forty times its
-                        // surroundings, i.e. a pale putty animal lit from nowhere.
-                        // Bake 2 (0.052) measured a body mean of 0.0080 over a
-                        // forest background of 0.00050 — sixteen times, and still a
-                        // grey mass rather than a silhouette. These numbers put the
-                        // moonward shoulder near 0.011 and the mean near 0.005,
-                        // which is an order over the background at the edge and
-                        // nothing at all on the flank. Under full Dark the shader's
-                        // own compensation adds the rim back.
-                        key = new Color(0.0092f, 0.0103f, 0.0131f), keyDir = moon,
-                        fillAmt = 0.14f, opacity = 0.95f, rim = 0.55f,
-                        why = "an animal at 8.2 m on bearing 288 with its eyes 0.98 m up: a near-black "
-                              + "mass that takes the trunks out of the frame, and two additive "
-                              + "retroreflective eyeshines set in it",
+                        name = "Quiet", kind = HKindNone,
+                        at = quietAt, facing = ToClearing(quietAt), height = 0.05f,
+                        // 0 + 2.0 + 0, the same shape the cellar's own draws-nothing
+                        // card uses. It is not zero because AssertHauntCards
+                        // measures a card LENGTH and reports it; it is short because
+                        // the only thing still reading it is EnvSound's cue window,
+                        // and that cue is deleted too.
+                        reveal = 0f, hold = 2.0f, fade = 0f,
+                        key = Color.black, keyDir = moon, opacity = 0f,
+                        why = "nothing at all: the eyeshines were deleted on the user's order and only the "
+                              + "schedule slot survives (the card count must stay a multiple of three)",
                     },
                     // [1] THE WATCHER — A SCHEDULE PLACEHOLDER. "Auch die
                     // Beobachter Idee ist gut aber auch ein 2D Pappaufsteller,
@@ -14237,176 +15276,69 @@ namespace GloomhavenVR
                 // placeholders draw nothing at all, and where the game's own
                 // monsters really stand is decided at RUNTIME by HauntFigures
                 // against the live scene — which is the right place for it and not
-                // something a bake can gate. The eyeshines are 3 cm beads that are
-                // meant to be half-occluded.)
+                // something a bake can gate. Since ModBuild 149 all THREE cards
+                // draw nothing, so there is not a vertex in this catalogue for a
+                // clearance gate to measure.)
 
-                // =============== THE EYESHINES, AS LIGHT ======================
-                // Two ADDITIVE spheres set in the animal's head, gated onto this
-                // room's card 0 and carrying a real retroreflective lobe. See the
-                // card's own block for the whole argument; what matters here is
-                // that every number below is READ OFF THE CARD rather than
-                // retyped, so the shines cannot get out of step with the mass
-                // they belong to — same period, same card index, same envelope,
-                // same GhvrHauntPresence() the moonbeam and the cobwebs use.
-                //
-                // WHY THEY ARE NOT IN THE HAUNT MESH. EnvHaunt's apparition pass
-                // is alpha-blended: a bead there can never be brighter than the
-                // colour baked into its vertices, and an eyeshine that is dimmer
-                // than the thing behind it is not an eyeshine. EnvGlow is
-                // Blend SrcAlpha One — light ADDED to the wood — and it is also
-                // the only shader in this bundle this lane may edit, which is
-                // where the lobe had to go.
-                //
-                // FILL: two spheres of 3.0 and 2.3 cm radius, i.e. 0.42 and
-                // 0.32 degrees across at 8.2 m. They are COLLAPSED to a point in
-                // the vertex shader outside their event, so for 5.4 s in every
-                // 83 s slot that draws this card they cost about 900 fragments
-                // per eye per pass (1800 under MultiPass) and for the rest of the
-                // time they cost one uniform compare.
-                {
-                    var ec = cards[0];
-                    if (ec.name != "Eyes")
-                        throw new Exception($"The forest eyeshines are gated on card 0, which is now "
-                                            + $"'{ec.name}'. The two EnvGlow materials carry that index in "
-                                            + "_HauntSched and would light up for the wrong event.");
-                    var efwd = ec.facing.normalized;
-                    var eside = Vector3.Cross(Vector3.up, efwd).normalized;
-                    var eSched = new Vector4(HauntPeriod, cards.Length, 0f, 1f);
-                    var eEnv = new Vector4(ec.reveal, ec.hold, ec.fade, 0f);
-                    void HauntEye(string n, Vector3 p, float r, Color tint, float falloff,
-                                  float blinkPeriod, float phase)
-                    {
-                        var m = Glow(n, p, r, tint, falloff, 0.35f, "");
-                        // exponent 14: half brightness 17.9 deg off the axis, a
-                        // sixth of it at the 4.5 m edge of the play disc. Walk to
-                        // the trees and they go out; that is what a tapetum does.
-                        Shine(m, p, 14f);
-                        m.SetFloat("_Blink", 1f);
-                        m.SetFloat("_BlinkPeriod", blinkPeriod);
-                        m.SetFloat("_Phase", phase);
-                        // a slow unsteadiness, well under the flame rates: an eye
-                        // in the dark is never quite still, and a perfectly
-                        // constant point is the other half of "Tennisball".
-                        m.SetFloat("_Flicker", 0.30f);
-                        m.SetFloat("_Rate", 0.65f);
-                        m.SetVector("_HauntSched", eSched);
-                        m.SetVector("_HauntEnv", eEnv);
-                    }
-                    // NOT A MATCHED PAIR: 3.0 cm against 2.3, the right one 3.6 cm
-                    // higher and 2.2 cm further back in the head, a colder and
-                    // dimmer tint on it, and blink periods of 2.9 s and 3.7 s, so
-                    // in a 5.4 s event they never close together.
-                    HauntEye("HauntEyeL", ec.at - eside * 0.062f, 0.030f,
-                             new Color(1f, 0.86f, 0.42f, 0.72f), 5.0f, 2.9f, 0f);
-                    HauntEye("HauntEyeR", ec.at + eside * 0.055f + Vector3.up * 0.036f - efwd * 0.022f,
-                             0.023f, new Color(1f, 0.80f, 0.36f, 0.55f), 4.4f, 3.7f, 1.7f);
-                }
+                // (THE EYESHINES STOOD HERE and are DELETED with the event they
+                // belonged to — two additive EnvGlow spheres named HauntEyeL and
+                // HauntEyeR, gated onto card 0 through _HauntSched/_HauntEnv and
+                // carrying a retroreflective lobe. Nothing in this room writes
+                // EnvGlow's _HauntSched any more, which means the three surviving
+                // wisps are unconditional lights and the schedule reaches this room
+                // through the haunt mesh alone. The user's order was "inklusive
+                // aller sounds und assets": the two materials are no longer created,
+                // so the bundle stops shipping them.)
 
-                BuildHaunts(root, "Forest", "Env_S_Haunt", cards,
+                var hauntsGo = BuildHaunts(root, "Forest", "Env_S_Haunt", cards,
                             new Color(0.045f, 0.058f, 0.090f, 1f),
                             ForestPlaySpaceDia, FR, FR, 12f,
-                            (h, cs, i, piece) =>
-                            {
-                                var c = cs[i];
-                                if (c.name == "Eyes")
-                                {
-                                    // THE ANIMAL. Five oriented ellipsoids and not
-                                    // one imported vertex: a shoulder mass, a neck,
-                                    // a head, a muzzle and a brow ridge, in the
-                                    // card's own frame. It is deliberately NOT
-                                    // anatomical past the silhouette — there are no
-                                    // legs, no ears and no jaw, because everything
-                                    // below the withers is in the understory and
-                                    // everything that could be examined is a thing
-                                    // the user has rejected three times ("mir
-                                    // gefallen die Figuren und animationen gar
-                                    // nicht"). What is being built here is an
-                                    // OCCLUDER with a profile.
-                                    //
-                                    // AddHauntEllipsoid derives its winding from the
-                                    // handedness of the axis triple, and
-                                    // AssertClosedAndOutward — proven to fire this
-                                    // bake on a reversed copy of this very solid —
-                                    // is what says the result faces out. Every one
-                                    // of these has to be seen FROM THE CLEARING, and
-                                    // the clearing is where the player is.
-                                    var fwd = c.facing.normalized;
-                                    var side = Vector3.Cross(Vector3.up, fwd).normalized;
-                                    // BROADSIDE, AND THE SECOND BAKE IS WHY. With
-                                    // the body built along `fwd` the animal stood
-                                    // end-on to the clearing, so a 1.44 m carcass
-                                    // projected to a 0.60 m CIRCLE with a small
-                                    // head on it — a hooded blob, i.e. the same
-                                    // "ball" complaint one level up. The body now
-                                    // lies at 66 deg to the sightline with the head
-                                    // turned toward the board, which is both the
-                                    // longer silhouette and the more alarming
-                                    // posture: it was going somewhere else and it
-                                    // has stopped and looked round.
-                                    var bodyDir = (fwd * 0.40f + side * 0.92f).normalized;
-                                    var bodySide = Vector3.Cross(Vector3.up, bodyDir).normalized;
-                                    var beast = new Acc();
-                                    // shoulders and back — 0.92 m behind the eyes
-                                    // and 0.50 m below them, i.e. the head is up on
-                                    // a neck and the body is down in the ferns.
-                                    // (0.46 / 0.40 and not 0.50 / 0.42: ForestY can
-                                    // reach -0.35 on this bearing and the room-box
-                                    // gate rejects anything below y = -0.30, so the
-                                    // belly is kept 0.12 m over the ground it is
-                                    // measured from rather than 0.06.)
-                                    AddHauntEllipsoid(beast, c.at - bodyDir * 1.05f - Vector3.up * 0.44f,
-                                                      bodySide * 0.26f, Vector3.up * 0.32f, bodyDir * 0.78f, 16, 9);
-                                    // the neck, long and LOW: the first build had a
-                                    // short one and the head sat straight on the
-                                    // shoulders, which reads as a bear cub in a hat
-                                    // rather than as something with a neck to lower.
-                                    AddHauntEllipsoid(beast, c.at - bodyDir * 0.30f - Vector3.up * 0.185f,
-                                                      bodySide * 0.130f, Vector3.up * 0.150f, bodyDir * 0.31f, 14, 8);
-                                    // the head — NARROWER than the shoulders by a
-                                    // factor of 2.6, which is what puts the mass
-                                    // BEHIND the eyes instead of around them
-                                    AddHauntEllipsoid(beast, c.at - fwd * 0.085f - Vector3.up * 0.045f,
-                                                      side * 0.115f, Vector3.up * 0.105f, fwd * 0.200f, 16, 9);
-                                    // the muzzle: a SNOUT, i.e. long along fwd and
-                                    // dropped well under the eyes. The first build
-                                    // made it as deep as it was long and it read as
-                                    // a nose stuck on a ball.
-                                    AddHauntEllipsoid(beast, c.at + fwd * 0.175f - Vector3.up * 0.130f,
-                                                      side * 0.058f, Vector3.up * 0.052f, fwd * 0.185f, 12, 7);
-                                    AssertClosedAndOutward(beast, "Forest haunt 'Eyes' (the animal)");
-                                    HauntWeld(h, beast, c, i, HKindSolid, c.key,
-                                              new Color(0.030f, 0.038f, 0.058f),
-                                              Vector3.up, 0f, Vector3.up, 0f, 0f, 1f, 1f, -1f);
+                            // NO PER-CARD GEOMETRY AT ALL, and the null is the
+                            // statement. Until ModBuild 149 this callback built the
+                            // ANIMAL that card 0's eyes were set into — a shoulder
+                            // mass, a neck, a head, a snout and a brow ridge, five
+                            // oriented ellipsoids welded as KIND_SOLID at opacity
+                            // 0.95 so that it took the trunks behind it out of the
+                            // frame. It went with the eyes ("Entferne den 'Augen'
+                            // Effekt im Wald komplett inklusive aller sounds und
+                            // assets"), and with it went the last vertex this room
+                            // contributed to the apparition mesh. BuildHaunts is
+                            // still called because the SCHEDULE is still real and
+                            // the room still needs a card count to partition; what
+                            // it welds now is three anchors and nothing else.
+                            null);
 
-                                    // THE BROW, welded LAST and therefore drawn
-                                    // last. The apparition pass is alpha-blended
-                                    // with ZWrite off, so submission order IS the
-                                    // compositing order INSIDE this mesh: a ridge
-                                    // welded before the head would be painted over
-                                    // by the head's own front faces and disappear.
-                                    // It is what puts the eyes in a socket instead
-                                    // of on a surface.
-                                    //
-                                    // IT DOES NOT OCCLUDE THE SHINES, and that is
-                                    // correct rather than a limitation: the shines
-                                    // are additive EnvGlow spheres at queue 3005
-                                    // and this mesh is at 3002, so they always
-                                    // composite on top. Light from an eye socket
-                                    // scatters round the brow that shades it; a
-                                    // brow that could switch an eyeshine off would
-                                    // be an eyelid, and the eyelid is the _Blink.
-                                    //
-                                    // 0.115 wide and not 0.150: at 0.150 it was
-                                    // wider than the head and read as a flat cap.
-                                    var brow = new Acc();
-                                    AddHauntEllipsoid(brow, c.at + Vector3.up * 0.038f - fwd * 0.005f,
-                                                      side * 0.115f, Vector3.up * 0.026f, fwd * 0.115f, 14, 7);
-                                    AssertClosedAndOutward(brow, "Forest haunt 'Eyes' (brow)");
-                                    HauntWeld(h, brow, c, i, HKindSolid, c.key * 0.85f,
-                                              new Color(0.030f, 0.038f, 0.058f),
-                                              Vector3.up, 0f, Vector3.up, 0f, 0f, 1f, 1f, -1f);
-                                }
-                            });
+                // ...AND THEN THE NODE GOES, because a mesh with no vertices is not
+                // a thing that draws nothing — it is a thing every later pass has
+                // to survive. AssertPlaySpaceClear walks every MeshFilter under the
+                // room and reads its vertices through Verts(), which THROWS on an
+                // empty mesh by design ("grounding cannot be exact"): a prop whose
+                // vertices cannot be read is a prop that might be floating, and
+                // that gate has caught real bugs. Rather than teach a general
+                // grounding check about a special case, the empty node is removed
+                // right where it is made.
+                //
+                // THE CALL ABOVE IS STILL WORTH MAKING WITHOUT ITS OUTPUT. It runs
+                // ReportHauntSchedule (which measures the shipped schedule and
+                // asserts no two consecutive slots pick the same event) and
+                // AssertHauntCards (which is what enforces the multiple-of-three
+                // card count this room's placeholders exist for). Those are the
+                // reason the wood still has a catalogue at all.
+                //
+                // GUARDED ON THE VERTEX COUNT rather than on "the forest", so the
+                // day one of these three cards draws something again the node comes
+                // back by itself and nobody has to remember this paragraph.
+                var hauntsMf = hauntsGo != null ? hauntsGo.GetComponent<MeshFilter>() : null;
+                if (hauntsMf != null && hauntsMf.sharedMesh != null
+                    && hauntsMf.sharedMesh.vertexCount == 0)
+                {
+                    Debug.Log("[GloomhavenVR][Env] Forest HAUNTS — the welded mesh came out EMPTY (all "
+                              + "three cards are schedule placeholders since the eyeshines were deleted), "
+                              + "so the 'Haunts' node is removed from the room. The schedule itself is "
+                              + "unaffected: it lives in the shader globals and in Haunt.Resolve, and the "
+                              + "two events this room still has are real game monsters spawned at runtime.");
+                    UnityEngine.Object.DestroyImmediate(hauntsGo);
+                }
             }
 
             // ELEMENT ART — EARTH HAS NO PIGMENT ANY MORE. This block used to
@@ -14490,7 +15422,7 @@ namespace GloomhavenVR
             var allGrowth = new Acc();
 
             // ============================ THE VEGETATION, AND THE CLEARING ===
-            // USER VERDICT, ModBuild 149, on the round that deleted the painted
+            // USER VERDICT, ModBuild 148, on the round that deleted the painted
             // moss: the growth has to be visible "auch zB im Wald INNERHALB der
             // Lichtung", and "so dass man einen deutlichen Unterschied erkennt".
             //
@@ -15408,7 +16340,7 @@ namespace GloomhavenVR
             Rect uv, Color tint, float span)
         {
             // A CARD MAY NOT BE TALLER THAN ITS MESH'S SPAN, and this throw is a
-            // bug found by arithmetic in ModBuild 149 rather than a precaution.
+            // bug found by arithmetic in ModBuild 148 rather than a precaution.
             // The fold is `p.y -= span * alpha * (1 - g)` and `alpha` is the
             // vertex COLOUR — four UNORM bytes, so anything over 1.0 is CLAMPED
             // on the way into the mesh. A card of height h > span therefore
@@ -15598,7 +16530,7 @@ namespace GloomhavenVR
             if (!threw)
                 throw new Exception("The growth yaw gate did NOT fire on four coplanar cards, which "
                                     + "present nothing at all from the bearing they are edge-on to.");
-            // (3) A CARD TALLER THAN ITS OWN FOLD SPAN — the bug ModBuild 149
+            // (3) A CARD TALLER THAN ITS OWN FOLD SPAN — the bug ModBuild 148
             //     found in the SHIPPED geometry of both rooms (see the throw in
             //     AddGrowthCard). Proven here rather than argued, because the
             //     symptom is invisible: the mesh looks right at full Earth and

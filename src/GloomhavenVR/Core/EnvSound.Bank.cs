@@ -23,10 +23,8 @@ internal enum EnvSoundClip
     Drip,
     Squeak,
     Skitter,
-    Frost,
     Rumble,
     Chirr,
-    Hum,
     Creak,
     Breath,
     Drag,
@@ -91,16 +89,15 @@ internal enum EnvSoundClip
 /// a listener's report ("the drip sounds wrong") mean the same thing on the machine that has to fix
 /// it.</para>
 ///
-/// <para><b>COST.</b> One shared 8 s noise bed plus fifteen shorter clips (thirteen named plus the
-/// drip's two extra realisations) at the output sample rate, mono. That is 36.9 s of audio, so
-/// ~7.1 MB of float data at 48 kHz — the <see cref="Build"/> log line prints the real figure for
+/// <para><b>COST.</b> One shared 8 s noise bed plus fourteen shorter clips (twelve named plus the
+/// drip's two extra realisations) at the output sample rate, mono. That is 36.5 s of audio, so
+/// ~7.0 MB of float data at 48 kHz — the <see cref="Build"/> log line prints the real figure for
 /// the device's own rate rather than this estimate. Generated once per session on the frame the
 /// room is first placed, measured at ~112 ms on the Quest 3 rig, and never touched again.
-/// ModBuild 148's three rebuilt clips move that by <b>+1.3%</b> — the frost costs +0.70 ms and the
-/// settle +0.55, and the bookshelf's fall gives back -0.46 because it is now half as long (timed
-/// outside Unity against the same arithmetic, 200 runs each). Mono is not a saving but a
-/// REQUIREMENT: Unity refuses to spatialise a stereo clip, and every clip here is meant to come
-/// from a place.</para>
+/// ModBuild 149 gives back the ice clip's 0.42 s and its ~0.70 ms of build time entirely (the
+/// sound is DELETED, see the ruling block below) and spends about +0.35 ms of it again on the
+/// bookshelf's rebuilt impact. Mono is not a saving but a REQUIREMENT: Unity refuses to spatialise
+/// a stereo clip, and every clip here is meant to come from a place.</para>
 /// </summary>
 internal static class EnvSoundBank
 {
@@ -137,20 +134,20 @@ internal static class EnvSoundBank
     /// <summary>The rat's feet on flagstones — a run of tiny dry ticks. One-shot, ~0.55 s.</summary>
     internal static AudioClip? Skitter { get; private set; }
 
-    /// <summary>Frost: a short BURST OF BRITTLE CRACKS — ice crazing, rebuilt from the fracture
-    /// physics in ModBuild 148 after the user reported the shipped one as "super nervig". One-shot,
-    /// ~0.42 s, and almost all of that is the silence between the cracks. See
-    /// <see cref="MakeFrost"/>.</summary>
-    internal static AudioClip? Frost { get; private set; }
+    // THERE IS NO ICE CLIP, AND THE ABSENCE IS THE DECISION (user ruling, ModBuild 149, verbatim:
+    // "Entferne das Geräusch für Eis komplett."). It was rebuilt once from the fracture physics up
+    // one round earlier — seven power-law cracks, no beat, no pitch — and the answer after hearing
+    // that rebuild was not "quieter" or "rarer" but that the sound should not exist. So there is no
+    // `Frost` property, no `MakeFrost`, no `EnvSoundClip.Frost` and no scheduler for it; a gain of
+    // zero or a clip nobody plays would leave the next reader believing there is a dial to find.
+    // Ice still SHOWS on every surface — the frost crust is the environment shader's and is
+    // untouched by this file. It simply makes no noise.
 
     /// <summary>Earth: a very low, slow settling. Looped, 6 s.</summary>
     internal static AudioClip? Rumble { get; private set; }
 
     /// <summary>The swamp at night — amplitude-modulated noise, the chirr of insects. Looped, 7 s.</summary>
     internal static AudioClip? Chirr { get; private set; }
-
-    /// <summary>A wisp: two close sines beating slowly against each other. Looped, 5 s.</summary>
-    internal static AudioClip? Hum { get; private set; }
 
     // ---- the haunt cues ---------------------------------------------------------------------
     //
@@ -174,19 +171,24 @@ internal static class EnvSoundBank
     /// <summary>One fly, close, looping past. AM/FM buzz. ~1.6 s.
     ///
     /// <para><b>NO CARD DRAWS THIS TODAY, and it is kept deliberately rather than by neglect.</b>
-    /// It was authored for the cellar's old card 2 — a face at floor level among the barrels — and
-    /// ModBuild 147 replaced that apparition with the stair-top DOOR, which wants a creak. The clip
-    /// costs 1.6 s of PCM and about 1.5 ms of the bank's ~112 ms to build, and the card catalogue
-    /// has been re-cut in two of the last three rounds; deleting a working generator that the next
-    /// re-cut may well want back is a worse trade than the 1.5 ms. If a round goes by with the
-    /// catalogue stable and nothing claiming it, delete <see cref="MakeFly"/>, this property and
-    /// <see cref="EnvSoundClip.Fly"/> together.</para></summary>
+    /// It was authored for the cellar's old card 2 — a face at floor level among the barrels.
+    /// ModBuild 147 replaced that apparition with a stair-top door, which wanted a creak instead,
+    /// and ModBuild 149 deleted the door as well: card 2 now draws nothing and sounds nothing (see
+    /// <c>EnvSound.CueFor</c>). The clip costs 1.6 s of PCM and about 1.5 ms of the bank's ~112 ms
+    /// to build, and the card catalogue has now been re-cut in THREE of the last four rounds;
+    /// deleting a working generator that the next re-cut may well want back is a worse trade than
+    /// the 1.5 ms. The standing condition for removing it is unchanged and has still not been met:
+    /// if a round goes by with the catalogue STABLE and nothing claiming this clip, delete
+    /// <see cref="MakeFly"/>, this property and <see cref="EnvSoundClip.Fly"/> together.</para></summary>
     internal static AudioClip? Fly { get; private set; }
 
-    /// <summary>THE BOOKSHELF ARRIVING ON THE FLOOR. Rebuilt in ModBuild 148: the impact is now at
-    /// <c>t = 0</c> of the clip rather than 0.85 s into it, because the caller schedules it on the
-    /// shelf's ACTUAL arrival and a clip with its own run-up cannot be placed on an instant. ~0.9 s.
-    /// See <see cref="MakeFall"/>.</summary>
+    /// <summary>THE BOOKSHELF ARRIVING ON THE FLOOR, and the one clip in this bank the user has
+    /// given written permission to be LOUD. The impact is at <c>t = 0</c> (ModBuild 148: the caller
+    /// schedules it on the shelf's ACTUAL arrival, and a clip with its own run-up cannot be placed
+    /// on an instant), and since ModBuild 149 it opens on a broadband CRACK with a scatter of
+    /// contents behind it, because the previous version put 97% of its energy below 500 Hz and a
+    /// headset speaker does not go there. ~0.9 s. See <see cref="MakeFall"/> for the measurements
+    /// and <c>EnvSound.ShelfImpactGain</c> for the permission.</summary>
     internal static AudioClip? Fall { get; private set; }
 
     /// <summary>...and the same mass coming back up, slower and quieter, which is the more
@@ -239,10 +241,8 @@ internal static class EnvSoundBank
         EnvSoundClip.Drip => Drip,
         EnvSoundClip.Squeak => Squeak,
         EnvSoundClip.Skitter => Skitter,
-        EnvSoundClip.Frost => Frost,
         EnvSoundClip.Rumble => Rumble,
         EnvSoundClip.Chirr => Chirr,
-        EnvSoundClip.Hum => Hum,
         EnvSoundClip.Creak => Creak,
         EnvSoundClip.Breath => Breath,
         EnvSoundClip.Drag => Drag,
@@ -275,10 +275,8 @@ internal static class EnvSoundBank
             Drip = MakeDrips(rate);   // fills _drips and hands back element 0
             Squeak = MakeSqueak(rate);
             Skitter = MakeSkitter(rate);
-            Frost = MakeFrost(rate);
             Rumble = MakeRumble(rate);
             Chirr = MakeChirr(rate);
-            Hum = MakeHum(rate);
 
             Creak = MakeCreak(rate);
             Breath = MakeBreath(rate);
@@ -324,8 +322,8 @@ internal static class EnvSoundBank
         // Every clip made by Finish is in _made, Bed included — so the ONE loop below destroys
         // everything exactly once. A separate "kill the bed first" step used to live here and was
         // a double-destroy waiting to happen.
-        Bed = null; Drip = null; Squeak = null; Skitter = null; Frost = null;
-        Rumble = null; Chirr = null; Hum = null;
+        Bed = null; Drip = null; Squeak = null; Skitter = null;
+        Rumble = null; Chirr = null;
         Creak = null; Breath = null; Drag = null; Fly = null; Fall = null; Settle = null;
 
         // The three drops are IN _made as well (Finish put them there), so this drops the
@@ -339,9 +337,54 @@ internal static class EnvSoundBank
                 Object.Destroy(c);
         }
         _made.Clear();
+        _shape.Clear();
     }
 
     private static readonly System.Collections.Generic.List<AudioClip?> _made = new();
+
+    /// <summary>
+    /// THE MEASURED SHAPE of every clip <see cref="Finish"/> wrapped, index-parallel to
+    /// <see cref="_made"/>: the largest absolute sample in the buffer and the instant it occurs.
+    ///
+    /// <para><b>WHY THE BANK MEASURES ITSELF.</b> Nobody working on this can hear it. Every level
+    /// argument in this file and in <see cref="EnvSound"/> is written against numbers produced by
+    /// running the generators OUTSIDE Unity, which is honest but is not the same buffer the device
+    /// actually plays — the sample rate differs, and a generator edit can silently invalidate every
+    /// figure in a doc comment without anything failing. Recording the peak here costs one pass over
+    /// a buffer that has just been written anyway, and it lets a cue's log line state what the
+    /// player's headset was really handed: gain, master and PEAK, on one line, from the device.
+    /// That is the whole verification path for the one sound in this feature the user is allowed to
+    /// hear loudly (see <c>EnvSound.ShelfImpactGain</c>).</para>
+    /// </summary>
+    private struct ClipShape
+    {
+        internal float Peak;
+        internal float PeakSeconds;
+    }
+
+    private static readonly System.Collections.Generic.List<ClipShape> _shape = new();
+
+    /// <summary>The measured peak sample of a built clip, 0..1, and the instant it occurs — the
+    /// clip's ATTACK, which is the number that says whether an impact peaks on its contact or
+    /// somewhere inside a run-up. Returns zeros for null and for anything this bank did not build,
+    /// because a caller that cannot find the clip must log "unknown" rather than a fiction.</summary>
+    internal static void MeasuredShape(AudioClip? clip, out float peak, out float peakSeconds)
+    {
+        peak = 0f;
+        peakSeconds = 0f;
+        if (clip == null)
+            return;
+        // A linear scan over at most fifteen entries, on a path that runs at most once per haunt
+        // event. A dictionary here would be a lookup table to keep in step for no measurable gain.
+        for (int i = 0; i < _made.Count && i < _shape.Count; i++)
+        {
+            if (!ReferenceEquals(_made[i], clip))
+                continue;
+            peak = _shape[i].Peak;
+            peakSeconds = _shape[i].PeakSeconds;
+            return;
+        }
+    }
 
     /// <summary>Bytes of PCM the bank holds, for the one build log line. Mono 32-bit float, which is
     /// what <see cref="Finish"/> creates.</summary>
@@ -366,9 +409,24 @@ internal static class EnvSoundBank
     /// </summary>
     private static AudioClip Finish(string name, float[] data, int rate)
     {
+        // MEASURE BEFORE WRAPPING — see _shape. One pass over a buffer that is already hot in cache.
+        float peak = 0f;
+        int peakAt = 0;
+        for (int i = 0; i < data.Length; i++)
+        {
+            float a = data[i] < 0f ? -data[i] : data[i];
+            if (a <= peak)
+                continue;
+            peak = a;
+            peakAt = i;
+        }
+
         var clip = AudioClip.Create("GhvrEnvSound." + name, data.Length, 1, rate, false);
         clip.SetData(data, 0);
         _made.Add(clip);
+        // The two lists are index-parallel BY CONSTRUCTION: this is the only place either grows, and
+        // Release is the only place either shrinks, and it clears both.
+        _shape.Add(new ClipShape { Peak = peak, PeakSeconds = peakAt / (float)Mathf.Max(rate, 1) });
         return clip;
     }
 
@@ -847,221 +905,32 @@ internal static class EnvSoundBank
     }
 
     // =============================================================================================
-    //  THE FROST — rebuilt from the fracture physics up. ModBuild 148.
+    //  THERE IS NO ICE SOUND. ModBuild 149, and the absence is a RULING, not a gap.
     // =============================================================================================
     //
-    //  THE USER REPORT, verbatim: "Der Sound vom Eis passt absolut garnicht. Ich dachte eher an ein
-    //  dezentes Knacken von Eis oder einem 'freezing' sound, sehr dezent. Das was aktuell drin ist
-    //  ist super nervig."  ("The ice sound does not fit at all. I was thinking more of a subtle
-    //  CRACKING of ice or a 'freezing' sound, very subtle. What is in there now is super annoying.")
+    //  USER RULING, verbatim: "Entferne das Geräusch für Eis komplett."  ("Remove the sound for ice
+    //  completely.")
     //
-    //  WHAT THE OLD CLIP ACTUALLY WAS, in the units the numbers mean. Three PURE SINES at 2600,
-    //  3500 and 4400 Hz, each under exp(-52t):
-    //    * Q = pi*f/alpha = pi * 2600 / 52 = 157. A wine glass is Q ~ 1000, a tuning fork ~10 000,
-    //      a struck ceramic tile ~200. ICE IS NONE OF THOSE. A crack in ice is not a resonator being
-    //      struck, it is a resonator being TORN, and the tear itself is the sound; whatever ring
-    //      follows it is smothered by the medium the crack is propagating through. Q = 157 at
-    //      2600 Hz means the tone was still at -30 dB after 66 ms and audible for a fifth of a
-    //      second — long enough for the ear to assign it a PITCH, which is the single thing that
-    //      most reliably turns an environmental noise into an instrument.
-    //    * 2600 / 3500 / 4400 is a fixed set of three pitches, so every "crack" in the room was the
-    //      same three-note chord. Two of them (3500, 4400) are a perfect fourth apart to within a
-    //      quarter of a semitone.
-    //    * struck at a FIXED 75 ms spacing. That is 13.3 Hz — a RHYTHM. Crazing is a cascade of
-    //      independent stress-release events and has no beat at all.
-    //    * ...and the clip could fire every 0.45 s at full Ice, with the widest rolloff of any
-    //      one-shot in the bank (0.8-11 perceived metres), i.e. from anywhere in the room. A
-    //      repeating three-note chord on a 0.45 s beat is not an ambience, it is a ringtone.
-    //  All five properties are separate reasons for "super nervig", and all five are gone below.
+    //  WHAT WAS HERE, so that nobody rebuilds it a third time believing it was never tried. ModBuild
+    //  148 replaced a three-sine chime on a fixed 0.45 s beat with a physically reasoned burst of
+    //  brittle fracture: seven cracks at power-law (Gutenberg-Richter) sizes, per-crack ring
+    //  frequencies so no two shared a pitch, Q = 6 so nothing rang long enough to BE a pitch, gaps
+    //  that widened as each crack relieved its own stress, and a Poisson interval in
+    //  EnvSound.TickFrost so the cadence had no beat either. It was -6.7 dB in RMS against the clip
+    //  the user called "super nervig", three times rarer, and reached half as far.
     //
-    //  WHAT ICE CRACKING PHYSICALLY IS, reasoned the way MakeDrips reasons about Minnaert.
-    //  Ice is BRITTLE: it fails by cleavage, not by yielding. A crack nucleates at a flaw and runs
-    //  at a large fraction of the Rayleigh wave speed — for ice c_R ~ 1.6-1.9 km/s, so a crack
-    //  across a 5 mm facet is over in about 3 MICROSECONDS. Three consequences, and each one is a
-    //  term below:
+    //  AND IT IS STILL DELETED. The verdict after that rebuild was not "quieter" or "rarer" — it was
+    //  that ice should make NO sound at all, which is a judgement about the room and not about the
+    //  synthesis, and no amount of better fracture physics answers it. Ice is a thing you SEE here:
+    //  the frost crust is EnvRoom/EnvGrowth's and is untouched by this file. Deleting the generator
+    //  rather than muting it is the point — a clip nobody plays, or a gain of zero, leaves the next
+    //  reader hunting for the dial that turns it back on.
     //
-    //    1. THE SOURCE IS A STEP IN STRESS, so its spectrum is BROADBAND with no line structure at
-    //       all. A step's spectrum rolls off at 6 dB/octave above 1/(2*pi*t_rise), and t_rise here
-    //       is microseconds, so within the audible band it is essentially FLAT. Broadband noise
-    //       under a very fast decay — a CLICK — is the honest model, and the old clip's sines were
-    //       the exact opposite of it.
-    //    2. IT DOES NOT RING, because there is nothing left to ring. The energy goes into two new
-    //       free surfaces and into the surrounding ice, which is a lossy polycrystal in contact
-    //       with stone and water. What survives is a couple of cycles of whatever cavity the crack
-    //       opened — see FrostRingQ, which is 6 against the shipped 157.
-    //    3. THE SIZES FOLLOW A POWER LAW. Acoustic emission from a fracturing solid obeys a
-    //       Gutenberg-Richter distribution — the same statistics as earthquakes, for the same
-    //       reason (a scale-free network of flaws). Small events vastly outnumber large ones. That
-    //       is what makes real crazing sound like crazing rather than like a drum: you hear a
-    //       handful of faint ticks and, now and then, one that is properly loud. See
-    //       FrostSizeExponent.
-    //
-    //  ...and the CADENCE and the LEVEL are handled in EnvSound.TickFrost, not here, because they
-    //  are not properties of the clip: see the block comment there. In short, the interval became a
-    //  Poisson waiting time with a mean of 2.6 s at full Ice instead of a fixed 0.45 s beat, and the
-    //  reach came in from 11 perceived metres to 5.
-    //
-    //  REJECTED:
-    //    * KEEPING THE SINES AND LOWERING THEIR Q. Q would have to fall by a factor of ~25 to stop
-    //      being a pitch, at which point the sine contributes two cycles and is a colouration of a
-    //      click rather than a tone — which is exactly what the ring term below is, so this is not
-    //      so much rejected as taken to its conclusion and renamed.
-    //    * MOVING THE BAND OUT OF 1-4 kHz ENTIRELY, to honour the class doc's speech/UI reserve by
-    //      construction. It cannot be done and stay honest: a millimetre-scale source radiates with
-    //      efficiency (ka)^2, so a crack CANNOT put its energy low, and taking the top off as well
-    //      leaves nothing. The class doc's own escape clause is the right one and is used here
-    //      instead — the reserve is about MASKING, masking is about duration, and a 14 ms transient
-    //      that happens a handful of times a minute cannot mask a syllable. The old clip needed the
-    //      escape clause and did not qualify for it (a 200 ms tone at a 0.45 s repeat is a texture);
-    //      this one qualifies with room to spare.
-    //    * THREE BAKED REALISATIONS, as MakeDrips has. Unnecessary here: ONE clip already contains
-    //      seven independent cracks with power-law sizes and per-crack ring frequencies, so the
-    //      within-clip variety a listener hears is larger than the between-variant variety would be.
-    //    * A RECORDING. Same answer as the drip's, and for the sharper version of the same reason:
-    //      what is wanted is a room-free transient, and every field recording of ice brings the lake
-    //      it was recorded on with it.
-
-    /// <summary>Cracks in one burst. A <c>for</c> over this count, and the times come from
-    /// <see cref="EnvSoundSchedule.SlipTrain"/>, so the generator terminates by construction — see
-    /// that file for the ModBuild 145 freeze this discipline exists to prevent.</summary>
-    private const int FrostCrackCount = 7;
-
-    /// <summary>The burst window, seconds. 0.354 s of crazing inside a 0.42 s buffer; the tail is
-    /// the last crack's own decay and then silence.</summary>
-    private const float FrostBurstFirst = 0.006f;
-    private const float FrostBurstLast = 0.360f;
-
-    /// <summary>The gaps GROW (&gt; 1), which is the opposite of <see cref="MakeCreak"/>'s. A creak
-    /// accelerates because the load keeps building; a crazing DECELERATES because each crack
-    /// relieves the stress that drove it, so the surface has to reload before the next one. 1.35
-    /// spreads a 25 ms first gap out to 110 ms by the end of the burst — the burst thins out and
-    /// stops rather than ending on a beat.</summary>
-    private const float FrostCrackSpread = 1.35f;
-
-    /// <summary>Fraction each individual gap is randomly stretched or squeezed by. 0.85 is nearly
-    /// the whole gap and is deliberately extreme: the shipped clip's fixed 75 ms spacing was one of
-    /// the five reasons it was "nervig", and a crazing has no beat WHATSOEVER.</summary>
-    private const float FrostCrackJitter = 0.85f;
-
-    /// <summary>Decay rate of a crack's broadband transient, per second. 560 is a 1.8 ms time
-    /// constant, so a crack is finished inside about 8 ms. This is the number that makes it a
-    /// fracture: the shipped 140 (7.1 ms) was already a scrape rather than a break, and the sines
-    /// beside it at 52 (19 ms) were an instrument.</summary>
-    private const float FrostCrackDecay = 560f;
-
-    /// <summary>Rise rate of the transient, per second. 3000 is a 0.33 ms rise — not an attack, a
-    /// DISPERSION: the crack's step arrives through ice and stone, and a solid path smears the
-    /// wavefront by roughly this much over a few centimetres. Without it the burst starts on a
-    /// sample discontinuity, which is a digital click rather than a physical one, and it is the
-    /// harshest thing a short transient can have.</summary>
-    private const float FrostCrackRise = 3000f;
-
-    /// <summary>Quality factor of the little cavity a crack opens. SIX, against the shipped 157:
-    /// alpha = pi*f/Q puts a 2500 Hz mode at a 0.76 ms time constant, i.e. under two cycles. Two
-    /// cycles is below the ~4 the ear needs to assign a pitch, so this colours the click and does
-    /// not become a note — which is the whole difference between "crazing" and "chime".</summary>
-    private const float FrostRingQ = 6f;
-
-    /// <summary>The band the per-crack ring is drawn from. A crack's cavity is millimetres, and its
-    /// frequency is drawn PER CRACK rather than fixed, so no two cracks in the burst share a pitch
-    /// — the shipped clip repeated one three-note chord every time it played.</summary>
-    private const float FrostRingLo = 1600f;
-    private const float FrostRingSpan = 1900f;
-
-    /// <summary>Gutenberg-Richter, as one exponent. The size of crack <c>k</c> is <c>u^2.4</c> for
-    /// uniform <c>u</c> — the inverse CDF of a power law — which puts the DISTRIBUTION's median at
-    /// 0.5^2.4 = 0.19 of the maximum. What the seed actually drew is in the measured table on
-    /// <see cref="MakeFrost"/>: three cracks that carry the burst and four that are barely
-    /// there.</summary>
-    private const float FrostSizeExponent = 2.4f;
-
-    /// <summary>
-    /// FROST — a burst of brittle fracture. Seven cracks, power-law sizes, irregular and widening
-    /// gaps, each one a sub-10 ms broadband transient with a two-cycle colouration and no ring.
-    /// See the block comment above for the physics and for what the shipped clip was instead.
-    ///
-    /// <para><b>MEASURED, off the finished buffer</b> (the generator was run outside Unity against
-    /// the same arithmetic and the same seed, because none of this is checkable by ear from a build
-    /// machine):</para>
-    /// <code>
-    ///   crack        1      2      3      4      5      6      7
-    ///   at (ms)      6.0   42.6   90.4  161.0  225.9  280.8  360.0
-    ///   gap (ms)      -    36.6   47.8   70.6   64.8   54.9   79.2
-    ///   size       0.728  0.655  0.068  0.632  0.022  0.004  0.017
-    ///   ring (Hz)   3133   1944   2018   2632   1852   3197   2017
-    ///
-    ///                peak at    RMS      audible to -40 dB
-    ///   NEW           7.0 ms   0.0353        363 ms
-    ///   SHIPPED       5.3 ms   0.0762        218 ms
-    /// </code>
-    /// <para>Three cracks carry the burst and four are barely there, which is the power law doing
-    /// its job; no two share a pitch; the gaps widen from 37 ms to 79 ms with no beat anywhere in
-    /// them. RMS is <b>-6.7 dB</b> against the shipped clip at the same gain, and that is before
-    /// TickFrost's own cuts to the level, the reach and the rate.</para>
-    ///
-    /// <para><b>TERMINATION.</b> The times come from <see cref="EnvSoundSchedule.SlipTrain"/>, which
-    /// terminates by construction, and every loop here is a <c>for</c> over an <c>int</c> fixed
-    /// before it starts. There is no float accumulator in any condition. The train's own properties
-    /// (spans its window, monotonic, in bounds, and — new for this caller — GAPS THAT WIDEN) are
-    /// asserted in <c>tests/GloomhavenVR.WireTests/EnvSoundScheduleVectors.cs</c>.</para>
-    /// </summary>
-    private static AudioClip MakeFrost(int rate)
-    {
-        int n = (int)(rate * 0.42f);
-        var d = new float[n];
-        var r = new Rng(0x1CE0u);
-
-        var cracks = new float[FrostCrackCount];
-        EnvSoundSchedule.SlipTrain(cracks, FrostBurstFirst, FrostBurstLast,
-                                   shrink: FrostCrackSpread, jitter: FrostCrackJitter, seed: 0x1CE0u);
-
-        // 14 ms per crack: the transient is 100 dB down at 12 ms and the ring at 5, so this window
-        // is a bound rather than a length. int, fixed before the loop.
-        int len = (int)(rate * 0.014f);
-
-        for (int k = 0; k < cracks.Length; k++)
-        {
-            int at = (int)(cracks[k] * rate);
-
-            // THE SIZE, power-law. Abs() of the -1..1 draw is uniform on [0,1); raising it to
-            // FrostSizeExponent is the inverse-CDF of the Gutenberg-Richter law, so this line IS
-            // the statistics and not a taste.
-            float amp = Mathf.Pow(Mathf.Abs(r.Next()), FrostSizeExponent);
-            // The cavity this particular crack opened, and therefore its colour. Drawn per crack.
-            float f = FrostRingLo + FrostRingSpan * Mathf.Abs(r.Next());
-            // alpha = pi*f/Q — derived from the one Q above exactly as MakeDripVariant derives its
-            // bubble decay from DripBubbleQ, so a higher-pitched crack necessarily dies sooner and
-            // nobody has to tune two numbers to keep one relationship true.
-            float ring = Mathf.PI * f / FrostRingQ;
-
-            for (int i = 0; i < len && at + i < n; i++)
-            {
-                float tt = i / (float)rate;
-                float rise = 1f - Mathf.Exp(-tt * FrostCrackRise);
-                // 1. THE TEAR: broadband, because a step in stress has no line structure.
-                d[at + i] += r.Next() * rise * Mathf.Exp(-tt * FrostCrackDecay) * amp;
-                // 2. THE CAVITY: two cycles of colour, not a tone. 0.30 of the tear, so the click
-                //    stays the loudest thing in every crack and the ear never gets a pitch to hold.
-                d[at + i] += Mathf.Sin(2f * Mathf.PI * f * tt) * rise * Mathf.Exp(-tt * ring) * amp * 0.30f;
-            }
-        }
-
-        // THE FLOOR, and it is physics rather than taste: an acoustically small source radiates
-        // with efficiency (ka)^2, so a millimetre-scale crack is 12 dB/octave down as frequency
-        // falls and simply cannot produce bass. Anything below 700 Hz in the buffer is an artefact
-        // of the synthesis, and on a headset speaker it is cone excursion that makes no sound.
-        HighPass(d, rate, 700f);
-        // ...and the ceiling. A real crack has energy well above this; we choose not to emit it.
-        // The class doc's non-masking budget is the reason and it is stated as a CHOICE, not
-        // disguised as physics — 5.2 kHz keeps the crack brittle while taking off the very top,
-        // which is where "harsh" lives and where the game's own UI transients are brightest.
-        LowPass(d, rate, 5200f);
-        // 0.62, down from 0.75. The peak of this buffer is ONE crack — the largest the power law
-        // drew — so normalising to a lower ceiling lowers the whole burst, and the median crack
-        // ends up at 0.19 of it.
-        Normalise(d, 0.62f);
-        return Finish("Frost", d, rate);
-    }
+    //  WHAT WENT WITH IT: EnvSoundClip.Frost, the Frost property, MakeFrost and its eight tuning
+    //  constants, EnvSound._frostNode and its Find(), EnvSound.TickFrost, FrostMeanSeconds*, and the
+    //  teardown lines for all of them. EnvSoundSchedule.PoissonGap SURVIVES with no caller in the
+    //  mod: it carries a termination proof and its own wire vectors, and it is the shape the next
+    //  statistically-scheduled event will want. See the note on it in EnvSoundSchedule.cs.
 
     // ---- loops ----------------------------------------------------------------------------------
 
@@ -1110,24 +979,6 @@ internal static class EnvSoundBank
         LoopFade(d, rate / 2);
         Normalise(d, 0.55f);
         return Finish("Chirr", d, rate);
-    }
-
-    /// <summary>A wisp: two sines 0.7 Hz apart, beating. Barely a sound — it is meant to be the
-    /// thing you only notice when it stops.</summary>
-    private static AudioClip MakeHum(int rate)
-    {
-        int n = rate * 5;
-        var d = new float[n];
-        for (int i = 0; i < n; i++)
-        {
-            float t = i / (float)rate;
-            d[i] = Mathf.Sin(2f * Mathf.PI * 196f * t) * 0.5f
-                   + Mathf.Sin(2f * Mathf.PI * 196.7f * t) * 0.5f
-                   + Mathf.Sin(2f * Mathf.PI * 392f * t) * 0.10f;
-        }
-        LoopFade(d, rate / 2);
-        Normalise(d, 0.6f);
-        return Finish("Hum", d, rate);
     }
 
     // ---- the haunt cues ---------------------------------------------------------------------------
@@ -1361,6 +1212,116 @@ internal static class EnvSoundBank
     private const float FallLoadDelay = 0.025f;
     private const float FallLoadTau = 0.11f;
 
+    // =============================================================================================
+    //  THE CRACK AND THE SCATTER — ModBuild 149, and this is where the user's exception is spent.
+    // =============================================================================================
+    //
+    //  USER RULING, verbatim: "Ich höre immer noch keine Impactsounds beim Bücherregal das umkippt -
+    //  ich gebe dir hierbei eine Ausnahmegenehmigung hier auch einen lauten Knall Sound einzubauen in
+    //  dem Moment in das Regal den Boden berührt."  ("I still hear NO impact sound when the bookshelf
+    //  falls over — I am giving you a special permission here to build in a LOUD BANG at the moment
+    //  the shelf touches the floor.")
+    //
+    //  HE HAD ALREADY BEEN GIVEN A FIX AND IT DID NOT REACH HIM, so the question is what was still
+    //  wrong. ModBuild 148 moved the thud from 3.7 s early onto the shelf's real arrival and the log
+    //  proves the schedule fires (Player.log:21575 prints all four contact times). The clip was then
+    //  MEASURED off the finished buffer, outside Unity, against the same arithmetic and seed:
+    //
+    //      peak 0.8500, reached at 1.44 ms (90% of peak at 1.31 ms) — so the attack was NOT slow and
+    //      the clip DID peak on its contact, which is the thing the last round set out to fix.
+    //
+    //      energy above  500 Hz:  2.69 %
+    //      energy above  950 Hz:  1.99 %
+    //      energy above 2000 Hz:  0.88 %
+    //      spectral centroid:      184 Hz
+    //
+    //  THAT is the defect, and it is spectral rather than temporal. Ninety-seven per cent of the
+    //  clip's energy sat below 500 Hz — two carcass modes at 78 and 135 Hz, a slab at 160, and a
+    //  950 Hz one-pole ceiling over everything including the contact transient. The rig is a Quest 3
+    //  over Virtual Desktop and its speakers give essentially nothing back below ~150-250 Hz, so the
+    //  event was a sub-bass wumph played into a transducer that cannot make sub-bass, at a source
+    //  gain of 0.080 x a master of 0.75 = 0.060 on Unity's scale. It was not too early and it was not
+    //  attack-less. It was INAUDIBLE ON THE HARDWARE, twice over.
+    //
+    //  WHAT A BOOKCASE HITTING A STONE FLOOR ACTUALLY IS, and the two terms that were missing:
+    //    * A BROADBAND CRACK. Wood striking stone is two hard surfaces meeting at a few m/s: the
+    //      contact area is millimetres for the first instant, so the radiated spectrum is FLAT well
+    //      into the kHz and the event announces itself in the band the ear is most sensitive in and
+    //      a small speaker can actually reproduce. The 950 Hz ceiling deleted exactly that.
+    //    * A SCATTER OF CONTENTS. Nine hard, small, irregular impacts spread over the third of a
+    //      second behind the crack — the books and whatever else was on the shelves arriving one
+    //      after another, heavy things first. It is the term that says "a full bookcase went over"
+    //      rather than "a plank fell", and it costs nothing because it is nine 12 ms ticks.
+    //  The BODY — modes, slab, load slump — is unchanged and still low-passed at 950 Hz. The two new
+    //  terms are built in their OWN buffer and band-limited separately, which is why adding them
+    //  does not require reopening the body's ceiling.
+    //
+    //  ...AND THE LEVEL IS NOT THIS FILE'S TO SET. The gain that finally makes it a bang is
+    //  EnvSound.ShelfImpactGain, which is the only place in the feature allowed past
+    //  EnvSound.MaxEmitterGain and which quotes the permission above. Clip shape and clip level are
+    //  kept apart here for the same reason every other generator ends in Normalise: a generator that
+    //  quietly ran hot would defeat the gain budget from underneath it, exception or no exception.
+    //
+    //  REJECTED:
+    //    * OPENING THE BODY'S 950 Hz CEILING INSTEAD OF ADDING A SECOND BUFFER. It would have made
+    //      the carcass modes' own harmonics audible, and those are the "note, not a thud" defect the
+    //      last round removed. The crack is a different sound source from the carcass and gets its
+    //      own band, which is also the physically honest split.
+    //    * A CRASH — splintering, glass, a long clatter. Still ruled out. The permission is for a
+    //      BANG at one instant, not for a demolition that runs for two seconds over the game.
+    //    * MAKING THE WHOLE ENVIRONMENT LOUDER. The exception is for this one contact. Every other
+    //      emitter is still under MaxEmitterGain and still ducks.
+
+    /// <summary>Decay of the broadband crack, per the exponential's time constant. 1.6 ms, so the
+    /// crack is 60 dB down inside 11 ms — shorter than the contact slap it sits on top of, because
+    /// the crack is the instant the two surfaces meet and the slap is the millisecond after it.
+    /// Under the class doc's non-masking budget this is the DURATION argument in its strongest form:
+    /// nothing this short can mask a syllable.</summary>
+    private const float FallCrackTau = 0.0016f;
+
+    /// <summary>The crack's band. Deliberately NOT the body's: 320 Hz keeps the crack out of the
+    /// carcass modes so it reads as a separate surface rather than as brightness on the boom, and
+    /// 7.2 kHz is where a wood-on-stone contact stops carrying useful information and starts
+    /// carrying hiss.</summary>
+    private const float FallCrackLoHz = 320f;
+    private const float FallCrackHiHz = 7200f;
+
+    /// <summary>The contents arriving: how many, and the window they land in. Nine over 0.035-0.42 s,
+    /// which is a shelf's worth of books falling half a metre onto a floor that is already there.
+    /// The times come from <see cref="EnvSoundSchedule.SlipTrain"/>, so this loop TERMINATES BY
+    /// CONSTRUCTION — a <c>for</c> over an int fixed before it starts, with no accumulator in any
+    /// condition. See EnvSoundSchedule.cs for the freeze that discipline exists to prevent.</summary>
+    private const int FallScatterCount = 9;
+    private const float FallScatterFirst = 0.035f;
+    private const float FallScatterLast = 0.42f;
+
+    /// <summary>The scatter's gaps WIDEN (&gt; 1), like the rat's do not and the creak's do the
+    /// opposite of. The heavy things go first and together; what is left is lighter, tumbles further
+    /// and arrives later, so the train thins out and stops rather than ending on a beat.</summary>
+    private const float FallScatterSpread = 1.30f;
+
+    /// <summary>Fraction each individual gap is randomly stretched or squeezed by. High, because a
+    /// pile of objects arriving has no rhythm whatsoever.</summary>
+    private const float FallScatterJitter = 0.70f;
+
+    /// <summary>Decay of one scattered object's tick, and the power-law exponent on their sizes.
+    /// The exponent is the same reasoning the drip's variants use: things that break loose from a
+    /// falling structure are not all the same size, small ones vastly outnumber large ones, and
+    /// <c>u^1.6</c> for uniform <c>u</c> is the inverse CDF that says so. A handful of the nine
+    /// carry the scatter and the rest are barely there.</summary>
+    private const float FallScatterTau = 0.0035f;
+    private const float FallScatterExponent = 1.6f;
+
+    /// <summary>How loud the two new terms are built RELATIVE to the body, before the single
+    /// <see cref="Normalise"/> that ends the generator. These are the numbers that decide the
+    /// clip's SPECTRUM rather than its level: raising them moves energy out of the 78-160 Hz band a
+    /// headset speaker cannot reproduce and into the band it can. Measured over the finished buffer,
+    /// 2.4/1.1 puts 19.6% of the clip's energy above 1 kHz (against 1.9% before) and moves the
+    /// spectral centroid from 184 Hz to 1824 Hz, while leaving four fifths of the energy in the
+    /// boom — so it is a bookcase, not a snare drum.</summary>
+    private const float FallCrackMix = 2.4f;
+    private const float FallScatterMix = 1.1f;
+
     /// <summary>
     /// THE BOOKSHELF ARRIVING. The impact is at <c>t = 0</c>: this clip is an EVENT, and the caller
     /// puts it on the frame the shelf actually reaches the floor (EnvSound.TickHaunt, from
@@ -1372,17 +1333,23 @@ internal static class EnvSoundBank
     /// when. See EnvSound's shelf schedule.</para>
     ///
     /// <para><b>MEASURED, off the finished buffers</b> (generated outside Unity against the same
-    /// arithmetic and the same seed):</para>
+    /// arithmetic and the same seed; the DEVICE's own figures for peak and attack are printed by
+    /// <c>EnvSound</c>'s shelf-contact log line, from <see cref="MeasuredShape"/>):</para>
     /// <code>
-    ///                length   peak at    RMS     audible to -40 dB
-    ///   NEW           0.90 s   1.4 ms   0.0548        294 ms
-    ///   SHIPPED       1.90 s   854  ms  0.1195       1900 ms
+    ///                    peak    peak at   90% of peak     RMS   E&gt;1kHz  centroid  audible
+    ///   NEW (149)       0.980    1.31 ms      1.04 ms    0.0455   19.6%   1824 Hz   ~428 ms
+    ///   ModBuild 148    0.850    1.44 ms      1.31 ms    0.0548    1.9%    184 Hz   ~231 ms
+    ///   SHIPPED (147)   0.850     854 ms          -      0.1195      -         -   ~1900 ms
     /// </code>
-    /// <para>The peak moved from 854 ms to 1.4 ms — the clip now PEAKS ON ITS CONTACT, which is
-    /// what an arrival does and what a run-up followed by a struck dyad does not. It is not a
-    /// quieter impact, it is a shorter clip with the same impact in it: RMS over the shipped
-    /// thud's own 300 ms window is 0.280, against 0.229 over the new clip's first 50 ms. What went
-    /// away is the 1.6 s of ringing and rustle around it.</para>
+    /// <para>ModBuild 148 already moved the peak from 854 ms to 1.4 ms, so the clip PEAKED ON ITS
+    /// CONTACT and the attack was never the problem — 90% of peak in 1.3 ms is not a slow attack by
+    /// any measure. What ModBuild 149 changes is the SPECTRUM: the energy above 1 kHz goes from 1.9%
+    /// to 19.6% and the centroid from 184 Hz to 1824 Hz, which is the difference between an event a
+    /// headset speaker cannot reproduce and one it can. Through a one-pole 200 Hz high pass — a
+    /// crude stand-in for the Quest 3's own low-end rolloff — the new clip's peak is <b>+5.7 dB</b>
+    /// on the old one, and with <c>EnvSound.ShelfImpactGain</c>'s +16.7 dB on top of that the peak
+    /// the headset is actually handed goes from 0.028 to 0.365, i.e. <b>+22.5 dB</b>. The four
+    /// fifths of the energy still under 500 Hz are the boom, and they are untouched.</para>
     /// </summary>
     private static AudioClip MakeFall(int rate)
     {
@@ -1391,6 +1358,11 @@ internal static class EnvSoundBank
         // run-up that is now a separate cue — so this rebuild makes the bank cheaper, not dearer.
         int n = (int)(rate * 0.9f);
         var d = new float[n];
+        // TWO BUFFERS, because they are two different sources with two different bands: `d` is the
+        // BODY (the carcass, the slab, the load) and keeps its 950 Hz ceiling, `h` is the CRACK and
+        // the SCATTER and gets a band of its own. They are summed once, at the end, and the single
+        // Normalise then decides the clip's peak exactly as it does for every other generator.
+        var h = new float[n];
         var r = new Rng(0xFA11u);
 
         // alpha = pi*f/Q for both modes, from the one Q. Derived, not tuned.
@@ -1426,6 +1398,43 @@ internal static class EnvSoundBank
             d[i] = s;
         }
 
+        // ---- 5. THE CRACK. The instant the two hard surfaces meet, and the term the ModBuild 148
+        // clip did not have at all. Full amplitude at t = 0 with no rise whatsoever — a contact is a
+        // discontinuity — and gone inside 11 ms. Its own Rng, so adding it does not shift a single
+        // draw in the body above and the boom is bit-identical to the clip that was measured.
+        var hr = new Rng(0xC7ACu);
+        int crackLen = (int)(rate * 0.02f);
+        for (int i = 0; i < crackLen && i < n; i++)
+        {
+            float t = i / (float)rate;
+            h[i] += hr.Next() * Mathf.Exp(-t / FallCrackTau) * FallCrackMix;
+        }
+
+        // ---- 6. THE SCATTER. The contents arriving behind the carcass. The times come from
+        // SlipTrain — a for over a fixed count, gaps normalised onto the window afterwards — so this
+        // cannot spin whatever the spread and jitter are; see EnvSoundSchedule.cs.
+        var thrown = new float[FallScatterCount];
+        EnvSoundSchedule.SlipTrain(thrown, FallScatterFirst, FallScatterLast,
+                                   shrink: FallScatterSpread, jitter: FallScatterJitter, seed: 0xC7ACu);
+        int tickLen = (int)(rate * 0.012f);
+        for (int k = 0; k < thrown.Length; k++)
+        {
+            int at = (int)(thrown[k] * rate);
+            // Power-law sizes: Abs() of the -1..1 draw is uniform on [0,1), and raising it to the
+            // exponent is that distribution's inverse CDF. The statistics ARE the line.
+            float amp = Mathf.Pow(Mathf.Abs(hr.Next()), FallScatterExponent);
+            for (int i = 0; i < tickLen && at + i < n; i++)
+            {
+                float tt = i / (float)rate;
+                h[at + i] += hr.Next() * Mathf.Exp(-tt / FallScatterTau) * amp * FallScatterMix;
+            }
+        }
+
+        // The crack's own band, applied to the crack's own buffer — this is what lets the body keep
+        // a 950 Hz ceiling while the contact reaches into the kHz where a headset speaker lives.
+        HighPass(h, rate, FallCrackLoHz);
+        LowPass(h, rate, FallCrackHiHz);
+
         // THE CEILING. 950 Hz, raised from the shipped 420. The old corner was justified as "a
         // cellar's worth of air between it and the ear" and that justification does not survive
         // contact with the picture: the room is a DIORAMA the player is leaning over, at two to
@@ -1436,7 +1445,14 @@ internal static class EnvSoundBank
         LowPass(d, rate, 950f);
         // ...and the floor, below the lowest real mode: DC out, sub-audible excursion out.
         HighPass(d, rate, 55f);
-        Normalise(d, 0.85f);
+
+        // ONE SUM, ONE NORMALISE. The peak of the finished buffer is the crack, which is what an
+        // arrival on a stone floor peaks on. 0.98 rather than the body's old 0.85: this is the one
+        // clip the user has explicitly asked to be loud, and leaving 15% of headroom unused in the
+        // BUFFER would only have to be bought back in the gain, where it is capped.
+        for (int i = 0; i < n; i++)
+            d[i] += h[i];
+        Normalise(d, 0.98f);
         return Finish("Fall", d, rate);
     }
 

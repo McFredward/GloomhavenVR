@@ -75,6 +75,27 @@ Shader "GloomhavenVR/EnvRoom"
         _ElemScl ("Element: object units in metres", Float) = 1
         _ElemGrowFreq ("Element: growth cells per metre", Float) = 3.0
 
+        // ---- THE WINDOW'S THROW (the indoor Light lift's mask) --------------
+        // ModBuild 151, user: "Bei 'Licht' im Keller statt den ganzen Keller
+        // mehr zu beleuchten mach ausschließlich das Licht aus dem Kellerfenster
+        // vom Mond heller." The mechanism, the rule and every composite gain are
+        // in EnvElement.cginc (...AND INDOORS IT MAY ONLY BRIGHTEN WHAT THE
+        // WINDOW SEES); these two vectors are only the opening's geometry.
+        //
+        // THEY ARE DEFAULTS AND NOTHING WRITES THEM, and that is a deliberate
+        // choice with a gate behind it rather than an oversight. Every EnvRoom
+        // material in the cellar would otherwise need the values pushed onto it
+        // by the light rig, which is a pass this lane does not own; and the
+        // opening is a build-time CONSTANT of a room that exists once, so a
+        // default is the honest shape for it. What makes that safe is
+        // AssertMoonWindowMirror in BuildEnvironmentRooms: every bake
+        // instantiates this shader, reads these two defaults back and fails the
+        // build if they disagree with the opening the wall mesh was actually cut
+        // to. The numbers cannot drift, because a drift is a build error.
+        // OUTDOORS THEY ARE UNUSED — GhvrIndoor() lerps the whole mask out.
+        _MoonWin ("Window opening in ROOM metres (x0,y0,x1,y1)", Vector) = (-2.068, 2.2, -0.636, 2.986)
+        _MoonWinZ ("Window plane z, feather (ROOM metres)", Vector) = (4.5, 0.22, 0, 0)
+
         // ---- FIRE SEATS (the receiving half of the fire lane's contract) ----
         // A real fire standing in the room has to light the wall behind it, and
         // the wall is this shader. The FIRE lane writes, per material and in
@@ -130,6 +151,7 @@ Shader "GloomhavenVR/EnvRoom"
     float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _RimDir;
     float4 _ElemCentre;
     float _ElemRad, _ElemFrost, _ElemWarm, _ElemScl, _ElemGrowFreq;
+    float4 _MoonWin, _MoonWinZ;
 
     // PREVIEW-ONLY global clock offset. Never set at runtime (=> 0, the shipped
     // behaviour); EnvironmentsPreview sets it with Shader.SetGlobalFloat so a
@@ -313,6 +335,9 @@ Shader "GloomhavenVR/EnvRoom"
         // not sampled at all.
         GhvrElem e = GhvrElems();
         float frost = 0.0, rr = 0.0;
+        // The crust the frost is MADE of, hoisted so the lighting block below can
+        // read it too. Exactly zero unless Ice is up — see GhvrFrostCrustZero.
+        GhvrFrostIce crust = GhvrFrostCrustZero();
         if (e.live > 0.0)
         {
             float gt = _Time.y + _GhvrTimeOfs;
@@ -353,6 +378,12 @@ Shader "GloomhavenVR/EnvRoom"
                 frost = GhvrGrown(GhvrGrowField(q), grain,
                                   saturate(0.42 * sky + 0.34 * shade + 0.24 * foot),
                                   ice * (0.15 + 1.15 * rr), creep);
+                // ...and WHAT the covering is made of (ModBuild 151, "sehen
+                // nicht sehr wie Eis aus sondern eher wie Wasserpfützen"). In
+                // ROOM METRES, i.e. GhvrGrowQ at freq 1 — a plate has to be
+                // 22 cm on every surface in the room, and `q` above is in the
+                // material's own cells.
+                crust = GhvrFrostCrust(GhvrGrowQ(i.opos, _ElemCentre.xyz, _ElemScl, 1.0));
             }
 
             // `foot` and `shade` used to feed a SECOND frontier here — the moss —
@@ -364,10 +395,18 @@ Shader "GloomhavenVR/EnvRoom"
             // frost's own `place` uses it.
 
             float lum = GhvrGrowLum(alb.rgb);
-            alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-            // the crust fills what it grew into. Exactly 1.0 where nothing grew,
-            // so a lit-but-ungrown pixel is untouched.
-            n_ts.xy *= 1.0 - 0.62 * frost;
+            alb.rgb = GhvrFrostOn(alb.rgb, lum, frost, crust);
+            // THE CRUST NO LONGER FLATTENS THE WALL — it REPLACES its relief,
+            // and that swap is half of the ModBuild 151 verdict. This line used
+            // to read `n_ts.xy *= 1.0 - 0.62 * frost`, i.e. a fully frosted
+            // pixel kept 38% of the stone's bump and got nothing of its own: a
+            // smooth, uniformly blue patch, which is a puddle. Ice fills the
+            // pitting it grew into (so the stone's own bump is still buried, at
+            // 0.28 rather than 0.62 — a crust is thin) and then lays its OWN
+            // plates and boundaries on top. Exactly the shipped multiply where
+            // frost is 0, and the slope is 0 there too.
+            n_ts.xy = n_ts.xy * (1.0 - 0.28 * frost)
+                    + GhvrFrostSlope(crust, i.t, i.b) * frost;
         }
         // =====================================================================
 
@@ -385,7 +424,7 @@ Shader "GloomhavenVR/EnvRoom"
         // See EnvElement.cginc for the contract and for the Light/Dark split.
         // (`e` and the periphery ramp `rr` are hoisted above, where SURFACE
         // GROWTH needs them; the mood is read once for the whole shader.)
-        float ambGain = 1.0, dirGain = 1.0, flickMul = 1.0;
+        float ambGain = 1.0, dirGain = 1.0, flickMul = 1.0, iceSpec = 0.0;
         float3 elemAdd = float3(0, 0, 0);
         // ...and the fire wash, kept SEPARATE because it is added at a different
         // point — after the vertex fade. See the bottom of this function.
@@ -441,7 +480,27 @@ Shader "GloomhavenVR/EnvRoom"
             // what "wirklich den Mondschein heller machen statt den ganzen
             // Raum" asks for, and it lands on the surfaces the moon can
             // actually see because that is what a directional term is.
-            dirGain = GhvrDirGain(e) * GhvrMoonLight();
+            // ...AND INDOORS IT NOW LANDS ONLY WHERE THE WINDOW CAN THROW IT.
+            // ModBuild 151, user: "Bei 'Licht' im Keller statt den ganzen Keller
+            // mehr zu beleuchten mach ausschließlich das Licht aus dem
+            // Kellerfenster vom Mond heller." The paragraph above already held
+            // this room's AMBIENT at exactly 1.00 and moved the whole gain here;
+            // what was left was that "here" is an UNOCCLUDED directional, so
+            // 3.22x was being applied to the far wall, the ceiling and the floor
+            // under the shelf as well as to the pool the moon actually makes.
+            // GhvrMoonWindow traces this fragment back to the opening and
+            // GhvrDirGainThrown masks the BRIGHTENING with it and leaves the
+            // DARKENING alone — the full argument, and every composite gain, are
+            // in EnvElement.cginc under ...AND INDOORS IT MAY ONLY BRIGHTEN WHAT
+            // THE WINDOW SEES. In the throw: 3.22x, unchanged. Outside it:
+            // exactly 1.00x, which is the whole of the fix. Under Dark: 0.0275x
+            // everywhere, also unchanged. In the forest the mask is not even
+            // evaluated.
+            float thrown = GhvrIndoor() > 0.0
+                ? GhvrMoonWindow(i.opos, _ElemCentre.xyz, _ElemScl, _DirDir.xyz,
+                                 _MoonWin, _MoonWinZ.xy)
+                : 1.0;
+            dirGain = GhvrDirGainThrown(e, GhvrMoonLight(), thrown);
             // AIR: the draught works the candles (see PointLight). The forest's
             // three "points" are a wisp, a far lantern and the shafts' landing
             // pool, all with a flicker alpha near zero, so this is felt in the
@@ -455,6 +514,30 @@ Shader "GloomhavenVR/EnvRoom"
             ambGain += 0.30 * frost;
             // the moon rim goes cold with Ice (the forest's Ice channel)
             rimTint = lerp(float3(1, 1, 1), float3(0.70, 0.88, 1.30), saturate(e.ice));
+            // ...AND IT IS SPECULAR, which no version of this feature has been
+            // until now. ModBuild 151: "sehen nicht sehr wie Eis aus sondern
+            // eher wie Wasserpfützen". A wet flagstone in this room is a diffuse
+            // dark patch with a slightly flattened normal; ice is a hard
+            // dielectric that GLINTS, and the glints are what break up on the
+            // plate boundaries the crust now has. One Blinn lobe on the moon —
+            // the only collimated source either room owns — riding the crust's
+            // own normal, so the highlight moves over the plates when the head
+            // moves and cannot read as a painted-on shine.
+            //
+            // Gated on `frost`, which is exactly 0 wherever the covering has not
+            // reached, so this adds nothing outside the patches; and the whole
+            // line is inside the same uniform `e.live` compare everything else
+            // in this block is. Exponent 44: a lobe about 12 degrees wide, which
+            // at the crust's 31-degree ridges puts two or three glints on a
+            // hand-sized patch rather than one sheet of shine.
+            // Behind `e.ice`, a uniform compare on a global, so a room with only
+            // Fire or only Light up does not pay two normalizes and a pow per
+            // fragment for a term that would come out exactly 0 anyway.
+            if (e.ice > 0.0)
+            {
+                float3 hv = normalize(normalize(_DirDir.xyz) + normalize(i.ov));
+                iceSpec = pow(saturate(dot(N, hv)), 44.0) * (0.85 * frost);
+            }
 
             // ---- FIRE: a warm rim on the faces that look INTO the room ------
             // Not a fill light: a fire in the room lights the sides of things
@@ -542,6 +625,11 @@ Shader "GloomhavenVR/EnvRoom"
         // dirGain the directional term uses, so a trunk's lit side and its rim
         // can never disagree about how bright the moon is.
         col += _RimCol.rgb * (rim * dirGain) * rimTint;
+        // THE FROST'S OWN GLINT (see the ICE block above). It is moonlight, so it
+        // rides the same dirGain the moonlit side of every surface does and dies
+        // with the moon under Dark — a crust that glinted in a black room would
+        // be a light source, which ice is not. Exactly 0 with Ice down.
+        col += _DirCol.rgb * (iceSpec * dirGain);
         col *= lerp(float3(1, 1, 1), i.vcol.rgb, _VCol);
         // ...AND THE FIRE WASH, AFTER the vertex fade, which is the one term in
         // this shader deliberately outside it.

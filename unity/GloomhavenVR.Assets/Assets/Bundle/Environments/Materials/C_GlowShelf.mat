@@ -28,8 +28,9 @@ Material:
     - _BlinkPeriod: 4.7
     - _ElemCandle: 1
     - _ElemGate: 0
+    - _ElemMoon: 0
     - _ElemWarm: 1
-    - _Falloff: 2.2
+    - _Falloff: 3.6
     - _Flicker: 0.95
     - _Phase: 2.1
     - _Rate: 0.83
@@ -38,10 +39,10 @@ Material:
     - _HauntEnv: {r: 0, g: 0, b: 0, a: 0}
     - _HauntSched: {r: 0, g: 0, b: 0, a: 0}
     - _ShineAxis: {r: 0, g: 0, b: 1, a: 12}
-    - _Tint: {r: 1, g: 0.55, b: 0.2, a: 0.5}
+    - _Tint: {r: 1, g: 0.55, b: 0.2, a: 0.092}
     - _TipAxis: {r: -0.000000119209275, g: 0, b: 1, a: 1.5707964}
     - _TipEnv: {r: 0.001, g: 26, b: 0.001, a: 0}
-    - _TipPivot: {r: -0.6277264, g: -9.304747, b: 0, a: 1}
+    - _TipPivot: {r: -0.502181, g: -7.443796, b: 0, a: 1}
     - _TipSched: {r: 83, g: 6, b: 5, a: 0}
     - _TipUse: {r: 1, g: -1, b: 1, a: 0}
   m_BuildTextureStacks: []

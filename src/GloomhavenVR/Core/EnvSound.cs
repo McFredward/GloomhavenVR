@@ -33,6 +33,20 @@ namespace GloomhavenVR.Core;
 /// (it is still the switch and nothing else); the sound is made here, from the schedule
 /// <see cref="Haunt.Resolve"/> now exposes.</para>
 ///
+/// <para><b>TWO LATER RULINGS OVERRIDE PARTS OF THE REQUEST ABOVE, and the request is quoted
+/// verbatim rather than edited so that the override reads as an override.</b></para>
+/// <list type="number">
+/// <item><b>"Frostgeräusch" IS GONE.</b> ModBuild 149, verbatim: "Entferne das Geräusch für Eis
+/// komplett." It was built, then rebuilt from the fracture physics up, and then deleted — clip,
+/// scheduler, node and constants. Ice is a thing you SEE in these rooms. The ruling and everything
+/// that went with it are recorded in <c>EnvSound.Bank.cs</c>.</item>
+/// <item><b>ONE SOUND IS ALLOWED TO BE LOUD.</b> "nie aufdringlich überlagernd" has exactly one
+/// written exception, ModBuild 149, verbatim: "ich gebe dir hierbei eine Ausnahmegenehmigung hier
+/// auch einen lauten Knall Sound einzubauen in dem Moment in das Regal den Boden berührt." That is
+/// the bookshelf's arrival and nothing else; see <see cref="ShelfImpactGain"/>, which is the ONLY
+/// place in this file that is allowed past <see cref="MaxEmitterGain"/>.</item>
+/// </list>
+///
 /// <para><b>WHY THIS IS RUNTIME CODE AND NOT BUNDLE CONTENT.</b> The environment asset bundle ships
 /// no MonoBehaviours at all (<c>unity/.../Editor/BuildEnvironments.cs:35</c>) and no audio. An
 /// <see cref="AudioSource"/> is a COMPONENT, so spatial sound cannot come from the bundle even in
@@ -130,10 +144,13 @@ namespace GloomhavenVR.Core;
 /// not in the decompiled C#, so their actual spectra are NOT readable from here. What IS certain is
 /// that speech intelligibility and UI transients live in roughly 1–4 kHz, so the beds are rolled off
 /// below that band and the only content above it is BRIEF (a 90 ms squeak, a 6 ms drip transient, a
-/// 14 ms frost crack) — too short to mask anything, which is a property of duration and needs no
-/// measurement. THE ESCAPE CLAUSE IS NOT A LOOPHOLE AND ONE CLIP FAILED IT: the shipped frost was a
-/// 200 ms ring in that band repeating every 0.45 s, which is a texture rather than a transient, and
-/// the user's verdict on it was "super nervig". Duration is the test; see <see cref="TickFrost"/>.</item>
+/// 12 ms crack as the bookshelf reaches the floor) — too short to mask anything, which is a property
+/// of duration and needs no measurement. THE ESCAPE CLAUSE IS NOT A LOOPHOLE AND ONE CLIP FAILED IT:
+/// the shipped ice sound was a 200 ms ring in that band repeating every 0.45 s, which is a texture
+/// rather than a transient, and the user's verdict on it was "super nervig". It was rebuilt as a
+/// 14 ms fracture that did qualify — and then DELETED OUTRIGHT one round later on his ruling
+/// ("Entferne das Geräusch für Eis komplett"), so ice is now seen and never heard. Duration is the
+/// test, and the one deliberate exception to the whole budget is named in <see cref="ShelfImpactGain"/>.</item>
 /// <item><b>Ducking against the game itself.</b> <see cref="Tick"/> polls
 /// <c>AudioController.GetPlayingAudioObjects()</c> (AudioController.cs:880) and pulls the whole
 /// ambience down to <see cref="DuckFloor"/> whenever the game is making ANY sound at all. This is
@@ -207,10 +224,11 @@ internal static class EnvSound
             + "the creepy easter eggs. Every sound comes from the object that makes it and is placed "
             + "in 3D, so a drip in the corner is heard in the corner, and every one of them is tied "
             + "to what is actually happening rather than to a timer: the drip sounds when the drop "
-            + "lands, the bookshelf bangs when it actually hits the floor, the fire answers a Fire "
-            + "infusion and frost answers Ice. THE WIND IS ONLY THERE WHILE AIR IS: with no Air "
+            + "lands, the bookshelf BANGS on the frame it actually reaches the floor, and the fire "
+            + "answers a Fire infusion. THE WIND IS ONLY THERE WHILE AIR IS: with no Air "
             + "infusion up there is no draught and no rustle at all — the leaves still move, they "
-            + "just make no noise. "
+            + "just make no noise. ICE MAKES NO SOUND AT ALL — you can see the frost, you never hear "
+            + "it. "
             + "Deliberately QUIET and always secondary to the game — the whole ambience ducks "
             + "automatically whenever the game itself makes any sound, and it obeys the master and "
             + "effects volumes you already set in the game's own audio options. OFF removes it "
@@ -234,8 +252,50 @@ internal static class EnvSound
 
     /// <summary>The most any SINGLE emitter may reach on the Unity 0..1 volume scale, before the
     /// master dial and the duck. A bed sitting at this level with the game silent is at the edge of
-    /// noticeable in a quiet room, which is the brief.</summary>
+    /// noticeable in a quiet room, which is the brief. ONE cue is allowed past it and only one — see
+    /// <see cref="ShelfImpactGain"/>, which carries the written permission for it.</summary>
     private const float MaxEmitterGain = 0.16f;
+
+    // ---- THE ONE EXCEPTION -----------------------------------------------------------------------
+    //
+    //  USER RULING, ModBuild 149, verbatim: "Ich höre immer noch keine Impactsounds beim Bücherregal
+    //  das umkippt - ich gebe dir hierbei eine Ausnahmegenehmigung hier auch einen lauten Knall Sound
+    //  einzubauen in dem Moment in das Regal den Boden berührt."
+    //
+    //  IT IS AN EXCEPTION TO ONE RULE, NOT A RELAXATION OF THE BUDGET, and the scope is exactly the
+    //  words he used: one bang, at the instant the shelf touches the floor. It is spent HERE and
+    //  nowhere else. Every bed, the drip, the rat, the squeak and all five remaining haunt cues are
+    //  still under MaxEmitterGain, and this cue still ducks, still obeys the player's dial and still
+    //  obeys the two volume sliders in the game's own audio options — the permission is to be loud,
+    //  not to be unstoppable.
+    //
+    //  WHY A SECOND CEILING AND NOT SIMPLY "NO CAP HERE". A cue with no ceiling is a cue whose level
+    //  is decided by whatever number the last editor typed, and this file's whole gain discipline is
+    //  that a number is compared against a stated maximum. So the exception gets its own maximum,
+    //  stated, and PlayShot still clamps — it just clamps against a different constant for this one
+    //  call. See ScheduleShelfContacts for the three cues that pass it in.
+
+    /// <summary>The bookshelf's arrival on the floor, before master. 0.55 against the 0.080 this cue
+    /// shipped with — <b>+16.7 dB</b>.
+    ///
+    /// <para>WHAT IT REACHES: at the default dial the master is 0.75, so the source volume is 0.41
+    /// on Unity's 0..1 scale, against 1.0 for a game cue at full level. That is a bang the player
+    /// cannot miss and is still not the loudest thing in the room, which is the honest reading of
+    /// "einen lauten Knall" from someone whose standing rule is that the environment comes second.
+    /// Under the duck — i.e. while the game itself is making any sound — it lands at 0.14, still
+    /// louder than the 0.060 the un-ducked shipped cue managed.</para>
+    ///
+    /// <para>THE LEVEL IS ONLY HALF OF WHY HE COULD NOT HEAR IT. The other half was the clip: 97% of
+    /// its energy sat below 500 Hz, in the band a Quest 3 speaker does not reproduce. Raising the
+    /// gain without fixing that would have produced a louder inaudibility. Both are fixed; see
+    /// <c>EnvSoundBank.MakeFall</c>.</para></summary>
+    private const float ShelfImpactGain = 0.55f;
+
+    /// <summary>...and the ceiling the exception is clamped against, in place of
+    /// <see cref="MaxEmitterGain"/> and for this cue only. 0.60 leaves the constant above a little
+    /// room to be tuned upward on hardware without a second edit here, and stops it from ever being
+    /// tuned into "louder than the game", which is not what was granted.</summary>
+    private const float ShelfImpactCeiling = 0.60f;
 
     /// <summary>What the dial multiplies up to at its maximum of 2. The cap is why the dial cannot
     /// be turned into a problem: at 2.0 the loudest emitter reaches 0.16 x 1.5 = 0.24, still far
@@ -374,13 +434,12 @@ internal static class EnvSound
 
     // THE EVENT NODES, RESOLVED ONCE AT BUILD. They are cached rather than looked up per event, and
     // that is not a micro-optimisation: `Find` is a recursive walk of a photoscanned room's whole
-    // hierarchy, the drip fires every 2.85 s and frost can fire three times a second, and this
-    // project has just spent a round DELETING periodic full-scene sweeps for exactly this cost.
-    // The room is frozen once placed and these nodes never move within it, so one resolution per
-    // build is not merely cheaper, it is the correct number.
+    // hierarchy, the drip alone fires every 2.85 s, and this project has just spent a round
+    // DELETING periodic full-scene sweeps for exactly this cost. The room is frozen once placed and
+    // these nodes never move within it, so one resolution per build is not merely cheaper, it is
+    // the correct number.
     private static Transform? _dripNode;
     private static Transform? _ratNode;
-    private static Transform? _frostNode;
 
     // ---- the authored schedule, mirrored ------------------------------------------------------------
     //
@@ -515,7 +574,6 @@ internal static class EnvSound
         // Resolve the event nodes ONCE — see the fields' comment for why this may not be per event.
         _dripNode = Find(roomGo.transform, "Drip", "Puddle");
         _ratNode = Find(roomGo.transform, "Rat");
-        _frostNode = Find(roomGo.transform, "WindowGlow", "Puddle", "Ground", "RoomGeo");
 
         _built = true;
         _builtStyle = style;
@@ -579,21 +637,17 @@ internal static class EnvSound
             AddBed("Night", ground, EnvSoundBank.Bank(EnvSoundClip.Chirr), 0.050f, 3f, 30f,
                    () => 0.80f + 0.20f * Lfo(13.77f));
 
-        // THE WISP. Barely there on purpose — the thing you only notice when it stops.
-        //
-        // "WispWisp" IS NOT A TYPO, and the plain "Wisp" behind it is not a spare. The bake builds
-        // these halos through one helper that prefixes its own family name:
-        // `Place(root, "Wisp" + n, ...)` with n in { "Wisp", "Lantern", "Far" }
-        // (BuildEnvironmentRooms.cs:10362), so the marsh light's node is literally called WispWisp,
-        // the lantern's WispLantern and the far one WispFar. `Find` is an EXACT ordinal match, so
-        // the shipped lookup for "Wisp" resolved to null and THIS BED HAS NEVER PLAYED — silently,
-        // because a missing node is the same "no emitter" path as an environment that has no wisp.
-        // Found by reading the bake, not by listening. The old name is kept as a second candidate so
-        // that a future bake which drops the prefix does not break it again in the other direction.
-        Transform? wisp = Find(room.transform, "WispWisp", "Wisp");
-        if (wisp != null)
-            AddBed("Wisp", wisp, EnvSoundBank.Bank(EnvSoundClip.Hum), 0.030f, 0.8f, 7f,
-                   () => 0.60f + 0.40f * Lfo(5.19f));
+        // THERE IS NO WISP BED, and this note is here so nobody re-derives one from the clip.
+        // The wood used to carry three free-standing halos — WispWisp, WispLantern, WispFar — and
+        // this bed hummed at whichever of them existed. USER, ModBuild 149, on Kugeln.jpg: "In der
+        // Map sind nun dauerhaft so leuchtende Kugeln ... entferne die." All three were deleted from
+        // the bake in the same round, so `Find` would now return null on every candidate and the bed
+        // would be dead code that reads like a feature. It is worth recording that it was ALREADY
+        // dead before that: the bake prefixes its own family name (`Place(root, "Wisp" + n, ...)`),
+        // so the marsh light's node was literally called WispWisp, while the shipped lookup asked
+        // for "Wisp" and `Find` is an exact ordinal match — the bed never played in any build that
+        // shipped it, silently, because a missing node is the same "no emitter" path as a room that
+        // has no wisp. Both facts together are why this is a deletion and not a rename.
 
         AddBed("Rumble", room.transform, EnvSoundBank.Bank(EnvSoundClip.Rumble), 0.10f, 2f, 26f,
                () => 1.30f * ElementMood.Live(3));
@@ -885,7 +939,8 @@ internal static class EnvSound
             TickRat(clock);
         }
         TickDeferred(clock);
-        TickFrost(clock);
+        // NOTHING ANSWERS ICE. There was a TickFrost here until ModBuild 149; see the ruling block
+        // in EnvSound.Bank.cs for why the ice sound is deleted rather than silenced.
         TickHaunt(style, clock);
     }
 
@@ -1038,96 +1093,6 @@ internal static class EnvSound
 
     private static float _squeakAt = float.NaN;
     private static Transform? _squeakFrom;
-
-    /// <summary>Mean seconds between frost bursts at FULL Ice, and at the threshold. The shipped
-    /// pair was 0.45 and 4.
-    ///
-    /// <para><b>0.45 s WAS THE SECOND HALF OF "super nervig", and arguably the larger half.</b> A
-    /// 2.2 Hz repeat is inside the range the ear reads as a RHYTHM rather than as a series of
-    /// separate events (roughly 0.2-2 s between onsets), which means the shipped frost was not a
-    /// crackling surface, it was a pulse — and a pulse is something you can count, tap along to and
-    /// then cannot stop hearing. Nothing about the timbre could have rescued that: even a perfect
-    /// crack on a 0.45 s beat is a woodpecker, which is the coordinator's own word for it and is
-    /// exactly right.</para>
-    ///
-    /// <para>2.6 s at full Ice is above the top of that range with margin, and each burst is itself
-    /// seven cracks spread over 0.36 s (<c>EnvSoundBank.MakeFrost</c>), so the DENSITY of audible
-    /// events barely falls while the PERIODICITY goes away entirely. Per minute at full Ice: 24
-    /// bursts of about three audible cracks each (the mean is 2.50 s once
-    /// <see cref="EnvSoundSchedule.PoissonGap"/>'s clamps are folded in, not the nominal 2.6),
-    /// against the shipped 133 three-note chords.</para></summary>
-    private const float FrostMeanSecondsFull = 2.6f;
-    private const float FrostMeanSecondsThreshold = 11f;
-
-    /// <summary>
-    /// FROST. The Ice infusion crazing the stone. Not a bed — a bed of ice would be a hiss the
-    /// player cannot switch off — but sparse bursts of brittle cracking whose RATE follows the
-    /// element, so a strong Ice is heard as "more often", which is how a freezing surface actually
-    /// behaves.
-    ///
-    /// =============================================================================================
-    /// <para><b>THE CADENCE AND THE LEVEL, and why they moved with the timbre. ModBuild 148.</b>
-    /// The user's report was "Der Sound vom Eis passt absolut garnicht … Das was aktuell drin ist
-    /// ist super nervig", and the rebuild of the SOUND is in <c>EnvSoundBank.MakeFrost</c>. But
-    /// three of the five things that made it annoying were never in the clip at all — they are
-    /// here, and a new clip on the old schedule would have been the same complaint in a different
-    /// timbre:</para>
-    /// <list type="number">
-    /// <item><b>THE BEAT IS GONE.</b> The interval is now a POISSON WAITING TIME rather than a fixed
-    /// number of seconds — see <see cref="EnvSoundSchedule.PoissonGap"/>. That is the honest model
-    /// and not a jitter dressed up: acoustic-emission events from a surface under a slowly changing
-    /// stress field are independent, so the count in any window is Poisson and the gap between them
-    /// is exponential. What it SOUNDS like is the thing a fixed interval can never sound like —
-    /// two bursts close together and then a long nothing — and it is what stops the ear from
-    /// predicting the next one, which is what "nervig" ultimately is.</item>
-    /// <item><b>IT IS THREE TIMES RARER.</b> See <see cref="FrostMeanSecondsFull"/>.</item>
-    /// <item><b>IT NO LONGER REACHES THE WHOLE ROOM.</b> The shipped rolloff was 0.8-11 perceived
-    /// metres, the WIDEST of any one-shot in the bank — wider than the bookshelf going over. So the
-    /// ice was audible from everywhere at nearly full level, which is the exact opposite of
-    /// "verortbar von seinen entsprechenden Quellen": frost is a thing happening ON A SURFACE, and
-    /// you should have to be near that surface. 0.6-5 m, and because logarithmic rolloff goes as
-    /// <c>min/d</c> past the minimum, dropping the minimum from 0.8 to 0.6 steepens the whole curve
-    /// as well — a further -2.5 dB at 2 perceived metres.</item>
-    /// </list>
-    /// <para>The gain also comes down from 0.085 to 0.055 (-3.8 dB) on top of the clip's own
-    /// -6.7 dB of RMS, and the pitch jitter narrows from ±15% to ±8%: with seven independently
-    /// coloured cracks inside every burst there is nothing left for a wide transpose to add, and a
-    /// wide transpose on a broadband transient mostly just moves its brightness around.</para>
-    /// </summary>
-    private static void TickFrost(float clock)
-    {
-        float ice = ElementMood.Live(1);
-        if (ice <= 0.05f)
-        {
-            _nextFrost = float.NaN;
-            return;
-        }
-
-        if (float.IsNaN(_nextFrost) || clock < _nextFrost - 30f)
-            _nextFrost = clock + 0.6f;
-
-        if (clock < _nextFrost)
-            return;
-
-        // THE NEXT ONE. The mean follows the element — the interval is the signal — and the draw
-        // around it is exponential, bounded by construction inside PoissonGap so that no value of
-        // `ice` and no hash can ever return a gap of zero and turn this into a per-frame emitter.
-        // The hash is a pure function of the shared clock's own quantised tick, so two clients
-        // schedule the SAME burst at the SAME second with nothing on the wire — the property every
-        // event in this file has.
-        float mean = Mathf.Lerp(FrostMeanSecondsThreshold, FrostMeanSecondsFull, Mathf.Clamp01(ice));
-        _nextFrost = clock + EnvSoundSchedule.PoissonGap(mean, Hash01((long)(clock * 7f)));
-
-        Transform? at = _frostNode;
-        if (at != null)
-            PlayShot(EnvSoundBank.Bank(EnvSoundClip.Frost), at.position, 0.055f * ice, 0.6f, 5f,
-                     // Channel 4, not Hash01's channel 2: the gap above already drew on 2 from the
-                     // same tick, and the pair "how long you waited" / "what it sounded like" is
-                     // compared by the ear on one event. Same argument as DripVariantChannel's.
-                     pitch: 0.92f + 0.16f * Haunt.Hash((long)(clock * 7f), 4f));
-    }
-
-    private static float _nextFrost = float.NaN;
 
     /// <summary>
     /// THE APPARITIONS. One cue per event, resolved from <see cref="Haunt.Resolve"/> — the shared
@@ -1301,29 +1266,56 @@ internal static class EnvSound
     /// <c>DurationMul</c>. Ice stretches it by up to 35%, and everything here scales with it because
     /// the shader's phase does.</param>
     /// <param name="now">Shared-clock seconds this frame. Diagnostics only.</param>
+    /// <param name="pos">Where the apparition IS, from <see cref="HauntPosition"/> — the renderer
+    /// bounds centre of whatever node resolved. The contacts are placed on the FLOOR under it rather
+    /// than at it; see <see cref="ShelfFloorContact"/>.</param>
     private static void ScheduleShelfContacts(float start, float runs, float now, Vector3 pos)
     {
         float arrival = start + runs * ShelfArrivalPhase;
         float rebound = start + runs * ShelfReboundPhase;
         float rise = start + runs * ShelfRisePhase;
 
-        Defer(arrival, EnvSoundClip.Fall, pos,
-              gain: 0.080f, minMeters: 2f, maxMeters: 24f, pitch: 1f);
+        // THE SOUND COMES FROM THE FLOOR, not from the middle of the bookcase. See below.
+        Vector3 floor = ShelfFloorContact(pos);
+
+        // THE BANG. Everything about this call is the user's exception being spent: the gain is
+        // ShelfImpactGain rather than a fraction of MaxEmitterGain, the ceiling passed to PlayShot is
+        // ShelfImpactCeiling rather than MaxEmitterGain, and the cue is LABELLED so that the next
+        // hardware round can read the played level and the clip's measured peak straight out of
+        // Player.log instead of inferring them.
+        //
+        // minMeters comes DOWN from 2 to 1.2 as well, and that is a level change in disguise: under
+        // logarithmic rolloff the level past the minimum goes as min/d, so a lower minimum steepens
+        // the whole curve — which for a bang is the right shape, since a bookcase hitting a stone
+        // floor is emphatically a thing that happens in ONE PLACE. maxMeters stays at 24: the
+        // permission is for the impact to be loud where it is, not for it to reach further.
+        Defer(arrival, EnvSoundClip.Fall, floor,
+              gain: ShelfImpactGain, minMeters: 1.2f, maxMeters: 24f, pitch: 1f,
+              cap: ShelfImpactCeiling, label: "SHELF ARRIVAL ON THE FLOOR (the loud one)");
 
         // Pitched slightly UP, because a lighter contact of the same body excites its higher modes
         // relatively more — the low mode needs momentum the rebound no longer has. 1.06 is small
-        // enough not to read as a transposition and large enough to read as a lighter touch.
-        Defer(rebound, EnvSoundClip.Fall, pos,
-              gain: 0.080f * ShelfReboundLevel, minMeters: 2f, maxMeters: 24f, pitch: 1.06f);
+        // enough not to read as a transposition and large enough to read as a lighter touch. It
+        // rides the same exception because it is the same contact 0.624 s later — 0.18 of it, i.e.
+        // 0.099, which is under MaxEmitterGain anyway and passes the ceiling only for consistency.
+        Defer(rebound, EnvSoundClip.Fall, floor,
+              gain: ShelfImpactGain * ShelfReboundLevel, minMeters: 1.2f, maxMeters: 24f,
+              pitch: 1.06f, cap: ShelfImpactCeiling, label: "SHELF REBOUND (second contact)");
 
-        Defer(rise, EnvSoundClip.Settle, pos,
-              gain: 0.055f, minMeters: 2f, maxMeters: 24f, pitch: 1f);
+        // The righting is NOT part of the exception: it is a mass coming slowly back up, the half
+        // that is meant to be unsettling rather than loud, and it stays inside the ordinary budget.
+        Defer(rise, EnvSoundClip.Settle, floor,
+              gain: 0.055f, minMeters: 2f, maxMeters: 24f, pitch: 1f,
+              label: "SHELF RIGHTING");
 
         // ONE LINE, ONCE PER SHELF EVENT — which is at most once every ~83 s in the cellar and only
         // for one card in six. It earns its place because the defect it replaces was INVISIBLE from
         // a log: the old cue fired, logged, and sounded, and nothing anywhere said that the thud
         // inside it had landed 3.7 s before the shelf did. These four times against the picture are
-        // the whole verification, and nobody working on this can hear it.
+        // the whole verification, and nobody working on this can hear it. Each of the three cues
+        // ALSO logs when it actually fires or is dropped (see Deferred.Label), so a missing bang can
+        // now be attributed rather than guessed at.
+        HauntPosition(5, out _, out string via);
         VRLog.Info("Core", $"ENV SOUND shelf contacts scheduled from EnvShelfTip's own phase — the "
                            + $"event starts {start:F2}s and runs {runs:F2}s (26.002s authored x the "
                            + "slot's DurationMul, which Ice stretches by up to 35%), so: creak now "
@@ -1333,9 +1325,16 @@ internal static class EnvSound
                            + $"rebound's second contact at {rebound:F2}s (phase {ShelfReboundPhase:F3}, "
                            + $"{ShelfReboundLevel:F2}x the level), and the righting at {rise:F2}s "
                            + $"(phase {ShelfRisePhase:F3}), whose own 1.162s contact is inside the "
-                           + "Settle clip. The shipped build played its only thud at "
-                           + $"{start + ShelfLead + 0.85f:F2}s, i.e. {runs * ShelfArrivalPhase - ShelfLead - 0.85f:F2}s "
-                           + "before the shelf reached the floor, which is the user's report.");
+                           + "Settle clip. THE ARRIVAL IS THE ONE SOUND IN THIS FEATURE THE USER HAS "
+                           + "GIVEN WRITTEN PERMISSION TO BE LOUD (\"eine Ausnahmegenehmigung ... "
+                           + "einen lauten Knall Sound ... in dem Moment in das Regal den Boden "
+                           + $"berührt\"): gain {ShelfImpactGain:F2} against the {MaxEmitterGain:F2} "
+                           + "every other emitter is capped at, which is "
+                           + $"{20f * Mathf.Log10(ShelfImpactGain / 0.080f):F1} dB over the cue he "
+                           + "could not hear. PLACED ON THE FLOOR at "
+                           + $"{floor:F2} (apparition node '{via}', bounds centre {pos:F2}) — an "
+                           + "impact sounds from where two things touch, not from the middle of the "
+                           + "carcass.");
     }
 
     /// <summary>The lead on card 5's own creak, named so that <see cref="CueFor"/> and the
@@ -1348,21 +1347,22 @@ internal static class EnvSound
     /// step with (grep HAUNT FORCE ID TABLE in BuildEnvironmentRooms.cs for the other side).
     ///
     /// <para><b>RETURNS FALSE FOR A SILENT CARD, and silence is now a first-class answer rather
-    /// than a gain of zero.</b> Two apparitions are deliberately mute after the ModBuild 147
-    /// hardware pass — see the cases themselves. A bool is used rather than a
-    /// <c>EnvSoundClip.None</c> member because <see cref="EnvSoundBank.Bank"/> is a total function
-    /// with a <c>default</c> arm: a "None" that fell through it would return the SETTLE clip, which
-    /// is the loudest possible way to express "no sound".</para>
+    /// than a gain of zero.</b> FOUR of the nine cards are deliberately mute — see the cases
+    /// themselves. A bool is used rather than a <c>EnvSoundClip.None</c> member because
+    /// <see cref="EnvSoundBank.Bank"/> is a total function with a <c>default</c> arm: a "None" that
+    /// fell through it would return the SETTLE clip, which is the loudest possible way to express
+    /// "no sound".</para>
     ///
-    /// <para><b>THE ROOM'S CARD COUNTS ARE NOT SIX AND SIX.</b> ModBuild 147 deleted the wood's
-    /// hand-built figures and re-cut both catalogues (<see cref="Haunt.CardSeconds"/>): the cellar
-    /// has six cards but its card 2 became the STAIR-TOP DOOR, and the swamp has THREE — Eyes,
-    /// Watcher, Cross — so what used to be its cards 1, 2 and 3 are now 0, 1 and 2. This table was
-    /// not moved with it and had been one off ever since, silently: the eyeshines were getting the
-    /// breath authored for a face behind a trunk, and the cellar's door was getting a fly authored
-    /// for a face lying among the barrels. Both are corrected below. The unreachable arms for a
-    /// swamp card 3+ are kept as a <c>default</c> so that a catalogue which grows back does not
-    /// crash into a missing case.</para>
+    /// <para><b>THE ROOM'S CARD COUNTS ARE NOT SIX AND SIX, AND TWO OF THE CARDS THAT REMAIN ARE
+    /// EMPTY.</b> ModBuild 147 re-cut both catalogues (<see cref="Haunt.CardSeconds"/>): the cellar
+    /// has six cards and the swamp has three — what used to be the swamp's cards 1, 2 and 3 are now
+    /// 0, 1 and 2. ModBuild 149 then DELETED two apparitions outright, the swamp's card 0 (Eyes) and
+    /// the cellar's card 2 (the stair-top "door", which rendered as a cylinder standing in the moon
+    /// puddle). Both CARDS survive as inert placeholders because the shader requires a card count
+    /// divisible by three, and both are silent here: a card with no apparition behind it must
+    /// produce no cue, or the sound becomes the only evidence of something that is not there. The
+    /// unreachable arms for a swamp card 3+ are kept as a <c>default</c> so that a catalogue which
+    /// grows back does not crash into a missing case.</para>
     /// </summary>
     /// <returns>True if there is a cue to play. False means this apparition is SILENT by design and
     /// the caller must play nothing at all.</returns>
@@ -1393,11 +1393,18 @@ internal static class EnvSound
                 // that is frightening about the image into an ordinary event.
                 case 1: return false;
 
-                // 2 DOOR — the stair-top door, no body at all (Haunt.CardSeconds: "NEW"). A door
-                // taking its own weight on old hinges is stick-slip, which is what Creak is; it was
-                // getting a FLY, authored for the deleted floor-level face. Slightly BEFORE, so the
-                // player is looking at the doorway when it moves.
-                case 2: clip = EnvSoundClip.Creak; gain = 0.045f; lead = -0.4f; minM = 1.2f; maxM = 14f; return true;
+                // 2 — NOTHING IS THERE ANY MORE. ModBuild 149 DELETED this apparition outright: the
+                // stair-top door never rendered as a door, it rendered as a cylinder rising out of
+                // the moon puddle, and the content lane removed it. The card itself has to STAY in
+                // the array as an inert placeholder because the shader requires a card count that is
+                // a multiple of three — but a placeholder that still made a noise would be the worst
+                // of both worlds: a creak from a doorway with nothing in it, on an event the player
+                // cannot see, which is a cue for an apparition that does not exist.
+                //
+                // The prose that used to sit here described a door taking its weight on old hinges.
+                // It is deleted rather than reworded because it was a description of a thing that is
+                // gone, and a stale description survives longer than the code it describes.
+                case 2: return false;
 
                 // 3 TREMBLE — SILENT. USER RULING, ModBuild 147 hardware, verbatim: "Lösch bei den
                 // Spinnweben das Geräusch, das hört sich an wie eine Schlange." ("Delete the sound
@@ -1430,8 +1437,13 @@ internal static class EnvSound
 
         switch (card)
         {
-            // 0 EYES — two eyeshines low in the understory. Almost nothing: one dry shift of leaves.
-            case 0: clip = EnvSoundClip.Drag; gain = 0.035f; lead = -0.4f; minM = 1f; maxM = 10f; return true;
+            // 0 — NOTHING IS THERE ANY MORE. ModBuild 149 DELETED the forest's Eyes, exactly as it
+            // deleted the cellar's card 2. The card stays in the array as an inert placeholder (the
+            // shader needs a card count divisible by three) and it makes NO sound: a dry shift of
+            // leaves coming out of an empty understory is a cue with nothing behind it, which is
+            // precisely the "converts a doubt into an event" failure these cues are built to avoid,
+            // with the event missing as well.
+            case 0: return false;
             // 1 WATCHER — a 2.7 m figure that does nothing at all. A breath from far too high up,
             // late, and quiet enough to be deniable.
             case 1: clip = EnvSoundClip.Breath; gain = 0.038f; lead = 2.2f; minM = 3f; maxM = 26f; return true;
@@ -1458,27 +1470,76 @@ internal static class EnvSound
     /// (<c>Haunts</c>, BuildEnvironmentRooms.cs:4759), then the room root. Only the last of those is
     /// a real degradation, and it degrades to "the sound is in the room" rather than to silence.</para>
     /// </summary>
-    private static Vector3 HauntPosition(int card)
+    private static Vector3 HauntPosition(int card) => HauntPosition(card, out _, out _);
+
+    /// <summary>As above, and it also hands back the FLOOR under the apparition and the name of the
+    /// node that resolved — the two things the bookshelf's contacts need and the ordinary cues do
+    /// not. See <see cref="ShelfFloorContact"/> for why a contact wants a different point from a
+    /// breath.</summary>
+    private static Vector3 HauntPosition(int card, out float floorY, out string via)
     {
         Transform room = _root!.transform.parent!;
 
         Transform? exact = Find(room, "Haunt" + card);
         if (exact != null)
-            return Center(exact);
+            return Center(exact, "Haunt" + card, out floorY, out via);
 
         foreach (Transform t in FindByPrefix(room, "Haunt"))
-            return Center(t);
+            return Center(t, t.name, out floorY, out via);
 
-        return Center(room);
+        return Center(room, room.name + " (ROOM ROOT — no apparition node resolved)", out floorY, out via);
 
         // The RENDERER's bounds centre, not the transform origin: a welded apparition card's pivot
         // is wherever the mesh builder happened to leave it, while the bounds centre is where the
-        // thing visibly IS. Falls back to the transform when there is nothing to measure.
-        static Vector3 Center(Transform t)
+        // thing visibly IS. Falls back to the transform when there is nothing to measure — and then
+        // the floor is the transform too, which is the honest answer for "we could not measure it".
+        static Vector3 Center(Transform t, string name, out float floor, out string resolved)
         {
+            resolved = name;
             var r = t.GetComponentInChildren<Renderer>();
-            return r != null ? r.bounds.center : t.position;
+            if (r == null)
+            {
+                floor = t.position.y;
+                return t.position;
+            }
+            floor = r.bounds.min.y;
+            return r.bounds.center;
         }
+    }
+
+    /// <summary>
+    /// Where the bookshelf's contacts SOUND FROM: the point directly under the apparition's centre,
+    /// on the floor.
+    ///
+    /// <para><b>WHY NOT SIMPLY THE APPARITION'S CENTRE, which is what every other cue uses.</b> A
+    /// breath, a creak and a drag come from a whole body and the bounds centre is the right answer
+    /// for all of them. An IMPACT does not: it happens at the one place two things touch, and for a
+    /// bookcase going over that is the floor line, a metre or more below the carcass's middle. At
+    /// this room's rig scale that is tens of world units of separation, and the user's report is
+    /// specifically that the sound of the shelf reaching the floor is missing — placing it in the
+    /// air above the floor is a way of getting it half right.</para>
+    ///
+    /// <para><b>AND THE FALLBACK IS HONEST ABOUT ITSELF.</b> The hardware log shows card 5 resolving
+    /// through the second link of <see cref="HauntPosition"/>'s chain, not the first — there is no
+    /// <c>Haunt5</c> node, so the position is the welded CATALOGUE's bounds, which covers every
+    /// apparition in the room. Its bottom is still the floor those apparitions stand on, which is
+    /// what this needs; its x/z is the catalogue's centre rather than the shelf's, which this cannot
+    /// fix from here. The scheduling log line prints the node that resolved and the final point, so
+    /// the day the content lane names a per-card node this improves without a code change and the
+    /// log says that it did.</para>
+    /// </summary>
+    private static Vector3 ShelfFloorContact(Vector3 centre)
+    {
+        if (_root == null || _root.transform.parent == null)
+            return centre;
+
+        Vector3 body = HauntPosition(5, out float floorY, out _);
+        // Guard the measurement rather than trusting it: a renderer with no mesh reports a degenerate
+        // bounds, and a floor ABOVE the body's own centre is not a floor. Fall back to the centre,
+        // which is where the cue used to be and is never worse than silence.
+        if (float.IsNaN(floorY) || float.IsInfinity(floorY) || floorY > body.y)
+            return centre;
+        return new Vector3(body.x, floorY, body.z);
     }
 
     /// <summary>
@@ -1486,22 +1547,34 @@ internal static class EnvSound
     /// one-shot silently steals the oldest voice instead of adding to the pile — the concurrency cap
     /// from the class doc, enforced by construction rather than by a counter.
     /// </summary>
-    private static void PlayShot(AudioClip? clip, Vector3 world, float gain,
-                                 float minMeters, float maxMeters, float pitch)
+    /// <param name="cap">The ceiling <paramref name="gain"/> is clamped against. Defaults to
+    /// <see cref="MaxEmitterGain"/>, which is what every caller but one passes; the bookshelf's
+    /// contacts pass <see cref="ShelfImpactCeiling"/> under the written permission recorded there.
+    /// A per-call ceiling rather than an unclamped path, so the exception is still a number compared
+    /// against a stated maximum.</param>
+    /// <returns>The volume actually written to the source on Unity's 0..1 scale — gain, clamped,
+    /// times the master — or 0 if nothing played. RETURNED rather than recomputed by the caller
+    /// because a log line that states a level nobody set is worse than no log line: this is the
+    /// number the headset was handed.</returns>
+    private static float PlayShot(AudioClip? clip, Vector3 world, float gain,
+                                  float minMeters, float maxMeters, float pitch,
+                                  float cap = MaxEmitterGain)
     {
         if (clip == null || Shots.Count == 0)
-            return;
+            return 0f;
 
         Voice v = Shots[_nextShot];
         _nextShot = (_nextShot + 1) % Shots.Count;
 
+        float volume = Mathf.Min(gain, cap) * Master();
         v.Go.transform.position = world;
         v.Source.clip = clip;
         v.Source.pitch = Mathf.Clamp(pitch, 0.5f, 2f);
         v.Source.minDistance = minMeters * _builtScale;
         v.Source.maxDistance = maxMeters * _builtScale;
-        v.Source.volume = Mathf.Min(gain, MaxEmitterGain) * Master();
+        v.Source.volume = volume;
         v.Source.Play();
+        return volume;
     }
 
     /// <summary>A stable 0..1 from a long, for the small per-event variations (a drip is never
@@ -1616,7 +1689,6 @@ internal static class EnvSound
 
         _dripNode = null;
         _ratNode = null;
-        _frostNode = null;
 
         _built = false;
         _builtStyle = SkyStyle.Default;
@@ -1631,7 +1703,6 @@ internal static class EnvSound
         ClearDeferred();
         _squeakAt = float.NaN;
         _squeakFrom = null;
-        _nextFrost = float.NaN;
         // The wind gate goes back to SHUT rather than to its live value: the next environment must
         // fade its wind in from nothing exactly as the first one did, or a stand-down and rebuild
         // during an Air infusion would start the new room's bed at full level on its first frame.
@@ -1664,10 +1735,24 @@ internal static class EnvSound
         internal float At;             // shared-clock seconds
         internal EnvSoundClip Clip;
         internal float Gain;
+        internal float Cap;            // the ceiling Gain is clamped against — see PlayShot
         internal float Pitch;
         internal float MinMeters;
         internal float MaxMeters;
         internal Vector3 Pos;          // WORLD, captured at schedule time
+
+        /// <summary>What to call this cue in the log, or null for "do not log it".
+        ///
+        /// <para>IT EXISTS BECAUSE THE ONE THING NOBODY COULD SEE WAS WHETHER THIS QUEUE FIRED. The
+        /// user reported the bookshelf's impact missing twice. The scheduling line proved the times
+        /// were computed (Player.log:21575 prints all four), and after that the trail stopped: a cue
+        /// dropped by the staleness guard, a cue dropped by the backwards-clock guard and a cue
+        /// played at an inaudible level all looked exactly alike from a log — which is three
+        /// different bugs sharing one symptom. A labelled cue now says which of them happened, with
+        /// the level it was played at and the clip's own measured peak beside it, so the next
+        /// hardware round is settled from Player.log rather than from another round of guessing.
+        /// One line per shelf event, i.e. at most one every ~83 s and only for one card in six.</para></summary>
+        internal string? Label;
     }
 
     private const int DeferredCues = 4;
@@ -1686,7 +1771,8 @@ internal static class EnvSound
     /// possible failure, which is the standing rule applied to its own error path.
     /// </summary>
     private static void Defer(float at, EnvSoundClip clip, Vector3 pos, float gain,
-                              float minMeters, float maxMeters, float pitch)
+                              float minMeters, float maxMeters, float pitch,
+                              float cap = MaxEmitterGain, string? label = null)
     {
         int slot = -1;
         float soonest = float.MaxValue;
@@ -1710,10 +1796,12 @@ internal static class EnvSound
             At = at,
             Clip = clip,
             Gain = gain,
+            Cap = cap,
             Pitch = pitch,
             MinMeters = minMeters,
             MaxMeters = maxMeters,
             Pos = pos,
+            Label = label,
         };
     }
 
@@ -1738,6 +1826,14 @@ internal static class EnvSound
 
             if (clock < _deferred[i].At - 90f)
             {
+                if (_deferred[i].Label != null)
+                    VRLog.Warn("Core", $"ENV SOUND {_deferred[i].Label} DROPPED — it was scheduled " +
+                                       $"for shared clock {_deferred[i].At:F2}s and the clock now " +
+                                       $"reads {clock:F2}s, i.e. more than 90s in the PAST. The " +
+                                       "environment clock jumped backwards (a new owner was elected, " +
+                                       "or the scenario reloaded), so the picture this cue belonged " +
+                                       "to no longer exists. Nothing is broken; the next event " +
+                                       "schedules normally.");
                 _deferred[i].Live = false;
                 continue;
             }
@@ -1747,10 +1843,45 @@ internal static class EnvSound
             Deferred cue = _deferred[i];
             _deferred[i].Live = false;
             if (clock > cue.At + DeferredStaleSeconds)
+            {
+                if (cue.Label != null)
+                    VRLog.Warn("Core", $"ENV SOUND {cue.Label} DROPPED as STALE — due at shared clock " +
+                                       $"{cue.At:F2}s, first seen at {clock:F2}s, i.e. " +
+                                       $"{clock - cue.At:F2}s late against a {DeferredStaleSeconds:F1}s " +
+                                       "budget. The frame loop or the shared clock stalled between " +
+                                       "scheduling and firing, so the sound would have landed on the " +
+                                       "wrong picture. IF THIS LINE IS WHY A CONTACT IS MISSING, the " +
+                                       "fault is the stall, not the cue.");
+                continue;
+            }
+
+            AudioClip? clip = EnvSoundBank.Bank(cue.Clip);
+            float volume = PlayShot(clip, cue.Pos, cue.Gain,
+                                    cue.MinMeters, cue.MaxMeters, cue.Pitch, cue.Cap);
+            if (cue.Label == null)
                 continue;
 
-            PlayShot(EnvSoundBank.Bank(cue.Clip), cue.Pos, cue.Gain,
-                     cue.MinMeters, cue.MaxMeters, cue.Pitch);
+            // THE LINE THAT SETTLES IT FROM A LOG. Everything a listener's "I heard nothing" has to
+            // be checked against: that it fired at all, what the source was actually set to, and
+            // what the clip itself contains — measured off the finished buffer on the DEVICE, at the
+            // device's own sample rate, not quoted from a doc comment (EnvSoundBank.MeasuredShape).
+            EnvSoundBank.MeasuredShape(clip, out float peak, out float peakAt);
+            VRLog.Info("Core", $"ENV SOUND {cue.Label} FIRED — {cue.Clip} at shared clock " +
+                               $"{clock:F2}s (due {cue.At:F2}s, {(clock - cue.At) * 1000f:F0} ms late). " +
+                               $"GAIN {cue.Gain:F3} before master, ceiling {cue.Cap:F2}, master " +
+                               $"{Master():F3} (duck {_duck:F2}, dial {Gain.Value:F2}, game volume " +
+                               $"{GameVolume():F2}) => SOURCE VOLUME {volume:F3} on Unity's 0..1 " +
+                               $"scale, where a game cue at full level is 1.0. CLIP PEAK {peak:F3} " +
+                               $"reached {peakAt * 1000f:F2} ms in — a peak at the start is an " +
+                               "impact, a peak in the middle is a run-up. Rolloff " +
+                               $"{cue.MinMeters:F1}..{cue.MaxMeters:F1} perceived m " +
+                               $"(x{_builtScale:F2} = {cue.MinMeters * _builtScale:F0}.." +
+                               $"{cue.MaxMeters * _builtScale:F0} world) from {cue.Pos:F2}. " +
+                               (volume <= 0f
+                                    ? "VOLUME IS ZERO — the clip is missing or the pool is empty."
+                                    : "If the player still heard nothing with this line present, the " +
+                                      "level and the clip are both accounted for and the remaining " +
+                                      "suspects are the listener and the distance."));
         }
     }
 

@@ -376,7 +376,7 @@ internal static partial class ModalFallback
     /// <summary>
     /// The scripted message currently displayed in this level-message group window (its
     /// <c>MessageName</c>; null when none / not a level-message window) — the CHANGE SIGNAL the
-    /// chain-pose capture in <see cref="TickMenuRecall"/> keys on: the tutorial chains messages
+    /// chain-pose capture in <see cref="TickLevelMessageChain"/> keys on: the tutorial chains messages
     /// through ONE kept-alive float (deadlock #2 do-no-harm gate), so when the key changes a
     /// NEW hint just re-showed inside the existing panel at its previous pose — which the
     /// capture then persists (position continuity, user ruling 2026-08-02).

@@ -158,14 +158,26 @@ internal static partial class HauntFigures
     /// honest reading of both reports is that the effect that was supposed to hide the arrival was
     /// the only thing anyone could see.</para>
     ///
-    /// <para><b>ANIMATION — THE ONE FACT EVERYTHING IS BUILT AROUND.</b> There is NO WALK STATE and
-    /// NO ROOT MOTION anywhere in this game's character controllers. The state table
-    /// (Choreographer.cs:262-302) has Idle-Run, Attack, Damage, Hit, Death, Push, Pull, Loot,
-    /// SleepIdle and so on — and "Idle-Run" is a BLEND, driven by a float parameter
-    /// <c>RunBlend</c> (ActorBehaviour.cs:79), with the actual travel written by the game onto the
-    /// transform (<c>ActorBehaviour.DoTransform</c>/<c>ApplyMotion</c>). So "vorbeilaufen" is:
-    /// hold "Idle-Run", write <c>RunBlend</c>, and move the transform yourself. That is what
-    /// <see cref="Drive"/> does, and it is what the game does.</para>
+    /// <para><b>ANIMATION — THE ONE FACT EVERYTHING IS BUILT AROUND.</b> There is NO WALK STATE in
+    /// this game's character controllers. The state table (Choreographer.cs:262-302) has Idle-Run,
+    /// Attack, Damage, Hit, Death, Push, Pull, Loot, SleepIdle and so on — and "Idle-Run" is a
+    /// BLEND, driven by a float parameter <c>RunBlend</c> (ActorBehaviour.cs:79), with the travel
+    /// landing on the transform in <c>ActorBehaviour.DoTransform</c>/<c>ApplyMotion</c>. So
+    /// "vorbeilaufen" is: hold "Idle-Run", write <c>RunBlend</c>, and move the transform yourself.
+    /// That is what <see cref="Drive"/> does.</para>
+    ///
+    /// <para><b>THE SECOND HALF OF THAT SENTENCE USED TO SAY "AND NO ROOT MOTION", AND THAT WAS
+    /// WRONG</b> — ModBuild 149, from the decompiled source rather than from inference.
+    /// <c>ActorBehaviour.ApplyMotion</c> (:571-612) reads <c>m_AnimatedGameObject.transform.position</c>
+    /// in <c>LateUpdate</c>, writes it to the root, and then sets
+    /// <c>m_AnimatedGameObject.transform.localPosition = Vector3.zero</c>; and
+    /// <c>m_AnimatedGameObject</c> IS <c>m_Animator.gameObject</c> (:115). That is a harvest-and-cancel
+    /// of root motion, every frame — which is why nothing in the game ever assigns
+    /// <c>applyRootMotion</c>: the prefabs ship with it ON and this method is what consumes it. This
+    /// feature strips <c>ActorBehaviour</c> with every other MonoBehaviour, so it has to do BOTH
+    /// halves itself: <c>applyRootMotion = false</c> at spawn, and <see cref="AnimPin"/> as the
+    /// belt to that brace. See <see cref="AnimPin"/> for the user report that made it necessary and
+    /// for the measurement it publishes.</para>
     ///
     /// <para><b>ONLY IDLE-FAMILY STATES ARE EVER PLAYED, and this is a hard rule rather than a
     /// preference.</b> A controller's <c>StateMachineBehaviour</c>s are instantiated by Unity per
@@ -228,6 +240,82 @@ internal static partial class HauntFigures
         private static string _state = string.Empty;
         private static bool _hasRunBlend;
 
+        /// <summary>The one-line reimplementation of <c>ActorBehaviour.ApplyMotion</c>'s last
+        /// statement. See <see cref="AnimPin"/>.</summary>
+        private static AnimPin? _pin;
+
+        /// <summary>The drift readout is written ONCE per process: it answers a yes/no question
+        /// about the game's clips, and the answer cannot change between two apparitions.</summary>
+        private static bool _driftLogged;
+
+        /// <summary>
+        /// PIN THE ANIMATOR'S OWN TRANSFORM. One <c>LateUpdate</c>, one compare, one conditional
+        /// write — and it is the exact line this feature deleted when it stripped the game's own
+        /// motion script.
+        ///
+        /// <para><b>THE USER'S REPORT IS A DESCRIPTION OF THIS MECHANISM</b> (ModBuild 148): "Ich
+        /// vermute es liegt daran das die Animation wiederholt wird und sie eben immer von einem
+        /// punkt weiter vorne startet. Kannst du die Laufanimationen nicht loopen ohne eine bewegung
+        /// und die Bewegung selber koordinieren damit keine Teleportation stattfindet?" That is
+        /// clip-carried travel with a loop in it: the mesh creeps forward through the cycle and snaps
+        /// back when the cycle wraps.</para>
+        ///
+        /// <para><b>THE GAME HAS EXACTLY THIS PROBLEM AND EXACTLY THIS FIX.</b>
+        /// <c>ActorBehaviour.ApplyMotion</c> runs in <c>LateUpdate</c> and ends:</para>
+        /// <code>
+        ///   m_RootGameObject.transform.position = position;          // ActorBehaviour.cs:610
+        ///   m_AnimatedGameObject.transform.localPosition = Vector3.zero;   // :611
+        /// </code>
+        /// <para>where <c>m_AnimatedGameObject</c> is <c>m_Animator.gameObject</c> (:115). That
+        /// second line is a HARVEST-AND-CANCEL: it takes whatever the animation put on the animator's
+        /// own transform, hands it to the root, and zeroes the local offset every single frame. The
+        /// game's monsters travel BY that harvest — which is why nothing in the decompiled sources
+        /// ever writes <c>applyRootMotion</c>: the prefabs ship with it on.</para>
+        ///
+        /// <para><b>AND <see cref="Strip"/> DESTROYS ActorBehaviour</b>, along with every other
+        /// MonoBehaviour except <c>CharacterManager</c> — deliberately and correctly, because it is
+        /// gameplay code. <c>applyRootMotion = false</c> (see the animator block) is this side's
+        /// answer to the same problem and it should be sufficient. This component is the belt to that
+        /// pair of braces, and it is worth its twelve lines for three reasons: it costs one vector
+        /// compare per frame; it cannot make anything worse (with no drift it writes nothing); and it
+        /// converts an UNTESTABLE hypothesis into a MEASUREMENT — <see cref="MaxDrift"/> is the
+        /// largest offset the animation ever managed to accumulate before being cancelled, and it is
+        /// printed once per process, so the next hardware round reads the answer off Player.log
+        /// instead of arguing about it.</para>
+        ///
+        /// <para><b>LateUpdate AND NOT THE FEATURE'S OWN TICK.</b> Unity evaluates animation between
+        /// <c>Update</c> and <c>LateUpdate</c>; this feature is driven from <c>SkyAlternative.Tick</c>,
+        /// which is an <c>Update</c>. A pin written there would always be cancelling the PREVIOUS
+        /// frame's drift — enough to stop it accumulating, not enough to stop it being drawn. So the
+        /// pin lives on a component of its own, in the same phase the game does it in.</para>
+        ///
+        /// <para>It is added to the clone's ROOT (which <see cref="Strip"/> has already finished
+        /// with) rather than to the animator's object, so nothing that walks the animated hierarchy
+        /// can see it, and <see cref="Release"/> destroys it with the clone.</para>
+        /// </summary>
+        private sealed class AnimPin : MonoBehaviour
+        {
+            internal Transform? Target;
+            internal Vector3 Seat;
+
+            /// <summary>Largest offset, in local units, the animation managed to put on the
+            /// animator's transform before this component took it off again.</summary>
+            internal float MaxDrift;
+
+            private void LateUpdate()
+            {
+                if (Target == null)
+                    return;
+                float d = (Target.localPosition - Seat).magnitude;
+                if (d > MaxDrift)
+                    MaxDrift = d;
+                // The write is CONDITIONAL: a transform write dirties Unity's hierarchy even when
+                // the value is unchanged, and on a skinned figure that is a bind-pose recompute.
+                if (d > 1e-6f)
+                    Target.localPosition = Seat;
+            }
+        }
+
         /// <summary>Renderer materials, INSTANTIATED once (Unity's <c>Renderer.materials</c> getter
         /// clones the shared set) and owned outright from that moment: Unity does not destroy
         /// instantiated materials with their renderer, which is the leak <c>OverlayMaterialOwner</c>
@@ -264,7 +352,7 @@ internal static partial class HauntFigures
         /// <para>The rest are ordinary Unity/Amplify albedo tints, tried only if <c>_MOD_TINT</c> is
         /// absent. ONE PER MATERIAL, never two: if a shader declared both <c>_MOD_TINT</c> and
         /// <c>_Color</c> and both multiplied the albedo, writing both would square the darkening and
-        /// a figure meant to sit at a tenth of its albedo would sit at a hundredth — black, in a
+        /// a figure meant to sit at a fiftieth of its albedo would sit at a two-thousandth — black, in a
         /// black room, i.e. an event that never happened.</para>
         /// </summary>
         private static readonly string[] TintNames = { "_MOD_TINT", "_Color", "_Tint", "_TintColor", "_Diffuse" };
@@ -594,6 +682,12 @@ internal static partial class HauntFigures
                     _state = IdleStates[i];
                     break;
                 }
+
+                // ...AND THE ONE LINE OF ActorBehaviour THE STRIP TOOK AWAY. See AnimPin.
+                AnimPin pin = _go.AddComponent<AnimPin>();
+                pin.Target = _animator.transform;
+                pin.Seat = _animator.transform.localPosition;
+                _pin = pin;
             }
 
             PerfMonitor.Count("HauntFig.Spawns");
@@ -707,7 +801,7 @@ internal static partial class HauntFigures
                 // forest events stand past the ground-darkness knee, where the floor is at 0.015 of
                 // its lit value (:9297). A real-time shadow map, doubled by MultiPass, would buy four
                 // invisible shadows. It is now doubly moot: the figures are multiplied down to a
-                // tenth of their albedo (see Shade), so even a lit-ground framing would want a
+                // fiftieth of their albedo (see Shade), so even a lit-ground framing would want a
                 // shadow of a creature that is barely brighter than the floor. If a future event ever
                 // puts a figure in a candle pool this is the line to revisit, and the room's own moon
                 // direction (see Lighting) is already the direction it would have to be cast from.
@@ -929,6 +1023,32 @@ internal static partial class HauntFigures
             // envelope ever reached 1 (a stand-down mid-reveal, a style change). Says so in the
             // line, so a reader is never misled into reading a mid-dissolve state as the final one.
             Diag.Materials(_wantModel, "AFTER (cut short before full presence)", _lastShade);
+
+            // THE ANSWER TO "DOES THE CLIP MOVE THE FIGURE", once per process, either way. A
+            // hardware round can settle the ModBuild 148 teleport report off this one line: a
+            // non-zero drift means the game's clips really do carry travel that `applyRootMotion =
+            // false` did not stop and AnimPin now cancels; a zero means they do not, and the
+            // remaining suspect is the GAIT — the path speed against the walk clip's own, both of
+            // which are printed on the `armed at shared clock` and CENSUS lines.
+            if (!_driftLogged && _pin != null)
+            {
+                _driftLogged = true;
+                float drift = _pin.MaxDrift;
+                VRLog.Info("Core", "HAUNT FIGURES animation drift (once per process) — over the whole of "
+                    + $"the first apparition ('{_wantModel}'), the animation put at most {drift * 1000f:F2} mm "
+                    + "on the animator's OWN transform before AnimPin cancelled it. "
+                    + (drift > 0.0005f
+                           ? "THAT IS THE TELEPORT: the walk clip carries its own travel, it loops, and "
+                             + "before this build nothing took it off again — the mesh crept forward "
+                             + "through the cycle and snapped back at the wrap. The game cancels exactly "
+                             + "this in ActorBehaviour.ApplyMotion (:611), which this feature strips, and "
+                             + "AnimPin is that line restored."
+                           : "So the clips do NOT carry travel here and 'applyRootMotion = false' is "
+                             + "holding: whatever is left of the teleport report is the GAIT rather than "
+                             + "the position — compare the m/s on the 'armed at shared clock' line with "
+                             + "the walk clip length on the CENSUS line for the same creature."));
+            }
+            _pin = null;
 
             Lighting.Forget();
 
@@ -1155,6 +1275,27 @@ internal static partial class HauntFigures
             private static readonly int DirDirId = Shader.PropertyToID("_DirDir");
             private static readonly int DirColId = Shader.PropertyToID("_DirCol");
             private static readonly int PtHardId = Shader.PropertyToID("_PtHard");
+
+            // ---- THE TWO THE SURFACE TAKES AND THE FIGURE DOES NOT (diagnostics only) -----------
+            //
+            // WHAT THESE ARE FOR, stated up front because they are deliberately NOT wired into the
+            // Level the figure gets. The rig above is read off a ROOM MATERIAL, and in the forest
+            // that material is 'S_Ground'. That shader does not consume _DirCol raw: it multiplies
+            // the moon by _DirScale = 0.38 (EnvGround.shader:494, authored to a user ruling — "der
+            // erscheint viel zu hell ... er soll eher leicht angestrahlt werden von Mond") and then
+            // again by the CANOPY SHADOW, which under a closed crown bottoms out at MinVis = 0.25
+            // (BuildEnvironmentRooms.cs floorLook). So the floor an apparition stands on keeps
+            // 0.38 x 0.25 = 9.5% of the moon this side hands the figure at 100%, and the moon is 92%
+            // of the constant term out there. That is a real ten-fold overstatement and it is what
+            // the ModBuild 148 round set out to find.
+            //
+            // IT IS MEASURED AND PRINTED AND NOT APPLIED, and that is a measured decision rather
+            // than caution — see THE DARKENING block below for the two photographs and the
+            // arithmetic that rules it out. Reading them costs two property tests once per
+            // apparition, and having the number in Player.log is what lets the next round act on it
+            // without another probe.
+            private static readonly int DirScaleId = Shader.PropertyToID("_DirScale");
+            private static readonly int CsFltId = Shader.PropertyToID("_CsFlt");
             private static readonly int[] PtPosId =
             {
                 Shader.PropertyToID("_L0Pos"), Shader.PropertyToID("_L1Pos"), Shader.PropertyToID("_L2Pos"),
@@ -1202,6 +1343,14 @@ internal static partial class HauntFigures
             private static float _ptHard;
             private static bool _indoor;
 
+            /// <summary>The share of the moon the SURFACE this rig was read from actually keeps —
+            /// <c>_DirScale</c> times the canopy shadow's minimum visibility. 1 when the material
+            /// declares neither (the cellar). Diagnostics only; see the block at
+            /// <see cref="DirScaleId"/>.</summary>
+            private static float _surfMoonShare = 1f;
+            private static float _surfDirScale = 1f;
+            private static float _surfCanopyMinVis = 1f;
+
             // ---- THE DARKENING, and the four numbers a tuning drop would move -------------------
             //
             // THE MAPPING. `lum` is the Rec.709 luminance of the SH CONSTANT TERM — i.e. of all the
@@ -1215,23 +1364,89 @@ internal static partial class HauntFigures
             // nobody has evaluated is a mapping nobody can judge:
             //   * CELLAR (BuildEnvironmentRooms.cs:2927-2944 — ambUp (0.028,0.032,0.045), ambDown
             //     (0.020,0.018,0.015), dirCol (0.048,0.070,0.128)): away from the candles the
-            //     constant term is about (0.036,0.043,0.062), lum 0.043, so Level about 0.10. A
-            //     creature at a TENTH of its albedo, which is what an unlit cellar corner has to
-            //     mean.
+            //     constant term is (0.0360,0.0425,0.0620) — the hardware log's own numbers,
+            //     Player.log:21368 — lum 0.0425, so Level 0.021. A creature at a FIFTIETH of its
+            //     albedo, which is what an unlit cellar corner has to mean.
             //   * NIGHT FOREST (:10520-10540 — the moon is 0.70/0.79/0.94 out there): the constant
-            //     term is about (0.19,0.22,0.26), lum 0.21, so Level about 0.32. The wood is
-            //     genuinely brighter than the cellar and the figure follows it.
+            //     term is (0.1895,0.2150,0.2575) (Player.log:7469), lum 0.2126, so Level 0.078. The
+            //     wood is genuinely brighter than the cellar and the figure follows it.
             // Walking into a candle pool raises it; Dark eclipsing the moon lowers it; both fall out
             // of the rig evaluation that was already here.
             //
-            // NONE OF THE FOUR IS TUNED AGAINST HARDWARE and they cannot be, from this machine —
-            // what a tenth of albedo looks like through a Quest 3 in a dark room is not derivable.
-            // Bind() therefore LOGS the measured luminance and the resulting Level per room, so a
-            // tuning drop is a number read off the log rather than a guess.
-            private const float DarkFloor = 0.045f;   // a creature is never fully black while present
-            private const float LightGain = 1.30f;    // room luminance -> albedo multiplier
-            private const float MaxLevel = 0.80f;     // never at full albedo: it is a thing in the dark
-            private const float UnlitLevel = 0.20f;   // the rig could not be read at all
+            // ====================== ModBuild 149: ALL FOUR ARE NOW MEASURED ======================
+            //
+            // USER RULING, ModBuild 148 hardware, verbatim and twice: "Die Figuren die einem im Wald
+            // beobachten sind in ihren Texturen immer noch voll Sichtbar (siehe Sichtbarkeit.jpg).
+            // Sie sollen aus der Dunkelheit beobachten kaum sichtbar weil dort kein Licht ist. So
+            // extrem sichtbar ist es kein Horror." — and for the cellar window: "Weiterhin gilt auch
+            // hier die Lichtverhältnisse - die Figur ist voll sichtbar mit allen Texturen aktuell."
+            //
+            // THE PARAGRAPH ABOVE SAID THESE FOUR COULD NOT BE TUNED FROM THIS MACHINE. THAT WAS
+            // TRUE AND IS NOT ANY MORE, because the user shipped two photographs of the shipped
+            // build and a photograph is a photometer. Both frames are 3840x2160 sRGB; both were
+            // linearised and sampled over the figure and over the surface behind it (Rec.709
+            // luminance, 90th percentile so that the number is the figure's LIT side rather than the
+            // mean of a box that is half background):
+            //
+            //   .planning/debug/Sichtbarkeit.jpg      (forest, Level was 0.321)
+            //       figure p90 0.0290   nearest trunk p90 0.0042   ->  6.9x the surface behind it
+            //   .planning/debug/Kellerfenster_figur.jpg (cellar, Level was 0.100)
+            //       figure p90 0.0458   masonry p90 0.0027         -> 17.0x the surface behind it
+            //
+            // "Kaum sichtbar" is not 7x and it is certainly not 17x. The target taken here is that
+            // the figure may be about TWICE the surface it stands in front of — enough that a player
+            // who is looking at it resolves a silhouette, not enough that it pulls the eye of one who
+            // is not. Dividing through by the Level that produced each measurement gives what the
+            // figure would be at Level 1, i.e. the part this side does not control (albedo, plus the
+            // GAME's own lights, which no per-renderer setting can take away):
+            //
+            //       B_forest = 0.0290 / 0.321 = 0.090     B_cellar = 0.0458 / 0.100 = 0.458
+            //
+            // so the Level each room WANTS is 2 x background / B:
+            //
+            //       forest  2 x 0.0042 / 0.090  = 0.093        cellar  2 x 0.0027 / 0.458 = 0.012
+            //
+            // THE CELLAR NEEDS AN EIGHTH OF WHAT THE FOREST NEEDS, and the reason is in the log
+            // rather than in the rooms' own light: the cellar window figure stands 4.7 m from
+            // 'FireTorch_PointLight' (intensity 8.59, range 7 m, "-> REACHES the apparition",
+            // Diag.Scene) while the forest figure is 13 m from anything the game lights. B_cellar is
+            // five times B_forest for that reason alone.
+            //
+            // FITTING THE TWO POINTS. The room luminances the rig delivers are 0.2126 (forest) and
+            // 0.0425 (cellar) — a ratio of 5.0 against a wanted-Level ratio of 7.8 — so a straight
+            // line through them with a floor near zero lands both within a factor of 1.5, which is
+            // well inside what a photograph through a headset can settle:
+            //
+            //       Level = 0.006 + 0.34 x lum   ->   forest 0.078 (1.7x trunk), cellar 0.021 (3.5x wall)
+            //
+            // AND THIS IS WHY THE CANOPY OCCLUSION IS MEASURED BUT NOT APPLIED. Subtracting the
+            // forest floor's own moon response from the measurement (see the block at DirScaleId —
+            // _DirScale 0.38 times canopy MinVis 0.25) takes the forest's luminance from 0.2126 to
+            // 0.066, i.e. it collapses the two rooms' luminances to a ratio of 1.55 while the ratio
+            // the photographs demand is 7.8. Solving the same two-point fit against the corrected
+            // numbers gives LightGain 3.4 and a DarkFloor of MINUS 0.13 — the mapping stops being
+            // expressible. The occlusion is a true statement about the bake and a false lever here:
+            // what separates the two rooms is not their own light, it is the game's, and the
+            // uncorrected rig luminance happens to track that far better. The hypothesis was tested
+            // rather than assumed, and the numbers are left in the log so the next round can retest
+            // it against a THIRD photograph instead of re-deriving them.
+            //
+            // WHAT EACH KNOB IS NOW FOR, so a tuning drop moves the right one:
+            //   * DarkFloor 0.006 (was 0.045). The old floor was three times the cellar's whole
+            //     answer, so in the darkest room in the mod the floor WAS the answer and the
+            //     measurement did nothing. It still exists — a present creature is never a pure
+            //     black hole — but it is now well under the darkest room's own level.
+            //   * LightGain 0.34 (was 1.30). This is the knob the user's two sentences move.
+            //   * MaxLevel 0.30 (was 0.80). 0.80 needed lum 0.58 and was unreachable in either room,
+            //     i.e. it was not a clamp at all. 0.30 is about four times the forest's answer, so it
+            //     bites exactly where it should: a figure that walks into a candle pool.
+            //   * UnlitLevel 0.05 (was 0.20). The fallback for "the rig could not be read" was
+            //     brighter than either room's real answer, which made a bundle mismatch look like a
+            //     spotlight. It is now at the darker end of what the rooms really deliver.
+            private const float DarkFloor = 0.006f;   // a creature is never fully black while present
+            private const float LightGain = 0.34f;    // room luminance -> albedo multiplier
+            private const float MaxLevel = 0.30f;     // never at full albedo: it is a thing in the dark
+            private const float UnlitLevel = 0.05f;   // the rig could not be read at all
 
             /// <summary>
             /// The albedo multiplier the room's measured light justifies, 0..1 — the AMOUNT half of
@@ -1262,6 +1477,9 @@ internal static partial class HauntFigures
                 _lastAt = new Vector3(1e9f, 1e9f, 1e9f);
                 _lastAmb = -1f;
                 _lastDir = -1f;
+                _surfDirScale = 1f;
+                _surfCanopyMinVis = 1f;
+                _surfMoonShare = 1f;
                 // BACK TO THE DIM CONSTANT, not to 1. A figure whose room could not be measured is
                 // still a figure in the dark, and the one value this must never fall back to is
                 // "full albedo" — that is the picture the user rejected.
@@ -1316,6 +1534,20 @@ internal static partial class HauntFigures
                         _dirWorld = dw.sqrMagnitude > 1e-8f ? dw.normalized : Vector3.up;
 
                         _ptHard = m.HasProperty(PtHardId) ? m.GetFloat(PtHardId) : 0f;
+
+                        // WHAT THIS SURFACE ITSELF DOES WITH THE MOON — diagnostics only, never a
+                        // factor in Level. _CsFlt.w is the canopy shadow's STRENGTH, i.e. 1 - MinVis
+                        // (BuildEnvironmentRooms.cs, CanopyShadowBake.Apply), so the share a fully
+                        // occluded fragment keeps is 1 - w. Both default to 1, which is exactly right
+                        // for a material that declares neither: the cellar has no canopy and no
+                        // ground-only moon response, so its surfaces take the moon in full and this
+                        // whole term collapses to 1.
+                        _surfDirScale = m.HasProperty(DirScaleId) ? Mathf.Max(m.GetFloat(DirScaleId), 0f) : 1f;
+                        _surfCanopyMinVis = m.HasProperty(CsFltId)
+                            ? Mathf.Clamp01(1f - m.GetVector(CsFltId).w)
+                            : 1f;
+                        _surfMoonShare = Mathf.Clamp01(_surfDirScale * _surfCanopyMinVis);
+
                         for (int i = 0; i < 3; i++)
                         {
                             Vector4 lp = m.GetVector(PtPosId[i]);
@@ -1490,18 +1722,38 @@ internal static partial class HauntFigures
                 if (!_levelLogged)
                 {
                     _levelLogged = true;
+                    // ...and what the SURFACE behind the figure keeps of that same moon. Everything
+                    // in `a` except the directional term is common to both, so the occluded
+                    // luminance is the delivered one minus the share of the moon the surface loses.
+                    Vector3 moonTerm = d * LobeConst;
+                    float lumMoon = 0.2126f * moonTerm.x + 0.7152f * moonTerm.y + 0.0722f * moonTerm.z;
+                    float lumSurf = Mathf.Max(lum - lumMoon * (1f - _surfMoonShare), 0f);
                     VRLog.Info("Core", "HAUNT FIGURES light level — the room delivers luminance "
                         + $"{_measured:F4} at the figure's chest (SH constant term "
                         + $"({a.x:F4},{a.y:F4},{a.z:F4}), the same numbers the wall behind it is shaded "
                         + $"with), so the apparition's albedo is multiplied by {Level:F3}. THIS IS THE "
                         + "LINE TO TUNE FROM: the mapping is DarkFloor "
                         + $"{DarkFloor:F3} + LightGain {LightGain:F2} x luminance, clamped to "
-                        + $"{MaxLevel:F2}, and none of those four is tuned against hardware. Too dark "
-                        + "to find at all means raise DarkFloor; still reading as 'voll angestrahlt' "
-                        + "means lower LightGain. The multiply is on the ALBEDO (property "
-                        + $"'{_tintName}' where the shader has one), so it holds whatever else is "
-                        + "lighting the figure — including the game's own scene lights, which no "
-                        + "per-renderer setting can take away.");
+                        + $"[{DarkFloor:F3}, {MaxLevel:F2}], and ALL FOUR ARE NOW FITTED TO TWO "
+                        + "HARDWARE PHOTOGRAPHS (ModBuild 148: Sichtbarkeit.jpg and "
+                        + "Kellerfenster_figur.jpg — the figure measured 6.9x and 17x the surface "
+                        + "behind it and the target is about 2x). Too dark to find at all means raise "
+                        + "DarkFloor; still reading as 'voll angestrahlt' means lower LightGain. The "
+                        + $"multiply is on the ALBEDO (property '{_tintName}' where the shader has "
+                        + "one), so it holds whatever else is lighting the figure — including the "
+                        + "game's own scene lights, which no per-renderer setting can take away, and "
+                        + "which are why the two rooms want Levels an order apart (see the HAUNT "
+                        + "FIGURES SCENE LIGHTING line). "
+                        + "THE OCCLUSION THE SURFACE HAS AND THE FIGURE DOES NOT, measured off the "
+                        + "same material and deliberately NOT applied: the surface keeps "
+                        + $"_DirScale {_surfDirScale:F2} x canopy MinVis {_surfCanopyMinVis:F2} = "
+                        + $"{_surfMoonShare:F3} of the moon, so the luminance an equally-treated "
+                        + $"figure would measure is {lumSurf:F4} instead of {_measured:F4} — a factor "
+                        + $"of {(lumSurf > 1e-6f ? _measured / lumSurf : 0f):F2}. Applying it was "
+                        + "tried and REJECTED: it collapses the two rooms' luminance ratio to 1.55 "
+                        + "against a wanted-Level ratio of 7.8 and forces a negative DarkFloor (the "
+                        + "full arithmetic is in the THE DARKENING block in HauntFigures.Clone.cs). "
+                        + "Retest it against a third photograph rather than re-deriving it.");
                 }
 
                 ToLinearIfGamma(ref a, ref br, ref bg, ref bb);

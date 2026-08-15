@@ -43,7 +43,8 @@ namespace GloomhavenVR.Core;
 /// <item><b>DARKNESS THAT IS THE ROOM'S OWN.</b> The user's ruling, verbatim: "Sie MÜSSEN an die
 /// Lichtverhältnisse angeglichen werden, sonst geht der Gruselfaktor verloren." A creature's albedo
 /// is multiplied by the light the room actually delivers where it stands, measured off the room's
-/// own baked rig — about a tenth in the cellar, about a third in the wood. This is the ingredient
+/// own baked rig — a fiftieth in the cellar and a thirteenth in the wood since the two ModBuild 148
+/// photographs were measured (HauntFigures.Clone.cs, THE DARKENING). This is the ingredient
 /// that replaced the one below it, and it is the one the user calls the most important point.</item>
 /// <item><b>PARTIAL OCCLUSION BY REAL GEOMETRY — WITH THE CAVEAT THAT COST US TWO EVENTS.</b> Every
 /// event is framed by something the bake really built: the barred window, the stair alcove, the
@@ -194,6 +195,56 @@ internal static partial class HauntFigures
     /// <summary>Per-slot duration scale, taken from the schedule so a figure stretches with Ice
     /// exactly as the shader-drawn apparitions do.</summary>
     private static float _durMul = 1f;
+
+    // =============================================================================================
+    //  THE NO-BACKWARDS-STEP INTERLOCK. Two fields, and between them they make "a visible figure
+    //  never jumps" a PROPERTY OF THE CODE rather than a property of the numbers.
+    //
+    //  USER REPORT, ModBuild 148, verbatim: "Die Animationen der Figuren die sich bewegen
+    //  teleportieren sich immer noch anstatt flüssig zu gehen. Ich vermute es liegt daran das die
+    //  Animation wiederholt wird und sie eben immer von einem punkt weiter vorne startet. Kannst du
+    //  die Laufanimationen nicht loopen ohne eine bewegung und die Bewegung selber koordinieren
+    //  damit keine Teleportation stattfindet?"
+    //
+    //  WHAT THE ARITHMETIC ACTUALLY SAYS about the loop he suspects, worked through for the one
+    //  event in either room that moves (ForestCross: 6.8 m, reveal 1.00 + hold 2.40 + fade 0.80 =
+    //  4.20 s, looped by a latched trigger every Haunt.ForceLoopSeconds = 4.20 + 1.40 = 5.60 s):
+    //    * Envelope() returns EXACTLY 0 for t > reveal+hold+fade — `down` is a clamped smoothstep
+    //      whose argument is negative there — so the figure's presence is 0 for the whole 1.40 s
+    //      gap, and Clone.Shade switches the RENDERERS OFF at presence 0 rather than writing black.
+    //    * At the restart t returns to ~0 and Envelope returns 0 again (`if (t <= 0f) return 0f`,
+    //      and smoothstep(t/reveal) is 0.0007 one frame later at 90 Hz).
+    //    * The renderers come back on when presence x Lighting.Level clears 0.0015 (Clone.Shade).
+    //      At the ModBuild 149 forest Level of 0.078 that needs presence 0.019, i.e. t = 0.081 s,
+    //      i.e. u = 0.019 — 13 cm along a 6.8 m path.
+    //  So the wrap is invisible with about 1.55 s of margin, and the ModBuild 147 `sameCardLooped`
+    //  path really does run now: the hardware log has ONE `armed at` line for a cellar latch that
+    //  stood 115.5 s over sixteen loops (.planning/debug/Player.log:20649-20958), where the
+    //  ModBuild 146 failure wrote one per loop. THE LOOP IS NOT THE REMAINING BUG.
+    //
+    //  IT IS STILL WORTH MAKING STRUCTURAL, because that margin is an emergent property of four
+    //  numbers in three files (the envelope, the loop gap, the visibility threshold and the light
+    //  level) and this round moved one of them: the Level fell by a factor of four, which happens to
+    //  widen the margin and could just as easily have closed it. So the blanking below asserts the
+    //  gap instead of inheriting it.
+
+    /// <summary>Shared-clock time before which a restarted run may not be drawn AT ALL, whatever its
+    /// envelope says. Set on every loop restart, never on a fresh arm (there is no previous position
+    /// to jump from).</summary>
+    private static float _quietUntil = float.NegativeInfinity;
+
+    /// <summary>Path fraction of the last frame DRIVEN in the current run, or -1 between runs. The
+    /// second half of the interlock: within one run <c>u</c> is monotone by construction (it is
+    /// <c>t / len</c> and the clock only ever moves forward — a backwards clock retires), so this
+    /// can only fire if that construction is ever broken, and when it fires it hides the figure for
+    /// that frame rather than showing it behind where it was.</summary>
+    private static float _lastDrivenU = -1f;
+
+    /// <summary>How long a restarted run stays hidden. Eleven frames at 90 Hz — long enough that the
+    /// anchor's reset can never share a drawn frame with the position it came from, and short enough
+    /// to be free: at 0.12 s into a 1.0 s reveal the envelope is 0.040, which after the room's light
+    /// level is 0.003 of albedo, i.e. below anything a headset resolves.</summary>
+    private const float RestartBlankSeconds = 0.12f;
 
     private static float _lastMask = -1f;
 
@@ -429,6 +480,10 @@ internal static partial class HauntFigures
             // load — which is the whole difference between this and the teardown it replaces.
             _startClock = wantStart;
             _durMul = wantDur;
+            // ...and THIS is the frame the anchor jumps back to the top of the path, so it is the
+            // frame the interlock exists for. See the block at _quietUntil.
+            _quietUntil = wantStart + RestartBlankSeconds;
+            _lastDrivenU = -1f;
             Clone.Restart();
         }
 
@@ -441,6 +496,10 @@ internal static partial class HauntFigures
             _card = want;
             _startClock = wantStart;
             _durMul = wantDur;
+            // A FRESH ARM IS NOT A RESTART: there is no previous position for the figure to jump
+            // from, and the arming lead already holds it at u = 0 with presence 0 while it loads.
+            _quietUntil = float.NegativeInfinity;
+            _lastDrivenU = -1f;
             Arm(style, want, slot.Index);
             // Arm CLEARS _card when this event's cast could not be resolved on this machine — the
             // slot is then simply quiet. Falling through would drive an event that was never armed.

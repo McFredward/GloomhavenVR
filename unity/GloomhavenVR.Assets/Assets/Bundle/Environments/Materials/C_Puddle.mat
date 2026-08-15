@@ -28,7 +28,7 @@ Material:
     - _CandRate: 1.19
     - _DraftWave: 0.018
     - _Fresnel: 0.5
-    - _IceBody: 0.09
+    - _IceBody: 0.14
     - _IceRelief: 0.45
     - _Impact: 2.363244
     - _MoonPow: 45

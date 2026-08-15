@@ -60,6 +60,8 @@ Material:
     - _L1Pos: {r: 0, g: 0, b: 0, a: 1}
     - _L2Col: {r: 0, g: 0, b: 0, a: 0}
     - _L2Pos: {r: 0, g: 0, b: 0, a: 1}
+    - _MoonWin: {r: -2.068, g: 2.2, b: -0.636, a: 2.986}
+    - _MoonWinZ: {r: 4.5, g: 0.22, b: 0, a: 0}
     - _RimCol: {r: 0, g: 0, b: 0, a: 1}
     - _RimDir: {r: 0, g: 1, b: 0, a: 0}
     - _Tint: {r: 0, g: 0, b: 0, a: 1}

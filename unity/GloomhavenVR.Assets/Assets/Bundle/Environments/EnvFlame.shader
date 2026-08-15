@@ -299,6 +299,53 @@
 // well as in height. One MAD, and it is most of what stops thirty cards at the
 // same height reading as one flat orange sheet.
 // ============================================================================
+//
+// ============ ES ZIEHT FÄDEN — USER VERDICT, ModBuild 149 ===================
+// "Feuer zieht nun solche Fäden bis ganz weit nach oben, das sieht nicht
+//  realistisch aus."  (feuer3.jpg, feuer4.jpg)
+// "Wenn Wind an ist sind die Strahlen vom Feuer extrem lang."  (feuer5.jpg)
+//
+// One fault, four multiplies, and none of them was authored as a thread. What
+// makes a thread is that every one of them acts on the SAME AXIS:
+//
+//   1. THE CARD. A tongue's drawn width is tw x ArtW x QuadWidthK, which put it
+//      at 0.31-0.49 of its own height — 2:1 to 3.2:1 before anything moved.
+//   2. THE LICK. `p.y *= tall * lick` scales the HEIGHT and not the width, so
+//      up to another 1.48x on the tall axis only: 4.8:1 at the worst card.
+//   3. THE EROSION, and this is the one nobody had seen. The field is sampled
+//      in CARD UV at (0.85, 0.72), i.e. near-square in UV — but UV is not
+//      square in METRES on a card 0.39 as wide as it is tall, so a field cell
+//      measured 0.46 x 1.39 card-heights. The holes it cut were themselves 3:1
+//      vertical. 3.2 x 1.48 x 3 is a filament twelve times longer than it is
+//      wide, and the temperature ramp paints its top dark red, which is
+//      exactly the thing in feuer3.jpg.
+//   4. AND NOTHING KNEW HOW HIGH THE WHOLE THING WENT. Every term is a
+//      fraction of the fire's height and they compose multiplicatively; a puff
+//      could be at 2.9 fire-heights with no element up and past 4 with two.
+//
+// All four are fixed at their own scale and none of them by a clamp on the
+// symptom: the card is shorter and broader (EnvRoomBuilder.FireMesh), the lick
+// is 0.34, the field is re-tiled to be square IN METRES (Erode* there too), and
+// there is now ONE soft ceiling in the fire's own frame (GHVR_FIRE_SOFT/CAP in
+// EnvFire.cginc, applied once, below). The fill budget goes DOWN 8 %.
+//
+// THE WIND HALF IS THE SAME STORY WITH FOUR MORE TERMS, and the arithmetic is
+// worse: a detached piece drifted `rise x age^2 x (0.35 + 3.10 x air)`, which
+// on the burning snag is 3.4 m downwind while climbing 2.3 — a four-metre
+// trajectory shed by a fire one metre tall, with the age^2 piling the
+// population up at the far end so that what is left behind is a thin evenly
+// spaced line. That is a ray, and it is feuer5.jpg. The drift is now linear in
+// age at 1.15x rise, the climb 1.45x instead of 2.30x, the flame gains 6 % of
+// height under Air instead of 25 %, and the lean goes 0.55 -> 0.85 so the wind
+// is spent laying the fire over rather than stretching it.
+//
+// ...AND THE RATE TERM IS GONE ENTIRELY, which is a rule and not a taste: an
+// element strength multiplies an AMPLITUDE, never a frequency. GhvrFireHz was
+// taking the clock the user accepted in ModBuild 145 (mean 3.13 Hz) back up to
+// 4.85 Hz the moment Air came up — i.e. a windy fire was faster than the fire
+// he had already rejected as "zappelt viel zu schnell". The whole argument is
+// in EnvFire.cginc at GhvrFireHz.
+// ============================================================================
 Shader "GloomhavenVR/EnvFlame"
 {
     Properties
@@ -557,7 +604,18 @@ Shader "GloomhavenVR/EnvFlame"
                     // The FIRE and AIR terms stay in both rooms — the flare under a Fire
                     // infusion is the ModBuild 142 design he has never objected to, and
                     // the lean under Air is the draught from the window he asked FOR.
-                    tall = max(1.0 + 0.55 * e.fire + 0.25 * e.air
+                    // ...and the AIR term is 0.06 and not 0.25 — ModBuild 149,
+                    // "Wenn Wind an ist sind die Strahlen vom Feuer extrem
+                    // lang". A flame in a draught is LAID OVER, not grown: its
+                    // plume bends downwind and its tip is torn off sooner, and
+                    // the one thing it does not do is stand a quarter taller.
+                    // 0.25 was a quarter of a metre of extra reach on the snag,
+                    // added on top of a lick of up to 1.34 and a card that is
+                    // already the tallest thing this shader draws, and it was
+                    // the cheapest of the four terms that made feuer5's rays
+                    // long. The energy is in the LEAN instead (see the gust
+                    // term below, 0.55 -> 0.85) and in the depth (EnvFire).
+                    tall = max(1.0 + 0.55 * e.fire + 0.06 * e.air
                                    - 0.40 * e.dark * (1.0 - GhvrIndoor()), 0.05);
                     // THE FIRE TERM IS FOR CANDLES ONLY. `1.05 * e.fire` is "the
                     // candles flare while the room is infused", and on a bonfire —
@@ -713,7 +771,40 @@ Shader "GloomhavenVR/EnvFlame"
                     // 1.35-2.17 Hz by f = 1.5/sqrt(D)), so of the four bands it
                     // must take the two slowest; on w.x it was a metre of fire
                     // being shoved about at the rate of an 11 cm eddy.
-                    p.xz += _GustDir.xz * (0.55 * pair.air * h
+                    // ============ AND IT LEANS BY HEIGHT IN THE **FIRE** ======
+                    // ModBuild 149, and this is the fourth ray-maker — the one
+                    // that is not a length at all but a SHEAR, which is why two
+                    // rounds of shortening things did not remove it.
+                    //
+                    // `h` is uv.y, the height up THIS CARD, 0 at its own base.
+                    // So every card was sheared over its OWN height: a detached
+                    // puff 40 cm tall, sitting a metre and a half up, had its
+                    // top displaced the full 0.55 m while its bottom did not
+                    // move — a 54-degree skew on a card 30 cm wide, which
+                    // rasterises as a thin diagonal shard with two straight
+                    // edges. Every card in the fire got the same skew whatever
+                    // its size, so the picture under wind was a fan of shards
+                    // all leaning the same way. That is feuer5.jpg's other
+                    // half, and the first ModBuild 149 bake (which raised this
+                    // to 0.85 while fixing the drift) made it worse and showed
+                    // it plainly: env_swamp_FireSnag_efair, the parallelograms
+                    // over the trunk.
+                    //
+                    // A plume does not shear each parcel of gas about its own
+                    // base — it displaces the WHOLE upper fire downwind. The
+                    // gradient belongs to the FIRE and not to the card, so the
+                    // weight is now height in the fire's own frame. Every card
+                    // is then skewed by exactly as much as the fire is (35 deg
+                    // at full Air, whatever the card's size or where it sits),
+                    // a high puff translates almost rigidly instead of being
+                    // sheared to a sliver, and the fire still bends over.
+                    //
+                    // 0.15 + 0.85 x is the bed keeping a little of it: "the
+                    // WHOLE fire leans, bed included" is the ModBuild 145 note
+                    // below and it is right — a bed at hFire = 0 would
+                    // otherwise be the one part standing still under a gale.
+                    float hFire = saturate(p.y / max(_FireH, 1e-3));
+                    p.xz += _GustDir.xz * (0.85 * pair.air * (0.15 + 0.85 * hFire)
                                            * (0.6 + 0.4 * (0.6 * w.w + 0.4 * w.y)));
                     // ...and every tongue wanders on its OWN phase. _Sway is one
                     // number per material, so without this the whole fire leans
@@ -851,7 +942,11 @@ Shader "GloomhavenVR/EnvFlame"
                                      + 0.55 * pr.z * age;
                     p.y *= grow;
                     p.xz *= grow;
-                    float climb = v.fp.z * (1.0 + 1.30 * pair.air + 2.40 * pr.x
+                    // ...and AIR is 0.45 and not 1.30 — ModBuild 149. See the
+                    // drift below; the same argument governs both, and a piece
+                    // that is thrown 2.3 fire-heights up is as much of a ray as
+                    // one thrown three metres sideways.
+                    float climb = v.fp.z * (1.0 + 0.45 * pair.air + 2.40 * pr.x
                                             - 0.55 * pr.y - 0.62 * pr.z);
                     p.y += climb * age;
                     // it drifts with the room's draught as it rises, which is what
@@ -859,9 +954,61 @@ Shader "GloomhavenVR/EnvFlame"
                     // FIRE+AIR that drift becomes a visible EMBER TRAIL running
                     // downwind off whatever is burning, which in the wood is the
                     // thing the pairing is meant to be recognised by.
-                    float drift = v.fp.z * age * age * (0.35 + 3.10 * pair.air);
+                    //
+                    // ============ "DIE STRAHLEN SIND EXTREM LANG" ============
+                    // USER, hardware, feuer5.jpg, ModBuild 149. This line was
+                    // the loudest of the four Air terms and the arithmetic is
+                    // not close: `rise` is up to 0.95 fire-heights, age^2 is 1
+                    // at the end of the cycle, and 0.35 + 3.10 is 3.45 — so on
+                    // the burning snag a detached piece travelled up to
+                    // 0.95 x 1.05 x 3.45 = 3.4 METRES downwind while climbing
+                    // another 2.3, i.e. a four-metre trajectory shed by a fire
+                    // one metre tall. Nine times the still-air distance.
+                    //
+                    // Two things are wrong with it and both are fixed here:
+                    //
+                    //  1. THE COEFFICIENT. 3.10 -> 0.80, so the piece goes
+                    //     1.15 x rise instead of 3.45 x rise: 1.15 m on the
+                    //     snag, 0.48 m on a log fire. An ember off a real fire
+                    //     in a breeze travels about its own fire's width before
+                    //     it is out, and that is now what this says.
+                    //  2. THE age^2. A quadratic in age is an ACCELERATION, so
+                    //     the piece covers three quarters of its whole journey
+                    //     in the last half of its life — the population is
+                    //     therefore piled up at the far end of the trajectory
+                    //     with a thin trail behind it, and a thin trail of
+                    //     evenly spaced pieces along a straight line IS a ray,
+                    //     which is what the screenshot shows. Linear in age
+                    //     spreads the same pieces evenly along a shorter line,
+                    //     which is a scatter of embers.
+                    // Both halves of the pairing the user asked for survive
+                    // untouched: the pieces are still visible over three
+                    // quarters of their cycle instead of a third (cardA above,
+                    // "noch mehr Glut"), and the fire still flickers harder
+                    // (GhvrFireDepth). What is gone is the geometry.
+                    float drift = v.fp.z * age * (0.35 + 0.80 * pair.air);
                     p.x += _GustDir.x * drift;
                     p.z += _GustDir.z * drift;
+                }
+                // ---- THE CEILING, and it is the only place anything in this
+                // shader knows how tall the WHOLE fire has got. See
+                // EnvFire.cginc's GHVR_FIRE_SOFT/CAP block for the arithmetic
+                // that says a fire could reach four of its own heights and for
+                // why this is a soft knee and not a clamp. Bonfires only: a
+                // candle's mesh is its own height and has nothing to bound.
+                if (_Bonfire > 0.5)
+                {
+                    float fh = max(_FireH, 1e-3);
+                    float soft = fh * GHVR_FIRE_SOFT;
+                    if (p.y > soft)
+                    {
+                        // p.y = soft + span * (1 - exp(-(p.y - soft)/span)):
+                        // value `soft` and slope 1 at the join, asymptote at
+                        // soft + span = CAP. One exp, on the ~15 % of vertices
+                        // that are above the knee at all.
+                        float span = fh * (GHVR_FIRE_CAP - GHVR_FIRE_SOFT);
+                        p.y = soft + span * (1.0 - exp(-(p.y - soft) / span));
+                    }
                 }
                 // HEIGHT IN THE FIRE'S OWN FRAME — the temperature ramp's input.
                 // Taken after every displacement, so a surging tongue really does

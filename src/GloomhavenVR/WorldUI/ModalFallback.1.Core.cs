@@ -151,25 +151,20 @@ internal static partial class ModalFallback
     /// <summary>Floor for the derived per-window scale so a very wide window never collapses.</summary>
     private const float MinWindowScaleFactor = 0.15f;
 
-    /// <summary>
-    /// LOST-MENU RECALL (incident fix): how long a floated STICKY full-screen menu whose game
-    /// window is OPEN may stay continuously outside the head view / out of reach before it is
-    /// recalled in front of the HMD. An open menu gates card/board input BY DESIGN, so a menu
-    /// the user laser-carried away and lost is an invisible input blocker — the whole session
-    /// looked broken ("could not pick up cards any more") because the open ESC menu sat
-    /// off-view. Long enough that briefly looking away never yanks the menu around.
-    /// </summary>
-    private const float RecallOutOfViewSeconds = 6f;
-
-    /// <summary>Recall distance threshold, REAL meters (scaled by the diorama WorldScale like
-    /// the placement itself): a menu farther than this from the head counts as lost even if
-    /// its center is technically inside the frustum (unreadably far away).</summary>
-    private const float RecallDistanceMeters = 4f;
-
-    /// <summary>Frustum margin for the recall visibility test: the panel CENTER may sit this
-    /// far outside the viewport (fraction) and still count as visible — a half-on-screen menu
-    /// at the view edge is findable and must not be yanked back.</summary>
-    private const float RecallViewMargin = 0.2f;
+    // THE RECALL CONSTANTS ARE GONE, AND THE ABSENCE IS THE INVARIANT.
+    //
+    // RecallOutOfViewSeconds (6 s dwell), RecallDistanceMeters (4 real m) and RecallViewMargin
+    // (0.2 viewport slack) parameterised an envelope that re-placed an open, never-grabbed window
+    // in front of the HMD. All three are deleted on the user's ruling of ModBuild 149 — verbatim,
+    // and the whole reasoning, in the ruling block at the top of the recall's old home,
+    // ModalFallback.6.MenuGuard.cs. Short version: "Die Fenster sollen einmal zu Beginn im
+    // Sichtfeld spawnen (was sie tun) dann aber dort dauerhaft fest sitzen wenn sie nicht aktiv
+    // verschoben werden."
+    //
+    // A NEW TUNABLE HERE WOULD BE A RE-ADDED RECALL. The failure the envelope guarded against — a
+    // blocking window the player genuinely cannot find — is answered by the modal escape chord
+    // (ModalFallback.7.Close.cs), by presence regain (ModalFallback.8.Convert.cs) and by the
+    // window's own X, none of which move anything on a timer.
 
     /// <summary>
     /// THE FLICKER FIX (recurring): sortingOrder for a floated modal's host canvas.

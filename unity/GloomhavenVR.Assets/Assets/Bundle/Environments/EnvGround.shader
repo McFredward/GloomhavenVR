@@ -375,6 +375,9 @@ Shader "GloomhavenVR/EnvGround"
                 GhvrElem e = GhvrElems();
                 float frost = 0.0;
                 float ambGain = 1.0, dirGain = 1.0, poolGain = 1.0;
+                // What the frost is MADE of — see THE FROST IS A SOLID, NOT A
+                // BLUE in EnvGrowth.cginc. Exactly zero unless Ice is up.
+                GhvrFrostIce crust = GhvrFrostCrustZero();
                 float3 elemAdd = float3(0, 0, 0);
                 // the fire wash is kept SEPARATE from elemAdd because it is added
                 // at a different point — see the bottom of this function
@@ -397,6 +400,12 @@ Shader "GloomhavenVR/EnvGround"
                         frost = GhvrGrown(GhvrGrowField(q), grain,
                                           saturate(0.50 * vis + 0.30 * (1.0 - blend) + 0.20 * rr),
                                           ice * (0.34 + 1.05 * rr), creep);
+                        // ...and WHAT it is (ModBuild 151 — the verdict names
+                        // the cellar and then says "Gilt auch fuer den Wald").
+                        // In ROOM METRES, i.e. GhvrGrowQ at freq 1, so a plate
+                        // is the same 22 cm here as on the cellar's flagstones.
+                        crust = GhvrFrostCrust(GhvrGrowQ(i.opos, _ElemCentre.xyz,
+                                                         _ElemScl, 1.0));
                     }
                     // A SECOND FRONTIER used to stand here: the moss, starting in
                     // the wet hollows (0.55 of its affinity was `blend`), then
@@ -408,8 +417,13 @@ Shader "GloomhavenVR/EnvGround"
                     // in EnvGrowth.cginc carries the argument and the list of
                     // what went with it.
                     float lum = GhvrGrowLum(alb.rgb);
-                    alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-                    n_ts.xy *= 1.0 - 0.62 * frost;
+                    alb.rgb = GhvrFrostOn(alb.rgb, lum, frost, crust);
+                    // THE CRUST REPLACES THE LITTER'S RELIEF, it no longer
+                    // merely flattens it. Character for character EnvRoom's —
+                    // read the note there for the argument; the forest floor is
+                    // the other half of the same verdict.
+                    n_ts.xy = n_ts.xy * (1.0 - 0.28 * frost)
+                            + GhvrFrostSlope(crust, i.t, i.b) * frost;
 
                     // ================================== LIGHT AND DARK ======
                     // USER VERDICT, ModBuild 143 (forest, verbatim): "Licht und
@@ -493,11 +507,38 @@ Shader "GloomhavenVR/EnvGround"
                 // a separate factor and is exactly 1 with no element up.)
                 light += _DirCol.rgb * (_DirScale * saturate(dot(N, normalize(_DirDir.xyz)))
                                         * vis * dirGain);
+                // THE FROST GLINTS. ModBuild 151: the same Blinn lobe on the
+                // moon EnvRoom's stone gets, for the same reason and with the
+                // same two numbers — ice is a hard dielectric and the litter
+                // under it is not, and a specular that moves over the crust's
+                // plates when the head moves is the cue no amount of blue can
+                // give. Behind `e.ice`, a uniform compare, so a clearing with no
+                // Ice up does not evaluate it; `frost` is exactly 0 outside the
+                // patches, so it adds nothing there either. It is moonlight and
+                // rides dirGain, so it dies with the moon under Dark.
+                //
+                // The view vector is derived rather than interpolated: this
+                // shader has no `ov` in its v2f and adding one would charge every
+                // ground vertex in the wood for a term only Ice ever reads.
+                float3 iceSpec = float3(0, 0, 0);
+                if (e.ice > 0.0)
+                {
+                    float3 ov = mul(unity_WorldToObject,
+                                    float4(_WorldSpaceCameraPos, 1.0)).xyz - i.opos;
+                    float3 hv = normalize(normalize(_DirDir.xyz) + normalize(ov));
+                    iceSpec = _DirCol.rgb * (pow(saturate(dot(N, hv)), 44.0)
+                                             * (0.85 * frost) * vis * dirGain);
+                }
                 light += PointLight(_L0Pos, _L0Col, i.opos, N, 0.0, 1.00) * poolGain;
                 light += PointLight(_L1Pos, _L1Col, i.opos, N, 2.1, 0.83) * poolGain;
                 light += PointLight(_L2Pos, _L2Col, i.opos, N, 4.4, 1.19) * poolGain;
 
-                float3 col = (alb.rgb * light + elemAdd * alb.rgb) * i.vcol.rgb;
+                // ...and the frost's glint is added OUTSIDE the albedo, because
+                // a specular reflection is light off the crust and not light
+                // through it: a dark leaf under ice glints exactly as brightly as
+                // a pale one. It keeps the distance fade, though — a glint ten
+                // metres into the wood is as far away as the ground it is on.
+                float3 col = (alb.rgb * light + elemAdd * alb.rgb + iceSpec) * i.vcol.rgb;
                 // ...AND THE FIRE WASH, AFTER the vertex fade, which is the one
                 // term in this shader that is deliberately outside it.
                 //

@@ -246,11 +246,23 @@ BORDER = 0.035                  # hard-zero margin, in cell fractions
 #            five of the fine one, which puts the coarse structure at the size
 #            of the whole tongue and the fine at 6-8 cm on a 35 cm card — the
 #            3.6 cm / 8 Hz end of EnvFire.cginc's own frequency table.
+# ModBuild 149: E, B and UV RETUNED, and the reason is the one the ModBuild 148
+# comment above did not know. The field is sampled in CARD UV, and a card's UV is
+# not square in METRES: a tongue card is 0.31-0.49 as wide as it is tall, so at
+# (0.85, 0.72) one field cell measured 0.46 x 1.39 card-heights — 3.02:1 VERTICAL.
+# The erosion was not carving flame out of the alpha, it was carving THREADS, and
+# they are the "Faeden bis ganz weit nach oben" the user photographed in feuer3/4.
+# The fix is to raise the V tiling, not to lower the U tiling: an earlier attempt
+# squared the cells by dropping tileU to 0.34, which left under a third of a period
+# ACROSS a card, so the erosion stopped breaking card EDGES and half a dozen cards
+# became legible as straight-edged parallelograms — the slab artefact, bought back
+# at the price of the threads. At (0.95, 1.35) a cell is 1.28:1 and both hold.
+# ERODE_SCROLL is re-derived with it so a feature still rises at 1 m/s.
 ERODE_W = 1.08
-ERODE_E = 0.88
-ERODE_B = 0.22
+ERODE_E = 0.78
+ERODE_B = 0.34
 ERODE_G = 0.26
-ERODE_UV = (0.85, 0.72)
+ERODE_UV = (0.95, 1.35)
 
 PKG_VEFECTS = "Free Fire VFX - HDRP.unitypackage"
 PKG_N2 = "Fire 001.unitypackage"

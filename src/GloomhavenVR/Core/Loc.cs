@@ -663,16 +663,23 @@ internal static partial class Loc
         // each catalogue); if a catalogue is reordered these strings go stale and only the log's id
         // will still be right.
         //
-        // TWO CELLAR ROWS SAY "no figure" ON PURPOSE — id 2 is a rectangle of light and id 3 shivers
-        // the cobwebs. A tester who presses either and sees no creature would otherwise report a
-        // broken button; the caption tells them what to look at instead.
+        // ONE CELLAR ROW SAYS "no figure" ON PURPOSE — id 3 shivers the cobwebs. A tester who presses
+        // it and sees no creature would otherwise report a broken button; the caption tells them what
+        // to look at instead.
+        //
+        // TWO KEYS ARE MISSING FROM THIS TABLE AND THAT IS DELIBERATE: vr_tt_hc_2 and vr_tt_hf_0.
+        // ModBuild 149 deleted both events on the user's own rulings — "Der 'Oben an eine Treppe geht
+        // eine Tür auf' Effekt ist kaputt ... Lösch diesen Effekt komplett" and "Entferne den 'Augen'
+        // Effekt im Wald komplett inklusive aller sounds und assets" — but their CARD INDICES had to
+        // stay (the shader's group partition needs a multiple of three cards per room; see
+        // Haunt.IsInert). VROptionsTab.9.TestTriggers skips those two rows, so nothing ever asks for
+        // the keys; leaving a caption behind for a button that is not drawn is how a resurrected
+        // string ends up describing an event that no longer happens.
         ["vr_tt_hc_0"] = Pair("Window — a face looks in through the bars", "Fenster — ein Gesicht sieht durchs Gitter herein"),
         ["vr_tt_hc_1"] = Pair("Handprints on the wet wall", "Handabdrücke an der nassen Wand"),
-        ["vr_tt_hc_2"] = Pair("A door opens at the top of the stair (light, no figure)", "Oben an der Treppe geht eine Tür auf (Licht, keine Gestalt)"),
         ["vr_tt_hc_3"] = Pair("The cobwebs shiver (no figure)", "Die Spinnweben zittern (keine Gestalt)"),
         ["vr_tt_hc_4"] = Pair("Someone stands in the stair shaft, watching", "Jemand steht im Treppenschacht und beobachtet"),
         ["vr_tt_hc_5"] = Pair("The bookshelf tips over", "Das Bücherregal kippt um"),
-        ["vr_tt_hf_0"] = Pair("Eyes open in the undergrowth and blink once", "Augen öffnen sich im Unterholz und blinzeln einmal"),
         ["vr_tt_hf_1"] = Pair("A watcher at the treeline", "Ein Beobachter am Baumrand"),
         ["vr_tt_hf_2"] = Pair("Something passes between the trunks", "Etwas geht zwischen den Stämmen durch"),
         // THE ALL-OFF ROW. It was "stop now" while both overrides expired by themselves; with latches

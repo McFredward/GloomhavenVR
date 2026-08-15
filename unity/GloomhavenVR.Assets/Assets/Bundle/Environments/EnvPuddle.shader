@@ -731,7 +731,23 @@ Shader "GloomhavenVR/EnvPuddle"
                 // wide mirror of the moon and read as wet glass. A rough
                 // dielectric scatters most of what it does not transmit, and the
                 // scattering is the `body` term below, where it belongs.
-                moon *= 1.0 - 0.80 * iceMask;
+                //
+                // 0.80 -> 0.92, ModBuild 151, AND IT IS THE OTHER HALF OF A
+                // HAND-OVER THIS LANE COULD NOT COMPLETE LAST ROUND. The bake
+                // lane's own note at C_Puddle's _IceBody (BuildEnvironmentRooms,
+                // "HANDED TO THE SHADER LANE, honestly, because this lane may not
+                // edit EnvPuddle") measured the sheet's peak at 0.478 linear
+                // while the BODY term — the part that is supposed to make ice
+                // read as a scattering solid — was capped at 0.083 by a material
+                // value cut twice for brightness. So four fifths of the sheet's
+                // light was this lobe: a very wide MIRROR, i.e. the one thing
+                // that makes ice look like water, and the only term the cap could
+                // not reach. Cutting the lobe to 0.08 and spending the budget on
+                // the body instead is the same total light rearranged into the
+                // half of it that carries structure — the plates, the bubbles and
+                // the growing edge are all in `body`, and none of them is in
+                // `moon`. See _IceBody 0.09 -> 0.20 in the same round.
+                moon *= 1.0 - 0.92 * iceMask;
                 moon *= moonGain;
 
                 float3 toC = _CandPos.xyz - i.opos;
@@ -832,7 +848,23 @@ Shader "GloomhavenVR/EnvPuddle"
                     // the window (it lies in the beam's own pool), partly by the
                     // candles, so it goes out with the moonlight under Dark
                     // instead of glowing on in a black cellar.
-                    body *= (0.35 + 0.65 * moonGain) * GhvrSrcGain(e);
+                    //
+                    // 0.35 -> 0.15 OF PEDESTAL, and it moves in the same breath
+                    // as _IceBody's 0.09 -> 0.20 for one reason: the pedestal is
+                    // what the sheet keeps when the moon is gone, so raising the
+                    // body without lowering it would have re-created exactly the
+                    // failure ModBuild 147 cut the body for — "under {Dark, Ice}
+                    // an ungated ice sheet is the only bright thing left in a
+                    // room the user has just asked to go black". The two numbers
+                    // are chosen together so the DARK end does not move:
+                    //   was  0.09 * (0.35 + 0.65 * 0.0275) = 0.0331
+                    //   now  0.14 * (0.15 + 0.85 * 0.0275) = 0.0243
+                    // i.e. the {Dark, Ice} residual falls by 27% rather than
+                    // merely holding, while the RESTING body goes 0.090 -> 0.140.
+                    // The sheet gets its solidity back at rest and gets FURTHER
+                    // out of the way in the dark, which is the pair of things
+                    // ModBuild 147 wanted and could only have one of.
+                    body *= (0.15 + 0.85 * moonGain) * GhvrSrcGain(e);
                 }
                 // ...and the whole thing is bounded by the SHORE and no longer by
                 // the mesh's vertex alpha. `sh.x` reaches 0 at uv.y = 0.985,

@@ -34,7 +34,8 @@ internal static class EnvSoundScheduleVectors
         SpansTheWindowAtEveryShrink(t);
         MonotonicAndInBounds(t);
         AcceleratesWhenAsked(t);
-        TheFrostBurst(t);
+        TheWideningTrain(t);
+        TheShelfScatter(t);
         Deterministic(t);
         DegenerateInputs(t);
 
@@ -139,19 +140,21 @@ internal static class EnvSoundScheduleVectors
     }
 
     /// <summary>
-    /// THE FROST BURST (ModBuild 148), driven with the generator's own numbers —
-    /// <c>EnvSoundBank.MakeFrost</c>'s seven cracks over 0.006..0.360 s at shrink 1.35.
+    /// THE WIDENING TRAIN — a burst whose gaps OPEN UP, which is the direction the creak does not go.
     ///
-    /// <para>IT IS THE FIRST CALLER THAT GOES THE OTHER WAY, and that is the reason it is on this
-    /// harness rather than trusted to the generic cases above. A creak ACCELERATES because the load
-    /// keeps building; a crazing DECELERATES because every crack relieves the stress that drove it,
-    /// so the surface has to reload before the next. Both are one function and one shrink factor —
-    /// which is only true as long as shrink &gt; 1 really opens the gaps up, and nothing asserted
-    /// that until now.</para>
+    /// <para><b>THE CALLER THESE NUMBERS CAME FROM IS DELETED, AND THE VECTORS ARE NOT.</b> They are
+    /// the ice sound's: seven cracks over 0.006..0.360 s at shrink 1.35, and ModBuild 149 removed
+    /// that whole cue on the user's ruling ("Entferne das Geräusch für Eis komplett"). The numbers
+    /// stay because what they hold is a property of <see cref="EnvSoundSchedule.SlipTrain"/> and not
+    /// of any one sound: that shrink &gt; 1 really does open the gaps up, that the window is still
+    /// spanned exactly when it does, and that a large jitter moves the train off its own geometric
+    /// envelope instead of merely scaling it. The shelf's scatter (below) is the live caller that
+    /// depends on all three; deleting the vectors with the sound would have removed the only
+    /// coverage the NEW caller has, on the day it arrived.</para>
     /// </summary>
-    private static void TheFrostBurst(Harness t)
+    private static void TheWideningTrain(Harness t)
     {
-        t.Case("slip train: shrink > 1 opens the gaps up (the frost's crazing)");
+        t.Case("slip train: shrink > 1 opens the gaps up");
         var pure = new float[7];
         EnvSoundSchedule.SlipTrain(pure, 0.006f, 0.360f, 1.35f, 0f, 0x1CE0u);   // no jitter: envelope
         float firstGap = pure[1] - pure[0];
@@ -161,7 +164,7 @@ internal static class EnvSoundScheduleVectors
                + $"({firstGap * 1000f:F1} ms) — the burst thins out and stops instead of ending on "
                + "a beat");
 
-        t.Case("slip train: the frost burst as the bank actually calls it");
+        t.Case("slip train: the widening burst with its full jitter");
         var burst = new float[7];
         int n = EnvSoundSchedule.SlipTrain(burst, 0.006f, 0.360f, 1.35f, 0.85f, 0x1CE0u);
         t.Equal(7, n, "all seven cracks written");
@@ -195,6 +198,60 @@ internal static class EnvSoundScheduleVectors
             if (System.Math.Abs(burst[i] - pure[i]) > 1e-4f)
                 jittered = true;
         t.True(jittered, "jitter 0.85 actually moves the cracks off the geometric envelope");
+    }
+
+    /// <summary>
+    /// THE BOOKSHELF'S SCATTER (ModBuild 149) — the LIVE caller of a widening train, driven with
+    /// <c>EnvSoundBank.MakeFall</c>'s own numbers: nine objects over 0.035..0.42 s at shrink 1.30
+    /// with jitter 0.70.
+    ///
+    /// <para>WHY IT IS ON THIS HARNESS AT ALL, when the generic cases above already cover the
+    /// contract. Because the caller INDEXES A SAMPLE BUFFER with these times and adds a 12 ms tick
+    /// at each — so "monotonic and inside the window" is not a nicety here, it is what keeps a
+    /// <c>for</c> loop inside an array. And because this is the sound the user has been unable to
+    /// hear twice: a scatter that collapsed onto one instant would put nine ticks on top of each
+    /// other and turn the term that says "a full bookcase went over" into a single click.</para>
+    /// </summary>
+    private static void TheShelfScatter(Harness t)
+    {
+        t.Case("slip train: the bookshelf's scatter as MakeFall actually calls it");
+        var thrown = new float[9];
+        int n = EnvSoundSchedule.SlipTrain(thrown, 0.035f, 0.42f, 1.30f, 0.70f, 0xC7ACu);
+
+        t.Equal(9, n, "all nine objects written");
+        t.True(thrown[0] == 0.035f, "the first object lands 35 ms behind the crack");
+        t.True(thrown[8] == 0.42f, "the last one closes the window — the clip is 0.9 s, so it fits");
+
+        bool rising = true, inside = true, distinct = true;
+        for (int i = 0; i < thrown.Length; i++)
+        {
+            if (thrown[i] < 0.035f || thrown[i] > 0.42f)
+                inside = false;
+            if (i == 0)
+                continue;
+            if (!(thrown[i] > thrown[i - 1]))
+                rising = false;
+            // Two objects inside 4 ms are one object as far as the ear is concerned, and the
+            // scatter's whole job is to be a COUNT of arrivals rather than one thicker transient.
+            if (thrown[i] - thrown[i - 1] < 0.004f)
+                distinct = false;
+        }
+        t.True(rising, "every object lands after the one before it");
+        t.True(inside, "every object is inside the window MakeFall sized its buffer for");
+        t.True(distinct, "no two objects land within 4 ms of each other");
+
+        // The heavy things go first and together; what is left tumbles further and arrives later.
+        // Asserted on the pure envelope, because with jitter this is a tendency and not a rule.
+        var pure = new float[9];
+        EnvSoundSchedule.SlipTrain(pure, 0.035f, 0.42f, 1.30f, 0f, 0xC7ACu);
+        t.True(pure[8] - pure[7] > (pure[1] - pure[0]) * 2f,
+               $"the scatter thins out: the last gap ({(pure[8] - pure[7]) * 1000f:F1} ms) is over "
+               + $"twice the first ({(pure[1] - pure[0]) * 1000f:F1} ms)");
+
+        // ...and the whole train has to be OVER before the clip is, or the generator would be
+        // writing a tick that the buffer bound silently truncates to nothing.
+        t.True(thrown[8] + 0.012f < 0.9f,
+               "the last object's 12 ms tick still ends inside the 0.9 s clip");
     }
 
     /// <summary>Same seed, same train — the bank is synthesized on every client and an environment
@@ -255,18 +312,25 @@ internal static class EnvSoundScheduleVectors
     //  THE WAITING TIME (EnvSoundSchedule.PoissonGap), ModBuild 148.
     // =============================================================================================
     //
+    //  THE FUNCTION HAS NO CALLER IN THE MOD SINCE ModBuild 149, AND THESE VECTORS STAY. Its one
+    //  caller was EnvSound.TickFrost, deleted with the whole ice sound on the user's ruling
+    //  ("Entferne das Geräusch für Eis komplett"). What is being held here was never a sound: it is
+    //  a bound on an arithmetic result, and the next scheduler that wants a Poisson interval will
+    //  reach for this function precisely because it already has one. Vectors that were deleted with
+    //  their caller would leave that next caller writing `-mean * Log(u)` from scratch, which is
+    //  where the defect below comes from every time.
+    //
     //  WHY IT IS ON THIS HARNESS AT ALL, given that it contains no loop and therefore cannot spin.
-    //  Because its CALLER does. EnvSound.TickFrost writes `_nextFrost = clock + PoissonGap(...)`
-    //  and then returns every frame until the clock reaches it, which turns two arithmetic results
-    //  into the same class of defect the burst train's `while` was:
-    //    * A GAP OF ZERO makes the frost fire on every single frame — 90 one-shots a second through
+    //  Because a CALLER does. A scheduler writes `next = clock + PoissonGap(...)` and then returns
+    //  every frame until the clock reaches it, which turns two arithmetic results into the same
+    //  class of defect the burst train's `while` was:
+    //    * A GAP OF ZERO makes the cue fire on every single frame — 90 one-shots a second through
     //      a three-voice pool, which is the loudest failure this feature is capable of and would
     //      arrive without a single log line.
     //    * A GAP OF NaN OR INFINITY makes it fire never, silently. `clock < NaN` is false, so the
-    //      "not yet" guard falls through and the "schedule the next" line runs every frame; and the
-    //      30-second re-anchor that would otherwise rescue it (`clock < _nextFrost - 30f`) is also
-    //      false against NaN. The feature would simply be gone with no way to tell it apart from a
-    //      missing node.
+    //      "not yet" guard falls through and the "schedule the next" line runs every frame; and a
+    //      re-anchor of the form `clock < next - 30f` is also false against NaN. The feature would
+    //      simply be gone with no way to tell it apart from a missing node.
     //  `Mathf.Log(0)` is -Infinity and `Mathf.Log(-1)` is NaN, and the input is a HASH — a value
     //  that is documented never to reach 1.0 and is one refactor away from reaching it. So the
     //  function's contract is a BOUNDED, FINITE, STRICTLY POSITIVE result for every float there is,
@@ -352,7 +416,7 @@ internal static class EnvSoundScheduleVectors
     /// The CONTENT half, and the reason the function exists rather than "mean plus or minus 40%".
     /// An exponential's mode is at zero, so it produces genuine clusters — two events almost
     /// together and then a long nothing — and a distribution that did not would be a metronome with
-    /// a wobble, which is what the shipped frost's fixed 0.45 s beat was without even the wobble.
+    /// a wobble, which is what the ice sound's fixed 0.45 s beat was without even the wobble.
     /// </summary>
     private static void PoissonGapClusters(Harness t)
     {
@@ -390,13 +454,14 @@ internal static class EnvSoundScheduleVectors
     /// <summary>
     /// THE USER'S COMPLAINT, AS A BOUND. "Das was aktuell drin ist ist super nervig" was in large
     /// part a 0.45 s repeat — inside the 0.2-2 s band the ear reads as a RHYTHM rather than as
-    /// separate events. With the frost's own means (2.6 s at full Ice, 11 s at the threshold) the
-    /// floor clamp alone puts the SHORTEST possible gap at 0.73 s, so the schedule cannot return to
-    /// a woodpecker even if every draw came back at its minimum.
+    /// separate events. With the mean that cue used (2.6 s) the floor clamp alone puts the SHORTEST
+    /// possible gap at 0.73 s, so a schedule built on this function cannot return to a woodpecker
+    /// even if every draw came back at its minimum. The cue itself is deleted; the BOUND is what the
+    /// next caller inherits, and it is the reason to reach for this function rather than a log.
     /// </summary>
     private static void PoissonGapCannotWoodpecker(Harness t)
     {
-        t.Case("poisson gap: the frost can never beat again");
+        t.Case("poisson gap: a 2.6 s mean can never beat like a metronome");
         const float fullIce = 2.6f;
         float shortest = float.MaxValue;
         for (int i = 0; i <= 1000; i++)

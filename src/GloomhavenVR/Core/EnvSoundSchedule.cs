@@ -39,13 +39,22 @@ internal struct EnvSoundRng
 ///
 /// <list type="bullet">
 ///   <item><see cref="SlipTrain"/> — the BURST TRAIN: the rat's claws on stone, the stick-slip of
-///   rope or old timber taking weight, and (since ModBuild 148) the cascade of cracks in a freezing
-///   surface. All three are "a run of short bursts, irregularly spaced, spanning a window"; the only
-///   thing that separates them is how the spacing evolves — the creak's gaps CLOSE as the load
-///   settles, the rat's hold an even beat, the frost's WIDEN as each crack relieves the stress that
-///   drove it.</item>
+///   rope or old timber taking weight, and (since ModBuild 149) the scatter of a bookcase's contents
+///   arriving on the floor behind it. All three are "a run of short bursts, irregularly spaced,
+///   spanning a window"; the only thing that separates them is how the spacing evolves — the creak's
+///   gaps CLOSE as the load settles, the rat's hold an even beat, and the scatter's WIDEN as the
+///   heavy things land first and the light ones keep tumbling.</item>
 ///   <item><see cref="PoissonGap"/> — the WAITING TIME between two independent events, for a caller
-///   that schedules "the next one" rather than filling a window.</item>
+///   that schedules "the next one" rather than filling a window.
+///
+///   <para><b>IT HAS NO CALLER IN THE MOD AS OF ModBuild 149, and it is KEPT deliberately.</b> Its
+///   one caller was <c>EnvSound.TickFrost</c>, deleted with the whole ice sound on the user's ruling
+///   ("Entferne das Geräusch für Eis komplett" — the record is in <c>EnvSound.Bank.cs</c>). What is
+///   attached to this function is not a sound but a TERMINATION PROOF and the vectors that hold it,
+///   and both survive their caller: it is the shape the next statistically-scheduled event will
+///   want, and re-deriving a NaN-safe bounded exponential from scratch is exactly how the class of
+///   defect below gets reintroduced. It compiles to nothing that runs; the cost of keeping it is
+///   the bytes.</para></item>
 /// </list>
 ///
 /// <para>WHY THIS IS ITS OWN FILE, FREE OF UNITY. It is here for the reason
@@ -69,13 +78,14 @@ internal struct EnvSoundRng
 /// <c>tests/GloomhavenVR.WireTests/EnvSoundScheduleVectors.cs</c>.</para>
 ///
 /// <para>THE SAME CONTRACT, IN THE OTHER DIRECTION, IS WHAT <see cref="PoissonGap"/> IS FOR. It
-/// does not loop at all, so it cannot spin — but its caller does, in the sense that
-/// <c>EnvSound.TickFrost</c> writes <c>next = now + gap</c> and then waits for the clock to reach
-/// it. A gap of zero makes that a per-frame emitter, and a gap of <c>NaN</c> or <c>Infinity</c>
+/// does not loop at all, so it cannot spin — but a caller does, in the sense that a scheduler
+/// writes <c>next = now + gap</c> and then waits for the clock to reach it. A gap of zero makes
+/// that a per-frame emitter, and a gap of <c>NaN</c> or <c>Infinity</c>
 /// makes it an event that never comes; both are the same class of defect as the freeze, reached
 /// through arithmetic instead of through a loop. So the function's output is BOUNDED BY
 /// CONSTRUCTION, for every input including <c>NaN</c>, and the vectors drive it with exactly those.
-/// </para>
+/// (The scheduler that motivated it — the ice sound's — is deleted; the note on
+/// <see cref="PoissonGap"/> above says why the function is not.)</para>
 /// </summary>
 internal static class EnvSoundSchedule
 {
@@ -147,9 +157,9 @@ internal static class EnvSoundSchedule
     /// floor is what makes the function safe: a gap of zero would leave a scheduler that writes
     /// <c>next = now + gap</c> firing on every frame forever, which is this file's failure mode in
     /// its other guise — not a wrong sound but a machine that never gets past this event. The
-    /// ceiling is taste rather than safety (an exponential's tail is unbounded and a 40 s silence in
-    /// the middle of a full Ice infusion reads as the feature having broken), but it is enforced the
-    /// same way, so BOTH ends are properties a test can hold.</summary>
+    /// ceiling is taste rather than safety (an exponential's tail is unbounded, and a 40 s silence in
+    /// the middle of an event a player is watching reads as the feature having broken), but it is
+    /// enforced the same way, so BOTH ends are properties a test can hold.</summary>
     internal const float PoissonGapMin = 0.28f;
     internal const float PoissonGapMax = 2.60f;
 
@@ -166,8 +176,9 @@ internal static class EnvSoundSchedule
     /// <c>-mean * ln(u)</c>. That is the whole of the arithmetic here. The audible difference from
     /// "the mean, plus or minus 40%" is not subtlety: an exponential's mode is at ZERO, so it
     /// produces genuine CLUSTERS — two events almost together, then a long gap — while a jittered
-    /// constant produces a wobbly metronome, and a wobbly metronome is still a metronome. The
-    /// shipped frost was not even wobbly (see <c>EnvSound.TickFrost</c>).</para>
+    /// constant produces a wobbly metronome, and a wobbly metronome is still a metronome. The ice
+    /// sound this was written for was not even wobbly — it beat at a fixed 0.45 s, the user called
+    /// it "super nervig", and the whole cue is now deleted rather than re-timed.</para>
     ///
     /// <para><b>WHY IT LIVES IN THIS FILE.</b> Same reason as <see cref="SlipTrain"/>: it decides
     /// something only observable from inside a headset, and its failure mode is not a wrong sound

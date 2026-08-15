@@ -134,21 +134,42 @@ internal static partial class HauntFigures
     /// opening — that is the rejected walk-past, seen from the knees down. Scaling it down to 0.4 m
     /// so that its head lands in the slot makes a doll. Pitching it forward to lie prone would read
     /// correctly through the slot and read as a body floating horizontally on the ground from above.
-    /// So the figure is SUNK: it stands at room-local y = 1.02 with its head at 2.97, i.e. crouched
+    /// So the figure is SUNK: it stands at room-local y = 0.838 with its head at 2.788, i.e. crouched
     /// in the window well the way a person looking into a cellar window really is, and the black
     /// ground plane outside — which starts exactly at the outer face and runs 34 m — hides
     /// everything below y = 2.343 from any vantage above it. What is left is a head and the top of a
     /// pair of shoulders, in the opening, behind the bars.</para>
     ///
+    /// <para><b>IT WAS 0.182 m TOO HIGH AND THE PHOTOGRAPH SETTLED IT.</b> USER, ModBuild 148,
+    /// verbatim: "Die Figur die im Kellerfenster reinschaut, muss etwas tiefer gesetzt werden das ihr
+    /// gesicht mittig positioniert ist (siehe Kellerfenster_figur.jpg)." That frame
+    /// (<c>.planning/debug/Kellerfenster_figur.jpg</c>) shows the face cut off ABOVE the lintel —
+    /// chest, one shoulder and one hand inside the opening and nothing else. THE DROP IS COMPUTED,
+    /// not chosen, and every number in it is a measurement:
+    /// <list type="bullet">
+    /// <item>the SNAPPED opening is y 2.200…2.986 (BuildEnvironmentRooms.cs:3197-3212), so its centre
+    /// is (2.200 + 2.986) / 2 = <b>2.593</b>;</item>
+    /// <item>the FACE of a humanoid sits at about 0.9 of its stature above its feet, so at the old
+    /// seat it was 1.02 + 0.9 × 1.95 = <b>2.775</b>;</item>
+    /// <item>drop = 2.775 − 2.593 = <b>0.182 m</b>, hence y = 1.02 − 0.182 = <b>0.838</b>.</item>
+    /// </list>
+    /// The top of the head lands at 0.838 + 1.95 = 2.788, i.e. 0.198 m UNDER the lintel — so the whole
+    /// head is inside the opening instead of half of it being over the stone, which is what the frame
+    /// shows. The 0.9-of-stature figure is the one approximation here and it is the right kind: it is
+    /// a property of the human silhouette rather than of any one prefab, and the cast is three hooded
+    /// humanoids scaled to the same 1.95 m by <c>CharacterManager.Height</c>.</para>
+    ///
     /// <para><b>AND IT IS CHECKED FROM BOTH VANTAGES, because that is what the last one failed.</b>
     /// FROM INSIDE, at eye height 1.6 m in the middle of the room: the sightline has to clear the
     /// outer cill (2.343 at z = 5.05) and stay under the flat head (2.986 at z = 5.05), which at the
-    /// figure's z = 5.35 is a visible band of y 2.39…3.07 — the head and the upper chest, and
-    /// nothing else, framed by 1.23 m of splayed opening and crossed by two or three bars. FROM THE
-    /// TABLETOP VANTAGE, looking down past the wall top: the outside ground is an opaque black plane
-    /// and the only thing standing above it is that same head and those shoulders, which reads as a
-    /// creature crouched at the window — not as a bug, and not as a whole figure standing in a field.
-    /// The event survives the viewpoint that killed the walk-past.</para>
+    /// figure's z = 5.35 is a visible band of y 2.39…3.07. The drop moves the body DOWN through that
+    /// band rather than moving the band: what used to sit in it was the chest, and what sits in it
+    /// now is the face at 2.593 with the crown of the head at 2.788 — both inside, and the shoulders
+    /// still cut off by the outer cill at 2.343, so nothing below the collarbone is ever shown. FROM
+    /// THE TABLETOP VANTAGE, looking down past the wall top: the outside ground is an opaque black
+    /// plane and the only thing standing above it is that same head and those shoulders, which reads
+    /// as a creature crouched at the window — not as a bug, and not as a whole figure standing in a
+    /// field. The event survives the viewpoint that killed the walk-past.</para>
     ///
     /// <para><b>THE MOONBEAM DIMS FOR IT, AND NOW IT MEANS SOMETHING.</b> <c>EnvBeam.shader:262</c>
     /// reads this card's presence and dims the shaft by <c>HauntBeamDepth = 0.55</c> while it runs;
@@ -172,9 +193,11 @@ internal static partial class HauntFigures
     private static readonly HauntEvent CellarWindow = new(
         0, "the thing that looks in at the cellar window",
         reveal: 2.10f, hold: 2.80f, fade: 0.60f,     // = 5.50 s, the bake's own card length; see above
-        from: new Vector3(-1.35f, 1.02f, 5.35f),     // window centre x is -1.3523 (BuildEnvironmentRooms:2199)
-        to: new Vector3(-1.35f, 1.02f, 5.35f),       // IT DOES NOT MOVE: it is looking in
-        height: 1.95f,                               // head at 2.97, just under the opening's head 2.986
+        // y = 0.838 and NOT 1.02: face 0.9 x 1.95 = 1.755 over the feet, opening centre
+        // (2.200 + 2.986) / 2 = 2.593, so the seat is 2.593 - 1.755 = 0.838. See the block above.
+        from: new Vector3(-1.35f, 0.838f, 5.35f),    // window centre x is -1.3523 (BuildEnvironmentRooms:2199)
+        to: new Vector3(-1.35f, 0.838f, 5.35f),      // IT DOES NOT MOVE: it is looking in
+        height: 1.95f,                               // head at 2.788, 0.198 m under the opening's head 2.986
         runBlend: 0f,                                // standing, playing its own idle
         face: new Vector3(0f, 0f, -1f),              // into the room, and never re-oriented afterwards
         cast: new[] { CClass.ENPCModel.Cultist, CClass.ENPCModel.LivingCorpse, CClass.ENPCModel.LivingBones });
@@ -221,7 +244,7 @@ internal static partial class HauntFigures
     /// there is no candle, no moonbeam and no reactor anywhere near it — this file's own light block
     /// calls the stair alcove one of the room's two deliberately black corners. So the measured room
     /// level at the figure's chest is about as low as the cellar rig goes, and the darkening in
-    /// HauntFigures.Clone.cs puts the creature at roughly a tenth of its albedo. You see that
+    /// HauntFigures.Clone.cs puts the creature at roughly a fiftieth of its albedo. You see that
     /// something is standing there. You do not see what.</para>
     ///
     /// <para><b>BOTH VANTAGES, and the second one is not what it looks like on paper.</b> FROM
@@ -704,7 +727,17 @@ internal static partial class HauntFigures
                            + (ev.From == ev.To
                                   ? $"STANDING at room-local {start:F2}, facing {_standRot.eulerAngles.y:F0} deg"
                                   : $"walking {(_reversed ? "the other way" : "the authored way")}, room-local "
-                                    + $"{start:F2} to {PathAt(style, ev, 1f):F2}")
+                                    + $"{start:F2} to {PathAt(style, ev, 1f):F2}"
+                                    // THE GAIT NUMBER, and it is here because it is the one thing a
+                                    // hardware round can compare against and this file cannot: the
+                                    // path speed is authored, the CLIP's own implied speed is inside
+                                    // an asset bundle, and a mismatch between them is foot slide.
+                                    // The census line prints the clip lengths beside this one, so a
+                                    // reader has both halves in the same log.
+                                    + $" — {(PathAt(style, ev, 1f) - start).magnitude:F2} m in "
+                                    + $"{ev.Seconds * _durMul:F2}s = "
+                                    + $"{(PathAt(style, ev, 1f) - start).magnitude / Mathf.Max(ev.Seconds * _durMul, 0.01f):F2} m/s "
+                                    + $"with RunBlend held at {ev.RunBlend:F2}")
                            + $". Creature and direction are hashes of "
                            + $"slot {slotIndex:F0} on channels 9 and 10, so every client in this scenario "
                            + "picked the same ones. Its albedo is multiplied down to the room's own light "
@@ -725,6 +758,27 @@ internal static partial class HauntFigures
         // audio cue can find it) but presence is 0, which the clone factory reads as "stay hidden".
         float u = Mathf.Clamp01(t / len);
         float presence = Envelope(t, ev, _durMul);
+
+        // ---- THE NO-BACKWARDS-STEP INTERLOCK ---------------------------------------------------
+        //
+        // TWO GUARDS, BOTH OF WHICH SET PRESENCE TO ZERO — i.e. both of which switch the RENDERERS
+        // OFF (Clone.Shade), because "not drawn" is the only honest way to express "it is not there
+        // yet". The whole argument, including the measured margin the envelope already provides, is
+        // in the block at HauntFigures._quietUntil.
+        //
+        //  1. A RESTARTED RUN IS BLANKED. The loop moves _startClock forward, so the anchor snaps
+        //     from the end of the path back to its start in one frame; nothing may be drawn across
+        //     that frame or for a few after it.
+        //  2. A RUN NEVER GOES BACKWARDS. Within one run u = t/len and the clock only moves forward,
+        //     so this can only fire if that construction is ever broken — and if it is, the figure
+        //     is hidden for that frame rather than being drawn behind where it was.
+        //
+        // The ANCHOR is moved either way, deliberately: the audio cue follows the anchor and the
+        // event's sound belongs to where the thing IS, not to where it was last drawn.
+        if (clock < _quietUntil || (_lastDrivenU >= 0f && u < _lastDrivenU - 1e-4f))
+            presence = 0f;
+        else
+            _lastDrivenU = u;
 
         if (_anchor != null)
             _anchor.transform.localPosition = PathAt(style, ev, u);

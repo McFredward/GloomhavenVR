@@ -77,6 +77,27 @@ Shader "GloomhavenVR/EnvRoomCutout"
         // ground. That fold IS Earth's statement now. What is gone is only the
         // green that was being painted over a fern that was already green.
         _ElemGrowFreq ("Element: growth cells per metre", Float) = 3.0
+
+        // ---- THE WINDOW'S THROW (the indoor Light lift's mask) --------------
+        // ModBuild 151, user: "Bei 'Licht' im Keller statt den ganzen Keller
+        // mehr zu beleuchten mach ausschließlich das Licht aus dem Kellerfenster
+        // vom Mond heller." The mechanism, the rule and every composite gain are
+        // in EnvElement.cginc (...AND INDOORS IT MAY ONLY BRIGHTEN WHAT THE
+        // WINDOW SEES); these two vectors are only the opening's geometry.
+        //
+        // THEY ARE DEFAULTS AND NOTHING WRITES THEM, and that is a deliberate
+        // choice with a gate behind it rather than an oversight. Every EnvRoom
+        // material in the cellar would otherwise need the values pushed onto it
+        // by the light rig, which is a pass this lane does not own; and the
+        // opening is a build-time CONSTANT of a room that exists once, so a
+        // default is the honest shape for it. What makes that safe is
+        // AssertMoonWindowMirror in BuildEnvironmentRooms: every bake
+        // instantiates this shader, reads these two defaults back and fails the
+        // build if they disagree with the opening the wall mesh was actually cut
+        // to. The numbers cannot drift, because a drift is a build error.
+        // OUTDOORS THEY ARE UNUSED — GhvrIndoor() lerps the whole mask out.
+        _MoonWin ("Window opening in ROOM metres (x0,y0,x1,y1)", Vector) = (-2.068, 2.2, -0.636, 2.986)
+        _MoonWinZ ("Window plane z, feather (ROOM metres)", Vector) = (4.5, 0.22, 0, 0)
         // AIR. x is the tip amplitude in OBJECT units and 0 is off; y and z are
         // the object-space base and 1/height of this mesh, which is how a
         // photoscanned fern says "my roots are at the bottom"; w picks vertex
@@ -119,6 +140,7 @@ Shader "GloomhavenVR/EnvRoomCutout"
             float _BumpScale, _VCol, _Cutoff, _PtHard, _Sway, _SwayRate, _SwayPhase;
             float _HauntTremble, _HauntPeriod, _HauntCards, _HauntWatch;
             float _ElemRad, _ElemScl, _ElemFrost, _ElemGrowFreq, _ElemGrow;
+            float4 _MoonWin, _MoonWinZ;
             fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col;
             float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _SwayDir, _HauntEnv;
             float4 _ElemCentre, _ElemWind, _ElemWindDir;
@@ -194,7 +216,40 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 // included, and there is no third quotation of the channel left
                 // in the bundle.
                 GhvrElem e = GhvrHauntElems();
-                if (e.live > 0.0) s *= 1.0 + 1.20 * e.air;
+                // AND IT LEANS. ModBuild 151, user: "Häng irgendwas an die
+                // Gitterstäbe beim Keller zB Spinnweben das dann durch den Wind
+                // in eine Richtung weht um visuell noch besser visible zu
+                // machen." The x1.20 above is zero-mean — it makes the silk
+                // billow HARDER but leaves it hanging about the same place, and
+                // a bigger symmetric wobble reads as a bigger fan, not as a
+                // draught. What says "the air is moving THAT WAY" is a steady
+                // displacement DOWN-WIND with the flutter on top of it, which is
+                // what a rag in a doorway actually does.
+                //
+                // It is along _SwayDir, and what that vector IS differs between
+                // the two kinds of silk in the room, correctly: for a SHEET it is
+                // the sheet's own normal, so a web stretched between two anchors
+                // is pushed perpendicular to itself — which is what a draught
+                // does to anything spanning an aperture, and the only direction a
+                // taut membrane can actually go; for a LOOSE STRAND, held at one
+                // end, it is the room's own DraftDir, the same vector the flames
+                // lean along and the beam's mottling travels along, so the free
+                // ends trail down-wind and the whole room agrees which way the
+                // air goes.
+                //
+                // 0.90, i.e. at full Air the lean is nine tenths of the authored
+                // billow amplitude: enough that a web is visibly HELD to one
+                // side rather than swinging through the middle, not so much that
+                // the silk leaves the bars it is strung between. AMPLITUDE, not
+                // frequency, and exactly 0 with Air down — see AN ELEMENT MAY NOT
+                // MOVE A FREQUENCY in EnvGrowth.cginc for why that distinction is
+                // load-bearing and what it cost to learn.
+                //
+                // REJECTED: leaning along the web's own normal. A web pushed
+                // perpendicular to itself is a web being poked, which is what the
+                // HAUNT tremble above already means; a draught pushes it along
+                // the flow.
+                if (e.live > 0.0) s = s * (1.0 + 1.20 * e.air) + _Sway * v.color.r * (0.90 * e.air);
                 p.xyz += _SwayDir.xyz * s;
 
                 // ================================ SURFACE GROWTH + THE WIND ==
@@ -370,7 +425,21 @@ Shader "GloomhavenVR/EnvRoomCutout"
                                           ice * (0.25 + 1.20 * rr), creep);
                     }
                     float lum = GhvrGrowLum(alb.rgb);
-                    alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
+                    // ...and WHAT the covering is made of. ModBuild 151, "sehen
+                    // nicht sehr wie Eis aus sondern eher wie Wasserpfützen":
+                    // the plates, the boundaries and the trapped air, in ROOM
+                    // METRES so a frosted fern frond and the flagstone under it
+                    // carry the same 22 cm quilt. This shader deliberately does
+                    // NOT take the crust's normal: every material that reaches
+                    // this branch is a two-sided alpha-tested CARD with no normal
+                    // map at all (`grain` is 0 three lines up and says so), and
+                    // perturbing the flat normal of a 6 cm leaf by a 22 cm plate
+                    // pattern would light it from a direction its own geometry
+                    // contradicts. What a frosted leaf needs is the albedo, and
+                    // the silhouette it already has.
+                    GhvrFrostIce crust = GhvrFrostCrust(
+                        GhvrGrowQ(i.opos, _ElemCentre.xyz, _ElemScl, 1.0));
+                    alb.rgb = GhvrFrostOn(alb.rgb, lum, frost, crust);
                 }
                 // =============================================================
 
@@ -398,7 +467,19 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 if (eLive > 0.0)
                 {
                     ambGain = GhvrAmbGain(e);
-                    dirGain = GhvrDirGain(e) * GhvrMoonLight();
+                    // ...and indoors the LIFT is confined to the window's own
+                    // throw, exactly as EnvRoom's masonry is (ModBuild 151). It
+                    // has to be the same call in both files or the cobwebs, the
+                    // sacking and the growth cards standing against a wall would
+                    // brighten 3.22x under Light while the wall behind them
+                    // stayed at 1.00 — a room lit through a window with the
+                    // things IN it lit by something else. Outdoors the mask is
+                    // not evaluated and the forest's foliage is untouched.
+                    float thrown = GhvrIndoor() > 0.0
+                        ? GhvrMoonWindow(i.opos, _ElemCentre.xyz, _ElemScl, _DirDir.xyz,
+                                         _MoonWin, _MoonWinZ.xy)
+                        : 1.0;
+                    dirGain = GhvrDirGainThrown(e, GhvrMoonLight(), thrown);
                 }
 
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));

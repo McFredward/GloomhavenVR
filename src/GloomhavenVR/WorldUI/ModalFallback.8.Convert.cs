@@ -401,7 +401,7 @@ internal static partial class ModalFallback
                 // (target found lazily in TickResultsStickScroll; list content pools in late).
                 IsResults = isResultsPanel,
                 // Chain continuity: seed the message key so the first key-change capture in
-                // TickMenuRecall fires only on a genuine NEXT message, not on the tick after
+                // TickLevelMessageChain fires only on a genuine NEXT message, not on the tick after
                 // this convert (null → current key would just re-store the just-placed pose).
                 // Null for every non-level-message window.
                 LastLevelMessageKey = CurrentLevelMessageKey(window),
@@ -434,6 +434,21 @@ internal static partial class ModalFallback
     /// front of the CURRENT head pose. The user may have physically moved while the
     /// HMD was off — a modal stranded out of view is an un-dismissable lock. Returns
     /// how many windows were re-floated (for the "[Core] Session resumed" report).
+    ///
+    /// <para><b>THIS SURVIVES THE ModBuild 149 RECALL DELETION, deliberately, and it was checked
+    /// against the ruling rather than assumed to be safe.</b> What the user ruled out is a window
+    /// moving ON ITS OWN — "nach einer Zeit", with the player doing nothing. This fires on exactly
+    /// one thing: the headset coming back on. That is a deliberate physical act by the player, it
+    /// cannot happen while they are looking at the window, and the state it recovers from is one
+    /// the mod genuinely cannot see through (the player may have walked or turned with the HMD
+    /// off, so the parked spot can be behind them). It is also already bounded by the SAME
+    /// ownership rule as the recall was: a window the player has grab-moved is never touched here.
+    /// With the recall gone this is now one of the three things that can rescue a lost window, and
+    /// the only one that puts it back rather than closing it.</para>
+    ///
+    /// <para>IF THE USER REPORTS WINDOWS JUMPING AFTER A DOFF/DON, this is the path — the log line
+    /// below names every window it moves — and the answer would then be to delete it too, not to
+    /// re-tune it.</para>
     /// </summary>
     internal static int RefloatOpenWindows()
     {
@@ -501,9 +516,14 @@ internal static partial class ModalFallback
     /// and the adventure-completion variant (UINewAdventureResultsManager). User request A:
     /// they float as GRABBABLE modals exactly like every other window (grab bar, two-hand
     /// resize), but carry NO X close button — the only way out must remain their
-    /// native continue/retry/exit buttons — and they participate in the lost-menu recall
-    /// (<see cref="TickMenuRecall"/>) so a carried-away results window can never be lost
-    /// off-view while it blocks the scenario-end flow.
+    /// native continue/retry/exit buttons.
+    ///
+    /// <para>THEY USED TO PARTICIPATE IN THE LOST-MENU RECALL and no longer do: the recall is
+    /// deleted outright on the user's ModBuild 149 ruling (the block is at the top of
+    /// <c>ModalFallback.6.MenuGuard.cs</c>). A results window carried out of view now stays where
+    /// it was put. That is the intended behaviour and it is not a lock: the modal escape chord
+    /// closes the top float from anywhere, presence regain re-floats any window the player has not
+    /// grab-moved, and the window's own native buttons are reachable wherever it is standing.</para>
     /// </summary>
     private static bool IsResultsPanel(UIWindowID id) =>
         id == UIWindowID.ResultsPanel || id == UIWindowID.AdventureCompletionPanel;

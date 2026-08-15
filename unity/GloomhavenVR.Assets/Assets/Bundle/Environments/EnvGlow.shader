@@ -51,7 +51,7 @@ Shader "GloomhavenVR/EnvGlow"
         _Away ("Absence depth", Range(0,1)) = 0
         _AwayPeriod ("Absence period (s)", Float) = 26
 
-        // ---- RETROREFLECTION (ModBuild 149) ---------------------------------
+        // ---- RETROREFLECTION (ModBuild 148) ---------------------------------
         // USER, ModBuild 148: "Bei der 'Fratze' im Wald erscheinen einfach so
         // zwei Tennisbälle. Nicht sehr viel Horror." He is right, and the reason
         // is physics rather than tuning.
@@ -161,6 +161,49 @@ Shader "GloomhavenVR/EnvGlow"
         // existed, not merely close to it.
         _ElemCandle ("Element: 1 = a candle halo, frozen against Light/Dark", Range(0,1)) = 0
 
+        // ---- THE MOONLIGHT FLAG (ModBuild 149) -----------------------------
+        // USER, verbatim, with Kellerfenster_Dunkel.jpg: "Bei Dunkelheit im
+        // Keller über dem Kellerfenster ist noch so etwas helles zu sehen
+        // entferne das." An otherwise black frame with a soft blue oval in it.
+        //
+        // THE CAUSE IS NOT `ld`. For C_GlowMoon _ElemCandle is 0, so ld is 1 and
+        // both Dark terms below apply IN FULL — they are simply not a collapse.
+        // fall goes 2.0 -> 4.3, which tightens a sphere that is squashed to 0.22
+        // in z and therefore hardly changes what a head-on view of it covers, and
+        // elemAmp goes to GhvrSrcGain(e) - 0.35, i.e. 0.65. The 0.35 is the ONLY
+        // Dark subtraction an indoor halo has, because GhvrSrcGain is EXACTLY 1.0
+        // indoors at every element state (EnvElement.cginc:304-307, the candle
+        // ruling). Measured on the ModBuild 149 bake, env_cellar_Window_edarkS
+        // against _ebase over the aperture: mean (19.6, 28.2, 49.9) -> (8.4,
+        // 13.6, 27.0), i.e. 54 % of it survives full Dark in a room where every
+        // other moonlight term is down to 0.0275x.
+        //
+        // AND THAT IS THE BUG, stated properly: the aperture glow IS MOONLIGHT —
+        // it is the air in the hole lit by the moon — and it was the one
+        // moonlight term in the cellar not riding the moon. EnvElement publishes
+        // the contract for exactly this ("Multiply any MOONLIGHT term by this",
+        // GhvrMoonLight()), and the beam, the pool, the puddle's mirror and the
+        // cold rims all already do. So this flag does not invent a Dark response;
+        // it puts this halo back on the one the room already has, and at full
+        // Dark the eclipse floor (0.05) takes it to 0.0325 of its rest value —
+        // 0.6/255 in its own strongest channel, i.e. below what an 8-bit frame
+        // can hold.
+        //
+        // IT DOES NOT TOUCH THE LIGHT SIDE beyond the moon's own swell (x1.34 at
+        // full Light, GHVR_MOON_SWELL): lifting the aperture with GhvrDirGain as
+        // well is the "Light must brighten the moonlight from the window" work
+        // and it belongs to the lane doing it, not to a Dark bug fix. _ElemCandle
+        // stays 0 on that material, so Light still opens the halo's edge exactly
+        // as it did.
+        //
+        // WHY A FLAG AND NOT "every indoor non-candle halo": the cellar's FIRE
+        // halos are also indoor non-candles, and Fire+Dark deliberately makes
+        // them BIGGER and brighter (the pairing block below). A blanket indoor
+        // rule would extinguish the one halo in the room that is supposed to be
+        // the only light left. Default 0 multiplies by a literal 1.0, so every
+        // material that never writes it is bit-identical.
+        _ElemMoon ("Element: 1 = this halo is moonlight, rides GhvrMoonLight", Range(0,1)) = 0
+
         // ---- SHELF RIDERS (EnvShelfTip.cginc) -------------------------------
         // USER, ModBuild 144: "Die Kerzen und das Feuer, die auf dem Bücherregal
         // stehen, kippen nicht mit". Two of this shader's spheres stand on that
@@ -203,7 +246,7 @@ Shader "GloomhavenVR/EnvGlow"
 
             fixed4 _Tint;
             float _Falloff, _Flicker, _Rate, _Phase, _Blink, _BlinkPeriod, _Away, _AwayPeriod, _ElemWarm;
-            float _ElemGate, _ElemCandle, _Shine;
+            float _ElemGate, _ElemCandle, _ElemMoon, _Shine;
             float4 _ShineAxis, _HauntSched, _HauntEnv;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
@@ -306,6 +349,12 @@ Shader "GloomhavenVR/EnvGlow"
                     float ld = 1.0 - _ElemCandle;
                     fall = max(_Falloff * (1.0 + 1.15 * e.dark * ld - 0.30 * e.light * ld - 0.25 * warm), 0.30);
                     elemAmp = max(GhvrSrcGain(e) + 0.85 * warm - 0.35 * e.dark * ld * (1.0 - e.light), 0.0);
+                    // A HALO THAT IS MOONLIGHT rides the moon (see THE MOONLIGHT
+                    // FLAG). lerp rather than a branch: with _ElemMoon at 0 this
+                    // is a multiplication by a literal 1.0, which is exact, and
+                    // the whole line already sits inside `if (e.live > 0.0)` so
+                    // the zero state does not run it at all.
+                    elemAmp *= lerp(1.0, GhvrMoonLight(), _ElemMoon);
                     // a fire-fed halo goes ember; nothing else recolours it
                     elemCol = lerp(_Tint.rgb, float3(1.00, 0.46, 0.14), saturate(warm * 0.85));
                 }

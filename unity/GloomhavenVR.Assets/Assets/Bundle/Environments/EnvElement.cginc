@@ -156,6 +156,20 @@ float GhvrIndoor ()
     return saturate(_GhvrIndoor);
 }
 
+/// THE MOON, in ROOM axes, normalised, pointing TOWARD the moon. It is
+/// EnvironmentsBuilder.MoonDir (0.49262, 0.64279, 0.58686).normalized, and it is
+/// the same disc both rooms see — the wood over the clearing, the cellar through
+/// its barred window. Spelled here rather than taken from a per-material vector
+/// because the window's throw (GhvrMoonWindow, below) has to be computed in the
+/// ROOM's frame, and _DirDir is in each material's OWN frame.
+///
+/// IT IS MIRRORED, and the bake gate that keeps it honest is
+/// AssertMoonWindowMirror in BuildEnvironmentRooms — run on every bake, it fails
+/// the build if this constant or the opening below drifts from the geometry the
+/// room is actually built out of. There is no way to change one and not the
+/// other and still get a bundle.
+#define GHVR_MOON_DIR float3(0.492556, 0.642707, 0.586784)
+
 /// The mood, already folded with ElementMood's master. Nothing downstream ever
 /// has to remember to multiply, and nothing has to test whether the channel is
 /// live: when the feature is off every field is 0 and every use is a no-op.
@@ -340,6 +354,130 @@ float GhvrDirGain (GhvrElem e)
 {
     float lift = lerp(GHVR_DIR_LIFT_OUT, GHVR_DIR_LIFT_IN, GhvrIndoor());
     return max(1.0 + lift * e.light - 0.45 * e.dark * (1.0 - e.light), 0.0);
+}
+
+// ============ ...AND INDOORS IT MAY ONLY BRIGHTEN WHAT THE WINDOW SEES =======
+//  USER VERDICT, ModBuild 151 (hardware, cellar, verbatim): "Bei 'Licht' im
+//  Keller statt den ganzen Keller mehr zu beleuchten mach ausschließlich das
+//  Licht aus dem Kellerfenster vom Mond heller."
+//
+//  THIS IS THE THIRD TIME THE SAME SENTENCE HAS BEEN SAID, and the previous two
+//  answers were each right about half of it. ModBuild 143 raised the whole room.
+//  ModBuild 146 held the room's AMBIENT at exactly 1.00 indoors
+//  (GHVR_AMB_LIFT_IN = 0.00, above) and moved the whole gain into the moon
+//  (GHVR_DIR_LIFT_IN = 1.40) — and that block's own closing paragraph, WHAT THIS
+//  ROUND COULD NOT FIX, names what was left: "the cellar's moon is an
+//  UNOCCLUDED directional. It lights every north-east-facing surface in the room
+//  at the same N.L whether or not the window can see it... If the next round
+//  wants Light to reach ONLY the window's throw, what is needed is a
+//  per-material or per-vertex moon-visibility mask". That is this block, except
+//  that it turned out to need no per-material data at all.
+//
+//  THE MASK IS THE WINDOW ITSELF, TRACED. For a surface point p, the moon
+//  reaches it if the ray from p toward the moon passes through the opening. That
+//  is one divide and two smoothsteps, it is EXACT rather than an approximation
+//  of the beam hull, and it produces the three things that should brighten and
+//  nothing else:
+//    * the POOL on the flagstones, with the correct trapezoidal outline the
+//      shaft actually paints (a hull test would have given a circle);
+//    * the REVEAL — cill, jambs and head — which is inside the embrasure and is
+//      the brightest masonry in the room. It falls out of the same formula
+//      because the trace distance clamps at 0 there, i.e. a surface in the
+//      aperture plane tests itself;
+//    * whatever else the throw lands on if the window or the moon ever moves.
+//  And the far wall, the ceiling, the floor under the shelf and the shadowed
+//  side of every barrel — the surfaces the verdict is about — trace to a point
+//  metres above the opening's head and get exactly zero.
+//
+//  WHICH HALF OF THE GAIN IS MASKED, and this is the whole of the rule:
+//  BRIGHTENING IS CONFINED TO THE THROW, DARKENING IS NOT. Under Dark the moon
+//  is eclipsed, and an eclipsed moon stops lighting the whole room and not just
+//  the part of it in the window's throw — "den Raum insgesamt deutlich dunkler"
+//  (ModBuild 143) is a whole-room instruction and stays one. So the gain is
+//  split at 1.0 and only the part above it is masked.
+//
+//  THE COMPOSITE GAINS THIS PRODUCES, stated the way the constants above are:
+//    nothing up                      1.00 everywhere, EXACTLY (min(1,1)=1 and
+//                                         max(1-1,0)=0, so the zero state is the
+//                                         same bits, not merely a small number)
+//    full Light, in the throw        3.22x   — unchanged from ModBuild 146
+//    full Light, outside the throw   1.00x   — was 3.22x; this is the fix
+//    full Dark (totality)            0.0275x everywhere, unchanged
+//    full Light + full Dark          2.40x in the throw, 1.00x outside
+//    the forest                      untouched at every strength (the mask is
+//                                         lerped out by GhvrIndoor())
+//  The beam volume, the moon's mirror in the puddle and the disc in the sky do
+//  NOT take the mask and must not: they ARE the throw, so masking them would be
+//  asking a thing whether it contains itself. They keep calling GhvrDirGain.
+//
+//  REJECTED: testing membership of the beam HULL (org, dir, length, radius) the
+//  way EnvBeam does. It needs four more numbers per material, it is a cylinder
+//  where the throw is a rectangular prism, and it would have lit a barrel
+//  standing beside the pool that the window cannot see past the jamb.
+//  REJECTED: baking a moon-visibility value into vertex colour. The cellar's
+//  vertex colour is already the depth dissolve in one room and the sway weight
+//  in another, the walls are 16 cm cells (so the pool's edge would be a 16 cm
+//  staircase), and it would need the bake lane in three places instead of none.
+
+/// The window's own throw, 0..1, for a fragment of an INDOOR surface.
+///   opos     the fragment in the material's OBJECT space
+///   centre   _ElemCentre.xyz — the room origin in that same object space
+///   scl      _ElemScl — object units to room metres
+///   dirObj   _DirDir.xyz — the moon direction in that same object space
+///   win      (x0, y0, x1, y1) of the opening, in ROOM metres
+///   plane    x = the opening's plane in room z, y = the feather in metres
+///
+/// FRAMES, and the one assumption in here. Everything is done in ROOM metres,
+/// because the opening is a room fact and the room is where the player is. A
+/// material's object frame differs from the room's by a translation (`centre`),
+/// a scale (`scl`) and a YAW — and only a yaw: "every material ... is placed by
+/// yaw alone, so object up is world up" is the rule EnvRoomCutout's wind already
+/// depends on, stated there in those words. That yaw is recovered from `dirObj`
+/// without a trig call at all: the moon's bearing is a known constant in room
+/// axes, so the rotation that takes the known bearing to the material's own is
+/// one dot and one 2D cross. Materials placed at identity (every wall, floor and
+/// ceiling in the cellar) get c = 1, s = 0 and the arithmetic is the identity.
+///
+/// A material whose _DirDir was never written by the light rig has no horizontal
+/// bearing to read; it returns 0 — never a spurious lift — and it is not a lit
+/// cellar surface in the first place.
+float GhvrMoonWindow (float3 opos, float3 centre, float scl, float3 dirObj,
+                      float4 win, float2 plane)
+{
+    float2 b = dirObj.xz;
+    float bl = length(b);
+    if (bl < 0.05) return 0.0;
+    b /= bl;
+    // the moon's bearing in ROOM axes, normalised: GHVR_MOON_DIR.xz / |xz|.
+    const float2 a = float2(0.642930, 0.765925);
+    // object -> room is the INVERSE of the rotation that takes a to b.
+    float c = dot(a, b), s = a.x * b.y - a.y * b.x;
+    float3 d = (opos - centre) * scl;                    // object axes, metres
+    float3 p = float3(c * d.x + s * d.z, d.y, c * d.z - s * d.x);   // ROOM axes
+
+    // Trace toward the moon to the opening's plane. Clamped at 0 so a surface
+    // INSIDE the embrasure — the cill, the jambs, the head — tests its own
+    // position instead of tracing backwards out of the room.
+    float tt = max((plane.x - p.z) / GHVR_MOON_DIR.z, 0.0);
+    float2 h = p.xy + GHVR_MOON_DIR.xy * tt;
+    // 1 strictly inside the opening, falling to 0 `plane.y` metres outside it.
+    // The feather is not a guess at a penumbra (the moon's disc gives 3.5 cm
+    // over this throw): it is what stops the pool reading as a projected
+    // rectangle, and it is the tolerance the yaw reconstruction is forgiven by.
+    float f = max(plane.y, 1e-3);
+    return smoothstep(win.x - f, win.x, h.x) * (1.0 - smoothstep(win.z, win.z + f, h.x))
+         * smoothstep(win.y - f, win.y, h.y) * (1.0 - smoothstep(win.w, win.w + f, h.y));
+}
+
+/// GhvrDirGain x GhvrMoonLight, with the INDOOR brightening confined to `throw_`
+/// and the darkening left alone. See the block above for the rule and for every
+/// composite gain it produces. Outdoors it is bit-identical to the product,
+/// whatever `throw_` is.
+float GhvrDirGainThrown (GhvrElem e, float moonLight, float throw_)
+{
+    float g = GhvrDirGain(e) * moonLight;
+    float gIn = min(g, 1.0) + max(g - 1.0, 0.0) * saturate(throw_);
+    return lerp(g, gIn, GhvrIndoor());
 }
 
 // --------------------------------------------------------- THE PERIPHERY

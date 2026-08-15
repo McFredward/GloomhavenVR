@@ -124,12 +124,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// USER-OWNED POSE (user report 2026-08-04: "Sie sollen dort fix bleiben, wo sie stehen,
     /// nicht springen"): latched TRUE the first time the player grips this window (and never
     /// cleared for the lifetime of the float). From that moment its pose belongs to the
-    /// player - the lost-menu recall (ModalFallback.TickMenuRecall) and the presence-regain
-    /// refloat (ModalFallback.RefloatOpenWindows) both skip a user-moved window, because the
-    /// user deliberately parks windows OUT of the view ("manchmal schiebe ich sie absichtlich
-    /// zur Seite") and the 6 s out-of-view timer kept yanking them back to the gaze (hardware
-    /// log: repeated "MODAL RECALL: 'UI Options Window_unified' ... out of view for 6s"
-    /// lines). ANY grip counts as the claim - even a grab released in place: the player
+    /// player - the presence-regain refloat (ModalFallback.RefloatOpenWindows) skips a
+    /// user-moved window, because the user deliberately parks windows OUT of the view
+    /// ("manchmal schiebe ich sie absichtlich zur Seite"). The lost-menu recall that used to
+    /// share this exemption is GONE as of ModBuild 149: its 6 s out-of-view timer kept yanking
+    /// windows back to the gaze (hardware log: repeated "MODAL RECALL: 'UI Options
+    /// Window_unified' ... out of view for 6s" lines) and the user ruled that a window stays
+    /// where it spawned unless it is actively moved, grabbed or not. So this flag now protects
+    /// against ONE mover rather than two. ANY grip counts as the claim - even a grab released
+    /// in place: the player
     /// touched it, so the mod stops second-guessing where it belongs. The X close button and
     /// the modal escape chord remain the rescue for a window the player genuinely loses.
     /// </summary>

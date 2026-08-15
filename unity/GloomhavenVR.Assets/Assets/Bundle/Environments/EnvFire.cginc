@@ -144,6 +144,34 @@
 #define GHVR_FKIND_TONGUE 1.0   // rises out of the bed, surges, leans, tears
 #define GHVR_FKIND_PUFF   2.0   // detaches, rises, reddens, dies
 
+// ------------------------------------------------- HOW HIGH A FIRE MAY GO
+// USER, hardware, ModBuild 149: "Feuer zieht nun solche Fäden bis ganz weit
+// nach oben, das sieht nicht realistisch aus." Everything a fire draws is
+// authored as a fraction of its own height, so nothing in the shader ever knew
+// what the WHOLE thing added up to — and the terms compose multiplicatively:
+// a puff born at 0.55 of the height, rising another 0.95 of it, stretched by
+// `tall` (up to 1.55 under Fire) and carrying its own 0.49 of card is at
+// 2.9 fire-heights before a single element pairing is up, and Fire+Light's
+// smoke term took it past four. On a 1.05 m snag fire that is four metres of
+// something in the air over a burning tree, which is what feuer4.jpg shows.
+//
+// So there is now ONE number that bounds the lot, applied once, in the fire's
+// own frame, after every displacement. It is a SOFT knee and not a clamp: a
+// clamp would flatten every card that reached it into a straight horizontal
+// edge, which is the "stack of quads" artefact this shader has paid for twice
+// already. Below GHVR_FIRE_SOFT fire-heights nothing is touched at all (the
+// map is the exact identity and its derivative is 1 at the join); above it the
+// remaining rise is compressed exponentially toward GHVR_FIRE_CAP, which it
+// approaches and never reaches.
+//
+// 1.05 / 1.75: the tallest tongue of an unstretched fire tops out near 0.8 of
+// its height, so the knee is well clear of the flame proper and only detached
+// pieces and hard surges ever enter it, and 1.75 fire-heights is 1.8 m over the
+// snag and 0.74 m over a log fire — a piece of burning bark going up over a
+// bonfire, rather than a thread reaching into the canopy.
+#define GHVR_FIRE_SOFT 1.05
+#define GHVR_FIRE_CAP  1.75
+
 // ---------------------------------------------------- the light channel
 // Written per material, in THAT material's object space, by
 // EnvRoomBuilder.ApplyRig — the same door the three candle positions go
@@ -199,11 +227,44 @@ float4 _FireRide;                         // xyz: 1 = this seat stands on the sh
 // near the (1.78,1.32,0.86) the seat of the FLAME is: coals under a fire have
 // to be visibly cooler than the fire, or they read as a second fire lying down.
 #define GHVR_GLUT_TINT float3(1.15, 0.55, 0.22)
-// how bright they are, against the wash. 0.85 puts the burnt patch under a fire
-// at about the brightness the flagstones a foot away get from the wash — i.e.
-// clearly lit rather than glowing white, which is what a coal bed looks like
-// next to the flame it is feeding.
-#define GHVR_GLUT_K 0.85
+// how bright they are, against the wash.
+//
+// ---- ModBuild 149: 0.85 -> 1.90, AND THE USER HAS NOW ASKED THREE TIMES -----
+// "am Besten darunter eine Glut sichtbar sein, dass es glaubwürdig aussieht"
+// (the burning tree) and "auch hier fehlt mir die glut auf dem asset" (the
+// cellar shelf). Two rounds have shipped this term and he cannot see it.
+//
+// IT WAS MEASURED RATHER THAN GUESSED THIS TIME. The forest previews were
+// rendered twice, once as shipped and once with this constant at 0, and the
+// difference IS the coal term in isolation — there is no other way to separate
+// it from the wash, which lands on the same surfaces through the same three
+// distances. On the bark of the burning snag, in linear light:
+//
+//     GHVR_GLUT_K   coals add (r,g,b)          lum      p99/p50 of the term
+//     0.85 (ship)   (+0.007,+0.000,+0.000)   +0.002     1.0x  (a flat wash)
+//     1.90 (here)   (+0.020,+0.001,+0.000)   +0.005     6.4x  (structure)
+//
+// The LEVEL is only half of it and was never the half that mattered: at 0.85
+// with no crust the term was a smooth orange ellipse on wood, which is what a
+// LIGHT SHINING ON WOOD looks like and is a second, weaker copy of the wash
+// already there. What makes it read is that p99/p50 — 61x on the deadfall's
+// bark, 21x on the crate lid, 6.4x on the vertical trunk — i.e. bright cracks
+// between dark lumps rather than an even glow. See GhvrGlutCoals.
+//
+// The gain is what carries the peak of that structure high enough to be seen
+// on a surface the wash has already lit. It is bounded by the same window and
+// dies to +0.0000 one and a half metres up the same trunk, measured.
+#define GHVR_GLUT_K 1.90
+// ...and how far they reach, in core radii. 1.45 is the ModBuild 148 number
+// and it is KEPT: the light seats are pushed out of the thing they light (a
+// point inside a trunk lights none of it — see AddForestFire's snagSeat), so a
+// tighter window than this stops reaching the bark at all. What changed is the
+// EXPONENT, below: the reach is the same and the shape inside it is not.
+#define GHVR_GLUT_REACH 1.45
+// The size of a lump of charcoal, in cells per metre. 1/22 m = 4.5 cm, which
+// is a piece of a burnt board; the second octave at 3.1x is the 1.5 cm fissure
+// between two of them. See GhvrGlutCoals.
+#define GHVR_GLUT_CELL 22.0
 
 // ============================================================================
 // THE FIVE PAIRINGS THAT INVOLVE FIRE.
@@ -280,20 +341,96 @@ GhvrFirePair GhvrFirePairs (GhvrElem e)
     return p;
 }
 
-/// FIRE+AIR, on the rate. A fire in a draught does not sway more slowly, it
-/// turns over faster; this is the number the FLAME and the WASH both take, so
-/// the two cannot come apart under wind any more than they can at rest.
+/// FIRE+AIR, on the rate — AND IT IS NOW THE IDENTITY. Read the block below
+/// before restoring the term; it is a standing project rule, not a taste.
+///
+/// ======== AN ELEMENT STRENGTH MULTIPLIES AN AMPLITUDE, NEVER A FREQUENCY ====
+/// USER VERDICT, ModBuild 145: "Das Feuer zappelt viel zu schnell und ist damit
+/// nicht sehr immersiv." That round re-pointed every band in this file at the
+/// SIZE of structure whose frequency it really is (the table above), measured
+/// the mean frequency down from 4.26 Hz to 3.13 Hz, and the user accepted it.
+///
+/// This function then multiplied that same clock by 1.55 the moment Air came
+/// up: 4.6 Hz -> 7.13 Hz on the flame, on the erosion scroll and on the wash on
+/// the ground, i.e. a windy fire went back to being FASTER than the fire the
+/// user had already rejected as too fast, and the mean frequency with it
+/// (3.13 -> 4.85 Hz). Every hour spent on ModBuild 145 was undone by one
+/// element. That is exactly the failure the rule exists to prevent, and it is
+/// why the rule is absolute rather than a preference: a frequency is a property
+/// of the SIZE of the thing moving, and an element does not change the size of
+/// a flame's eddies — it changes how hard they are fed.
+///
+/// So the rate is now flat and the whole of Fire+Air's energy is in AMPLITUDE:
+/// the depth below (harder), the lean (EnvFlame, harder), the outward tear
+/// (EnvFlame, unchanged) and the embers it sheds (EnvFlame, more of them and
+/// alive for longer). The user's own example — "das Feuer der brennenden Bäume
+/// noch mehr Glut wirft und flackert wenn Wind an ist" — is a request for MORE
+/// GLUT and MORE FLICKER, and both of those are amplitudes. Neither of them is
+/// a request for a faster fire.
+///
+/// ======== ...AND IT WAS ALSO A PHASE SCRUB, WHICH IS THE HARDER BUG ========
+/// The rule above is about the LOOK. There is a second, purely mechanical fault
+/// in the same expression, it is the one the elements lane found in GhvrWind and
+/// EnvBeam, and it is why "just tune the coefficient down" would not have been
+/// enough.
+///
+/// Every consumer evaluates the wave at `t * GhvrFireHz(...)`, and `t` is the
+/// SHARED ENVIRONMENT CLOCK — it reaches thousands of seconds in a session. So
+/// the air term did not scale a rate, it scaled a PHASE: during the one-second
+/// element ramp (ElementMood.RampSeconds = 1.0) the argument moved by
+/// 0.55 * _FireHz * t cycles, which at t = 3600 s is nine thousand periods
+/// inside that one second. The waveform is swept through hundreds of cycles per
+/// frame and the fire — and the wash on the ground, and the glut, which take
+/// the same `hz` through GhvrFireSeatOne — flash white-black for the length of
+/// the ramp. The user reported the vegetation half of this as "zucken die Bäume
+/// extrem unnatürlich ... für ca 1s"; the fire had the identical fault and he
+/// did not separate them.
+///
+/// MEASURED — worst per-frame step in the wash's brightness at 90 Hz across the
+/// ramp, forest _Flicker 0.55, against the step the same fire has while Air is
+/// simply HELD at 1.0 (i.e. the motion he has already seen and accepted):
+///
+///     clock t0     shipped     lerp fix    THIS (flat)   held at air=1
+///        0 s        0.308       0.216        0.153           0.273
+///       30 s        1.021       0.185        0.161           0.302
+///      600 s        0.599       0.195        0.164           0.320
+///     1800 s        0.515       0.195        0.165           0.295
+///     3600 s        0.902       0.265        0.164           0.291
+///
+/// The shipped column is 3.4x the accepted motion at t = 30 s and depends on
+/// the wall clock; note that it is very nearly CORRECT AT t = 0, which is the
+/// signature that identifies this bug and the reason it survives every test
+/// that starts a fresh scene.
+///
+/// The elements lane's fix — lerp(wave(hz), wave(1.55*hz), air) — is sound and
+/// is what GhvrWind and EnvBeam use, because those effects genuinely want a
+/// rate response and only need its phase made continuous. THIS function does
+/// not want one at all (see the rule above), so it takes the stronger form:
+/// with no air in the argument there is no phase to scrub, the ramp costs less
+/// than the held state at every offset, and the numbers do not move with the
+/// clock at all. Both fixes are correct; this one is also the shape the rule
+/// asks for, and it is the only one of the three whose column is flat.
+///
+/// The signature is unchanged on purpose. This is still the ONE function the
+/// flame, the erosion scroll and the wash all take their rate through — so
+/// EnvRoom.shader and EnvGround.shader are fixed by this line without being
+/// touched, the standing "a flame and the light it casts share a rate" rule
+/// keeps its single enforcement point, and a future round that wants a rate
+/// response has one line to change and this block to answer first. If it ever
+/// does come back, it comes back as the lerp and never as a factor on `t`.
 float GhvrFireHz (GhvrFirePair p, float hz)
 {
-    return hz * (1.0 + 0.55 * p.air);
+    return hz;
 }
 
-/// ...and on the depth. Wind-fed fire is unsteady in AMPLITUDE as well as in
-/// rate — that is the half that reads across a room. Bounded, because
-/// GhvrWave4 is: at full Fire+Air the pool swings +-75% instead of +-45%.
+/// ...and on the depth, which is where Fire+Air's rate response has gone. Wind
+/// -fed fire is unsteady in AMPLITUDE — that is the half that reads across a
+/// room, and after the block above it is the only half there is. Bounded,
+/// because GhvrWave4 is: at full Fire+Air the pool swings +-88% instead of
+/// +-45% (it was +-75% while the rate was also moving).
 float GhvrFireDepth (GhvrFirePair p, float depth)
 {
-    return depth * (1.0 + 0.70 * p.air);
+    return depth * (1.0 + 0.95 * p.air);
 }
 
 /// THE FOUR BANDS OF ONE FIRE, from one wave call. `cycles` is the fire's clock
@@ -403,6 +540,81 @@ float GhvrGlutBreath (float t, float hz, float phase)
     // sqrt and the coals never fall far enough to make the breathing visible;
     // below about 0.35 they stop breathing at all and read as painted-on.
     return pow(max(x, 1e-4), 0.45);
+}
+
+/// ============================= THE COALS HAVE A SHAPE =======================
+/// USER, hardware, ModBuild 149, TWICE IN ONE MESSAGE: "am Besten darunter eine
+/// Glut sichtbar sein, dass es glaubwürdig aussieht" (the burning tree) and
+/// "auch hier fehlt mir die glut auf dem asset" (the cellar's shelf). The term
+/// has shipped for two rounds and he has asked for it three times.
+///
+/// The reason it does not read is NOT that it is absent — it is measurable in
+/// the ModBuild 149 previews — it is that it is a SMOOTH ORANGE WASH. It is a
+/// windowed distance times a wrapped Lambert times a slow breath, and every one
+/// of those three is a low-order function of position, so what lands on the
+/// bark is a soft ellipse of orange with no edge and no grain anywhere in it.
+/// The eye reads a soft orange ellipse on wood as A LIGHT SHINING ON WOOD,
+/// which is precisely what the wash beside it already is; two copies of the
+/// same cue add nothing, and the second one is invisible BECAUSE it is a copy.
+///
+/// Coals do not look like that. Charred wood is a CRUST — nearly black, matte,
+/// and broken into pieces a few centimetres across — and the light comes out of
+/// the FISSURES BETWEEN the pieces, where the incandescent interior is exposed.
+/// The contrast across one of those fissures is enormous (a bright crack beside
+/// a black lump), and it is the contrast, not the mean level, that says "this
+/// wood is being consumed" rather than "this wood is lit".
+///
+/// So the glut is multiplied by a field with that structure: a two-octave value
+/// noise on the OBJECT position, thresholded hard so most of the area is dark
+/// crust and a minority of it is open crack. Object space and not world space
+/// on purpose — the pattern then belongs to the burning prop, so a bookshelf
+/// that topples takes its coals over with it and they do not swim across the
+/// board (the shelf riders' whole problem, one file over).
+///
+/// COST, stated because this is one of the heaviest fragments in either room:
+/// eight hashes and a trilinear blend, plus one more hash for the fine octave.
+/// It is inside a branch on the accumulated glut, which is zero over all but
+/// the few square metres of surface actually near something burning, and that
+/// branch is spatially coherent — whole tiles of the screen take it or do not.
+/// With Fire down `glut` is exactly 0 and not one instruction of this runs.
+float GhvrGlutHash (float3 c)
+{
+    // sin-free (Inigo Quilez's integer-ish frac hash). A sin-based hash costs
+    // the same and has a PERIOD, and object coordinates on a 13 m trunk are
+    // exactly large enough to find it.
+    float3 p = frac(c * 0.3183099 + 0.1);
+    p *= 17.0;
+    return frac(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+
+float GhvrGlutNoise (float3 p)
+{
+    float3 i = floor(p), f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);                     // smoothstep, C1 at the cell walls
+    float2 e = float2(0.0, 1.0);
+    return lerp(lerp(lerp(GhvrGlutHash(i + e.xxx), GhvrGlutHash(i + e.yxx), f.x),
+                     lerp(GhvrGlutHash(i + e.xyx), GhvrGlutHash(i + e.yyx), f.x), f.y),
+                lerp(lerp(GhvrGlutHash(i + e.xxy), GhvrGlutHash(i + e.yxy), f.x),
+                     lerp(GhvrGlutHash(i + e.xyy), GhvrGlutHash(i + e.yyy), f.x), f.y), f.z);
+}
+
+/// The crust, as a multiplier on the glut. Mean ~0.95 over a surface, so this
+/// redistributes the coal energy rather than adding any: the burnt patch keeps
+/// the brightness the window gives it and stops being FLAT.
+float GhvrGlutCoals (float3 opos)
+{
+    float v = GhvrGlutNoise(opos * GHVR_GLUT_CELL);
+    // ...and a finer one, uninterpolated in feel because it is three times the
+    // frequency: this is the char cracking inside one lump, not a second lump.
+    float f = GhvrGlutNoise(opos * (GHVR_GLUT_CELL * 3.1) + 11.3);
+    float n = 0.68 * v + 0.32 * f;
+    // THE THRESHOLD IS THE WHOLE EFFECT. Trilinear value noise is bell-shaped
+    // about 0.5 with a standard deviation near 0.16, so a knee from 0.40 to
+    // 0.72 leaves roughly two thirds of the area on the dark crust and opens
+    // the top third into fissures. 0.20 is the crust's own floor — charcoal
+    // that has just been turned is not black, and a hard 0 there would make the
+    // burnt patch read as a hole rather than as a surface.
+    return 0.20 + 2.05 * smoothstep(0.40, 0.72, n);
 }
 
 /// THE TEMPERATURE RAMP, three stops. `h` is the height up the card, 0 at the
@@ -528,11 +740,31 @@ float GhvrFireSeatOne (float3 seat, float invRange,
     float c2 = ic * ic;
     float wash = x * x * saturate(dot(N, L)) / (1.0 + d2 * c2)
                * GhvrFireFlicker(t, hz * hzm, ph, dep);
-    // THE COALS. A far tighter window (1.45 core radii, cubed for a hard rim —
-    // coals do not have a soft edge, the burnt patch simply ends), a wrapped
-    // Lambert instead of a clamped one, and the slow biased breath.
-    float gq = saturate(1.0 - d2 * c2 * (1.0 / (1.45 * 1.45)));
-    glut += gq * gq * gq
+    // THE COALS. A far tighter window (GHVR_GLUT_REACH core radii, raised to a
+    // high power for a hard rim — coals do not have a soft edge, the burnt
+    // patch simply ends), a wrapped Lambert instead of a clamped one, and the
+    // slow biased breath.
+    //
+    // ---- ModBuild 149: THE EXPONENT GOES 3 -> 5, THE REACH DOES NOT MOVE ----
+    // "brightest right under the flame and dying out within a hand's width" is
+    // what a coal bed does, and a cube over 1.45 core radii is not it: on the
+    // forest's 1.09 m core that window is 1.58 m, and gq^3 still carries 43 %
+    // of its peak at 0.78 m out — half a metre of forest floor at nearly half
+    // brightness, which is the same "evenly reddened to the edge of the frame"
+    // read the WASH was condemned for in ModBuild 148 and fixed with an
+    // inverse-square core. The coals kept the fault the wash lost.
+    //
+    // gq^5 over the SAME window: 0.43 -> 0.19 at 0.78 m, 0.14 -> 0.04 at
+    // 1.09 m, and 0.68 -> 0.35 at half a core radius. The reach is deliberately
+    // unchanged — a light seat is pushed OUT of the thing it lights (a point
+    // inside a trunk lights none of it, see AddForestFire's snagSeat), so the
+    // bark this term exists to redden is 0.6-0.8 m from the seat and a window
+    // tighter than 1.45 would stop reaching it at all. Tightening the SHAPE
+    // inside a fixed window is the only move that is available here, and
+    // GHVR_GLUT_K carries the peak back up to where it can be seen.
+    float gq = saturate(1.0 - d2 * c2 * (1.0 / (GHVR_GLUT_REACH * GHVR_GLUT_REACH)));
+    float gq2 = gq * gq;
+    glut += gq2 * gq2 * gq
             * saturate((dot(N, L) + 0.55) * (1.0 / 1.55))
             * GhvrGlutBreath(t, hz * hzm, ph);
     return wash;
@@ -596,6 +828,13 @@ float3 GhvrFireSeats (float3 opos, float3 N, float t, GhvrTip tip, GhvrElem e)
     w.x = GhvrFireSeatOne(s0, _FirePos0.w, opos, N, t, hz, 1.00, 0.00, dep, reach, glut);
     w.y = GhvrFireSeatOne(s1, _FirePos1.w, opos, N, t, hz, 0.83, 0.37, dep, reach, glut);
     w.z = GhvrFireSeatOne(s2, _FirePos2.w, opos, N, t, hz, 1.19, 0.71, dep, reach, glut);
+    // ...AND THE CRUST, once for the three seats rather than once each: the
+    // char is a property of the SURFACE, not of which fire is heating it, and a
+    // point that two seats reach would otherwise get the pattern squared.
+    // Branched on the accumulated glut so the nine hashes are paid for only on
+    // the few square metres of surface that are actually near a fire — and not
+    // at all with Fire down, where every seat's window is zero.
+    if (glut > 0.002) glut *= GhvrGlutCoals(opos);
     return col * ((w.x + w.y + w.z) * gain) + glutCol * glut;
 }
 

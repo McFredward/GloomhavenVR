@@ -266,6 +266,24 @@ float4 GhvrWave4 (float4 v)
     return (v * v * (3.0 - 2.0 * v) - 0.5) * 2.0;
 }
 
+/// The same wave, two lanes — for the STORM's two extra carriers below, which
+/// are two and not four. Spelled out rather than passed to GhvrWave4 with two
+/// zeroed lanes because the zeroed lanes are not free on every compiler and
+/// because "there are exactly two extra carriers" is the cost claim this round
+/// makes; a float4 call would hide a doubling of the wave cost behind a
+/// dead-code elimination nobody re-checks.
+///
+/// Its maximum slope is the same and it is worth stating once, because Task A's
+/// proof rests on it: with u = |frac(x+0.5)*2-1|, du/dx = +-2 and
+/// d/du[(u*u*(3-2u)-0.5)*2] = 12u(1-u) <= 3, so |dW/dx| <= 6 per unit of
+/// argument. An argument in CYCLES at rate f therefore has |dW/dt| <= 6f, for
+/// EVERY carrier here, always.
+float2 GhvrWave2 (float2 v)
+{
+    v = abs(frac(v + 0.5) * 2.0 - 1.0);
+    return (v * v * (3.0 - 2.0 * v) - 0.5) * 2.0;
+}
+
 /// "Animiert": the frontier creeps even while the element holds still.
 ///
 /// The element's own published value already breathes while it WANES (0.28-0.52
@@ -301,6 +319,155 @@ float GhvrGrown (float field, float grain, float place, float cover, float creep
 }
 
 // --------------------------------------------------------------- THE LOOK
+// ======================= THE FROST IS A SOLID, NOT A BLUE ====================
+//  USER VERDICT, ModBuild 151 (hardware, verbatim): "Im Keller die Blauen
+//  Flecken von Eis, sehen nicht sehr wie Eis aus sondern eher wie
+//  Wasserpfützen, gib den Eisflecken eventuell auch noch eine Eis-Textur statt
+//  nur blau. (Gilt auch für den Wald)"
+//
+//  HE IS DESCRIBING WHAT THE CODE DID. GhvrFrostOn was, in full,
+//      lerp(alb, float3(0.66,0.76,0.94) * (0.34 + 0.95*lum), m)
+//  — a per-pixel lerp toward ONE CONSTANT BLUE, modulated only by the surface's
+//  own green channel. No texture, no relief, no normal of its own. And both
+//  call sites then went on to FLATTEN the surface's normal map:
+//      n_ts.xy *= 1.0 - 0.62 * frost;      (EnvRoom:370, EnvGround:412)
+//  A patch that is uniformly blue, perfectly smooth, and flatter than the stone
+//  around it is a description of standing water. The complaint was exact.
+//
+//  WHY IT IS NOT THE MOSS'S MISTAKE AGAIN. A FUNCTION OF THE ALBEDO HAS NO
+//  SILHOUETTE, and that is why the painted moss was deleted (see THE MOSS IS
+//  GONE below) — but frost genuinely IS a film lying on a surface, inside that
+//  surface's own outline. A film is the one thing a fragment function can draw
+//  honestly. What the film was missing was not a silhouette; it was STRUCTURE.
+//
+//  WHERE THE STRUCTURE COMES FROM: EnvPuddle already ships a good sheet of ice
+//  (its IceH / IceN / IceGrain / IceLip, EnvPuddle.shader:375-449) and its
+//  vocabulary is ported here rather than reinvented, so the frozen puddle in
+//  the corner and the frost on the wall behind it are made of the same four
+//  ideas and cannot read as two different substances:
+//    PLATES   three crossing plane waves at incommensurate directions and
+//             frequencies. NOT an angular term: EnvPuddle's own note records
+//             that sin(ang*k) makes a ROSETTE — k identical spokes meeting at a
+//             singular point, a flower painted on the floor — and a wall has no
+//             centre to hang one on in the first place. Plates are a cartesian
+//             phenomenon. Here the waves are 3D (a solid field, evaluated at the
+//             fragment's position in ROOM METRES), which is what lets the same
+//             function serve a wall, a floor, a barrel and a trunk with no
+//             projection, no seams and no second UV set.
+//    NORMAL   the ANALYTIC gradient of that height. The puddle central-
+//             differences its IceH because it wants three fewer transcendentals;
+//             here sincos gives the cosines for free alongside the sines that
+//             were needed anyway, so the gradient costs three multiply-adds and
+//             not three more wave evaluations.
+//    GRAIN    trapped air (isolated bright specks, a product of two of the same
+//             waves raised to a power) and the PLATE BOUNDARIES (a network of
+//             hairlines where the coarse waves cross zero). The puddle's cracks
+//             are radial because a puddle freezes from its rim inward toward one
+//             centre; a wall does not, so the boundary network is the honest
+//             form of the same "this is the sharpest edge in it, and it is what
+//             says SOLID cheaply".
+//    RELIEF   and the normal is no longer flattened but REPLACED — the crust
+//             buries a quarter of the stone's own bump and lays its own on top.
+//             A frozen surface is more structured and more specular than a wet
+//             one, not less.
+//
+//  COST, because this runs on every wall, floor and prop fragment in the cellar
+//  and on the whole forest floor: three dot3, one sincos3, and about forty mads
+//  — measured as +36 ALU and +6 transcendental slots against the shipped
+//  function, ALL of it inside the existing `if (ice > 0.0)` branch, which is a
+//  uniform compare on a global. With Ice down not one of these instructions is
+//  executed and the surface is bit-identical to the shipped build.
+//
+//  REJECTED: sampling a tiling ice TEXTURE, which is what the verdict literally
+//  asks for ("gib den Eisflecken eventuell auch noch eine Eis-Textur"). It needs
+//  a second sampler and a second UV set on every one of the ~70 room materials
+//  (the walls, floors, trunks and props are procedural and welded — the same
+//  argument that rejected a baked coverage map at the top of this file), and it
+//  would still be flat, because a texture without a normal is a picture of ice.
+//  What he is asking for is that the patch stop being featureless; a solid field
+//  with a real gradient answers that at a third of the bandwidth and no bake.
+//  REJECTED: reusing GhvrGrowNoise for the relief. It is eight hashes for a
+//  BLOBBY field, and ice is not blobby — it is faceted. The patch noise already
+//  does the blobby job one level up, as the frontier.
+
+/// Half-amplitudes of the three plate waves, in metres of relief, and their wave
+/// vectors in rad/m. |k0| = 28.5 (22 cm plates), |k1| = 34.8 (18 cm), |k2| = 64.4
+/// (9.8 cm) — a quilt with a coarse family, a medium one and a fine chatter, none
+/// of them commensurate with any other, so the pattern never repeats inside a
+/// room. The total height swing is +-0.046 m of "relief units"; what turns that
+/// into a slope is GHVR_FROST_RELIEF below.
+#define GHVR_FROST_K0 float3( 23.0,   9.0,  14.0)
+#define GHVR_FROST_K1 float3(-11.0,  27.0, -19.0)
+#define GHVR_FROST_K2 float3( 41.0, -37.0,  31.0)
+/// How much of the crust's own gradient reaches the normal. The raw gradient
+/// reaches 1.73, i.e. 60 degrees, which is crumpled foil; 0.35 caps the crust at
+/// atan(0.61) = 31 degrees at the steepest ridge — the same number EnvPuddle's
+/// _IceRelief 0.45 lands its sheet at (22 deg) plus a little, because a frost
+/// crust on stone is rougher than a sheet that froze flat on water.
+#define GHVR_FROST_RELIEF 0.35
+
+/// Everything the crust knows about itself at one fragment.
+///   h     the surface height of the crust, +-0.046 "relief units"
+///   grad  its gradient in the same frame as `pm` (rad/m x relief units)
+///   bub   trapped air: isolated bright specks, 0..1
+///   seam  the plate boundaries: a network of hairlines, 0..1
+struct GhvrFrostIce
+{
+    float h;
+    float3 grad;
+    float bub;
+    float seam;
+};
+
+/// The crust, evaluated. `pm` is the fragment's position in ROOM METRES —
+/// GhvrGrowQ with freq 1, i.e. (opos - centre) * scl — so a plate is 22 cm on a
+/// prop scaled 2.0 as well as on the welded floor, and two walls carrying the
+/// same mesh at two yaws get uncorrelated quilts for the same reason the patch
+/// field does (see GhvrGrowQ).
+GhvrFrostIce GhvrFrostCrust (float3 pm)
+{
+    float3 arg = float3(dot(pm, GHVR_FROST_K0),
+                        dot(pm, GHVR_FROST_K1) + 1.7,
+                        dot(pm, GHVR_FROST_K2) + 3.1);
+    float3 sn, cs;
+    sincos(arg, sn, cs);
+
+    GhvrFrostIce f;
+    f.h    = 0.022 * sn.x + 0.015 * sn.y + 0.009 * sn.z;
+    // d/dpm of the line above. Free: the cosines came out of the same sincos.
+    f.grad = GHVR_FROST_K0 * (0.022 * cs.x)
+           + GHVR_FROST_K1 * (0.015 * cs.y)
+           + GHVR_FROST_K2 * (0.009 * cs.z);
+    // TRAPPED AIR. The product of the coarse and the fine wave is near +1 only
+    // in small lens-shaped regions where both are near +1 or both near -1, and
+    // the ninth power keeps just those: isolated specks a centimetre or two
+    // across at irregular spacing, which is what a bubble in ice looks like and
+    // is the one bright thing INSIDE a crust. Same construction as EnvPuddle's
+    // IceGrain.x, and the same reason it is sines and not a hash — a sine used
+    // as a spatial CURVE has no branch to pick, so an ulp of vendor difference
+    // moves a bubble by a micron instead of deciding whether it exists.
+    f.bub = pow(saturate(sn.x * sn.z), 9.0);
+    // THE PLATE BOUNDARIES. Each wave's zero crossings are a family of parallel
+    // lines on any surface; three incommensurate families cut the crust into
+    // irregular cells, and the frontier and the patch field break the residual
+    // regularity long before the eye can find it. This is the sharpest edge in
+    // the whole covering, and sharpness is what reads as SOLID — it is the term
+    // that most separates ice from a wet patch.
+    float3 e = 1.0 - smoothstep(0.0, 0.20, abs(sn));
+    f.seam = saturate(e.x + e.y + e.z * 0.6);
+    return f;
+}
+
+/// A zeroed crust, for the fragments that never entered the ice branch. It has
+/// to exist so the call sites can hoist the declaration out of a branch without
+/// leaving anything uninitialised — the zero state is EXACT, not close.
+GhvrFrostIce GhvrFrostCrustZero ()
+{
+    GhvrFrostIce f;
+    f.h = 0.0; f.grad = float3(0, 0, 0); f.bub = 0.0; f.seam = 0.0;
+    return f;
+}
+
 /// Frost, laid on. It takes the surface's own brightness with it (`lum`), so a
 /// dark stone frosts dark and the room keeps its modelling — a constant white
 /// would flatten every wall it touched into a sheet of paper, which is the
@@ -312,9 +479,32 @@ float GhvrGrown (float field, float grain, float place, float cover, float creep
 /// flat pale shape with the mortar courses gone; nearly doubling the slope puts
 /// the joints and the pitting back into the frost, which is what tells the eye
 /// it is looking at frost ON something rather than at a hole cut in the floor.
-float3 GhvrFrostOn (float3 alb, float lum, float m)
+///
+/// ...AND THE CRUST'S OWN THREE TERMS, which are what ModBuild 151 adds. 9.0*h
+/// spans 0.59..1.41, i.e. a plate's dome is nearly two and a half times its
+/// trough — the strongest single cue, and the one that makes the patch read as
+/// having a top surface at all. The boundaries darken by up to 42% (a hairline
+/// that is DARKER than what it separates is a crack; one that is brighter is a
+/// weld) and the bubbles are added rather than lerped, because trapped air
+/// scatters light out of the solid and is not a colour of it.
+/// Exactly the shipped function when the crust is zero: 9*0 = 0, seam 0, bub 0.
+float3 GhvrFrostOn (float3 alb, float lum, float m, GhvrFrostIce f)
 {
-    return lerp(alb, float3(0.66, 0.76, 0.94) * (0.34 + 0.95 * lum), m);
+    float3 ice = float3(0.66, 0.76, 0.94) * (0.34 + 0.95 * lum);
+    ice *= (1.0 + 9.0 * f.h) * (1.0 - 0.42 * f.seam);
+    ice += float3(0.95, 0.98, 1.00) * (f.bub * 0.30);
+    return lerp(alb, ice, m);
+}
+
+/// The crust's relief as a TANGENT-SPACE slope, ready to be added to a normal
+/// map's xy. `T`/`B` are the surface's object-space tangent and bitangent, which
+/// is the frame `pm` and therefore `grad` live in.
+///
+/// The sign is negative for the same reason UnpackNormal's is: a normal map
+/// stores the negated gradient of the height it represents.
+float2 GhvrFrostSlope (GhvrFrostIce f, float3 T, float3 B)
+{
+    return -float2(dot(f.grad, T), dot(f.grad, B)) * GHVR_FROST_RELIEF;
 }
 
 // ============================================================================
@@ -559,6 +749,67 @@ float GhvrGrowLum (float3 alb) { return alb.g; }
 //  term below is zero-mean in the bend and the flutter, and the gust envelope
 //  only scales them.
 
+//  ------------------------------- AN ELEMENT MAY NOT MOVE A FREQUENCY ------
+//  USER VERDICT, ModBuild 151 (hardware, verbatim): "Wenn man 'Luft' ein oder
+//  ausschaltet zucken die Bäume extrem unnatürlich in der fade-in oder fade-out
+//  also in dem Moment wenn der Effekt gestartet wird oder abgeschaltet wird für
+//  ca 1s. das soll nicht sein."
+//
+//  THE FADE WAS NEVER THE FAULT. ElementMood ramps `storm` with a closed-form
+//  smoothstep over RampSeconds = 1.0 (ElementMood.cs:749-752, :172) and that is
+//  as smooth as a ramp gets. The fault was two lines in THIS function, and they
+//  are the same mistake twice:
+//
+//      gust = dot(p,dir)*0.055 - t * (0.075 + 0.085*storm)          // was
+//      s    = GhvrWave4(... t * (0.612 + 1.05*storm) + ph ...)      // was
+//
+//  `storm` multiplied ABSOLUTE TIME. `t` is the shared environment clock and a
+//  scenario runs for thousands of seconds, so sweeping storm 0 -> 1 across one
+//  second sweeps the flutter's argument by 1.05 * t CYCLES — at t = 900 s that
+//  is 945 cycles inside the ramp, i.e. a mean rate of ~945 Hz where the carrier
+//  itself runs at 1.6. The phase scrubs at random for exactly the ramp's
+//  duration and then locks. That is the twitch, it is symmetric on fade-in and
+//  fade-out because the sweep is symmetric, and it lasts "ca 1s" because
+//  RampSeconds is 1.0. It also gets WORSE the longer the scenario has been
+//  running, which is the signature that identifies it beyond doubt.
+//
+//  THE RULE, and it is now stated in the one file that broke it: AN ELEMENT
+//  STRENGTH MULTIPLIES AN AMPLITUDE, NEVER A FREQUENCY. A frequency multiplied
+//  by anything that moves is a phase that moves by (rate change) x (elapsed
+//  clock), and no element in this bundle owns a clock of its own to make that
+//  small.
+//
+//  HOW THE STORM KEEPS ITS TWO SPEED-UPS ANYWAY. Both escalations were real
+//  design (see THE STORM above: the flutter reads as wind SPEED, the gust's
+//  travel reads as a swell ARRIVING), so neither is dropped. Each is now TWO
+//  CARRIERS AT FIXED RATES that `storm` CROSSFADES between — the slow one and
+//  the fast one the storm used to reach by sliding. Both endpoints are exactly
+//  what they were (0.612 and 0.612+1.05 = 1.662 cycles/s; 0.075 and 0.075+0.085
+//  = 0.160 cycles/s), so storm = 0 and storm = 1 are bit-for-bit the shipped
+//  breeze and the shipped storm; only the JOURNEY between them changed, and the
+//  journey is the whole bug. A crossfade of two bounded waves is bounded, so
+//  the displacement budget the canopy shadow map was reconciled against
+//  (1.06 * amp at rest, 2.04 * amp at full Air) is unchanged to the digit.
+//
+//  WHAT IT COSTS: one GhvrWave2 (two more carriers) and two lerps per vertex.
+//
+//  THE PROPERTY THIS NOW HOLDS, which the old form did not: the offset is
+//    sum_i A_i(storm(t)) * W_i(f_i * t + phi_i)   with every f_i CONSTANT,
+//  so for any continuous storm(t) the offset is continuous in t, and
+//    |d offset/dt| <= sum_i ( |A_i'| |storm'| |W_i| + |A_i| * 6 f_i )
+//  which is bounded by the amplitudes and the FIXED rates alone — it does not
+//  contain `t`. The old form's bound contained `t` and therefore had no bound.
+//
+//  REJECTED: integrating the phase (theta += rate(storm) * dt). It is the
+//  textbook fix and it needs STATE — a per-frame accumulator written by the CPU
+//  and pushed as a uniform. Two clients would then have to agree about a value
+//  produced by their own frame pacing, which is exactly the class of thing
+//  EnvElement rule 3 (everything from the shared clock, nothing integrated)
+//  exists to forbid; a dropped frame on one headset would leave the two woods
+//  permanently out of phase.
+//  REJECTED: shortening RampSeconds so the scrub is over quicker. It makes the
+//  artefact briefer and louder, and it would break every other element's fade.
+
 /// The wind offset for one vertex, in OBJECT units.
 ///   p     object-space vertex position
 ///   w     per-vertex freedom, 0 at the attachment, 1 at the tip
@@ -568,7 +819,8 @@ float GhvrGrowLum (float3 alb) { return alb.g; }
 ///   amp   tip amplitude in object units — the STANDING breeze, always on
 ///   storm Air's strength, 0..1. 0 is exactly the ModBuild 143 breeze.
 /// The returned offset has magnitude <= 1.06 * amp at storm 0 and <= 2.04 * amp
-/// at storm 1, always (GhvrWave4 is bounded and so is every factor below).
+/// at storm 1, always (GhvrWave4 is bounded and so is every factor below), and
+/// it is CONTINUOUS IN TIME for any continuous storm — see the block above.
 float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp, float storm)
 {
     // Phase in CYCLES from the vertex's own position, on a bearing that is not
@@ -576,18 +828,28 @@ float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp,
     // above the other are out of step as well as two side by side. |k| is
     // 0.12 cycles/m, an 8.3 m wave — see WITHIN-CARD SHEAR above.
     float ph = dot(p, float3(0.062, 0.041, 0.094));
-    // THE GUST: a swell travelling DOWN-WIND at 1.36 m/s (0.075 cycles/s over
-    // 0.055 cycles/m) at rest and 2.9 m/s in the storm — you see it cross the
-    // clearing before it reaches you.
-    float gust = dot(p, dir) * 0.055 - t * (0.075 + 0.085 * storm);
-    // Three carriers and the gust, one float4, all independent. 4.3 s and 6.1 s
-    // for the bend — a bough leans, it does not buzz — and 1.6 s for the leaf's
-    // own flutter, falling to 0.6 s at full Air.
-    float4 s = GhvrWave4(float4(t * float3(0.235, 0.163, 0.612 + 1.05 * storm) + ph, gust));
+    // The gust's travel, in cycles per metre down-wind. Shared by both gust
+    // carriers, so the slow swell and the fast one have the same CRESTS and
+    // differ only in how fast those crests cross the clearing.
+    float run = dot(p, dir) * 0.055;
+    // The BREEZE's four carriers, one float4, all independent and all at rates
+    // that no element can touch: 4.3 s and 6.1 s for the bend — a bough leans,
+    // it does not buzz — 1.6 s for the leaf's own flutter, and the 1.36 m/s
+    // gust (0.075 cycles/s over 0.055 cycles/m).
+    float4 s = GhvrWave4(float4(t * float3(0.235, 0.163, 0.612) + ph, run - t * 0.075));
+    // ...and the STORM's two, likewise at fixed rates: the 0.6 s flutter and
+    // the 2.9 m/s gust. These are the two speeds the storm used to reach by
+    // sliding a frequency through them.
+    float2 f = GhvrWave2(float2(t * 1.662 + ph, run - t * 0.160));
+    // `storm` is now an amplitude on every line it appears in. A crossfade of
+    // two waves each in [-1,1] is in [-1,1], so `flut` and the gust envelope
+    // keep exactly the ranges the shadow-map budget was computed from.
+    float flut = lerp(s.z, f.x, storm);
+    float swell = lerp(s.w, f.y, storm);
     float bend = s.x * 0.62 + s.y * 0.38;                 // exactly [-1, 1]
     // [0.62, 1] at rest, [0.26, 1] in the storm: the canopy half-stills and is
     // then shoved, which is the whole difference between wind and vibration.
-    float env = lerp(0.62, 0.26, storm) + lerp(0.38, 0.74, storm) * (s.w * 0.5 + 0.5);
+    float env = lerp(0.62, 0.26, storm) + lerp(0.38, 0.74, storm) * (swell * 0.5 + 0.5);
     // w*w, not w: the stiff half of a bough hardly moves and only the last
     // quarter really flies, which is what a conifer does and what keeps the
     // shear at the attachment invisible.
@@ -597,7 +859,7 @@ float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp,
     float bendA = a * (1.0 + 0.85 * storm);
     float sideA = a * (0.30 + 0.45 * storm);
     float upA   = a * (0.16 + 0.24 * storm);
-    return dir * (bend * bendA) + side * (s.z * sideA) + float3(0.0, s.z * upA, 0.0);
+    return dir * (bend * bendA) + side * (flut * sideA) + float3(0.0, flut * upA, 0.0);
 }
 
 /// The GROW-IN of a whole card, for the grass, the moss cushions and the tufts

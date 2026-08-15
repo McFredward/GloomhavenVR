@@ -256,6 +256,16 @@ internal static partial class VROptionsTab
     /// nothing" ON PURPOSE (id 3, the cobweb tremble): a tester who presses it and sees no
     /// apparition would otherwise file a broken button.</para>
     ///
+    /// <para><b>AND TWO ROWS ARE NOW MISSING RATHER THAN INERT</b> (ModBuild 149). The wood's card 0
+    /// and the cellar's card 2 held events the user has had deleted, and their INDICES could not go
+    /// with them — the shader's group partition needs a card count that is a multiple of three, so
+    /// both survive in the bake as placeholders that draw nothing at all (<see cref="Haunt.IsInert"/>
+    /// carries the list and the argument). Those rows are SKIPPED. <b>The numbering is deliberately
+    /// NOT closed up:</b> the caption number is <c>id + 1</c>, so the cellar's rows now read 1, 2, 4,
+    /// 5, 6 with a gap where the door used to be. A gap looks like a mistake for about a second; a
+    /// renumbered list makes the tester's "I pressed 3" refer to a different apparition than the
+    /// log's "apparition 3", which costs a whole hardware round.</para>
+    ///
     /// <para>THE BLOCK CARRIES ITS OWN NOTE because this half does not behave like the element half
     /// above it, and a tester who discovered that by pressing would file it as a bug: only one
     /// apparition can be latched (the shader's force channel carries one card id), and a latched one
@@ -290,8 +300,19 @@ internal static partial class VROptionsTab
         // sizes the figure mask, not what any one room has.
         int count = Haunt.CardsIn(style);
         string prefix = cellar ? "vr_tt_hc_" : "vr_tt_hf_";
+        int drawn = 0;
         for (int i = 0; i < count; i++)
         {
+            // ...MINUS THE INERT ONES. ModBuild 149 deleted two events on the user's order (the
+            // wood's eyeshines and the cellar's stair-top door / moon-pool swell) and neither index
+            // could be removed with them — the shader's group partition needs a multiple of three
+            // cards per room, so both survive as placeholders that draw nothing (Haunt.IsInert). A
+            // button for one of those is the exact failure this page's own doc calls out two
+            // paragraphs up: "Six inert buttons are indistinguishable from six broken ones." So the
+            // row is not drawn at all, rather than drawn with a caption apologising for itself.
+            if (Haunt.IsInert(style, i))
+                continue;
+
             int id = i;
             // 1-based in the caption, 0-based on the wire to the shader: the tester counts from one,
             // the card index counts from zero, and the log prints the id so the two can be lined up.
@@ -304,9 +325,13 @@ internal static partial class VROptionsTab
                     RefreshLatchRows();
                 }, asAction: true),
                 () => LatchCaption(caption, Haunt.IsForced(id)));
+            drawn++;
         }
 
-        return count;
+        // The COUNT THAT IS RETURNED IS THE COUNT THAT WAS DRAWN, not the room's card count: the
+        // caller adds it to the page's row total, which is what the page-built log line reports and
+        // what a reader uses to tell "the page came up empty" from "the page came up".
+        return drawn;
     }
 
     /// <summary>

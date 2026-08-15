@@ -28,6 +28,7 @@ Material:
     - _BlinkPeriod: 4.7
     - _ElemCandle: 0
     - _ElemGate: 0
+    - _ElemMoon: 1
     - _ElemWarm: 1
     - _Falloff: 2
     - _Flicker: 0

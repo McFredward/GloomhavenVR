@@ -112,9 +112,15 @@
 //              the shadow the thing at the window throws on the floor (no
 //              texture; its softness is per-vertex alpha).
 //   2 CROSS  — a solid that travels the whole span of `move` across the event.
-//   3 NONE   — never emitted; the card exists only to occupy a schedule slot
-//              for an event another shader draws (the cobwebs' tremble).
-//   5 EYES   — a solid with a blink: two eyeshines that do not close together.
+//   3 NONE   — never emitted; the card exists only to occupy a schedule slot,
+//              either for an event another shader draws (the cobwebs' tremble),
+//              for one a real game monster plays (HauntFigures), or for one that
+//              has been DELETED and whose index cannot be — the group partition
+//              needs a card count that is a multiple of three. Since ModBuild 149
+//              the wood is nothing but NONE cards: it contributes no geometry to
+//              this shader at all and only its schedule survives.
+//              (5 WAS "EYES", a solid with a blink. Deleted with the wood's
+//              eyeshines; the number is left unassigned.)
 //
 //   4 PROP   — THE ODD ONE, and it is on the OPAQUE material. See below.
 // ============================================================================
@@ -265,7 +271,8 @@ Shader "GloomhavenVR/EnvHaunt"
             #define KIND_DECAL 1
             #define KIND_CROSS 2
             #define KIND_PROP  4
-            #define KIND_EYES  5
+            // (5 was KIND_EYES; deleted in ModBuild 149 with the wood's eyeshines.
+            // Mirrored on the bake side, which leaves the same number unused.)
 
             struct appdata
             {
@@ -284,7 +291,7 @@ Shader "GloomhavenVR/EnvHaunt"
                 float4 uv      : TEXCOORD0;  // x card index, y kind,
                                              // SOLID/DECAL: z rim, w atlas tile (<0 = none)
                                              // PROP: zw = albedo uv
-                float4 env     : TEXCOORD1;  // reveal, hold, fade, sway (or blink lag)
+                float4 env     : TEXCOORD1;  // reveal, hold, fade, sway
                 float4 mv      : TEXCOORD2;  // SOLID/CROSS: move dir.xyz, metres
                                              // DECAL: xy = atlas tile-space uv
                                              // PROP: unused (zero) — the hinge
@@ -475,28 +482,16 @@ Shader "GloomhavenVR/EnvHaunt"
                 float3 pivot = anchor + float3(0, v.tangent.w, 0);
                 P = GhvrHauntRot(P, pivot, axis, ang);
 
+                // (THE BLINK STOOD HERE, under `if (kind == KIND_EYES)`: an
+                // inverted Gaussian lid closing at 0.66 of the event, lagged for
+                // the second eye by the sway lane's sign, so that a pair never
+                // shut together. It is deleted with its only card — the wood's
+                // eyeshines, removed on the user's order in ModBuild 149
+                // ("Entferne den 'Augen' Effekt im Wald komplett inklusive aller
+                // sounds und assets"). Nothing else in either room ever set kind
+                // 5, and the number is left unassigned rather than reused so that
+                // an older bundle cannot resolve it to something new.)
                 float alpha = v.color.a;
-                if (kind == KIND_EYES)
-                {
-                    // two eyeshines that do not blink together: env.w lags the
-                    // second one, and which one this vertex belongs to rides in
-                    // the sign of the sway lane. A matched pair belongs to a face;
-                    // a mismatched pair belongs to something that is not built
-                    // like one.
-                    float lag = max(v.env.w, 0.0) * step(0.0, v.tangent.w);
-                    // x*x and not pow(x,2): pow() of a negative base is
-                    // undefined in HLSL and this base is negative for the whole
-                    // first half of the event.
-                    // the blink sits at 0.66 of the event and not at 0.55: 0.55
-                    // is the middle, which is exactly where every preview and
-                    // every screenshot of this feature is taken, so the eyes were
-                    // photographed SHUT every single time. Late is also the better
-                    // place for it — you have already decided they are eyes by
-                    // then, and the blink is the confirmation.
-                    float x = (phase - 0.66 - lag) / 0.048;
-                    float lid = 1.0 - 0.97 * exp(-x * x);
-                    alpha *= smoothstep(0.0, 0.18, phase) * lid;
-                }
 
                 v2f o;
                 o.pos = UnityObjectToClipPos(float4(lerp(anchor, P, on), 1.0));

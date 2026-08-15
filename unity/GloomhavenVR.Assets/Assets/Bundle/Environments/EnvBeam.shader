@@ -459,14 +459,35 @@ Shader "GloomhavenVR/EnvBeam"
                 // FIRST half — the streaming filaments the beam actually carries —
                 // is up in the integral, because it has to be per sample.
                 //
-                // No "is anything up" branch on these two, deliberately: `air` is
-                // already folded with the master, so with the feature off it is
-                // exactly 0, `1.0 + 2.4*0` is exactly 1.0, and both lines are the
+                // No "is anything up" branch on the amplitude, deliberately: `air`
+                // is already folded with the master, so with the feature off it is
+                // exactly 0, `1.0 + 2.4*0` is exactly 1.0, and the line is the
                 // identity. That is the same argument EnvHaunt.cginc's own element
                 // block makes, and it keeps the zero state bit-identical without
                 // a compare.
                 float shimAmt = _Shimmer * (1.0 + 2.4 * air);
-                float shimSpd = _ShimmerSpeed * (1.0 + 3.2 * air);
+                // ...AND THE SPEED IS NOT DONE THAT WAY ANY MORE. This line used
+                // to read
+                //     float shimSpd = _ShimmerSpeed * (1.0 + 3.2 * air);
+                // and `shimSpd` then multiplied `t` twice below — i.e. Air was a
+                // multiplier on a FREQUENCY applied to ABSOLUTE TIME. `t` is the
+                // shared environment clock and reaches thousands of seconds, so
+                // the one-second Air ramp swept the shimmer's phase by
+                // 3.2 * _ShimmerSpeed * 5.3 * t cycles — hundreds of cycles inside
+                // that second, i.e. the mottling scrubbed and then locked. It is
+                // the same defect the trees' wind had (EnvGrowth.cginc, AN ELEMENT
+                // MAY NOT MOVE A FREQUENCY, ModBuild 151), found by sweeping this
+                // bundle for the pattern after that one was diagnosed, and it is
+                // the reason the shaft flickered during the same fade the user
+                // reported the trees twitching in.
+                //
+                // The speed-up is kept and is now a CROSSFADE between two carriers
+                // at FIXED rates — the resting one and the one full Air used to
+                // reach — so `air` is an amplitude on each and the phase of both
+                // is continuous for any continuous Air. The two endpoints are
+                // bit-identical to the shipped ones (1.0x and 4.2x _ShimmerSpeed).
+                float shimSlow = t * _ShimmerSpeed;
+                float shimFast = t * (_ShimmerSpeed * 4.2);
 
                 // MOON-LIGHT HOOK, now connected. GhvrMoonLight() is 1.0 at rest,
                 // 0.05 under full Dark (the held blood moon) and 1.34 under full
@@ -520,11 +541,19 @@ Shader "GloomhavenVR/EnvBeam"
                 float inv = 1.0 / max(acc, 1e-8);
                 float sm = sAcc * inv;
                 float3 dm = (cam + R * (tAcc * inv)) - _BeamOrg.xyz - D * sm;
-                float sh = 1.0 + shimAmt * (sin(sm * 3.1 + t * shimSpd * 5.3)
-                                           * sin(sm * 1.3 - t * shimSpd * 2.9
-                                                 + dot(dm, D.yzx) * 2.7));
+                float xph = dot(dm, D.yzx) * 2.7;
+                float mott = sin(sm * 3.1 + shimSlow * 5.3)
+                           * sin(sm * 1.3 - shimSlow * 2.9 + xph);
+                float sh = 1.0 + shimAmt * mott;
                 if (air > 0.0)
                 {
+                    // the fast band, on its own fixed rate, crossfaded in by Air.
+                    // Two more sines and ONLY under Air — `air` is a global
+                    // uniform, so this is the same uniform branch the block below
+                    // already is, and the resting frame does not evaluate them.
+                    float fast = sin(sm * 3.1 + shimFast * 5.3)
+                               * sin(sm * 1.3 - shimFast * 2.9 + xph);
+                    sh = 1.0 + shimAmt * lerp(mott, fast, air);
                     // ...and a second, coarser modulation that TRAVELS along the
                     // draught. Faster shimmer alone is only agitation; a pattern
                     // with a direction is a draught, and this one runs the way
