@@ -97,105 +97,175 @@ internal static partial class HauntFigures
     // ---- THE CELLAR --------------------------------------------------------------------------------
 
     /// <summary>
-    /// CARD 0 — <b>WAS AM KELLERFENSTER VORBEIGEHT</b> ("what goes past the cellar window").
+    /// CARD 0 — <b>WAS AM KELLERFENSTER HEREINSIEHT</b> ("what looks in at the cellar window").
     ///
-    /// <para><b>THE PLACE.</b> The north wall's barred window. Snapped opening (the value the wall
-    /// mesh actually cuts, BuildEnvironmentRooms.cs:2178-2200 <c>SnappedHole</c>/<c>WindowCentre</c>):
-    /// room-local x from −1.909 to −0.796, y from 2.200 to 2.829, wall inner face z = +4.5, outer
-    /// face z = +4.84 (<c>RevealDepth = 0.34</c>, :1918). Four iron bars stand at z = 4.653 (:2530).
-    /// The opening is 1.11 m wide and 0.63 m tall, and its SILL IS 2.20 m ABOVE THE CELLAR FLOOR —
-    /// which is to say well above the player's head.</para>
+    /// <para><b>THIS EVENT REPLACES ONE THE USER REJECTED, AND HIS WORDS ARE THE SPECIFICATION:</b>
+    /// "Ich mag die Idee nicht dass jemand am Kellerfenster vorbeirennt. Man sieht eh nur die Füße.
+    /// Ich will lieber das eine Figur hineinschaut durch das Gitter (aber mit den selben
+    /// Lichtverhältnissen, dass man vlt nicht alles erkennt!)". The paragraph this deletes called the
+    /// walk-past "the best event in either room" because "you see something walk past, from the knees
+    /// down, through bars, from below" — the user has now watched it and calls that same property the
+    /// reason it does not work. HE IS RIGHT ON THE EVIDENCE, and there were two things wrong with it
+    /// that a screenshot settles:
+    /// <list type="number">
+    /// <item><b>From inside, feet are not a creature.</b> A pair of shins crossing a slot for a
+    /// second is a detail, not an apparition — nothing about it says what it belongs to.</item>
+    /// <item><b>From the tabletop vantage it was not cropped at all.</b> The player looks at the
+    /// board as a DIORAMA and his head is routinely ABOVE the cellar's 3.3 m walls, which is exactly
+    /// what <c>.planning/debug/nachladen1.jpg</c> is: a whole figure, from the top of its head to its
+    /// feet, standing in the open beyond the north wall with nothing framing it. The event's entire
+    /// design was "the wall does all of the revealing and all of the hiding", and from that vantage
+    /// the wall does neither.</item>
+    /// </list></para>
     ///
-    /// <para><b>WHY THAT MAKES THIS THE BEST EVENT IN EITHER ROOM.</b> A cellar window is at OUTSIDE
-    /// GROUND LEVEL: the sill height IS the height of the ground on the other side of the wall. So a
-    /// creature walking past outside is standing at room-local y = 2.20, and the 0.63 m slot shows
-    /// the player its FEET AND SHINS and nothing else. You do not see a monster. You see something
-    /// walk past, from the knees down, through bars, from below, and it does not look in. There is
-    /// no effect to reject here — no dissolve, no glow, no shader — because the wall does all of the
-    /// revealing and all of the hiding.</para>
+    /// <para><b>THE PLACE, re-read from the bake rather than from the paragraph above it</b>
+    /// (BuildEnvironmentRooms.cs:3197-3212, which prints these numbers at bake time, plus
+    /// <c>WindowHole</c> :2211, <c>RevealDepth</c> :2224, <c>RevealJambSplay</c>/<c>RevealCillFall</c>
+    /// :2247-2248, the bars :3248-3260). The north wall's inner face is z = +4.50 and it is 0.55 m
+    /// thick, so the outer face is z = +5.05. The snapped opening is x −2.068…−0.636, y 2.200…2.986;
+    /// the reveal is SPLAYED, so the outer opening is x −1.966…−0.738 and its cill rises to y = 2.343.
+    /// FIVE iron bars stand at z = 4.7475 (<c>barZ = hd + RevealDepth * 0.45</c>). Outside there is a
+    /// real star dome and a pitch-black ground plane at the OUTER cill height
+    /// (<c>AddNightOutsideWindow</c> :2609-2760).</para>
     ///
-    /// <para><b>THE MOONBEAM DIMS FOR IT, FOR FREE.</b> <c>EnvBeam.shader:262</c> reads this card's
-    /// presence and dims the shaft by <c>HauntBeamDepth = 0.55</c> while it runs. The suppression
-    /// mask deliberately does NOT reach the reactor path (see the class doc), so the beam still dims
-    /// — but now it dims because something IS actually crossing in front of the window rather than
-    /// because a card said so.</para>
+    /// <para><b>HOW A FIGURE GETS ITS FACE INTO A 0.79 m SLOT WHOSE SILL IS THE GROUND OUTSIDE.</b>
+    /// This is the one real problem the event has, and it is worth stating because the obvious
+    /// answers are all wrong. A creature STANDING on the outside ground has its head 1.8 m above the
+    /// opening — that is the rejected walk-past, seen from the knees down. Scaling it down to 0.4 m
+    /// so that its head lands in the slot makes a doll. Pitching it forward to lie prone would read
+    /// correctly through the slot and read as a body floating horizontally on the ground from above.
+    /// So the figure is SUNK: it stands at room-local y = 1.02 with its head at 2.97, i.e. crouched
+    /// in the window well the way a person looking into a cellar window really is, and the black
+    /// ground plane outside — which starts exactly at the outer face and runs 34 m — hides
+    /// everything below y = 2.343 from any vantage above it. What is left is a head and the top of a
+    /// pair of shoulders, in the opening, behind the bars.</para>
     ///
-    /// <para><b>ModBuild 147 MOVED THE WINDOW and this event followed it.</b> The user asked for a
-    /// bigger opening set in a visibly thicker wall, so the bake re-cut it: the snapped opening is now
-    /// x −2.068…−0.636 (was −1.909…−0.796) and y 2.200…2.986 (was …2.829), <c>RevealDepth</c> went
-    /// 0.34 → 0.55, and the OUTER wall face therefore moved from z = +4.84 to z = +5.05. Two of those
-    /// matter here and one does not: the SILL DID NOT MOVE — it is still exactly 2.200 — so the walk
-    /// height is untouched and the "you see feet and shins" property is intact. What did change is the
-    /// stand-off: a walk at the old z = +5.25 would now be only 0.20 m beyond the outer face instead
-    /// of 0.41, deep inside a reveal that is itself 0.62 m deeper, which crops the creature to a
-    /// slot narrower than its own stride. The line moved to z = +5.45 to restore the shipped 0.41 m.
-    /// There is now also a real night sky and a ground plane out there (<c>AddNightOutsideWindow</c>),
-    /// so the figure is silhouetted against stars instead of against the clear colour.</para>
+    /// <para><b>AND IT IS CHECKED FROM BOTH VANTAGES, because that is what the last one failed.</b>
+    /// FROM INSIDE, at eye height 1.6 m in the middle of the room: the sightline has to clear the
+    /// outer cill (2.343 at z = 5.05) and stay under the flat head (2.986 at z = 5.05), which at the
+    /// figure's z = 5.35 is a visible band of y 2.39…3.07 — the head and the upper chest, and
+    /// nothing else, framed by 1.23 m of splayed opening and crossed by two or three bars. FROM THE
+    /// TABLETOP VANTAGE, looking down past the wall top: the outside ground is an opaque black plane
+    /// and the only thing standing above it is that same head and those shoulders, which reads as a
+    /// creature crouched at the window — not as a bug, and not as a whole figure standing in a field.
+    /// The event survives the viewpoint that killed the walk-past.</para>
     ///
-    /// <para><b>THE MOTION.</b> 5.5 m along the wall at z = +5.45 (0.41 m beyond the outer face, so
-    /// behind the bars and framed by the 0.34 m reveal), from x = +1.6 to x = −3.9 or the reverse —
-    /// a per-slot hash decides which way, because a thing that always walks the same way is a
-    /// mechanism. At the walk speed below it is out of the opening's 1.11 m in about 1.1 s.</para>
+    /// <para><b>THE MOONBEAM DIMS FOR IT, AND NOW IT MEANS SOMETHING.</b> <c>EnvBeam.shader:262</c>
+    /// reads this card's presence and dims the shaft by <c>HauntBeamDepth = 0.55</c> while it runs;
+    /// the suppression mask deliberately does not reach the reactor path (class doc). With a creature
+    /// walking PAST the window the dim was a coincidence with the right timing. With a creature
+    /// standing IN the window it is the actual physics of the scene: something is in front of the
+    /// hole the moonlight comes through, so the shaft goes dim while it is there.</para>
     ///
-    /// <para><b>THE CAST.</b> Living Bones first: bare shins walking past a barred window is the
-    /// clearest silhouette in the game at that framing, it is base-game, and it is the model most
-    /// likely to already be resident in a cellar scenario. Living Corpse and Cultist behind it.</para>
+    /// <para><b>THE LENGTH IS THE BAKE'S, NOT THIS FILE'S CHOICE.</b> 2.10 + 2.80 + 0.60 = 5.50 s,
+    /// which is exactly <c>Haunt.CardSeconds(Cellar, 0)</c> and exactly what the bake's catalogue
+    /// gives card 0. That equality is load-bearing rather than tidy: the beam's dim runs on the
+    /// SHADER's envelope and the figure runs on this one, and a 5.5 s dim over an 8 s apparition
+    /// would leave the shaft bright with the thing still at the window. The reveal is long (2.1 s)
+    /// because the figure now fades UP OUT OF BLACK instead of dissolving (HauntFigures.Clone.cs) —
+    /// slow enough that it is never seen to arrive.</para>
+    ///
+    /// <para><b>THE CAST.</b> Hooded and human-shaped, because the whole event is a head. The Cultist
+    /// leads: it is base-game, its cowl reads as a silhouette at 4.7 m through bars, and it is one of
+    /// the five models the shipped roster census actually resolved on hardware.</para>
     /// </summary>
     private static readonly HauntEvent CellarWindow = new(
-        0, "the thing that goes past the cellar window",
-        // The envelope is almost nothing on both ends ON PURPOSE. The dissolve exists only as a
-        // safety net for an oblique sightline through the reveal; the geometry is what reveals and
-        // hides, and an authored fade would put back exactly the "obvious effect" look this whole
-        // feature exists to get rid of.
-        reveal: 0.35f, hold: 4.80f, fade: 0.35f,
-        from: new Vector3(1.60f, 2.20f, 5.45f),
-        to: new Vector3(-3.90f, 2.20f, 5.45f),
-        height: 0f,          // its own size: this is a creature standing on real ground outside
-        runBlend: 0.42f,     // a walk, not a hurry — it is not going anywhere in particular
-        face: Vector3.zero,  // faces the way it walks
-        cast: new[] { CClass.ENPCModel.LivingBones, CClass.ENPCModel.LivingCorpse, CClass.ENPCModel.Cultist });
+        0, "the thing that looks in at the cellar window",
+        reveal: 2.10f, hold: 2.80f, fade: 0.60f,     // = 5.50 s, the bake's own card length; see above
+        from: new Vector3(-1.35f, 1.02f, 5.35f),     // window centre x is -1.3523 (BuildEnvironmentRooms:2199)
+        to: new Vector3(-1.35f, 1.02f, 5.35f),       // IT DOES NOT MOVE: it is looking in
+        height: 1.95f,                               // head at 2.97, just under the opening's head 2.986
+        runBlend: 0f,                                // standing, playing its own idle
+        face: new Vector3(0f, 0f, -1f),              // into the room, and never re-oriented afterwards
+        cast: new[] { CClass.ENPCModel.Cultist, CClass.ENPCModel.LivingCorpse, CClass.ENPCModel.LivingBones });
 
     /// <summary>
-    /// CARD 4 — <b>WAS OBEN AN DER TREPPENTÜR VORBEIGEHT</b> ("what crosses the stair doorway").
+    /// CARD 4 — <b>WER IM TREPPENSCHACHT STEHT</b> ("who stands in the stair shaft").
     ///
-    /// <para><b>THE PLACE.</b> The west wall's stair doorway. Snapped opening
-    /// (BuildEnvironmentRooms.cs:7540-7541, which uses the SNAPPED rect and says why): wall plane
-    /// x = −5.25, z from 1.658 to 3.237, floor to y = 2.357. Behind it is a shaft 2.2 m deep and
-    /// 1.6 m wide (<c>BuildShaft</c>, :2797-2801) that ends in a pitch-black cap at x = −7.40
-    /// (:2805). Six steps climb away to the north-west and darken from tint 0.85 to 0.12 as they
-    /// go (:2784-2795). There is no landing modelled — the shaft simply goes black.</para>
+    /// <para><b>THIS EVENT ALSO REPLACES ONE THE USER REJECTED, AND THIS ONE WAS A REAL BUG:</b>
+    /// "Bei 'Treppe' rennen (samt der Teleportation von zuvor) einfach die figuren durch die Wand an
+    /// der Treppe. Das gefällt mir überhaupt nicht. Die figuren sollten nicht durch wände glitchen.
+    /// Mach doch auch einfach jemand der dort steht und beobachtet im Schatten, wichtig ist nur für
+    /// den Gruselfaktor dass die Lichtverhältnisse stimmen und man ihn kaum erkennt."</para>
     ///
-    /// <para><b>THE MOTION, AND WHY THE OCCLUSION IS FREE.</b> The figure walks along Z at
-    /// x = −6.30, i.e. 1.05 m BEHIND the wall plane, inside the shaft. Everything left and right of
-    /// the shaft's own side walls is solid room — so the figure is invisible for most of its walk,
-    /// steps into view across the 1.58 m the doorway is open, and is gone. 4.2 m of travel in 2.6 s;
-    /// visible for roughly nine tenths of a second. That is the user's "vorbeilaufen", framed by a
-    /// door, at 5.8 m, in a room whose only other light is a candle.</para>
+    /// <para><b>HE IS DESCRIBING SOMETHING THE OLD PATH REALLY DID, AND THE OLD DOC ARGUED THE
+    /// OPPOSITE.</b> It said: "Everything left and right of the shaft's own side walls is solid room
+    /// — so the figure is invisible for most of its walk." That is false, and the numbers say so. The
+    /// walk ran along Z at x = −6.30 from z = 0.40 to z = 4.60 — but the alcove it ran inside is
+    /// 1.6 m wide and spans z 1.70…3.30 (<c>BuildShaft</c> is placed at
+    /// <c>(-hw, 0, -hd + StairHole.xMin)</c> = (−5.25, 0, 1.70) and is
+    /// <c>StairHole.width</c> = 1.6 m across, BuildEnvironmentRooms.cs:3557-3559). So the figure
+    /// STARTED 1.3 m inside solid rock, walked THROUGH the shaft's z = 1.70 side wall, across the
+    /// doorway, and out THROUGH its z = 3.30 side wall. Two wall crossings per run, in plain view of
+    /// a player whose head is above the room. "Invisible for most of its walk" was true only of a
+    /// viewer standing on the cellar floor, which is not where this player is.</para>
     ///
-    /// <para><b>IT IS 2.6 m TALL AND YOU NEVER SEE ITS HEAD.</b> The doorway is 2.357 m; the figure
-    /// is scaled to 2.6 m against the prefab's own stated <c>CharacterManager.Height</c>. The
-    /// shader-drawn card this replaces used 2.55 m for exactly this reason and the reason is worth
-    /// restating: a creature you can see all of is a creature you have measured. There is nothing in
-    /// a black shaft to compare it against, so the scale reads as "too tall" rather than as
-    /// "scaled".</para>
+    /// <para><b>SO NOBODY WALKS HERE ANY MORE — someone STANDS.</b> No motion means no path, no path
+    /// means no wall to cross, and the failure mode is removed rather than tuned. The figure stands
+    /// on the third step (step 2 of six, its box centred at x = −6.02 and its top face at y = 0.57 —
+    /// the steps are <c>BoxMesh(1.5, 0.19, 0.34)</c> placed at <c>y = 0.19 * i</c> and BoxMesh's
+    /// origin is its BASE, :3544-3549, :1211-1232), in the middle of the doorway's z span, facing
+    /// out into the room. It is 1.80 m tall, and THAT number is set by the DOORWAY rather than by the
+    /// alcove: the lintel is at y = 2.357, so from an eye 1.6 m up in the middle of the room the
+    /// sightline that grazes it is at y = 2.468 by the time it reaches the figure's x — a head at
+    /// 0.57 + 1.80 = 2.37 clears that with 10 cm to spare, and one at 2.5 would be beheaded by the
+    /// lintel for half the room. (The alcove's own ceiling at y = 2.60,
+    /// <c>BuildShaft(2.2f, 2.6f, …)</c>, is the looser of the two limits.) The old 2.6 m giant is
+    /// gone with the walk — it existed to be cropped by a doorway it was taller than, and a figure
+    /// that stands still is measured by the player at leisure.</para>
     ///
-    /// <para><b>THE CAST.</b> Lean, upright silhouettes — at 2.6 m a bulky model reads as a scaling
-    /// artefact while a thin one reads as wrong in the right way.</para>
+    /// <para><b>WHY THIS IS THE DARKEST FRAMING IN EITHER ROOM, which is the user's own priority
+    /// ("wichtig ist nur … dass die Lichtverhältnisse stimmen und man ihn kaum erkennt").</b> The
+    /// alcove's own masonry is tinted to 0.28 of the room's albedo and the six steps darken from
+    /// 0.85 to 0.12 as they climb (:3552-3554); the shaft ends in a pitch-black cap (:3563-3567);
+    /// there is no candle, no moonbeam and no reactor anywhere near it — this file's own light block
+    /// calls the stair alcove one of the room's two deliberately black corners. So the measured room
+    /// level at the figure's chest is about as low as the cellar rig goes, and the darkening in
+    /// HauntFigures.Clone.cs puts the creature at roughly a tenth of its albedo. You see that
+    /// something is standing there. You do not see what.</para>
+    ///
+    /// <para><b>BOTH VANTAGES, and the second one is not what it looks like on paper.</b> FROM
+    /// INSIDE the room it is a shape in the doorway at 5.8 m, 0.77 m behind the wall plane, framed by
+    /// 1.58 m of opening and cropped at the throat by the lintel. FROM THE TABLETOP VANTAGE — head
+    /// above the room's 3.3 m walls, looking down — the obvious expectation is that the alcove's own
+    /// ceiling hides everything, and it does NOT: <c>BuildShaft</c>'s ceiling quad is wound with its
+    /// normal at −Y (its triangles are <c>(a, c, b)</c> over
+    /// <c>a = (0, h, 0), b = (−depth, h, 0), c = (−depth, h, width)</c>, :6867-6868), i.e. it faces
+    /// DOWN into the shaft and <c>Cull Back</c> removes it when seen from above. So the alcove reads
+    /// as an open-topped box from up there and the figure is visible in it, from above and behind,
+    /// in near-total darkness — which is a second framing rather than a failure. Both were checked
+    /// because the event this replaces was designed for one viewpoint and fell apart in the
+    /// other.</para>
+    ///
+    /// <para><b>THE LENGTH IS THIS FILE'S, and it may be, unlike card 0's.</b> The bake's card 4
+    /// draws nothing at all and nothing reacts to it (its own catalogue says so:
+    /// "4 Stair draws nothing here"), so no shader envelope has to be matched. 2.40 + 4.60 + 0.00 =
+    /// 7.0 s: a slow rise out of black, a long enough hold that a player who looks away and back
+    /// finds it still there, and then it is INSTANTLY gone — the same asymmetry the forest watcher is
+    /// built on, and for the same reason. The one consequence worth naming is that
+    /// <see cref="EnvSound"/>'s cue window for this card is the bake's 2.60 s, so the sound belongs
+    /// to the arrival and does not run the length of the apparition.</para>
+    ///
+    /// <para><b>THE CAST.</b> Upright and human-shaped; a watcher has to have a front. The Cultist
+    /// leads for the reason it leads at the window — hooded, base-game, and one of the five the
+    /// hardware roster census actually resolved.</para>
     /// </summary>
     private static readonly HauntEvent CellarStair = new(
-        4, "the thing that crosses the stair doorway",
-        reveal: 0.30f, hold: 2.00f, fade: 0.30f,
-        from: new Vector3(-6.30f, 0f, 0.40f),
-        to: new Vector3(-6.30f, 0f, 4.60f),
-        height: 2.60f,
-        runBlend: 0.55f,
-        face: Vector3.zero,
-        cast: new[] { CClass.ENPCModel.BoneRanger, CClass.ENPCModel.LivingBones, CClass.ENPCModel.Cultist });
+        4, "the one who stands in the stair shaft",
+        reveal: 2.40f, hold: 4.60f, fade: 0.00f,     // INSTANT vanish — see the paragraph above
+        from: new Vector3(-6.02f, 0.57f, 2.45f),     // step 2's top face, mid-doorway
+        to: new Vector3(-6.02f, 0.57f, 2.45f),       // IT DOES NOT MOVE: that is the whole point
+        height: 1.80f,                               // head at 2.37: clears the doorway lintel's crop
+        runBlend: 0f,
+        face: new Vector3(1f, 0f, 0f),               // out through the doorway, into the room
+        cast: new[] { CClass.ENPCModel.Cultist, CClass.ENPCModel.LivingBones, CClass.ENPCModel.LivingCorpse });
 
     // ---- THE NIGHT FOREST --------------------------------------------------------------------------
 
     /// <summary>
-    /// CARD 2 — <b>DER ZUSCHAUER</b> ("the watcher").
+    /// CARD 1 — <b>DER ZUSCHAUER</b> ("the watcher"). It was card 2 until ModBuild 147 renumbered the
+    /// wood's catalogue down to three cards; the <c>Card</c> field below said 2 for one build after
+    /// that, which nothing read and everything quoted.
     ///
     /// <para><b>THE PLACE.</b> Bearing 162°, 16.5 m out — room-local (+5.10, ground, −15.69), the
     /// anchor the shader card already used (BuildEnvironmentRooms.cs:10570, <c>OnGround(162, 16.5)</c>
@@ -219,7 +289,7 @@ internal static partial class HauntFigures
     /// can supply.</para>
     /// </summary>
     private static readonly HauntEvent ForestWatcher = new(
-        2, "the watcher at the treeline",
+        1, "the watcher at the treeline",
         reveal: 3.50f, hold: 5.00f, fade: 0.00f,   // INSTANT vanish — see the paragraph above
         from: new Vector3(5.10f, 0f, -15.69f),
         to: new Vector3(5.10f, 0f, -15.69f),       // it does not move
@@ -229,7 +299,14 @@ internal static partial class HauntFigures
         cast: new[] { CClass.ENPCModel.HighCultist, CClass.ENPCModel.Cultist, CClass.ENPCModel.LivingSpirit });
 
     /// <summary>
-    /// CARD 3 — <b>WAS ZWISCHEN DEN STÄMMEN DURCHGEHT</b> ("what passes between the trunks").
+    /// CARD 2 — <b>WAS ZWISCHEN DEN STÄMMEN DURCHGEHT</b> ("what passes between the trunks"). It was
+    /// card 3 before the wood's catalogue was renumbered; see the watcher above.
+    ///
+    /// <para><b>IT IS THE ONLY EVENT LEFT THAT MOVES, and that is deliberate rather than incidental.</b>
+    /// Both cellar events became standing figures this round on the user's own rulings, so this is
+    /// the one path in the feature — which is why the wall-crossing gate below is a guard against
+    /// regression rather than a check on today's content, and why the looping test trigger's restart
+    /// only has one event it could ever be seen on (HauntFigures.TickBody).</para>
     ///
     /// <para><b>THE PLACE.</b> Bearing 190°, 13.0 m out — room-local (−2.26, ground, −12.80), the
     /// shader card's own anchor (BuildEnvironmentRooms.cs:10589). It travels TANGENTIALLY, along
@@ -255,7 +332,7 @@ internal static partial class HauntFigures
     /// shambling, a Hound trotting, a Living Bones striding. All base-game.</para>
     /// </summary>
     private static readonly HauntEvent ForestCross = new(
-        3, "the thing that passes between the trunks",
+        2, "the thing that passes between the trunks",
         reveal: 1.00f, hold: 2.40f, fade: 0.80f,
         from: new Vector3(-2.26f - 3.4f * 0.985f, 0f, -12.80f - 3.4f * -0.174f),
         to: new Vector3(-2.26f + 3.4f * 0.985f, 0f, -12.80f + 3.4f * -0.174f),
@@ -351,6 +428,140 @@ internal static partial class HauntFigures
                                  : (card == 1 ? ForestWatcher : ForestCross);
 
     // =============================================================================================
+    //  THE WALL GATE — a figure's path may not cross masonry, and it is CHECKED rather than argued.
+    //
+    //  USER REPORT that produced it, verbatim: "Die figuren sollten nicht durch wände glitchen."
+    //  The stair walk really did, twice per run (see CellarStair for the arithmetic), and the reason
+    //  it shipped is instructive: its doc comment contained a correct-sounding sentence — "everything
+    //  left and right of the shaft's own side walls is solid room" — which was simply not true of the
+    //  numbers on the next line. NO AMOUNT OF PROSE CATCHES THAT. Coordinates in this file are typed
+    //  by hand from a bake that is 11 000 lines long and is edited by other lanes; the only thing
+    //  that can keep a path honest is arithmetic that runs.
+    //
+    //  WHY RUNTIME AND NOT BAKE-TIME. The bake is where the geometry is, and a gate there would be
+    //  the stronger place — but the PATHS are here, in src/, and unity/ is owned by other lanes this
+    //  round. A check that lives beside the numbers it checks cannot be half-updated; a check on the
+    //  other side of a lane boundary can. It costs one pass over four planes per apparition, at arm
+    //  time, on a frame that has just started an asset load.
+    //
+    //  WHAT IT DOES ON A HIT: the event is REFUSED — one warning naming the wall and the crossing
+    //  point, and the slot is quiet. Not an exception (this feature never throws at the game) and not
+    //  a clamp (a path silently moved is a design nobody reviewed). A quiet slot is the honest answer
+    //  and the schedule tries again in 83 seconds.
+    // =============================================================================================
+
+    /// <summary>
+    /// One vertical slab of masonry, as a plane plus the rectangle of it that is actually solid.
+    /// Room-local, axis-aligned, cellar only — the forest has no walls at all, which is why
+    /// <see cref="PathCrossesWall"/> answers "no" for it in one compare.
+    /// </summary>
+    private readonly struct WallPlane
+    {
+        /// <summary>0 = the plane is x = <see cref="At"/>, 2 = the plane is z = <see cref="At"/>.
+        /// There is no y case: no figure in either room passes through a floor or a ceiling, and a
+        /// third axis would be a branch nothing exercises.</summary>
+        internal readonly int Axis;
+
+        internal readonly float At;
+
+        /// <summary>Extent along the OTHER horizontal axis, and vertically.</summary>
+        internal readonly float Lo, Hi, YLo, YHi;
+
+        /// <summary>The hole in it, in the same two coordinates, or all-zero for a solid slab. A
+        /// crossing INSIDE the hole is legal — that is a doorway, not a glitch.</summary>
+        internal readonly float HoleLo, HoleHi, HoleYLo, HoleYHi;
+
+        internal readonly string Name;
+
+        internal WallPlane(int axis, float at, float lo, float hi, float yLo, float yHi, string name,
+                           float holeLo = 0f, float holeHi = 0f, float holeYLo = 0f, float holeYHi = 0f)
+        {
+            Axis = axis; At = at; Lo = lo; Hi = hi; YLo = yLo; YHi = yHi; Name = name;
+            HoleLo = holeLo; HoleHi = holeHi; HoleYLo = holeYLo; HoleYHi = holeYHi;
+        }
+    }
+
+    /// <summary>
+    /// The cellar's masonry, MIRRORED from the bake with each line cited. Room extents are
+    /// <c>CW = 10.5, CD = 9.0, CH = 3.3</c> (BuildEnvironmentRooms.cs:2116), so the walls stand at
+    /// x = ±5.25 and z = ±4.50.
+    ///
+    /// <para>This is a mirror and carries the same debt every other mirror in this feature carries
+    /// (see the Ground block): <c>scripts/check-mirrors.sh</c> cannot compare a C# array here against
+    /// geometry generated under <c>unity/</c>, so the guard is this comment plus the cited lines. The
+    /// failure mode if the bake moves a wall and this does not follow is BENIGN IN THE DIRECTION THAT
+    /// MATTERS — a stale plane can only refuse an event that would have been fine, never admit one
+    /// that walks through stone, because every event in this file is checked against ALL of them.</para>
+    /// </summary>
+    private static readonly WallPlane[] CellarWalls =
+    {
+        // North wall, inner face. The window is the hole: snapped opening x −2.068…−0.636,
+        // y 2.200…2.986 (BuildEnvironmentRooms.cs:3197-3212, printed at bake time).
+        new(2, 4.50f, -5.25f, 5.25f, 0f, 3.30f, "the north wall (the window wall)",
+            -2.068f, -0.636f, 2.200f, 2.986f),
+        // West wall. The hole is the stair doorway, SNAPPED (z 1.658…3.237, up to y 2.357) — the
+        // snapped rect and not StairHole itself, for the reason the bars read it: WallMesh keeps or
+        // drops whole 0.16 m cells (:2539-2550, :8844-8845).
+        new(0, -5.25f, -4.50f, 4.50f, 0f, 3.30f, "the west wall (the stair wall)",
+            1.658f, 3.237f, 0f, 2.357f),
+        // The two side walls of the stair alcove, and its black end cap. BuildShaft(2.2, 2.6, 1.6) is
+        // placed at (−5.25, 0, −hd + StairHole.xMin) = (−5.25, 0, 1.70), so the shaft's interior is
+        // x −7.45…−5.25, z 1.70…3.30, y 0…2.60 (:3556-3559, :6849-6870); the cap is at x = −7.40
+        // (:3563-3567). THESE ARE THE TWO THE OLD STAIR WALK WENT THROUGH.
+        new(2, 1.70f, -7.45f, -5.25f, 0f, 2.60f, "the stair alcove's south side wall"),
+        new(2, 3.30f, -7.45f, -5.25f, 0f, 2.60f, "the stair alcove's north side wall"),
+        new(0, -7.40f, 1.70f, 3.30f, 0f, 2.60f, "the stair alcove's black end cap"),
+        // The other two room walls, for completeness: nothing is authored near them today, which is
+        // exactly the state in which a future event gets placed carelessly.
+        new(2, -4.50f, -5.25f, 5.25f, 0f, 3.30f, "the south wall"),
+        new(0, 5.25f, -4.50f, 4.50f, 0f, 3.30f, "the east wall"),
+    };
+
+    /// <summary>
+    /// Does this event's path pass through masonry? Returns the wall's name, or null.
+    ///
+    /// <para>The test is on the SEGMENT and is exact rather than sampled: a straight walk crosses an
+    /// axis-aligned plane at most once, at a fraction that solves for one coordinate, so the crossing
+    /// point is computed and tested against the slab's rectangle and its hole. Sampling would be the
+    /// obvious implementation and is strictly worse — it can step over a 5 cm jamb.</para>
+    ///
+    /// <para>A path that does not move cannot cross anything and is answered in the first compare,
+    /// which is what three of the four events are since this round.</para>
+    /// </summary>
+    private static string? PathCrossesWall(SkyStyle style, in HauntEvent ev)
+    {
+        if (style != SkyStyle.Cellar || ev.From == ev.To)
+            return null;
+
+        for (int i = 0; i < CellarWalls.Length; i++)
+        {
+            WallPlane w = CellarWalls[i];
+            float a = w.Axis == 0 ? ev.From.x : ev.From.z;
+            float b = w.Axis == 0 ? ev.To.x : ev.To.z;
+            float da = a - w.At, db = b - w.At;
+            if (da == 0f || db == 0f || (da > 0f) == (db > 0f))
+                continue;                                  // both ends on the same side: no crossing
+
+            float t = da / (da - db);
+            Vector3 p = Vector3.Lerp(ev.From, ev.To, t);
+            float u = w.Axis == 0 ? p.z : p.x;             // the in-plane horizontal coordinate
+            if (u < w.Lo || u > w.Hi || p.y < w.YLo || p.y > w.YHi)
+                continue;                                  // it passes the plane beyond the slab
+
+            bool throughHole = w.HoleHi > w.HoleLo
+                               && u >= w.HoleLo && u <= w.HoleHi
+                               && p.y >= w.HoleYLo && p.y <= w.HoleYHi;
+            if (throughHole)
+                continue;                                  // a doorway is not a glitch
+
+            return $"{w.Name} at {(w.Axis == 0 ? "x" : "z")} = {w.At:F2}, crossed at room-local "
+                   + $"({p.x:F2}, {p.y:F2}, {p.z:F2})";
+        }
+
+        return null;
+    }
+
+    // =============================================================================================
     //  ARM → DRIVE → RETIRE. The life of one apparition.
     // =============================================================================================
 
@@ -359,6 +570,30 @@ internal static partial class HauntFigures
 
     /// <summary>Which way round the walk runs this time — a per-slot hash, so both clients agree.</summary>
     private static bool _reversed;
+
+    /// <summary>
+    /// The (card, start clock) pair of the last run <see cref="Arm"/> refused, so the reason is
+    /// logged ONCE per run instead of once per frame.
+    ///
+    /// <para>THIS IS A DEFECT FIX AND NOT A TIDY-UP. When Arm bails it clears <c>_card</c>, and the
+    /// driver's next frame sees <c>_card &lt; 0</c> with the slot's window still open and arms again
+    /// — so a slot that cannot be cast, or a path that crosses a wall, wrote a log line at the frame
+    /// rate for as long as the window lasted. At 90 Hz over a 5.5 s window that is five hundred
+    /// copies of the same sentence, which is how a log stops being readable. The pair is unique per
+    /// run, so a genuine second refusal (the next slot, or the next loop of a latch) still speaks.</para>
+    /// </summary>
+    private static int _quietCard = -1;
+    private static float _quietStart = float.NaN;
+
+    /// <summary>True the first time this exact run is refused; false for every repeat of it.</summary>
+    private static bool AnnounceQuiet(int card)
+    {
+        if (_quietCard == card && _quietStart.Equals(_startClock))
+            return false;
+        _quietCard = card;
+        _quietStart = _startClock;
+        return true;
+    }
 
     /// <summary>Resolved once at arm time and then held, so the figure cannot change species or
     /// facing mid-event if anything about the resolve ever became time-dependent.</summary>
@@ -390,6 +625,25 @@ internal static partial class HauntFigures
     {
         HauntEvent ev = EventFor(style, card);
 
+        // THE WALL GATE, BEFORE ANYTHING IS BUILT. See the block above CellarWalls for why this is
+        // arithmetic and not a comment: the event it exists to catch shipped behind a doc paragraph
+        // that asserted the opposite of what its own coordinates did. Refused, not clamped — the
+        // slot is quiet and the schedule tries again.
+        string? wall = PathCrossesWall(style, ev);
+        if (wall != null)
+        {
+            if (AnnounceQuiet(card))
+                VRLog.Warn("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) is REFUSED — its path from "
+                               + $"room-local {ev.From:F2} to {ev.To:F2} passes through {wall}. A figure may "
+                               + "not walk through masonry (user, verbatim: \"Die figuren sollten nicht durch "
+                               + "wände glitchen\"), so this slot is quiet rather than showing it. The path is "
+                               + "authored in HauntFigures.Events.cs and the walls are mirrored from "
+                               + "BuildEnvironmentRooms.cs — if the bake moved a wall, that mirror is what "
+                               + "needs to follow.");
+            _card = -1;
+            return;
+        }
+
         // WHICH WAY ROUND — hash channel 10. Channels 0/1/3/4/5/6/7 are the schedule's own
         // (Haunt.Schedule.cs), 2 is EnvSound's per-event variation and 13 is the rat's stare, so
         // 9/10/11 are this feature's and nothing else reads them. Deterministic, therefore shared.
@@ -404,8 +658,10 @@ internal static partial class HauntFigures
             // Nothing in this event's cast is available. ONE line, and the slot is simply quiet —
             // the mask has already suppressed the shader card for this room, so the honest outcome
             // is a quiet slot rather than a substitute creature that was never designed for the
-            // framing. The next slot tries again.
-            VRLog.Info("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) is quiet this slot — none of "
+            // framing. The next slot tries again. ONE line per RUN and not per frame — see
+            // AnnounceQuiet for why that guard had to be added.
+            if (AnnounceQuiet(card))
+                VRLog.Info("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) is quiet this slot — none of "
                                + $"its cast ({Roster.Describe(ev.Cast)}) resolved to a base-game enemy prefab "
                                + "on this machine. No apparition rather than a wrong one.");
             _card = -1;
@@ -417,8 +673,11 @@ internal static partial class HauntFigures
         Vector3 start = PathAt(style, ev, 0f);
         _anchor.transform.localPosition = start;
 
-        // FACING. "Toward the clearing" for a figure that stands, "the way you walk" for one that
-        // travels — both resolved ONCE here, in room-local space, and then never touched again.
+        // FACING. Three cases, all resolved ONCE here, in room-local space, and never touched
+        // again: an authored direction if the event names one (the window figure looks INTO the
+        // room, the stair figure looks OUT through its doorway), otherwise "toward the clearing"
+        // for a figure that stands where nothing was authored (the forest watcher), otherwise "the
+        // way you walk" for one that travels.
         // NOTHING IN THIS FEATURE MAY EVER RE-ORIENT WITH HEAD MOVEMENT (permanent project rule):
         // there is no camera read anywhere in this file, and a facing derived from the walk cannot
         // acquire one by accident.
@@ -442,10 +701,14 @@ internal static partial class HauntFigures
 
         VRLog.Info("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) armed at shared clock "
                            + $"{_startClock:F2}s for {ev.Seconds * _durMul:F2}s — model '{_model}' ({picked}), "
-                           + $"walking {(_reversed ? "the other way" : "the authored way")}, room-local "
-                           + $"{start:F2} to {PathAt(style, ev, 1f):F2}. Creature and direction are hashes of "
+                           + (ev.From == ev.To
+                                  ? $"STANDING at room-local {start:F2}, facing {_standRot.eulerAngles.y:F0} deg"
+                                  : $"walking {(_reversed ? "the other way" : "the authored way")}, room-local "
+                                    + $"{start:F2} to {PathAt(style, ev, 1f):F2}")
+                           + $". Creature and direction are hashes of "
                            + $"slot {slotIndex:F0} on channels 9 and 10, so every client in this scenario "
-                           + "picked the same ones.");
+                           + "picked the same ones. Its albedo is multiplied down to the room's own light "
+                           + "level while it is up — see the HAUNT FIGURES light level line.");
     }
 
     /// <summary>

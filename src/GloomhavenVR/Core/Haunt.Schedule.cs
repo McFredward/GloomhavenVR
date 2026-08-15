@@ -274,7 +274,16 @@ internal static partial class Haunt
                 1 => 8.0f,   // Hands   2.8 + 2.2 + 3.0
                 2 => 6.8f,   // Door    2.2 + 3.0 + 1.6   — NEW: the stair-top door, no body at all
                 3 => 2.0f,   // Tremble 0 + 1.1 + 0.9 — draws nothing at all; the webs shiver
-                4 => 2.60f,  // Stair   0.30 + 2.00 + 0.30 — a FIGURE plays this (HauntFigures)
+                // Stair 0.30 + 2.00 + 0.30. A FIGURE plays this, and this number is NOT the figure's
+                // any more: since the walk became a standing watcher the figure runs 7.0 s
+                // (HauntFigures.Events.cs, CellarStair) while the bake's card still reserves 2.60.
+                // THAT DISAGREEMENT IS ALLOWED HERE AND NOWHERE ELSE IN THIS TABLE, because card 4
+                // draws NOTHING on the GPU and nothing reacts to it — the bake's own catalogue says
+                // "4 Stair draws nothing here". What the number still governs is EnvSound's cue
+                // window, so the sound belongs to the arrival rather than to the whole apparition.
+                // Card 0 is the opposite case and must stay in step: EnvBeam DIMS THE MOONBEAM for
+                // its 5.50 s, so the figure's envelope is authored to sum to exactly 5.50.
+                4 => 2.60f,  // Stair   — see the block above; the figure's own length is 7.0 s
                 _ => 26.002f,// Shelf   0.001 + 26.0 + 0.001 — the bookshelf, and by far the longest
             };
     }

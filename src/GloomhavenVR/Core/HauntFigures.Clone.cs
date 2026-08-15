@@ -115,16 +115,48 @@ internal static partial class HauntFigures
     /// are destroyed in <see cref="Collect"/>, and had they been the whole set the build would have
     /// failed loudly on "produced no renderers after stripping" instead of showing a figure.</para>
     ///
-    /// <para><b>WHAT THE FIGURE'S MATERIALS ARE NOW.</b> Untouched game materials — every texture,
-    /// every normal map, every submesh the artists shipped — with exactly four properties owned by
-    /// this side and written by <see cref="Shade"/>: <c>_Glow = 0</c> (no emission),
-    /// <c>_Opacity = 1</c> (fully opaque), <c>_InvisibilityControl</c> = the event's envelope
-    /// inverted, and <c>_Toggle_Dissolve</c> = 1 only while that envelope is actually mid-dissolve.
-    /// Those are the game's OWN non-preview values (CharacterManager.cs:243-245 with
-    /// <c>isPreview: false</c>), so at full presence the figure is bit-for-bit the surface a real
-    /// monster on the board has. The burn edge of the dissolve is the material's own
+    /// <para><b>WHAT THE FIGURE'S MATERIALS ARE NOW — AND THE DISSOLVE IS GONE.</b> Untouched game
+    /// materials, every texture and every submesh the artists shipped, with the game's own
+    /// non-preview visibility triple pinned by <see cref="Shade"/> (<c>_Glow = 0</c>,
+    /// <c>_Opacity = 1</c>, <c>_InvisibilityControl = 0</c>, <c>_Toggle_Dissolve = 0</c>) and ONE
+    /// property of ours on top: a multiplicative colour tint (<see cref="TintNames"/>), which
+    /// carries BOTH the event's envelope and the room's light level. See the two blocks below.</para>
+    ///
+    /// <para><b>THE DISSOLVE WAS THE BUG, AND THIS PARAGRAPH OVERTURNS THE ONE THAT SHIPPED IT.</b>
+    /// The withdrawn text read: "The burn edge of the dissolve is the material's own
     /// <c>_Burn</c>/<c>_Burn_ColourTint</c> and is deliberately left alone: that is the game's
-    /// materialisation, and it is what keeps the reveal from being a pop.</para>
+    /// materialisation, and it is what keeps the reveal from being a pop." <b>USER REPORT FROM
+    /// HARDWARE, verbatim:</b> "Die Figuren brauchen irgendwie eine längere Zeit bis ihre texturen
+    /// richtig geladen haben bzw voll sichtbar sind bis dahin sind viele schwarze flecken in ihnen
+    /// zu erkennen. Manchmal sind die Texturen voll da und manchmal nicht." <b>THE EVIDENCE IS TWO
+    /// SCREENSHOTS</b> (<c>.planning/debug/nachladen1.jpg</c>, <c>nachladen2.jpg</c>): in the wood
+    /// the watcher's legs are EATEN AWAY and its torso is broken into a high-contrast marbled noise
+    /// pattern; in the cellar the same marbling covers the whole body. That is not an asset stream
+    /// arriving late — a half-streamed texture is flat grey or flat white, never a swirl with holes
+    /// in it, and it would not be shaped like a noise field. It is <c>_InvisibilityControl</c>
+    /// partway with <c>_Toggle_Dissolve</c> on, i.e. this file's own reveal, photographed
+    /// mid-envelope. THE "MISSING TEXTURES" AND THE "BLACK PATCHES" ARE THE SAME ONE FAULT.</para>
+    ///
+    /// <para><b>AND THE BURN EDGE IS WHY THE FIGURES GLOWED.</b> A dissolve burn edge is EMISSIVE by
+    /// construction — that is what makes a materialisation read as one — so no lighting term can
+    /// darken it: not the room's SH, not a tint, not the absence of every light in the scene. In a
+    /// pitch-black cellar a mid-dissolve figure is therefore a WHITE LANTERN, which is exactly what
+    /// both screenshots show and exactly what the user rejected ("Die Figuren sind VOLL sichtbar in
+    /// der schwarzen Nacht als wären sie voll angestrahlt"). It also made the second fault worse in a
+    /// way nobody would have guessed: the envelope's ends are where the burn is widest, so the
+    /// moments the design intended as "not yet there" and "already gone" were the BRIGHTEST moments
+    /// of the whole event, and a looping test trigger reset the walk during precisely those moments
+    /// (see <see cref="HauntFigures.TickBody"/>) — which is why a hidden restart was seen as a
+    /// teleport.</para>
+    ///
+    /// <para><b>SO THE REVEAL IS NOW A FADE OUT OF THE DARK, not a materialisation.</b> The envelope
+    /// multiplies the figure's colour instead of eating its geometry: at presence 0 the renderers are
+    /// switched OFF outright (a tint of zero would still be an opaque black hole punched in the star
+    /// patch behind the cellar window), and from there the creature rises out of black to the room's
+    /// own light level. Nothing is emissive, nothing is transparent, no pixel is ever half-there. The
+    /// user never asked for a materialisation — he asked for creatures that fit the dark — and the
+    /// honest reading of both reports is that the effect that was supposed to hide the arrival was
+    /// the only thing anyone could see.</para>
     ///
     /// <para><b>ANIMATION — THE ONE FACT EVERYTHING IS BUILT AROUND.</b> There is NO WALK STATE and
     /// NO ROOT MOTION anywhere in this game's character controllers. The state table
@@ -213,7 +245,56 @@ internal static partial class HauntFigures
         private static int _glowId = -1;
         private static int _opacityId = -1;
 
-        private static float _lastPresence = -1f;
+        /// <summary>
+        /// THE DARKENING LEVER, in priority order — the first one a material actually declares wins,
+        /// and only ONE is ever driven per material.
+        ///
+        /// <para><b><c>_MOD_TINT</c> IS FIRST BECAUSE THE GAME ITSELF WRITES IT ON EXACTLY THESE
+        /// MATERIALS, which is the strongest evidence available without hardware.</b>
+        /// <c>Choreographer</c> spawns every character, tests
+        /// <c>skinnedMeshRenderer.material.shader.name == "Amp_Char_Shader"</c> and then writes
+        /// <c>material.SetColor("_MOD_TINT", colour)</c> from the creature's own
+        /// <c>MonsterYML.ColourHTML</c> (Choreographer.cs:826, :851-853, and again at :1034-1036).
+        /// So the character shader is named, it declares the property, and the property is the
+        /// whole-model colour identity rather than a mask or a decal — a monster whose YML colour is
+        /// dark IS dark all over. Multiplying it is therefore a multiply on the albedo, which is the
+        /// one lever that works NO MATTER WHAT THE LIGHTING DOES, and that is the point (see
+        /// <see cref="Lighting"/>'s "WHY A TINT AND NOT ONLY SH" block).</para>
+        ///
+        /// <para>The rest are ordinary Unity/Amplify albedo tints, tried only if <c>_MOD_TINT</c> is
+        /// absent. ONE PER MATERIAL, never two: if a shader declared both <c>_MOD_TINT</c> and
+        /// <c>_Color</c> and both multiplied the albedo, writing both would square the darkening and
+        /// a figure meant to sit at a tenth of its albedo would sit at a hundredth — black, in a
+        /// black room, i.e. an event that never happened.</para>
+        /// </summary>
+        private static readonly string[] TintNames = { "_MOD_TINT", "_Color", "_Tint", "_TintColor", "_Diffuse" };
+
+        /// <summary>One material's darkening lever plus the value it shipped with. The ORIGINAL is
+        /// captured before this side writes anything, and every write is
+        /// <c>original * k</c> — so the creature's own colour identity survives the darkening
+        /// instead of being replaced by a grey.</summary>
+        private readonly struct TintTarget
+        {
+            internal readonly Material Mat;
+            internal readonly int Prop;
+            internal readonly Color Original;
+
+            internal TintTarget(Material mat, int prop, Color original)
+            {
+                Mat = mat; Prop = prop; Original = original;
+            }
+        }
+
+        private static readonly List<TintTarget> Tints = new(16);
+
+        /// <summary>Which property name <see cref="Collect"/> settled on, for the log. Empty when no
+        /// material declared any of them, which is the case the renderer fallback exists for.</summary>
+        private static string _tintName = string.Empty;
+
+        /// <summary>The last COMBINED scalar written (envelope × room light), so the per-frame write
+        /// is skipped when neither moved. -1 forces the first write.</summary>
+        private static float _lastShade = -1f;
+
         private static bool _spawned;
         private static bool _voiced;
         private static string _wantModel = string.Empty;
@@ -304,13 +385,17 @@ internal static partial class HauntFigures
                 if (_animator != null && _hasRunBlend)
                     _animator.SetFloat(RunBlendParam, runBlend);
 
-                Shade(presence);
-
-                // THE ROOM'S LIGHT, RE-SAMPLED WHERE THE FIGURE NOW STANDS. Inside the same [Perf]
-                // step as the rest of the drive on purpose: it is a handful of dot products and one
-                // property-block write per renderer, and giving it a step of its own would suggest
-                // it were a cost worth watching separately. See the Lighting block for the numbers.
+                // THE ROOM'S LIGHT, RE-SAMPLED WHERE THE FIGURE NOW STANDS, AND IT RUNS FIRST.
+                // Inside the same [Perf] step as the rest of the drive on purpose: it is a handful
+                // of dot products and one property-block write per renderer, and giving it a step of
+                // its own would suggest it were a cost worth watching separately. THE ORDER IS
+                // LOAD-BEARING since the darkening landed — Apply() is what measures
+                // Lighting.Level, and Shade multiplies the envelope by it, so a Shade before an
+                // Apply would spend one frame on the previous position's light every time the
+                // figure moved. See the Lighting block for the numbers.
                 Lighting.Apply();
+
+                Shade(presence);
 
                 // ONE quiet voice per event, once, when the figure is properly there — early enough
                 // to be part of the arrival and late enough that it is not heard before there is
@@ -327,6 +412,24 @@ internal static partial class HauntFigures
                     Roster.Voice(_wantEnum, _go.transform.position);
                 }
             }
+        }
+
+        /// <summary>
+        /// The SAME creature is starting its run again — a latched test trigger looped. Everything
+        /// that is per-RUN rather than per-CREATURE goes back to its start; nothing is destroyed and
+        /// nothing is loaded.
+        ///
+        /// <para>Today that is exactly one thing, and it is worth the method rather than a field
+        /// poke: the creature's own one-shot voice. Before this round a loop tore the clone down and
+        /// built a new one, so the voice came back for free on every repetition — which is what a
+        /// tester judging a cue against the picture actually needs (<see cref="EnvSound"/>'s per-card
+        /// cue does the same, because it fires once per (StartClock, Card) pair and the start clock
+        /// moves each loop). Keeping the creature alive would silently have made the voice a
+        /// once-per-latch event instead.</para>
+        /// </summary>
+        internal static void Restart()
+        {
+            _voiced = false;
         }
 
         /// <summary>Pump the build one step. Each call does at most one frame's worth of work.</summary>
@@ -449,8 +552,11 @@ internal static partial class HauntFigures
 
             _go.SetActive(true);
             _spawned = true;
-            _lastPresence = -1f;
-            Shade(0f);   // fully dissolved in the SAME frame it becomes active: never a pop-in
+            _lastShade = -1f;
+            // Renderers OFF in the SAME frame the object becomes active, before anything is drawn:
+            // never a pop-in. This used to write a full dissolve, which is the effect this round
+            // deleted — see the class doc.
+            Shade(0f);
 
             // THE ROOM'S LIGHT RIG, read ONCE per apparition off a room material and then only
             // evaluated. Deliberately after SetActive so a failure to find it cannot stop a figure
@@ -594,15 +700,17 @@ internal static partial class HauntFigures
                     continue;
                 }
                 // NO SHADOW, and the reason is now an argument rather than an assumption. All four
-                // framings hide the ground the shadow would fall on: the cellar window figure walks
-                // OUTSIDE the wall at room-local y = 2.20 and is seen through a 0.63 m slot from
-                // below (no floor in frame at all); the stair figure is inside a shaft that ends in
-                // a pitch-black cap (BuildEnvironmentRooms.cs:2805); and both forest events stand
-                // past the ground-darkness knee, where the floor is at 0.015 of its lit value
-                // (:9297). A real-time shadow map, doubled by MultiPass, would buy four invisible
-                // shadows. If a future event ever puts a figure on lit ground this is the line to
-                // revisit, and the room's own moon direction (see Lighting) is already the direction
-                // it would have to be cast from.
+                // framings hide the ground the shadow would fall on: the cellar window figure is
+                // SUNK behind an opaque black ground plane and seen head-only through a slot; the
+                // stair figure stands inside an alcove that ends in a pitch-black cap
+                // (BuildEnvironmentRooms.cs:3563-3567) with no light in it to cast by; and both
+                // forest events stand past the ground-darkness knee, where the floor is at 0.015 of
+                // its lit value (:9297). A real-time shadow map, doubled by MultiPass, would buy four
+                // invisible shadows. It is now doubly moot: the figures are multiplied down to a
+                // tenth of their albedo (see Shade), so even a lit-ground framing would want a
+                // shadow of a creature that is barely brighter than the floor. If a future event ever
+                // puts a figure in a candle pool this is the line to revisit, and the room's own moon
+                // direction (see Lighting) is already the direction it would have to be cast from.
                 r.shadowCastingMode = ShadowCastingMode.Off;
                 r.receiveShadows = false;
                 // NOTE: lightProbeUsage is NOT switched to CustomProvided here. It is switched in
@@ -612,10 +720,43 @@ internal static partial class HauntFigures
                 // anything to put in it would turn "lit by the wrong thing" into "black".
                 Rends.Add(r);
                 foreach (Material m in r.materials)            // ← instantiates; we own them now
-                    if (m != null) Mats.Add(m);
+                {
+                    if (m == null)
+                        continue;
+                    Mats.Add(m);
+                    BindTint(m);
+                }
             }
 
             Diag.Materials(_wantModel, "BEFORE", -1f);
+        }
+
+        /// <summary>
+        /// Find this material's darkening lever and remember what it shipped with.
+        ///
+        /// <para><b>A NEAR-BLACK ORIGINAL IS REFUSED AND THE NEXT CANDIDATE IS TRIED</b>, which is the
+        /// one guard this needs. The write is <c>original * k</c>, so a property that happens to be
+        /// authored black is a lever with no travel: multiplying it changes nothing, and if the
+        /// shader really does multiply the albedo by it the model would already be black before this
+        /// side touched it — i.e. the property is not what this code thinks it is. Skipping to the
+        /// next candidate turns a silent no-op into a working lever on the shaders where one exists,
+        /// and into the renderer fallback where none does.</para>
+        /// </summary>
+        private static void BindTint(Material m)
+        {
+            for (int i = 0; i < TintNames.Length; i++)
+            {
+                int id = Shader.PropertyToID(TintNames[i]);
+                if (!m.HasProperty(id))
+                    continue;
+                Color c = m.GetColor(id);
+                if (c.r + c.g + c.b < 0.02f)
+                    continue;
+                Tints.Add(new TintTarget(m, id, c));
+                if (_tintName.Length == 0)
+                    _tintName = TintNames[i];
+                return;
+            }
         }
 
         private static bool IsVfx(Renderer r)
@@ -636,72 +777,120 @@ internal static partial class HauntFigures
         // ---- shading ---------------------------------------------------------------------------------
 
         /// <summary>
-        /// Apply the envelope. <c>_InvisibilityControl</c> is the game's dissolve ramp — 0 solid,
-        /// 1 gone — and <c>_Toggle_Dissolve</c> switches the effect on at all, exactly as
-        /// <c>CharacterManager.RefreshVisibility</c> does it (:413-436).
+        /// Put the figure at the brightness the moment calls for: the event's envelope times the
+        /// light the room is actually giving it. ONE scalar, two jobs, and they are the same job.
         ///
-        /// <para>The game's own method is NOT called, and that is a small but real decision:
-        /// <c>RefreshVisibility</c> reads <c>renderer.materials</c> on every call, and that getter
-        /// allocates a fresh <c>Material[]</c> every time — at 90 Hz for the length of an event that
-        /// is a few thousand needless allocations per apparition. The materials are therefore
-        /// cached once and written directly, and only when the value actually moved.</para>
+        /// <para><b>THE TWO USER REPORTS THIS ANSWERS, verbatim.</b> (a) "Die Figuren sind VOLL
+        /// sichtbar in der schwarzen Nacht als wären sie voll angestrahlt. Das soll nicht sein. Sie
+        /// MÜSSEN an die Lichtverhältnisse angeglichen werden, sonst geht der Gruselfaktor
+        /// verloren." (b) "Die Figuren brauchen irgendwie eine längere Zeit bis ihre texturen richtig
+        /// geladen haben ... viele schwarze flecken in ihnen". The class doc argues at length that
+        /// (b) was this file's own dissolve and that its emissive burn edge was half of (a). Both are
+        /// answered by deleting the dissolve and multiplying the albedo instead.</para>
         ///
-        /// <para><b><c>_Glow</c> AND <c>_Opacity</c> ARE PINNED HERE, EVERY TIME, and that is the fix
-        /// for the glowing-silhouette report</b> (see the class doc for the full argument and for the
-        /// paragraph it withdraws). They are written to the game's own non-preview values —
-        /// <c>0</c> and <c>1</c>, CharacterManager.cs:244-245 with <c>isPreview: false</c> — rather
-        /// than left to whatever <c>InitialiseCharacterStepTwo</c> or the material asset happened to
-        /// leave behind. RE-ASSERTED rather than written once at build time, for two extra floats per
-        /// material on frames the envelope moves at all: a <c>StateMachineBehaviour</c> cannot be
-        /// stripped (class doc), and two of the game's own SMBs write <c>_Opacity</c>
-        /// (FireEquippedProjectileSMB.cs:177, Jump_OutOf_SMB.cs:37). None of them is on an idle
-        /// state, so this should never actually catch anything — it costs nothing measurable and it
-        /// removes the whole category from the next round's suspect list.</para>
+        /// <para><b>WHY THE ENVELOPE AND THE LIGHT LEVEL ARE ONE NUMBER.</b> "How present is it" and
+        /// "how bright may it be" are the same question for a creature whose whole business is being
+        /// in the dark: an apparition at half presence in a cellar lit to a tenth is a creature at a
+        /// twentieth of its albedo, and there is no second thing for the two to disagree about. So
+        /// they multiply, they are written as one colour per material, and the early-out compares
+        /// the product rather than either factor — a figure walking past a candle re-shades even
+        /// though its envelope is flat, and a watcher standing still under an unchanging rig does
+        /// not re-shade for eight and a half seconds.</para>
         ///
-        /// <para>If the creature's shader turns out to have no dissolve control at all, the figure
-        /// falls back to being switched on and off at the halfway point of its own envelope. That is
-        /// visibly cruder, and it is still better than an apparition that cannot appear.</para>
+        /// <para><b>PRESENCE 0 SWITCHES THE RENDERERS OFF RATHER THAN WRITING BLACK, and that is not
+        /// a micro-optimisation.</b> A tint of zero is an OPAQUE BLACK BODY: at the cellar window it
+        /// would punch a person-shaped hole in the star patch behind the opening
+        /// (<c>AddNightOutsideWindow</c>), and in the wood it would blot out the trunks behind the
+        /// watcher. "Gone" has to mean not drawn. It is also what makes a looping test trigger's
+        /// restart invisible — the walk is repositioned during frames on which nothing is on
+        /// screen (see <see cref="HauntFigures.TickBody"/>).</para>
+        ///
+        /// <para><b>THE GAME'S OWN VISIBILITY TRIPLE IS PINNED HERE, EVERY TIME</b>, to the
+        /// non-preview values <c>InitialiseCharacterStepTwo</c> would have written for a real monster
+        /// (<c>_Glow = 0</c>, <c>_Opacity = 1</c>, CharacterManager.cs:244-245 with
+        /// <c>isPreview: false</c>) plus <c>_InvisibilityControl = 0</c> and
+        /// <c>_Toggle_Dissolve = 0</c> — which is now a HARD OFF for the dissolve rather than a
+        /// value that moves. Re-asserted rather than written once: a <c>StateMachineBehaviour</c>
+        /// cannot be stripped (class doc), two of the game's own SMBs write <c>_Opacity</c>
+        /// (FireEquippedProjectileSMB.cs:177, Jump_OutOf_SMB.cs:37), and <c>isPreview: true</c> is
+        /// what sets the preview triple in the first place. Four floats per material on frames the
+        /// scalar moves at all.</para>
+        ///
+        /// <para>The game's <c>RefreshVisibility</c> is still NOT called: it reads
+        /// <c>renderer.materials</c> on every call and that getter allocates a fresh
+        /// <c>Material[]</c> each time — a few thousand needless allocations per apparition at
+        /// 90 Hz.</para>
+        ///
+        /// <para><b>THE FALLBACK, if no material declares any tint property at all:</b> the figure is
+        /// switched on at the halfway point of its own envelope and off again. Visibly cruder, and
+        /// still better than an apparition that cannot appear — and <see cref="Diag.Materials"/>
+        /// prints every property each shader declares, so the next round can name the right one
+        /// instead of guessing again.</para>
         /// </summary>
         private static void Shade(float presence)
         {
             presence = Mathf.Clamp01(presence);
-            if (Mathf.Abs(presence - _lastPresence) < 0.004f)
-                return;
-            _lastPresence = presence;
 
-            float dissolve = 1f - presence;
-            bool any = false;
+            // THE ROOM'S LEVEL, measured where the figure stands (Lighting.Apply ran first this
+            // frame). With no rig readable this is a fixed dim constant rather than 1: a figure the
+            // room cannot be measured for is still a figure in the dark.
+            float k = presence * Lighting.Level;
+
+            // THE DUMP IS TAKEN BEFORE THE EARLY-OUT, and that is not where it looks like it
+            // belongs. It used to sit at the bottom of this method, where it could be missed
+            // entirely: the last write of a rising envelope happens when the scalar stops moving by
+            // the threshold below, which for a cellar-dark figure is around presence 0.985 — so a
+            // dump gated on presence >= 0.995 inside the written path would never have run for the
+            // rooms this feature is actually for. Diag.Materials is latched to once per creature per
+            // process by its own HashSet, so calling it every frame of the hold costs one failed
+            // Add.
+            if (presence >= 0.995f)
+                Diag.Materials(_wantModel, "AFTER", k);
+
+            // GONE IS GONE — except on a creature with no tint lever at all, where the only
+            // visibility this side has is the renderer switch and the honest place to throw it is
+            // the middle of the envelope. See THE FALLBACK in the doc.
+            bool visible = Tints.Count > 0 ? k > 0.0015f : presence >= 0.5f;
+
+            // Both tests are needed: the state test catches the frame the figure becomes visible or
+            // invisible, the scalar test skips everything else.
+            if (Mathf.Abs(k - _lastShade) < 0.0015f && (_lastShade > 0.0015f) == visible)
+                return;
+            _lastShade = k;
+
+            for (int i = 0; i < Rends.Count; i++)
+                if (Rends[i] != null)
+                    Rends[i].enabled = visible;
+
+            if (!visible)
+                return;
+
             for (int i = 0; i < Mats.Count; i++)
             {
                 Material m = Mats[i];
                 if (m == null)
                     continue;
-                // SOLID FIRST, dissolve second. These two are unconditional (guarded only on the
-                // shader actually having them) because a material that is missing the dissolve is
-                // exactly the material most likely to still be carrying a preview glow.
                 if (m.HasProperty(_glowId))
                     m.SetFloat(_glowId, 0f);
                 if (m.HasProperty(_opacityId))
                     m.SetFloat(_opacityId, 1f);
-                if (!m.HasProperty(_dissolveId))
-                    continue;
-                any = true;
-                m.SetFloat(_dissolveId, dissolve);
+                if (m.HasProperty(_dissolveId))
+                    m.SetFloat(_dissolveId, 0f);
                 if (m.HasProperty(_toggleId))
-                    m.SetFloat(_toggleId, dissolve > 0.001f ? 1f : 0f);
+                    m.SetFloat(_toggleId, 0f);
             }
 
-            // The one dump that says what the PLAYER sees: taken the first frame the figure is
-            // fully present, i.e. with the dissolve off and the surface at its finished state.
-            if (presence >= 0.995f)
-                Diag.Materials(_wantModel, "AFTER", presence);
-
-            if (any)
-                return;
-
-            for (int i = 0; i < Rends.Count; i++)
-                if (Rends[i] != null)
-                    Rends[i].enabled = presence >= 0.5f;
+            for (int i = 0; i < Tints.Count; i++)
+            {
+                TintTarget t = Tints[i];
+                if (t.Mat == null)
+                    continue;
+                Color c = t.Original;
+                // ALPHA IS NOT TOUCHED. On every one of the candidate properties it means opacity or
+                // nothing at all, and this pass is a darkening rather than a fade to transparent —
+                // a see-through monster is the "leuchtende Silhouette" the last round removed.
+                t.Mat.SetColor(t.Prop, new Color(c.r * k, c.g * k, c.b * k, c.a));
+            }
         }
 
         // ---- teardown ---------------------------------------------------------------------------------
@@ -739,12 +928,13 @@ internal static partial class HauntFigures
             // The one dump that would otherwise never be written: an event cut short before its
             // envelope ever reached 1 (a stand-down mid-reveal, a style change). Says so in the
             // line, so a reader is never misled into reading a mid-dissolve state as the final one.
-            Diag.Materials(_wantModel, "AFTER (cut short before full presence)", _lastPresence);
+            Diag.Materials(_wantModel, "AFTER (cut short before full presence)", _lastShade);
 
             Lighting.Forget();
 
             // Materials first: they are instances this side created and Unity will not collect them
             // with the objects that reference them.
+            Tints.Clear();          // holds Material references — cleared BEFORE they are destroyed
             for (int i = 0; i < Mats.Count; i++)
                 if (Mats[i] != null)
                     Object.Destroy(Mats[i]);
@@ -770,7 +960,8 @@ internal static partial class HauntFigures
             _state = string.Empty;
             _hasRunBlend = false;
             _spawned = false;
-            _lastPresence = -1f;
+            _lastShade = -1f;
+            _tintName = string.Empty;
             _voiced = false;
             _wantModel = string.Empty;
             _wantParent = null;
@@ -883,15 +1074,37 @@ internal static partial class HauntFigures
         ///
         /// <para><b>THE HONEST LIMIT, and the probe for it.</b> SH reaches a shader only if that
         /// shader samples light probes (<c>ShadeSH9</c>, i.e. a <c>ForwardBase</c> pass — every
-        /// Standard/Amplify PBR shader does; a hand-written unlit one does not). Nothing in the
-        /// decompiled game names the character shader, and the bundles are not on this machine, so
-        /// which it is CANNOT be established without hardware. <see cref="Diag"/> therefore prints
-        /// each material's shader name and whether it has a <c>ForwardBase</c> pass, once per
-        /// creature. Equally: this cannot REMOVE the game scene's own lights from the figure, since
-        /// <c>_LightColor0</c> is a per-pass global and not a per-renderer one — so
-        /// <see cref="Diag.Scene"/> lists every real light in the scene and says whether its culling
-        /// mask includes the mod layer. Those two lines together decide whether the next round has
-        /// anything left to do here.</para>
+        /// Standard/Amplify PBR shader does; a hand-written unlit one does not).
+        /// <see cref="Diag"/> prints each material's shader name and whether it has a
+        /// <c>ForwardBase</c> pass, once per creature. Equally: this cannot REMOVE the game scene's
+        /// own lights from the figure, since <c>_LightColor0</c> is a per-pass global and not a
+        /// per-renderer one — so <see cref="Diag.Scene"/> lists every real light in the scene and
+        /// says whether its culling mask includes the mod layer.</para>
+        ///
+        /// <para><b>WHY A TINT AND NOT ONLY SH — the paragraph that used to end "those two lines
+        /// decide whether the next round has anything left to do here", answered by hardware.</b>
+        /// <b>USER REPORT, verbatim:</b> "Die Figuren sind VOLL sichtbar in der schwarzen Nacht als
+        /// wären sie voll angestrahlt. Das soll nicht sein. Sie MÜSSEN an die Lichtverhältnisse
+        /// angeglichen werden, sonst geht der Gruselfaktor verloren." Both screenshots
+        /// (<c>.planning/debug/nachladen1.jpg</c>, <c>nachladen2.jpg</c>) show a WHITE figure in a
+        /// pitch-black room. SH did not darken it, and there are two independent reasons why it
+        /// could not have, only one of which the last round listed:
+        /// <list type="number">
+        /// <item>SH is ADDITIVE AMBIENT. It can only ever ADD light to a figure. Nothing about
+        /// handing a renderer a very dark probe set makes it dark — it makes it dark ONLY IF nothing
+        /// else lights it, and something else does: <c>Diag.Scene</c> exists precisely because the
+        /// game's own scene lights reach the mod layer and cannot be masked off per renderer. A
+        /// figure lit by the game's sun stays lit by the game's sun however black the probes are.
+        /// </item>
+        /// <item>The burn edge of the dissolve was EMISSIVE, and no lighting term of any kind
+        /// darkens an emissive pixel (class doc). That half is fixed by deleting the dissolve.</item>
+        /// </list>
+        /// So the darkening lever has to be MULTIPLICATIVE and has to sit on the albedo, ahead of
+        /// every lighting term including the ones this side cannot see —
+        /// <see cref="TintNames"/>, driven from <see cref="Level"/> below. THE SH IS KEPT: it costs
+        /// nothing, it is already written, and where the shader does sample probes it is what makes
+        /// the moon rake the figure from the same bearing it rakes the wall. It is now the
+        /// DIRECTION and the tint is the AMOUNT.</para>
         ///
         /// <para><b>THE ELEMENT MIRROR, KEPT TO FOUR CONSTANTS AND THREE LINES.</b> A mirror is a
         /// liability in this project and the rule is to mirror the minimum, so this mirrors the
@@ -989,6 +1202,55 @@ internal static partial class HauntFigures
             private static float _ptHard;
             private static bool _indoor;
 
+            // ---- THE DARKENING, and the four numbers a tuning drop would move -------------------
+            //
+            // THE MAPPING. `lum` is the Rec.709 luminance of the SH CONSTANT TERM — i.e. of all the
+            // light the room's own rig delivers to the figure's chest, ambient plus moon plus
+            // candles, with the element gains already folded in. `Level` is what the figure's albedo
+            // is multiplied by:
+            //
+            //     Level = clamp(DarkFloor + LightGain * lum, DarkFloor, MaxLevel)
+            //
+            // WHAT THAT ACTUALLY COMES OUT AT, from the bake's own rig constants, because a mapping
+            // nobody has evaluated is a mapping nobody can judge:
+            //   * CELLAR (BuildEnvironmentRooms.cs:2927-2944 — ambUp (0.028,0.032,0.045), ambDown
+            //     (0.020,0.018,0.015), dirCol (0.048,0.070,0.128)): away from the candles the
+            //     constant term is about (0.036,0.043,0.062), lum 0.043, so Level about 0.10. A
+            //     creature at a TENTH of its albedo, which is what an unlit cellar corner has to
+            //     mean.
+            //   * NIGHT FOREST (:10520-10540 — the moon is 0.70/0.79/0.94 out there): the constant
+            //     term is about (0.19,0.22,0.26), lum 0.21, so Level about 0.32. The wood is
+            //     genuinely brighter than the cellar and the figure follows it.
+            // Walking into a candle pool raises it; Dark eclipsing the moon lowers it; both fall out
+            // of the rig evaluation that was already here.
+            //
+            // NONE OF THE FOUR IS TUNED AGAINST HARDWARE and they cannot be, from this machine —
+            // what a tenth of albedo looks like through a Quest 3 in a dark room is not derivable.
+            // Bind() therefore LOGS the measured luminance and the resulting Level per room, so a
+            // tuning drop is a number read off the log rather than a guess.
+            private const float DarkFloor = 0.045f;   // a creature is never fully black while present
+            private const float LightGain = 1.30f;    // room luminance -> albedo multiplier
+            private const float MaxLevel = 0.80f;     // never at full albedo: it is a thing in the dark
+            private const float UnlitLevel = 0.20f;   // the rig could not be read at all
+
+            /// <summary>
+            /// The albedo multiplier the room's measured light justifies, 0..1 — the AMOUNT half of
+            /// "an die Lichtverhältnisse angeglichen". <see cref="Shade"/> multiplies the event's
+            /// envelope by it.
+            ///
+            /// <para>It is a cached measurement rather than a computation: <see cref="Apply"/> writes
+            /// it on the frames it runs, and those are exactly the frames on which the figure moved
+            /// or the elements did. A watcher standing still under an unchanging rig keeps the value
+            /// it was given, which is correct and free.</para>
+            /// </summary>
+            internal static float Level { get; private set; } = UnlitLevel;
+
+            /// <summary>The raw room luminance the last <see cref="Level"/> was computed from, and a
+            /// once-per-apparition latch for the line that prints it. Diagnostics only — this is the
+            /// number a tuning drop for the four constants above would be read off.</summary>
+            private static float _measured;
+            private static bool _levelLogged;
+
             private static MaterialPropertyBlock? _block;
             private static Vector3 _lastAt = new(1e9f, 1e9f, 1e9f);
             private static float _lastAmb = -1f, _lastDir = -1f;
@@ -1000,6 +1262,10 @@ internal static partial class HauntFigures
                 _lastAt = new Vector3(1e9f, 1e9f, 1e9f);
                 _lastAmb = -1f;
                 _lastDir = -1f;
+                // BACK TO THE DIM CONSTANT, not to 1. A figure whose room could not be measured is
+                // still a figure in the dark, and the one value this must never fall back to is
+                // "full albedo" — that is the picture the user rejected.
+                Level = UnlitLevel;
             }
 
             /// <summary>
@@ -1019,6 +1285,7 @@ internal static partial class HauntFigures
             internal static void Bind(Transform? room, SkyStyle style, string model)
             {
                 Forget();
+                _levelLogged = false;   // one measured-level line per apparition, not per frame
                 _indoor = style == SkyStyle.Cellar;
                 if (room == null)
                     return;
@@ -1211,6 +1478,32 @@ internal static partial class HauntFigures
                     bb += l * (cc.z * LobeLinear);
                 }
 
+                // ---- THE MEASUREMENT, taken BEFORE the colour-space handshake. `a` is at this
+                // point exactly what the room's own shaders consume — the same numbers the wall
+                // behind the figure is shaded with — which is the frame the comparison "as bright as
+                // the room" has to be made in. After ToLinearIfGamma it is in ShadeSH9's frame
+                // instead, and in a gamma project that would read five times too bright.
+                float lum = 0.2126f * a.x + 0.7152f * a.y + 0.0722f * a.z;
+                Level = Mathf.Clamp(DarkFloor + LightGain * Mathf.Max(lum, 0f), DarkFloor, MaxLevel);
+                _measured = lum;
+
+                if (!_levelLogged)
+                {
+                    _levelLogged = true;
+                    VRLog.Info("Core", "HAUNT FIGURES light level — the room delivers luminance "
+                        + $"{_measured:F4} at the figure's chest (SH constant term "
+                        + $"({a.x:F4},{a.y:F4},{a.z:F4}), the same numbers the wall behind it is shaded "
+                        + $"with), so the apparition's albedo is multiplied by {Level:F3}. THIS IS THE "
+                        + "LINE TO TUNE FROM: the mapping is DarkFloor "
+                        + $"{DarkFloor:F3} + LightGain {LightGain:F2} x luminance, clamped to "
+                        + $"{MaxLevel:F2}, and none of those four is tuned against hardware. Too dark "
+                        + "to find at all means raise DarkFloor; still reading as 'voll angestrahlt' "
+                        + "means lower LightGain. The multiply is on the ALBEDO (property "
+                        + $"'{_tintName}' where the shader has one), so it holds whatever else is "
+                        + "lighting the figure — including the game's own scene lights, which no "
+                        + "per-renderer setting can take away.");
+                }
+
                 ToLinearIfGamma(ref a, ref br, ref bg, ref bb);
 
                 _block ??= new MaterialPropertyBlock();
@@ -1296,8 +1589,10 @@ internal static partial class HauntFigures
             };
 
             /// <summary>The two material dumps. <paramref name="phase"/> is BEFORE (nothing written
-            /// by this side yet) or AFTER (the state the player is looking at).</summary>
-            internal static void Materials(string model, string phase, float presence)
+            /// by this side yet) or AFTER (the state the player is looking at), and
+            /// <paramref name="shade"/> is the COMBINED scalar the albedo was multiplied by —
+            /// envelope times the room's light level — or negative when there is none yet.</summary>
+            internal static void Materials(string model, string phase, float shade)
             {
                 if (model.Length == 0 || Rends.Count == 0)
                     return;
@@ -1308,11 +1603,26 @@ internal static partial class HauntFigures
                 {
                     var sb = new StringBuilder(2048);
                     sb.Append($"HAUNT FIGURES MATERIALS for '{model}' — {phase}");
-                    if (presence >= 0f)
-                        sb.Append($" (presence {presence:F3})");
+                    if (shade >= 0f)
+                        sb.Append($" (albedo multiplied by {shade:F3})");
                     sb.Append(" (once per creature per process). This is the line whose absence made the "
                               + "last round guesswork: shader, whether the room's light-probe SH can reach "
-                              + "it, and every visibility-ish property with its LIVE value.\n");
+                              + "it, and every visibility-ish property with its LIVE value.\n  DARKENING "
+                              + "LEVER: "
+                              + (_tintName.Length > 0
+                                     ? $"'{_tintName}' on {Tints.Count} of {Mats.Count} material(s) — the "
+                                       + "albedo is multiplied by the envelope times the room's measured "
+                                       + "light level (see the HAUNT FIGURES light level line). "
+                                       + "_MOD_TINT is the property Choreographer.cs:851-853 writes on "
+                                       + "Amp_Char_Shader, which is why it is tried first."
+                                     : "NONE — no material declared _MOD_TINT, _Color, _Tint, _TintColor "
+                                       + "or _Diffuse with a usable value, so this creature falls back to "
+                                       + "being switched on at half presence and cannot be darkened at "
+                                       + "all. The property list below is what the next round should pick "
+                                       + "a lever from.")
+                              + "\n  The DISSOLVE is switched hard off (_Toggle_Dissolve = 0, "
+                              + "_InvisibilityControl = 0): its emissive burn edge was the 'schwarze "
+                              + "Flecken' and half of the 'voll angestrahlt' report.\n");
 
                     int shown = 0;
                     for (int i = 0; i < Rends.Count && shown < MaxRenderers; i++)

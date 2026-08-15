@@ -224,20 +224,37 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// One button per apparition of the room the player is standing in.
+    /// One button per apparition <b>of the room that is actually standing</b>, and none for the
+    /// other room's.
     ///
-    /// <para>THE LABELS NAME BOTH ROOMS, because one id is two different apparitions. The table is
-    /// the bundle's, not this file's — it lives beside each catalogue in
-    /// <c>BuildEnvironmentRooms.cs</c> (grep <c>HAUNT FORCE ID TABLE</c>) and in
-    /// <c>EnvHaunt.cginc</c>'s contract block. Repeated here as "cellar / forest" per row rather
-    /// than switched on the live style: the page must be readable before the room is measured, and
-    /// a caption that changes under the tester between two presses is worse than one that says
-    /// both. If the catalogues are ever reordered, this list is stale and the log line (which
-    /// prints the id) is what catches it.</para>
+    /// <para><b>USER REQUEST, verbatim:</b> "Verändere die möglichen Optionen die man triggern kann
+    /// in dem Test menu direkt je nachdem welche Umgebung geladen ist statt immer alle Knöpfe
+    /// darzustellen." The page used to draw six rows unconditionally and label each one
+    /// "cellar / forest", which was wrong twice over the moment the two rooms stopped agreeing:
+    /// <see cref="Haunt.CardsIn"/> is 6 in the cellar and 3 in the wood since ModBuild 147, so in the
+    /// wood THREE OF THE SIX BUTTONS NAMED CARDS THAT DO NOT EXIST — <see cref="Haunt.Force"/>
+    /// refuses them with a silent <c>false</c>, which from the tester's side is a dead button. And a
+    /// caption that names two apparitions makes the tester do the room lookup that this code can do
+    /// for them.</para>
     ///
-    /// <para>ONE ROW SAYS "draws nothing" ON PURPOSE (id 3 in the cellar, the cobweb tremble). A
-    /// tester who presses it and sees no apparition would otherwise file a broken button; the
-    /// caption tells them to watch the webs instead.</para>
+    /// <para><b>THE ROW SET IS DECIDED AT BUILD TIME, NOT PER FRAME, and that is what keeps the
+    /// page's own rule intact</b> (it must never rebuild itself under the pointer — see the class
+    /// doc). The only thing that can change which room is standing is the environment dial, which
+    /// lives on a different page and rebuilds this one on the way back; a latch press cannot change
+    /// it. So the style is read once, here, and <see cref="RefreshLatchRows"/> keeps repainting
+    /// captions in place exactly as before — no row is ever added or removed while the page is
+    /// open.</para>
+    ///
+    /// <para><b>WHEN NO HAUNTED ROOM IS STANDING</b> (Default, OffBlack, mixed reality, the main
+    /// menu) the block draws its heading and one note saying so, and NO buttons. Six inert buttons
+    /// are indistinguishable from six broken ones; a sentence is not.</para>
+    ///
+    /// <para>The captions are per room now (<c>vr_tt_hc_*</c> for the cellar, <c>vr_tt_hf_*</c> for
+    /// the wood) and the authority for both is still the bundle: each catalogue's own
+    /// <c>HAUNT FORCE ID TABLE</c> in <c>BuildEnvironmentRooms.cs</c>. If a catalogue is reordered
+    /// these strings go stale and only the log's id will still be right. ONE CELLAR ROW SAYS "draws
+    /// nothing" ON PURPOSE (id 3, the cobweb tremble): a tester who presses it and sees no
+    /// apparition would otherwise file a broken button.</para>
     ///
     /// <para>THE BLOCK CARRIES ITS OWN NOTE because this half does not behave like the element half
     /// above it, and a tester who discovered that by pressing would file it as a bug: only one
@@ -252,16 +269,34 @@ internal static partial class VROptionsTab
             return 0;
 
         BuildHeader(ContentRoot, Loc.Mod("vr_tt_haunts"), "h_vr_tt_haunts", sub: true);
-        BuildNote(ContentRoot, Loc.Mod("vr_tt_haunt_note"));
+
+        // The room, read ONCE. SkyAlternative.Style is the player's dial rather than what is drawn
+        // this frame, and that is the right source for a page that has to be readable in the main
+        // menu too: it answers "which room's apparitions would these buttons play", which is exactly
+        // what a tester about to start a scenario is asking.
+        SkyStyle style = SkyAlternative.Style.Value;
+        bool haunted = style == SkyStyle.Cellar || style == SkyStyle.SwampNight;
+        if (!haunted)
+        {
+            BuildNote(ContentRoot, Loc.Mod("vr_tt_haunt_none"));
+            return 0;
+        }
+
+        bool cellar = style == SkyStyle.Cellar;
+        BuildNote(ContentRoot, Loc.Mod(cellar ? "vr_tt_haunt_room_c" : "vr_tt_haunt_room_f"));
         BuildNote(ContentRoot, Loc.Mod("vr_tt_haunt_one"));
 
-        for (int i = 0; i < Haunt.EventCount; i++)
+        // THE ROOM'S OWN COUNT, never Haunt.EventCount — that constant is the MAXIMUM and is what
+        // sizes the figure mask, not what any one room has.
+        int count = Haunt.CardsIn(style);
+        string prefix = cellar ? "vr_tt_hc_" : "vr_tt_hf_";
+        for (int i = 0; i < count; i++)
         {
             int id = i;
             // 1-based in the caption, 0-based on the wire to the shader: the tester counts from one,
             // the card index counts from zero, and the log prints the id so the two can be lined up.
             string caption = Loc.Mod("vr_tt_haunt_n").Replace("{0}", (i + 1).ToString())
-                             + " — " + Loc.Mod("vr_tt_haunt_" + i);
+                             + " — " + Loc.Mod(prefix + i);
             RegisterLatchRow(
                 BuildLinkRow(ContentRoot, LatchCaption(caption, Haunt.IsForced(id)), () =>
                 {
@@ -271,7 +306,7 @@ internal static partial class VROptionsTab
                 () => LatchCaption(caption, Haunt.IsForced(id)));
         }
 
-        return Haunt.EventCount;
+        return count;
     }
 
     /// <summary>

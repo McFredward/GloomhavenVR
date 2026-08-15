@@ -72,8 +72,13 @@ namespace GloomhavenVR.Core;
 /// mood is a number and an apparition is a surface, and the standing MR ruling is that the mod puts
 /// no occluding geometry over passthrough.</para>
 ///
-/// <para><b>NO SOUND, ever.</b> The user asked for "ohne sound" and the bundle ships no audio at
-/// all. There is nothing here to switch off because there is nothing here to switch on.</para>
+/// <para><b>NO SOUND, ever — WITHDRAWN.</b> This paragraph said "the user asked for 'ohne sound' and
+/// the bundle ships no audio at all", and the user took that ruling back in as many words:
+/// "Ich nehme die Entscheidung von zuvor zurück, die Grusel-Erscheinungen sollen NICHT stumm
+/// bleiben." The bundle still ships no audio — that half was never the point — and the sound comes
+/// from the GAME's own banks through <see cref="EnvSound"/>, gated on the one environment-sound
+/// toggle. The full quotation and the argument are in Haunt.Schedule.cs's header, which is where the
+/// schedule the cues resolve against lives.</para>
 /// </summary>
 /// <remarks>CLASSIFICATION: LOCAL — a presentation setting, ZERO wire. The CONTENT it gates is
 /// GLOBAL by construction (a pure function of the shared environment clock), which is why no wire
@@ -145,15 +150,27 @@ internal static partial class Haunt
             return;
         _bound = true;
 
+        // THE LIST IS THE CATALOGUE AND HAS TO STAY THE CATALOGUE. It was stale for one build — it
+        // still promised the face behind the tree and the shape CROSSING the stair doorway, both of
+        // which are gone: the first with the hand-built figures (ModBuild 147), the second on the
+        // user's ruling this round ("Die figuren sollten nicht durch wände glitchen"). A description
+        // that names an event the player will never see is the most convincing kind of wrong.
+        // Cellar: window / handprints / the lit door at the stair top / the cobwebs / the watcher in
+        // the shaft / the bookshelf. Wood: the eyes / the watcher at the treeline / the crossing.
         EasterEggs = file.Bind("Haunt", "EasterEggs", Defaults.HauntEasterEggs,
-            "Occasional creepy easter eggs in the CELLAR and the NIGHT FOREST: a pale smiling face "
-            + "easing out from behind a tree, eyes that open in the undergrowth and blink once, a "
-            + "tall figure that stands between two distant trunks and then is simply not there, "
-            + "something looking in at the cellar window while the moonlight dims for it, "
-            + "handprints blooming on the wet stone, a shape crossing the stair doorway, the "
+            "Occasional creepy easter eggs in the CELLAR and the NIGHT FOREST: eyes that open in the "
+            + "undergrowth and blink once, a tall figure that stands between two distant trunks and "
+            + "then is simply not there, something walking past behind the trees, a face at the "
+            + "cellar window looking in through the bars while the moonlight dims for it, handprints "
+            + "blooming on the wet stone, a dim warm door opening at the top of the stair and closing "
+            + "again, someone standing in the dark of the stair shaft watching the room, the "
             + "cobwebs shivering as if something large had gone past behind them, and now and then "
-            + "the rat stopping in the middle of the floor to look at the room. There is NO sound "
-            + "and nothing ever appears over the board, in the way of anything you need to read, or "
+            + "the rat stopping in the middle of the floor to look at the room. They are lit by the "
+            + "room and by nothing else, so in an unlit corner you will barely make one out — that "
+            + "is deliberate. They make only quiet, positional sound, and only while the environment "
+            + "sounds are switched on — this line said 'there is NO sound' for several builds after "
+            + "that ruling was reversed (Haunt.Schedule.cs's header quotes the reversal). "
+            + "Nothing ever appears over the board, in the way of anything you need to read, or "
             + "close enough to reach — they are background, they are rare, and two never happen at "
             + "once. Every player in the game sees the SAME event in the SAME place at the SAME "
             + "moment: it is computed from the shared environment clock, so it needs no network "
@@ -264,10 +281,27 @@ internal static partial class Haunt
     ///
     /// <para>WITHOUT IT the next run starts on the exact frame the last one reached zero presence,
     /// and a tester cannot tell a loop from one long event — which matters most for the events whose
-    /// whole identity is that they are brief. Six tenths of a second is under the eye's "is it gone?"
-    /// threshold for these fades and over the frame budget by a factor of thirty.</para>
+    /// whole identity is that they are brief.</para>
+    ///
+    /// <para><b>IT WAS 0.6 s AND THE ARGUMENT FOR THAT NUMBER IS OVERTURNED.</b> The withdrawn
+    /// sentence read: "Six tenths of a second is under the eye's 'is it gone?' threshold for these
+    /// fades and over the frame budget by a factor of thirty." Being under that threshold was
+    /// presented as the virtue and it is the defect. <b>USER REPORT, verbatim:</b> "Die
+    /// Laufanimation der Figuren ist immer nur kurz flüssig dann teleportiert sich die figure wieder
+    /// ein stück nach hinten und läuft wieder nach vorne und teleportiert sich wieder - dieses
+    /// teleportieren kommt ständig und nimmt jegliche immersion, das muss verschwinden." A loop that
+    /// the eye cannot resolve as an absence is not read as a repetition at all — it is read as the
+    /// same creature jumping backwards, which is precisely what he describes. The gap has to be long
+    /// enough to be a GAP.</para>
+    ///
+    /// <para>1.4 s is over that threshold with room to spare and still short enough that a tester
+    /// judging one apparition is not left waiting. Two other changes in the same round are what make
+    /// it work rather than merely make it longer: <c>HauntFigures</c> no longer destroys and rebuilds
+    /// the creature across a loop (it used to, which is why the restart arrived at a random point
+    /// along the path), and presence 0 now switches the renderers off outright instead of driving a
+    /// dissolve whose burn edge was brightest at exactly these moments.</para>
     /// </summary>
-    private const float ForceLoopGapSeconds = 0.6f;
+    private const float ForceLoopGapSeconds = 1.4f;
 
     /// <summary>
     /// The shortest a loop may be, whatever the card's own length.

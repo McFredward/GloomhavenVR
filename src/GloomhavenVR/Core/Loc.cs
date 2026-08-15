@@ -580,7 +580,12 @@ internal static partial class Loc
         // three things a player will want to know before switching it on — what it is, that it is
         // never in the way, and that everyone sees the same thing — and not one word about how.
         ["vr_o_haunt"] = Pair("Creepy easter eggs", "Grusel-Easter-Eggs"),
-        ["h_vr_o_haunt"] = Pair("Rare, quiet apparitions in the cellar and the night forest: a pale face behind a tree, eyes that blink once, something at the window while the moonlight dims. No sound, never over the board, never two at once — and every player sees the same one in the same place at the same moment.", "Seltene, leise Erscheinungen im Keller und im Nachtwald: eine bleiche Fratze hinter einem Baum, Augen, die einmal blinzeln, etwas am Fenster, während der Mondschein schwächer wird. Kein Ton, nie über dem Brett, nie zwei gleichzeitig — und alle Spieler sehen dieselbe an derselben Stelle im selben Moment."),
+        // THE HAUNT DESCRIPTION, rewritten this round. It promised "eine bleiche Fratze hinter einem
+        // Baum" (deleted with the hand-built figures in ModBuild 147) and "kein Ton" (a ruling the
+        // user took back himself). What it now names are events that exist, and it states the one
+        // property the user calls the most important: they are lit by the room and are meant to be
+        // hard to make out.
+        ["h_vr_o_haunt"] = Pair("Rare, quiet apparitions in the cellar and the night forest: a face looking in at the barred window while the moonlight dims, someone standing in the dark of the stair shaft, eyes that blink once in the undergrowth, a watcher between distant trunks. They are lit by the room and by nothing else, so in an unlit corner you will barely make one out. Never over the board, never two at once — and every player sees the same one in the same place at the same moment.", "Seltene, leise Erscheinungen im Keller und im Nachtwald: ein Gesicht, das durchs vergitterte Fenster hereinsieht, während der Mondschein schwächer wird, jemand, der im Dunkeln des Treppenschachts steht, Augen, die einmal im Unterholz blinzeln, ein Beobachter zwischen fernen Stämmen. Sie werden nur vom Raum beleuchtet und von sonst nichts — in einer unbeleuchteten Ecke erkennst du also kaum etwas. Nie über dem Brett, nie zwei gleichzeitig — und alle Spieler sehen dieselbe an derselben Stelle im selben Moment."),
         ["vr_o_haunt_freq"] = Pair("Easter egg frequency", "Häufigkeit der Easter-Eggs"),
         ["h_vr_o_haunt_freq"] = Pair("How often they happen. 0.5 is about one every three minutes, 1 shows every one there is. Lower only means you see fewer of the same events — never different ones, so it stays in step with the other players.", "Wie oft sie auftreten. 0,5 ist etwa eines alle drei Minuten, 1 zeigt alle. Kleiner heißt nur, dass du weniger derselben Ereignisse siehst — nie andere, es bleibt also mit den Mitspielern im Gleichklang."),
         // Grafik ▸ Darstellung: the environment HEARD (ENV SOUND, Core/EnvSound.cs). The hint says
@@ -633,7 +638,16 @@ internal static partial class Loc
         ["vr_tt_dark"] = Pair("Dark", "Dunkelheit"),
         ["vr_tt_haunts"] = Pair("Apparitions (easter eggs)", "Erscheinungen (Easter-Eggs)"),
         ["h_vr_tt_haunts"] = Pair("Plays one apparition of the environment you are in right now and holds back all the others while it is on.", "Spielt eine Erscheinung der Umgebung ab, in der du gerade bist, und hält alle anderen zurück, solange sie an ist."),
-        ["vr_tt_haunt_note"] = Pair("Numbered by the current environment: the same number is a different apparition in the cellar than in the forest.", "Nummeriert nach der aktuellen Umgebung: dieselbe Nummer ist im Keller eine andere Erscheinung als im Wald."),
+        // WHICH ROOM'S BUTTONS THESE ARE. USER REQUEST, verbatim: "Verändere die möglichen Optionen
+        // die man triggern kann in dem Test menu direkt je nachdem welche Umgebung geladen ist statt
+        // immer alle Knöpfe darzustellen." The page now draws only the standing room's cards, so the
+        // old note ("dieselbe Nummer ist im Keller eine andere Erscheinung als im Wald", vr_tt_haunt_note)
+        // described a problem that no longer exists and is deleted with the six two-room captions.
+        // What replaces it says which room the rows below belong to — the tester may well be reading
+        // this page in the main menu, before that room has been built.
+        ["vr_tt_haunt_room_c"] = Pair("These are the CELLAR's apparitions — the environment you have selected. The night forest has different ones.", "Dies sind die Erscheinungen des KELLERS — der Umgebung, die du gewählt hast. Der Nachtwald hat andere."),
+        ["vr_tt_haunt_room_f"] = Pair("These are the NIGHT FOREST's apparitions — the environment you have selected. The cellar has different ones.", "Dies sind die Erscheinungen des NACHTWALDS — der Umgebung, die du gewählt hast. Der Keller hat andere."),
+        ["vr_tt_haunt_none"] = Pair("The selected environment has no apparitions, so there is nothing to trigger here. Choose Cellar or Night forest and this list fills with that room's own.", "Die gewählte Umgebung hat keine Erscheinungen, hier gibt es also nichts auszulösen. Wähle Keller oder Nachtwald, dann stehen hier die Erscheinungen dieser Umgebung."),
         // THIS HALF OF THE PAGE DOES NOT BEHAVE LIKE THE ELEMENT HALF, and a tester who found that
         // out by pressing would file it as a bug. Both differences are technical facts rather than
         // choices: only one apparition can be on because the shader's force channel carries a single
@@ -641,19 +655,26 @@ internal static partial class Loc
         // "again and again". Said plainly, without either reason — the tester needs the behaviour.
         ["vr_tt_haunt_one"] = Pair("Only one apparition at a time: switching one on switches the previous one off. The one that is on repeats until you switch it off.", "Immer nur eine Erscheinung gleichzeitig: eine neue schaltet die vorherige aus. Die eingeschaltete wiederholt sich, bis du sie wieder ausschaltest."),
         ["vr_tt_haunt_n"] = Pair("Apparition {0}", "Erscheinung {0}"),
-        // One id, two apparitions: the cellar's card and the forest's card of the same index are
-        // different things, so each caption names both, cellar first. The authority for this table
-        // is the bundle (BuildEnvironmentRooms.cs, "HAUNT FORCE ID TABLE"); if the catalogues are
-        // reordered these strings go stale and only the log's id will still be right.
-        ["vr_tt_haunt_0"] = Pair("Window / Face", "Fenster / Fratze"),
-        ["vr_tt_haunt_1"] = Pair("Handprints / Eyes", "Handabdrücke / Augen"),
-        ["vr_tt_haunt_2"] = Pair("Face on the floor / Watcher", "Gesicht am Boden / Beobachter"),
-        // The cellar's id 3 draws NOTHING — it shivers the cobwebs. Said out loud, or a tester
-        // presses it, sees no apparition and reports a broken button.
-        ["vr_tt_haunt_3"] = Pair("Cobwebs shiver (no figure) / Something crosses",
-                                 "Spinnweben zittern (keine Gestalt) / Etwas huscht vorbei"),
-        ["vr_tt_haunt_4"] = Pair("Stairway / Looming mass", "Treppe / Dunkle Masse"),
-        ["vr_tt_haunt_5"] = Pair("Bookshelf / Hanging body", "Bücherregal / Hängender Körper"),
+        // ONE CAPTION PER ROOM PER CARD, cellar (vr_tt_hc_*) and wood (vr_tt_hf_*). They used to be
+        // six two-room captions ("Fenster / Fratze"), which stopped being expressible the moment the
+        // rooms stopped having the same number of cards — the cellar has six and the wood three
+        // (Haunt.CardsIn), so ids 3..5 named forest apparitions that do not exist. The authority for
+        // both tables is the bundle (BuildEnvironmentRooms.cs, "HAUNT FORCE ID TABLE", one beside
+        // each catalogue); if a catalogue is reordered these strings go stale and only the log's id
+        // will still be right.
+        //
+        // TWO CELLAR ROWS SAY "no figure" ON PURPOSE — id 2 is a rectangle of light and id 3 shivers
+        // the cobwebs. A tester who presses either and sees no creature would otherwise report a
+        // broken button; the caption tells them what to look at instead.
+        ["vr_tt_hc_0"] = Pair("Window — a face looks in through the bars", "Fenster — ein Gesicht sieht durchs Gitter herein"),
+        ["vr_tt_hc_1"] = Pair("Handprints on the wet wall", "Handabdrücke an der nassen Wand"),
+        ["vr_tt_hc_2"] = Pair("A door opens at the top of the stair (light, no figure)", "Oben an der Treppe geht eine Tür auf (Licht, keine Gestalt)"),
+        ["vr_tt_hc_3"] = Pair("The cobwebs shiver (no figure)", "Die Spinnweben zittern (keine Gestalt)"),
+        ["vr_tt_hc_4"] = Pair("Someone stands in the stair shaft, watching", "Jemand steht im Treppenschacht und beobachtet"),
+        ["vr_tt_hc_5"] = Pair("The bookshelf tips over", "Das Bücherregal kippt um"),
+        ["vr_tt_hf_0"] = Pair("Eyes open in the undergrowth and blink once", "Augen öffnen sich im Unterholz und blinzeln einmal"),
+        ["vr_tt_hf_1"] = Pair("A watcher at the treeline", "Ein Beobachter am Baumrand"),
+        ["vr_tt_hf_2"] = Pair("Something passes between the trunks", "Etwas geht zwischen den Stämmen durch"),
         // THE ALL-OFF ROW. It was "stop now" while both overrides expired by themselves; with latches
         // it is the page's one guarantee that everything can be put back in a single press, so the
         // caption says EVERYTHING rather than naming the two channels — a tester who has latched

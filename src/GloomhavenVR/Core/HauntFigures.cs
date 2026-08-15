@@ -32,19 +32,29 @@ namespace GloomhavenVR.Core;
 /// with root motion (see ANIMATION below), and that is the single technical fact this whole feature
 /// is shaped around.</para>
 ///
-/// <para><b>WHAT IS FRIGHTENING HERE, stated as a rule rather than as a hope.</b> The user's own
-/// example is "vorbeilaufen" — something CROSSING. Every one of the four events below is built out
-/// of the same three ingredients and nothing else:
+/// <para><b>WHAT IS FRIGHTENING HERE, stated as a rule rather than as a hope, and REWRITTEN after
+/// the first hardware round.</b> The user's own first example was "vorbeilaufen" — something
+/// CROSSING — and after watching two of those he rejected both ("Ich mag die Idee nicht dass jemand
+/// am Kellerfenster vorbeirennt", "Mach doch auch einfach jemand der dort steht und beobachtet im
+/// Schatten"). Three of the four events therefore now STAND. The ingredients are:
 /// <list type="number">
 /// <item><b>DISTANCE.</b> Nothing is ever nearer than the far side of the room. A figure fully lit
 /// in the middle of the play space is a model viewer, not a haunting.</item>
-/// <item><b>PARTIAL OCCLUSION BY REAL GEOMETRY.</b> Every event is framed by something the bake
-/// actually built: a barred window slot 1.11 m wide, a doorway 1.58 m wide, the second band of
-/// tree trunks. The player never sees the whole creature, and the thing doing the hiding is real
-/// geometry with real depth rather than an authored fade.</item>
-/// <item><b>BREVITY.</b> The longest event is visible for a few seconds and most of that is spent
-/// behind something. "Was that there?" is the target; being startled is explicitly forbidden by
-/// the standing brief.</item>
+/// <item><b>DARKNESS THAT IS THE ROOM'S OWN.</b> The user's ruling, verbatim: "Sie MÜSSEN an die
+/// Lichtverhältnisse angeglichen werden, sonst geht der Gruselfaktor verloren." A creature's albedo
+/// is multiplied by the light the room actually delivers where it stands, measured off the room's
+/// own baked rig — about a tenth in the cellar, about a third in the wood. This is the ingredient
+/// that replaced the one below it, and it is the one the user calls the most important point.</item>
+/// <item><b>PARTIAL OCCLUSION BY REAL GEOMETRY — WITH THE CAVEAT THAT COST US TWO EVENTS.</b> Every
+/// event is framed by something the bake really built: the barred window, the stair alcove, the
+/// second band of trunks. But the player looks at the board as a DIORAMA and his head is routinely
+/// ABOVE the cellar's 3.3 m walls, so <b>an event that relies on a wall to crop the creature works
+/// from inside the room and fails completely from the tabletop vantage</b> —
+/// <c>.planning/debug/nachladen1.jpg</c> is a whole figure standing in the open beyond a wall that
+/// was supposed to hide all but its shins. EVERY EVENT IS NOW JUDGED FROM BOTH VIEWPOINTS and each
+/// one says in its own doc what it looks like from each.</item>
+/// <item><b>BREVITY.</b> The longest event is visible for a few seconds. "Was that there?" is the
+/// target; being startled is explicitly forbidden by the standing brief.</item>
 /// </list></para>
 ///
 /// <para><b>THE PUBLISHED CHANNEL (the contract — this doc is the ONE canonical place; the bundle's
@@ -77,19 +87,22 @@ namespace GloomhavenVR.Core;
 /// answers no, with no edit to any .shader file. See EnvHaunt.cginc's own block for the full
 /// argument.</para>
 ///
-/// <para><b>WHICH CARDS THIS LANE TAKES OVER.</b> Four of the twelve, chosen because they are the
-/// ones that are a CREATURE DOING SOMETHING rather than a shape or a surface — see
-/// <c>HauntFigures.Events.cs</c> for each one's design. Cellar 0 (the window) and 4 (the stair
-/// doorway); forest 2 (the watcher) and 3 (the crossing). Everything else keeps working exactly as
-/// it does today and this file does not know it exists: the cellar's handprints (1), the face at
-/// floor level (2), the TREMBLE card that draws nothing at all and only shivers the cobwebs (3),
-/// and the TOPPLING BOOKSHELF (5) — which is a real prop with a real physics-shaped fall and five
-/// materials riding its published pose, and is emphatically not an apparition. In the forest: the
-/// face easing out from behind the bark (0), the two eyeshines (1), the featureless looming mass
-/// (4) and the hanged thing (5). The last three could not be a game monster even in principle:
-/// there is no hang-upside-down animation, no featureless 3 m mass in the roster, and the "eases
-/// sideways out from behind the trunk" motion is a sub-decimetre translation that no walk cycle
-/// can express.</para>
+/// <para><b>WHICH CARDS THIS LANE TAKES OVER.</b> Four, chosen because they are the ones that are a
+/// CREATURE rather than a shape or a surface — see <c>HauntFigures.Events.cs</c> for each one's
+/// design. Cellar 0 (the face at the window) and 4 (the watcher in the stair shaft); forest 1 (the
+/// watcher at the treeline) and 2 (the crossing). THE FOREST PAIR IS 1 AND 2, not 2 and 3: the wood
+/// went from six cards to three when the hand-built figures were deleted (ModBuild 147) and its
+/// catalogue was renumbered rather than left with holes. Everything else keeps working exactly as
+/// it does today and this file does not know it exists: the cellar's handprints (1), the DOOR that
+/// opens at the top of the stair and closes again (2 — light where there was none, no body at all),
+/// the TREMBLE card that draws nothing and only shivers the cobwebs (3), and the TOPPLING BOOKSHELF
+/// (5), which is a real prop with a real physics-shaped fall and five materials riding its published
+/// pose and is emphatically not an apparition. In the forest only the two eyeshines (0) are left to
+/// the shader, and they could not be a game monster even in principle — there is no creature in the
+/// roster that is a pair of eyes. THIS LIST IS THE BAKE'S, and the bake prints it: grep
+/// <c>HAUNT FORCE ID TABLE</c> in BuildEnvironmentRooms.cs. It said "the face at floor level (2)"
+/// and named four forest cards that no longer exist for one build after ModBuild 147 renumbered
+/// both catalogues.</para>
 ///
 /// <para><b>THE SCHEDULE IS NOT THIS FEATURE'S. It is <see cref="Haunt"/>'s, unchanged.</b> Every
 /// decision below — whether an event happens, which card it is, when it starts, how long it runs —
@@ -314,6 +327,57 @@ internal static partial class HauntFigures
         {
             HauntEvent ev = EventFor(style, slot.Card);
             float end = slot.StartClock + ev.Seconds * slot.DurationMul;
+
+            // ---- THE TELEPORT, AND WHY THIS ONE LINE IS THE WHOLE FIX ----------------------------
+            //
+            // USER REPORT, verbatim: "Die Laufanimation der Figuren ist immer nur kurz flüssig dann
+            // teleportiert sich die figure wieder ein stück nach hinten und läuft wieder nach vorne
+            // und teleportiert sich wieder - dieses teleportieren kommt ständig und nimmt jegliche
+            // immersion, das muss verschwinden."
+            //
+            // THE CAUSE IS A LATCHED TEST TRIGGER, and the ModBuild 146 hardware log proves the
+            // mechanism rather than suggesting it: nine `HAUNT FIGURES: SwampNight card 3 … armed at
+            // shared clock` lines, 2.5 s apart, on ONE latch (.planning/debug/Player.log:27358-27664)
+            // — and an `armed` line is only ever written by Arm(), i.e. after a full Retire(). The
+            // apparition was not looping. It was being DESTROYED AND REBUILT, over and over.
+            //
+            // WHY, EXACTLY. A latched force loops by moving _forceSince forward one
+            // Haunt.ForceLoopSeconds at a time, and that period is the event's own length PLUS a
+            // quiet gap (Haunt.ForceLoopGapSeconds). During that gap `clock` is past `end`, so the
+            // test below answered "no event" — `want` went to -1, the driver called
+            // Retire("the event ended"), and the clone, its instantiated materials, its Addressables
+            // child and its light bind all went with it. The re-anchor then arrived on a later frame
+            // and Arm() built the whole thing again from scratch. ModBuild 147 added the
+            // `sameCardLooped` path below to keep the creature standing across a loop — IT COULD
+            // NEVER RUN, because the gap always retired the figure first. It was dead code from the
+            // day it was written.
+            //
+            // WHAT THE PLAYER SEES WHEN THAT HAPPENS, and it is exactly his three sentences. The
+            // rebuild is asynchronous (an Instantiate, a strip, an InitialiseCharacterAsync, a child
+            // instantiate), so it takes a variable handful of frames — while the ANCHOR keeps being
+            // moved along the path every frame regardless. The figure therefore reappears not at the
+            // start of the walk but wherever the anchor had got to by the time it finished loading:
+            // "ein Stück nach hinten", by a different amount each time, for ever. And the old
+            // dissolve made the disappearance itself invisible-as-a-disappearance — its emissive burn
+            // edge was BRIGHTEST at the envelope's ends (HauntFigures.Clone.cs), so the frames that
+            // were supposed to read as "gone" read as a glowing thing at the far end of the path.
+            //
+            // SO THE ARMING WINDOW NOW STAYS OPEN FOR THE WHOLE LOOP PERIOD WHILE A FORCE IS
+            // LATCHED. `want` never drops to -1 between two runs, nothing is retired, nothing is
+            // rebuilt; the re-anchor lands on `sameCardLooped`, which moves _startClock and nothing
+            // else — one float write. The envelope is 0 for the entire gap, and presence 0 now means
+            // the renderers are switched OFF (Clone.Shade), so the walk is repositioned across frames
+            // on which the creature is not on screen at all. A loop is now "it went, and after a
+            // beat it came back", which is what a repeating event can honestly look like.
+            //
+            // IT IS ASKED OF Haunt RATHER THAN RECOMPUTED: Haunt.ForceLoopSeconds is the side that
+            // decides when the re-anchor happens (and it floors short events at 2.5 s), so deriving
+            // the window from anything else here would be a fourth copy of a number that already
+            // exists three times.
+            if (slot.Forced)
+                end = slot.StartClock + Mathf.Max(ev.Seconds * slot.DurationMul,
+                                                  Haunt.ForceLoopSeconds(style, slot.Card));
+
             // The arming window opens EARLY (see ArmLeadSeconds) and closes at the event's end. A
             // clock that has run backwards — a scene reload, a new owner of the shared epoch —
             // fails this test and simply retires whatever is up, which is the honest answer.
@@ -338,6 +402,13 @@ internal static partial class HauntFigures
         // one forest card. It did not change the picture, which is exactly why it needed finding in
         // the log rather than in a headset.
         //
+        // THIS PATH WAS DEAD UNTIL THIS ROUND and the correction belongs next to the claim: the loop
+        // period is the event's length PLUS a gap, so `want` went to -1 during that gap and the
+        // figure was retired before a re-anchor could ever be recognised as one. The window above now
+        // stays open for the whole loop period while a force is latched, which is what finally lets
+        // the test below do what it was written to do. The user's report of a figure teleporting
+        // backwards was the visible half of that dead code.
+        //
         // So the card decides the CLONE and the start clock decides only the MOTION: same card and a
         // start clock that moved FORWARD keeps the creature standing and re-runs its path from the
         // top, which is what a looping apparition should look like anyway. Everything else still
@@ -354,9 +425,11 @@ internal static partial class HauntFigures
             Retire("the shared clock jumped backwards under a running apparition");
         else if (sameCardLooped)
         {
-            // Keep the creature, restart its run. One float write, no allocation, no load.
+            // Keep the creature, restart its run. Two float writes and one bool, no allocation, no
+            // load — which is the whole difference between this and the teardown it replaces.
             _startClock = wantStart;
             _durMul = wantDur;
+            Clone.Restart();
         }
 
         if (want < 0)
