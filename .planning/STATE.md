@@ -126,6 +126,42 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 153** (commit `5650602`, bundle 67,150,694 bytes) — four reports, and **three of them
+  were already written down in this repository as known, accepted faults.** That is the lesson:
+  **a trade-off recorded in a comment is not a trade-off the user has agreed to**, and it will be
+  filed as a bug the first time it is seen.
+  * **The figures: the lever is the albedo TEXTURE.** 152's escape hatch fired exactly as written —
+    `_MOD_TINT` is inert on `Amp_Char_Shader` (`lit=NO`, value read live off the rendering material),
+    so all four earlier fits solved for the wrong unknown. Now a multiply on the albedo texture,
+    blitted through the bundle's own `HeadUnlit` with `_Color = (k,k,k,1)` so the alpha the
+    `_Cutoff` test reads passes untouched. **The fallback fails DARK** — `Levered` is populated from
+    a read-back, so a missing blit shader can never make the figure *brighter*. Refit from three
+    photographs: p50 and p90 land on **0.12 cellar / 0.20 wood independently**, and that agreement
+    is what makes it a fit rather than a wish.
+  * **The materialise is the game's own, driven by `_Cutout`** — read out of the decompiled source
+    rather than guessed. Both runtime drivers ramp `_Cutout` under `_Toggle_Dissolve`; nothing at
+    runtime writes `_DeathDissolvePos`. Following the runtime precedent makes the object-vs-world
+    space question **moot instead of guessed**.
+  * **The fire carried the wind because the candles play the wind buffer.** `EnvSoundClip.Bed` has
+    three callers; two are Air-gated and the three candle beds never were, so the wind clip was
+    audible with Air off, and their `+0.90 × Fire` term raised it **+6.2 dB per source**.
+  * **...and the roar itself measured as a wind.** Its deliberate 3.81 dB pulse was *smaller than
+    the stationary draught's 4.02 dB accident*, because the envelope was normalised by a peak whose
+    peak/σ is 3.13. Now 7.47 dB.
+  * **`GhvrTipUpright²` is a blend-mode fact, not a tuning**: `EnvParticleAdd` premodulates so the
+    sparks' drawn energy already goes as upright², while `EnvGlow`'s is linear in alpha — squaring
+    makes wash and sparks shed the same fraction of drawn energy at every instant.
+  * **The instrument was wrong in two ways that both made it agree.** `Renderer.bounds` on the shelf
+    is the **swept culling volume** (the fall is a vertex rotation), so every station "covered 100 %
+    of the frame" — including one **65° off**; and in batchmode `cam.aspect` is the phantom 640×480
+    screen's 1.333, not the render target's 1.778, so every horizontal measurement was 33 % too
+    wide. Four of seven stations mis-aimed, one **197° off with all eight corners behind the
+    camera**. Third mis-aimed station in eight days.
+  * **A toolchain finding worth carrying:** written as nested `if/else` inside a branch, glcore's
+    shader compiler **process died** on EnvGlow's vertex program, the shader fell back to Unity's
+    error pass, and the wash rendered **magenta** — through a bake that reported OK and a preview run
+    that produced thirteen confident PNGs. Rewritten as a select.
+
 - **ModBuild 152** (commit `fe71ecf`, bundle 67,138,818 bytes) — **the darkening lever was never
   connected**, and two of the user's own photographs prove it.
   * **`_MOD_TINT`'s fourth component is the shader's BLEND WEIGHT**, and every write this feature
