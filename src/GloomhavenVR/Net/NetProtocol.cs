@@ -416,7 +416,68 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 151;
+    public const ushort ModBuild = 152;
+    // Build 152: THE DARKENING LEVER WAS NEVER CONNECTED, and the proof is two of the user's own
+    // photographs. `_MOD_TINT`'s fourth component is the shader's blend weight, and every write this
+    // feature has ever made PRESERVED THE MATERIAL'S AUTHORING DEFAULT OF ZERO - so four rounds of
+    // colours went through a gate we were holding shut.
+    //   * The game never renders that state: Choreographer writes _MOD_TINT from
+    //     ColorUtility.TryParseHtmlString(ColourHTML), which returns alpha 1 for a 6-digit #RRGGBB,
+    //     and the string is never absent (MonsterYMLData initialises it to "#FFFFFF"). (1,1,1,0) is
+    //     an ASSET DEFAULT the shipped game has no path to. Our clone bypasses Choreographer.
+    //   * And the pixels say so. Two frames of the SAME forest event: Sichtbarkeit.jpg at a nominal
+    //     Level of 0.321 measures the figure at p90 0.0290; Figur_hell.jpg at a nominal 0.078
+    //     measures 0.0291. THE MULTIPLIER FELL 4.1x AND THE FIGURE MOVED 0.3%. That is the user's
+    //     "ich sehe keinen Unterschied", as a number.
+    // Alpha is now written as 1 and printed in every census verdict. Every earlier Level was fitted
+    // by dividing out a multiplier that never reached a pixel, so all four constants were re-derived
+    // from the three photographs at effective Level 1: cellar 0.119, forest 0.315. They are HIGHER
+    // than 151's, which is the right direction once the lever works - and the check is that the two
+    // forest frames now agree to 19% where the old reading had them contradicting each other 3.5x.
+    // IF IT IS STILL WRONG, read the alpha in the AFTER dump: a=1.000 with a near-black RGB and a lit
+    // figure means alpha is not the gate, and the next lever is the albedo TEXTURE, not a fifth
+    // round of RGB.
+    //
+    // THE POP WAS THE SAME BUG. ModBuild 151's fade was correct and drove the inert lever, so the
+    // only visible transition was the renderer switch. With the lever live the switch happens 0.06 s
+    // into the ramp and the entrance is a 0.3-0.45 s brightening of the whole figure at once - one
+    // colour per material, so it cannot read as ModBuild 148's rejected noise dissolve.
+    //
+    // THE WOLF NOW MOVES LIKE A WOLF. The design fixed the path speed and bent the animation to fit;
+    // for a creature whose 0.50 s clip at scale 1.833 implies 4.95 m/s that meant playing its run at
+    // 0.63x while it crawled at 1.06 m/s. Reversed on the user's instruction ("dann mach die Bewegung
+    // auch schneller"): the event now sizes its path from the creature - Hound 12.0 m in 2.85 s at
+    // 4.21 m/s with the blend at 0.85 and the clip at rate 1.00, while the heavy creatures keep the
+    // stroll they were given in 150.
+    //
+    // VARIETY: A SHUFFLE INDEXED BY THE WRONG THING IS NOT A SHUFFLE. Successive apparitions are
+    // about three slots apart and the cast is three, so a SLOT-indexed permutation lands on the same
+    // position every time and measures 28-35% repeats - no better than the hash it replaced. Indexed
+    // by the APPARITION ORDINAL it is 0.0% at frequency 1.0, measured over 4000 slots in both rooms.
+    // Still a pure function of the slot, still zero wire bytes, and deliberately stateless: a "last
+    // shown" field would diverge between two peers who joined at different times.
+    //
+    // THE FIRE HAS A VOICE, and the reason it never had one is that its bed WAS THE DRAUGHT - the
+    // cellar's flame beds have ridden the wind buffer since the feature shipped, so a Fire infusion
+    // made WIND louder and eleven seated fires made no sound at all. Three new synthesised layers,
+    // one source per site resolved off the bake's own node names: a roar with a noise-derived
+    // envelope (an LFO inside a loop is a period the ear finds), four crackle variants and two ember
+    // settles. 71-87% of every crackle sits in 1-5 kHz against the 7.6% of the bookshelf clip the
+    // user could not hear, and only 11.4% of the roar is under 200 Hz against that clip's 72.7%. The
+    // rolloff was the other half: the candle beds' 0.6 m minimum costs -15.3 dB at 3.5 m and -22 dB
+    // at 7.5 m, which is why nothing in this room has ever carried. Sized to the room at 3.0 m, the
+    // three cellar fires arrive 8 dB apart and all three are audible. PoissonGap has a caller again.
+    //
+    // AND THE BOOKSHELF'S SPARKS GO OUT AS IT FALLS - the user cut the structural fix ("um es
+    // einfach zu halten") and the fade is a function with NO CONSTANTS IN IT: the pose divided back
+    // out by the uniform it was multiplied by, so 1.0 upright, 0.0 at the arrival and the righting's
+    // own algebra in reverse are consequences rather than re-typed landmarks. Measured over thirteen
+    // instants: 1.05 upright, 0.002 at the arrival, 0.000 lying down, 1.05 again at the end.
+    //
+    // A SECOND PREVIEW STATION WAS FOUND POINTING AT NOTHING: HauntShelf has photographed the table
+    // and two candles since the bookcase moved 3.85 m in ModBuild 147. That is the second in a week.
+    // A preview station aimed at nothing does not fail - it renders, and it agrees with you.
+    //
     // Build 151: FOUR CAUSES, AND THREE OF THEM WERE INVISIBLE TO THE INSTRUMENT THAT WAS
     // SUPPOSED TO FIND THEM. That is the lesson of this build and it is worth more than the fixes.
     //

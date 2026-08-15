@@ -38,4 +38,9 @@ Material:
     - _ElemOwn: {r: 0, g: 0, b: 0, a: 0}
     - _ElemOwn2: {r: 0, g: 0, b: 0, a: 0}
     - _Tint: {r: 0.34, g: 0.44, b: 0.68, a: 0.85}
+    - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
+    - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _TipPivot: {r: 0, g: 0, b: 0, a: 0}
+    - _TipSched: {r: 0, g: 0, b: 0, a: 0}
+    - _TipUse: {r: 0, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []

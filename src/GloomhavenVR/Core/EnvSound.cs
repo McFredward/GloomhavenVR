@@ -181,6 +181,15 @@ namespace GloomhavenVR.Core;
 /// anything a listener could correlate with a visual — only for the local smoothing of the duck and
 /// the gain LFOs, which are per-client by nature.</para>
 ///
+/// <para><b>ONE CUE IS NOT FRAME-IDENTICAL, and it is stated rather than left to be discovered: the
+/// fire's CRACKLE.</b> Its schedule is a Poisson WALK (each gap depends on the last), so two clients
+/// that began observing at different clock values sit on different phases of it. That is a
+/// difference nothing can observe: a crackle marks no visual — the flames' flicker is the GPU's own
+/// continuous animation — and both clients crackle at the same rate, from the same seats, out of the
+/// same distribution. Everything about it that COULD be seen to disagree (whether the fires are lit,
+/// where they are, how fast they crackle) is a pure function of the shared element channel and the
+/// bake. See <see cref="TickFire"/>.</para>
+///
 /// <para><b>TEARDOWN.</b> No source, filter, listener change or clip may survive a stand-down, a
 /// mixed-reality switch, a style change or leaving the scenario. This follows the pattern
 /// <c>ElementMood</c> and <c>Haunt</c> established: an idempotent <see cref="StandDown"/> that is
@@ -224,8 +233,12 @@ internal static class EnvSound
             + "the creepy easter eggs. Every sound comes from the object that makes it and is placed "
             + "in 3D, so a drip in the corner is heard in the corner, and every one of them is tied "
             + "to what is actually happening rather than to a timer: the drip sounds when the drop "
-            + "lands, the bookshelf BANGS on the frame it actually reaches the floor, and the fire "
-            + "answers a Fire infusion. THE WIND IS ONLY THERE WHILE AIR IS: with no Air "
+            + "lands and the bookshelf BANGS on the frame it actually reaches the floor. FIRE "
+            + "CRACKLES, and only while a Fire infusion has actually lit it: each burning thing — the "
+            + "crates, the casks and the bookcase in the cellar, the snag, the deadfall and the "
+            + "brushwood in the wood — gets its own low roar and its own irregular crackle from where "
+            + "it is standing, so you can hear which of them is nearest. With no Fire up they are "
+            + "silent and cost nothing. THE WIND IS ONLY THERE WHILE AIR IS: with no Air "
             + "infusion up there is no draught and no rustle at all — the leaves still move, they "
             + "just make no noise. ICE MAKES NO SOUND AT ALL — you can see the frost, you never hear "
             + "it. "
@@ -357,10 +370,22 @@ internal static class EnvSound
     /// number is reasoned rather than measured.</summary>
     private const float BedLowPassHz = 1150f;
 
-    /// <summary>Hard cap on live sources. Beds plus the one-shot pool plus the element voices fit
-    /// inside it with room to spare; it exists so that no future addition can quietly turn the
-    /// ambience into a crowd.</summary>
-    private const int MaxVoices = 12;
+    /// <summary>Hard cap on live sources. It exists so that no future addition can quietly turn the
+    /// ambience into a crowd.
+    ///
+    /// <para><b>12 -&gt; 14, and the reason is that the cap had become a trip wire rather than a
+    /// budget.</b> The cellar's draw is now 8 continuous sources (three candle groups, THREE FIRE
+    /// SITES, the draught, the Earth rumble) plus the 3 one-shot voices = 11; the swamp's is 6 + 3 =
+    /// 9. A cap one above the current draw does not bound anything — it silently deletes the next
+    /// legitimate emitter somebody adds. Two spare is a budget; and the ACTUAL protection against a
+    /// crowd was never this number but <see cref="MaxEmitterGain"/>, the duck and
+    /// <see cref="AudioSource.priority"/> 200, all three of which are unchanged.</para>
+    ///
+    /// <para>AND A REFUSAL IS NOW LOGGED. Until ModBuild 152 <see cref="AddBed"/> returned in silence
+    /// when the cap was reached, which is the same silent path a missing node takes — the exact class
+    /// of defect that let a bed looking for "Wisp" against a node called "WispWisp" survive for
+    /// months. See <see cref="AddBed"/>.</para></summary>
+    private const int MaxVoices = 14;
 
     /// <summary>One-shot voices. Three is enough for the densest legal moment (a drip landing while
     /// the rat crosses under a haunt cue) and is itself a concurrency limit: a fourth simultaneous
@@ -431,6 +456,190 @@ internal static class EnvSound
     /// nothing here a listener could compare.</para></summary>
     private static float _windGate;
 
+    // ---- the fire ------------------------------------------------------------------------------------
+    //
+    // USER REQUEST, ModBuild 151 hardware, verbatim: "Geb auch Feuer dezente Geräusche."
+    //
+    // WHAT WAS THERE. Nothing, and the state file has said so since ModBuild 148: THE FIRE'S AUDIO
+    // BED WAS LITERALLY A DRAUGHT. BuildCellar's three "Flame<n>" beds ride EnvSoundClip.Bed — the
+    // same buffer as the window draught and the swamp canopy — with `0.9f * ElementMood.Live(0)` in
+    // the gain lambda. So a Fire infusion made the WIND louder at the candles, and the eleven fires
+    // the content lane actually seated (six in the cellar, five in the wood) made no sound at all.
+    // The candle beds are untouched by this round; they are candles, they are steady, and the shared
+    // bed is the right model for them. What is added is the FIRES.
+    //
+    // THREE LAYERS, THREE PLACES, ONE SOURCE EACH — and the shape of this is decided by the user's
+    // own two standing rulings rather than by taste:
+    //
+    //   * "verortbar von seinen entsprechenden Quellen". A single bed at the room's centre is
+    //     exactly what he ruled out. The bake seats the cellar's fires at THREE SITES (the crates,
+    //     the casks, the bookcase) and the wood's at three more (the snag, the deadfall, the
+    //     brushwood), and those are the six seats this file places a source on. Their node names are
+    //     the bake's own — see FireSites — and WHICH NODE EACH ONE RESOLVED TO IS LOGGED, including
+    //     when it does not resolve. That is not diligence, it is a scar: the swamp's wisp bed looked
+    //     for "Wisp" while the bake had built "WispWisp", so it never played in any shipped build and
+    //     nobody noticed for months, because a missing node and "this room has no such object" are
+    //     the same silent path.
+    //   * "dezent … nie aufdringlich überlagernd". The roar is a BED under everything; the crackle is
+    //     a 55 ms transient; and both only exist while a Fire infusion is up, which is seconds at a
+    //     time and not the whole scenario. That last point is worth stating because it is what buys
+    //     the crackle its rate: unlike the drip, which fires every 2.85 s for the entire session,
+    //     this cue has a duty cycle set by the game.
+    //
+    // WHY THE CRACKLE COMES OUT OF THE BED'S OWN SOURCE (AudioSource.PlayOneShot) RATHER THAN THE
+    // ONE-SHOT POOL. Three reasons, and the first is the one that decided it:
+    //   * THE POOL IS THREE VOICES AND IT IS NOT OURS ALONE. Three sites at a 2.2 s mean is about
+    //     1.4 crackles a second across a room; the drip, the rat's feet, its squeak and every haunt
+    //     cue share those same three voices, and PlayShot takes them round-robin. The fire would have
+    //     evicted the drip and the bookshelf's bang within seconds.
+    //   * IT INHERITS EVERYTHING THAT IS ALREADY RIGHT. PlayOneShot mixes into a source without
+    //     touching its loop, so the crackle gets the site's position, its rolloff, its spatialisation
+    //     and — because Unity multiplies a one-shot by AudioSource.volume — the fire's GATE, the
+    //     duck, the player's dial and the game's two volume sliders, with no second gain path to keep
+    //     in step. When the bed is paused because Fire is down, the crackle cannot sound: not because
+    //     a branch says so, but because there is no source running.
+    //   * IT COSTS NO VOICE. The cellar sits at 11 of MaxVoices with the fires added; a per-site
+    //     crackle voice would have made it 14.
+
+    /// <summary>Fire intensity at which a site starts to make any sound at all, and the intensity at
+    /// which it is fully alight. The shape and the argument are THE WIND GATE's exactly — a cut is
+    /// itself an event, and a threshold crossed instantly puts a step into the middle of
+    /// ElementMood's own 1 s smoothstep — and the numbers are chosen against the PICTURE rather than
+    /// by feel. <c>EnvFlame.shader</c> collapses every card of a seated fire to a point unless
+    /// <c>saturate(e.fire) &gt; 0</c> and then scales it linearly (:615-628), so the flames appear the
+    /// instant Fire leaves zero. Starting the SOUND at 0.05 and reaching full at 0.40 therefore puts
+    /// the audio a little BEHIND the picture at both ends, which is the only safe direction: a fire
+    /// you can hear before you can see it is a sound with no source, and that is the one thing this
+    /// whole feature is not allowed to be.</summary>
+    private const float FireGateOn = 0.05f;
+    private const float FireGateFull = 0.40f;
+
+    /// <summary>Seconds to light and to die. ASYMMETRIC like the wind's and for the mirror-image
+    /// reason: a fire catches faster than it goes out. It is much less asymmetric than the draught's
+    /// 0.9/2.4, because a fire that is no longer being infused stops being DRAWN over about a second
+    /// — a sound that outlived its own flames by two seconds would be the disembodied bed again.</summary>
+    private const float FireGateOpenSeconds = 0.7f;
+    private const float FireGateCloseSeconds = 1.6f;
+
+    /// <summary>The gate, 0..1, walked in <see cref="TickBeds"/> and read by <see cref="FireBed"/>
+    /// and by <see cref="TickFire"/>. ONE field for every site in the room, exactly as
+    /// <see cref="_windGate"/> is one field for both wind beds: "the fires are lit" is one fact about
+    /// the room and not three that could disagree. The sites differ by WHERE they are and by their
+    /// own crackle streams, not by whether they are burning.</summary>
+    private static float _fireGate;
+
+    /// <summary>What a fire site's source is set to before the modulator, the master and the rolloff.
+    /// IT IS THE CEILING, and that is deliberate and is not the roar being loud: this one source
+    /// carries BOTH layers, and its volume is the reference for the CRACKLE (see
+    /// <see cref="FireCrackleLevel"/>). The roar's own level is set inside its buffer instead — the
+    /// bank normalises it to a peak of 0.30 against the crackle's 0.95 — so the continuous layer
+    /// leaves this source at an effective 0.048 peak, well under the candle flames' 0.055 x 0.85.
+    /// Splitting a "bed gain" and a "crackle gain" would have been two numbers for one fire.</summary>
+    private const float FireBedGain = MaxEmitterGain;
+
+    /// <summary>
+    /// THE ROLLOFF, AND IT IS SIZED TO THE ROOM RATHER THAN TAKEN FROM A DEFAULT — which is the
+    /// lesson ModBuild 150 paid for on the bookshelf and the reason the candle flames have never been
+    /// heard.
+    ///
+    /// <para><b>THE MEASUREMENT.</b> Player.log (ModBuild 151 session) places the room's centre at
+    /// (-4.30, -12.94, 0.00) with the art scaled 11.905 world units per authored metre at
+    /// rigScale 13.75, so one authored metre is 0.866 PERCEIVED metres and the 10.5 x 9.0 m cellar is
+    /// 9.1 x 7.8 perceived m across. The head in that session sat at world (-46.5, 8.0, -7.2),
+    /// (-40.7, 8.9, 3.6) and (-19.8, 7.7, -1.2) (Heartbeats #6, #30, #4). Against the three cellar
+    /// fire seats derived from the bake that is:</para>
+    /// <code>
+    ///                     crates      casks      bookcase
+    ///   Heartbeat  #6      3.56 m     2.16 m       7.61 m     (perceived)
+    ///   Heartbeat #30      4.04 m     2.93 m       7.49 m
+    ///   Heartbeat  #4      3.36 m     3.29 m       5.96 m
+    /// </code>
+    /// <para>So the listener is between 2.2 and 7.6 perceived metres from a fire, and typically 3-7.
+    /// The candle flames' authored minimum is 0.6 m, and Unity's logarithmic rolloff is <c>min/d</c>
+    /// past the minimum — so at 3.5 m a candle bed is already <b>-15.3 dB</b> and at 7.5 m
+    /// <b>-22 dB</b>. That is not a quiet bed, it is an absent one, and it is the arithmetic reason
+    /// the fire has never been heard however its gain was set.</para>
+    ///
+    /// <para><b>3.0 m IS CHOSEN SO THE NEAREST FIRE IS UNATTENUATED AND THE FURTHEST IS STILL THERE.</b>
+    /// At the minimum the curve is flat, so a fire the player is leaning over plays at its authored
+    /// level; at 7.6 m the far fire is at 3.0/7.6 = <b>-8.1 dB</b>. Eight decibels across the room is
+    /// what makes the three sites LOCATABLE — together with the spatialiser's own panning, which is
+    /// untouched and is what actually carries direction — while leaving all three audible. A smaller
+    /// minimum buys more level contrast and costs the far fire entirely, which is precisely the trade
+    /// the bookshelf got wrong in the other direction.</para>
+    ///
+    /// <para>18 m for the maximum: under logarithmic rolloff Unity stops attenuating at the maximum
+    /// rather than cutting, so this simply says "the curve is honest across the whole room and the
+    /// plateau (-15.6 dB) is well outside it". Nothing in either room is 18 perceived metres from
+    /// anything else.</para>
+    /// </summary>
+    private const float FireMinMeters = 3.0f;
+    private const float FireMaxMeters = 18f;
+
+    /// <summary>How loud a crackle and a settle are as a fraction of the site's source volume — i.e.
+    /// the <c>volumeScale</c> passed to <see cref="AudioSource.PlayOneShot(AudioClip,float)"/>.
+    ///
+    /// <para>AT THE PLAYER'S DEFAULT DIAL, with the game quiet and the fire fully alight, a site's
+    /// source reaches <c>0.16 x 0.75 = 0.120</c> at the top of its slow breathing (0.112 on average),
+    /// so a crackle peaks at <c>0.120 x 0.50 x 0.95 = 0.057</c> before
+    /// the rolloff and at <b>0.049</b> at a typical 3.5 perceived m. At the reporting user's own
+    /// settings (game volume 0.64, master 0.480) that is <b>0.031</b>, and at the far bookcase fire
+    /// 7.5 m away <b>0.015</b>. Under the duck it is 0.35 of those. For scale: a game cue at full
+    /// level is 1.0, the bookshelf's permitted
+    /// bang was measured reaching him at 0.528, and the drip — the quietest deliberate thing in the
+    /// feature — arrives at about 0.004. The crackle is 24.6 dB under the one sound allowed to be
+    /// loud and it is the layer the user asked for.</para>
+    ///
+    /// <para>The settle is 0.38 rather than 0.50 because it is a LONGER event: it peaks lower but its
+    /// loudest 20 ms window measures slightly HIGHER than a crackle's (0.117 against 0.109), and 20 ms
+    /// is roughly what the ear integrates. 0.38 puts the two within 2 dB of each other by that
+    /// measure, which is "rarer and duller", not "quieter and duller".</para></summary>
+    private const float FireCrackleLevel = 0.50f;
+    private const float FireEmberLevel = 0.38f;
+
+    /// <summary>
+    /// MEAN SECONDS BETWEEN CRACKLES at one site, with the fire barely caught and fully alight. The
+    /// caller lerps between them on the element's own strength — which is the case
+    /// <see cref="EnvSoundSchedule.PoissonGap"/>'s doc names explicitly ("a caller that lerps a mean
+    /// from an element intensity").
+    ///
+    /// <para><b>THE RATE IS THE ONE PLACE "dezent" IS AT RISK, so it is derived rather than picked.</b>
+    /// A real fire crackles several times a second; three sites at the full-Fire mean give
+    /// <c>3 / (2.2 x 0.962) = 1.4</c> crackles a second across a room, which is on the quiet side of a
+    /// real hearth and is the number the standing rule wants. Two things bound the exposure further
+    /// and neither is available to the drip: the fires only exist while a Fire infusion is up, and
+    /// each crackle is 55 ms with 1.2 ms to -20 dB, so nothing here can mask a syllable — the class
+    /// doc's duration test, which is what admits this layer into the 1-5 kHz band at all.</para>
+    ///
+    /// <para>The 0.962 is <see cref="EnvSoundSchedule.PoissonGap"/>'s own published truncation
+    /// factor, quoted rather than re-derived.</para></summary>
+    private const float FireGapCalm = 4.0f;
+    private const float FireGapFull = 2.2f;
+
+    /// <summary>How often the scheduled event is an ember SETTLING rather than a crackle. One in six.
+    /// It is drawn from the same stream on its own hash channel rather than scheduled separately,
+    /// because a fire does not have two clocks: what is happening is one bed of burning wood, and
+    /// what you hear from it next is a cell bursting or a lump shifting.</summary>
+    private const float FireEmberShare = 0.17f;
+
+    /// <summary>Hash channels for the fire's four per-event draws. They MUST differ from each other —
+    /// all four are taken from the same key, and two draws off one channel would lock (say) the
+    /// longest gaps to the loudest variant forever, which is a subtle way of having no variation.
+    /// They need NOT differ from the drip's or the rat's: those index a different thing (a drip
+    /// period, a rat slot) and nothing ever compares the two. That is the same reasoning
+    /// <see cref="DripVariantChannel"/> sets out at length.</summary>
+    private const float FireGapChannel = 3f;
+    private const float FireVariantChannel = 5f;
+    private const float FireEmberChannel = 6f;
+
+    /// <summary>How far the scheduler may fall behind before it stops trying to catch up. If the
+    /// shared clock jumps forward (a new owner is elected, the scenario reloads) the next crackle is
+    /// simply the next one; without this the loop would emit one event per frame until it had caught
+    /// up, which is the woodpecker <see cref="EnvSoundSchedule.PoissonGap"/> exists to make
+    /// impossible, arrived at from the other side. ONE crackle is emitted per site per frame in any
+    /// case — the scheduler is an `if`, not a `while`, so it cannot spin whatever the clock does.</summary>
+    private const float FireCatchUpSeconds = 1.5f;
+
     // ---- live state --------------------------------------------------------------------------------
 
     private sealed class Voice
@@ -490,6 +699,71 @@ internal static class EnvSound
     /// falls; see <see cref="ShelfFloorContact"/> for why the apparition catalogue could not answer
     /// either question.</summary>
     private static Transform? _shelfNode;
+
+    // ---- the fire sites, resolved ---------------------------------------------------------------
+    //
+    // THE NODE NAMES ARE THE BAKE'S OWN, and they are a CONTRACT with
+    // unity/.../Editor/BuildEnvironmentRooms.cs exactly as the drip's constants are. Every fire in
+    // both rooms is placed by `BuildFireCards`, whose last line is
+    //
+    //     return Place(root, $"Fire{n}", mesh, seat, ...);
+    //
+    // under RoomGeo — so the name of a fire's node is the literal "Fire" plus the name the room
+    // builder passed. AddCellarFire passes CrateTop, CrateFoot, Barrel, Spill, ShelfTop, ShelfMid;
+    // AddForestFire passes Snag0, Log0, Log1, Log2, Brush. THE PREFIX IS WHY THIS TABLE IS WRITTEN
+    // OUT RATHER THAN GUESSED: the wisp bed asked for "Wisp" against a bake that had built
+    // "WispWisp" (same `$"{family}{n}"` shape), never played in any shipped build, and was silent
+    // about it because Find returning null is indistinguishable from a room with no such object.
+    // Every site below therefore names its candidates explicitly and LOGS which one answered.
+    //
+    // SIX SITES AND ELEVEN FIRES: the sites are the bake's own grouping (its LightRig FireSeats are
+    // "Crates", "Casks", "Shelf" / "Snag", "Log", "Brush"), so a site is where a THING is on fire
+    // rather than where one flame card stands. Sounding all eleven separately would be eleven
+    // sources for six causes, and the two fires of a site are 0.3-0.6 m apart — inside the spread of
+    // a single source at any distance the player can get to.
+
+    /// <summary>How many fire sites either room can have. Three, and it is the same three in both:
+    /// the cellar's crates/casks/bookcase and the wood's snag/deadfall/brushwood.</summary>
+    private const int FireSites = 3;
+
+    /// <summary>What the sites are called in the log, per style. Not the node names — those are
+    /// below.</summary>
+    private static readonly string[] CellarFireSites = { "Crates", "Casks", "Bookcase" };
+    private static readonly string[] SwampFireSites = { "Snag", "Deadfall", "Brushwood" };
+
+    /// <summary>THE NODES, in the order <see cref="Find"/> tries them. The first name of each row is
+    /// the fire the site is really named for; the second is the other fire at the same site, which is
+    /// at most 0.6 m away and is a far better answer than silence if the content lane renames or
+    /// merges one. See the block above for where the names come from.</summary>
+    private static readonly string[][] CellarFireNodes =
+    {
+        new[] { "FireCrateTop", "FireCrateFoot", "Crate2", "Crate0" },
+        new[] { "FireBarrel", "FireSpill", "Barrel1", "Barrel2" },
+        new[] { "FireShelfTop", "FireShelfMid", "Shelf" },
+    };
+
+    private static readonly string[][] SwampFireNodes =
+    {
+        new[] { "FireSnag0", "FireSnag" },
+        new[] { "FireLog1", "FireLog0", "FireLog2" },
+        new[] { "FireBrush", "FireBrushwood" },
+    };
+
+    /// <summary>The three sites' sources, or null for a site this room has no node for. The VOICE and
+    /// not the transform, because <see cref="TickFire"/> puts the crackle through the same
+    /// <see cref="AudioSource"/> the roar is looping on — see THE FIRE.</summary>
+    private static readonly Voice?[] _fireVoices = new Voice?[FireSites];
+
+    /// <summary>Per site: the shared-clock time the next crackle is due, and the index of that event.
+    /// NaN in <see cref="_fireNextAt"/> means "not anchored yet", which is the state a fresh build
+    /// and a clock jump both fall back to.</summary>
+    private static readonly float[] _fireNextAt = new float[FireSites];
+    private static readonly long[] _fireSeq = new long[FireSites];
+
+    /// <summary>What <see cref="LogBuilt"/> says about the sites — built once during
+    /// <see cref="Build"/>, while the candidate lists are in hand, and thrown away with the
+    /// teardown.</summary>
+    private static string _fireResolution = string.Empty;
 
     // ---- the authored schedule, mirrored ------------------------------------------------------------
     //
@@ -664,6 +938,11 @@ internal static class EnvSound
             AddBed("Draught", window, EnvSoundBank.Bank(EnvSoundClip.Bed), 0.075f, 1.2f, 14f,
                    () => WindBed(7.93f));
 
+        // THE FIRES. Three sites, and they are NOT the candles above: a burning crate is not a big
+        // candle, and until ModBuild 152 the only thing that answered a Fire infusion here was the
+        // candle beds' gain — on a clip that is the window draught. See THE FIRE.
+        AddFireBeds(room, CellarFireSites, CellarFireNodes);
+
         // EARTH. No node of its own — it is the room itself settling, so it sits at the room root
         // and is silent until an Earth infusion is up. This is the one bed with no resting level:
         // a permanent subsonic rumble in a cellar would be a drone, not an atmosphere.
@@ -705,8 +984,60 @@ internal static class EnvSound
         // shipped it, silently, because a missing node is the same "no emitter" path as a room that
         // has no wisp. Both facts together are why this is a deletion and not a rename.
 
+        // THE FIRES. The snag at the root flare, the deadfall's middle seat and the brushwood — the
+        // same three sites the bake lights the wood from.
+        AddFireBeds(room, SwampFireSites, SwampFireNodes);
+
         AddBed("Rumble", room.transform, EnvSoundBank.Bank(EnvSoundClip.Rumble), 0.10f, 2f, 26f,
                () => 1.30f * ElementMood.Live(3));
+    }
+
+    /// <summary>
+    /// Stand a fire bed on each of the room's three sites, and RECORD WHAT HAPPENED — including for
+    /// the sites that resolved to nothing, which is the whole point of the method existing rather
+    /// than three lines in each room builder.
+    ///
+    /// <para>The modulator captures the site index only so the log can be read against it; every site
+    /// reads the same <see cref="_fireGate"/>, because "the fires are lit" is one fact (see the
+    /// field). What differs per site is the LFO period, and the three are non-commensurate with each
+    /// other and with everything else in the file — item 6 of the class doc — so three roars in one
+    /// room never come into phase.</para>
+    /// </summary>
+    private static void AddFireBeds(GameObject room, string[] siteNames, string[][] nodeNames)
+    {
+        // Non-commensurate breathing periods, one per site. These are SLOW (the buffer already puffs
+        // at ~5 Hz); this is the fire being fed, not the flame flickering.
+        float[] periods = { 8.17f, 12.29f, 17.53f };
+
+        var sb = new StringBuilder(220);
+        for (int s = 0; s < FireSites; s++)
+        {
+            Transform? at = Find(room.transform, nodeNames[s]);
+            if (at == null)
+            {
+                // NOT SILENT ABOUT SILENCE. A room legitimately without one of these sites is
+                // possible (the content lane may move a fire), but it is indistinguishable from a
+                // renamed node, and this feature has already lost a bed for months to exactly that.
+                sb.Append('[').Append(siteNames[s]).Append(": NO NODE — tried ")
+                  .Append(string.Join("/", nodeNames[s])).Append("] ");
+                continue;
+            }
+
+            float period = periods[s];
+            Voice? v = AddBed("Fire" + siteNames[s], at, EnvSoundBank.Bank(EnvSoundClip.Roar),
+                              FireBedGain, FireMinMeters, FireMaxMeters,
+                              () => FireBed(period),
+                              // NO RUNTIME LOW PASS. See AddBed's lowPassHz: the 1150 Hz corner every
+                              // other bed uses would delete the crackle, which comes out of this same
+                              // source. The roar's band is baked into its buffer instead.
+                              lowPassHz: 0f);
+            _fireVoices[s] = v;
+            sb.Append('[').Append(siteNames[s]).Append(" on '").Append(at.name).Append('\'');
+            if (v == null)
+                sb.Append(" NO SOURCE — see the warning above");
+            sb.Append("] ");
+        }
+        _fireResolution = sb.ToString();
     }
 
     /// <summary>
@@ -723,28 +1054,70 @@ internal static class EnvSound
         }
     }
 
-    private static void AddBed(string name, Transform at, AudioClip? clip, float gain,
-                               float minMeters, float maxMeters, System.Func<float> modulate)
+    /// <summary>
+    /// Create one continuous source on a node and start it. Returns the voice, or null when nothing
+    /// was created — the fire sites need the reference back so they can put their crackles through
+    /// the same source (see <see cref="TickFire"/>).
+    /// </summary>
+    /// <param name="lowPassHz">Corner of the runtime low-pass filter, or 0 for NO FILTER AT ALL.
+    /// Every bed but the fire's passes <see cref="BedLowPassHz"/>; the fire passes 0, and that is
+    /// load-bearing rather than an optimisation. The 1150 Hz corner is what keeps a stationary bed
+    /// out of the speech band, and it would also remove the CRACKLE — which is 71-87% 1-5 kHz and
+    /// rides this same source. The fire's band separation is baked into its two clips instead (the
+    /// roar is three-pole low-passed at 820 Hz in the generator, i.e. tighter than this filter), so
+    /// nothing is given up; see <c>EnvSoundBank</c>'s THE FIRE.</param>
+    private static Voice? AddBed(string name, Transform at, AudioClip? clip, float gain,
+                                 float minMeters, float maxMeters, System.Func<float> modulate,
+                                 float lowPassHz = BedLowPassHz)
     {
-        if (clip == null || Beds.Count + Shots.Count >= MaxVoices)
-            return;
-        var v = NewVoice(name, at, clip, gain, minMeters, maxMeters, loop: true, lowPass: true);
+        if (clip == null)
+        {
+            VRLog.Warn("Core", $"ENV SOUND bed '{name}' NOT CREATED — the bank has no clip for it. " +
+                               "The rest of the ambience is unaffected; this one emitter is silent.");
+            return null;
+        }
+        // A REFUSAL THAT SAYS SO. See MaxVoices: a silent return here looks exactly like a room that
+        // has no such object, and this feature has already lost a bed for months to that ambiguity.
+        //
+        // COUNTED AGAINST THE POOL THAT IS ABOUT TO EXIST, not against Shots.Count. Every AddBed call
+        // happens inside Build's room branch, which runs BEFORE BuildShotPool — so Shots.Count is
+        // always 0 here and the old test compared the beds against the cap alone while claiming to
+        // include the pool. Three voices is the difference between a cap that means what it says and
+        // one that is quietly three too generous.
+        if (Beds.Count + OneShotVoices >= MaxVoices)
+        {
+            VRLog.Warn("Core", $"ENV SOUND bed '{name}' on '{at.name}' REFUSED — the voice cap " +
+                               $"({MaxVoices}) is already reached with {Beds.Count} bed(s) plus the " +
+                               $"{OneShotVoices} one-shot voice(s) still to be built. This emitter " +
+                               "will be SILENT for the " +
+                               "whole session. Either raise MaxVoices with a reason or take an " +
+                               "existing bed out; do not leave this line in a shipped build.");
+            return null;
+        }
+        var v = NewVoice(name, at, clip, gain, minMeters, maxMeters, loop: true,
+                         lowPass: lowPassHz > 0f);
+        if (v.LowPass != null)
+            v.LowPass.cutoffFrequency = lowPassHz;
         v.Modulate = modulate;
         v.NodeName = at.name;
         v.Source.volume = 0f;   // faded in by the first TickBeds — nothing ever starts at full
 
         // START EACH BED AT A DIFFERENT POINT IN ITS BUFFER. The flame, the draught and the leaves
-        // deliberately SHARE one noise clip (see EnvSoundBank: one source of noise plus two filters
-        // is the correct physical model and is what stops the buffer being findable). Started at the
-        // same instant they would play the identical sample stream — perfectly correlated, so they
-        // would sum coherently to about +10 dB instead of the +5 dB of independent noise, and the
-        // three would collapse into ONE audible source coming from three places at once. Offsetting
-        // by an irrational fraction of the clip decorrelates them completely, for one float write.
+        // deliberately SHARE one noise clip, and so do the THREE FIRE SITES since ModBuild 152 (see
+        // EnvSoundBank: one source of noise plus two filters is the correct physical model and is
+        // what stops the buffer being findable). Started at the same instant they would play the
+        // identical sample stream — perfectly correlated, so they would sum coherently to about
+        // +10 dB instead of the +5 dB of independent noise, and the three would collapse into ONE
+        // audible source coming from three places at once. Offsetting by an irrational fraction of
+        // the clip decorrelates them completely, for one float write. It matters MORE for the fires
+        // than it ever did for the beds: three roars in one room are three copies of one 6 s buffer,
+        // and a fire is something the player will walk around.
         if (clip.length > 0.01f)
             v.Source.time = clip.length * (0.3819660f * Beds.Count % 1f);
 
         v.Source.Play();
         Beds.Add(v);
+        return v;
     }
 
     private static Voice NewVoice(string name, Transform parent, AudioClip? clip, float gain,
@@ -859,6 +1232,7 @@ internal static class EnvSound
     private static void TickBeds()
     {
         TickWindGate();
+        TickFireGate();
 
         float master = Master();
         for (int i = 0; i < Beds.Count; i++)
@@ -935,6 +1309,49 @@ internal static class EnvSound
     }
 
     /// <summary>
+    /// Walk <see cref="_fireGate"/> toward whatever the FIRE element is doing. Structurally
+    /// identical to <see cref="TickWindGate"/>, deliberately: it is the same problem (a bed that must
+    /// arrive and leave without either edge being an event) with a different element, and two gates
+    /// that were written differently would drift into behaving differently for no reason anybody
+    /// could state.
+    ///
+    /// <para>Called from <see cref="TickBeds"/> and NOT from the modulators, for the reason the wind
+    /// gate's doc gives and which is three times as sharp here: a lambda that integrated would
+    /// integrate once per SITE, so the gate would open at TRIPLE rate in a room with three fires.</para>
+    /// </summary>
+    private static void TickFireGate()
+    {
+        float fire = Mathf.Clamp01(ElementMood.Live(0));
+        float target = Mathf.Clamp01((fire - FireGateOn) / Mathf.Max(FireGateFull - FireGateOn, 1e-4f));
+        target = target * target * (3f - 2f * target);   // smoothstep — no corner at either end
+
+        float tau = target > _fireGate ? FireGateOpenSeconds : FireGateCloseSeconds;
+        _fireGate = Mathf.MoveTowards(_fireGate, target, Time.deltaTime / Mathf.Max(tau, 0.01f));
+    }
+
+    /// <summary>
+    /// A fire site's bed level, 0..2. Returns EXACTLY zero while the gate is shut — which is what
+    /// <see cref="TickBeds"/> tests to PAUSE the source, and pausing is what makes "with Fire down
+    /// there is no fire sound" a property of the audio engine rather than of a multiply. It also
+    /// makes it free: a paused source is not spatialised, and (because a one-shot rides its source)
+    /// it is what stops a crackle in a room with no fire in it even if a scheduling bug tried.
+    ///
+    /// <para>The element's own strength is IN the term as well as in the gate, so a fire that is
+    /// merely smouldering is quieter than one at full infusion rather than merely later. The gate
+    /// MULTIPLIES rather than adds, so at <c>_fireGate = 0</c> every term is gone, not small.</para>
+    /// </summary>
+    /// <param name="periodSeconds">The slow breathing LFO's period for this site. The three sites'
+    /// periods are non-commensurate with each other and with the 6 s roar buffer, so no two fires in
+    /// a room ever come into phase and the buffer's own wrap is never reinforced.</param>
+    private static float FireBed(float periodSeconds)
+    {
+        if (_fireGate <= 0f)
+            return 0f;
+        float fire = Mathf.Clamp01(ElementMood.Live(0));
+        return _fireGate * (0.58f + 0.14f * Lfo(periodSeconds) + 0.28f * fire);
+    }
+
+    /// <summary>
     /// The one multiply every voice ends up passing through: the player's dial, the hard ceiling,
     /// the duck, and the two volume sliders the player already set inside the GAME's own audio
     /// options. Item 4 of the "never intrusive" list.
@@ -1003,9 +1420,139 @@ internal static class EnvSound
             TickRat(clock);
         }
         TickDeferred(clock);
+        TickFire(clock);
         // NOTHING ANSWERS ICE. There was a TickFrost here until ModBuild 149; see the ruling block
         // in EnvSound.Bank.cs for why the ice sound is deleted rather than silenced.
         TickHaunt(style, clock);
+    }
+
+    /// <summary>
+    /// THE CRACKLE. One statistically scheduled event per fire site — a burst of bursting wood cells,
+    /// or (one time in six) an ember settling — put through the site's own bed source so that it
+    /// inherits the fire's gate, position, rolloff and every gain in the chain. See THE FIRE for why
+    /// the layer exists, why it is not on the shared one-shot pool, and what it measures.
+    ///
+    /// =============================================================================================
+    /// <para><b>THE TIMING IS POISSON, AND <see cref="EnvSoundSchedule.PoissonGap"/> IS BACK IN USE.</b>
+    /// Cells bursting in a log are independent events at a slowly-changing average rate — which is
+    /// the textbook definition of a Poisson process and therefore of an EXPONENTIAL waiting time.
+    /// That is not a decoration: an exponential's mode is at zero, so it produces genuine CLUSTERS
+    /// (two crackles almost together, then a gap), while "the mean plus or minus 40%" produces a
+    /// wobbly metronome, and a wobbly metronome is still a metronome. The user has already condemned
+    /// one cue in this feature for exactly that — the ice sound beat at a fixed 0.45 s and he called
+    /// it "super nervig" — and the function that was written to answer it survived the deletion of
+    /// its only caller with its termination proof and its wire vectors intact, precisely so the next
+    /// statistically-scheduled event would not re-derive <c>-mean * ln(u)</c> from scratch. This is
+    /// that next event; the note on the function saying it has no caller is retired with this
+    /// method.</para>
+    ///
+    /// <para><b>WHY IT CANNOT WOODPECKER, which is the one thing a per-frame scheduler must not do.</b>
+    /// Three independent guards, and none of them is a comparison against a magic number that could
+    /// be tuned away:</para>
+    /// <list type="number">
+    ///   <item>The GAP is bounded below by construction — <c>PoissonGapMin</c> = 0.28 of the mean —
+    ///   so at the fastest legal mean (<see cref="FireGapFull"/> = 2.2 s) the shortest gap this site
+    ///   can produce is 0.62 s, whatever the draw is and whatever <c>NaN</c> arrives.</item>
+    ///   <item>The scheduler is an <c>if</c> and not a <c>while</c>: at most ONE crackle per site per
+    ///   frame leaves the method, so even a clock that leapt an hour cannot empty a backlog into one
+    ///   frame.</item>
+    ///   <item>And a backlog is not kept anyway — past <see cref="FireCatchUpSeconds"/> the next
+    ///   event is re-anchored to NOW rather than to a schedule the clock has left behind.</item>
+    /// </list>
+    ///
+    /// <para><b>MULTIPLAYER: this is the ONE cue in the file that is not frame-identical between
+    /// clients, and it is stated rather than hidden.</b> Every other event here is a pure function of
+    /// the shared clock, so two players hear the drip and the bookshelf on the same frame. The
+    /// crackle's sequence is a WALK — each gap depends on the last — so two clients that started
+    /// observing at different clock values are on different phases of it. Nothing can observe that:
+    /// a crackle marks no visual (the flames' flicker is continuous and is the GPU's own), the two
+    /// clients draw from the same distribution at the same rate from the same seats, and there is no
+    /// picture for a sound to be early or late against. What IS shared is everything that could be
+    /// seen to disagree: whether the fires are lit, where they are, and how fast they crackle. The
+    /// draws still go through <c>Haunt.Hash</c> rather than <c>UnityEngine.Random</c>, so one client
+    /// is at least reproducible with itself.</para>
+    /// </summary>
+    private static void TickFire(float clock)
+    {
+        // OFF IS FREE. One float compare while no fire is lit — no loop, no hash, no draw. This is
+        // the "ideally, no cost" half of the requirement; the other half (no SOUND) is TickBeds
+        // pausing the sources, which FireBed's exact zero is what triggers.
+        if (_fireGate <= 0f || clock < 0f)
+            return;
+
+        float fire = Mathf.Clamp01(ElementMood.Live(0));
+        float mean = Mathf.Lerp(FireGapCalm, FireGapFull, fire);
+
+        for (int s = 0; s < FireSites; s++)
+        {
+            Voice? v = _fireVoices[s];
+            if (v == null || v.Source == null)
+                continue;
+            // A PAUSED SOURCE MAKES NO ONE-SHOT. Unity would accept the PlayOneShot and hold it until
+            // the source resumed, which is a crackle fired into a room whose fire went out — so the
+            // gate is tested where the sound is made as well as where the level is set.
+            if (!v.Source.isPlaying)
+                continue;
+
+            // ANCHOR. NaN is a fresh build; a time absurdly far ahead of the clock is a clock that
+            // jumped BACKWARDS (a new owner was elected, the scenario reloaded) and the schedule it
+            // was written against no longer exists. Both fall back to "the next one is one gap from
+            // now", which is the same answer the drip's period index reaches by a different route.
+            float next = _fireNextAt[s];
+            if (float.IsNaN(next) || next > clock + FireGapCalm * EnvSoundSchedule.PoissonGapMax)
+            {
+                // Seed the sequence off the clock so two sites in the same room, and two runs of the
+                // same session, do not start on the same draw.
+                _fireSeq[s] = (long)Mathf.Floor(clock / Mathf.Max(mean, 0.01f)) * FireSites + s;
+                _fireNextAt[s] = clock + EnvSoundSchedule.PoissonGap(mean, Draw(s, FireGapChannel));
+                continue;
+            }
+
+            if (clock < next)
+                continue;
+
+            // ---- it is due. Schedule the NEXT one first, so that every path out of this iteration
+            // has advanced the sequence — a `continue` below that skipped this would leave the site
+            // due forever, which is the per-frame emitter this whole design exists to make
+            // unreachable.
+            long seq = _fireSeq[s];
+            _fireSeq[s] = seq + FireSites;
+            float gap = EnvSoundSchedule.PoissonGap(mean, Draw(s, FireGapChannel));
+            _fireNextAt[s] = clock > next + FireCatchUpSeconds ? clock + gap : next + gap;
+
+            // ---- and play it. One draw decides WHICH of the two things happened and another which
+            // realisation — off two different channels of the same key, which is what stops (say)
+            // the loudest crackle being locked to the longest gap forever.
+            //
+            // AND THERE IS NO PITCH JITTER HERE, unlike every other one-shot in the file. AudioSource
+            // .pitch is a property of the SOURCE and this source is also LOOPING THE ROAR: setting it
+            // per crackle would transpose the fire underneath, and setting it back on the next line
+            // is not safe either, because a one-shot voice follows its source's pitch while it plays.
+            // The variety therefore lives where it costs nothing — four baked crackle realisations
+            // and two settles, drawn per event. That is also the stronger form of it: MakeDrips'
+            // note is that resampling one buffer is the most recognisable synthetic-audio tell there
+            // is, and different realisations are what it recommends instead.
+            // Both draws are off THIS event's index `seq`, not off the one the line above advanced
+            // to: the gap belongs to the NEXT event and the clip belongs to this one.
+            bool ember = Haunt.Hash(seq, FireEmberChannel) < FireEmberShare;
+            float pick = Haunt.Hash(seq, FireVariantChannel);
+            AudioClip? clip = ember
+                ? EnvSoundBank.EmberVariant((int)(2f * pick))
+                : EnvSoundBank.CrackleVariant((int)(4f * pick));
+            if (clip == null)
+                continue;
+
+            v.Source.PlayOneShot(clip, ember ? FireEmberLevel : FireCrackleLevel);
+        }
+
+        // The draw for site `s` on channel `k`, from that site's own sequence index.
+        //
+        // THE THREE SITES CAN NEVER SHARE A KEY, and that is a property rather than a hope: the
+        // anchor above writes `k * FireSites + s`, and every advance adds exactly FireSites — so site
+        // s holds keys congruent to s modulo 3 for the whole life of the build, whatever the clock
+        // does. Three sites drawing one sequence would crackle in unison, which is one loud fire
+        // rather than three quiet ones in three places, i.e. the exact failure "verortbar" forbids.
+        static float Draw(int s, float channel) => Haunt.Hash(_fireSeq[s], channel);
     }
 
     /// <summary>
@@ -1979,6 +2526,18 @@ internal static class EnvSound
         // fade its wind in from nothing exactly as the first one did, or a stand-down and rebuild
         // during an Air infusion would start the new room's bed at full level on its first frame.
         _windGate = 0f;
+        // ...and the fire's, for the identical reason: a style change during a Fire infusion must not
+        // put the new room's fires up at full level on the frame they are created.
+        _fireGate = 0f;
+        for (int i = 0; i < FireSites; i++)
+        {
+            _fireVoices[i] = null;
+            // NaN and not 0: 0 is a legal schedule time and would make every site fire on its first
+            // observed frame. NaN is the "not anchored" state TickFire tests for.
+            _fireNextAt[i] = float.NaN;
+            _fireSeq[i] = 0L;
+        }
+        _fireResolution = string.Empty;
     }
 
     /// <summary>Release the synthesized clips as well. Only on a FULL teardown (VR stopped, the rig
@@ -2292,9 +2851,30 @@ internal static class EnvSound
           .Append("s, and while it is shut the source is PAUSED, not merely silent — so a 'Draught' ")
           .Append("or 'Leaves' line above with no audible wind under it is the gate working, not a ")
           .Append("missing sound. The Earth rumble is paused the same way whenever no Earth is up. ")
-          .Append("CLOCK: every event reads SkyAlternative.EnvClockSeconds, ")
+          .Append("FIRE: ").Append(_fireResolution.Length == 0 ? "no sites " : _fireResolution)
+          .Append("— each site is ONE source carrying BOTH the roar (looped) and its crackles ")
+          .Append("(AudioSource.PlayOneShot, so they inherit its gate, place, rolloff and every gain ")
+          .Append("in the chain). GATED ON THE FIRE element across ")
+          .Append(FireGateOn.ToString("F2")).Append("..").Append(FireGateFull.ToString("F2"))
+          .Append(" over ").Append(FireGateOpenSeconds.ToString("F1")).Append("s up and ")
+          .Append(FireGateCloseSeconds.ToString("F1"))
+          .Append("s down, and while it is shut the sources are PAUSED — a 'Fire...' entry above ")
+          .Append("with no fire sound under it is the gate working. A 'NO NODE' entry is NOT: it ")
+          .Append("means the bake renamed that fire and this table has to follow it. The crackle is ")
+          .Append("Poisson-timed (EnvSoundSchedule.PoissonGap) with a mean of ")
+          .Append(FireGapCalm.ToString("F1")).Append("s just-caught down to ")
+          .Append(FireGapFull.ToString("F1")).Append("s fully alight, one event in ")
+          .Append((1f / Mathf.Max(FireEmberShare, 1e-3f)).ToString("F0"))
+          .Append(" being an ember settling instead, and its rolloff is ")
+          .Append(FireMinMeters.ToString("F1")).Append("..").Append(FireMaxMeters.ToString("F1"))
+          .Append(" perceived m — sized to the ROOM (the head measured 2.2-7.6 m from these seats) ")
+          .Append("and not to the 0.6 m the candle beds use, which costs them 15-22 dB at that ")
+          .Append("distance. CLOCK: every event reads SkyAlternative.EnvClockSeconds, ")
           .Append("so the drip, the rat and the haunt cues land on the same frame on every client ")
-          .Append("with ZERO wire bytes.");
+          .Append("with ZERO wire bytes. The fire's crackle is the ONE exception and it is a walk, ")
+          .Append("not a function of the clock — same rate, same seats, same distribution, ")
+          .Append("different instants, and nothing in the picture it could be early or late ")
+          .Append("against.");
 
         // THE BOOKCASE, SAID AT BUILD RATHER THAN AT THE FIRST EVENT. Its cues are the loudest thing
         // this feature makes and their position comes off ONE node; if that node is missing, the bang

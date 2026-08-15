@@ -86,30 +86,201 @@ internal static partial class HauntFigures
             return false;
         }
 
+        // =========================================================================================
+        //  WHICH CREATURE — A SHUFFLED ITERATION, NOT A DRAW.
+        //
+        //  USER REQUEST, verbatim: "Geb mir mehr Varianz bei den Figuren, jedes Mal wenn eine Figur
+        //  angezeigt wird sollte das eine andere sein (durch einige ausgewählt random
+        //  durchiterieren). Im MP sollten aber immer beide die gleiche sehen, nie eine andere."
+        //
+        //  WHAT IT USED TO BE AND WHY HE NOTICED. The creature was `hash(slot, channel 9)` scaled
+        //  onto the cast, i.e. an INDEPENDENT DRAW from three: the chance that any apparition repeats
+        //  the one before it is 1 in 3, and over ten apparitions a repeat is all but certain. That is
+        //  what "jedes Mal eine andere" is a complaint about. An independent draw also clusters — it
+        //  has no memory, so it cannot know it has just shown a Cultist twice.
+        //
+        //  WHAT IT IS NOW. The cast is PERMUTED per block of n APPARITIONS and the apparition's
+        //  position inside its block indexes that permutation, so each creature appears exactly once
+        //  per n consecutive apparitions — "durchiterieren" in the literal sense — and the ORDER of
+        //  each pass is reshuffled. Across a block boundary the first element of the new permutation
+        //  is compared against the last element of the previous one and swapped away from it, so the
+        //  no-two-in-a-row property holds THROUGH the seam and not merely inside a block.
+        //
+        //  IT IS INDEXED BY THE APPARITION ORDINAL AND NOT BY THE SLOT, and that distinction is the
+        //  difference between fixing this and only appearing to. Apparitions are not consecutive
+        //  slots: the schedule's group partition puts each room's two figure cards on about one slot
+        //  in three, so successive apparitions are typically THREE slots apart — and three is exactly
+        //  the cast size, i.e. the same position of the next permutation block. Indexed by the slot,
+        //  the shuffle measures out at a 28-35% repeat rate, which is no better than the independent
+        //  draw it replaces (simulated over 4000 slots in both rooms). Indexed by the ordinal
+        //  HauntFigures.ApparitionOrdinal computes — the count of slots this room's figure cards own,
+        //  which is a pure function of the slot — it is EXACTLY 0%.
+        //
+        //  WHY IT CANNOT DIVERGE BETWEEN TWO CLIENTS, which is the standing ruling and not a
+        //  nice-to-have. Three properties, and all three are structural:
+        //    1. IT IS A PURE FUNCTION OF THE SLOT INDEX. The only inputs are the slot (an exact
+        //       integer floor(sharedClock / 83) — SkyAlternative's shared environment epoch), the
+        //       cast array (a compile-time constant) and Haunt.Hash, which is the same
+        //       multiply/add/frac cascade the GPU and the bake already run bit-for-bit
+        //       (Haunt.Schedule.cs's header explains why it may contain no sin()). No Random, no
+        //       Time.time, no per-client seed. The ordinal is a pure function of the slot for the
+        //       same reason — it counts CARDS, which the partition decides, and deliberately NOT
+        //       which of them were live, because liveness reads the frequency dial and a dial is the
+        //       one shared value that can differ between two peers for the frame it is being moved.
+        //    2. THERE IS NO "LAST SHOWN" STATE ANYWHERE. The anti-repeat rule is expressed as a
+        //       comparison against the PREVIOUS BLOCK'S PERMUTATION, which is recomputed from the
+        //       block index — not remembered. That is the whole reason it is written this way: a
+        //       remembered "last creature" would differ between a client that has been in the room
+        //       for ten minutes and one that joined thirty seconds ago, and the two would then walk
+        //       different sequences forever. Nothing here has a history to disagree about.
+        //    3. THE ROSTER IS THE SAME ON BOTH MACHINES. DLC is excluded by construction (see the
+        //       class doc), so the availability filter below cannot answer differently for two
+        //       players in the same scenario.
+        //  And it is still ZERO WIRE BYTES: nothing about the pick is sent, because nothing about it
+        //  is state.
+        //
+        //  THE ONE RESIDUAL, STATED HONESTLY AND MEASURED. The ordinal counts every slot this room's
+        //  figure cards OWN, and the frequency dial then makes only some of them live — so at a dial
+        //  below 1 the player's own sequence skips entries of a sequence that is itself repeat-free.
+        //  Simulated over 4000 slots with the permutation exactly as implemented below:
+        //        dial 1.00 -> 0.0% repeats (cellar and forest)
+        //        dial 0.60 -> 15% / 14%
+        //        dial 0.35 -> 23% / 25%     (the independent draw it replaces: 28-35% at every dial)
+        //  Closing that last gap means counting LIVE slots instead of owned ones, i.e. reading the
+        //  frequency dial, i.e. giving up property 1 above. That trade is refused deliberately: a
+        //  player on a low dial seeing the same creature twice in ten minutes is a disappointment,
+        //  and two players seeing different creatures is a broken promise.
+        // =========================================================================================
+
+        /// <summary>Hash channel for the shuffle. 9 was the old creature draw and 10 is the walk
+        /// direction; 11 is this feature's third and last, and nothing else in the mod reads it
+        /// (2 is EnvSound's, 13 is the rat's, the rest are the schedule's own).</summary>
+        private const float ShuffleChannel = 11f;
+
+        /// <summary>The largest cast this can permute. Every cast in the feature is 3; the arrays are
+        /// fixed so the pick allocates nothing, and a longer cast would be truncated rather than
+        /// throwing — which is the correct failure for a decoration.</summary>
+        private const int MaxCast = 8;
+
+        private static readonly CClass.ENPCModel[] Canon = new CClass.ENPCModel[MaxCast];
+        private static readonly int[] PermThis = new int[MaxCast];
+        private static readonly int[] PermPrev = new int[MaxCast];
+
         /// <summary>
-        /// Choose this slot's creature. <paramref name="hash01"/> ROTATES the cast list rather than
-        /// indexing it, so the author's preference order still decides quality (the first entry is
-        /// the one the event was designed around) and the hash only decides variety. A machine on
-        /// which only one of the three resolves shows that one every time, which is correct
-        /// behaviour and not a degradation.
+        /// Choose this slot's creature: element <c>slot mod n</c> of a permutation of the cast that
+        /// is reshuffled every <c>n</c> slots. See the block above for the design and for the
+        /// multiplayer argument.
+        ///
+        /// <para><b>THE CAST IS CANONICALISED BEFORE IT IS PERMUTED, and that is what makes the
+        /// guarantee hold ACROSS EVENTS as well as within one.</b> The cellar's two events name the
+        /// same three creatures in different orders (window: Cultist, Corpse, Bones; stair: Cultist,
+        /// Bones, Corpse) and consecutive slots in the cellar are different CARDS by construction
+        /// (Haunt.Resolve's group partition). Permuting the arrays as given would mean permuting two
+        /// different index spaces, so position 0 of one and position 1 of the other could name the
+        /// same creature. Sorting by the enum value first means any two events with the same cast SET
+        /// walk the same sequence, and the no-two-in-a-row property survives the card changing under
+        /// it. The forest's two casts are disjoint, so they cannot collide either way.</para>
+        ///
+        /// <para>A machine on which only one of the three resolves shows that one every time, which
+        /// is correct behaviour and not a degradation — the walk below falls forward through the
+        /// permutation until it finds something it can actually load.</para>
         /// </summary>
-        internal static string Pick(CClass.ENPCModel[] cast, float hash01, out CClass.ENPCModel picked)
+        /// <param name="sequence">The APPARITION ORDINAL, not the slot — see the block above for why
+        /// the difference is the whole fix. An exact non-negative integer that advances by exactly 1
+        /// between two consecutive apparitions of this room.</param>
+        internal static string Pick(CClass.ENPCModel[] cast, float sequence, out CClass.ENPCModel picked)
         {
             Resolve();
             picked = CClass.ENPCModel.None;
-            if (cast.Length == 0)
+            int n = Mathf.Min(cast.Length, MaxCast);
+            if (n == 0)
                 return string.Empty;
 
-            int off = Mathf.Clamp(Mathf.FloorToInt(Mathf.Clamp01(hash01) * cast.Length), 0, cast.Length - 1);
-            for (int i = 0; i < cast.Length; i++)
+            // CANONICAL ORDER: ascending enum value. Insertion sort — n is 3.
+            for (int i = 0; i < n; i++)
             {
-                CClass.ENPCModel m = cast[(off + i) % cast.Length];
+                CClass.ENPCModel m = cast[i];
+                int j = i - 1;
+                while (j >= 0 && (int)Canon[j] > (int)m)
+                {
+                    Canon[j + 1] = Canon[j];
+                    j--;
+                }
+                Canon[j + 1] = m;
+            }
+
+            float index = Mathf.Max(Mathf.Floor(sequence), 0f);
+            float block = Mathf.Floor(index / n);
+            int pos = Mathf.Clamp((int)(index - block * n), 0, n - 1);
+
+            // A CAST OF ONE OR TWO IS NOT SHUFFLED. One has nothing to vary; two can only ALTERNATE,
+            // because there is exactly one repeat-free sequence over two elements — and going through
+            // the general path below
+            // would be wrong rather than merely pointless: the seam correction swaps positions 0 and
+            // 1, which at n = 2 also moves the LAST element, so correcting block b would change what
+            // block b+1 has to be corrected against and the rule would have to recurse. At n >= 3 the
+            // swap can never touch index n-1, which is exactly why it does not. (At n = 1 the same
+            // guard also keeps the seam correction away from PermThis[1], which does not exist for
+            // that cast and would otherwise be read from whatever the last call left there.)
+            if (n <= 2)
+            {
+                for (int i = 0; i < n; i++)
+                    PermThis[i] = i;
+            }
+            else
+            {
+                Permute(PermThis, n, block);
+
+                // THE SEAM, AND IT IS APPLIED AT EVERY POSITION AND NOT ONLY AT THE FIRST. Only
+                // position 0 can repeat the previous block's last element, but the CORRECTION
+                // reorders the block — so a build that applied it only when pos == 0 would hand
+                // position 1 a permutation the position-0 call had already swapped, and the two
+                // would collide. (That is not hypothetical: it is what the first draft of this
+                // method did, and a 120-slot simulation found the collisions immediately.) The
+                // previous permutation is RECOMPUTED from its block index rather than remembered,
+                // which is the property the whole multiplayer argument rests on. Block 0 has no
+                // predecessor and needs no correction.
+                if (block >= 1f)
+                {
+                    Permute(PermPrev, n, block - 1f);
+                    if (PermThis[0] == PermPrev[n - 1])
+                        (PermThis[0], PermThis[1]) = (PermThis[1], PermThis[0]);
+                }
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                CClass.ENPCModel m = Canon[PermThis[(pos + i) % n]];
                 if (!Names.TryGetValue(m, out string? name))
                     continue;
                 picked = m;
                 return name;
             }
             return string.Empty;
+        }
+
+        /// <summary>
+        /// Fisher–Yates over <c>0..n-1</c>, with every swap partner taken from the shared schedule
+        /// hash rather than from a generator. Deterministic in the only sense that matters here: the
+        /// same block index gives the same permutation on every machine, for ever, with no state.
+        ///
+        /// <para>The hash is indexed by <c>block * MaxCast + i</c> so that two different blocks can
+        /// never share a swap draw and two positions inside one block cannot either. Those indices
+        /// stay exact integers in float32 for well over a century of slots at the 83 s beat.</para>
+        ///
+        /// <para><c>Mathf.Min</c> against <c>i</c> for the same reason <c>Haunt.Resolve</c> uses one
+        /// on its card index: <c>frac()</c> is documented to be able to return exactly 0 and an edit
+        /// that let it reach 1.0 would index one past the end.</para>
+        /// </summary>
+        private static void Permute(int[] into, int n, float block)
+        {
+            for (int i = 0; i < n; i++)
+                into[i] = i;
+            for (int i = n - 1; i > 0; i--)
+            {
+                int j = Mathf.Min((int)(Haunt.Hash(block * MaxCast + i, ShuffleChannel) * (i + 1)), i);
+                (into[i], into[j]) = (into[j], into[i]);
+            }
         }
 
         internal static string Describe(CClass.ENPCModel[] cast)

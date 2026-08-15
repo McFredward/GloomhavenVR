@@ -43,6 +43,10 @@ internal static class EnvSoundScheduleVectors
         PoissonGapSurvivesEveryInput(t);
         PoissonGapClusters(t);
         PoissonGapCannotWoodpecker(t);
+
+        TheFireCrackleCannotWoodpecker(t);
+        TheFireCrackleRateIsDezent(t);
+        TheFireBurstsFitTheirBuffers(t);
     }
 
     /// <summary>
@@ -474,5 +478,158 @@ internal static class EnvSoundScheduleVectors
                $"the shortest gap the full-Ice schedule can produce is {shortest:F3} s, which is "
                + "clear of the 0.45 s beat the user reported and clear of the top of the band the "
                + "ear reads as rhythm");
+    }
+
+    // =============================================================================================
+    //  THE FIRE'S CRACKLE (EnvSound.TickFire), ModBuild 152 — the caller PoissonGap was kept for.
+    // =============================================================================================
+    //
+    //  The four constants below MIRROR EnvSound's and EnvSoundBank's, restated here for the reason
+    //  TheCreakThatFroze restates the creak's window: this project is a plugin against Unity and
+    //  EnvSound.cs cannot be compiled into this harness (it needs AudioSource, AudioClip and the
+    //  whole audio module), while EnvSoundSchedule.cs deliberately can. What is being held is not
+    //  the constants but the CONSEQUENCE of them — that no value the schedule can produce lands the
+    //  fire back in the band the ear reads as a rhythm, which is the failure the ice cue was deleted
+    //  for and the single largest risk in adding a repeating cue to this feature.
+
+    /// <summary>Mirror of <c>EnvSound.FireGapCalm</c> / <c>FireGapFull</c>: the mean seconds between
+    /// crackles at one site, just-caught and fully alight, lerped on the Fire element.</summary>
+    private const float FireGapCalm = 4.0f;
+    private const float FireGapFull = 2.2f;
+
+    /// <summary>Mirror of <c>EnvSound.FireSites</c>.</summary>
+    private const int FireSites = 3;
+
+    /// <summary>
+    /// THE ICE CUE'S DEFECT, ASSERTED AGAINST THE CUE THAT REPLACED IT. "Das was aktuell drin ist ist
+    /// super nervig" was a 0.45 s repeat, inside the 0.2-2 s band the ear reads as a RHYTHM rather
+    /// than as separate events — and the fire's crackle is the first cue since to repeat at all.
+    ///
+    /// <para>The bound is checked at EVERY Fire strength, not only at the extremes, because the mean
+    /// is LERPED on a live element value: a schedule that was safe at 0 and at 1 and dipped in the
+    /// middle would be a defect nobody would think to look for. The floor clamp alone puts the
+    /// shortest possible gap at 0.62 s even at full Fire and even if every draw came back at its
+    /// minimum.</para>
+    /// </summary>
+    private static void TheFireCrackleCannotWoodpecker(Harness t)
+    {
+        t.Case("fire crackle: no Fire strength can make it beat like a metronome");
+        float worst = float.MaxValue;
+        float worstAt = 0f;
+        for (int f = 0; f <= 100; f++)
+        {
+            float fire = f / 100f;
+            float mean = FireGapCalm + (FireGapFull - FireGapCalm) * fire;
+            for (int i = 0; i <= 200; i++)
+            {
+                float g = EnvSoundSchedule.PoissonGap(mean, i / 200f);
+                if (g >= worst)
+                    continue;
+                worst = g;
+                worstAt = fire;
+            }
+        }
+        t.True(worst > 0.6f,
+               $"the shortest gap ANY Fire strength can produce is {worst:F3} s (at Fire {worstAt:F2}), "
+               + "which must stay clear of the 0.45 s beat the user called \"super nervig\"");
+
+        t.Case("fire crackle: and it cannot go silent either");
+        float longest = 0f;
+        for (int i = 1; i <= 200; i++)
+            longest = System.Math.Max(longest, EnvSoundSchedule.PoissonGap(FireGapCalm, i / 200f));
+        t.True(longest < 11f,
+               $"the longest gap a just-caught fire can produce is {longest:F2} s — the ceiling clamp "
+               + "is what stops an exponential's unbounded tail leaving a lit fire silent for half a "
+               + "minute, which reads as the feature having broken");
+    }
+
+    /// <summary>
+    /// THE STANDING RULE, AS A NUMBER. "Auch hier sollen die sounds eher dezent sein und nie
+    /// aufdringlich überlagernd" is the acceptance criterion for the whole feature, and for a
+    /// REPEATING cue the thing that decides it is the rate across the ROOM rather than at one site —
+    /// there are three lit sites in each room and the ear counts all of them.
+    ///
+    /// <para>Both ends are asserted, because both are failures. Too fast is the user's complaint;
+    /// too slow is a fire that ticks instead of crackling, which is the layer not doing its job. The
+    /// 0.962 is <see cref="EnvSoundSchedule.PoissonGap"/>'s own published truncation factor, and it
+    /// is MEASURED here off a uniform sweep rather than quoted, so a clamp that moved without its
+    /// documentation fails this case as well as the one above.</para>
+    /// </summary>
+    private static void TheFireCrackleRateIsDezent(Harness t)
+    {
+        t.Case("fire crackle: the room's rate stays inside the \"dezent\" band");
+        const int n = 4000;
+        float fullSum = 0f, calmSum = 0f;
+        for (int i = 1; i <= n; i++)
+        {
+            fullSum += EnvSoundSchedule.PoissonGap(FireGapFull, i / (float)n);
+            calmSum += EnvSoundSchedule.PoissonGap(FireGapCalm, i / (float)n);
+        }
+        float fullMean = fullSum / n;
+        float calmMean = calmSum / n;
+
+        float fullRate = FireSites / fullMean;
+        float calmRate = FireSites / calmMean;
+        t.True(fullRate > 1.0f && fullRate < 2.0f,
+               $"a fully alight room crackles {fullRate:F2} times a second across its {FireSites} "
+               + "sites — under 1 is a tick rather than a fire, over 2 is the drip's mistake made "
+               + "worse");
+        t.True(calmRate > 0.5f && calmRate < fullRate,
+               $"and a just-caught one {calmRate:F2} times a second, which must be SLOWER — the mean "
+               + "is lerped on the element so that a fire being fed sounds like one");
+
+        t.True(System.Math.Abs(fullMean / FireGapFull - 0.962f) < 0.01f,
+               $"the realised mean is {fullMean / FireGapFull:F3} of the nominal, against the 0.962 "
+               + "the clamp arithmetic predicts — the rate above is only meaningful while that holds");
+    }
+
+    /// <summary>
+    /// THE BURSTS INSIDE THE CLIPS. A crackle is not one pop and an ember settle is not one thud:
+    /// both are short trains laid into a fixed buffer by <see cref="EnvSoundSchedule.SlipTrain"/>,
+    /// and the generator turns each time into a sample index and writes a decaying tail from it.
+    ///
+    /// <para>So this is the MonotonicAndInBounds property again, aimed at the two newest callers and
+    /// at the thing that actually bounds them: the last event plus its own TAIL has to fit inside the
+    /// buffer, or the generator silently truncates the end of the last pop — which is a click, and a
+    /// click at the end of a clip that fires every couple of seconds is precisely the artefact this
+    /// feature cannot afford. The numbers mirror <c>EnvSoundBank</c>'s Crackle* and Ember*
+    /// constants.</para>
+    /// </summary>
+    private static void TheFireBurstsFitTheirBuffers(Harness t)
+    {
+        t.Case("fire crackle: every pop, plus its tail, is inside the 55 ms buffer");
+        int[] pops = { 3, 4, 5, 4 };
+        uint[] crackleSeeds = { 0xC7AC1E00u, 0xC7AC1E01u, 0xC7AC1E02u, 0xC7AC1E03u };
+        for (int v = 0; v < pops.Length; v++)
+        {
+            var train = new float[pops[v]];
+            EnvSoundSchedule.SlipTrain(train, 0.0004f, 0.034f, 1.25f, 0.75f, crackleSeeds[v]);
+            bool rising = true;
+            for (int i = 1; i < train.Length; i++)
+            {
+                if (!(train[i] > train[i - 1]))
+                    rising = false;
+            }
+            t.True(rising, $"crackle {v}: the pops are strictly ordered, so none overwrites another");
+            // 6 ms of pop tail on top of the last time, against a 55 ms buffer.
+            t.True(train[train.Length - 1] + 0.006f < 0.055f,
+                   $"crackle {v}: the last pop ends at {(train[train.Length - 1] + 0.006f) * 1000f:F1} ms, "
+                   + "inside the 55 ms clip — a truncated tail is a click");
+        }
+
+        t.Case("fire ember: every thud, plus its tail, is inside the 220 ms buffer");
+        int[] ticks = { 4, 3 };
+        uint[] emberSeeds = { 0xE0BE0000u, 0xE0BE0001u };
+        for (int v = 0; v < ticks.Length; v++)
+        {
+            var train = new float[ticks[v]];
+            EnvSoundSchedule.SlipTrain(train, 0.001f, 0.115f, 1.45f, 0.65f, emberSeeds[v]);
+            t.True(train[0] == 0.001f && train[train.Length - 1] == 0.115f,
+                   $"ember {v}: the train spans its authored window exactly");
+            // 50 ms of thud tail, against a 220 ms buffer.
+            t.True(train[train.Length - 1] + 0.05f < 0.22f,
+                   $"ember {v}: the last thud ends at {(train[train.Length - 1] + 0.05f) * 1000f:F1} ms, "
+                   + "inside the 220 ms clip");
+        }
     }
 }

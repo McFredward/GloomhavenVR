@@ -131,7 +131,14 @@ float4 _TipSched;   // x slot period (s), y cards in the room, z this card's ind
 float4 _TipEnv;     // x reveal, y hold, z fade  (the event's authored envelope)
 float4 _TipUse;     // x 1 = move MY OWN geometry with the shelf
                     // y  which baked light slot rides it, -1 = none
-                    // z 1 = I am a candle flame and may be blown out by the fall
+                    // z 1 = I GO OUT WHILE THE SHELF IS OVER. Two readers, and
+                    //     they are deliberately the same flag: EnvFlame's candle
+                    //     flame, which gutters and relights (GhvrTipFlameLife),
+                    //     and EnvParticleAdd's two spark emitters standing on the
+                    //     burning bookcase, which fade with the pose
+                    //     (GhvrTipUpright). One flag because the question a
+                    //     material is answering is one question — "does the topple
+                    //     put me out?" — and how it goes out is its own business.
                     // w  spare (0)
 
 // ============================================================================
@@ -495,6 +502,51 @@ float3 GhvrTipPoint (GhvrTip tip, float3 p)
 float3 GhvrTipDir (GhvrTip tip, float3 d)
 {
     return (tip.live < 0.5) ? d : GhvrTipRot(d, float3(0, 0, 0), tip.axis, tip.ang);
+}
+
+/// HOW MUCH OF ITSELF SOMETHING STANDING ON THE SHELF STILL HAS: 1 upright, 0
+/// flat on the floor, and the whole way down it is the POSE ITSELF and not a
+/// curve fitted to it.
+///
+/// USER, hardware, ModBuild 151 (verbatim): "Beim umgekippten Bücherregal kippt
+/// die Funkenquelle nicht mit um, wenn Feuer an ist." and then, cutting the
+/// round down: "Um es einfach zu halten: Deaktivier die Funken einfach
+/// (ausfaden) wenn das Regal kippt."
+///
+/// The sparks off the burning bookcase are a Shuriken population simulated in
+/// world space on the CPU, and this bundle has no scripts, so their emitter
+/// cannot be moved — see the block above EnvRoomBuilder's `Sparks`. What CAN be
+/// done from a material is to take them away while the thing they come off is
+/// not there any more, and this is that factor.
+///
+/// IT CONTAINS NO CONSTANTS AT ALL, which is the point of writing it here rather
+/// than as a threshold in the shader that consumes it:
+///   * `tip.ang / _TipAxis.w` IS GhvrShelfTip(phase) — the same eleven
+///     instructions the shelf's own vertices take, divided back out by the same
+///     uniform they were multiplied by. There is no second curve to keep in step
+///     and no phase landmark re-typed anywhere.
+///   * it is therefore EXACTLY 0 at the arrival (phase 0.180, the sparks are
+///     gone the frame the carcass reaches the floor and stay gone for the whole
+///     10.8 s it lies there) and EXACTLY 1 at both ends of the event, so the
+///     zero state is the shipped one bit for bit.
+///   * and the return is the fall's own identity run backwards (see
+///     GhvrShelfTip's one-line schedule), so "they come back when it stands up"
+///     is not a second behaviour that could be tuned apart from the first — it
+///     is the same expression addressed from the other side. The righting at
+///     phase 0.620 is where they start coming back, because that is where the
+///     angle starts coming off.
+///
+/// MEASURED, at the shipped TipDeg = 90 over a 26.002 s event: 1.00 at t = 0,
+/// 0.96 at 1.3 s, 0.83 at 2.6 s, 0.73 at 3.1 s, 0.34 at 4.2 s, 0.00 at 4.68 s
+/// (the arrival), and the mirror of that from 16.1 s to 26.0 s. The consumer
+/// multiplies an ALPHA by it and EnvParticleAdd premodulates, so the drawn
+/// energy goes as the square: a spark population at a 15 degree lean is already
+/// down to 69 % of its energy, which is what makes this read as the fire being
+/// taken away rather than as a dimmer being turned.
+float GhvrTipUpright (GhvrTip tip)
+{
+    if (tip.live < 0.5) return 1.0;
+    return saturate(1.0 - tip.ang / max(_TipAxis.w, 1e-4));
 }
 
 /// A CANDLE ON A FALLING SHELF GOES OUT, and comes back when the shelf does.

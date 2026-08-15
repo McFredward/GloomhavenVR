@@ -10240,6 +10240,99 @@ namespace GloomhavenVR
             return m;
         }
 
+        // ============ THE BOOKCASE GOES OVER AND ITS SPARKS GO OUT ============
+        // USER, hardware, ModBuild 151: "Beim umgekippten Bücherregal kippt die
+        // Funkenquelle nicht mit um, wenn Feuer an ist. (Die Funkenquelle vom
+        // Feuer.)" — and then, when the structural answer was costed:
+        //   "Um es einfach zu halten: Deaktivier die Funken einfach (ausfaden)
+        //    wenn das Regal kippt. Da muss jetzt nicht weiter zu viel Energie
+        //    reingesteckt werden."
+        //
+        // WHAT IS AND IS NOT FIXED, stated plainly because the block below the
+        // `Sparks` builder used to claim this was impossible and that claim was
+        // half right. It is still true that NOTHING CAN MOVE THE EMITTER: a
+        // Shuriken system simulates in world space on the CPU, this bundle ships
+        // no MonoBehaviours, and — the part that is easy to miss — the shelf
+        // itself never moves either, because its fall is a vertex-shader rotation
+        // (EnvShelfTip.cginc) and there is no transform in the scene that follows
+        // the bookcase down. There is literally nothing to parent to. What is NOT
+        // true is that nothing could be done: a material can be told the pose, and
+        // sparks that are not drawn cannot hang in the air where the shelf was.
+        //
+        // So these two populations FADE OUT with the shelf's own uprightness and
+        // come back with it, and the fade is GhvrTipUpright — the pose divided by
+        // its own maximum, which contains no constant of its own and therefore
+        // cannot drift from the carcass it belongs to. Out by the arrival (phase
+        // 0.180), absent for the whole 10.8 s it lies there, back over the
+        // righting (phase 0.620 onward).
+        //
+        // THE COST DID NOT GO AWAY. Both emitters go on simulating and both go on
+        // costing their draw call for the whole event; only the FILL is saved,
+        // and only because a faded-out quad is collapsed rather than merely
+        // transparent. That is the whole of what a script-free bundle can do and
+        // the bake log says so.
+        //
+        // TWO PRIVATE MATERIALS, and that is the only reason this needs a builder
+        // at all: the pose is written per MATERIAL, and the shelf's resting sparks
+        // otherwise share FX_ElemEmber with every other ember in both rooms while
+        // its downwind sparks share C_FireGustSpark with the rest of the cellar.
+        // Fading either shared material would put out the crate's sparks and the
+        // cask's every time the bookshelf went over.
+        //
+        //   * the resting one is a COPY of FX_ElemEmber taken at bake time
+        //     (CopyPropertiesFromMaterial), not a re-authored twin. It is the same
+        //     sprite, the same ember colour and the same Fire gate BY
+        //     CONSTRUCTION, so the standing shelf's sparks are the ones the user
+        //     praised, to the bit, and a future change to FX_ElemEmber reaches
+        //     this one without anybody remembering to come here.
+        //   * the downwind one comes out of GustSparkMat, the same builder the
+        //     room's other one comes out of, for exactly the same reason.
+        private static Material ShelfSparkMat()
+        {
+            var src = AssetDatabase.LoadAssetAtPath<Material>(MatDir + "/FX_ElemEmber.mat")
+                      ?? throw new Exception("FX_ElemEmber.mat missing — the bookshelf's own spark "
+                                             + "material is a copy of it, so that the sparks the "
+                                             + "user liked cannot drift away from the ones on the "
+                                             + "crate. It is authored in BuildEnvironments.");
+            string path = MatDir + "/C_FireSparkShelf.mat";
+            var m = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (m == null)
+            {
+                m = new Material(src) { name = "C_FireSparkShelf" };
+                AssetDatabase.CreateAsset(m, path);
+            }
+            else
+            {
+                m.shader = src.shader;
+                m.CopyPropertiesFromMaterial(src);
+            }
+            return m;
+        }
+
+        /// <summary>Declare a spark emitter's material a thing that goes out while
+        /// the bookcase is over, and hand it the pose it needs to know when.
+        ///
+        /// <para>`self: 0` — it does NOT move its own geometry, and it must not:
+        /// the hinge WriteShelfTip gives it is in the emitter transform's object
+        /// space, while a world-simulated particle's vertex is in world space, so
+        /// the two are only the same thing by accident. `lit: -1` — a spark casts
+        /// no baked light. `gutter: 1` is the whole declaration, and it is the
+        /// same flag the shelf candle's flame carries because it is the same
+        /// question: does the topple put me out?</para></summary>
+        private static void ShelfSparkFade(Material m, Transform xf)
+        {
+            RideShelf(m, self: 0f, lit: -1f, gutter: 1f, stiff: 0f);
+            WriteShelfTip(m, xf);
+            if (m.GetVector("_TipPivot").w < 0.5f || m.GetVector("_TipUse").z < 0.5f)
+                throw new Exception($"Spark material '{m.name}' was meant to fade out with the "
+                                    + "tipping bookshelf and did not get a live pose. Either the "
+                                    + "shelf record is not published yet (AddCellarFire must run "
+                                    + "after BuildTippingShelf) or EnvParticleAdd has lost its "
+                                    + "_Tip* properties — WriteShelfTip gates on HasProperty and "
+                                    + "returns silently, which is exactly how this would ship "
+                                    + "looking unchanged.");
+        }
+
         /// <summary>One downwind spark population, off one burning site.
         ///
         /// <para>`wind` is the room's own authored direction (DraftDir /
@@ -10260,8 +10353,13 @@ namespace GloomhavenVR
         /// sprite here is Env_Spark, radially symmetric, aspect exactly 1:1 at
         /// every speed and from every angle. The bound this round is verified
         /// against is therefore not a tuning result, it is a property of the
-        /// asset.</para></summary>
-        private static void GustSparks(Transform root, string n, Vector3 at, Vector3 wind,
+        /// asset.</para>
+        ///
+        /// <para>Returns the emitter, so that a caller who needs to say something
+        /// more about it than its speeds — the bookshelf's, which has to be told
+        /// to fade out when the bookshelf goes over — can, without a second
+        /// builder that would then be the thing that drifts.</para></summary>
+        private static ParticleSystem GustSparks(Transform root, string n, Vector3 at, Vector3 wind,
                                        Material mat, float spread, int maxAlive, float rate,
                                        float lifeLo, float lifeHi,
                                        float speedLo, float speedHi, float riseHi)
@@ -10313,6 +10411,7 @@ namespace GloomhavenVR
             var sol = ps.sizeOverLifetime; sol.enabled = true;
             sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
                 new Keyframe(0f, 1f), new Keyframe(0.45f, 0.62f), new Keyframe(1f, 0.10f)));
+            return ps;
         }
 
         /// <summary>The cellar's fires, the light they throw and their sparks.
@@ -10477,15 +10576,31 @@ namespace GloomhavenVR
             // out as liked; these are the same sprite and the same colour, coming
             // off something that is actually burning.
             //
-            // THEY DO NOT RIDE THE SHELF, and nothing can make them: a Shuriken
-            // system simulates in world space on the CPU and this bundle has no
-            // scripts, so the sparks off the burning bookshelf go on rising from
-            // where the shelf was standing. It is the one rider that could not be
-            // taken along, it is stated in the bake log, and it is the least
-            // visible of them — a spark is 2 cm and is already leaving.
-            void Sparks(string n, Vector3 at, float spread, int maxAlive, float rate)
+            // THEY STILL DO NOT RIDE THE SHELF — nothing can make them, and the
+            // reason is not only that a Shuriken system simulates in world space
+            // on the CPU with no script to move it: THE SHELF DOES NOT MOVE
+            // EITHER. Its fall is a vertex rotation in EnvShelfTip.cginc, so there
+            // is no transform anywhere in the scene that follows the bookcase
+            // down and nothing to parent an emitter to. That is why the flame
+            // cards ride (they are geometry going through the same shader) and
+            // the sparks cannot.
+            //
+            // WHAT THEY DO INSTEAD, ModBuild 152: the bookshelf's two populations
+            // FADE OUT as it goes over and come back as it stands up (`onShelf`
+            // below, ShelfSparkMat/ShelfSparkFade and EnvShelfTip's
+            // GhvrTipUpright). The user asked for exactly this in place of the
+            // structural fix — "Um es einfach zu halten: Deaktivier die Funken
+            // einfach (ausfaden) wenn das Regal kippt" — and it answers the
+            // complaint that mattered: nothing is left spraying sparks out of the
+            // air where the shelf used to stand. It is the OTHER five populations
+            // that are untouched, deliberately: no fire in either room that does
+            // not stand on the bookcase knows anything about it.
+            void Sparks(string n, Vector3 at, float spread, int maxAlive, float rate,
+                        bool onShelf = false)
             {
-                var ps = ElemPS(root, $"FireSparks{n}", at, "FX_ElemEmber.mat", maxAlive);
+                var ps = onShelf
+                    ? ElemPS(root, $"FireSparks{n}", at, ShelfSparkMat(), maxAlive)
+                    : ElemPS(root, $"FireSparks{n}", at, "FX_ElemEmber.mat", maxAlive);
                 var m = ps.main;
                 m.duration = 9f;
                 // short: an ember off a crate is out within a couple of metres,
@@ -10517,6 +10632,12 @@ namespace GloomhavenVR
                 var sol = ps.sizeOverLifetime; sol.enabled = true;
                 sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
                     new Keyframe(0f, 1f), new Keyframe(0.55f, 0.7f), new Keyframe(1f, 0.15f)));
+                // LAST, so that everything above has already been authored: the
+                // fade is a property of the MATERIAL and the material is the only
+                // thing about this emitter that differs from the other five.
+                if (onShelf)
+                    ShelfSparkFade(ps.GetComponent<ParticleSystemRenderer>().sharedMaterial,
+                                   ps.transform);
                 particles += maxAlive; emitters++;
             }
 
@@ -10529,10 +10650,19 @@ namespace GloomhavenVR
             // inside it. The wood's are half again as fast, because out there they
             // have somewhere to go.
             var gustMat = GustSparkMat("C");
-            void Gust(string n, Vector3 at, float spread, int maxAlive, float rate)
+            // ...and a SECOND one out of the same builder for the bookshelf, for
+            // the reason in the block above ShelfSparkMat: the fade is written
+            // per material, and this room's other three sites share `gustMat`.
+            // Built lazily so a room without a burning bookcase creates no asset.
+            Material shelfGustMat = null;
+            void Gust(string n, Vector3 at, float spread, int maxAlive, float rate,
+                      bool onShelf = false)
             {
-                GustSparks(root, n, at, DraftDir, gustMat, spread, maxAlive, rate,
-                           1.0f, 2.2f, 0.85f, 1.70f, 0.55f);
+                if (onShelf && shelfGustMat == null) shelfGustMat = GustSparkMat("CShelf");
+                var ps = GustSparks(root, n, at, DraftDir, onShelf ? shelfGustMat : gustMat,
+                                    spread, maxAlive, rate,
+                                    1.0f, 2.2f, 0.85f, 1.70f, 0.55f);
+                if (onShelf) ShelfSparkFade(shelfGustMat, ps.transform);
                 particles += maxAlive; emitters++;
             }
 
@@ -10703,8 +10833,14 @@ namespace GloomhavenVR
             Halo("Shelf", shelfSeat + new Vector3(-0.05f, 0.15f, 0f), 0.34f, 0.030f,
                  new Vector3(hw - 0.50f, 1.85f, CellarShelfAt.z), 1.40f, 0.026f, 0f,
                  onShelf: true);
-            Sparks("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 16, 7.5f);
-            Gust("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 18, 9.5f);
+            // ...and BOTH of these go out while the bookcase is lying on the
+            // floor and come back as it stands up — the only two emitters in
+            // either room that know the bookshelf exists. See the block above
+            // `Sparks` for what that does and does not fix.
+            Sparks("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 16, 7.5f,
+                   onShelf: true);
+            Gust("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 18, 9.5f,
+                 onShelf: true);
 
             // ================= THE LIGHT THE FIRE THROWS =======================
             // USER, ModBuild 144: "... und auch die Lichtverhältnisse entsprechend
@@ -10847,6 +10983,26 @@ namespace GloomhavenVR
                        + $"74x reveal with no step in it anywhere. Env_Spark, radially "
                        + $"symmetric: NO Stretch mode, no billboard, aspect 1:1 at every speed "
                        + $"(the streaks may not come back through the side door).\n");
+            log.Append("    sparks on the BOOKSHELF (FireSparksShelf + FireGustShelf, and only "
+                       + "those two of the ten): they FADE OUT as the bookcase goes over and come "
+                       + "back as it stands up — user, ModBuild 151, \"Beim umgekippten "
+                       + "Buecherregal kippt die Funkenquelle nicht mit um\" and then \"Um es "
+                       + "einfach zu halten: Deaktivier die Funken einfach (ausfaden)\". The "
+                       + "factor is EnvShelfTip's GhvrTipUpright = 1 - GhvrShelfTip(phase), the "
+                       + "pose itself divided by its own maximum, so it carries no constant and "
+                       + "cannot drift from the carcass: alpha 1.00 upright, 0.83 at a 15 deg "
+                       + "lean, 0.00 at the arrival (phase 0.180, t = 4.68 s), absent for the "
+                       + "10.8 s it lies there, and the mirror of all of that from the righting "
+                       + "(phase 0.620) out to the end. Two PRIVATE materials for it "
+                       + "(C_FireSparkShelf, a bake-time copy of FX_ElemEmber, and "
+                       + "CShelf_FireGustSpark out of the same builder as the room's other one), "
+                       + "because the fade is written per material and the shared ones are the "
+                       + "crate's and the cask's. THEY STILL DO NOT RIDE IT: nothing can move a "
+                       + "world-simulated Shuriken emitter from a script-free bundle, and the "
+                       + "shelf has no transform to follow either (its fall is a vertex "
+                       + "rotation). Both go on simulating and both keep their draw call for the "
+                       + "whole event; what is saved is the FILL, because a faded-out quad is "
+                       + "collapsed rather than merely transparent.\n");
             log.Append("    cost when Fire is down: every flame card and every halo collapses to "
                        + "a point in the vertex shader (zero-area triangles, no fill); the fire "
                        + "wash is inside `if (e.fire > 0)` and its colour is black; the spark "

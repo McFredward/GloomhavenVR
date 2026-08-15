@@ -780,11 +780,23 @@ internal static partial class HauntFigures
             internal readonly int Prop;
             internal readonly Color Original;
 
+            /// <summary>True when this lever is <c>_MOD_TINT</c> itself — the property the GAME
+            /// writes — rather than one of the generic albedo tints. It selects the ALPHA policy and
+            /// nothing else; see THE ALPHA GATE in <see cref="Shade"/>.</summary>
+            internal readonly bool IsModTint;
+
             internal TintTarget(Material mat, int prop, Color original)
             {
                 Mat = mat; Prop = prop; Original = original;
+                IsModTint = prop == ModTintId;
             }
         }
+
+        /// <summary>The id of <c>_MOD_TINT</c>, resolved once. Compared against
+        /// <see cref="TintTarget.Prop"/> rather than the property NAME, because the name is not kept
+        /// per target and a string compare per material per frame would be the one allocation this
+        /// path does not have.</summary>
+        private static readonly int ModTintId = Shader.PropertyToID("_MOD_TINT");
 
         private static readonly List<TintTarget> Tints = new(16);
 
@@ -849,6 +861,11 @@ internal static partial class HauntFigures
         /// value is used).</summary>
         private static float _gaitBlend = -1f;
 
+        /// <summary>The implied gait speed the EVENT assumed when it sized this run's path, in m/s at
+        /// full blend. Diagnostics only — see the <paramref name="impliedEstimate"/> parameter of
+        /// <see cref="Request"/>.</summary>
+        private static float _gaitEstimate;
+
         /// <summary>
         /// THE GROUND A HUMANOID GAIT CYCLE COVERS AT SCALE 1, in metres, and it is the ONE number in
         /// this derivation that is an assumption rather than a measurement — so it is named, stated
@@ -899,12 +916,17 @@ internal static partial class HauntFigures
         /// the job over the following frames.</summary>
         /// <param name="metresPerSecond">How fast this run's path moves the figure. 0 for a figure
         /// that stands — see <see cref="Gait"/> for what a non-zero value does to the animator.</param>
+        /// <param name="impliedEstimate">What the EVENT believed this creature's gait speed to be
+        /// when it chose that path, from <c>HauntFigures.ImpliedSpeed</c>. Diagnostics only: it is
+        /// printed beside the value <see cref="Gait"/> measures off the real prefab, so a table that
+        /// has drifted from the assets says so in the log instead of quietly mis-timing an event.</param>
         internal static void Request(string model, CClass.ENPCModel picked, in HauntEvent ev,
                                      Transform parent, Transform? room, SkyStyle style,
-                                     float metresPerSecond)
+                                     float metresPerSecond, float impliedEstimate)
         {
             Release("a new apparition was armed");
             _gaitSpeed = Mathf.Max(metresPerSecond, 0f);
+            _gaitEstimate = Mathf.Max(impliedEstimate, 0f);
             _wantModel = model;
             _wantEnum = picked;
             _wantHeight = ev.Height;
@@ -996,6 +1018,17 @@ internal static partial class HauntFigures
         /// <c>ForestCross</c>'s hold was lengthened so the crossing is a stroll rather than a march.
         /// Both halves were needed: this one stops the feet sliding at any speed, that one chooses a
         /// speed worth walking at.</para>
+        ///
+        /// <para><b>AND ModBuild 152 REVERSED WHICH OF THE TWO LEADS.</b> USER, verbatim: "Es wird
+        /// ein Wolf angezeigt der schnell rennt aber die Geschwindigkeit in der er sich bewegt ist
+        /// deutlich langsamer, dann mach die Bewegung auch schneller." The Hound's line in the
+        /// ModBuild 151 log is this method working exactly as designed and producing the wrong
+        /// picture: path 1.06 m/s against an implied 4.95 m/s, i.e. a run played at 0.63x while the
+        /// body crawled. So the EVENT now sizes its path from the creature's own implied speed
+        /// (<c>HauntFigures.ImpliedSpeed</c> and THE CROSSING'S SPEED, Events.cs) and this method
+        /// keeps its job unchanged — it is simply handed a speed the legs already agree with, so the
+        /// blend lands near the target instead of on the floor and <c>Animator.speed</c> stays at 1.
+        /// The clamps below are now a guard rather than the normal path.</para>
         /// </summary>
         private static void Gait(float scale)
         {
@@ -1032,7 +1065,17 @@ internal static partial class HauntFigures
                 + "speed, and the game's own sustained travel drives it to 1.0 "
                 + "(m_TargetAnimSpeed, ActorBehaviour.cs:493 — dimensionless, 0..1). The one "
                 + $"ASSUMED number here is the {StrideMetres:F2} m a gait cycle covers at scale 1; "
-                + "everything else on this line is measured, so moving it is one arithmetic step.");
+                + "everything else on this line is measured, so moving it is one arithmetic step. "
+                + "AND SINCE ModBuild 152 THE PATH IS DERIVED FROM THIS SPEED RATHER THAN THE OTHER "
+                + "WAY ROUND (user: \"dann mach die Bewegung auch schneller\"), so the blend above "
+                + "should now sit near the target rather than at the floor. THE ARM-TIME ESTIMATE "
+                + $"THAT SIZED THE PATH was {_gaitEstimate:F2} m/s against the {implied:F2} m/s "
+                + $"measured here — a ratio of "
+                + $"{(_gaitEstimate > 0.01f ? implied / _gaitEstimate : 0f):F2}. IT MUST BE NEAR "
+                + "1.00: the estimate comes from HauntFigures.ImpliedSpeed, a small table of censused "
+                + "scales and clip lengths that exists only because the real prefab has not finished "
+                + "loading when the path has to be chosen. A ratio far from 1 means that table has "
+                + "drifted from the assets and is the one thing to correct from this line.");
         }
 
         /// <summary>The length of this controller's locomotion clip, in seconds — the cycle whose
@@ -1584,7 +1627,12 @@ internal static partial class HauntFigures
                 Color c = m.GetColor(id);
                 if (declared.Length > 0)
                     declared.Append(", ");
-                declared.Append($"{TintNames[i]}=({c.r:F3},{c.g:F3},{c.b:F3})");
+                // THE ALPHA IS PRINTED, and the fact that it was not is the whole of ModBuild 151's
+                // wasted round: the per-renderer property dump carried '(1.000,1.000,1.000,0.000)'
+                // for three builds and this summary quoted only the first three components, so the
+                // one component that turned out to be the gate was invisible in the line a reader
+                // actually reads. See THE ALPHA GATE in Shade().
+                declared.Append($"{TintNames[i]}=({c.r:F3},{c.g:F3},{c.b:F3},a={c.a:F3})");
                 if (c.r + c.g + c.b < 0.02f)
                 {
                     declared.Append(" [near-black, refused]");
@@ -1594,7 +1642,18 @@ internal static partial class HauntFigures
                 if (_tintName.Length == 0)
                     _tintName = TintNames[i];
                 Verdicts.Add($"'{m.name}' [{shName}] LEVER {TintNames[i]} "
-                             + $"= ({c.r:F3},{c.g:F3},{c.b:F3}); declares {declared}");
+                             + $"= ({c.r:F3},{c.g:F3},{c.b:F3},a={c.a:F3}); declares {declared}"
+                             + (id == ModTintId
+                                    ? $"; ALPHA WILL BE WRITTEN AS {ModTintAlpha:F3} rather than kept at "
+                                      + $"{c.a:F3} — the game's own writer (Choreographer.cs:851-853) "
+                                      + "always writes 1 because ColourHTML is a 6-digit string that "
+                                      + "defaults to #FFFFFF (MonsterYMLData.cs:79), so an authored 0 is a "
+                                      + "state the shipped game never renders. THIS IS THE ModBuild 152 "
+                                      + "CHANGE: if the figure is still fully lit after it, the alpha is "
+                                      + "not the gate and the next lever is the albedo TEXTURE, not the "
+                                      + "RGB again."
+                                    : "; alpha kept as authored — on this property the fourth component "
+                                      + "is opacity, not a tint weight"));
                 return true;
             }
 
@@ -1618,7 +1677,7 @@ internal static partial class HauntFigures
                     _tintName = name;
                 Verdicts.Add($"'{m.name}' [{shName}] LEVER {name} (found by scanning the shader's "
                              + $"{scanned} colour propertie(s), not by name) "
-                             + $"= ({c.r:F3},{c.g:F3},{c.b:F3})");
+                             + $"= ({c.r:F3},{c.g:F3},{c.b:F3},a={c.a:F3}); alpha kept as authored");
                 return true;
             }
 
@@ -1990,10 +2049,67 @@ internal static partial class HauntFigures
                 float g = Mathf.Lerp(c.g, y * w.y, s);
                 float b = Mathf.Lerp(c.b, y * w.z, s);
 
-                // ALPHA IS NOT TOUCHED. On every one of the candidate properties it means opacity or
-                // nothing at all, and this pass is a darkening rather than a fade to transparent —
-                // a see-through monster is the "leuchtende Silhouette" the last round removed.
-                t.Mat.SetColor(t.Prop, new Color(r * k, g * k, b * k, c.a));
+                // ---- THE ALPHA GATE — and it is why FOUR ROUNDS OF DARKENING CHANGED NOTHING ------
+                //
+                // The line this replaces read "ALPHA IS NOT TOUCHED ... on every one of the candidate
+                // properties it means opacity or nothing at all". That sentence was wrong about the
+                // one property that matters, and the ModBuild 151 log had the counter-evidence in it
+                // all along (Player.log:7681, the Cultist AFTER dump, live off the rendering
+                // material):
+                //
+                //     _MOD_TINT=(0.012,0.014,0.020,0.000)      <- and the figure rendered FULLY LIT
+                //
+                // An RGB of 0.012/0.014/0.020 is black. A figure carrying a black albedo multiply and
+                // reading as a normal, fully-textured character is not a figure that was darkened too
+                // little; it is a figure that was not darkened AT ALL. So the write lands, the value
+                // is live at dump time, and the shader ignores it — which leaves the fourth component
+                // as the only thing in the tuple nobody had read.
+                //
+                // WHAT THE GAME ITSELF WRITES, from the decompiled source rather than from inference:
+                //   * Choreographer.cs:851-853 (and again at :1034-1036) — on EVERY character whose
+                //     shader is named Amp_Char_Shader:
+                //         if (mat.HasProperty("_MOD_TINT") && ColorUtility.TryParseHtmlString(s, out c))
+                //             mat.SetColor("_MOD_TINT", c);
+                //   * ColorUtility.TryParseHtmlString returns ALPHA = 1 for a 6-digit "#RRGGBB".
+                //   * and the string is never absent: MonsterYMLData.cs:79 initialises
+                //     ColourHTML = "#FFFFFF" for every monster, MonstersYML.cs:282 builds it as
+                //     "#" + a six-digit value, and CharacterYMLData.cs:113 does the same for heroes.
+                // THEREFORE: every character the shipped game draws on this shader carries
+                // _MOD_TINT.a = 1, and the (1,1,1,0) this file captured is the MATERIAL ASSET'S
+                // AUTHORING DEFAULT — a state the game itself never renders. We copied that 0
+                // forward on every write and have been driving a colour through a gate we were
+                // holding shut.
+                //
+                // THE PHOTOGRAPHS AGREE, AND THAT IS THE INDEPENDENT HALF OF THE ARGUMENT. Three
+                // frames of the SAME forest event were measured across three builds whose nominal
+                // multiplier differed by a factor of 4.1 (Level 0.321 -> 0.078):
+                //     Sichtbarkeit.jpg (Level 0.321): figure p90 0.0290, trunk 0.0042
+                //     Figur_hell.jpg   (Level 0.078): figure p90 0.0291, trunk 0.0050
+                // The multiplier fell fourfold and the figure moved by 0.3%. A lever whose output
+                // does not respond to its input is inert, and the user said so in one sentence a
+                // build before the measurement did: "ich sehe keinen Unterschied".
+                //
+                // AND IT CANNOT MAKE THE FIGURE SEE-THROUGH, which is the one way this change could
+                // do harm — a translucent monster is the "leuchtende Silhouette" ModBuild 150
+                // removed. If this component were an OPACITY, the figure would already be invisible:
+                // it is carrying 0 today and it renders solid. Raising an opacity from 0 to 1 is the
+                // direction that makes something MORE opaque in any case, so both readings are safe.
+                //
+                // SO THE ALPHA IS WRITTEN, AND ONLY ON _MOD_TINT. On _Color and its family the fourth
+                // component really is opacity and forcing it to 1 could make a legitimately
+                // translucent material solid, so those keep the alpha they shipped with. On
+                // _MOD_TINT the game's own writer IS the specification and it always writes 1.
+                //
+                // THE RESULT IS CORRECT UNDER BOTH READINGS OF WHAT THE ALPHA DOES, which matters
+                // because the Amplify graph is not readable from here:
+                //   * a GATED MULTIPLY, albedo * lerp(1, tint, a): at a = 1 the figure is
+                //     albedo x (original x k), i.e. the darkening this file has always intended;
+                //   * a BLEND TO A FLAT COLOUR, lerp(albedo, tint, a): at a = 1 the figure becomes
+                //     the flat colour original x k — a SILHOUETTE, a shape with no readable texture,
+                //     which is the thing the user has now asked for five times.
+                // Both are LINEAR IN k, so the reveal and the dissolve fade correctly either way.
+                float a = t.IsModTint ? ModTintAlpha : c.a;
+                t.Mat.SetColor(t.Prop, new Color(r * k, g * k, b * k, a));
             }
 
             // ---- THE EMISSION, driven by the SAME scalar the albedo is -----------------------------
@@ -2076,6 +2192,30 @@ internal static partial class HauntFigures
         /// its luminance at all.</para>
         /// </summary>
         private const float Desaturation = 0.85f;
+
+        /// <summary>
+        /// The fourth component written into <c>_MOD_TINT</c>, and the one number this whole round
+        /// turns on. See THE ALPHA GATE in <see cref="Shade"/> for the evidence.
+        ///
+        /// <para><b>1.0 IS NOT A GUESS, IT IS WHAT THE GAME WRITES.</b>
+        /// <c>ColorUtility.TryParseHtmlString</c> on a 6-digit <c>#RRGGBB</c> returns alpha 1, the
+        /// string is never absent (<c>MonsterYMLData.cs:79</c> defaults it to <c>#FFFFFF</c>), and
+        /// <c>Choreographer.cs:851-853</c> writes the result onto every Amp_Char_Shader character in
+        /// the game. So alpha 1 is the shader's designed operating point and alpha 0 — the material
+        /// ASSET's authoring default, which this file was faithfully preserving — is a state the
+        /// shipped game never renders.</para>
+        ///
+        /// <para><b>IF THE NEXT HARDWARE ROUND SHOWS NO CHANGE, THIS IS THE SWEEP.</b> The AFTER dump
+        /// now prints the alpha explicitly, so the first question is whether the value arrived
+        /// (<c>_MOD_TINT=(...,1.000)</c>). If it did and the figure is still fully lit, then the
+        /// alpha is not the gate, the tint is inert for some other reason, and the answer is NOT to
+        /// move the RGB again — it is to change lever: the albedo TEXTURE <c>_Diffuse</c> is declared
+        /// by both character shaders and replacing it with a 1x1 dark texture would darken the figure
+        /// whatever the graph does with its colours. That was deliberately not shipped this round
+        /// because it also destroys the texture's alpha, which the fur and ribbon cards cut out
+        /// against (<c>_Cutoff = 0.5</c>), i.e. it can only be judged with a photograph in hand.</para>
+        /// </summary>
+        private const float ModTintAlpha = 1f;
 
         // ---- teardown ---------------------------------------------------------------------------------
 
@@ -2576,10 +2716,58 @@ internal static partial class HauntFigures
             // mechanisms above are counted at all. It is a factor of 1.7 and not the full 2.9,
             // because points 1 and 2 are the large corrections in this build and over-darkening on
             // top of them risks the failure the user has NOT reported — a figure nobody can find.
-            private const float DarkFloor = 0.006f;   // a creature is never fully black while present
-            private const float LightGain = 0.20f;    // room luminance -> albedo multiplier
-            private const float MaxLevel = 0.30f;     // never at full albedo: it is a thing in the dark
-            private const float UnlitLevel = 0.05f;   // the rig could not be read at all
+            //
+            // ============ ModBuild 152: EVERY FIT ABOVE THIS LINE DIVIDED BY THE WRONG NUMBER ======
+            //
+            // THE LEVER WAS INERT WHILE ALL THREE PHOTOGRAPHS WERE TAKEN. See THE ALPHA GATE in
+            // Shade(): _MOD_TINT was written with the material asset's authored alpha of 0, the
+            // shader ignored it, and the multiplier the arithmetic above divides through by never
+            // reached a pixel. So every "Level was 0.321" / "Level was 0.100" / "Level was 0.078" in
+            // the derivations above is really LEVEL = 1, and each fit was solving for the wrong
+            // unknown.
+            //
+            // THE SAME THREE MEASUREMENTS, DIVIDED BY 1 INSTEAD. Wanted Level = 2 x background /
+            // figure, with the figure now known to have been photographed at full albedo:
+            //     Sichtbarkeit.jpg      (forest) 2 x 0.0042 / 0.0290 = 0.290
+            //     Figur_hell.jpg        (forest) 2 x 0.0050 / 0.0291 = 0.344
+            //     Kellerfenster_figur.jpg (cellar) 2 x 0.0027 / 0.0458 = 0.118
+            //
+            // AND THIS IS THE REASON TO BELIEVE IT RATHER THAN THE OLD READING. The two FOREST
+            // frames are the same event in the same room under the same rig, so any correct model
+            // must give them the same answer. The old reading gives 0.093 and 0.027 — a factor of
+            // 3.5 apart, which is why each round needed a new correction to explain why the last
+            // one "made no difference". The inert-lever reading gives 0.290 and 0.344, which agree
+            // to within 19% — inside what a headset photograph can settle. One hypothesis makes
+            // three independent frames consistent; the other makes two frames of the same room
+            // contradict each other.
+            //
+            // THE NEW FIT is therefore a straight line through the cellar point and the mean of the
+            // two forest points (0.317), against the rig luminances those rooms deliver — and it
+            // needs no compromise at all, because the wanted-Level ratio (2.7) and the room
+            // luminance ratio (5.0) are finally the same order:
+            //     Level = 0.070 + 1.15 x lum   ->   cellar (lum 0.0425) 0.119, forest (0.2126) 0.315
+            //
+            // WHICH KNOB A TUNING DROP MOVES, restated for the new numbers:
+            //   * DarkFloor 0.070 (was 0.006). It is now the cellar's answer to within a third,
+            //     because the cellar's own rig delivers almost nothing and what the figure is really
+            //     lit by is the game's FireTorch point light 4.7 m away (Diag.Scene).
+            //   * LightGain 1.15 (was 0.20). Still "too bright" -> lower this one.
+            //   * MaxLevel 0.60 (was 0.30). 0.30 is now BELOW the forest's own answer, i.e. it would
+            //     have clamped the normal case and quietly re-flattened the two rooms. 0.60 is about
+            //     twice the forest's answer, so it bites where it should: a figure that walks into a
+            //     candle pool.
+            //   * UnlitLevel 0.12 (was 0.05). The fallback for "the rig could not be read" sits just
+            //     under the darker room's real answer.
+            //
+            // THE HONEST CAVEAT: these four have never been observed WORKING. Everything above is
+            // measured, but it is measured off frames in which the multiply did nothing, so the
+            // first hardware round with the gate open is the first real test of the mapping. The
+            // failure to watch for has flipped: it is no longer "still too bright", it is "I cannot
+            // find it at all" — and the knob for that is DarkFloor.
+            private const float DarkFloor = 0.070f;   // a creature is never fully black while present
+            private const float LightGain = 1.15f;    // room luminance -> albedo multiplier
+            private const float MaxLevel = 0.60f;     // never at full albedo: it is a thing in the dark
+            private const float UnlitLevel = 0.12f;   // the rig could not be read at all
 
             /// <summary>
             /// The albedo multiplier the room's measured light justifies, 0..1 — the AMOUNT half of
@@ -2890,16 +3078,24 @@ internal static partial class HauntFigures
                         + $"with), so the apparition's albedo is multiplied by {Level:F3}. THIS IS THE "
                         + "LINE TO TUNE FROM: the mapping is DarkFloor "
                         + $"{DarkFloor:F3} + LightGain {LightGain:F2} x luminance, clamped to "
-                        + $"[{DarkFloor:F3}, {MaxLevel:F2}], and ALL FOUR ARE NOW FITTED TO TWO "
-                        + "HARDWARE PHOTOGRAPHS (ModBuild 148: Sichtbarkeit.jpg and "
-                        + "Kellerfenster_figur.jpg — the figure measured 6.9x and 17x the surface "
-                        + "behind it and the target is about 2x). Too dark to find at all means raise "
-                        + "DarkFloor; still reading as 'voll angestrahlt' means lower LightGain. The "
+                        + $"[{DarkFloor:F3}, {MaxLevel:F2}], and ALL FOUR WERE RE-FITTED IN "
+                        + "ModBuild 152 BECAUSE EVERY EARLIER FIT DIVIDED BY A MULTIPLIER THAT NEVER "
+                        + "REACHED A PIXEL: _MOD_TINT was written with the material's authored alpha "
+                        + "of 0 and the shader ignored it, so the three photographs (Sichtbarkeit.jpg, "
+                        + "Figur_hell.jpg, Kellerfenster_figur.jpg) all show the figure at FULL "
+                        + "albedo, not at the 0.321/0.078/0.100 the log claimed. Read that way the two "
+                        + "FOREST frames finally agree (wanted Level 0.290 and 0.344 against 0.093 and "
+                        + "0.027 under the old reading), and the line through them and the cellar's "
+                        + "0.118 is what these four now are. Too dark to find at all means raise "
+                        + "DarkFloor — AND THAT IS NOW THE LIKELY FAILURE, because this is the first "
+                        + "build in which the multiply does anything; still reading as 'voll "
+                        + "angestrahlt' means lower LightGain. The "
                         + $"multiply is on the ALBEDO (property '{_tintName}' where the shader has "
                         + "one), so it holds whatever else is lighting the figure — including the "
                         + "game's own scene lights, which no per-renderer setting can take away, and "
-                        + "which are why the two rooms want Levels an order apart (see the HAUNT "
-                        + "FIGURES SCENE LIGHTING line). "
+                        + "which are why the cellar wants a Level about 2.7x under the wood's even "
+                        + "though its own rig is 5x darker (see the HAUNT FIGURES SCENE LIGHTING "
+                        + "line). "
                         + "THE OCCLUSION THE SURFACE HAS AND THE FIGURE DOES NOT, measured off the "
                         + "same material and deliberately NOT applied: the surface keeps "
                         + $"_DirScale {_surfDirScale:F2} x canopy MinVis {_surfCanopyMinVis:F2} = "
@@ -2907,8 +3103,9 @@ internal static partial class HauntFigures
                         + $"figure would measure is {lumSurf:F4} instead of {_measured:F4} — a factor "
                         + $"of {(lumSurf > 1e-6f ? _measured / lumSurf : 0f):F2}. Applying it was "
                         + "tried and REJECTED: it collapses the two rooms' luminance ratio to 1.55 "
-                        + "against a wanted-Level ratio of 7.8 and forces a negative DarkFloor (the "
-                        + "full arithmetic is in the THE DARKENING block in HauntFigures.Clone.cs). "
+                        + "against a wanted-Level ratio of 2.7, i.e. it would need a gain the two "
+                        + "rooms cannot share (the full arithmetic is in the THE DARKENING block in "
+                        + "HauntFigures.Clone.cs). "
                         + "Retest it against a third photograph rather than re-deriving it.");
                 }
 
@@ -3041,7 +3238,20 @@ internal static partial class HauntFigures
                                        + "albedo is multiplied by the envelope times the room's measured "
                                        + "light level (see the HAUNT FIGURES light level line). "
                                        + "_MOD_TINT is the property Choreographer.cs:851-853 writes on "
-                                       + "Amp_Char_Shader, which is why it is tried first."
+                                       + "Amp_Char_Shader, which is why it is tried first. "
+                                       + "THE ALPHA IS THE ModBuild 152 CHANGE AND IT IS THE FIRST "
+                                       + "THING TO READ ON THE PROPERTY LINES BELOW: through 151 this "
+                                       + "side preserved the material asset's authored _MOD_TINT alpha "
+                                       + "of 0 and wrote a near-black RGB through it, and the figure "
+                                       + "rendered at full brightness — a black multiply that changes "
+                                       + "nothing is a gate that is shut. The game's own writer always "
+                                       + "writes alpha 1 (ColorUtility.TryParseHtmlString on a 6-digit "
+                                       + "ColourHTML, defaulted to #FFFFFF at MonsterYMLData.cs:79), so "
+                                       + $"alpha is now written as {ModTintAlpha:F3}. IF THE PROPERTY "
+                                       + "LINES BELOW SHOW a=1.000 WITH A NEAR-BLACK RGB AND THE FIGURE "
+                                       + "IS STILL FULLY LIT, the alpha was not the gate and the next "
+                                       + "round must change LEVER (the albedo texture) rather than "
+                                       + "tune the RGB a fifth time."
                                      : "NONE — no material declared _MOD_TINT, _Color, _Tint, _TintColor "
                                        + "or _Diffuse with a usable value, so this creature falls back to "
                                        + "being switched on at half presence and cannot be darkened at "

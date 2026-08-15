@@ -377,16 +377,124 @@ internal static partial class HauntFigures
     /// block above credits them with: more separate glimpses of the same thing rather than one
     /// continuous view. The 83 s slot beat (Haunt.Schedule.cs:73) is two orders above this, so a
     /// longer event cannot collide with the next one.</para>
+    ///
+    /// <para><b>AND SINCE ModBuild 152 THE STROLL IS THE SLOW CREATURES' ONLY, WHICH IS WHAT THE
+    /// PARAGRAPH ABOVE GOT WRONG.</b> "A thing that strolls between the trunks is at least as
+    /// frightening as one that hurries" is true of a shambling corpse and false of a wolf, and the
+    /// user said so with the wolf in front of him. The path length and the run length are now derived
+    /// from the creature's own locomotion clip (see THE CROSSING'S SPEED below): the Living Corpse
+    /// keeps this event almost exactly as authored — 7.4 m at 1.16 m/s over the full 6.40 s — and the
+    /// Hound covers 12 m at 4.21 m/s in 2.85 s. The 6.80 m and the 6.40 s above are therefore the
+    /// REFERENCE the derivation starts from rather than what any creature actually walks.</para>
     /// </summary>
     private static readonly HauntEvent ForestCross = new(
         2, "the thing that passes between the trunks",
         reveal: 1.00f, hold: 4.60f, fade: 0.80f,
+        // THE AUTHORED PATH IS NOW A REFERENCE RATHER THAN THE PATH — its CENTRE and its DIRECTION
+        // are used verbatim and its LENGTH is replaced per creature. See THE CROSSING'S SPEED below.
         from: new Vector3(-2.26f - 3.4f * 0.985f, 0f, -12.80f - 3.4f * -0.174f),
         to: new Vector3(-2.26f + 3.4f * 0.985f, 0f, -12.80f + 3.4f * -0.174f),
         height: 2.20f,
         runBlend: 0.55f,
         face: Vector3.zero,
         cast: new[] { CClass.ENPCModel.LivingCorpse, CClass.ENPCModel.Hound, CClass.ENPCModel.LivingBones });
+
+    // =============================================================================================
+    //  THE CROSSING'S SPEED — DERIVED FROM THE CREATURE, not imposed on it.
+    //
+    //  USER REPORT, ModBuild 151, verbatim: "Es wird ein Wolf angezeigt der schnell rennt aber die
+    //  Geschwindigkeit in der er sich bewegt ist deutlich langsamer, dann mach die Bewegung auch
+    //  schneller."
+    //
+    //  WHAT THE LOG SAID HE WAS LOOKING AT (Player.log:10215, the gait line for 'Hound'): the path
+    //  moved it at 1.06 m/s while its own locomotion clip — 0.50 s long at scale 1.833 — covers
+    //  4.95 m/s at full blend. Clone.Gait did exactly what it was built to do and bent the animation
+    //  to the path: RunBlend 0.60 with Animator.speed 0.63, i.e. a running wolf played at
+    //  five-eighths rate while it crawled. THE DESIGN HAD THE DEPENDENCY THE WRONG WAY ROUND. The
+    //  path speed was an authored constant (6.80 m over the event's own length) and the creature had
+    //  to fit it; it is now the creature that decides and the path that follows.
+    //
+    //  THE RULE, in the order the arithmetic runs:
+    //      want     = implied(creature) * CrossBlendTarget          [the speed the legs read at]
+    //      distance = clamp(want * authoredSeconds, MinMetres, MaxMetres)
+    //      seconds  = clamp(distance / want, MinSeconds, authoredSeconds)
+    //  so the DISTANCE takes the first bite (it is bounded by where the trunks are) and the
+    //  DURATION takes what is left. Both bounds can only SHORTEN the event, never lengthen it, which
+    //  is what keeps every consumer of the authored length correct without being told: the arming
+    //  window in HauntFigures.TickBody is still ev.Seconds x DurationMul, and a figure whose own run
+    //  ends early simply has an envelope of 0 for the remainder rather than being cut off.
+    //
+    //  WHAT IT COMES OUT AT, for the crossing's whole cast (authored length 6.40 s):
+    //      Living Corpse  implied 1.36 -> want 1.16 m/s, 7.4 m in 6.40 s   (was 1.06 m/s, 6.8 m)
+    //      Living Bones   implied 1.83 -> want 1.56 m/s, 10.0 m in 6.40 s
+    //      Hound          implied 4.95 -> want 4.21 m/s, 12.0 m in 2.85 s  (was 1.06 m/s, 6.8 m)
+    //  THE HEAVY CREATURES KEEP THEIR STROLL — that was a deliberate ModBuild 150 choice and the
+    //  user has not objected to it — and only the fast one moves like itself. The wolf now crosses
+    //  in under three seconds, which is also why the event gets SHORTER for it rather than longer:
+    //  a wolf that trots for six and a half seconds has stopped being a glimpse.
+    // =============================================================================================
+
+    /// <summary>The share of its own implied gait speed a travelling creature is driven at. Near 1
+    /// on purpose: <c>Clone.Gait</c> turns the ratio between path speed and implied speed into the
+    /// <c>RunBlend</c> weight, so this IS the blend the Idle-Run tree will be held at, and the whole
+    /// complaint was a blend of 0.21 dressed up as 0.60 by a clip slowed to 0.63x. Slightly under 1
+    /// rather than exactly 1 so <c>Animator.speed</c> never has to exceed 1 to make up a rounding
+    /// difference — a clip played faster than authored is the failure this replaces, seen from the
+    /// other side.</summary>
+    private const float CrossBlendTarget = 0.85f;
+
+    /// <summary>Shortest and longest the crossing's path may be, in room-local metres. The upper
+    /// bound is GEOMETRY and not taste: the walk is tangential at a radius of 13.0 m, so 12 m of
+    /// path is a sweep of ±24° whose ends sit at 14.3 m — still inside the second trunk band
+    /// (10.0–15.5 m, BuildEnvironmentRooms.cs:7989), which is the band the event's whole "several
+    /// separate glimpses" design depends on. Past that the figure walks out of the trees it is
+    /// supposed to be hiding behind.</summary>
+    private const float CrossMinMetres = 5.0f;
+    private const float CrossMaxMetres = 12.0f;
+
+    /// <summary>The floor on how long a crossing may take, whatever the creature implies. Nothing in
+    /// today's roster reaches it (it would need an implied speed over 5.5 m/s), and it is here so
+    /// that a future fast creature cannot turn the event into a frame and a half — the standing brief
+    /// asks for "was that there?", which needs a there.</summary>
+    private const float CrossMinSeconds = 2.20f;
+
+    /// <summary>
+    /// THE CREATURE'S OWN GAIT SPEED AT FULL BLEND, in metres per second — the same quantity
+    /// <c>Clone.Gait</c> computes at runtime as <c>StrideMetres * scale / walkClipSeconds</c>, but
+    /// available at ARM TIME, which is the whole reason this table exists.
+    ///
+    /// <para><b>WHY A TABLE AND NOT THE MEASUREMENT.</b> The measurement needs the prefab: the scale
+    /// comes from <c>CharacterManager.Height</c> and the clip length from the animator controller,
+    /// and neither exists until an asynchronous Addressables load has finished — several frames
+    /// AFTER the path has to be decided, because the path decides the event's own length and the
+    /// anchor is placed on the arming frame. So the choice is between a table that can be wrong and
+    /// a path that cannot depend on the creature at all, which is the defect this round is fixing.</para>
+    ///
+    /// <para><b>IT IS CHECKED RATHER THAN TRUSTED.</b> <c>Clone.Gait</c> receives this estimate and
+    /// prints it beside the value it measured off the real prefab, with the ratio; a table that
+    /// drifts from the assets therefore announces itself in the log instead of quietly mis-timing an
+    /// event. And a wrong entry is bounded rather than dangerous: the path is already fixed by then,
+    /// so <c>Gait</c> simply blends the animation to it exactly as it does today.</para>
+    ///
+    /// <para><b>EVERY NUMBER IS FROM A HARDWARE CENSUS, none is invented.</b> Scale and clip are the
+    /// <c>HAUNT FIGURES CENSUS</c> lines: Hound 1.833 with <c>Hound_Move_v003</c> 0.50 s and Cultist
+    /// 1.300 with <c>Cultist_Walk_v001</c> 1.00 s (ModBuild 151, Player.log:10216 and :7661); Living
+    /// Corpse 0.878/0.87 s, Living Bones 1.258/0.93 s and High Cultist 1.636/1.67 s (ModBuild 149,
+    /// quoted in <c>Clone.Gait</c>'s own doc). The clip picked here is the one
+    /// <c>Clone.WalkClipSeconds</c> would pick — same names, same order.</para>
+    /// </summary>
+    private static float ImpliedSpeed(CClass.ENPCModel model) => model switch
+    {
+        CClass.ENPCModel.Hound => 4.95f,          // 1.35 x 1.833 / 0.50
+        CClass.ENPCModel.LivingBones => 1.83f,    // 1.35 x 1.258 / 0.93
+        CClass.ENPCModel.Cultist => 1.76f,        // 1.35 x 1.300 / 1.00
+        CClass.ENPCModel.LivingCorpse => 1.36f,   // 1.35 x 0.878 / 0.87
+        CClass.ENPCModel.HighCultist => 1.32f,    // 1.35 x 1.636 / 1.67
+        // Never censused (it has only ever played a STANDING event, where none of this is read).
+        // The fallback is the stride at scale 1 over a one-second cycle, i.e. exactly what
+        // Clone.WalkClipSeconds falls back to.
+        _ => 1.35f,
+    };
 
     // ---- the takeover set ---------------------------------------------------------------------------
 
@@ -411,6 +519,84 @@ internal static partial class HauntFigures
     private static bool IsMineByDesign(SkyStyle style, int card) =>
         style == SkyStyle.Cellar ? card == 0 || card == 4
                                  : card == 1 || card == 2;
+
+    // =============================================================================================
+    //  THE APPARITION ORDINAL — "how many figure slots has this room had, counting from a fixed
+    //  point". It is what Roster.Pick iterates its shuffled cast with, and the reason it exists is
+    //  in that method's own block: successive apparitions are about THREE slots apart, three is the
+    //  cast size, so a shuffle indexed by the SLOT lands on the same position of the next block
+    //  about a third of the time and measures out no better than the independent draw it replaces.
+    //  Indexed by this, consecutive apparitions cannot repeat at all.
+    //
+    //  IT COUNTS CARDS AND NOT APPEARANCES, deliberately, and that is the multiplayer property. A
+    //  slot's CARD is decided by the schedule's group partition — a function of the slot index and
+    //  nothing else. A slot's LIVENESS additionally reads the frequency dial and the element channel,
+    //  and the dial is the one shared value that can differ between two peers for the frame it is
+    //  being moved. So this counts what the partition owns and lets the dial thin the sequence out.
+    // =============================================================================================
+
+    /// <summary>
+    /// MIRROR of the card partition in <c>Haunt.Resolve</c> (Haunt.Schedule.cs:188-198) — the four
+    /// lines that turn a slot index into a card index, without the liveness test, the jitter or the
+    /// force override that surround them there.
+    ///
+    /// <para><b>WHY A MIRROR AND NOT THE CALL.</b> <c>Haunt.Resolve</c> answers for ONE moment: it
+    /// takes a clock rather than a slot, it folds in the element gains and the dial, and — decisively
+    /// — it returns the FORCED card for every input while an Advanced-menu test is latched. Walking
+    /// it backwards over past slots would therefore answer "every slot was the forced card", which is
+    /// not what this counts. The partition itself is four lines of exact integer arithmetic and one
+    /// hash channel, and it is the only part of that method this needs.</para>
+    ///
+    /// <para><b>WHAT A DRIFT COSTS, because this is the fourth copy of that arithmetic in the repo
+    /// (the cginc, the bake, Haunt.Schedule.cs and here).</b> Nothing that can be seen as a fault: a
+    /// wrong count produces a DIFFERENT deterministic order of the same creatures, identically on
+    /// every client, and at worst a few more repeats. It cannot desync two peers, cannot draw a
+    /// creature an event was not designed for, and cannot change WHEN anything happens — the schedule
+    /// this feature actually obeys is still <c>Haunt.Resolve</c>'s and is not touched here. The one
+    /// number that must stay in step is the hash CHANNEL: 1 is <c>HcPick</c>.</para>
+    /// </summary>
+    private static int CardOfSlot(SkyStyle style, float slot)
+    {
+        float grp = slot - 3f * Mathf.Floor(slot / 3f);
+        float inGroup = Mathf.Max(Mathf.Floor(Haunt.CardsIn(style) / 3f + 0.5f), 1f);
+        float j = Mathf.Min(Mathf.Floor(Haunt.Hash(slot, 1f) * inGroup), inGroup - 1f);
+        return (int)(grp + 3f * j);
+    }
+
+    /// <summary>How far back the ordinal counts. It restarts on a fixed boundary rather than running
+    /// from slot 0 for ever, so the cost of one arm is bounded no matter how long the shared clock
+    /// has been running: 4096 slots is 94 hours at the 83 s beat, and the whole loop is one hash and
+    /// one compare per slot. The price is a single potential repeat at each boundary, i.e. one per
+    /// four days of continuous play — against the alternative, which is an unbounded loop that a
+    /// shared epoch nobody in this file controls could make arbitrarily long.</summary>
+    private const int OrdinalChunkSlots = 4096;
+
+    private static float _ordCached = -1f;
+    private static float _ordSlot = float.NaN;
+    private static SkyStyle _ordStyle = SkyStyle.Default;
+
+    /// <summary>The ordinal for this slot: how many of this room's figure-card slots precede it
+    /// since the last chunk boundary. Memoised because <see cref="Arm"/> can be re-entered on every
+    /// frame of a slot it has refused (a cast that will not resolve, a path that crosses masonry),
+    /// and a 4096-step loop at 90 Hz is a cost nothing else in this feature has. The memo is a cache
+    /// of a pure function and never a decision.</summary>
+    private static float ApparitionOrdinal(SkyStyle style, float slotIndex)
+    {
+        float slot = Mathf.Max(Mathf.Floor(slotIndex), 0f);
+        if (_ordCached >= 0f && _ordStyle == style && _ordSlot.Equals(slot))
+            return _ordCached;
+
+        float from = Mathf.Floor(slot / OrdinalChunkSlots) * OrdinalChunkSlots;
+        float n = 0f;
+        for (float m = from; m < slot; m += 1f)
+            if (IsMineByDesign(style, CardOfSlot(style, m)))
+                n += 1f;
+
+        _ordCached = n;
+        _ordSlot = slot;
+        _ordStyle = style;
+        return n;
+    }
 
     /// <summary>
     /// True when this lane, rather than <c>EnvHaunt.shader</c>, actually plays this card RIGHT NOW
@@ -438,6 +624,16 @@ internal static partial class HauntFigures
     /// figure ever finishing its walk — i.e. the one tool the user has for looking at these events
     /// could not show him a whole one. The loop has to be the length of the thing that is actually
     /// drawn, so the side that knows it has to say.</para>
+    ///
+    /// <para><b>IT IS THE AUTHORED LENGTH AND THEREFORE AN UPPER BOUND, which is the only answer this
+    /// signature can honestly give.</b> Since ModBuild 152 a crossing's real length depends on which
+    /// creature was cast (see THE CROSSING'S SPEED) — the Hound runs 2.85 s where the Living Corpse
+    /// runs 6.40 s — and this is asked WITHOUT a slot, from <c>Haunt.ForceLoopSeconds</c>, sometimes
+    /// before anything is armed. Answering with the authored maximum makes a latched test loop wait
+    /// out the SLOWEST creature's run before it re-anchors, which is a slightly longer gap for a fast
+    /// one and never a run that gets cut off. The alternative — resolving the creature for the slot
+    /// in here — would make a diagnostic helper a second consumer of the cast permutation for no gain
+    /// the tester can see.</para>
     /// </summary>
     internal static float FigureSeconds(SkyStyle style, int card)
     {
@@ -575,22 +771,22 @@ internal static partial class HauntFigures
     /// <para>A path that does not move cannot cross anything and is answered in the first compare,
     /// which is what three of the four events are since this round.</para>
     /// </summary>
-    private static string? PathCrossesWall(SkyStyle style, in HauntEvent ev)
+    private static string? PathCrossesWall(SkyStyle style, Vector3 from, Vector3 to)
     {
-        if (style != SkyStyle.Cellar || ev.From == ev.To)
+        if (style != SkyStyle.Cellar || from == to)
             return null;
 
         for (int i = 0; i < CellarWalls.Length; i++)
         {
             WallPlane w = CellarWalls[i];
-            float a = w.Axis == 0 ? ev.From.x : ev.From.z;
-            float b = w.Axis == 0 ? ev.To.x : ev.To.z;
+            float a = w.Axis == 0 ? from.x : from.z;
+            float b = w.Axis == 0 ? to.x : to.z;
             float da = a - w.At, db = b - w.At;
             if (da == 0f || db == 0f || (da > 0f) == (db > 0f))
                 continue;                                  // both ends on the same side: no crossing
 
             float t = da / (da - db);
-            Vector3 p = Vector3.Lerp(ev.From, ev.To, t);
+            Vector3 p = Vector3.Lerp(from, to, t);
             float u = w.Axis == 0 ? p.z : p.x;             // the in-plane horizontal coordinate
             if (u < w.Lo || u > w.Hi || p.y < w.YLo || p.y > w.YHi)
                 continue;                                  // it passes the plane beyond the slab
@@ -648,6 +844,20 @@ internal static partial class HauntFigures
 
     private static Quaternion _standRot = Quaternion.identity;
 
+    /// <summary>THIS RUN'S path, in room-local metres — the authored one for a figure that stands,
+    /// and the creature-derived one for a figure that travels (see THE CROSSING'S SPEED). Everything
+    /// that positions the anchor reads these and not <c>ev.From</c>/<c>ev.To</c>, so there is exactly
+    /// one place the two can differ.</summary>
+    private static Vector3 _runFrom, _runTo;
+
+    /// <summary>THIS RUN'S envelope multiplier: the schedule's <c>DurationMul</c> for a figure that
+    /// stands, and <c>runSeconds / ev.Seconds</c> for one whose crossing was shortened to suit its
+    /// own gait. It scales reveal, hold and fade TOGETHER, so a shorter run is the same shape played
+    /// faster rather than a differently-shaped event — and it is never greater than
+    /// <c>DurationMul</c>, which is what keeps the arming window in <see cref="TickBody"/> a valid
+    /// upper bound without that side having to know any of this.</summary>
+    private static float _shapeMul = 1f;
+
     /// <summary>
     /// Open the event: create the anchor node the audio cue looks for, decide the creature and the
     /// direction from the shared clock, and ask the clone factory to start loading. Nothing is
@@ -672,34 +882,17 @@ internal static partial class HauntFigures
     {
         HauntEvent ev = EventFor(style, card);
 
-        // THE WALL GATE, BEFORE ANYTHING IS BUILT. See the block above CellarWalls for why this is
-        // arithmetic and not a comment: the event it exists to catch shipped behind a doc paragraph
-        // that asserted the opposite of what its own coordinates did. Refused, not clamped — the
-        // slot is quiet and the schedule tries again.
-        string? wall = PathCrossesWall(style, ev);
-        if (wall != null)
-        {
-            if (AnnounceQuiet(card))
-                VRLog.Warn("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) is REFUSED — its path from "
-                               + $"room-local {ev.From:F2} to {ev.To:F2} passes through {wall}. A figure may "
-                               + "not walk through masonry (user, verbatim: \"Die figuren sollten nicht durch "
-                               + "wände glitchen\"), so this slot is quiet rather than showing it. The path is "
-                               + "authored in HauntFigures.Events.cs and the walls are mirrored from "
-                               + "BuildEnvironmentRooms.cs — if the bake moved a wall, that mirror is what "
-                               + "needs to follow.");
-            _card = -1;
-            return;
-        }
-
         // WHICH WAY ROUND — hash channel 10. Channels 0/1/3/4/5/6/7 are the schedule's own
         // (Haunt.Schedule.cs), 2 is EnvSound's per-event variation and 13 is the rat's stare, so
         // 9/10/11 are this feature's and nothing else reads them. Deterministic, therefore shared.
         _reversed = Haunt.Hash(slotIndex, 10f) >= 0.5f;
 
-        // WHICH CREATURE — hash channel 9, used to ROTATE the cast list rather than to index it, so
-        // the preference order still decides quality and the hash only decides variety. A machine
-        // that can resolve only one of the three shows that one every time, which is correct.
-        _model = Roster.Pick(ev.Cast, Haunt.Hash(slotIndex, 9f), out CClass.ENPCModel picked);
+        // WHICH CREATURE — a PERMUTATION of the cast, iterated by the APPARITION ORDINAL rather than
+        // drawn from a hash of the slot. See Roster.Pick for the shuffle and for why consecutive
+        // apparitions can never repeat, and ApparitionOrdinal for why it is not the slot index. Both
+        // are pure functions of the shared clock's slot, so two clients cannot disagree.
+        float ordinal = ApparitionOrdinal(style, slotIndex);
+        _model = Roster.Pick(ev.Cast, ordinal, out CClass.ENPCModel picked);
         if (_model.Length == 0)
         {
             // Nothing in this event's cast is available. ONE line, and the slot is simply quiet —
@@ -715,9 +908,63 @@ internal static partial class HauntFigures
             return;
         }
 
+        // ---- THIS RUN'S PATH AND THIS RUN'S LENGTH, derived from the creature ---------------------
+        //
+        // See THE CROSSING'S SPEED above CrossBlendTarget for the rule and for the user report that
+        // produced it. A figure that stands keeps the authored path and the authored length exactly;
+        // a figure that travels keeps the authored path's CENTRE and DIRECTION and gets a length of
+        // its own. Both bounds can only shorten the event, never lengthen it.
+        float authoredSeconds = Mathf.Max(ev.Seconds * _durMul, 0.01f);
+        float implied = ImpliedSpeed(picked);
+        float speed = 0f;
+        if (ev.From == ev.To)
+        {
+            _runFrom = ev.From;
+            _runTo = ev.To;
+            _shapeMul = _durMul;
+        }
+        else
+        {
+            Vector3 centre = (ev.From + ev.To) * 0.5f;
+            Vector3 along = ev.To - ev.From;
+            along.y = 0f;
+            Vector3 unit = along.sqrMagnitude > 1e-6f ? along.normalized : Vector3.forward;
+
+            float want = Mathf.Max(implied * CrossBlendTarget, 0.05f);
+            float metres = Mathf.Clamp(want * authoredSeconds, CrossMinMetres, CrossMaxMetres);
+            float runSeconds = Mathf.Clamp(metres / want, CrossMinSeconds, authoredSeconds);
+
+            _runFrom = centre - unit * (metres * 0.5f);
+            _runTo = centre + unit * (metres * 0.5f);
+            _shapeMul = runSeconds / Mathf.Max(ev.Seconds, 0.01f);
+            speed = metres / runSeconds;
+        }
+
+        // THE WALL GATE, ON THE PATH THAT WILL ACTUALLY BE WALKED. See the block above CellarWalls
+        // for why this is arithmetic and not a comment: the event it exists to catch shipped behind a
+        // doc paragraph that asserted the opposite of what its own coordinates did. It is checked
+        // AFTER the derivation above rather than before it, because a derived path is longer than the
+        // authored one and a gate on the authored one would be a gate on a path nobody walks.
+        // Refused, not clamped — the slot is quiet and the schedule tries again.
+        string? wall = PathCrossesWall(style, _runFrom, _runTo);
+        if (wall != null)
+        {
+            if (AnnounceQuiet(card))
+                VRLog.Warn("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) is REFUSED — its path from "
+                               + $"room-local {_runFrom:F2} to {_runTo:F2} passes through {wall}. A figure may "
+                               + "not walk through masonry (user, verbatim: \"Die figuren sollten nicht durch "
+                               + "wände glitchen\"), so this slot is quiet rather than showing it. The path is "
+                               + "authored in HauntFigures.Events.cs — with its LENGTH derived from the "
+                               + "creature since ModBuild 152 — and the walls are mirrored from "
+                               + "BuildEnvironmentRooms.cs — if the bake moved a wall, that mirror is what "
+                               + "needs to follow.");
+            _card = -1;
+            return;
+        }
+
         _anchor = new GameObject("Haunt" + card);
         _anchor.transform.SetParent(_room, worldPositionStays: false);
-        Vector3 start = PathAt(style, ev, 0f);
+        Vector3 start = PathAt(style, 0f);
         _anchor.transform.localPosition = start;
 
         // FACING. Three cases, all resolved ONCE here, in room-local space, and never touched
@@ -730,7 +977,7 @@ internal static partial class HauntFigures
         // acquire one by accident.
         Vector3 dir = ev.From == ev.To
             ? (ev.Face != Vector3.zero ? ev.Face : new Vector3(-ev.From.x, 0f, -ev.From.z))
-            : (_reversed ? ev.From - ev.To : ev.To - ev.From);
+            : (_reversed ? _runFrom - _runTo : _runTo - _runFrom);
         dir.y = 0f;
         _standRot = dir.sqrMagnitude > 1e-6f
             ? Quaternion.LookRotation(dir.normalized, Vector3.up)
@@ -744,39 +991,50 @@ internal static partial class HauntFigures
         // that is read back rather than mirrored, and why it is delivered as per-renderer SH rather
         // than as real Unity lights. The style goes with it because the two rooms answer the element
         // channel differently and _GhvrIndoor is what tells them apart on the GPU side.
-        // THE PATH'S REAL SPEED, handed down so the legs can be matched to it. It is computed here
-        // rather than in the clone factory because it is a property of the EVENT — the authored
-        // path length divided by this run's own duration, which the schedule has already varied by
-        // DurationMul. See Clone.Gait for what is done with it and for the decompiled evidence that
-        // RunBlend is a blend weight rather than a speed.
-        float travel = (PathAt(style, ev, 1f) - start).magnitude;
-        float seconds = Mathf.Max(ev.Seconds * _durMul, 0.01f);
-        float speed = ev.From == ev.To ? 0f : travel / seconds;
+        Clone.Request(_model, picked, ev, _anchor.transform, _room, style, speed, implied);
 
-        Clone.Request(_model, picked, ev, _anchor.transform, _room, style, speed);
-
+        float travel = (PathAt(style, 1f) - start).magnitude;
+        float runSecondsLog = ev.Seconds * _shapeMul;
         VRLog.Info("Core", $"HAUNT FIGURES: {style} card {card} ({ev.Name}) armed at shared clock "
-                           + $"{_startClock:F2}s for {ev.Seconds * _durMul:F2}s — model '{_model}' ({picked}), "
+                           + $"{_startClock:F2}s for {runSecondsLog:F2}s — model '{_model}' ({picked}), "
                            + (ev.From == ev.To
                                   ? $"STANDING at room-local {start:F2}, facing {_standRot.eulerAngles.y:F0} deg"
                                   : $"walking {(_reversed ? "the other way" : "the authored way")}, room-local "
-                                    + $"{start:F2} to {PathAt(style, ev, 1f):F2}"
+                                    + $"{start:F2} to {PathAt(style, 1f):F2}"
                                     // THE GAIT NUMBER, and it is here because it is the one thing a
                                     // hardware round can compare against and this file cannot: the
-                                    // path speed is authored, the CLIP's own implied speed is inside
-                                    // an asset bundle, and a mismatch between them is foot slide.
-                                    // The census line prints the clip lengths beside this one, so a
-                                    // reader has both halves in the same log.
-                                    + $" — {travel:F2} m in {seconds:F2}s = {speed:F2} m/s. RunBlend is "
-                                    + "NO LONGER the authored constant it was through ModBuild 149 "
-                                    + $"({ev.RunBlend:F2} at every speed, for every creature): it is "
-                                    + "derived from this speed, the creature's scale and its own "
-                                    + "locomotion clip — see the HAUNT FIGURES gait line for the "
-                                    + "arithmetic")
-                           + $". Creature and direction are hashes of "
-                           + $"slot {slotIndex:F0} on channels 9 and 10, so every client in this scenario "
-                           + "picked the same ones. Its albedo is multiplied down to the room's own light "
-                           + "level while it is up — see the HAUNT FIGURES light level line.");
+                                    // CLIP's own implied speed is inside an asset bundle, and a
+                                    // mismatch between it and the path is foot slide. The census line
+                                    // prints the clip lengths beside this one, so a reader has both
+                                    // halves in the same log.
+                                    + $" — {travel:F2} m in {runSecondsLog:F2}s = {speed:F2} m/s. "
+                                    + "SINCE ModBuild 152 THE PATH IS DERIVED FROM THE CREATURE AND "
+                                    + "NOT THE OTHER WAY ROUND (user: \"dann mach die Bewegung auch "
+                                    + $"schneller\"): this one implies {implied:F2} m/s at full blend, "
+                                    + $"so it is driven at {CrossBlendTarget:F2} of that and the "
+                                    + $"authored {(ev.To - ev.From).magnitude:F2} m over "
+                                    + $"{ev.Seconds * _durMul:F2}s became {travel:F2} m over "
+                                    + $"{runSecondsLog:F2}s, bounded to "
+                                    + $"[{CrossMinMetres:F1}, {CrossMaxMetres:F1}] m and at least "
+                                    + $"{CrossMinSeconds:F2}s. RunBlend is NO LONGER the authored "
+                                    + $"constant it was through ModBuild 149 ({ev.RunBlend:F2} at "
+                                    + "every speed, for every creature) and should now land near "
+                                    + $"{CrossBlendTarget:F2} — see the HAUNT FIGURES gait line, "
+                                    + "which also prints how far the arm-time estimate above was "
+                                    + "from the prefab's real numbers")
+                           + $". THE CREATURE IS A SHUFFLED ITERATION and no longer a draw: it is "
+                           + $"element {(int)ordinal % Mathf.Max(ev.Cast.Length, 1)} of a permutation "
+                           + $"of this event's cast ({Roster.Describe(ev.Cast)}) that is reshuffled "
+                           + $"every {ev.Cast.Length} apparitions, indexed by APPARITION ORDINAL "
+                           + $"{ordinal:F0} (not by slot {slotIndex:F0} — see ApparitionOrdinal for "
+                           + "why that distinction is the whole fix) on hash channel 11, while the "
+                           + "direction stays a hash of the slot on channel 10. Every creature "
+                           + "appears once before any appears twice, no two consecutive apparitions "
+                           + "of this room can be the same one, and every input is a pure function of "
+                           + "the shared clock's slot — so both clients pick the same creature with "
+                           + "ZERO wire traffic and no 'last shown' state exists to drift. Its albedo "
+                           + "is multiplied down to the room's own light level while it is up — see "
+                           + "the HAUNT FIGURES light level line.");
     }
 
     /// <summary>
@@ -786,13 +1044,17 @@ internal static partial class HauntFigures
     private static void Drive(SkyStyle style, float clock)
     {
         HauntEvent ev = EventFor(style, _card);
-        float len = Mathf.Max(ev.Seconds * _durMul, 0.05f);
+        // _shapeMul AND NOT _durMul: a crossing whose length was cut to suit a fast creature has to
+        // spend its envelope over the length it actually runs, or the figure would still be at half
+        // presence when its walk has finished. They are the same number for every standing event and
+        // for any creature whose gait does not shorten the run. See _shapeMul.
+        float len = Mathf.Max(ev.Seconds * _shapeMul, 0.05f);
         float t = clock - _startClock;
 
         // Before the start the figure is loading and MUST NOT be visible: the anchor exists (so the
         // audio cue can find it) but presence is 0, which the clone factory reads as "stay hidden".
         float u = Mathf.Clamp01(t / len);
-        float presence = Envelope(t, ev, _durMul) * EdgeFade(t, ev, len);
+        float presence = Envelope(t, ev, _shapeMul) * EdgeFade(t, ev, len);
 
         // ---- THE NO-BACKWARDS-STEP INTERLOCK ---------------------------------------------------
         //
@@ -816,7 +1078,7 @@ internal static partial class HauntFigures
             _lastDrivenU = u;
 
         if (_anchor != null)
-            _anchor.transform.localPosition = PathAt(style, ev, u);
+            _anchor.transform.localPosition = PathAt(style, u);
 
         Clone.Drive(presence, ev.RunBlend);
     }
@@ -898,11 +1160,17 @@ internal static partial class HauntFigures
 
     /// <summary>Room-local position at walk fraction <paramref name="u"/>, with the forest's ground
     /// followed and the cellar's ignored (the cellar floor undulates by ±6 mm,
-    /// BuildEnvironmentRooms.cs:1861 — below the threshold of anything).</summary>
-    private static Vector3 PathAt(SkyStyle style, in HauntEvent ev, float u)
+    /// BuildEnvironmentRooms.cs:1861 — below the threshold of anything).
+    ///
+    /// <para>It reads <see cref="_runFrom"/>/<see cref="_runTo"/> — THIS RUN's path — and not the
+    /// event's authored one, because a crossing's length is derived from the creature (see THE
+    /// CROSSING'S SPEED). The event is no longer a parameter for exactly that reason: it no longer
+    /// holds the answer, and a signature that still took it would invite a caller to believe it
+    /// did.</para></summary>
+    private static Vector3 PathAt(SkyStyle style, float u)
     {
-        Vector3 a = _reversed ? ev.To : ev.From;
-        Vector3 b = _reversed ? ev.From : ev.To;
+        Vector3 a = _reversed ? _runTo : _runFrom;
+        Vector3 b = _reversed ? _runFrom : _runTo;
         Vector3 p = Vector3.Lerp(a, b, Mathf.Clamp01(u));
         if (style == SkyStyle.SwampNight)
             p.y = Ground.ForestY(p.x, p.z);

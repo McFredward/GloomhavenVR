@@ -47,14 +47,16 @@ internal struct EnvSoundRng
 ///   <item><see cref="PoissonGap"/> — the WAITING TIME between two independent events, for a caller
 ///   that schedules "the next one" rather than filling a window.
 ///
-///   <para><b>IT HAS NO CALLER IN THE MOD AS OF ModBuild 149, and it is KEPT deliberately.</b> Its
-///   one caller was <c>EnvSound.TickFrost</c>, deleted with the whole ice sound on the user's ruling
-///   ("Entferne das Geräusch für Eis komplett" — the record is in <c>EnvSound.Bank.cs</c>). What is
-///   attached to this function is not a sound but a TERMINATION PROOF and the vectors that hold it,
-///   and both survive their caller: it is the shape the next statistically-scheduled event will
-///   want, and re-deriving a NaN-safe bounded exponential from scratch is exactly how the class of
-///   defect below gets reintroduced. It compiles to nothing that runs; the cost of keeping it is
-///   the bytes.</para></item>
+///   <para><b>IT IS BACK IN USE AS OF ModBuild 152, AND THE ROUND IT SPENT WITH NO CALLER IS THE
+///   ARGUMENT FOR HAVING KEPT IT.</b> Its first caller was <c>EnvSound.TickFrost</c>, deleted with
+///   the whole ice sound on the user's ruling ("Entferne das Geräusch für Eis komplett" — the record
+///   is in <c>EnvSound.Bank.cs</c>), and the note that stood here through ModBuild 149-151 said the
+///   function was kept because it is "the shape the next statistically-scheduled event will want".
+///   That event is <c>EnvSound.TickFire</c>, the fire's crackle: wood cells burst independently at a
+///   slowly-changing average rate, which is a Poisson process and therefore an exponential gap, and
+///   what it inherited by reaching for this function instead of writing <c>-mean * ln(u)</c> again
+///   is the whole of the paragraph below — a bound that makes a woodpecker unreachable and a NaN
+///   fold that makes a never-arriving event unreachable, both already proven by vectors.</para></item>
 /// </list>
 ///
 /// <para>WHY THIS IS ITS OWN FILE, FREE OF UNITY. It is here for the reason
@@ -84,8 +86,8 @@ internal struct EnvSoundRng
 /// makes it an event that never comes; both are the same class of defect as the freeze, reached
 /// through arithmetic instead of through a loop. So the function's output is BOUNDED BY
 /// CONSTRUCTION, for every input including <c>NaN</c>, and the vectors drive it with exactly those.
-/// (The scheduler that motivated it — the ice sound's — is deleted; the note on
-/// <see cref="PoissonGap"/> above says why the function is not.)</para>
+/// (The scheduler that motivated it — the ice sound's — is deleted; the one that uses it now is the
+/// fire's crackle, and it leans on both bounds explicitly: see <c>EnvSound.TickFire</c>.)</para>
 /// </summary>
 internal static class EnvSoundSchedule
 {

@@ -23,7 +23,22 @@
 //     colour, twice the energy and a fast twinkle, which is the design's
 //     "the fireflies turn to sparks" without a second emitter to pay for.
 //
-// Both are folded into the per-particle colour IN THE VERTEX SHADER, so the
+//  3. A POSE (_TipUse.z, EnvShelfTip.cginc). ModBuild 152, and it is the third
+//     job for the same reason the first two exist: an emitter standing on the
+//     cellar's tipping bookcase cannot be moved, switched off or re-aimed when
+//     the bookcase goes over, because moving a world-simulated Shuriken system
+//     needs a script. USER: "Beim umgekippten Bücherregal kippt die Funkenquelle
+//     nicht mit um, wenn Feuer an ist" — and then, cutting the round down to its
+//     honest size, "Um es einfach zu halten: Deaktivier die Funken einfach
+//     (ausfaden) wenn das Regal kippt."
+//     So an emitter that declares _TipUse.z = 1 FADES with the shelf's own
+//     uprightness (GhvrTipUpright) and collapses when that reaches zero. What is
+//     NOT claimed: the emitter still simulates and still costs its draw call for
+//     the whole event — nothing in this bundle can stop either — and the sparks
+//     do not follow the carcass down, they are simply not there while it is
+//     lying on the floor.
+//
+// All three are folded into the per-particle colour IN THE VERTEX SHADER, so the
 // fragment stage is bit-for-bit what it was before the feature existed.
 Shader "GloomhavenVR/EnvParticleAdd"
 {
@@ -46,6 +61,31 @@ Shader "GloomhavenVR/EnvParticleAdd"
         // 1 = this emitter IS moonlight and dies with the moon under the eclipse.
         // Default 0 keeps every unwritten material bit-identical. See EnvParticleElem.cginc.
         _ElemMoon ("Element: emitter is moonlight", Range(0,1)) = 0
+
+        // ---- THE BOOKSHELF THAT TOPPLES (EnvShelfTip.cginc) ----------------
+        // The shelf's pose, in the SAME five vectors every other rider carries
+        // and written by the SAME single writer (EnvRoomBuilder.WriteShelfTip) —
+        // there is no particle-specific channel, because a second way of telling
+        // a material about the hinge is a second thing that can disagree with it.
+        // All five default to zero, i.e. "this emitter has never heard of the
+        // bookshelf": _TipUse.z = 0 skips the branch entirely and _TipPivot.w = 0
+        // would make the pose dead even if it did not, so every other emitter in
+        // both rooms is bit-identical with what shipped.
+        //
+        // Declared HERE and not only in the include because WriteShelfTip gates
+        // on Material.HasProperty, which reads this block and not the CGPROGRAM.
+        //
+        // ...and only _TipSched, _TipEnv and _TipAxis.w are ever read on this
+        // path: the hinge and the axis DIRECTION are the geometry of riding, and
+        // these emitters do not ride, they fade. Stated because the pivot this
+        // material is given is expressed in the emitter transform's object space
+        // while a world-simulated particle's vertex is not, so the one thing that
+        // must never happen here is somebody using it to move a quad.
+        _TipPivot ("Shelf hinge (object space)", Vector) = (0,0,0,0)
+        _TipAxis ("Shelf hinge axis + max angle", Vector) = (0,0,0,0)
+        _TipSched ("Shelf schedule (period, cards, this card)", Vector) = (0,0,0,0)
+        _TipEnv ("Shelf envelope (reveal, hold, fade)", Vector) = (0,0,0,0)
+        _TipUse ("Shelf: what I do with the pose", Vector) = (0,0,0,0)
     }
     SubShader
     {
@@ -62,6 +102,10 @@ Shader "GloomhavenVR/EnvParticleAdd"
             #include "UnityCG.cginc"
             #include "EnvElement.cginc"
             #include "EnvParticleElem.cginc"
+            // AFTER EnvParticleElem, which is what declares _GhvrTimeOfs for this
+            // shader — EnvHaunt.cginc (pulled in by EnvShelfTip) reads the shared
+            // clock through its callers and does not declare it itself.
+            #include "EnvShelfTip.cginc"
 
             sampler2D _MainTex; float4 _MainTex_ST;
             fixed4 _Tint;
@@ -74,6 +118,22 @@ Shader "GloomhavenVR/EnvParticleAdd"
                 v2f o;
                 float4 col = v.color * _Tint;
                 bool alive = GhvrParticleElem(v.vertex, col);   // gate + modulation
+                // ---- ...and the bookcase going over takes its sparks with it --
+                // A UNIFORM branch on a material constant, so it is coherent
+                // across the draw and every emitter that is not standing on the
+                // bookshelf pays one compare against a literal zero. Inside it,
+                // GhvrTipUpright is 1.0 the instant the shelf is upright and
+                // exactly 0.0 for the whole of the time it is on the floor.
+                if (_TipUse.z > 0.5)
+                {
+                    float up = GhvrTipUpright(GhvrTipNow(_Time.y + _GhvrTimeOfs));
+                    col.a *= up;
+                    // COLLAPSED once it is out, exactly as the element gate does
+                    // it and for the same reason: an alpha of 0 still costs the
+                    // fill of every quad in the swarm, and this one is out for
+                    // sixteen of the event's twenty-six seconds.
+                    alive = alive && (up > 0.0);
+                }
                 // COLLAPSED, not merely transparent: all four corners land on the
                 // same clip position, both triangles are zero-area, and the
                 // rasteriser produces nothing. An alpha of 0 would still cost the

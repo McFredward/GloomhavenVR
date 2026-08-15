@@ -367,6 +367,29 @@ namespace GloomhavenVR
             // trajectory: standing, falling, down, and back up again.
             ("HauntShelf", new Vector3(0.60f, 2.10f, -1.30f), new Vector3(14, 48, 0), false, 62f),
             ("HauntShelfOff", new Vector3(2.30f, 1.75f, 3.60f), new Vector3(8, 150, 0), false, 58f),
+            // ...and a THIRD, square on the plane the carcass actually sweeps —
+            // ModBuild 152, and it exists because "HauntShelf" above does not see
+            // the bookshelf any more. That view was aimed in ModBuild 143 and the
+            // prop moved 3.85 m south in 147 (see the FLYING FIRE block in
+            // BuildEnvironmentRooms); it now frames the table and two candles, so
+            // every _pride frame taken through it since has been a photograph of
+            // the wrong corner of the room. Not repointed here: it is the haunt
+            // lane's review station and moving it would move that lane's whole
+            // comparison set. Flagged instead, and answered with a station of
+            // this series' own.
+            //
+            // DERIVED FROM THE BAKE, not aimed by eye: the hinge is at
+            // (4.57, -0.02, -3.15) with the axis (0,0,1), so the fall is entirely
+            // in the plane z = -3.15, and the standing carcass at x = 4.86 lands
+            // its top board at x = 2.51. The camera stands 2.8 m off that plane
+            // on the room side, on the MIDPOINT of that sweep (x = 3.69, hence
+            // 3.75), and looks along it. Yaw 178 means screen-right is -X, so the
+            // bookcase starts left of centre and falls INTO the frame. At 60 deg
+            // and 6 deg of pitch it holds x = 0.9..6.6 and y = -0.4..2.9 — the
+            // standing carcass, the whole arc, the fallen carcass, and 1.2 m of
+            // air above the top fire, which is where the sparks are and is the
+            // only part of the picture this series is really about.
+            ("HauntShelfRide", new Vector3(3.75f, 1.55f, -0.35f), new Vector3(6, 178, 0), false, 60f),
             // ...and the tremble draws nothing at all: it is judged on the WEBS,
             // so its frames are the two web close-ups, shot at its own instants.
             ("HauntWeb", new Vector3(2.90f, 2.05f, 1.35f), new Vector3(-25, 91, 0), false, 38f),
@@ -867,7 +890,25 @@ namespace GloomhavenVR
         // wall wash deliberately does NOT ride and must stay put across all
         // three — that is an authored asymmetry, not a fault, and this series is
         // where it can be seen.
-        private static readonly float[] FireShelfRidePhases = { 0.08f, 0.16f, 0.30f };
+        //
+        // ---- AND THE WHOLE EVENT SINCE ModBuild 152 -------------------------
+        // The three phases above are enough to judge a RIDER (does the fire lean
+        // with the boards?) and cannot judge a FADE, which is a claim about a
+        // curve: it needs the standing state, the lean, the arrival, the lie-down
+        // and both ends of the righting in one comparable series. USER: "Um es
+        // einfach zu halten: Deaktivier die Funken einfach (ausfaden) wenn das
+        // Regal kippt." — so the sparks off the burning bookcase now fade with
+        // the pose, and the frames that prove it are these.
+        //
+        // The added instants are the landmarks EnvShelfTip and EnvSound already
+        // name, not new ones: 0.00 upright, 0.12 the lean where the fade begins,
+        // 0.180 THE ARRIVAL (the sparks must be gone in this frame), 0.204 the
+        // rebound, 0.45 the middle of the lie-down, 0.620 THE RIGHTING (still
+        // gone), 0.80 and 0.90 on the way back up, 1.00 upright again — which
+        // must be the same picture as 0.00.
+        private static readonly float[] FireShelfRidePhases =
+            { 0f, 0.08f, 0.12f, 0.16f, 0.18f, 0.204f, 0.30f, 0.45f, 0.62f, 0.70f,
+              0.80f, 0.90f, 1f };
 
         // ---- THE RAT'S TWO MOUTHS, over the entry itself (ModBuild 143) -------
         // A crossing lasts 2.4-9.2 s of a 26 s slot and the entry is 0.45 s of
@@ -1329,10 +1370,13 @@ namespace GloomhavenVR
                     // channel unset. See FireShelfRidePhases.
                     if (cellar)
                     {
-                        var v = Array.Find(Views, x => x.name == "HauntShelf");
+                        // 'HauntShelfRide' and NOT 'HauntShelf' — see the view
+                        // table: the latter has not pointed at the bookshelf
+                        // since the prop moved in ModBuild 147.
+                        var v = Array.Find(Views, x => x.name == "HauntShelfRide");
                         if (v.name == null)
                             throw new Exception("The fire shelf-rider series needs the "
-                                                + "'HauntShelf' view and it is gone.");
+                                                + "'HauntShelfRide' view and it is gone.");
                         if (WantView(v.name))
                         {
                             Shader.SetGlobalVector("_GhvrElemA", fireA);
@@ -1351,6 +1395,25 @@ namespace GloomhavenVR
                                 // the whole run.
                                 Shader.SetGlobalFloat("_GhvrTimeOfs",
                                     EnvRoomBuilder.HauntPreviewClock(5, 6, 0.001f, 26f, 0.001f, ph));
+                                // ...AND THE EMITTERS, ModBuild 152. Until now
+                                // this series left them frozen wherever the fire
+                                // series had put them, which was harmless while
+                                // the only claim being made was about the flame
+                                // CARDS and is fatal now that the sparks are the
+                                // thing under test: a frozen population cannot
+                                // show a fade, and worse, it would show the same
+                                // sparks in every frame and read as proof that
+                                // nothing happened.
+                                //
+                                // SECONDS INTO THE EVENT, not the absolute clock
+                                // offset: a Shuriken system knows nothing of the
+                                // haunt schedule (it is CPU-simulated and reads no
+                                // global), so the honest argument is the one the
+                                // shader gets — the event is 26.002 s long and
+                                // this frame is `ph` of the way through it. It is
+                                // also what keeps the series affordable, since
+                                // Simulate(restart: true) replays from zero.
+                                StepEmitters(ph * 26.002f);
                                 Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov,
                                       $"_pride{Mathf.RoundToInt(ph * 100f):D2}");
                             }

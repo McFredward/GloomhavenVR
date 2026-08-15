@@ -18,8 +18,22 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal enum EnvSoundClip
 {
-    /// <summary>The shared stationary noise bed — flame, draught and leaves all ride this one.</summary>
+    /// <summary>The shared stationary noise bed — the candle flames, the draught and the leaves all
+    /// ride this one. IT IS NOT THE FIRE: see <see cref="Roar"/>.</summary>
     Bed,
+
+    /// <summary>The convective column of a real fire — the low, breathy rush. Looped, 6 s, and its
+    /// own clip rather than <see cref="Bed"/> because a fire PULSES and a draught does not; see
+    /// <c>EnvSoundBank.MakeRoar</c>.</summary>
+    Roar,
+
+    /// <summary>One crackle: a burst of wood cells bursting. One-shot, 55 ms. VARIANT 0 of four —
+    /// see <c>EnvSoundBank.CrackleVariant</c>.</summary>
+    Crackle,
+
+    /// <summary>An ember settling in the bed of a fire. One-shot, 220 ms, duller and rarer than the
+    /// crackle. VARIANT 0 of two — see <c>EnvSoundBank.EmberVariant</c>.</summary>
+    Ember,
     Drip,
     Squeak,
     Skitter,
@@ -89,11 +103,14 @@ internal enum EnvSoundClip
 /// a listener's report ("the drip sounds wrong") mean the same thing on the machine that has to fix
 /// it.</para>
 ///
-/// <para><b>COST.</b> One shared 8 s noise bed plus fourteen shorter clips (twelve named plus the
-/// drip's two extra realisations) at the output sample rate, mono. That is 36.5 s of audio, so
-/// ~7.0 MB of float data at 48 kHz — the <see cref="Build"/> log line prints the real figure for
-/// the device's own rate rather than this estimate. Generated once per session on the frame the
-/// room is first placed, measured at ~112 ms on the Quest 3 rig, and never touched again.
+/// <para><b>COST.</b> One shared 8 s noise bed, the fire's own 6 s roar, and nineteen shorter clips
+/// (fifteen named plus the drip's, the crackle's and the ember's extra realisations) at the output
+/// sample rate, mono. The DEVICE's own figure was 14 clips / ~5.8 MB / 103 ms at 48 kHz before
+/// ModBuild 152 (Player.log:3570, the ModBuild 151 session); the fire adds 6.66 s of audio — the
+/// roar plus four 55 ms crackles and two 220 ms settles — for about +1.3 MB, so 21 clips and
+/// ~7.1 MB. The <see cref="Build"/> log line prints the real figure for the device's own rate rather
+/// than this estimate. Generated once per session on the frame the
+/// room is first placed, and never touched again.
 /// ModBuild 149 gives back the ice clip's 0.42 s and its ~0.70 ms of build time entirely (the
 /// sound is DELETED, see the ruling block below) and spends about +0.35 ms of it again on the
 /// bookshelf's rebuilt impact. Mono is not a saving but a REQUIREMENT: Unity refuses to spatialise
@@ -106,15 +123,23 @@ internal static class EnvSoundBank
     private static int Rate => AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
 
     /// <summary>
-    /// THE SHARED BED. Eight seconds of stationary broadband noise, looped by every continuous
-    /// emitter (flame, draught, leaves) and shaped per emitter by a runtime low/high-pass filter
-    /// plus a runtime gain LFO.
+    /// THE SHARED BED. Eight seconds of stationary broadband noise, looped by the three CONTINUOUS
+    /// AND STEADY emitters — the candle flames, the window draught and the swamp canopy — and shaped
+    /// per emitter by a runtime low-pass filter plus a runtime gain LFO.
     ///
     /// <para>ONE BUFFER FOR THREE SOUNDS is not a memory trick, it is what makes them not repeat.
-    /// A fire and a draught differ physically by their spectrum and their envelope, not by their
-    /// noise; giving them one source of noise and two different filters is the correct model, and
-    /// it means the only thing that could ever sound periodic — the buffer — is the one thing that
-    /// carries no information at all.</para>
+    /// A candle flame and a draught differ physically by their spectrum, not by their noise; giving
+    /// them one source of noise and two different filters is the correct model, and it means the
+    /// only thing that could ever sound periodic — the buffer — is the one thing that carries no
+    /// information at all.</para>
+    ///
+    /// <para><b>AND THE SEATED FIRES ARE NOT ON IT ANY MORE, which is the correction ModBuild 152
+    /// makes.</b> This paragraph used to say "a fire and a draught" and the cellar's fire really did
+    /// ride this buffer — so the sound the user was answered with when he asked for a fire was
+    /// literally the draught, at a level that rose with the Fire element. That argument holds for a
+    /// CANDLE, whose flame is small enough to be steady, and it breaks for a burning crate: a real
+    /// fire PUFFS at a few hertz and CRACKLES, and neither is reachable by filtering stationary noise.
+    /// See THE FIRE below, and <see cref="Roar"/>.</para>
     ///
     /// <para>EIGHT SECONDS, and the length is chosen against the FILTER rather than against the
     /// ear: a 40 Hz-cornered low pass needs a good many cycles of its lowest passed frequency
@@ -122,6 +147,17 @@ internal static class EnvSoundBank
     /// cross-faded (see below) so even that cannot tick.</para>
     /// </summary>
     internal static AudioClip? Bed { get; private set; }
+
+    /// <summary>THE FIRE'S CONVECTIVE COLUMN — the low, breathy rush. Looped, 6 s. See
+    /// <see cref="MakeRoar"/>, and see THE FIRE below for why the fire could not go on riding
+    /// <see cref="Bed"/>.</summary>
+    internal static AudioClip? Roar { get; private set; }
+
+    /// <summary>ONE CRACKLE — variant 0 of four; <see cref="CrackleVariant"/> owns the draw.</summary>
+    internal static AudioClip? Crackle { get; private set; }
+
+    /// <summary>ONE EMBER SETTLING — variant 0 of two; <see cref="EmberVariant"/> owns the draw.</summary>
+    internal static AudioClip? Ember { get; private set; }
 
     /// <summary>A single water drop landing in a shallow puddle. One-shot, ~0.28 s. This is
     /// VARIANT 0 of three — the "ordinary" drop; see <see cref="DripVariant"/> for why there are
@@ -228,6 +264,28 @@ internal static class EnvSoundBank
     internal static AudioClip? DripVariant(int which) =>
         _drips[which < 0 ? 0 : which >= _drips.Length ? _drips.Length - 1 : which];
 
+    /// <summary>The four crackles and the two ember settles, for the same reason the three drops are
+    /// an array rather than six more enum members (see <see cref="_drips"/>): nothing in
+    /// <see cref="EnvSound"/>'s bed table would ever name <c>Crackle3</c> — they are one sound whose
+    /// realisation is drawn per event, and the enum exists to let a TABLE name a clip.
+    ///
+    /// <para>FOUR AND TWO, and the ratio is the exposure. A crackle fires roughly every 2.2-4.0 s per
+    /// fire site and an ember settles about one time in six, so over a minute of a Fire infusion in
+    /// the cellar the player hears on the order of forty crackles and seven settles. Four
+    /// realisations x a +-4% pitch jitter is enough that no two consecutive crackles are the same
+    /// event; two is enough for something heard seven times.</para></summary>
+    private static readonly AudioClip?[] _crackles = new AudioClip?[4];
+    private static readonly AudioClip?[] _embers = new AudioClip?[2];
+
+    /// <summary>One of the four crackles. Clamped rather than validated, exactly as
+    /// <see cref="DripVariant"/> is and for the same reason.</summary>
+    internal static AudioClip? CrackleVariant(int which) =>
+        _crackles[which < 0 ? 0 : which >= _crackles.Length ? _crackles.Length - 1 : which];
+
+    /// <summary>One of the two ember settles. Clamped, as above.</summary>
+    internal static AudioClip? EmberVariant(int which) =>
+        _embers[which < 0 ? 0 : which >= _embers.Length ? _embers.Length - 1 : which];
+
     /// <summary>
     /// The one translation from <see cref="EnvSoundClip"/> to a clip. Returns null rather than
     /// throwing for anything the bank failed to build, because every caller already has to handle a
@@ -248,7 +306,11 @@ internal static class EnvSoundBank
         EnvSoundClip.Drag => Drag,
         EnvSoundClip.Fly => Fly,
         EnvSoundClip.Fall => Fall,
-        _ => Settle,
+        EnvSoundClip.Settle => Settle,
+        EnvSoundClip.Roar => Roar,
+        EnvSoundClip.Crackle => Crackle,
+        EnvSoundClip.Ember => Ember,
+        _ => null,
     };
 
     /// <summary>
@@ -272,6 +334,9 @@ internal static class EnvSoundBank
             int rate = Rate;
 
             Bed = MakeBed(rate);
+            Roar = MakeRoar(rate);
+            Crackle = MakeCrackles(rate);   // fills _crackles and hands back element 0
+            Ember = MakeEmbers(rate);       // fills _embers  and hands back element 0
             Drip = MakeDrips(rate);   // fills _drips and hands back element 0
             Squeak = MakeSqueak(rate);
             Skitter = MakeSkitter(rate);
@@ -325,11 +390,14 @@ internal static class EnvSoundBank
         Bed = null; Drip = null; Squeak = null; Skitter = null;
         Rumble = null; Chirr = null;
         Creak = null; Breath = null; Drag = null; Fly = null; Fall = null; Settle = null;
+        Roar = null; Crackle = null; Ember = null;
 
         // The three drops are IN _made as well (Finish put them there), so this drops the
         // references only — the destroy loop below is still the single place anything is destroyed.
         // Clearing it here and not there is what keeps that true.
         System.Array.Clear(_drips, 0, _drips.Length);
+        System.Array.Clear(_crackles, 0, _crackles.Length);
+        System.Array.Clear(_embers, 0, _embers.Length);
 
         foreach (AudioClip? c in _made)
         {
@@ -570,6 +638,433 @@ internal static class EnvSoundBank
         LoopFade(d, rate / 2);
         Normalise(d, 0.85f);
         return Finish("Bed", d, rate);
+    }
+
+    // =============================================================================================
+    //  THE FIRE — ModBuild 152, and it is the first fire sound this mod has ever made.
+    // =============================================================================================
+    //
+    //  USER REQUEST, verbatim: "Geb auch Feuer dezente Geräusche."
+    //
+    //  WHAT WAS THERE BEFORE, stated plainly because it is the whole reason this block exists: THE
+    //  FIRE'S SOUND WAS A DRAUGHT. The cellar's three candle groups have ridden `Bed` since the
+    //  feature shipped — the SAME buffer as the window draught and the swamp canopy — under a gain
+    //  LFO with a term in ElementMood.Live(0). So "the fire answers a Fire infusion" was true of the
+    //  LEVEL and of nothing else: what got louder was wind. The six real fires the content lane
+    //  seated in the cellar (two on the crates, two on the casks, two in the bookcase) and the five
+    //  in the wood (the snag, three along the deadfall, the brushwood) made no sound whatsoever.
+    //
+    //  A FIRE IS THREE SOUNDS AND THEY ARE WORTH SEPARATING, because the MIX is what makes it read
+    //  as fire rather than as noise:
+    //
+    //    1. THE ROAR — the convective column. Air is being dragged in at the base, heated, and thrown
+    //       up; that is turbulence, so it is broadband noise, and it is LOW because the eddies that
+    //       carry the energy are the size of the fire. It is also not steady: a flame puffs at a few
+    //       hertz (the same Kelvin-Helmholtz instability the art lane measured at 3-8 Hz for the
+    //       VISIBLE flicker — see FireHz in the bake), and that puffing is most of what separates a
+    //       fire from a vent. See MakeRoar.
+    //    2. THE CRACKLE — and this is the layer that IDENTIFIES it. Wood cells are closed vessels
+    //       full of water and volatiles; heated past ~200 C they burst, each one throwing a tiny
+    //       pressure step into the air. That is a broadband transient a few milliseconds long, and
+    //       they arrive at an irregular rate because the cells are independent. Nothing else in a
+    //       room sounds like this, and a fire without it is a heater. See MakeCrackles.
+    //    3. THE SETTLE — a lump of charcoal losing its footing in the bed and shifting. Rarer than
+    //       the crackle, longer, and much duller: charcoal is porous and dead, so it thuds. See
+    //       MakeEmbers.
+    //
+    //  WHY IT CANNOT RIDE `Bed` (the cheap answer, weighed and rejected). One buffer plus two filters
+    //  is the correct physical model for a fire and a draught INSOFAR AS BOTH ARE STEADY NOISE — and
+    //  a fire is not steady. The puffing is an amplitude envelope at a few hertz, and the only
+    //  runtime shaping this feature has is EnvSound's per-frame gain walk, which MoveTowards at
+    //  0.6 units per second: it physically cannot follow a 5 Hz envelope, and raising that rate would
+    //  make every OTHER bed click on an element ramp. The envelope therefore has to be inside the
+    //  buffer, and once it is, the buffer is a different buffer. The crackle settles it beyond
+    //  argument: no filter turns stationary noise into transients.
+    //
+    //  THE HARDWARE DECIDED THE BANDS, and this is the ModBuild 150 lesson applied before the fact
+    //  rather than after it. A Quest 3 speaker returns essentially nothing below about 200 Hz. The
+    //  bookshelf's arrival spent 72.7% of its energy under 200 Hz, the user heard nothing, and the
+    //  fix was to move that energy up. So:
+    //    * the roar is high-passed at 230 Hz (twice, 12 dB/oct) rather than being the 40 Hz-cornered
+    //      pink noise `Bed` is — 11.4% of it lands under 200 Hz instead of the majority;
+    //    * the crackle is put SQUARELY in 1-5 kHz, where the speaker and the ear are both at their
+    //      best: 71-87% of every variant's energy is in that band, against the 7.6% the shipped
+    //      bookshelf clip had;
+    //    * and the roar's CEILING is 820 Hz (three poles), which keeps the one CONTINUOUS layer out
+    //      of the 1-4 kHz speech band the class doc protects. The crackle is allowed in that band by
+    //      the class doc's own duration escape clause and by nothing else: it is 55 ms long with a
+    //      1.0-1.2 ms decay to -20 dB, i.e. shorter than the drip's transient, and the clause is
+    //      about duration rather than about taste.
+    //
+    //  MEASURED, off the finished buffers, by a replica of these generators run outside Unity. The
+    //  replica is validated rather than asserted: it reproduces the SHIPPED Fall clip's published
+    //  table exactly (peak 0.980 at 2.44 ms, RMS 0.0697, 90% of peak in 0.19 ms, -20 dB in 27 ms,
+    //  centroid 1530 Hz, bands 26.9/5.3/34.5/17.3/10.0/5.9), so the figures below are the same
+    //  arithmetic on the same harness. The DEVICE's own peak and attack for any of these is printed
+    //  by MeasuredShape wherever a cue logs.
+    //
+    //                 len     peak  peak at   90%     RMS   -20dB   20 ms   centroid
+    //    Roar        6.000 s  0.300    43 ms  43 ms  0.0628      -  0.1015     446 Hz
+    //    Crackle0    0.055 s  0.950  0.48 ms 0.48ms  0.0710  1.2 ms 0.1086    3175 Hz
+    //    Crackle1    0.055 s  0.780  0.54 ms 0.52ms  0.0457  1.2 ms 0.0656    2076 Hz
+    //    Crackle2    0.055 s  0.950  0.75 ms 0.73ms  0.0680  1.0 ms 0.1127    1856 Hz
+    //    Crackle3    0.055 s  0.860  0.56 ms 0.56ms  0.0647  1.2 ms 0.1042    2634 Hz
+    //    Ember0      0.220 s  0.550  2.02 ms 1.67ms  0.0365 11.1 ms 0.1111    1646 Hz
+    //    Ember1      0.220 s  0.550  1.69 ms 1.69ms  0.0406 10.3 ms 0.1176    1633 Hz
+    //
+    //    energy by band     0-200  200-500  500-1k    1-2k    2-5k   5-24k    1-5 kHz
+    //    Roar               11.4%    56.2%   28.8%    3.5%    0.1%    0.0%       3.6%
+    //    Crackle0            0.0%     0.9%    9.8%   28.2%   43.2%   17.9%      71.4%
+    //    Crackle1            0.0%     1.1%   17.6%   37.0%   39.8%    4.5%      76.8%
+    //    Crackle2            0.0%     0.5%   10.2%   60.9%   25.6%    2.7%      86.5%
+    //    Crackle3            0.0%     1.3%   13.6%   16.3%   62.6%    6.2%      78.9%
+    //    Ember0              0.2%     3.1%   57.7%   12.0%   20.9%    5.9%      33.0%
+    //    Ember1              0.1%     5.4%   49.0%   23.1%   17.2%    5.2%      40.3%
+    //
+    //  ("20 ms" is the loudest 20 ms RMS window through a one-pole 200 Hz high pass — the crude
+    //  stand-in for the headset's own low-end rolloff that the bookshelf round introduced, and the
+    //  number that best predicts what the player actually hears. The roar has no "-20 dB" because it
+    //  is a loop and never decays.)
+    //
+    //  THE THREE LAYERS ARE THREE DIFFERENT THINGS IN THE MIX and that is deliberate: the roar is a
+    //  BED (it plays continuously while the fire is lit and sits under everything at a level the
+    //  distance already softens), the crackle is an EVENT (statistically timed, see
+    //  EnvSound.TickFire), and the settle is a rarer event drawn from the same schedule. The level
+    //  each ends up at is EnvSound's, not this file's — every generator here ends in Normalise for
+    //  the same reason all the others do.
+    //
+    //  REJECTED:
+    //    * A SINGLE "FIRE" LOOP WITH CRACKLES BAKED IN. This is what a recording would be, and it is
+    //      the loop-finding failure the class doc is built to avoid, in its worst form: the crackles
+    //      ARE the recognisable events, so a buffer containing them announces its own period within
+    //      two or three passes. Statistical scheduling is not a flourish here, it is the only way a
+    //      crackle can be heard for a minute without becoming a rhythm.
+    //    * ONE ROAR CLIP PER SITE, detuned. Six buffers to make three fires differ, when the three
+    //      already differ by their PLACE, their distance and their independent crackle streams. The
+    //      one clip is started at a different offset per bed by AddBed's decorrelation, which is the
+    //      same argument the three candle flames already rest on.
+    //    * PUTTING THE CRACKLE ON THE SHARED ONE-SHOT POOL. Three sites at a 2.2 s mean is roughly
+    //      1.4 crackles a second across a room, through a pool of three voices that the drip, the
+    //      rat and every haunt cue also use — the fire would have taken the pool. Each site's crackle
+    //      goes through its OWN bed source with PlayOneShot instead; see EnvSound.TickFire, where
+    //      that also turns out to be what makes the crackle inherit the fire's gate, its rolloff and
+    //      its position for free.
+
+    /// <summary>Length of the roar loop, seconds. Six is a compromise the ear and the budget both
+    /// sign: long enough that a 230 Hz-cornered high pass has 1380 cycles of its lowest passed
+    /// frequency inside the buffer (so the equal-power wrap cannot tick), and 1.15 MB at 48 kHz
+    /// rather than the 1.54 the shared bed's eight seconds cost. The thing that would make a loop
+    /// findable — a recognisable EVENT inside it — is not in this buffer at all: the crackles are
+    /// scheduled at runtime.</summary>
+    private const float RoarSeconds = 6f;
+
+    /// <summary>The roar's pink-noise corners and their weights, as <see cref="MakeBed"/>'s are.
+    /// Pushed UP against the bed's 40/320/2600: the bed is a draught, whose energy really does run
+    /// down to nothing, while a fire's turbulent eddies are the size of the FIRE — a 0.6 m column
+    /// radiates around a few hundred hertz and has very little to say below that. These corners put
+    /// the slope's knee inside the band the high pass then keeps, so the filter is trimming a tail
+    /// rather than removing the signal.</summary>
+    private static readonly float[] RoarPinkHz = { 90f, 420f, 1500f };
+    private static readonly float[] RoarPinkMix = { 0.46f, 0.34f, 0.20f };
+
+    /// <summary>
+    /// THE PUFFING, and it is what makes this a fire rather than a vent. A flame's plume is
+    /// unstable at a few hertz — the art lane measured the VISIBLE flicker at 3-8 Hz and condemned
+    /// its own 0.63-1.03 Hz sway on exactly that ground (see <c>FireHz</c> in the bake) — and the
+    /// sound puffs with the picture because they are the same instability.
+    ///
+    /// <para><b>IT IS NOISE-DERIVED, NOT A SINE, AND THAT IS THE POINT.</b> An envelope built from
+    /// LFOs has a PERIOD, and a period inside a looping buffer is the one thing item 6 of the class
+    /// doc's "never intrusive" list forbids — the ear would find 6 s within a few passes. A second
+    /// independent noise stream, twice low-passed at <see cref="RoarPuffHz"/>, has a
+    /// characteristic RATE and no period whatsoever, which is also the honest model: turbulence is
+    /// not periodic. Twice rather than once because one pole leaves a hiss on the envelope that
+    /// amplitude-modulates the carrier into a second noise floor.</para></summary>
+    private const float RoarPuffHz = 5.5f;
+
+    /// <summary>How far the puffing may pull the roar down — the envelope runs
+    /// <see cref="RoarPuffFloor"/>..1. A fire never goes silent between puffs (the column is
+    /// continuous; what changes is how hard it is being driven), so a floor of 0.42 is about 7.5 dB
+    /// of breathing, which is a fire seen to surge rather than a tremolo.</summary>
+    private const float RoarPuffFloor = 0.42f;
+
+    /// <summary>The roar's band. THE FLOOR IS THE HARDWARE (a Quest 3 speaker gives essentially
+    /// nothing under ~200 Hz, so energy below it is energy spent on silence — the bookshelf's 72.7%
+    /// is the measured cost of not knowing that), applied TWICE for 12 dB/oct because one pole leaves
+    /// a third of the buffer's energy under 200 Hz instead of the 11.4% two do.
+    ///
+    /// <para>THE CEILING IS THE CLASS DOC. This is a CONTINUOUS layer, so it is held out of the
+    /// 1-4 kHz band where speech intelligibility and the game's UI cues live — three poles at 820 Hz
+    /// leave 3.6% of the roar in 1-5 kHz and 0.1% above 2 kHz. The crackle goes into that band
+    /// instead, and it is allowed there by the duration clause and not by this one.</para></summary>
+    private const float RoarLoHz = 230f;
+    private const float RoarHiHz = 820f;
+    private const int RoarLoPoles = 2;
+    private const int RoarHiPoles = 3;
+
+    /// <summary>The roar's peak. LOW, and it is the number that makes the crackle audible: both
+    /// layers come out of ONE AudioSource whose volume is set for the CRACKLE (see
+    /// <c>EnvSound.FireBedGain</c>), so the roar's own normalisation is where the balance between the
+    /// two is actually decided. 0.30 against the crackle's 0.95 is a 10 dB spread in peak and about
+    /// 4.5 dB in the 20 ms window the ear integrates — the roar is the floor the crackles stand
+    /// on.</summary>
+    private const float RoarPeak = 0.30f;
+
+    /// <summary>
+    /// THE CONVECTIVE COLUMN. Pink-ish noise inside the fire's own band, multiplied by a turbulent
+    /// envelope, looped. See THE FIRE above for the physics, the bands and the measurements.
+    ///
+    /// <para>TWO PASSES OVER ONE BUFFER, and the reason is memory rather than style: the envelope has
+    /// to be NORMALISED (a twice-low-passed noise stream's peak is not predictable in closed form, so
+    /// a typed scale would make the puff depth depend on the sample rate), which means knowing its
+    /// maximum before it can be applied. Writing it into <c>d</c>, measuring, and then overwriting
+    /// <c>d</c> with the carrier times the envelope costs one extra pass and saves a second 1.15 MB
+    /// buffer inside a bank build that already runs on the frame the room is placed. The two Rng
+    /// streams are independent instances, so splitting the interleaved loop in two does not move a
+    /// single draw.</para>
+    /// </summary>
+    private static AudioClip MakeRoar(int rate)
+    {
+        int n = (int)(rate * RoarSeconds);
+        var d = new float[n];
+
+        // ---- pass 1: THE ENVELOPE, into d, and its peak.
+        var er = new Rng(0xF12E0000u ^ 0x5A5A5A5Au);
+        float ke = 1f - Mathf.Exp(-2f * Mathf.PI * RoarPuffHz / rate);
+        float e1 = 0f, e2 = 0f, emax = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float v = er.Next();
+            e1 += ke * (v - e1);
+            e2 += ke * (e1 - e2);
+            d[i] = e2;
+            float a = e2 < 0f ? -e2 : e2;
+            if (a > emax)
+                emax = a;
+        }
+        if (emax <= 1e-6f)
+            emax = 1f;
+
+        // ---- pass 2: THE CARRIER, times that envelope mapped onto [RoarPuffFloor, 1].
+        var r = new Rng(0xF12E0000u);
+        float k1 = 1f - Mathf.Exp(-2f * Mathf.PI * RoarPinkHz[0] / rate);
+        float k2 = 1f - Mathf.Exp(-2f * Mathf.PI * RoarPinkHz[1] / rate);
+        float k3 = 1f - Mathf.Exp(-2f * Mathf.PI * RoarPinkHz[2] / rate);
+        float a1 = 0f, a2 = 0f, a3 = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float w = r.Next();
+            a1 += k1 * (w - a1);
+            a2 += k2 * (w - a2);
+            a3 += k3 * (w - a3);
+            float pink = a1 * RoarPinkMix[0] + a2 * RoarPinkMix[1] + a3 * RoarPinkMix[2];
+            float env = RoarPuffFloor + (1f - RoarPuffFloor) * 0.5f * (1f + d[i] / emax);
+            d[i] = pink * env;
+        }
+
+        for (int p = 0; p < RoarLoPoles; p++)
+            HighPass(d, rate, RoarLoHz);
+        for (int p = 0; p < RoarHiPoles; p++)
+            LowPass(d, rate, RoarHiHz);
+
+        LoopFade(d, rate / 2);
+        Normalise(d, RoarPeak);
+        return Finish("Roar", d, rate);
+    }
+
+    /// <summary>Length of one crackle, and the window its pops land in. A crackle is not ONE pop: a
+    /// cell bursting takes its neighbours with it, so what the ear hears as a single crackle is a
+    /// short burst. 34 ms of window inside a 55 ms buffer, which leaves the last pop room to
+    /// decay.</summary>
+    private const float CrackleSeconds = 0.055f;
+    private const float CrackleFirst = 0.0004f;
+    private const float CrackleLast = 0.034f;
+
+    /// <summary>How many pops each of the four realisations has. Three to five: below three it is a
+    /// tick, above five it is a rattle.</summary>
+    private static readonly int[] CracklePops = { 3, 4, 5, 4 };
+
+    /// <summary>The burst's gaps WIDEN slightly (&gt; 1) and are heavily jittered. A cascade of
+    /// bursting cells starts fast and thins out, and it has no rhythm at all — the same shape as the
+    /// bookshelf's scatter, for the same reason and through the same
+    /// <see cref="EnvSoundSchedule.SlipTrain"/>, so this loop TERMINATES BY CONSTRUCTION.</summary>
+    private const float CrackleSpread = 1.25f;
+    private const float CrackleJitter = 0.75f;
+
+    /// <summary>Decay of one pop, and the power law on the sizes of all but the first. 0.35 ms is
+    /// 60 dB down in 2.4 ms — a pressure step, not a click with a tail. The exponent is the drip
+    /// variants' and the shelf scatter's argument again: cells are not all the same size and the
+    /// small ones vastly outnumber the large, and <c>u^1.5</c> for uniform <c>u</c> is the inverse
+    /// CDF that says so. The FIRST pop is forced to full size (it is the one that set the cascade
+    /// off) so that the burst has a leading edge and the buffer peaks on it.</summary>
+    private const float CrackleTau = 0.00035f;
+    private const float CrackleExponent = 1.5f;
+
+    /// <summary>...and each pop after the first is also damped by this to the power of its index. The
+    /// power law alone can hand pop four the biggest draw of the burst, which reads as a crackle
+    /// running BACKWARDS. 0.62 makes the burst decay whatever the draws do, and leaves the peak on
+    /// the first pop, which is what puts the attack at 0.5 ms.</summary>
+    private const float CrackleFade = 0.62f;
+
+    /// <summary>THE BAND THAT IDENTIFIES A FIRE, and the whole point of the layer. 900 Hz twice and
+    /// 3800 Hz FOUR times — 24 dB/oct off the top, which is what it takes to keep a noise transient
+    /// out of 5-24 kHz. Without it 38% of a variant's energy sat above 5 kHz, which on this hardware
+    /// is hiss the ear does not reward; with it, every variant puts 71-87% of its energy in 1-5 kHz
+    /// where the speaker and the ear are both at their best. The lower corner is at 900 rather than
+    /// at 1000 so the crackle keeps a little of the wood under it and does not become a spark.</summary>
+    private const float CrackleLoHz = 900f;
+    private const float CrackleHiHz = 3800f;
+    private const int CrackleLoPoles = 2;
+    private const int CrackleHiPoles = 4;
+
+    /// <summary>The four crackles' peaks. NOT EQUAL, and for the drip variants' reason exactly:
+    /// <see cref="Normalise"/> sets each buffer's peak independently, so normalising all four to one
+    /// number would erase the loudness variation the burst structure built. The spread that survives
+    /// is 5.7 dB in the 20 ms window, which is the difference between a cell letting go and a whole
+    /// knot going.</summary>
+    private static readonly float[] CracklePeaks = { 0.95f, 0.78f, 0.95f, 0.86f };
+
+    /// <summary>One seed per realisation, so the four are genuinely different bursts rather than one
+    /// burst at four levels.</summary>
+    private static readonly uint[] CrackleSeeds = { 0xC7AC1E00u, 0xC7AC1E01u, 0xC7AC1E02u, 0xC7AC1E03u };
+
+    /// <summary>The four crackles. Fills <see cref="_crackles"/> and returns element 0, which is also
+    /// <see cref="Crackle"/>. See THE FIRE above for what a crackle physically is and for the
+    /// measured bands.</summary>
+    private static AudioClip MakeCrackles(int rate)
+    {
+        for (int v = 0; v < _crackles.Length; v++)
+            _crackles[v] = MakeCrackle(rate, v);
+        return _crackles[0]!;
+    }
+
+    private static AudioClip MakeCrackle(int rate, int which)
+    {
+        int n = (int)(rate * CrackleSeconds);
+        var d = new float[n];
+        uint seed = CrackleSeeds[which];
+        var r = new Rng(seed);
+
+        int count = CracklePops[which];
+        var pops = new float[count];
+        EnvSoundSchedule.SlipTrain(pops, CrackleFirst, CrackleLast,
+                                   shrink: CrackleSpread, jitter: CrackleJitter, seed: seed);
+
+        int popLen = (int)(rate * 0.006f);
+        for (int k = 0; k < count; k++)
+        {
+            int at = (int)(pops[k] * rate);
+            // The first pop does NOT draw — it is the one that set the cascade off and is full size
+            // by construction. Skipping the draw rather than discarding it is what keeps the
+            // remaining sequence identical to the replica the table above was measured on.
+            float amp = (k == 0 ? 1f : Mathf.Pow(Mathf.Abs(r.Next()), CrackleExponent))
+                        * Mathf.Pow(CrackleFade, k);
+            for (int i = 0; i < popLen && at + i < n; i++)
+            {
+                float tt = i / (float)rate;
+                d[at + i] += r.Next() * Mathf.Exp(-tt / CrackleTau) * amp;
+            }
+        }
+
+        for (int p = 0; p < CrackleLoPoles; p++)
+            HighPass(d, rate, CrackleLoHz);
+        for (int p = 0; p < CrackleHiPoles; p++)
+            LowPass(d, rate, CrackleHiHz);
+
+        Normalise(d, CracklePeaks[which]);
+        return Finish("Crackle" + which, d, rate);
+    }
+
+    /// <summary>Length of one ember settle and the window its thuds land in. Four times the
+    /// crackle's, because a lump shifting in a bed of coals is not one contact — it tips, drops and
+    /// beds itself, over a tenth of a second or so.</summary>
+    private const float EmberSeconds = 0.22f;
+    private const float EmberFirst = 0.001f;
+    private const float EmberLast = 0.115f;
+
+    /// <summary>Thuds per realisation, and the same widening, heavily jittered train the crackle
+    /// uses — a lump coming to rest slows down.</summary>
+    private static readonly int[] EmberTicks = { 4, 3 };
+    private const float EmberSpread = 1.45f;
+    private const float EmberJitter = 0.65f;
+
+    /// <summary>Decay of one thud, the power law on the sizes after the first, and the damping across
+    /// the train. Thirteen times the crackle's time constant: charcoal is not a pressure step, it is
+    /// a soft body arriving on other soft bodies.</summary>
+    private const float EmberTau = 0.0045f;
+    private const float EmberExponent = 1.3f;
+    private const float EmberFade = 0.70f;
+
+    /// <summary>The lump's own two modes, and how hard they are damped. Q = 6 is 1.9 cycles, which is
+    /// under the ~4 the ear needs to extract a pitch — the same test <c>FallBoardQ</c> and
+    /// <c>FallCarcassQ</c> are held to. It gives the settle a BODY and no note, which is what
+    /// separates a lump of charcoal from a woodblock.</summary>
+    private static readonly float[] EmberRingHz = { 620f, 980f };
+    private const float EmberRingQ = 6f;
+    private const float EmberRingMix = 0.45f;
+
+    /// <summary>The settle's band — DULLER than the crackle by two octaves at the top, which is the
+    /// whole of what "duller" means here: centroid 1640 Hz against the crackle's 1856-3175. Still
+    /// clear of the hardware's dead zone (0.1-0.2% under 200 Hz), because a settle nobody can hear is
+    /// not restraint, it is a missing layer.</summary>
+    private const float EmberLoHz = 500f;
+    private const float EmberHiHz = 2600f;
+    private const int EmberLoPoles = 2;
+    private const int EmberHiPoles = 2;
+
+    /// <summary>The settle's peak, against the crackle's 0.78-0.95. It is BELOW the crackle in peak
+    /// and slightly ABOVE it in the 20 ms window (0.117 against 0.109), which is exactly what a
+    /// longer, softer event should measure; <c>EnvSound.FireEmberLevel</c> is where the two are
+    /// finally balanced against each other.</summary>
+    private const float EmberPeak = 0.55f;
+
+    private static readonly uint[] EmberSeeds = { 0xE0BE0000u, 0xE0BE0001u };
+
+    /// <summary>The two ember settles. Fills <see cref="_embers"/> and returns element 0, which is
+    /// also <see cref="Ember"/>.</summary>
+    private static AudioClip MakeEmbers(int rate)
+    {
+        for (int v = 0; v < _embers.Length; v++)
+            _embers[v] = MakeEmber(rate, v);
+        return _embers[0]!;
+    }
+
+    private static AudioClip MakeEmber(int rate, int which)
+    {
+        int n = (int)(rate * EmberSeconds);
+        var d = new float[n];
+        uint seed = EmberSeeds[which];
+        var r = new Rng(seed);
+
+        int count = EmberTicks[which];
+        var ticks = new float[count];
+        EnvSoundSchedule.SlipTrain(ticks, EmberFirst, EmberLast,
+                                   shrink: EmberSpread, jitter: EmberJitter, seed: seed);
+
+        int tickLen = (int)(rate * 0.05f);
+        for (int k = 0; k < count; k++)
+        {
+            int at = (int)(ticks[k] * rate);
+            float amp = (k == 0 ? 1f : Mathf.Pow(Mathf.Abs(r.Next()), EmberExponent))
+                        * Mathf.Pow(EmberFade, k);
+            float f = EmberRingHz[k % EmberRingHz.Length];
+            float aRing = Mathf.PI * f / EmberRingQ;
+            for (int i = 0; i < tickLen && at + i < n; i++)
+            {
+                float tt = i / (float)rate;
+                d[at + i] += (r.Next() * Mathf.Exp(-tt / EmberTau)
+                              + Mathf.Sin(2f * Mathf.PI * f * tt) * Mathf.Exp(-aRing * tt) * EmberRingMix)
+                             * amp;
+            }
+        }
+
+        for (int p = 0; p < EmberLoPoles; p++)
+            HighPass(d, rate, EmberLoHz);
+        for (int p = 0; p < EmberHiPoles; p++)
+            LowPass(d, rate, EmberHiHz);
+
+        Normalise(d, EmberPeak);
+        return Finish("Ember" + which, d, rate);
     }
 
     // ---- one-shots ------------------------------------------------------------------------------
