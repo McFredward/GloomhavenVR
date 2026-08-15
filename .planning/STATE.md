@@ -126,6 +126,53 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 149** (commit `95d6d97`, bundle 67,154,625 bytes) — seventeen user findings, and the
+  through-line is a **class of bug**, found three times in three unrelated files by three lanes.
+  * **AN ELEMENT STRENGTH MULTIPLIED A FREQUENCY THAT IS THEN MULTIPLIED BY ABSOLUTE TIME.** `t` is
+    the shared environment clock and reaches thousands of seconds, so
+    `GhvrWave4(t * (0.612 + 1.05 * storm))` sweeps its argument by `1.05 * t` **cycles** while
+    `storm` ramps over one second — 1890 periods at t = 1800 s against a carrier running at 1.6. The
+    phase scrubs chaotically for exactly the ramp and then locks. **THE SIGNATURE IS THAT IT IS
+    CORRECT AT t = 0**, which is why every preview and every early test passed. Found in
+    `EnvGrowth.GhvrWind` (the user's "die Bäume zucken"), `EnvBeam`'s shimmer, and
+    `EnvFire.GhvrFireHz` — the last of which also drives the seated wash and the glut on every room
+    and ground surface. Fix: **two carriers at fixed rates that the element crossfades**, endpoints
+    bit-identical. Worst per-frame leaf-tip step 63.4 mm → 3.3 mm, and flat in the clock.
+  * **The fire's "Fäden": the erosion field is sampled in CARD UV, and UV is not square in metres.**
+    On a card 0.39 as wide as tall, a field cell measured **3.02:1 vertical** — the holes *were* the
+    threads. The rejected fix is written up in the file: squaring the cell by *lowering* tileU leaves
+    under a third of a period across a card, and straight-edged parallelograms come back.
+  * **"Die Glut fehlt auf dem Asset" — the term was never absent, it was a smooth wash**, which on
+    wood reads as *a light shining on wood*. Hard-thresholded object-space noise took p99/p50 of the
+    added light from ~1.0 to 57× on the deadfall. **A wash and a texture are different objects.**
+  * **A preview station that points at nothing does not fail — it renders, and it agrees with you.**
+    Both cellar-shelf preview cameras had aimed at the shelf's *old* position for several builds,
+    which is why a fire floating 18.6 cm above a board survived a whole round of previews and had to
+    be found on hardware.
+  * **The figures: an honest negative result.** The canopy hypothesis is TRUE about the bake (the
+    floor keeps 9.5 % of the moon the figure's SH gets at 100 %) and is still the **wrong lever** —
+    `Amp_Char_Shader` has no ForwardBase pass and never samples light probes, so the SH is a
+    *measuring instrument*, not a light. Applying the correction makes the two-point fit demand
+    `DarkFloor = −0.13`, i.e. inexpressible; it is logged and not applied. The old `DarkFloor` alone
+    was **three times the cellar's whole wanted answer**, and `MaxLevel` needed a luminance neither
+    room can reach, so it was never a clamp.
+  * **The game DOES have root motion.** `ActorBehaviour.ApplyMotion` harvests and cancels it every
+    `LateUpdate` — which is why nothing in the game ever assigns `applyRootMotion` and why this
+    project's own doc had it backwards: the prefabs ship with it **on**.
+  * **A comment is not a guard.** `HauntWindowEnv` held 7.60 s while `CardSeconds` held 5.50 s for
+    four builds, and the comment beside it *warns about exactly that failure*. `check-mirrors.sh`
+    lints C# against C# and cannot see a bake constant, so `AssertHauntCards` now compares them and
+    fails the bake — proven to fire.
+  * Also: the ice was **one lerp toward a constant blue** with both call sites then *flattening* the
+    normal (a puddle by construction); Light in the cellar reached every surface because the moon is
+    an unoccluded directional (now traced back to the window plane — 3.22× inside the throw, exactly
+    1.00× outside); the candle halos had escaped the winding-fix retune on a comment citing two
+    element rulings that say nothing about authored alpha; the bookshelf's impact **was playing all
+    along and was spectrally inaudible** (97 % of its energy below 500 Hz into a speaker that returns
+    nothing under ~200 Hz).
+  * **Numbering:** thirteen comments claimed "ModBuild 149" for the round that shipped as **148**;
+    they were retargeted. Lanes label their work with a guessed number — check it at merge time.
+
 - **ModBuild 148** — the second pass over the SAME nine subjects, and the through-line is
   that **four separate findings had a cause other than the one reported**. Worth reading as a set:
   * **"Die Figuren teleportieren sich"** was not a jump but a **full rebuild**: a latched trigger's
@@ -1221,6 +1268,28 @@ it the other way and that cost a clarification round.)*
 - **Figure pick radius**: `[FigureGrab] PickRadiusMillimeters` (5…130; **130 restores the old
   palm-wide reach exactly**). At the user's zoom 40 mm ≈ 1.1 hex widths — if the flashing
   persists after the hysteresis, the radius itself is the next lever.
+- **ModBuild 149, apparition brightness**: read the `HAUNT FIGURES light level` line. It now also
+  prints `_DirScale`, the canopy `MinVis`, their product, and the luminance an equally-occluded
+  figure *would* measure. If the new mapping (forest 0.0783 / cellar 0.0205) is still too visible,
+  a third photograph plus those numbers decides whether the canopy correction becomes applicable.
+- **ModBuild 149, the walking figure**: read the `AnimPin` line printed once per process at release.
+  **Non-zero drift means the animator really is being moved by root motion and THAT is the teleport;
+  zero means the remaining suspect is the gait.** The `armed at shared clock` line now prints metres,
+  seconds, m/s and the `RunBlend` beside the CENSUS line that prints the clip lengths, so one round
+  settles whether 0.55 is the right blend for 1.39–1.62 m/s.
+- **ModBuild 149, the shelf bang**: each shelf cue now logs on fire *and* on both drop paths with
+  gain, ceiling, master, duck, dial, game volume, final source volume, clip peak and attack. If it
+  is still inaudible, that line says which of the seven factors ate it.
+- **Positional debt found in 149**: cellar card 5 resolves through the second link of
+  `HauntPosition`'s chain — there is no `Haunt5` node, so the bang's x/z is the welded catalogue's
+  centre rather than the shelf's. The floor y is right. The scheduling log names the node that
+  resolved.
+- **Open question put to the user in the 149 report**: whether "die kleinen blinkenden Kugeln"
+  included the **fireflies**. They were deliberately left in (3–7 cm moving motes, and he has
+  praised the flying sparks before); the three standing wisps and both eyeshine pairs are gone.
+- **Highest-value fire move still unmade**: `FireSeq1.png` is a **2×2 flipbook of four distinct
+  flame frames** and `fire_atlas_pipeline.py` takes **one** of them as a static puff. A real
+  four-frame flipbook needs a larger atlas and a cell-index-over-time change.
 
 ### 5c. Declined by the user — do not re-propose without new information
 
