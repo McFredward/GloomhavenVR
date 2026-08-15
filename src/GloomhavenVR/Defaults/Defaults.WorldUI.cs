@@ -33,7 +33,7 @@ namespace GloomhavenVR;
 internal static partial class Defaults
 {
     // ---- WorldUI/ActorBars.cs ------------------------------------------------------
-    internal const bool BarsOccluded = true;  // => [WorldUI] BarsOccluded
+    internal const bool BarsOccluded = false;  // => [WorldUI] BarsOccluded
 
     // ---- WorldUI/ButtonTuning.cs ---------------------------------------------------
     internal const float RoundButtons_OffsetX = -0.045f;                                // => [RoundButtons] OffsetX
@@ -116,7 +116,7 @@ internal static partial class Defaults
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
     internal const bool BarFixedSize = true;                 // => [WorldUI] BarFixedSize
-    internal const float BarSizeScale = 1.0f;                // => [WorldUI] BarSizeScale
+    internal const float BarSizeScale = 0.70899f;            // => [WorldUI] BarSizeScale
     // BarZoomMinScale (0.7) and BarZoomMaxScale (1.5) stood here. GONE (user ruling 2026-08-13:
     // "Mindest und Maximalgröße der Lebensbalken haben keinen sehbaren einfluss … ziemlich
     // unintuitiv"). The two numbers survive as the CONSTANTS ActorBars.ZoomFollowMin/Max, so the

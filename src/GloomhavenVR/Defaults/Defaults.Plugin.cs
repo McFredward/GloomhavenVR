@@ -58,7 +58,7 @@ internal static partial class Defaults
     // [Compat] TutorialVRAdapt is GONE (user ruling 2026-08-13): its OFF restored the vanilla
     // camera-step DEADLOCK the bridge exists to break (Compat/Tutorial/TutorialVR.cs).
     internal const string PrimaryHand = "Right";                             // => [Hands] PrimaryHand
-    internal const Hands.HandStyle Hands_HandStyle = Hands.HandStyle.Glove;  // => [Hands] HandStyle
+    internal const Hands.HandStyle Hands_HandStyle = Hands.HandStyle.Plate;  // => [Hands] HandStyle
     internal const bool LaserFingerOrigin = false;                           // => [Hands] LaserFingerOrigin
     internal const bool ScrollWithStickOnly = true;                          // => [Hands] ScrollWithStickOnly
     internal const float LaserFingerOffsetMeters = 0.02f;                    // => [Hands] LaserFingerOffsetMeters

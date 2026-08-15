@@ -47,15 +47,15 @@ internal static partial class Defaults
     internal const float HeldForward = 0.005f;                                                        // => [Cards] HeldForward
     internal const float HeldOffPalm = 0.0148f;                                                       // => [Cards] HeldOffPalm
     internal static readonly Vector3 HeldPinchOffset = new Vector3(-0.055f, 0.035f, 0f);              // => [Cards] HeldPinchOffset
-    internal const float TrayForward = 0.67891f;                                                      // => [Cards] TrayForward
-    internal const float TrayDown = 0.126932f;                                                        // => [Cards] TrayDown
-    internal const float TrayRight = -0.035096f;                                                      // => [Cards] TrayRight
+    internal const float TrayForward = 0.64416f;                                                      // => [Cards] TrayForward
+    internal const float TrayDown = 0.145188f;                                                        // => [Cards] TrayDown
+    internal const float TrayRight = 0.425035f;                                                       // => [Cards] TrayRight
     internal const float TrayTilt = 30f;                                                              // => [Cards] TrayTilt  (legacy: read once as the seed for its successor)
-    internal const float TrayYaw = -9.9959f;                                                          // => [Cards] TrayYaw
+    internal const float TrayYaw = 27.5606f;                                                          // => [Cards] TrayYaw
     internal const float TrayScale = 2f;                                                              // => [Cards] TrayScale
     internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Free;                            // => [Cards] BoardMoveMode
-    internal const float TrayPitch = 42.375f;                                                         // => [Cards] TrayPitch
+    internal const float TrayPitch = 45.131f;                                                         // => [Cards] TrayPitch
     internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees  (legacy: superseded by the per-board BoardPitchMin_<board>)
     internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees  (legacy: superseded by the per-board BoardPitchMax_<board>)
     internal const float CardLerpSpeed = 14f;                                                         // => [Cards] CardLerpSpeed
@@ -269,7 +269,7 @@ internal static partial class Defaults
     internal const bool CardDust = false;                                                             // => [Cards] CardDust
     internal const bool WantedSlotHint = true;                                                        // => [Cards] WantedSlotHint
     internal const bool FaceMipBake = true;                                                           // => [Cards] FaceMipBake
-    internal const ControlBoard Board = ControlBoard.Bronze;                                          // => [Cards] Board
+    internal const ControlBoard Board = ControlBoard.Steel;                                           // => [Cards] Board
     internal static readonly Vector3 ItemUseSlotOffset_Oak = new Vector3(0.005f, -0.035f, 0f);        // => [Cards] ItemUseSlotOffset_Oak
     internal static readonly Vector3 ItemUseSlotOffset_Steel = new Vector3(0.015f, -0.05f, 0f);       // => [Cards] ItemUseSlotOffset_Steel
     internal static readonly Vector3 ItemUseSlotOffset_Bronze = new Vector3(0.015f, -0.045f, 0f);     // => [Cards] ItemUseSlotOffset_Bronze
@@ -288,9 +288,9 @@ internal static partial class Defaults
     internal const float BoardYaw_Oak = 0f;                                                           // => [Cards] BoardYaw_Oak
     internal const float BoardYaw_Steel = 0f;                                                         // => [Cards] BoardYaw_Steel
     internal const float BoardYaw_Bronze = 0f;                                                        // => [Cards] BoardYaw_Bronze
-    internal const float BoardScale_Oak = 0.55383f;                                                   // => [Cards] BoardScale_Oak
-    internal const float BoardScale_Steel = 0.43675f;                                                 // => [Cards] BoardScale_Steel
-    internal const float BoardScale_Bronze = 0.43675f;                                                // => [Cards] BoardScale_Bronze
+    internal const float BoardScale_Oak = 0.54265f;                                                   // => [Cards] BoardScale_Oak
+    internal const float BoardScale_Steel = 0.54266f;                                                 // => [Cards] BoardScale_Steel
+    internal const float BoardScale_Bronze = 0.54265f;                                                // => [Cards] BoardScale_Bronze
     internal static readonly Vector3 AssetRotation_Oak = new Vector3(0f, 0f, 0f);                     // => [Cards] AssetRotation_Oak  (legacy: read once as the seed for its successor)
     internal static readonly Vector3 AssetRotation_Steel = new Vector3(0f, 0f, 0f);                   // => [Cards] AssetRotation_Steel  (legacy: read once as the seed for its successor)
     internal static readonly Vector3 AssetRotation_Bronze = new Vector3(0f, 0f, 0f);                  // => [Cards] AssetRotation_Bronze  (legacy: read once as the seed for its successor)
@@ -322,8 +322,8 @@ internal static partial class Defaults
     internal const float ElementsScale_Steel = 1f;                                                    // => [Cards] ElementsScale_Steel
     internal const float ElementsScale_Bronze = 1f;                                                   // => [Cards] ElementsScale_Bronze
     internal static readonly Vector3 ClusterOffset_Oak = new Vector3(0f, 0f, 0f);                     // => [Cards] ClusterOffset_Oak
-    internal static readonly Vector3 ClusterOffset_Steel = new Vector3(0f, 0f, 0f);                   // => [Cards] ClusterOffset_Steel
-    internal static readonly Vector3 ClusterOffset_Bronze = new Vector3(0f, 0f, 0f);                  // => [Cards] ClusterOffset_Bronze
+    internal static readonly Vector3 ClusterOffset_Steel = new Vector3(0f, 0f, -0.02f);               // => [Cards] ClusterOffset_Steel
+    internal static readonly Vector3 ClusterOffset_Bronze = new Vector3(1e-10f, 0.01f, 0.02f);        // => [Cards] ClusterOffset_Bronze
     internal const float ClusterScale_Oak = 1f;                                                       // => [Cards] ClusterScale_Oak
     internal const float ClusterScale_Steel = 1f;                                                     // => [Cards] ClusterScale_Steel
     internal const float ClusterScale_Bronze = 1f;                                                    // => [Cards] ClusterScale_Bronze

@@ -416,7 +416,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 154;
+    public const ushort ModBuild = 155;
+    // Build 155: DEFAULTS REBASE ONLY - no behaviour, no bundle, no wire change. The user's tuned
+    // session from the ModBuild 154 hardware round, taken over VERBATIM by
+    // `python3 scripts/rebase-defaults.py apply` (17 values; 27 seeded/legacy/pinned entries left
+    // alone, including the three one-shot migration markers a fresh install must start false).
+    // Movers worth naming because they change what a NEW install sees: the card tray was re-seated
+    // (right +0.46 m, yaw +37.6 deg, pitch +2.8 deg, forward -0.035 m), all three board scales
+    // converged on one value (0.5427), the table scale multiplier halved to 1.650, the default hand
+    // style is now Plate and the default board Steel, the head mask is id 2 at 1.291, and the health
+    // bars are smaller (0.709) and no longer occluded. THE NUMBERS ARE TAKEN OVER AS DROPPED AND ARE
+    // NOT RE-EXPRESSED - a dropped cfg is always tuned against the NEWEST build, so re-deriving one
+    // for a frame change that shipped in the same round is how they get silently undone.
+    // The bump exists ONLY for the handshake: a peer on 154 must not be told this build is the same.
+    //
     // Build 154: BOTH REPORTS ARE THE SAME SHAPE OF FAULT — A LEVER THAT WAS BUILT, LOGGED AND
     // SHIPPED WITHOUT EVER BEING REACHED. One never ran because its shader could not be resolved;
     // the other ran but was drawn against a bounding box that had not been told the geometry moved.

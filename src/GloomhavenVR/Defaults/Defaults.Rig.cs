@@ -52,7 +52,7 @@ internal static partial class Defaults
     // No line here on purpose — a tuned cfg that still carries the key is reported as UNMAPPED
     // by scripts/rebase-defaults.py, which is exactly right for a retired key.
     internal const float RecenterHoldSeconds = 1.0f;                // => [Comfort] RecenterHoldSeconds
-    internal const float SavedScaleMultiplier = 3.3683f;            // => [Comfort] SavedScaleMultiplier
+    internal const float SavedScaleMultiplier = 1.6499f;            // => [Comfort] SavedScaleMultiplier
     internal const bool DebugGizmos = false;                        // => [Comfort] DebugGizmos
     internal const bool KeepPlaceOnReorigin = true;                 // => [Comfort] KeepPlaceOnReorigin
     internal const bool TableScaleDefault25Applied = false;         // => [Comfort] TableScaleDefault25Applied  (pinned: one-shot migration marker — a fresh install must start false)
