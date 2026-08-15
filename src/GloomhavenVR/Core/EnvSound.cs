@@ -129,8 +129,11 @@ namespace GloomhavenVR.Core;
 /// principle rather than measured: the game's clips live in AudioObject prefabs and asset bundles,
 /// not in the decompiled C#, so their actual spectra are NOT readable from here. What IS certain is
 /// that speech intelligibility and UI transients live in roughly 1–4 kHz, so the beds are rolled off
-/// below that band and the only content above it is BRIEF (a 90 ms squeak, a 6 ms drip transient) —
-/// too short to mask anything, which is a property of duration and needs no measurement.</item>
+/// below that band and the only content above it is BRIEF (a 90 ms squeak, a 6 ms drip transient, a
+/// 14 ms frost crack) — too short to mask anything, which is a property of duration and needs no
+/// measurement. THE ESCAPE CLAUSE IS NOT A LOOPHOLE AND ONE CLIP FAILED IT: the shipped frost was a
+/// 200 ms ring in that band repeating every 0.45 s, which is a texture rather than a transient, and
+/// the user's verdict on it was "super nervig". Duration is the test; see <see cref="TickFrost"/>.</item>
 /// <item><b>Ducking against the game itself.</b> <see cref="Tick"/> polls
 /// <c>AudioController.GetPlayingAudioObjects()</c> (AudioController.cs:880) and pulls the whole
 /// ambience down to <see cref="DuckFloor"/> whenever the game is making ANY sound at all. This is
@@ -204,7 +207,10 @@ internal static class EnvSound
             + "the creepy easter eggs. Every sound comes from the object that makes it and is placed "
             + "in 3D, so a drip in the corner is heard in the corner, and every one of them is tied "
             + "to what is actually happening rather than to a timer: the drip sounds when the drop "
-            + "lands, the fire answers a Fire infusion, frost answers Ice, the wind answers Air. "
+            + "lands, the bookshelf bangs when it actually hits the floor, the fire answers a Fire "
+            + "infusion and frost answers Ice. THE WIND IS ONLY THERE WHILE AIR IS: with no Air "
+            + "infusion up there is no draught and no rustle at all — the leaves still move, they "
+            + "just make no noise. "
             + "Deliberately QUIET and always secondary to the game — the whole ambience ducks "
             + "automatically whenever the game itself makes any sound, and it obeys the master and "
             + "effects volumes you already set in the game's own audio options. OFF removes it "
@@ -273,6 +279,60 @@ internal static class EnvSound
     /// attack is 120 ms, so the throttle is never the thing you hear.</summary>
     private const int DuckPollFrames = 10;
 
+    // ---- the wind gate ---------------------------------------------------------------------------
+    //
+    // USER REPORT, ModBuild 147 hardware, verbatim: "Wind Geräusch nur wenn auch Wind aktiv ist,
+    // sonst kein Geräusch (die leichte Bewegung die aktuell Standard ist kann bleiben)." — "Wind
+    // SOUND only when wind is actually active, otherwise no sound (the slight MOTION that is
+    // currently the default can stay)."
+    //
+    // THE DISTINCTION HE DRAWS IS EXACT AND IT SPLITS ACROSS TWO LANES. The resting sway of the
+    // leaves and the lean of the candle flames are the SHADERS' — EnvRoom/EnvFlame do that from
+    // their own time uniforms and they are untouched by anything here. What he is switching off is
+    // the AUDIO bed, which this file owns. So this is a gate on two emitters and on nothing else:
+    // the cellar's "Draught" at the window and the swamp's "Leaves" in the canopy. The candle
+    // flames, the swamp's insect floor, the wisp and the Earth rumble are not wind and do not move.
+    //
+    // WHY IT IS A SMOOTHED GATE AND NOT `if (air > 0)`. Two reasons, and the second is the one that
+    // decided the shape:
+    //   * A CUT IS ITSELF AN EVENT. A stationary noise bed that stops is more noticeable than one
+    //     that plays — the ear tracks onsets and OFFSETS equally, and an offset with a 70 ms edge
+    //     (which is what TickBeds' 0.6/s volume walk gives at these levels) reads as a gate closing.
+    //     "Kein Geräusch" has to arrive without announcing itself.
+    //   * AIR ITSELF IS NOT A STEP. ElementMood ramps every element over RampSeconds = 1.0 s with a
+    //     smoothstep, so the element is already gentle going up; what it is not is gentle coming
+    //     DOWN in the way air behaves — a draught that has stopped being driven dies away over
+    //     seconds, not over one. Hence the asymmetry below, which is the same argument (and the same
+    //     direction) as the duck's attack/release pair thirty lines up.
+
+    /// <summary>Air intensity at which the wind bed starts to exist at all, and the intensity at
+    /// which it is fully open. Below <see cref="AirGateOn"/> there is NO wind sound whatsoever — not
+    /// a quiet one — which is the request read literally. The span up to
+    /// <see cref="AirGateFull"/> exists so that the gate opens ACROSS the element's own ramp rather
+    /// than at one point on it: a threshold crossed instantly would put a step into the middle of a
+    /// smooth rise, which is the one place a step is most audible.</summary>
+    private const float AirGateOn = 0.06f;
+    private const float AirGateFull = 0.45f;
+
+    /// <summary>Seconds for the gate to open, and to close. ASYMMETRIC, and much more so than the
+    /// duck's: a draught is a mass of moving air with momentum, so it arrives faster than it leaves.
+    /// 2.4 s of close is also what makes the OFF edge inaudible — at the bed's own level a 2.4 s
+    /// decay is well under the just-noticeable rate for a slow fade, so the sound is simply not
+    /// there any more rather than having stopped.</summary>
+    private const float AirGateOpenSeconds = 0.9f;
+    private const float AirGateCloseSeconds = 2.4f;
+
+    /// <summary>The gate itself, 0..1, walked in <see cref="TickBeds"/> and read by
+    /// <see cref="WindBed"/>. ONE field for both rooms because only one of the two wind beds can
+    /// exist at a time (they belong to different styles), and a single field is what makes "the wind
+    /// is up" one fact rather than two that could disagree.
+    ///
+    /// <para><c>Time.deltaTime</c> and not the shared clock, for the duck's reason: this is a LOCAL
+    /// smoothing of a value that is itself already shared and already smoothed. Two clients open
+    /// their gates within a frame of each other on a bed with no onset to correlate — there is
+    /// nothing here a listener could compare.</para></summary>
+    private static float _windGate;
+
     // ---- live state --------------------------------------------------------------------------------
 
     private sealed class Voice
@@ -309,8 +369,6 @@ internal static class EnvSound
     private static long _lastRatSlot = long.MinValue;
     private static float _lastHauntStart = float.NaN;
     private static int _lastHauntCard = -1;
-    private static float _hauntSecondCueAt = float.NaN;   // the bookshelf's righting, scheduled
-    private static Vector3 _hauntSecondCueAtPos;
 
     private static int _nextShot;
 
@@ -483,10 +541,14 @@ internal static class EnvSound
         // THE WINDOW. The draught enters here — the bake's DraftDir starts at the window and leaves
         // under the stair door (BuildEnvironmentRooms.cs:1710-1714), and the flames and dust motes
         // already lean along it. "Starker Wind" is the Air infusion pushing this one.
+        //
+        // GATED ON AIR since ModBuild 148 — see THE WIND GATE. With no Air infusion up this bed is
+        // silent AND PAUSED, which is the user's "sonst kein Geräusch" read literally rather than
+        // "quietly".
         Transform? window = Find(room.transform, "WindowGlow", "WindowReveal", "WindowBars");
         if (window != null)
             AddBed("Draught", window, EnvSoundBank.Bank(EnvSoundClip.Bed), 0.075f, 1.2f, 14f,
-                   () => 0.55f + 0.45f * Lfo(7.93f) + 1.15f * ElementMood.Live(2));
+                   () => WindBed(7.93f));
 
         // EARTH. No node of its own — it is the room itself settling, so it sits at the room root
         // and is silent until an Earth infusion is up. This is the one bed with no resting level:
@@ -499,10 +561,16 @@ internal static class EnvSound
     {
         // THE CANOPY. Leaves in the wind — the same shared noise bed as the cellar's draught, high
         // passed by its own filter rather than by a second clip, and gusting on a slow LFO.
+        //
+        // GATED ON AIR since ModBuild 148, and this is the emitter the user's report is most
+        // literally about: LEAVES RUSTLING *ARE* THE WIND SOUND. With Air down the canopy still
+        // SWAYS — that is EnvRoom's own vertex motion and is exactly the "leichte Bewegung die
+        // aktuell Standard ist" he asked to keep — it simply makes no noise. The swamp's resting
+        // ambience is then the insect floor and the wisp, which is what a still night is.
         Transform? canopy = Find(room.transform, "Canopy", "TrunksNear", "Ground");
         if (canopy != null)
             AddBed("Leaves", canopy, EnvSoundBank.Bank(EnvSoundClip.Bed), 0.070f, 2f, 22f,
-                   () => 0.50f + 0.50f * Lfo(11.31f) + 1.05f * ElementMood.Live(2));
+                   () => WindBed(11.31f));
 
         // THE GROUND. Night insects. This is the swamp's floor, so it is the one sound the player
         // is inside rather than beside — a wide rolloff, deliberately.
@@ -680,6 +748,8 @@ internal static class EnvSound
 
     private static void TickBeds()
     {
+        TickWindGate();
+
         float master = Master();
         for (int i = 0; i < Beds.Count; i++)
         {
@@ -688,7 +758,70 @@ internal static class EnvSound
             float want = v.BaseGain * m * master;
             // Walked, never jumped: a bed whose level stepped with the element ramp would click.
             v.Source.volume = Mathf.MoveTowards(v.Source.volume, want, Time.deltaTime * 0.6f);
+
+            // A BED THAT HAS FADED TO NOTHING IS PAUSED, NOT LEFT SPINNING, and this is what makes
+            // "sonst kein Geräusch" a property of the engine rather than of a multiply. Two things
+            // buy it:
+            //   * IT CANNOT BE HEARD. A paused source is not in the mix at all, so no future gain
+            //     bug, no rounding, no filter tail and no spatialiser can put a wind back into a
+            //     room the player switched the wind off in.
+            //   * IT COSTS NOTHING WHILE IT IS OFF. A playing source is a spatialised voice plus an
+            //     AudioLowPassFilter being evaluated every DSP block whether or not its volume is
+            //     zero. The gated wind bed is off for almost the whole of a scenario (Air is up for
+            //     seconds at a time), and the Earth rumble — which has NEVER had a resting level
+            //     (see BuildCellar) — was spinning at volume 0 for the entire session in both rooms.
+            //     This is the first frame either of them stops costing anything.
+            // Pause/UnPause rather than Stop/Play: the playhead is kept, so a bed resumes where it
+            // left off instead of restarting its buffer — which would also throw away the
+            // decorrelating offset AddBed gives each bed at creation.
+            if (want <= 0f && v.Source.volume <= 0f)
+            {
+                if (v.Source.isPlaying)
+                    v.Source.Pause();
+            }
+            else if (!v.Source.isPlaying)
+            {
+                v.Source.UnPause();
+            }
         }
+    }
+
+    /// <summary>
+    /// Walk <see cref="_windGate"/> toward whatever the AIR element is doing. See THE WIND GATE for
+    /// the user report and for why this is a smoothed gate rather than a comparison.
+    ///
+    /// <para>Called from <see cref="TickBeds"/> and not from the modulators, because a lambda that
+    /// integrated would integrate ONCE PER BED — two beds would walk the same field twice per frame
+    /// and the gate would open at double rate in a room that happened to have both.</para>
+    /// </summary>
+    private static void TickWindGate()
+    {
+        float air = Mathf.Clamp01(ElementMood.Live(2));
+        float target = Mathf.Clamp01((air - AirGateOn) / Mathf.Max(AirGateFull - AirGateOn, 1e-4f));
+        target = target * target * (3f - 2f * target);   // smoothstep — no corner at either end
+
+        float tau = target > _windGate ? AirGateOpenSeconds : AirGateCloseSeconds;
+        _windGate = Mathf.MoveTowards(_windGate, target, Time.deltaTime / Mathf.Max(tau, 0.01f));
+    }
+
+    /// <summary>
+    /// The wind bed's level, 0..2, for both rooms. ONE function, so the cellar's draught and the
+    /// swamp's canopy cannot drift into being two different winds — they are the same air.
+    ///
+    /// <para>Returns EXACTLY zero while the gate is shut, which is what
+    /// <see cref="TickBeds"/> tests to pause the source. The gust shape multiplies the gate rather
+    /// than adding to it, so there is no residue for the LFO to modulate at rest: at
+    /// <c>_windGate = 0</c> every term is gone, not small.</para>
+    /// </summary>
+    /// <param name="periodSeconds">The gust LFO's period. The two rooms differ ONLY here (7.93 s at
+    /// a cellar window, 11.31 s through a canopy — a bigger, slower body of air), and both are
+    /// non-commensurate with everything else in the file, which is item 6 of the class doc.</param>
+    private static float WindBed(float periodSeconds)
+    {
+        if (_windGate <= 0f)
+            return 0f;
+        float air = Mathf.Clamp01(ElementMood.Live(2));
+        return _windGate * (0.55f + 0.45f * Lfo(periodSeconds) + 1.0f * air);
     }
 
     /// <summary>
@@ -906,10 +1039,60 @@ internal static class EnvSound
     private static float _squeakAt = float.NaN;
     private static Transform? _squeakFrom;
 
+    /// <summary>Mean seconds between frost bursts at FULL Ice, and at the threshold. The shipped
+    /// pair was 0.45 and 4.
+    ///
+    /// <para><b>0.45 s WAS THE SECOND HALF OF "super nervig", and arguably the larger half.</b> A
+    /// 2.2 Hz repeat is inside the range the ear reads as a RHYTHM rather than as a series of
+    /// separate events (roughly 0.2-2 s between onsets), which means the shipped frost was not a
+    /// crackling surface, it was a pulse — and a pulse is something you can count, tap along to and
+    /// then cannot stop hearing. Nothing about the timbre could have rescued that: even a perfect
+    /// crack on a 0.45 s beat is a woodpecker, which is the coordinator's own word for it and is
+    /// exactly right.</para>
+    ///
+    /// <para>2.6 s at full Ice is above the top of that range with margin, and each burst is itself
+    /// seven cracks spread over 0.36 s (<c>EnvSoundBank.MakeFrost</c>), so the DENSITY of audible
+    /// events barely falls while the PERIODICITY goes away entirely. Per minute at full Ice: 24
+    /// bursts of about three audible cracks each (the mean is 2.50 s once
+    /// <see cref="EnvSoundSchedule.PoissonGap"/>'s clamps are folded in, not the nominal 2.6),
+    /// against the shipped 133 three-note chords.</para></summary>
+    private const float FrostMeanSecondsFull = 2.6f;
+    private const float FrostMeanSecondsThreshold = 11f;
+
     /// <summary>
     /// FROST. The Ice infusion crazing the stone. Not a bed — a bed of ice would be a hiss the
-    /// player cannot switch off — but sparse ticks whose RATE follows the element, so a strong Ice
-    /// is heard as "more often", which is how a freezing surface actually behaves.
+    /// player cannot switch off — but sparse bursts of brittle cracking whose RATE follows the
+    /// element, so a strong Ice is heard as "more often", which is how a freezing surface actually
+    /// behaves.
+    ///
+    /// =============================================================================================
+    /// <para><b>THE CADENCE AND THE LEVEL, and why they moved with the timbre. ModBuild 148.</b>
+    /// The user's report was "Der Sound vom Eis passt absolut garnicht … Das was aktuell drin ist
+    /// ist super nervig", and the rebuild of the SOUND is in <c>EnvSoundBank.MakeFrost</c>. But
+    /// three of the five things that made it annoying were never in the clip at all — they are
+    /// here, and a new clip on the old schedule would have been the same complaint in a different
+    /// timbre:</para>
+    /// <list type="number">
+    /// <item><b>THE BEAT IS GONE.</b> The interval is now a POISSON WAITING TIME rather than a fixed
+    /// number of seconds — see <see cref="EnvSoundSchedule.PoissonGap"/>. That is the honest model
+    /// and not a jitter dressed up: acoustic-emission events from a surface under a slowly changing
+    /// stress field are independent, so the count in any window is Poisson and the gap between them
+    /// is exponential. What it SOUNDS like is the thing a fixed interval can never sound like —
+    /// two bursts close together and then a long nothing — and it is what stops the ear from
+    /// predicting the next one, which is what "nervig" ultimately is.</item>
+    /// <item><b>IT IS THREE TIMES RARER.</b> See <see cref="FrostMeanSecondsFull"/>.</item>
+    /// <item><b>IT NO LONGER REACHES THE WHOLE ROOM.</b> The shipped rolloff was 0.8-11 perceived
+    /// metres, the WIDEST of any one-shot in the bank — wider than the bookshelf going over. So the
+    /// ice was audible from everywhere at nearly full level, which is the exact opposite of
+    /// "verortbar von seinen entsprechenden Quellen": frost is a thing happening ON A SURFACE, and
+    /// you should have to be near that surface. 0.6-5 m, and because logarithmic rolloff goes as
+    /// <c>min/d</c> past the minimum, dropping the minimum from 0.8 to 0.6 steepens the whole curve
+    /// as well — a further -2.5 dB at 2 perceived metres.</item>
+    /// </list>
+    /// <para>The gain also comes down from 0.085 to 0.055 (-3.8 dB) on top of the clip's own
+    /// -6.7 dB of RMS, and the pitch jitter narrows from ±15% to ±8%: with seven independently
+    /// coloured cracks inside every burst there is nothing left for a wide transpose to add, and a
+    /// wide transpose on a broadband transient mostly just moves its brightness around.</para>
     /// </summary>
     private static void TickFrost(float clock)
     {
@@ -926,13 +1109,22 @@ internal static class EnvSound
         if (clock < _nextFrost)
             return;
 
-        // 0.45 s at full ice, ~4 s at the threshold — the interval is the signal.
-        _nextFrost = clock + Mathf.Lerp(4f, 0.45f, Mathf.Clamp01(ice));
+        // THE NEXT ONE. The mean follows the element — the interval is the signal — and the draw
+        // around it is exponential, bounded by construction inside PoissonGap so that no value of
+        // `ice` and no hash can ever return a gap of zero and turn this into a per-frame emitter.
+        // The hash is a pure function of the shared clock's own quantised tick, so two clients
+        // schedule the SAME burst at the SAME second with nothing on the wire — the property every
+        // event in this file has.
+        float mean = Mathf.Lerp(FrostMeanSecondsThreshold, FrostMeanSecondsFull, Mathf.Clamp01(ice));
+        _nextFrost = clock + EnvSoundSchedule.PoissonGap(mean, Hash01((long)(clock * 7f)));
 
         Transform? at = _frostNode;
         if (at != null)
-            PlayShot(EnvSoundBank.Bank(EnvSoundClip.Frost), at.position, 0.085f * ice, 0.8f, 11f,
-                     pitch: 0.9f + 0.3f * Hash01((long)(clock * 7f)));
+            PlayShot(EnvSoundBank.Bank(EnvSoundClip.Frost), at.position, 0.055f * ice, 0.6f, 5f,
+                     // Channel 4, not Hash01's channel 2: the gap above already drew on 2 from the
+                     // same tick, and the pair "how long you waited" / "what it sounded like" is
+                     // compared by the ear on one event. Same argument as DripVariantChannel's.
+                     pitch: 0.92f + 0.16f * Haunt.Hash((long)(clock * 7f), 4f));
     }
 
     private static float _nextFrost = float.NaN;
@@ -953,22 +1145,32 @@ internal static class EnvSound
     /// </summary>
     private static void TickHaunt(SkyStyle style, float clock)
     {
-        // The bookshelf's second half — it rights itself, slower and quieter, which is the more
-        // unsettling half. Scheduled when the fall fires so the two are one event with a gap in it.
-        if (!float.IsNaN(_hauntSecondCueAt) && clock >= _hauntSecondCueAt)
-        {
-            _hauntSecondCueAt = float.NaN;
-            PlayShot(EnvSoundBank.Bank(EnvSoundClip.Settle), _hauntSecondCueAtPos, 0.055f, 2f, 24f, 1f);
-        }
+        // The bookshelf's own contacts — its arrival on the floor, the rebound, and the righting —
+        // fire from here, BEFORE the gate below, so a schedule that was written while the switch
+        // was on completes even if the player turns the easter eggs off mid-event. An apparition
+        // that is already lying on the floor has to be allowed to get up again.
+        TickDeferredCues(clock);
 
-        if (!Haunt.EasterEggs.Value)
+        // THE LATCH OVERRIDES THE SWITCH, and until ModBuild 148 this line did not know that. The
+        // Advanced-menu test buttons latch one apparition on regardless of `EasterEggs`
+        // (Haunt.Force: "IT OVERRIDES EasterEggs FOR AS LONG AS IT STANDS"), and Haunt.Resolve
+        // returns a forced slot as Live whatever the setting says — so a tester with the setting
+        // off, which is precisely the tester who is using the buttons to decide whether to turn it
+        // on, saw the apparition and heard NOTHING. Pre-existing, cheap, and fixed here rather than
+        // filed: `Forcing` is one field read on a path that already reads one.
+        //
+        // The gate is still worth having with the latch folded in: with the setting off and nothing
+        // latched, Resolve would return Live = false anyway (it multiplies by a master of 0), so
+        // this is purely the cheap path — one bool read instead of a slot resolution per frame.
+        if (!Haunt.EasterEggs.Value && !Haunt.Forcing)
             return;
 
         Haunt.Slot slot = Haunt.Resolve(clock, style);
         if (!slot.Live)
             return;
 
-        CueFor(style, slot.Card, out EnvSoundClip clip, out float gain, out float lead, out float minM, out float maxM);
+        bool audible = CueFor(style, slot.Card, out EnvSoundClip clip, out float gain,
+                              out float lead, out float minM, out float maxM);
 
         float at = slot.StartClock + lead;
         if (clock < at)
@@ -980,39 +1182,196 @@ internal static class EnvSound
             return;
         // ...and never fire for an event that has already finished — which is what would otherwise
         // happen on the frame the environment stands up in the middle of a slot.
-        if (clock > slot.StartClock + Haunt.CardSeconds(style, slot.Card) * slot.DurationMul + 1.5f)
+        float runs = Haunt.CardSeconds(style, slot.Card) * slot.DurationMul;
+        if (clock > slot.StartClock + runs + 1.5f)
             return;
 
         _lastHauntStart = slot.StartClock;
         _lastHauntCard = slot.Card;
 
+        // A SILENT CARD IS DEBOUNCED LIKE ANY OTHER and then simply makes no sound — the two lines
+        // above have already run. Doing it in that order rather than returning early is what keeps
+        // one apparition equal to at most one visit to this code, so a silent card cannot re-enter
+        // on the next frame and cannot schedule anything twice.
+        if (!audible)
+            return;
+
         Vector3 pos = HauntPosition(slot.Card);
         PlayShot(EnvSoundBank.Bank(clip), pos, gain, minM, maxM, 1f);
 
-        // The cellar's bookshelf (card 5) is the one apparition with an unavoidable, obvious sound,
-        // because another lane is rebuilding it to TIP OVER and later right itself.
+        // The cellar's bookshelf (card 5) is the one apparition whose sound is not a hint but a
+        // physical consequence — it tips over, hits a stone floor and later rights itself.
         if (style == SkyStyle.Cellar && slot.Card == 5)
-        {
-            _hauntSecondCueAt = clock + Haunt.CardSeconds(style, 5) * slot.DurationMul * 0.62f;
-            _hauntSecondCueAtPos = pos;
-        }
+            ScheduleShelfContacts(slot.StartClock, runs, clock, pos);
 
         VRLog.Info("Core", $"ENV SOUND haunt cue: {style} card {slot.Card} -> {clip} at shared clock " +
                            $"{clock:F2}s, lead {lead:+0.00;-0.00}s on an event that starts " +
-                           $"{slot.StartClock:F2}s and runs " +
-                           $"{Haunt.CardSeconds(style, slot.Card) * slot.DurationMul:F2}s" +
+                           $"{slot.StartClock:F2}s and runs {runs:F2}s" +
                            (slot.Forced ? " — FORCED from the Advanced menu" : " — scheduled") +
                            $". Gain {gain:F3} before master; position {pos:F2}.");
     }
 
+    // ---- the bookshelf's contacts ----------------------------------------------------------------
+    //
+    //  USER REPORT, ModBuild 147 hardware, verbatim: "Beim Umfallen des Regals sollte es schon ein
+    //  Geräusch beim Impact auf dem Boden geben." — "When the shelf falls over there really should
+    //  be a sound at the impact on the floor."
+    //
+    //  HE IS RIGHT AND THE CAUSE IS A SCHEDULING ERROR, not a missing clip: the bank has had `Fall`
+    //  and `Settle` since the feature shipped. The shipped cue fired at the event START plus a
+    //  0.15 s lead, and the clip put its thud 0.85 s into itself, so the only impact-like sound in
+    //  the whole event happened about ONE SECOND in — at which point EnvShelfTip's curve has the
+    //  shelf leaned over by roughly one degree. It does not reach the floor until 4.68 s. So the
+    //  thud was 3.7 SECONDS EARLY, which is far too much to read as "early": it reads as a different
+    //  sound belonging to something else, and then the actual collision is silent.
+    //
+    //  WHERE THE FLOOR IS, IN PHASE. Read directly off unity/.../Environments/EnvShelfTip.cginc,
+    //  which is the ONE authority on the pose (the shelf itself and every rider — wax, flames,
+    //  halos — take their transform from GhvrShelfTip, so there is no second curve to disagree
+    //  with). Its schedule, in phase of the 26.002 s envelope:
+    //
+    //      GHVR_TIP_FALL  = 0.180   the topple, on the pendulum's exact separatrix -> 4.68 s
+    //      GHVR_TIP_LAND  = 0.024   one ballistic rebound, 1.9 deg              -> 0.624 s
+    //      GHVR_TIP_ARC   = 0.204   FALL + LAND: flat on the floor at last      -> 5.30 s
+    //      GHVR_TIP_RISE  = 0.620   it lies there until here                    -> 16.12 s
+    //                               then the same arc RUN BACKWARDS at 0.537x   -> 9.88 s
+    //
+    //  So there are exactly TWO contacts on the way down and the file says when: the arrival at
+    //  0.180, and — because the landing term is a projectile arc 4w(1-w) that leaves the floor and
+    //  comes back — a second, much softer touch at 0.204 when the rebound lands. Both are scheduled
+    //  below. The rebound's relative energy is not guessed either: the cginc derives the restitution
+    //  as 0.182 from its own impact rate and rebound height, so the second contact arrives at 0.182
+    //  of the first speed, which is 3.3% of the energy, -14.8 dB. It is scheduled at 0.18 of the
+    //  gain rather than at 0.033 because loudness is not energy — 0.18 of the amplitude is the
+    //  honest translation of a 0.182 velocity ratio for an impact.
+    //
+    //  WHY THE LEAD CUE IS NOW A CREAK. Card 5 used to spend its one cue on `Fall` at the start.
+    //  With the thud moved to where the thud belongs, the start needs something or the first 4.7 s
+    //  of the single biggest event in the room are silent — and a bookcase committing to a topple
+    //  is not silent: its joints take a load they have never taken, which is stick-slip, which is
+    //  exactly what MakeCreak is. It is also QUIETER than the cue it replaces (0.045 against
+    //  0.080), so the event now starts under the bed and ends with a bang instead of the other way
+    //  round, which is the coordinator's rule for these cues stated in physical terms.
+    //
+    //  REJECTED:
+    //    * PUTTING THE IMPACT ON A TIMER STARTED BY THE LEAD CUE. It would drift from the picture
+    //      the moment DurationMul changed (Ice stretches every event by up to 35%), and the whole
+    //      point of reading the phase constants is that a stretched event stretches the sound with
+    //      it.
+    //    * A THIRD CONTACT. The cginc rules it out by name: the second rebound would be 0.182^2 =
+    //      3% of the first, "0.07 degrees, two millimetres — drawing it would be drawing a lie".
+    //      The same argument applies to hearing it, at -29 dB.
+    //    * SCHEDULING THE RIGHTING'S OWN TOUCH SEPARATELY. The recovery has one too — the reversed
+    //      rebound, 1.162 s into it — but it does not need a cue, because it is INSIDE the Settle
+    //      clip: MakeSettle's single contact was moved to exactly 1.162 s for this reason. One
+    //      sound, one clip, one time.
+
+    /// <summary>The shelf's own phase schedule, MIRRORED from
+    /// <c>unity/.../Environments/EnvShelfTip.cginc</c>'s <c>GHVR_TIP_*</c> defines. Duplicated here
+    /// for the same reason <see cref="DripPeriod"/> is duplicated from the bake: they are a CONTRACT
+    /// with a file that states them from its side, and a sound that invented its own timeline would
+    /// drift away from the picture. If the cginc's constants move, these move with them.</summary>
+    private const float ShelfArrivalPhase = 0.180f;
+    private const float ShelfReboundPhase = 0.204f;
+    private const float ShelfRisePhase = 0.620f;
+
+    /// <summary>Amplitude of the rebound's second contact against the first. The cginc derives a
+    /// coefficient of restitution of 0.182 from the fall's impact rate and the rebound's height;
+    /// this is that number, used as an amplitude ratio.</summary>
+    private const float ShelfReboundLevel = 0.18f;
+
+    /// <summary>
+    /// Put the bookshelf's three remaining sounds on the queue the moment its cue fires: the arrival
+    /// on the floor, the rebound's second contact 0.624 s later, and the righting. See the block
+    /// comment above for where every one of those times comes from.
+    /// </summary>
+    /// <param name="start">The event's own start on the shared clock — <c>Slot.StartClock</c>, the
+    /// SAME number the shader's phase is measured from.
+    ///
+    /// <para>IT IS PASSED RATHER THAN RECONSTRUCTED FROM `now - lead`, and that is the difference
+    /// between right and nearly right. The two agree on an event this feature watched from its
+    /// beginning, and they do NOT agree when the environment stands up in the middle of one: the
+    /// caller deliberately allows a cue to fire late (up to the whole run plus 1.5 s), so `now`
+    /// can be twenty seconds past the start, and a reconstruction would then schedule an arrival
+    /// twenty seconds after the shelf had already arrived. Reading the start directly makes every
+    /// contact an ABSOLUTE time on the shared clock, so a client that joined late simply finds them
+    /// already past and drops them — which is what should happen, and is what
+    /// <see cref="TickDeferredCues"/>'s staleness guard does with no extra code.</para></param>
+    /// <param name="runs">The event's real length: the card's authored envelope times the slot's
+    /// <c>DurationMul</c>. Ice stretches it by up to 35%, and everything here scales with it because
+    /// the shader's phase does.</param>
+    /// <param name="now">Shared-clock seconds this frame. Diagnostics only.</param>
+    private static void ScheduleShelfContacts(float start, float runs, float now, Vector3 pos)
+    {
+        float arrival = start + runs * ShelfArrivalPhase;
+        float rebound = start + runs * ShelfReboundPhase;
+        float rise = start + runs * ShelfRisePhase;
+
+        Defer(arrival, EnvSoundClip.Fall, pos,
+              gain: 0.080f, minMeters: 2f, maxMeters: 24f, pitch: 1f);
+
+        // Pitched slightly UP, because a lighter contact of the same body excites its higher modes
+        // relatively more — the low mode needs momentum the rebound no longer has. 1.06 is small
+        // enough not to read as a transposition and large enough to read as a lighter touch.
+        Defer(rebound, EnvSoundClip.Fall, pos,
+              gain: 0.080f * ShelfReboundLevel, minMeters: 2f, maxMeters: 24f, pitch: 1.06f);
+
+        Defer(rise, EnvSoundClip.Settle, pos,
+              gain: 0.055f, minMeters: 2f, maxMeters: 24f, pitch: 1f);
+
+        // ONE LINE, ONCE PER SHELF EVENT — which is at most once every ~83 s in the cellar and only
+        // for one card in six. It earns its place because the defect it replaces was INVISIBLE from
+        // a log: the old cue fired, logged, and sounded, and nothing anywhere said that the thud
+        // inside it had landed 3.7 s before the shelf did. These four times against the picture are
+        // the whole verification, and nobody working on this can hear it.
+        VRLog.Info("Core", $"ENV SOUND shelf contacts scheduled from EnvShelfTip's own phase — the "
+                           + $"event starts {start:F2}s and runs {runs:F2}s (26.002s authored x the "
+                           + "slot's DurationMul, which Ice stretches by up to 35%), so: creak now "
+                           + $"at {now:F2}s (authored lead {ShelfLead:F2}s, the "
+                           + $"carcass taking the lean), ARRIVAL ON THE FLOOR at {arrival:F2}s "
+                           + $"(phase {ShelfArrivalPhase:F3}, +{runs * ShelfArrivalPhase:F2}s), the "
+                           + $"rebound's second contact at {rebound:F2}s (phase {ShelfReboundPhase:F3}, "
+                           + $"{ShelfReboundLevel:F2}x the level), and the righting at {rise:F2}s "
+                           + $"(phase {ShelfRisePhase:F3}), whose own 1.162s contact is inside the "
+                           + "Settle clip. The shipped build played its only thud at "
+                           + $"{start + ShelfLead + 0.85f:F2}s, i.e. {runs * ShelfArrivalPhase - ShelfLead - 0.85f:F2}s "
+                           + "before the shelf reached the floor, which is the user's report.");
+    }
+
+    /// <summary>The lead on card 5's own creak, named so that <see cref="CueFor"/> and the
+    /// scheduling log line cannot fall out of step about it.</summary>
+    private const float ShelfLead = 0.15f;
+
     /// <summary>
     /// Which cue an apparition gets, and how it is placed. The ids are the content lane's array
-    /// order (grep HAUNT FORCE ID TABLE in BuildEnvironmentRooms.cs).
+    /// order, MIRRORED by <see cref="Haunt.CardSeconds"/>, which is the table this one is kept in
+    /// step with (grep HAUNT FORCE ID TABLE in BuildEnvironmentRooms.cs for the other side).
+    ///
+    /// <para><b>RETURNS FALSE FOR A SILENT CARD, and silence is now a first-class answer rather
+    /// than a gain of zero.</b> Two apparitions are deliberately mute after the ModBuild 147
+    /// hardware pass — see the cases themselves. A bool is used rather than a
+    /// <c>EnvSoundClip.None</c> member because <see cref="EnvSoundBank.Bank"/> is a total function
+    /// with a <c>default</c> arm: a "None" that fell through it would return the SETTLE clip, which
+    /// is the loudest possible way to express "no sound".</para>
+    ///
+    /// <para><b>THE ROOM'S CARD COUNTS ARE NOT SIX AND SIX.</b> ModBuild 147 deleted the wood's
+    /// hand-built figures and re-cut both catalogues (<see cref="Haunt.CardSeconds"/>): the cellar
+    /// has six cards but its card 2 became the STAIR-TOP DOOR, and the swamp has THREE — Eyes,
+    /// Watcher, Cross — so what used to be its cards 1, 2 and 3 are now 0, 1 and 2. This table was
+    /// not moved with it and had been one off ever since, silently: the eyeshines were getting the
+    /// breath authored for a face behind a trunk, and the cellar's door was getting a fly authored
+    /// for a face lying among the barrels. Both are corrected below. The unreachable arms for a
+    /// swamp card 3+ are kept as a <c>default</c> so that a catalogue which grows back does not
+    /// crash into a missing case.</para>
     /// </summary>
-    private static void CueFor(SkyStyle style, int card, out EnvSoundClip clip, out float gain,
+    /// <returns>True if there is a cue to play. False means this apparition is SILENT by design and
+    /// the caller must play nothing at all.</returns>
+    private static bool CueFor(SkyStyle style, int card, out EnvSoundClip clip, out float gain,
                                out float lead, out float minM, out float maxM)
     {
+        clip = EnvSoundClip.Breath;
         gain = 0.06f;
+        lead = 0f;
         minM = 1.5f;
         maxM = 18f;
 
@@ -1022,45 +1381,63 @@ internal static class EnvSound
             {
                 // 0 WINDOW — a head and shoulders at the barred window. A breath outside the bars,
                 // slightly BEFORE it arrives: the player should look up and then find it there.
-                case 0: clip = EnvSoundClip.Breath; gain = 0.055f; lead = -1.1f; minM = 1f; maxM = 12f; return;
-                // 1 HANDS — handprints blooming on wet stone. A wet palm dragging, ON the reveal:
-                // this apparition has no motion of its own, so the sound is the motion.
-                case 1: clip = EnvSoundClip.Drag; gain = 0.050f; lead = -0.2f; minM = 0.8f; maxM = 9f; return;
-                // 2 FLOOR — a face at floor level among the barrels. One fly, AFTER: you notice the
-                // fly, and then you notice what it is on.
-                case 2: clip = EnvSoundClip.Fly; gain = 0.045f; lead = 1.4f; minM = 0.6f; maxM = 7f; return;
-                // 3 TREMBLE — DRAWS NOTHING AT ALL; every cobweb in the room shivers. This is the one
-                // card where the sound carries the whole event, so it is the only cue placed exactly
-                // on the start and given a slightly wider reach.
-                case 3: clip = EnvSoundClip.Drag; gain = 0.060f; lead = 0f; minM = 2f; maxM = 20f; return;
+                case 0: clip = EnvSoundClip.Breath; gain = 0.055f; lead = -1.1f; minM = 1f; maxM = 12f; return true;
+
+                // 1 HANDS — SILENT. USER RULING, ModBuild 147 hardware, verbatim: "Lösche jeglichen
+                // Sound dazu, hier macht ein Sound keinen Sinn!" ("Delete every sound for this, a
+                // sound makes no sense here!") — and he is right on the physics, which is why this
+                // is a deletion and not a quieter clip. Handprints BLOOM on wet stone; nothing
+                // touches it. The shipped cue was a wet palm dragging, which asserts a contact the
+                // picture explicitly does not show — the whole point of the apparition is that the
+                // hands are not there. A sound that describes an absent hand converts the thing
+                // that is frightening about the image into an ordinary event.
+                case 1: return false;
+
+                // 2 DOOR — the stair-top door, no body at all (Haunt.CardSeconds: "NEW"). A door
+                // taking its own weight on old hinges is stick-slip, which is what Creak is; it was
+                // getting a FLY, authored for the deleted floor-level face. Slightly BEFORE, so the
+                // player is looking at the doorway when it moves.
+                case 2: clip = EnvSoundClip.Creak; gain = 0.045f; lead = -0.4f; minM = 1.2f; maxM = 14f; return true;
+
+                // 3 TREMBLE — SILENT. USER RULING, ModBuild 147 hardware, verbatim: "Lösch bei den
+                // Spinnweben das Geräusch, das hört sich an wie eine Schlange." ("Delete the sound
+                // on the cobwebs, it sounds like a SNAKE.") That is a precise report and the cue
+                // deserved it: Drag is band-limited noise sweeping 3200 -> 1100 Hz over 1.4 s with a
+                // 31 Hz roughness on it, which is a textbook hiss with a rattle in it. Nothing was
+                // going to rescue that shape at that length.
+                //
+                // WHAT IT COSTS, stated because it is a real cost and not nothing: this was the one
+                // card whose note said "the sound carries the whole event", since the apparition
+                // draws no geometry — every cobweb in the room simply shivers. With the cue gone,
+                // the event is now carried entirely by that shiver. That is acceptable and probably
+                // better: a shiver you catch out of the corner of your eye is exactly the "something
+                // you are not sure you saw" these are built to be, and the alternative the user
+                // actually heard was a snake in the cellar.
+                case 3: return false;
+
                 // 4 STAIR — something too tall crosses the doorway in 0.7 s. A stair board taking
                 // weight, just BEFORE: the fastest event in the room needs the player already looking.
-                case 4: clip = EnvSoundClip.Creak; gain = 0.055f; lead = -0.55f; minM = 1.2f; maxM = 14f; return;
-                // 5 SHELF — now tips over (another lane is rebuilding it this round). Muffled and
-                // distant, never a crash; the righting is scheduled separately by the caller.
-                default: clip = EnvSoundClip.Fall; gain = 0.080f; lead = 0.15f; minM = 2f; maxM = 24f; return;
+                case 4: clip = EnvSoundClip.Creak; gain = 0.055f; lead = -0.55f; minM = 1.2f; maxM = 14f; return true;
+
+                // 5 SHELF — it tips over, hits the floor 4.68 s later, rebounds, lies there and
+                // rights itself. THIS CUE IS ONLY THE FIRST OF FOUR: the carcass creaking as it
+                // commits to the lean. The three contacts are scheduled from the shader's own phase
+                // constants by ScheduleShelfContacts — see the block comment there, and see the user
+                // report that made it necessary.
+                default: clip = EnvSoundClip.Creak; gain = 0.045f; lead = ShelfLead; minM = 2f; maxM = 20f; return true;
             }
         }
 
         switch (card)
         {
-            // 0 FACE — half a head from behind a trunk at 11 m. A breath, after: you hear it once it
-            // is already looking at you.
-            case 0: clip = EnvSoundClip.Breath; gain = 0.045f; lead = 0.9f; minM = 2f; maxM = 16f; return;
-            // 1 EYES — two eyeshines low in the understory. Almost nothing: one dry shift of leaves.
-            case 1: clip = EnvSoundClip.Drag; gain = 0.035f; lead = -0.4f; minM = 1f; maxM = 10f; return;
-            // 2 WATCHER — a 2.7 m figure that does nothing at all. A breath from far too high up,
+            // 0 EYES — two eyeshines low in the understory. Almost nothing: one dry shift of leaves.
+            case 0: clip = EnvSoundClip.Drag; gain = 0.035f; lead = -0.4f; minM = 1f; maxM = 10f; return true;
+            // 1 WATCHER — a 2.7 m figure that does nothing at all. A breath from far too high up,
             // late, and quiet enough to be deniable.
-            case 2: clip = EnvSoundClip.Breath; gain = 0.038f; lead = 2.2f; minM = 3f; maxM = 26f; return;
-            // 3 CROSS — something crosses in a THIRD OF A SECOND. The sound cannot chase it, so it
-            // arrives just after: the undergrowth closing behind whatever went through.
-            case 3: clip = EnvSoundClip.Drag; gain = 0.055f; lead = 0.20f; minM = 2f; maxM = 18f; return;
-            // 4 LOOM — a 3.2 m mass with no features. You do not see it, you see what it blots out;
-            // so you do not hear it either, you hear the ground under it.
-            case 4: clip = EnvSoundClip.Fall; gain = 0.050f; lead = -0.3f; minM = 3f; maxM = 28f; return;
-            // 5 HANG — a long-limbed thing hanging head-down from a branch, swaying once. Rope taking
-            // weight. The coordinator's own example, and the clearest case in either room.
-            default: clip = EnvSoundClip.Creak; gain = 0.060f; lead = -0.25f; minM = 2f; maxM = 20f; return;
+            case 1: clip = EnvSoundClip.Breath; gain = 0.038f; lead = 2.2f; minM = 3f; maxM = 26f; return true;
+            // 2 CROSS — a body walking 6.8 m through the understory. The sound cannot chase it, so
+            // it arrives just after: the undergrowth closing behind whatever went through.
+            default: clip = EnvSoundClip.Drag; gain = 0.055f; lead = 0.20f; minM = 2f; maxM = 18f; return true;
         }
     }
 
@@ -1251,10 +1628,14 @@ internal static class EnvSound
         _lastRatSlot = long.MinValue;
         _lastHauntStart = float.NaN;
         _lastHauntCard = -1;
-        _hauntSecondCueAt = float.NaN;
+        ClearDeferred();
         _squeakAt = float.NaN;
         _squeakFrom = null;
         _nextFrost = float.NaN;
+        // The wind gate goes back to SHUT rather than to its live value: the next environment must
+        // fade its wind in from nothing exactly as the first one did, or a stand-down and rebuild
+        // during an Air infusion would start the new room's bed at full level on its first frame.
+        _windGate = 0f;
     }
 
     /// <summary>Release the synthesized clips as well. Only on a FULL teardown (VR stopped, the rig
@@ -1266,10 +1647,126 @@ internal static class EnvSound
         EnvSoundBank.Release();
     }
 
+    // ---- the deferred cue queue --------------------------------------------------------------------
+
+    /// <summary>
+    /// One cue whose time is known but has not arrived: the bookshelf's arrival on the floor, its
+    /// rebound's second contact, and its righting. See <see cref="ScheduleShelfContacts"/>.
+    ///
+    /// <para>A STRUCT IN A FIXED ARRAY, and both halves of that are deliberate. Fixed, because a
+    /// growable queue is a way for a scheduling bug to allocate without bound inside a per-frame
+    /// path; four is one more than the longest schedule anything here produces. A struct, because
+    /// the whole array is then one allocation made once and never touched by the collector.</para>
+    /// </summary>
+    private struct Deferred
+    {
+        internal bool Live;
+        internal float At;             // shared-clock seconds
+        internal EnvSoundClip Clip;
+        internal float Gain;
+        internal float Pitch;
+        internal float MinMeters;
+        internal float MaxMeters;
+        internal Vector3 Pos;          // WORLD, captured at schedule time
+    }
+
+    private const int DeferredCues = 4;
+    private static readonly Deferred[] _deferred = new Deferred[DeferredCues];
+
+    /// <summary>How late a deferred cue may still fire. A frame or two of stall is normal; two
+    /// seconds means the clock moved under us (a new owner was elected, a scene reloaded) and the
+    /// picture the cue belonged to is not where the cue thinks it is. Dropping is then the correct
+    /// answer, exactly as it is for the rat's squeak.</summary>
+    private const float DeferredStaleSeconds = 2f;
+
+    /// <summary>
+    /// Put a cue on the queue. Takes the first free slot; if the queue is somehow full, it takes
+    /// the one that fires SOONEST — an overflow means the schedule has more in it than this
+    /// feature is allowed to make, and dropping the most imminent sound is the least intrusive
+    /// possible failure, which is the standing rule applied to its own error path.
+    /// </summary>
+    private static void Defer(float at, EnvSoundClip clip, Vector3 pos, float gain,
+                              float minMeters, float maxMeters, float pitch)
+    {
+        int slot = -1;
+        float soonest = float.MaxValue;
+        for (int i = 0; i < _deferred.Length; i++)
+        {
+            if (!_deferred[i].Live)
+            {
+                slot = i;
+                break;
+            }
+            if (_deferred[i].At < soonest)
+            {
+                soonest = _deferred[i].At;
+                slot = i;
+            }
+        }
+
+        _deferred[slot] = new Deferred
+        {
+            Live = true,
+            At = at,
+            Clip = clip,
+            Gain = gain,
+            Pitch = pitch,
+            MinMeters = minMeters,
+            MaxMeters = maxMeters,
+            Pos = pos,
+        };
+    }
+
+    /// <summary>
+    /// Fire whatever has come due. A <c>for</c> over a fixed array, once per frame — no queue to
+    /// walk, nothing to sort, and no way for a mis-scheduled cue to keep the loop alive.
+    ///
+    /// <para>Two clock guards, and they are the same two the rat's squeak has: a cue that is more
+    /// than <see cref="DeferredStaleSeconds"/> late is DROPPED rather than fired (the clock jumped
+    /// forward and the picture has moved on), and a cue whose time is now absurdly far in the FUTURE
+    /// is dropped too (the clock jumped backwards, so the schedule it was written against no longer
+    /// exists). Without the second one a backwards jump would leave a bookshelf's thud sitting in
+    /// the queue for as long as the clock took to catch up — and then fire it into whatever was
+    /// happening by then.</para>
+    /// </summary>
+    private static void TickDeferredCues(float clock)
+    {
+        for (int i = 0; i < _deferred.Length; i++)
+        {
+            if (!_deferred[i].Live)
+                continue;
+
+            if (clock < _deferred[i].At - 90f)
+            {
+                _deferred[i].Live = false;
+                continue;
+            }
+            if (clock < _deferred[i].At)
+                continue;
+
+            Deferred cue = _deferred[i];
+            _deferred[i].Live = false;
+            if (clock > cue.At + DeferredStaleSeconds)
+                continue;
+
+            PlayShot(EnvSoundBank.Bank(cue.Clip), cue.Pos, cue.Gain,
+                     cue.MinMeters, cue.MaxMeters, cue.Pitch);
+        }
+    }
+
+    private static void ClearDeferred()
+    {
+        for (int i = 0; i < _deferred.Length; i++)
+            _deferred[i].Live = false;
+    }
+
     // ---- the deferred squeak -----------------------------------------------------------------------
 
-    /// <summary>Fired from <see cref="Tick"/>'s event pass. Split out because it is the one cue that
-    /// is scheduled relative to another cue rather than to the clock directly.</summary>
+    /// <summary>Fired from <see cref="Tick"/>'s event pass. SEPARATE from the queue above, and it
+    /// stays separate: this cue follows a TRANSFORM (the rat is a moving node and the squeak must
+    /// come from where the animal is when it squeaks, not from where it was when the schedule was
+    /// written), while every shelf cue is pinned to a world point captured at schedule time because
+    /// the thing making it is a 60 kg carcass that is not going anywhere.</summary>
     private static void TickDeferred(float clock)
     {
         if (float.IsNaN(_squeakAt) || clock < _squeakAt)
@@ -1378,7 +1875,15 @@ internal static class EnvSound
           .Append(", the dial can reach at most ").Append(MasterCeiling.ToString("F2"))
           .Append("x, the whole ambience ducks to ").Append(DuckFloor.ToString("F2"))
           .Append(" while the game is making any sound, and the player's own master and effects ")
-          .Append("volumes multiply on top. CLOCK: every event reads SkyAlternative.EnvClockSeconds, ")
+          .Append("volumes multiply on top. WIND: the draught/leaves bed is GATED ON THE AIR ")
+          .Append("element (user: \"Wind Geräusch nur wenn auch Wind aktiv ist\") — it opens across ")
+          .Append(AirGateOn.ToString("F2")).Append("..").Append(AirGateFull.ToString("F2"))
+          .Append(" of Air over ").Append(AirGateOpenSeconds.ToString("F1"))
+          .Append("s and closes over ").Append(AirGateCloseSeconds.ToString("F1"))
+          .Append("s, and while it is shut the source is PAUSED, not merely silent — so a 'Draught' ")
+          .Append("or 'Leaves' line above with no audible wind under it is the gate working, not a ")
+          .Append("missing sound. The Earth rumble is paused the same way whenever no Earth is up. ")
+          .Append("CLOCK: every event reads SkyAlternative.EnvClockSeconds, ")
           .Append("so the drip, the rat and the haunt cues land on the same frame on every client ")
           .Append("with ZERO wire bytes.");
 

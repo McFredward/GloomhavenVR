@@ -33,9 +33,20 @@ internal struct EnvSoundRng
 }
 
 /// <summary>
-/// The BURST TRAIN schedules behind the bank's percussive one-shots: the rat's claws on stone, and
-/// the stick-slip of rope or old timber taking weight. Both are "a run of short bursts, irregularly
-/// spaced, spanning a window" — the only thing that separates them is how the spacing evolves.
+/// THE TIMING ARITHMETIC behind the bank's percussive one-shots and behind the one EVENT in
+/// <see cref="EnvSound"/> that is scheduled statistically rather than from the environment's
+/// picture. Two functions:
+///
+/// <list type="bullet">
+///   <item><see cref="SlipTrain"/> — the BURST TRAIN: the rat's claws on stone, the stick-slip of
+///   rope or old timber taking weight, and (since ModBuild 148) the cascade of cracks in a freezing
+///   surface. All three are "a run of short bursts, irregularly spaced, spanning a window"; the only
+///   thing that separates them is how the spacing evolves — the creak's gaps CLOSE as the load
+///   settles, the rat's hold an even beat, the frost's WIDEN as each crack relieves the stress that
+///   drove it.</item>
+///   <item><see cref="PoissonGap"/> — the WAITING TIME between two independent events, for a caller
+///   that schedules "the next one" rather than filling a window.</item>
+/// </list>
 ///
 /// <para>WHY THIS IS ITS OWN FILE, FREE OF UNITY. It is here for the reason
 /// <c>Rig/ScrollTurnGate.cs</c> and <c>WorldUI/ConfigSteps.cs</c> are: it decides something that is
@@ -56,6 +67,15 @@ internal struct EnvSoundRng
 /// convergence decides how long the loop runs, and there is no window a shrink factor can fail to
 /// reach — the span is an input, not an outcome. Driven burst by burst in
 /// <c>tests/GloomhavenVR.WireTests/EnvSoundScheduleVectors.cs</c>.</para>
+///
+/// <para>THE SAME CONTRACT, IN THE OTHER DIRECTION, IS WHAT <see cref="PoissonGap"/> IS FOR. It
+/// does not loop at all, so it cannot spin — but its caller does, in the sense that
+/// <c>EnvSound.TickFrost</c> writes <c>next = now + gap</c> and then waits for the clock to reach
+/// it. A gap of zero makes that a per-frame emitter, and a gap of <c>NaN</c> or <c>Infinity</c>
+/// makes it an event that never comes; both are the same class of defect as the freeze, reached
+/// through arithmetic instead of through a loop. So the function's output is BOUNDED BY
+/// CONSTRUCTION, for every input including <c>NaN</c>, and the vectors drive it with exactly those.
+/// </para>
 /// </summary>
 internal static class EnvSoundSchedule
 {
@@ -121,5 +141,73 @@ internal static class EnvSoundSchedule
         }
         into[n - 1] = last;
         return n;
+    }
+
+    /// <summary>Hard floor and ceiling on <see cref="PoissonGap"/>, as multiples of the mean. The
+    /// floor is what makes the function safe: a gap of zero would leave a scheduler that writes
+    /// <c>next = now + gap</c> firing on every frame forever, which is this file's failure mode in
+    /// its other guise — not a wrong sound but a machine that never gets past this event. The
+    /// ceiling is taste rather than safety (an exponential's tail is unbounded and a 40 s silence in
+    /// the middle of a full Ice infusion reads as the feature having broken), but it is enforced the
+    /// same way, so BOTH ends are properties a test can hold.</summary>
+    internal const float PoissonGapMin = 0.28f;
+    internal const float PoissonGapMax = 2.60f;
+
+    /// <summary>
+    /// A POISSON WAITING TIME with mean <paramref name="mean"/>, drawn from one uniform
+    /// <paramref name="u"/> in [0,1], and BOUNDED — the result is always inside
+    /// <c>mean * [</c><see cref="PoissonGapMin"/><c>, </c><see cref="PoissonGapMax"/><c>]</c> and
+    /// always strictly positive, for every input including the ones no caller passes.
+    ///
+    /// <para><b>WHY AN EXPONENTIAL AND NOT A JITTERED CONSTANT.</b> Events that occur independently
+    /// at a constant average rate — cracks in a surface under a slowly changing stress field, drips
+    /// off a saturated ceiling, clicks in a Geiger tube — have a Poisson COUNT in any window and
+    /// therefore an EXPONENTIAL gap between consecutive events, whose inverse CDF is
+    /// <c>-mean * ln(u)</c>. That is the whole of the arithmetic here. The audible difference from
+    /// "the mean, plus or minus 40%" is not subtlety: an exponential's mode is at ZERO, so it
+    /// produces genuine CLUSTERS — two events almost together, then a long gap — while a jittered
+    /// constant produces a wobbly metronome, and a wobbly metronome is still a metronome. The
+    /// shipped frost was not even wobbly (see <c>EnvSound.TickFrost</c>).</para>
+    ///
+    /// <para><b>WHY IT LIVES IN THIS FILE.</b> Same reason as <see cref="SlipTrain"/>: it decides
+    /// something only observable from inside a headset, and its failure mode is not a wrong sound
+    /// but a scheduler that cannot advance. <c>Mathf.Log(0)</c> is <c>-Infinity</c> and
+    /// <c>Mathf.Log</c> of a negative is <c>NaN</c>; either one, added to a "next event" time,
+    /// produces a comparison that is false forever (NaN) or a wait that never ends (Infinity). The
+    /// clamp below makes both unreachable, and <c>EnvSoundScheduleVectors</c> drives it with exactly
+    /// those inputs.</para>
+    ///
+    /// <para><b>WHAT THE CLAMPS COST, stated rather than assumed.</b> Truncating an exponential at
+    /// 0.28 and 2.60 of its mean moves the REALISED mean to
+    /// <c>0.28(1-e^-0.28) + [1.28 e^-0.28 - 3.60 e^-2.60] + 2.60 e^-2.60 = 0.962</c> of the nominal,
+    /// so a caller asking for 2.6 s gets 2.50 s. Under a quarter of draws land on the floor and
+    /// seven per cent on the ceiling; the shape between them is untouched, which is where the
+    /// clustering the caller wants actually lives.</para>
+    /// </summary>
+    /// <param name="mean">Mean gap in seconds. Non-positive is clamped up rather than rejected: a
+    /// caller that lerps a mean from an element intensity can reach 0 through a config edit, and
+    /// "the events come as fast as the floor allows" is a survivable answer where "next = now" is
+    /// not.</param>
+    /// <param name="u">A uniform draw in [0,1]. Anything outside — and <c>NaN</c>, which no
+    /// comparison catches by accident — is folded back inside before the logarithm sees it.</param>
+    internal static float PoissonGap(float mean, float u)
+    {
+        // NaN-SAFE BY CONSTRUCTION, and written as a positive test for that reason: `u < 0` is false
+        // for NaN and so is `u > 1`, so a pair of rejecting comparisons would pass NaN straight
+        // through to Mathf.Log. `!(u > lo && u < hi)` is true for NaN, so NaN lands on the median
+        // draw and the scheduler keeps moving.
+        if (!(u > 0f && u <= 1f))
+            u = 0.5f;
+
+        // The upper bound is not politeness, it is the same defence as the NaN fold: `mean > 0f` is
+        // TRUE for +Infinity, and an infinite mean multiplied through the clamp comes back as an
+        // infinite gap — an event that is scheduled for never. 1e6 s is eleven days, so no caller
+        // with a real intention is inside the bound this rejects.
+        float m = mean > 0f && mean < 1e6f ? mean : 0.05f;
+
+        // -ln(u) is the exponential's inverse CDF; u is already known to be in (0, 1], so the log is
+        // finite and non-positive and the gap is non-negative before the clamp.
+        float gap = -m * Mathf.Log(u);
+        return Mathf.Clamp(gap, m * PoissonGapMin, m * PoissonGapMax);
     }
 }

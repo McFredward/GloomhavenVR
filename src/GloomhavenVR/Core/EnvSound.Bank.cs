@@ -91,10 +91,16 @@ internal enum EnvSoundClip
 /// a listener's report ("the drip sounds wrong") mean the same thing on the machine that has to fix
 /// it.</para>
 ///
-/// <para><b>COST.</b> One shared 8 s noise bed plus nine short clips at the output sample rate,
-/// mono, ~2 MB of float data total, generated once per session in a few milliseconds and never
-/// touched again. Mono is not a saving but a REQUIREMENT: Unity refuses to spatialise a stereo
-/// clip, and every clip here is meant to come from a place.</para>
+/// <para><b>COST.</b> One shared 8 s noise bed plus fifteen shorter clips (thirteen named plus the
+/// drip's two extra realisations) at the output sample rate, mono. That is 36.9 s of audio, so
+/// ~7.1 MB of float data at 48 kHz — the <see cref="Build"/> log line prints the real figure for
+/// the device's own rate rather than this estimate. Generated once per session on the frame the
+/// room is first placed, measured at ~112 ms on the Quest 3 rig, and never touched again.
+/// ModBuild 148's three rebuilt clips move that by <b>+1.3%</b> — the frost costs +0.70 ms and the
+/// settle +0.55, and the bookshelf's fall gives back -0.46 because it is now half as long (timed
+/// outside Unity against the same arithmetic, 200 runs each). Mono is not a saving but a
+/// REQUIREMENT: Unity refuses to spatialise a stereo clip, and every clip here is meant to come
+/// from a place.</para>
 /// </summary>
 internal static class EnvSoundBank
 {
@@ -131,8 +137,10 @@ internal static class EnvSoundBank
     /// <summary>The rat's feet on flagstones — a run of tiny dry ticks. One-shot, ~0.55 s.</summary>
     internal static AudioClip? Skitter { get; private set; }
 
-    /// <summary>Frost: a noise burst behind a high resonance, the sound of something crazing.
-    /// One-shot, ~0.30 s.</summary>
+    /// <summary>Frost: a short BURST OF BRITTLE CRACKS — ice crazing, rebuilt from the fracture
+    /// physics in ModBuild 148 after the user reported the shipped one as "super nervig". One-shot,
+    /// ~0.42 s, and almost all of that is the silence between the cracks. See
+    /// <see cref="MakeFrost"/>.</summary>
     internal static AudioClip? Frost { get; private set; }
 
     /// <summary>Earth: a very low, slow settling. Looped, 6 s.</summary>
@@ -163,15 +171,27 @@ internal static class EnvSoundBank
     /// <summary>Cloth, or a palm, dragging on stone. Band-limited noise with a slow sweep. ~1.4 s.</summary>
     internal static AudioClip? Drag { get; private set; }
 
-    /// <summary>One fly, close, looping past. AM/FM buzz. ~1.6 s.</summary>
+    /// <summary>One fly, close, looping past. AM/FM buzz. ~1.6 s.
+    ///
+    /// <para><b>NO CARD DRAWS THIS TODAY, and it is kept deliberately rather than by neglect.</b>
+    /// It was authored for the cellar's old card 2 — a face at floor level among the barrels — and
+    /// ModBuild 147 replaced that apparition with the stair-top DOOR, which wants a creak. The clip
+    /// costs 1.6 s of PCM and about 1.5 ms of the bank's ~112 ms to build, and the card catalogue
+    /// has been re-cut in two of the last three rounds; deleting a working generator that the next
+    /// re-cut may well want back is a worse trade than the 1.5 ms. If a round goes by with the
+    /// catalogue stable and nothing claiming it, delete <see cref="MakeFly"/>, this property and
+    /// <see cref="EnvSoundClip.Fly"/> together.</para></summary>
     internal static AudioClip? Fly { get; private set; }
 
-    /// <summary>Something heavy going over, heard through a cellar's worth of air: no crack, no
-    /// clatter — a muffled low fall. ~1.9 s. This is the bookshelf.</summary>
+    /// <summary>THE BOOKSHELF ARRIVING ON THE FLOOR. Rebuilt in ModBuild 148: the impact is now at
+    /// <c>t = 0</c> of the clip rather than 0.85 s into it, because the caller schedules it on the
+    /// shelf's ACTUAL arrival and a clip with its own run-up cannot be placed on an instant. ~0.9 s.
+    /// See <see cref="MakeFall"/>.</summary>
     internal static AudioClip? Fall { get; private set; }
 
     /// <summary>...and the same mass coming back up, slower and quieter, which is the more
-    /// unsettling half. ~2.8 s.</summary>
+    /// unsettling half. ~2.8 s, with its one contact at 1.162 s — the mirror of the fall's rebound,
+    /// which is what the recovery curve actually does. See <see cref="MakeSettle"/>.</summary>
     internal static AudioClip? Settle { get; private set; }
 
     private static bool _built;
@@ -826,30 +846,220 @@ internal static class EnvSoundBank
         return Finish("Skitter", d, rate);
     }
 
-    /// <summary>Frost: the crazing of something freezing — a noise burst pushed through a high,
-    /// fast-decaying resonance, so it reads as brittle rather than as a hiss.</summary>
+    // =============================================================================================
+    //  THE FROST — rebuilt from the fracture physics up. ModBuild 148.
+    // =============================================================================================
+    //
+    //  THE USER REPORT, verbatim: "Der Sound vom Eis passt absolut garnicht. Ich dachte eher an ein
+    //  dezentes Knacken von Eis oder einem 'freezing' sound, sehr dezent. Das was aktuell drin ist
+    //  ist super nervig."  ("The ice sound does not fit at all. I was thinking more of a subtle
+    //  CRACKING of ice or a 'freezing' sound, very subtle. What is in there now is super annoying.")
+    //
+    //  WHAT THE OLD CLIP ACTUALLY WAS, in the units the numbers mean. Three PURE SINES at 2600,
+    //  3500 and 4400 Hz, each under exp(-52t):
+    //    * Q = pi*f/alpha = pi * 2600 / 52 = 157. A wine glass is Q ~ 1000, a tuning fork ~10 000,
+    //      a struck ceramic tile ~200. ICE IS NONE OF THOSE. A crack in ice is not a resonator being
+    //      struck, it is a resonator being TORN, and the tear itself is the sound; whatever ring
+    //      follows it is smothered by the medium the crack is propagating through. Q = 157 at
+    //      2600 Hz means the tone was still at -30 dB after 66 ms and audible for a fifth of a
+    //      second — long enough for the ear to assign it a PITCH, which is the single thing that
+    //      most reliably turns an environmental noise into an instrument.
+    //    * 2600 / 3500 / 4400 is a fixed set of three pitches, so every "crack" in the room was the
+    //      same three-note chord. Two of them (3500, 4400) are a perfect fourth apart to within a
+    //      quarter of a semitone.
+    //    * struck at a FIXED 75 ms spacing. That is 13.3 Hz — a RHYTHM. Crazing is a cascade of
+    //      independent stress-release events and has no beat at all.
+    //    * ...and the clip could fire every 0.45 s at full Ice, with the widest rolloff of any
+    //      one-shot in the bank (0.8-11 perceived metres), i.e. from anywhere in the room. A
+    //      repeating three-note chord on a 0.45 s beat is not an ambience, it is a ringtone.
+    //  All five properties are separate reasons for "super nervig", and all five are gone below.
+    //
+    //  WHAT ICE CRACKING PHYSICALLY IS, reasoned the way MakeDrips reasons about Minnaert.
+    //  Ice is BRITTLE: it fails by cleavage, not by yielding. A crack nucleates at a flaw and runs
+    //  at a large fraction of the Rayleigh wave speed — for ice c_R ~ 1.6-1.9 km/s, so a crack
+    //  across a 5 mm facet is over in about 3 MICROSECONDS. Three consequences, and each one is a
+    //  term below:
+    //
+    //    1. THE SOURCE IS A STEP IN STRESS, so its spectrum is BROADBAND with no line structure at
+    //       all. A step's spectrum rolls off at 6 dB/octave above 1/(2*pi*t_rise), and t_rise here
+    //       is microseconds, so within the audible band it is essentially FLAT. Broadband noise
+    //       under a very fast decay — a CLICK — is the honest model, and the old clip's sines were
+    //       the exact opposite of it.
+    //    2. IT DOES NOT RING, because there is nothing left to ring. The energy goes into two new
+    //       free surfaces and into the surrounding ice, which is a lossy polycrystal in contact
+    //       with stone and water. What survives is a couple of cycles of whatever cavity the crack
+    //       opened — see FrostRingQ, which is 6 against the shipped 157.
+    //    3. THE SIZES FOLLOW A POWER LAW. Acoustic emission from a fracturing solid obeys a
+    //       Gutenberg-Richter distribution — the same statistics as earthquakes, for the same
+    //       reason (a scale-free network of flaws). Small events vastly outnumber large ones. That
+    //       is what makes real crazing sound like crazing rather than like a drum: you hear a
+    //       handful of faint ticks and, now and then, one that is properly loud. See
+    //       FrostSizeExponent.
+    //
+    //  ...and the CADENCE and the LEVEL are handled in EnvSound.TickFrost, not here, because they
+    //  are not properties of the clip: see the block comment there. In short, the interval became a
+    //  Poisson waiting time with a mean of 2.6 s at full Ice instead of a fixed 0.45 s beat, and the
+    //  reach came in from 11 perceived metres to 5.
+    //
+    //  REJECTED:
+    //    * KEEPING THE SINES AND LOWERING THEIR Q. Q would have to fall by a factor of ~25 to stop
+    //      being a pitch, at which point the sine contributes two cycles and is a colouration of a
+    //      click rather than a tone — which is exactly what the ring term below is, so this is not
+    //      so much rejected as taken to its conclusion and renamed.
+    //    * MOVING THE BAND OUT OF 1-4 kHz ENTIRELY, to honour the class doc's speech/UI reserve by
+    //      construction. It cannot be done and stay honest: a millimetre-scale source radiates with
+    //      efficiency (ka)^2, so a crack CANNOT put its energy low, and taking the top off as well
+    //      leaves nothing. The class doc's own escape clause is the right one and is used here
+    //      instead — the reserve is about MASKING, masking is about duration, and a 14 ms transient
+    //      that happens a handful of times a minute cannot mask a syllable. The old clip needed the
+    //      escape clause and did not qualify for it (a 200 ms tone at a 0.45 s repeat is a texture);
+    //      this one qualifies with room to spare.
+    //    * THREE BAKED REALISATIONS, as MakeDrips has. Unnecessary here: ONE clip already contains
+    //      seven independent cracks with power-law sizes and per-crack ring frequencies, so the
+    //      within-clip variety a listener hears is larger than the between-variant variety would be.
+    //    * A RECORDING. Same answer as the drip's, and for the sharper version of the same reason:
+    //      what is wanted is a room-free transient, and every field recording of ice brings the lake
+    //      it was recorded on with it.
+
+    /// <summary>Cracks in one burst. A <c>for</c> over this count, and the times come from
+    /// <see cref="EnvSoundSchedule.SlipTrain"/>, so the generator terminates by construction — see
+    /// that file for the ModBuild 145 freeze this discipline exists to prevent.</summary>
+    private const int FrostCrackCount = 7;
+
+    /// <summary>The burst window, seconds. 0.354 s of crazing inside a 0.42 s buffer; the tail is
+    /// the last crack's own decay and then silence.</summary>
+    private const float FrostBurstFirst = 0.006f;
+    private const float FrostBurstLast = 0.360f;
+
+    /// <summary>The gaps GROW (&gt; 1), which is the opposite of <see cref="MakeCreak"/>'s. A creak
+    /// accelerates because the load keeps building; a crazing DECELERATES because each crack
+    /// relieves the stress that drove it, so the surface has to reload before the next one. 1.35
+    /// spreads a 25 ms first gap out to 110 ms by the end of the burst — the burst thins out and
+    /// stops rather than ending on a beat.</summary>
+    private const float FrostCrackSpread = 1.35f;
+
+    /// <summary>Fraction each individual gap is randomly stretched or squeezed by. 0.85 is nearly
+    /// the whole gap and is deliberately extreme: the shipped clip's fixed 75 ms spacing was one of
+    /// the five reasons it was "nervig", and a crazing has no beat WHATSOEVER.</summary>
+    private const float FrostCrackJitter = 0.85f;
+
+    /// <summary>Decay rate of a crack's broadband transient, per second. 560 is a 1.8 ms time
+    /// constant, so a crack is finished inside about 8 ms. This is the number that makes it a
+    /// fracture: the shipped 140 (7.1 ms) was already a scrape rather than a break, and the sines
+    /// beside it at 52 (19 ms) were an instrument.</summary>
+    private const float FrostCrackDecay = 560f;
+
+    /// <summary>Rise rate of the transient, per second. 3000 is a 0.33 ms rise — not an attack, a
+    /// DISPERSION: the crack's step arrives through ice and stone, and a solid path smears the
+    /// wavefront by roughly this much over a few centimetres. Without it the burst starts on a
+    /// sample discontinuity, which is a digital click rather than a physical one, and it is the
+    /// harshest thing a short transient can have.</summary>
+    private const float FrostCrackRise = 3000f;
+
+    /// <summary>Quality factor of the little cavity a crack opens. SIX, against the shipped 157:
+    /// alpha = pi*f/Q puts a 2500 Hz mode at a 0.76 ms time constant, i.e. under two cycles. Two
+    /// cycles is below the ~4 the ear needs to assign a pitch, so this colours the click and does
+    /// not become a note — which is the whole difference between "crazing" and "chime".</summary>
+    private const float FrostRingQ = 6f;
+
+    /// <summary>The band the per-crack ring is drawn from. A crack's cavity is millimetres, and its
+    /// frequency is drawn PER CRACK rather than fixed, so no two cracks in the burst share a pitch
+    /// — the shipped clip repeated one three-note chord every time it played.</summary>
+    private const float FrostRingLo = 1600f;
+    private const float FrostRingSpan = 1900f;
+
+    /// <summary>Gutenberg-Richter, as one exponent. The size of crack <c>k</c> is <c>u^2.4</c> for
+    /// uniform <c>u</c> — the inverse CDF of a power law — which puts the DISTRIBUTION's median at
+    /// 0.5^2.4 = 0.19 of the maximum. What the seed actually drew is in the measured table on
+    /// <see cref="MakeFrost"/>: three cracks that carry the burst and four that are barely
+    /// there.</summary>
+    private const float FrostSizeExponent = 2.4f;
+
+    /// <summary>
+    /// FROST — a burst of brittle fracture. Seven cracks, power-law sizes, irregular and widening
+    /// gaps, each one a sub-10 ms broadband transient with a two-cycle colouration and no ring.
+    /// See the block comment above for the physics and for what the shipped clip was instead.
+    ///
+    /// <para><b>MEASURED, off the finished buffer</b> (the generator was run outside Unity against
+    /// the same arithmetic and the same seed, because none of this is checkable by ear from a build
+    /// machine):</para>
+    /// <code>
+    ///   crack        1      2      3      4      5      6      7
+    ///   at (ms)      6.0   42.6   90.4  161.0  225.9  280.8  360.0
+    ///   gap (ms)      -    36.6   47.8   70.6   64.8   54.9   79.2
+    ///   size       0.728  0.655  0.068  0.632  0.022  0.004  0.017
+    ///   ring (Hz)   3133   1944   2018   2632   1852   3197   2017
+    ///
+    ///                peak at    RMS      audible to -40 dB
+    ///   NEW           7.0 ms   0.0353        363 ms
+    ///   SHIPPED       5.3 ms   0.0762        218 ms
+    /// </code>
+    /// <para>Three cracks carry the burst and four are barely there, which is the power law doing
+    /// its job; no two share a pitch; the gaps widen from 37 ms to 79 ms with no beat anywhere in
+    /// them. RMS is <b>-6.7 dB</b> against the shipped clip at the same gain, and that is before
+    /// TickFrost's own cuts to the level, the reach and the rate.</para>
+    ///
+    /// <para><b>TERMINATION.</b> The times come from <see cref="EnvSoundSchedule.SlipTrain"/>, which
+    /// terminates by construction, and every loop here is a <c>for</c> over an <c>int</c> fixed
+    /// before it starts. There is no float accumulator in any condition. The train's own properties
+    /// (spans its window, monotonic, in bounds, and — new for this caller — GAPS THAT WIDEN) are
+    /// asserted in <c>tests/GloomhavenVR.WireTests/EnvSoundScheduleVectors.cs</c>.</para>
+    /// </summary>
     private static AudioClip MakeFrost(int rate)
     {
-        int n = (int)(rate * 0.30f);
+        int n = (int)(rate * 0.42f);
         var d = new float[n];
         var r = new Rng(0x1CE0u);
 
-        // three ticks, each a filtered impulse train
-        for (int k = 0; k < 3; k++)
+        var cracks = new float[FrostCrackCount];
+        EnvSoundSchedule.SlipTrain(cracks, FrostBurstFirst, FrostBurstLast,
+                                   shrink: FrostCrackSpread, jitter: FrostCrackJitter, seed: 0x1CE0u);
+
+        // 14 ms per crack: the transient is 100 dB down at 12 ms and the ring at 5, so this window
+        // is a bound rather than a length. int, fixed before the loop.
+        int len = (int)(rate * 0.014f);
+
+        for (int k = 0; k < cracks.Length; k++)
         {
-            int at = (int)(rate * (0.005f + k * 0.075f));
-            float f = 2600f + k * 900f;
-            float amp = 1f - k * 0.28f;
-            for (int i = 0; at + i < n && i < rate * 0.10f; i++)
+            int at = (int)(cracks[k] * rate);
+
+            // THE SIZE, power-law. Abs() of the -1..1 draw is uniform on [0,1); raising it to
+            // FrostSizeExponent is the inverse-CDF of the Gutenberg-Richter law, so this line IS
+            // the statistics and not a taste.
+            float amp = Mathf.Pow(Mathf.Abs(r.Next()), FrostSizeExponent);
+            // The cavity this particular crack opened, and therefore its colour. Drawn per crack.
+            float f = FrostRingLo + FrostRingSpan * Mathf.Abs(r.Next());
+            // alpha = pi*f/Q — derived from the one Q above exactly as MakeDripVariant derives its
+            // bubble decay from DripBubbleQ, so a higher-pitched crack necessarily dies sooner and
+            // nobody has to tune two numbers to keep one relationship true.
+            float ring = Mathf.PI * f / FrostRingQ;
+
+            for (int i = 0; i < len && at + i < n; i++)
             {
                 float tt = i / (float)rate;
-                d[at + i] += Mathf.Sin(2f * Mathf.PI * f * tt) * Mathf.Exp(-52f * tt) * amp * 0.6f;
-                d[at + i] += r.Next() * Mathf.Exp(-140f * tt) * amp * 0.4f;
+                float rise = 1f - Mathf.Exp(-tt * FrostCrackRise);
+                // 1. THE TEAR: broadband, because a step in stress has no line structure.
+                d[at + i] += r.Next() * rise * Mathf.Exp(-tt * FrostCrackDecay) * amp;
+                // 2. THE CAVITY: two cycles of colour, not a tone. 0.30 of the tear, so the click
+                //    stays the loudest thing in every crack and the ear never gets a pitch to hold.
+                d[at + i] += Mathf.Sin(2f * Mathf.PI * f * tt) * rise * Mathf.Exp(-tt * ring) * amp * 0.30f;
             }
         }
 
-        HighPass(d, rate, 900f);
-        Normalise(d, 0.75f);
+        // THE FLOOR, and it is physics rather than taste: an acoustically small source radiates
+        // with efficiency (ka)^2, so a millimetre-scale crack is 12 dB/octave down as frequency
+        // falls and simply cannot produce bass. Anything below 700 Hz in the buffer is an artefact
+        // of the synthesis, and on a headset speaker it is cone excursion that makes no sound.
+        HighPass(d, rate, 700f);
+        // ...and the ceiling. A real crack has energy well above this; we choose not to emit it.
+        // The class doc's non-masking budget is the reason and it is stated as a CHOICE, not
+        // disguised as physics — 5.2 kHz keeps the crack brittle while taking off the very top,
+        // which is where "harsh" lives and where the game's own UI transients are brightest.
+        LowPass(d, rate, 5200f);
+        // 0.62, down from 0.75. The peak of this buffer is ONE crack — the largest the power law
+        // drew — so normalising to a lower ceiling lowers the whole burst, and the median crack
+        // ends up at 0.19 of it.
+        Normalise(d, 0.62f);
         return Finish("Frost", d, rate);
     }
 
@@ -1046,62 +1256,233 @@ internal static class EnvSoundBank
         return Finish("Fly", d, rate);
     }
 
+    // =============================================================================================
+    //  THE BOOKSHELF'S IMPACT — rebuilt. ModBuild 148.
+    // =============================================================================================
+    //
+    //  THE USER REPORT, verbatim: "Beim Umfallen des Regals sollte es schon ein Geräusch beim Impact
+    //  auf dem Boden geben."  ("When the shelf falls over there really should be a sound at the
+    //  impact on the floor.")
+    //
+    //  THERE ARE THREE INDEPENDENT REASONS HE HEARD NO IMPACT, and every one of them had to be
+    //  fixed or the other two would still have hidden the result:
+    //
+    //    1. IT PLAYED 3.7 SECONDS TOO EARLY. This is the big one and it is not in this file — see
+    //       EnvSound.TickHaunt. The cue fired at the event START plus a 0.15 s lead, and the clip
+    //       put its thud 0.85 s in, so the thud landed ~1.0 s into an event whose shelf does not
+    //       reach the floor until 4.68 s (EnvShelfTip.cginc: GHVR_TIP_FALL = 0.18 of a 26.002 s
+    //       envelope). At 1.0 s the shelf has leaned about ONE DEGREE. A bang while a bookcase is
+    //       still visibly upright does not read as an impact at all; it reads as "something else in
+    //       the room made a noise", which is exactly the report.
+    //    2. THE THUD WAS BELOW THE SPEAKERS. Two sines at 58 and 86 Hz behind a 420 Hz low pass,
+    //       with nothing else in the buffer but a rustle. The rig is a Quest 3 over Virtual Desktop,
+    //       and the Quest's own speakers are down hard below ~100 Hz — so on the hardware the report
+    //       came from, more than half the clip's energy was inaudible BY CONSTRUCTION. The modes
+    //       below sit at 78 and 135 Hz and the contact transient carries real content up to the low
+    //       hundreds, so the event survives a small speaker.
+    //    3. IT WAS A NOTE, NOT A THUD — the finding an earlier lane made and the reason the ear
+    //       filed it under "sound effect" rather than "impact". 86 / 58 = 1.483, and an equal-
+    //       tempered perfect fifth is 1.4983: the two partials were a fifth apart to within a fifth
+    //       of a semitone. Worse, they shared one envelope, exp(-3.4t) — a 294 ms time constant, so
+    //       the 58 Hz partial rang for SEVENTEEN CYCLES and the 86 Hz one for twenty-five. Pitch
+    //       perception needs about four. A consonant interval held that long is a musical dyad, and
+    //       the ear has no choice in the matter.
+    //
+    //  WHAT IT IS INSTEAD, as physics.
+    //    * TWO CARCASS MODES IN AN INHARMONIC RATIO. sqrt(3) = 1.7320508 is 9.51 semitones — a
+    //      quarter-tone off the major sixth below it and a quarter-tone off the minor seventh above
+    //      it, i.e. as far from every simple interval as a ratio in that range can get. That is a
+    //      deliberate anti-tuning and it is stated as one; the honest physical claim is only the
+    //      weaker one, that a plywood-and-shelf carcass loaded with books has no reason to be
+    //      harmonic and every reason not to be.
+    //    * ...AND THEY BARELY RING, which matters more than the ratio. See FallCarcassQ: seven,
+    //      derived once and applied to both modes, giving 2.2 cycles EACH (constant Q is constant
+    //      cycles, which is why one number covers both). Under about four cycles there is no pitch
+    //      to hear at all, so the interval question stops being decidable — which is a better fix
+    //      than choosing a different interval, because it cannot be undone by a later retuning.
+    //    * THE FLAGSTONE ANSWERS, at the SAME 160 Hz the drip's knock uses. There is one floor in
+    //      this room and both impacts are hitting it; a slab's modal frequencies are a property of
+    //      the slab and not of what fell on it, so the drip and the bookshelf agreeing about the
+    //      floor is a correctness property, not a coincidence to be tuned away.
+    //    * THE LOAD ARRIVES LATE. A carcass full of books is not one body: the boards stop first,
+    //      the books keep going for another few centimetres and land on the shelves. That is a
+    //      broadband slump 25 ms behind the contact, decaying over ~0.3 s, and it is the term that
+    //      says "full bookcase" rather than "plank".
+    //
+    //  REJECTED:
+    //    * KEEPING THE 0.85 s LEAN INSIDE THE CLIP and simply scheduling it 0.85 s early. It would
+    //      work, and it would put a magic offset between two files that already have four numbers
+    //      to keep in step. The clip is now an EVENT AT t = 0, which is a thing a scheduler can
+    //      place; the run-up is a separate cue at a separate time (EnvSound.CueFor's card 5).
+    //    * A CRASH — clatter, splintering, books tumbling. It is what a real bookcase does and it
+    //      is ruled out by the standing rule twice over: the apparitions may never announce
+    //      themselves, and this is the loudest thing in the environment. The 950 Hz ceiling keeps it
+    //      a WUMPH.
+    //    * DETUNING THE FIFTH AND LEAVING THE ENVELOPE. The interval is the symptom; the 294 ms
+    //      decay is the disease. Any two partials held that long will be heard as an interval, and
+    //      the next person to pick a ratio would be picking one for a chord that should not exist.
+
     /// <summary>
-    /// THE BOOKSHELF GOING OVER, heard from the other side of a cellar. Deliberately NOT a crash:
-    /// no clatter, no top end, no fast attack. A low mass arriving, with the air in front of it —
-    /// distance is modelled by removing the high frequencies, which is what distance actually does.
+    /// The carcass's quality factor, and the ONE number both mode decays are derived from —
+    /// the same discipline as <see cref="DripBubbleQ"/>.
+    ///
+    /// <para>SEVEN. A bookcase is plywood and pine with a hundred kilos of paper resting on it, and
+    /// paper is about the most effective constrained-layer damper there is; loss factors for a
+    /// loaded shelf are order 0.1, i.e. Q of order 5-10. alpha = pi*f/Q then puts the 78 Hz mode at
+    /// a 28.6 ms time constant (2.2 cycles) and the 135 Hz mode at 16.5 ms (2.2 cycles as well —
+    /// constant Q means constant CYCLES, which is why one number is enough for both). Under about
+    /// four cycles the ear cannot extract a pitch, so this clip has a WEIGHT and no note. The
+    /// shipped envelope was 294 ms flat for both partials: seventeen cycles and eleven.</para>
+    /// </summary>
+    private const float FallCarcassQ = 7f;
+
+    /// <summary>The carcass's lowest mode, Hz, and the ratio of the second to it. 78 is chosen
+    /// against the PLAYBACK as much as against the body: see reason 2 in the block comment — a
+    /// headset speaker gives nothing back below ~100 Hz, so a thud whose fundamental is at 58 does
+    /// not exist on the hardware the report came from.</summary>
+    private const float FallModeHz = 78f;
+    private const float FallModeRatio = 1.7320508f;
+
+    /// <summary>The flagstone, hit hard. Deliberately the same slab as
+    /// <c>MakeDripVariant</c>'s <c>stoneHz</c> band (152-175 Hz) and with the same Q — a floor's
+    /// modes do not change with what lands on them.</summary>
+    private const float FallSlabHz = 160f;
+    private const float FallSlabTau = 0.0115f;
+
+    /// <summary>The contact transient: 9 ms, so it is over in ~40. This is the "impact" the user
+    /// asked for, and it is the loudest instant in the buffer by design — an arrival peaks on its
+    /// contact, exactly as a drop does (see the plop-not-plink note in <see cref="MakeDrips"/>).
+    /// </summary>
+    private const float FallSlapTau = 0.009f;
+
+    /// <summary>The books, arriving after the boards. 25 ms of lag and a 110 ms decay: the carcass
+    /// stops, its load does not, and a few centimetres at arrival speed is tens of milliseconds.
+    /// </summary>
+    private const float FallLoadDelay = 0.025f;
+    private const float FallLoadTau = 0.11f;
+
+    /// <summary>
+    /// THE BOOKSHELF ARRIVING. The impact is at <c>t = 0</c>: this clip is an EVENT, and the caller
+    /// puts it on the frame the shelf actually reaches the floor (EnvSound.TickHaunt, from
+    /// <c>EnvShelfTip.cginc</c>'s own phase constants). Everything before the arrival — the carcass
+    /// creaking as it commits to the lean — is a different cue at a different time.
+    ///
+    /// <para>Played a second time, quieter and slightly sharper, for the ballistic rebound's second
+    /// contact 0.624 s later; the shelf really does touch the floor twice and the curve says exactly
+    /// when. See EnvSound's shelf schedule.</para>
+    ///
+    /// <para><b>MEASURED, off the finished buffers</b> (generated outside Unity against the same
+    /// arithmetic and the same seed):</para>
+    /// <code>
+    ///                length   peak at    RMS     audible to -40 dB
+    ///   NEW           0.90 s   1.4 ms   0.0548        294 ms
+    ///   SHIPPED       1.90 s   854  ms  0.1195       1900 ms
+    /// </code>
+    /// <para>The peak moved from 854 ms to 1.4 ms — the clip now PEAKS ON ITS CONTACT, which is
+    /// what an arrival does and what a run-up followed by a struck dyad does not. It is not a
+    /// quieter impact, it is a shorter clip with the same impact in it: RMS over the shipped
+    /// thud's own 300 ms window is 0.280, against 0.229 over the new clip's first 50 ms. What went
+    /// away is the 1.6 s of ringing and rustle around it.</para>
     /// </summary>
     private static AudioClip MakeFall(int rate)
     {
-        int n = (int)(rate * 1.9f);
+        // 0.9 s, and it is a bound: the longest term is the load slump at 110 ms, which is 100 dB
+        // down by 0.62 s. HALF the shipped length, because the shipped clip spent 0.85 s of it on a
+        // run-up that is now a separate cue — so this rebuild makes the bank cheaper, not dearer.
+        int n = (int)(rate * 0.9f);
         var d = new float[n];
         var r = new Rng(0xFA11u);
+
+        // alpha = pi*f/Q for both modes, from the one Q. Derived, not tuned.
+        float hi = FallModeHz * FallModeRatio;
+        float aLo = Mathf.PI * FallModeHz / FallCarcassQ;
+        float aHi = Mathf.PI * hi / FallCarcassQ;
 
         for (int i = 0; i < n; i++)
         {
             float t = i / (float)rate;
-            // the topple: a slow lean (a rising rustle) then the arrival at ~0.85 s
-            float lean = Mathf.Min(1f, t / 0.85f);
-            d[i] += r.Next() * lean * lean * 0.22f;
 
-            if (t >= 0.85f)
+            // ---- 1. THE CONTACT. Zero-mean noise, full amplitude at t = 0: an impact IS a
+            // discontinuity and must not have an attack. This is the loudest instant in the buffer.
+            float s = t < 0.06f ? r.Next() * Mathf.Exp(-t / FallSlapTau) * 0.90f : 0f;
+
+            // ---- 2. THE FLAGSTONE, struck. sin(wt)*exp(-t/tau) starting at sin(0) = 0 is the
+            // correct phase for something excited by a blow at t = 0, not a fade.
+            if (t < 0.09f)
+                s += Mathf.Sin(2f * Mathf.PI * FallSlabHz * t) * Mathf.Exp(-t / FallSlabTau) * 0.55f;
+
+            // ---- 3. THE CARCASS. Two modes, inharmonic, and both dead inside three cycles.
+            if (t < 0.35f)
             {
-                float tt = t - 0.85f;
-                float env = Mathf.Exp(-3.4f * tt);
-                d[i] += Mathf.Sin(2f * Mathf.PI * 58f * tt) * env * 0.85f;
-                d[i] += Mathf.Sin(2f * Mathf.PI * 86f * tt) * env * 0.45f;
-                d[i] += r.Next() * Mathf.Exp(-9f * tt) * 0.35f;
+                s += Mathf.Sin(2f * Mathf.PI * FallModeHz * t) * Mathf.Exp(-aLo * t) * 0.80f;
+                s += Mathf.Sin(2f * Mathf.PI * hi * t) * Mathf.Exp(-aHi * t) * 0.42f;
             }
+
+            // ---- 4. THE LOAD. Broadband, late, and soft-edged — books do not click.
+            float tl = t - FallLoadDelay;
+            if (tl > 0f && tl < 0.55f)
+                s += r.Next() * (1f - Mathf.Exp(-tl * 180f)) * Mathf.Exp(-tl / FallLoadTau) * 0.30f;
+
+            d[i] = s;
         }
 
-        // the distance filter — a cellar's worth of stone and air between it and the ear
-        LowPass(d, rate, 420f);
-        Normalise(d, 0.8f);
+        // THE CEILING. 950 Hz, raised from the shipped 420. The old corner was justified as "a
+        // cellar's worth of air between it and the ear" and that justification does not survive
+        // contact with the picture: the room is a DIORAMA the player is leaning over, at two to
+        // twenty-four perceived metres, not a sound from another building. 420 Hz removed
+        // everything that says "wood" and left a pure boom. 950 keeps the contact's edge and still
+        // guarantees no clatter — there is nothing of ours in the 1-4 kHz speech band, which is the
+        // class doc's rule and the reason this is not simply opened up.
+        LowPass(d, rate, 950f);
+        // ...and the floor, below the lowest real mode: DC out, sub-audible excursion out.
+        HighPass(d, rate, 55f);
+        Normalise(d, 0.85f);
         return Finish("Fall", d, rate);
     }
 
-    /// <summary>...and the righting. Slower, quieter, and with the arrival at the END rather than
-    /// the beginning — a thing standing itself back up is the half you are not supposed to be
-    /// comfortable with.</summary>
+    /// <summary>Seconds from the start of <see cref="Settle"/> to its one contact with the floor.
+    ///
+    /// <para>1.162 IS READ OFF THE CURVE, not chosen. <c>EnvShelfTip.cginc</c> plays the recovery as
+    /// the fall run backwards at 0.537x, so the fall's 0.624 s rebound window becomes a 1.162 s one
+    /// — and run backwards it means the shelf ROCKS UP 1.9 degrees over the first 0.58 s of the
+    /// recovery, comes back down, TOUCHES, and only then lifts off. That touch is the single audible
+    /// contact in the whole righting, and it is at 1.162 s. The shipped clip put a "comes to rest"
+    /// thump at 2.35 s, which under this curve is a bang while the shelf is already in the air.</para>
+    /// </summary>
+    private const float SettleContactSeconds = 1.162f;
+
+    /// <summary>...and the righting. Slower, quieter, and with its one contact 1.162 s in — the
+    /// mirror of the fall's rebound, because the recovery IS the fall reversed (see
+    /// <see cref="SettleContactSeconds"/>). A thing standing itself back up is the half you are not
+    /// supposed to be comfortable with.</summary>
     private static AudioClip MakeSettle(int rate)
     {
         int n = (int)(rate * 2.8f);
         var d = new float[n];
         var r = new Rng(0x5E77u);
 
+        // The same carcass on the same floor, so the same mode and the same Q as MakeFall — gently.
+        float aLo = Mathf.PI * FallModeHz / FallCarcassQ;
+
         for (int i = 0; i < n; i++)
         {
             float t = i / (float)rate;
-            float u = t / 2.8f;
-            // a long, uneven scrape of wood coming up off stone
+            // a long, uneven grind of wood on stone
             float grind = 0.35f + 0.25f * Mathf.Sin(2f * Mathf.PI * 3.1f * t) + 0.18f * Mathf.Sin(2f * Mathf.PI * 7.7f * t);
-            d[i] += r.Next() * grind * Mathf.Min(1f, u / 0.35f) * 0.30f;
 
-            if (t >= 2.35f)
+            // TWO PHASES, and the seam between them is the contact. Before it the shelf is rocking
+            // up onto its edge and back — the noise swells quadratically, which is what a body
+            // rolling on a corner under a rising load does. After it the shelf leaves the floor and
+            // the contact patch shrinks to nothing, so the grind dies away.
+            float body = t < SettleContactSeconds
+                ? (t / SettleContactSeconds) * (t / SettleContactSeconds) * 0.62f
+                : Mathf.Exp(-(t - SettleContactSeconds) * 1.45f);
+            d[i] += r.Next() * grind * body * 0.30f;
+
+            if (t >= SettleContactSeconds && t < SettleContactSeconds + 0.30f)
             {
-                float tt = t - 2.35f;
-                float env = Mathf.Exp(-5.5f * tt);
-                d[i] += Mathf.Sin(2f * Mathf.PI * 64f * tt) * env * 0.40f;   // it comes to rest
+                float tt = t - SettleContactSeconds;
+                d[i] += Mathf.Sin(2f * Mathf.PI * FallModeHz * tt) * Mathf.Exp(-aLo * tt) * 0.32f;
             }
         }
 
