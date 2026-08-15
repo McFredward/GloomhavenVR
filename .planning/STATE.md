@@ -2,7 +2,7 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 147` shipped; 148 in flight.** Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 148` shipped, bundle 67,064,834 bytes — awaiting its hardware run.** Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
 - **Last update:** 2026-08-14
 
@@ -126,7 +126,7 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 148** (in flight) — the second pass over the SAME nine subjects, and the through-line is
+- **ModBuild 148** — the second pass over the SAME nine subjects, and the through-line is
   that **four separate findings had a cause other than the one reported**. Worth reading as a set:
   * **"Die Figuren teleportieren sich"** was not a jump but a **full rebuild**: a latched trigger's
     loop period is event length PLUS a gap, and in that gap the event counted as ended, so the clone,
@@ -154,7 +154,19 @@ Newest first. Each entry names the *root cause*, because that is what generalise
     leaned about one degree; the ice was **Q ≈ 157**, a tuning fork, on a 0.45 s beat inside the band
     the ear reads as rhythm.
   * **The forest's growth annulus is r ∈ [4.90, 11.50] m against a 4.5 m play radius** — nothing grows
-    in the clearing the player stands in, which is why Earth never changed it.
+    in the clearing the player stands in, which is why Earth never changed it. Now planted inward to
+    1.75 m with a height taper; the board's own footprint shows 0.00% of pixels changed.
+  * **THE SEVENTH WINDING BUG, and the worst of them.** `Env_GlowSphere` shipped INSIDE-OUT: `Cull
+    Back` kept the FAR hemisphere while the normals pointed outward, so `dot(N,V)` was never positive
+    and the halo's core term was exactly 0. **Every halo in both rooms** — nine fire halos, the
+    window, the wisps, the lantern — had been drawing nothing but a **one-pixel seam at its geometric
+    limb**, and that 16-gon seam is the "Striche" in the user's own `feuer1.jpg`. Every `_Tint.a` in
+    the project had therefore been authored blind against an invisible halo. GENERAL RULE, now seven
+    times over: **a new mesh gets a closed-and-outward gate, and the gate must be PROVEN to fire.**
+  * The handprints were **5.5× life size** — and in VR the player has their own hands in frame as a
+    scale reference, so no texture could ever have saved them.
+  * The draught was the **comic-book speed-line**, and the invariant across BOTH of his rejections of
+    that effect is not the sprite shape but **bright matter in unlit air**.
 
 - **ModBuild 147** — nine user findings, eight lanes: the apparitions became the game's own monsters,
   the fire's "zappeln" was a spectral ASSIGNMENT fault (a 40 cm tongue driven from the 3.6 cm band),
