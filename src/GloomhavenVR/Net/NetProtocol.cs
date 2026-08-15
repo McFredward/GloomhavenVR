@@ -416,7 +416,57 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 146;
+    public const ushort ModBuild = 147;
+    // Build 147: THE BIG ENVIRONMENT ROUND — nine user findings, eight lanes, and the apparitions
+    // rebuilt on the game's own monsters. No wire change; the BUNDLE IS REBUILT.
+    //
+    // 1. THE APPARITIONS ARE THE GAME'S OWN ENEMIES. "mir gefallen die Figuren und animationen gar
+    //    nicht ... Ich möchte dass du die Gegner-Figuren aus dem Spiel nimmst." Four events are now
+    //    real monsters, spawned decoratively, playing their own idle animation and walking on their
+    //    own legs. Then, on his verdict "man sieht nur so leuchtende Siluetten", the shading was
+    //    fixed: the game NORMALISES glow and opacity on every character at init, so nothing ever
+    //    reads a material's authored values and a character asset left at a preview-scene glow looks
+    //    perfect in every scenario and shows up only here. Both sub-cases were neutralised rather
+    //    than one tested. The figure is now lit BY THE ROOM through per-renderer spherical harmonics
+    //    read back off a room material — the moon rakes it from the same bearing it rakes the wall.
+    //    And the OLD hand-built figures are deleted outright on his order.
+    // 2. THE FIRE. Its "zappeln" was a spectral ASSIGNMENT fault, not a rate fault — a 40 cm tongue
+    //    driven from the 3.6 cm band while 3 cm of texture crept at 1 Hz. Then, on his ruling to use
+    //    a ready-made pack, the ART was replaced with re-authored masks from the Vefects pack: their
+    //    fire turned out to be no more a particle simulation than ours (no flipbook anywhere in 18
+    //    prefabs), so the emission was never the deficiency — the analytic cone with a sharp apex was.
+    // 3. THE WIND. "sehr hektisches unrealistisches Zucken der Pflanzen, des Feuers und der Bäume."
+    //    One fault in all three: an element strength was multiplying a FREQUENCY. Every amplitude is
+    //    untouched, so the storm's peak is arithmetically identical — only its hurry is gone.
+    // 4. THE WINDOW is bigger, its reveal is splayed and 0.55 m deep, and THERE IS A REAL SKY BEHIND
+    //    IT for the first time — drawn with a copy of the forest's own star-dome material, so the two
+    //    moons cannot disagree. A new gate proves with numbers that the moon is NOT visible from the
+    //    board and that the ceiling and the bearing are what hide it, not the window.
+    // 5. THE CELLAR DRAUGHT was an air conditioner — and it was the peripheral RING, not the window
+    //    cone: streaks born at a constant rate on a flat annulus at head height, arriving evenly from
+    //    every bearing, for ever.
+    // 6. THE SHELF falls on the pendulum separatrix and stands back up on that SAME curve rewound
+    //    (an identity of the code, worst deviation 5.6e-16). It rested on an edge because the HINGE
+    //    was 36.9 deg off its own face — rotate a box about an axis at angle t to its base edge and
+    //    it comes to rest tilted by exactly t.
+    // 7. LIGHT INDOORS lifts the MOON, not the room: the gain moved out of the ambient floor and into
+    //    the moonbeam, measured as room 0.69-0.78x while the beam rose to 1.25x.
+    // 8. THE MOSS became FUNGI, and the biology settles it: moss is a plant, plants need light, and a
+    //    cellar lit by three candles grows saprotrophs. Bracket fungi are horizontal shelves — a
+    //    silhouette that did not exist, since every growth card in the project stood plumb.
+    // 9. THE PUDDLE was a near-vertical wall of water (86.2 deg of slope at every crest), and the
+    //    DRIP was a bell by construction — a sine at full amplitude at t=0, when the bubble does not
+    //    exist yet.
+    // 10. THE TEST TRIGGERS LATCH. Press on, press off, any mixture of elements at once.
+    //
+    // FOUND WHILE WORKING, each of which would have shipped: BOTH JAMBS of the window reveal have
+    // been wound inside out since they were written (the FIFTH mesh in this project wound against its
+    // own viewer — the two side faces of the embrasure were never drawn at all); the wisp ambience
+    // has NEVER played, because the bake names that node WispWisp; a latched test trigger re-anchored
+    // twelve times per figure walk, so the one tool for inspecting these events could not show a
+    // whole one; the mirrored envelope for the toppling shelf said 8.2 s where the bake ships 26.0;
+    // and a re-anchor of the same card was tearing the clone down and reloading it every 2.5 s.
+    //
     // Build 146: HOTFIX — 145 froze on the loading screen. Reported as "vollständig beim Ladescreen
     // aufgehängt" on entering a forest scenario; it is not the forest, it is not the environment,
     // and it would have happened in the cellar too. No wire change, and the BUNDLE IS UNCHANGED
