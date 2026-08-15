@@ -172,46 +172,6 @@
 // Nothing here changes a rate, a bake constant, or one instruction of the
 // CANDLE path: every edit is inside `if (_Bonfire > 0.5)`.
 // ============================================================================
-//
-// ========= ZUCKEN IM WIND — USER VERDICT, ModBuild 146 ======================
-// "Wind führt zu einem sehr hektischen unrealistischen Zucken der Pflanzen, des
-//  Feuers und der Bäume - mach das es sich mehr random und immersiver im Wind
-//  bewegt, nicht so hektisch, so Mikrozuckungen hat."
-//
-// Three subjects, one fault, and it is not in this file: an element strength
-// was multiplying a FREQUENCY. For the plants and the trees it was
-// EnvGrowth.cginc's `0.612 + 1.05 * storm`; for the fire it was GhvrFireHz's
-// x1.55, which is where the argument and the measurements live (EnvFire.cginc).
-// This shader is audited rather than rewritten, and the audit is the useful
-// part of this block, because the natural next move is to hunt for a second
-// culprit here and there is not one:
-//
-//   AIR TERM                                  WHAT IT SCALES        VERDICT
-//   gustMul = 1 + _AirGust * e.air            amplitude of a 0.06/  CLEAN
-//                                             0.13 Hz draught
-//   swayMul = 1 + 1.3 * e.air                 amplitude of the      CLEAN
-//                                             candle sway
-//   tall   += 0.25 * e.air                    length                CLEAN
-//   tear    = _Flare * (1 + 1.9 * pair.air)   outward displacement  CLEAN
-//   lean    = 0.55 * pair.air * h * (...)     displacement, on the  CLEAN
-//                                             two SLOWEST bands
-//   climb  *= 1 + 1.30 * pair.air             how far a puff goes   CLEAN
-//   drift  *= 0.35 + 3.10 * pair.air          how far it is blown   CLEAN
-//   cardA   tail 0.55 + 0.40 * pair.air       how LONG it lives     CLEAN
-//   age     = frac(bt * _PuffHz / _FireHz)    a RATE — but the      REWRITTEN
-//                                             right one, and it was
-//                                             riding the wrong clock
-// Every Air term in this shader is an amplitude, a length or a lifetime; the
-// one rate among them is how often a piece detaches, which genuinely does rise
-// with entrainment. It was expressed in terms of the TURBULENCE clock, so it
-// would have been dragged down by the EnvFire.cginc fix; it is now written in
-// `t` directly and keeps its shipped x1.55 exactly. See it at `age`.
-//
-// The CANDLE path is again untouched, and this time that is a finding rather
-// than a constraint: a candle's Air response is `swayMul` and `gustMul`, both
-// pure amplitudes on carriers of 0.06-1.8 Hz, so a draught from the window lays
-// a candle over further and never faster. Nothing there needed changing.
-// ============================================================================
 Shader "GloomhavenVR/EnvFlame"
 {
     Properties
@@ -491,12 +451,8 @@ Shader "GloomhavenVR/EnvFlame"
                     float kind = v.fp.y;
                     float tp = v.color.r;                 // this card's own turn
                     // FIRE+AIR — the rate, through the SAME function the wash
-                    // takes it through (EnvFire.cginc), so the flame and the
-                    // pool it throws can never come apart. The multiplier is
-                    // 1.15 and not the ModBuild 145 1.55: a cross-wind tears a
-                    // fire and drags it, it does not make it puff faster. See
-                    // GhvrFireHz for the correlation that says so and for the
-                    // "Zucken des Feuers" verdict that forced the measurement.
+                    // takes it through (EnvFire.cginc). A fire in a draught turns
+                    // over faster; the pool it throws turns over with it.
                     float bt = t * GhvrFireHz(pair, _FireHz);   // CYCLES, not radians
 
                     // FOUR BANDS OFF ONE CALL, and the numbers are the point: at
@@ -649,25 +605,7 @@ Shader "GloomhavenVR/EnvFlame"
                     // player who looks away and back sees a different set.
                     if (kind > 1.5)
                     {
-                        // ---- ModBuild 147: THE SHEDDING RATE IS NOT THE
-                        // TURBULENCE RATE. This used to be derived from `bt`,
-                        // i.e. from GhvrFireHz, so cutting the Fire+Air rate
-                        // multiplier from 1.55 to 1.15 (see EnvFire.cginc, and
-                        // the "Zucken des Feuers" verdict) would have taken the
-                        // ember cadence down with it — and "noch mehr Glut wirft
-                        // ... wenn Wind an ist" is the user's OWN example of
-                        // what Fire+Air is for. The two are different physics:
-                        // how fast a flame turns over is buoyancy, how often it
-                        // sheds a piece is entrainment, and a cross-wind raises
-                        // the second without raising the first.
-                        //   Written out in `t` rather than in `bt`, this is
-                        // ALGEBRAICALLY THE OLD LINE (bt * _PuffHz/_FireHz was
-                        // t * _PuffHz * (1 + k*air) all along, with the same k),
-                        // so the shipped 1.55x cadence is preserved exactly
-                        // while the turbulence clock is free to move. It also
-                        // stops depending on _FireHz being non-zero, which is
-                        // why the max() is gone.
-                        age = frac(t * _PuffHz * (1.0 + 0.55 * pair.air) + v.fp.w);
+                        age = frac(bt * (_PuffHz / max(_FireHz, 0.01)) + v.fp.w);
                         // ---- WHAT A DETACHED PIECE IS, and it is the one thing
                         // the pairings change about a CARD rather than about a
                         // number. All three are products of two elements, so a

@@ -556,6 +556,90 @@ namespace GloomhavenVR
             "DripColumn", "WindowClose", "RatRun", "RatBeam", "RatLow", "RatEnd", "DarkCornerSW",
         };
 
+        // ====================================================== FIRE PHASE ======
+        // ModBuild 147. THE HARNESS HAD NO WAY TO SEE A FIRE MOVE, and that gap
+        // is not academic: it is how a purely TEMPORAL fire fault — every band
+        // driving the wrong size of structure, 19 % of the brightness parked at
+        // the one frequency the eye is most sensitive to — survived a whole
+        // review round and had to be caught on hardware ("das Feuer zappelt viel
+        // zu schnell", ModBuild 145). Until now a fire appeared in the element
+        // series at ONE instant (_GhvrTimeOfs 3.7) and nowhere else, so every
+        // claim ever made about it from a preview was a claim about a still.
+        //
+        // WHY TWO SERIES AND NOT ONE, and the sampling is arithmetic rather than
+        // taste. A fire has no single rate; EnvFire.cginc's own table gives the
+        // four bands at FireHz 4.6 as 4.60 / 2.81 / 7.96 / 1.08 Hz, and on top of
+        // that a puff runs its whole birth-rise-redden-die cycle at _PuffHz 0.55
+        // Hz, i.e. once per 1.82 s. One evenly spaced series cannot cover a
+        // 7.4:1 span: at a step short enough to resolve 8 Hz it spans a fifth of
+        // the swell, and at a step long enough to span the puff cycle it aliases
+        // everything above 2 Hz into nonsense.
+        //
+        //   FAST  8 frames, 55 ms apart, spanning 0.385 s.
+        //         55 ms is 2.27 samples per cycle of the 7.96 Hz band (just above
+        //         Nyquist, which is the whole point — this is the band the
+        //         "zappeln" verdict was about, and it must be possible to SEE it
+        //         alias) and 3.95 per cycle of the 4.60 Hz one. This is the
+        //         series in which a tongue's tip and the texture wrinkle move.
+        //   SLOW  8 frames, 240 ms apart, spanning 1.68 s.
+        //         3.86 samples per cycle of the 1.08 Hz swell and 92 % of one
+        //         puff cycle, so a detached piece can be followed from the frame
+        //         it leaves the body to the frame it has gone out. Nothing below
+        //         2 Hz is resolvable in the FAST series at all.
+        //
+        // Both are shot with FIRE AT FULL, because with the channel unset every
+        // flame card is collapsed to a point in the vertex shader and the frames
+        // would be pictures of an empty corner.
+        private static readonly float[] FirePhasesFast =
+        { 0.000f, 0.055f, 0.110f, 0.165f, 0.220f, 0.275f, 0.330f, 0.385f };
+        private static readonly float[] FirePhasesSlow =
+        { 0.00f, 0.24f, 0.48f, 0.72f, 0.96f, 1.20f, 1.44f, 1.68f };
+
+        // Four cellar sites and three forest ones — one per burning THING rather
+        // than one per fire, and each already framed so that one fire fills a
+        // third of the picture (see the ModBuild 145 block above for why a wide
+        // room shot cannot settle anything about a fire). Sixteen offsets over
+        // seven views is 112 PNGs; the whole fire view list at both series would
+        // have been 176 that nobody reads.
+        private static readonly string[] CellarFireViews =
+        { "FireCrate", "FireCrateLow", "FireSpill", "FireShelf" };
+        private static readonly string[] ForestFireViews =
+        { "FireSnag", "FireLog", "FireBrush" };
+
+        // ...and the WIND, which is the user's own second question this round
+        // ("Kann es dann trotzdem mit dem wind reagieren?"). Fire+Air is a pair
+        // term that lives entirely in RATE and AMPLITUDE — GhvrFireHz multiplies
+        // the clock by 1.55 and GhvrFireDepth the flicker depth by 1.70 — so it
+        // is invisible in a still by construction, and a claim that it works
+        // cannot be read off one frame. The FAST series is repeated at full
+        // Fire+Air on one view per room: against the plain fireS frames at the
+        // same eight offsets, the flames must be visibly further through their
+        // cycle at every step, and the wash on the stone must swing wider.
+        private static readonly string[] CellarWindViews = { "FireCrate" };
+        private static readonly string[] ForestWindViews = { "FireSnag" };
+
+        // ...and THE SHELF RIDERS, which until now nothing in this harness could
+        // photograph at all — a hole exactly as big as the fire phase one it sits
+        // next to. Two of the cellar's six fires and one of its halos are seated
+        // ON the bookshelf that topples, and they ride it rigidly
+        // (EnvShelfTip/_FireRide, EnvRoomBuilder.RideShelf). But the haunt series
+        // runs with the element channel UNSET, so in every frame of it the fire
+        // is collapsed to a point; and the fire series runs with the haunt unset,
+        // so in every frame of that the shelf is standing. The one state that has
+        // to be checked — a burning bookshelf going over, still burning — was in
+        // neither. A rider that came loose would have rendered as a fire hanging
+        // in the air where the shelf used to be, and nothing here would have
+        // caught it.
+        //
+        // Three phases off HauntShelfPhases, chosen for the trajectory rather
+        // than the envelope: 0.08 barely off plumb (the fire is where it was),
+        // 0.16 the fast part of the topple (it must be leaning WITH the boards),
+        // 0.30 down just after the rebound (it must be lying with them). The
+        // wall wash deliberately does NOT ride and must stay put across all
+        // three — that is an authored asymmetry, not a fault, and this series is
+        // where it can be seen.
+        private static readonly float[] FireShelfRidePhases = { 0.08f, 0.16f, 0.30f };
+
         // ---- THE RAT'S TWO MOUTHS, over the entry itself (ModBuild 143) -------
         // A crossing lasts 2.4-9.2 s of a 26 s slot and the entry is 0.45 s of
         // THAT, so the offsets above cannot land on it except by luck — which is
@@ -621,6 +705,7 @@ namespace GloomhavenVR
             //   ENV_PREVIEW_VIEWS=Beam,Shaft     only views whose name starts
             //                                    with one of these prefixes
             //   ENV_PREVIEW_NOTIME=1             skip the cellar time series
+            //   ENV_PREVIEW_NOFIRE=1             skip the fire phase series
             string envFilter = Environment.GetEnvironmentVariable("ENV_PREVIEW_ENVS");
             string viewFilter = Environment.GetEnvironmentVariable("ENV_PREVIEW_VIEWS");
             bool noTime = Environment.GetEnvironmentVariable("ENV_PREVIEW_NOTIME") == "1";
@@ -884,6 +969,92 @@ namespace GloomhavenVR
                     }
 
                     Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+                }
+
+                // ---- FIRE PHASE: the one thing this harness could never show ----
+                // See the FIRE PHASE block above. ENV_PREVIEW_NOFIRE=1 skips it.
+                if (Environment.GetEnvironmentVariable("ENV_PREVIEW_NOFIRE") != "1")
+                {
+                    bool cellar = env == "Env_Cellar";
+                    var fireViews = cellar ? CellarFireViews : ForestFireViews;
+                    var windViews = cellar ? CellarWindViews : ForestWindViews;
+
+                    void FireSeries(string[] vns, float[] phases, string tagPrefix,
+                                    Vector4 ea, Vector4 eb)
+                    {
+                        Shader.SetGlobalVector("_GhvrElemA", ea);
+                        Shader.SetGlobalVector("_GhvrElemB", eb);
+                        foreach (var vn in vns)
+                        {
+                            var v = Array.Find(Views, x => x.name == vn);
+                            if (v.name == null)
+                                throw new Exception($"A fire phase view names an unknown view '{vn}'.");
+                            if (!WantView(v.name)) continue;
+                            foreach (float t in phases)
+                            {
+                                Shader.SetGlobalFloat("_GhvrTimeOfs", t);
+                                // milliseconds in the tag, so the sequence sorts
+                                // in time order in a directory listing and the
+                                // STEP is readable off the file names — which is
+                                // what makes an aliasing claim checkable.
+                                Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov,
+                                      $"_{tagPrefix}{Mathf.RoundToInt(t * 1000f):D4}");
+                            }
+                        }
+                    }
+
+                    // Fire alone, fast then slow. _GhvrElemA = (Fire, Ice, Air,
+                    // Earth), _GhvrElemB = (Light, Dark, Master, Peak) — the same
+                    // two uniforms ElementMood publishes at runtime, driven by
+                    // hand for the same reason the element series drives them:
+                    // the harness must move exactly what the mod moves.
+                    var fireA = new Vector4(1f, 0f, 0f, 0f);
+                    var fireB = new Vector4(0f, 0f, 1f, 1f);
+                    FireSeries(fireViews, FirePhasesFast, "pf", fireA, fireB);
+                    FireSeries(fireViews, FirePhasesSlow, "ps", fireA, fireB);
+                    // ...and the same fast series under full Fire+Air, which is
+                    // the only way the wind answer can be photographed at all.
+                    FireSeries(windViews, FirePhasesFast, "pw",
+                               new Vector4(1f, 0f, 1f, 0f), fireB);
+
+                    // ...and the burning bookshelf going over WHILE it burns —
+                    // the one state neither the haunt series nor the fire series
+                    // can reach, because each of them leaves the other feature's
+                    // channel unset. See FireShelfRidePhases.
+                    if (cellar)
+                    {
+                        var v = Array.Find(Views, x => x.name == "HauntShelf");
+                        if (v.name == null)
+                            throw new Exception("The fire shelf-rider series needs the "
+                                                + "'HauntShelf' view and it is gone.");
+                        if (WantView(v.name))
+                        {
+                            Shader.SetGlobalVector("_GhvrElemA", fireA);
+                            Shader.SetGlobalVector("_GhvrElemB", fireB);
+                            // dial 1.0, i.e. every scheduled slot fires — a real
+                            // shipped setting, not a debug mode, exactly as the
+                            // haunt series uses it.
+                            Shader.SetGlobalVector("_GhvrHaunt", new Vector4(1f, 1f, 0f, 0f));
+                            foreach (float ph in FireShelfRidePhases)
+                            {
+                                // the bookshelf is cellar haunt card 5 of 6, and
+                                // its whole 26 s is hold (0.001 + 26 + 0.001) —
+                                // the same three numbers CellarHaunts passes, and
+                                // they have to stay in step with the builder's
+                                // catalogue because the phase is a fraction of
+                                // the whole run.
+                                Shader.SetGlobalFloat("_GhvrTimeOfs",
+                                    EnvRoomBuilder.HauntPreviewClock(5, 6, 0.001f, 26f, 0.001f, ph));
+                                Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov,
+                                      $"_pride{Mathf.RoundToInt(ph * 100f):D2}");
+                            }
+                            Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+                        }
+                    }
+
+                    Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
+                    Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
                     Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 }
 

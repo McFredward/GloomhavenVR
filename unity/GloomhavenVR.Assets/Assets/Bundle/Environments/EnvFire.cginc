@@ -190,12 +190,8 @@ float4 _FireRide;                         // xyz: 1 = this seat stands on the sh
 //
 // WHAT EACH PAIR MEANS, and where its half of the work is:
 //   FIRE+AIR   (his own example) more glut, thrown further and downwind, and a
-//              DEEPER flicker — on the FLAME and on the light it casts at once,
-//              because they share a rate by construction. Deeper and not
-//              faster: ModBuild 147 cut the rate multiplier from 1.55 to 1.15
-//              on the "Zucken des Feuers" verdict, and the +70 % depth, the
-//              tear, the lean and the embers carry the whole pairing. See
-//              GhvrFireHz.
+//              harder faster flicker — on the FLAME and on the light it casts
+//              at once, because they share a rate by construction.
 //   FIRE+DARK  the fire becomes the only light there is. The wash gains reach
 //              and strength as the moon is crushed, so the cellar is read
 //              entirely by firelight. Nearly free and the strongest of the five.
@@ -239,78 +235,12 @@ GhvrFirePair GhvrFirePairs (GhvrElem e)
     return p;
 }
 
-/// FIRE+AIR, on the rate. This is the number the FLAME and the WASH both take,
-/// so the two cannot come apart under wind any more than they can at rest.
-///
-/// ================= 0.55 -> 0.15, ModBuild 147 ("Zucken ... des Feuers") =====
-/// USER VERDICT, hardware, verbatim:
-///   "Wind führt zu einem sehr hektischen unrealistischen Zucken der Pflanzen,
-///    des Feuers und der Bäume - mach das es sich mehr random und immersiver im
-///    Wind bewegt, nicht so hektisch, so Mikrozuckungen hat."
-///
-/// The ModBuild 145 lane that fixed "das Feuer zappelt viel zu schnell" left
-/// this exact line as a written hand-off: "Under full Fire+Air GhvrFireHz x1.55
-/// puts the fast band at 12.3 Hz; now harmless at weight 0.08, but THAT IS THE
-/// KNOB if wind ever draws the same complaint." It has.
-///
-/// WHY 1.55x WAS THE WRONG SHAPE OF ANSWER, and it is the same fault as the one
-/// in EnvGrowth's GhvrWind this round: an element strength was multiplying a
-/// FREQUENCY. The puffing rate of a buoyant fire (f = 1.5/sqrt(D), Cetegen &
-/// Ahmed — the correlation the whole ModBuild 145 band table is built on) is set
-/// by BUOYANCY and by the fire's DIAMETER. It is famously insensitive to cross-
-/// flow: a wind tilts the plume, tears its edges, entrains more air and drags
-/// more of it downwind, and at strong cross-flow it disrupts the puffing cycle
-/// rather than accelerating it. Nothing in the literature turns a 4.6 Hz fire
-/// into a 7.1 Hz one by blowing on it — and 7.1 Hz drags the whole ladder with
-/// it, so the 3.6 cm band lands at 12.3 Hz and the WASH ON THE STONE, the
-/// largest and dimmest field in the cellar, carries 8 % of its modulation just
-/// above the 8-10 Hz peak of human temporal contrast sensitivity (de Lange) —
-/// the band a large dim-adapted field is most visibly unsteady in, and the same
-/// argument ModBuild 145 used to take that weight from 0.19 down to 0.08 in the
-/// first place. Raising the clock 55 % put a chunk of it back. That is the
-/// "Mikrozuckung" in the room's own LIGHT rather than in a shape, which is also
-/// why it is felt in the whole cellar and not only where the fire is.
-///
-/// 0.15 rather than 0.0: cross-flow does perturb the cycle a little and the
-/// measurements scatter either side of the still-air value, so a 15 % lift is
-/// inside what a real fire does — and Fire+Air keeps a rate response, so the
-/// rule that a flame and its light share one clock still has something to say
-/// under wind. What "flackert wenn Wind an ist" is actually MADE OF is
-/// unchanged and is all amplitude: GhvrFireDepth's +70 %, EnvFlame's tear
-/// (x2.9), the whole-fire lean, embers thrown 3x further and alive for three
-/// quarters of their cycle instead of a third.
-///
-/// MEASURED, 200 s at 4 kHz on the exact arithmetic, at full Fire+Air:
-///   tongue tip   f_mean 8.18 -> 6.07 Hz, rms accel 187 -> 103 m/s^2,
-///                power above 6 Hz 67.6 % -> 38.9 % (= the Fire-only figure),
-///                direction reversals 18.5 -> 13.7 /s, EXCURSION IDENTICAL
-///   brightness   f_mean 6.78 -> 5.03 Hz, |dB/dt| 1075 -> 798 %/s,
-///                power above 6 Hz 64.1 % -> 14.3 % (= the Fire-only figure),
-///                reversals 15.1 -> 11.2 /s, SWING IDENTICAL at +-93 %
-/// Nothing about how far anything moves or how much anything brightens changed;
-/// the fire under wind is exactly as violent and is no longer in a hurry.
-///
-/// ...and on the RENDERED PIXELS, from the same throwaway phase harness the
-/// wind half of this round used (48 frames one 72 Hz frame apart, cellar,
-/// Fire-only and Fire+Air). The quantity is the temporal structure function:
-/// of everything that changes over 0.2 s, how much has happened after one
-/// frame?
-///     FireCrate  Fire only 18.6 %   Fire+Air BEFORE 26.0 %   AFTER 22.5 %
-///     FireRoom   Fire only 14.7 %   Fire+Air BEFORE 23.1 %   AFTER 19.5 %
-/// ...with the total change over 2 s unchanged (+3 % and +1 %), i.e. the fire
-/// under wind is doing the same amount of moving in a way that is 20-24 % less
-/// abrupt frame to frame. The Fire-only rows came back byte-identical before
-/// and after, which is what "this round touches only the Air response" looks
-/// like when it is measured rather than asserted. The distinction is still
-/// enormous: Fire+Air changes the picture 2.1x as much over two seconds as
-/// Fire alone does (FireCrate), 1.5x on the whole-room view.
-///
-/// REJECTED: lowering _FireHz itself. It is 4.6 and it MUST stay 4.6 — see the
-/// ModBuild 145 block at the top of this file. Fire+Air is a modulation of that
-/// clock and this is the modulation, not the clock.
+/// FIRE+AIR, on the rate. A fire in a draught does not sway more slowly, it
+/// turns over faster; this is the number the FLAME and the WASH both take, so
+/// the two cannot come apart under wind any more than they can at rest.
 float GhvrFireHz (GhvrFirePair p, float hz)
 {
-    return hz * (1.0 + 0.15 * p.air);
+    return hz * (1.0 + 0.55 * p.air);
 }
 
 /// ...and on the depth. Wind-fed fire is unsteady in AMPLITUDE as well as in

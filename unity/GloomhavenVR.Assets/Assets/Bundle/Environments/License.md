@@ -13,9 +13,11 @@ project**. Third-party assets:
 ## Room models & PBR texture sets (`Imported/`)
 
 All meshes and photo textures under `Imported/Models` and `Imported/Textures`
-are from **Poly Haven** (<https://polyhaven.com>) — with TWO exceptions, the
-cobweb alpha (TextureCan) and the wall-fungus atlas (Wikimedia Commons), which
-have their own sections below — license
+are from **Poly Haven** (<https://polyhaven.com>) — with THREE exceptions, the
+cobweb alpha (TextureCan), the wall-fungus atlas (Wikimedia Commons) and the
+fire atlas (**Unity Asset Store, and the only non-CC0 source in this bundle —
+read its section before adding another**), which have their own sections
+below — license
 **CC0 1.0**
 (public domain, <https://polyhaven.com/license>) — no attribution required;
 credited here with thanks. Modifications: UV-preserving decimation
@@ -149,6 +151,120 @@ The loose hanging strands (`Textures/Env_Strand.png`) are still generated —
   <https://commons.wikimedia.org/wiki/File:Hillesheim_(Rheinhessen)_-_Bahnhofstra%C3%9Fe,_Baumpilz.jpg>)
   — a vertically stacked cluster, but wholly inside the trunk's shadow band, so
   the brackets are darker than the lit bark around them.
+
+### Fire atlas (`fire_atlas_alb.png`) — **THE ONE NON-CC0 SOURCE IN THIS BUNDLE**
+
+> **Read this section before adding any further Asset Store material.** Every
+> other third-party asset above is CC0 or public domain, i.e. redistributable
+> by anyone for anything. These two are not. They are licensed to *this
+> project* under the Unity Asset Store EULA and that licence does **not** flow
+> to anyone downstream.
+
+- **Assets**: the greyscale flame/turbulence masks of two **free Unity Asset
+  Store packages**, supplied by the project owner:
+  - *Free Fire VFX - HDRP*, publisher **Vefects**, Asset Store id **239742**
+    (<https://assetstore.unity.com/packages/vfx/free-fire-vfx-hdrp-239742>).
+    Used: `T_VFX_Fire_Ground_Mask_01.tga` (512², 8-bit grey),
+    `T_VFX_Fire_Mask_01.tga` (256²), `T_VFX_Noise_07.tga` (256²).
+  - *Fire 001*, publisher **N2Studio**. Used: `Textures/FireSeq1.png` (1024²
+    RGB, a 2×2 sheet of four turbulence frames).
+- **License**: the **standard Unity Asset Store EULA**
+  (<https://unity.com/legal/as-terms>, "Last updated: December 4, 2024"). This
+  was determined rather than assumed:
+  - **Neither package ships a licence file.** Vefects' `_ Read Me _` folder
+    holds two PDFs (`Vefects Fire VFX Info Doc HDRP.pdf`, `Vefects Top
+    Secret.pdf`); both were extracted in full and contain **no licence terms
+    at all** — marketing copy, links to the publisher's other packs, and a
+    Discord invitation. N2Studio ships `Third-Party Notices.txt`, which states
+    verbatim: *"This asset is governed by the Asset Store EULA; however, the
+    following component is governed by the license indicated below: A. Nova
+    Shader — MIT License — Copyright (c) CyberAgent Game Entertainment
+    Division"*. (The Nova Shader is MIT but is **URP-only** and is not used.)
+  - The store record for 239742 gives `category 116 (VFX)`, `customLicense:
+    false`, `isFree: true` — so it is **not** an "Extension Asset" (EULA
+    §2.3.2 covers only "Editor Extension", "Scripting" and "Services"), **not**
+    a Restricted Asset (§2.9), and carries no non-standard EULA. Free vs paid
+    changes exactly one thing: §11.3.2 gives no publisher indemnity for free
+    assets.
+- **What the EULA permits**, verbatim, §2.2.1: *"Licensor hereby grants to the
+  END-USER a non-exclusive, non-transferable, worldwide, and perpetual license
+  to the Asset solely: (a) to incorporate the Asset, together with substantial,
+  original content not obtained through the Unity Asset Store, into an
+  electronic application or digital media that has a purpose, features, and
+  functions beyond the display, performance, distribution, or use of Assets
+  ("Licensed Product") as an embedded component of that Licensed Product, such
+  that the Asset does not comprise a substantial portion of the Licensed
+  Product; (b) to reproduce, publicly display, publicly perform, transmit, and
+  distribute the Asset as incorporated and embedded in that Licensed Product;
+  … (e) … modify the Assets in connection with (a), (b), (c), and (d)."*
+- **On the extractability of the bundle** — the question that had to be
+  answered before shipping anything here, because this mod is publicly
+  downloadable and an AssetBundle can be opened with AssetStudio. **The EULA
+  contains no clause prohibiting distribution in an extractable form.** The
+  current text and the previous one (as-terms-legacy, "Last Updated: January 1,
+  2023") were both searched in full for `extract`, `stand-alone`, `whole or in
+  part` and `as is`; the only occurrences of "extraction" are inside the
+  AI/ML-training prohibition (§2.2.1.1(g)), which is a different subject. The
+  nearest authority is Unity's own EULA FAQ
+  (<https://assetstore.unity.com/browse/eula-faq>), verbatim: *"A product is
+  not 'incorporated' into the Licensed Product if it is designed to allow your
+  end users to extract or download assets separately from the Licensed
+  Product."* The operative test is **"designed to allow"**, not "technically
+  extractable" — every Unity game ever shipped is technically extractable, so
+  mere extractability cannot be the standard without making §2.2.1(b) a
+  nullity. This mod is a VR conversion of a commercial game consisting almost
+  entirely of original work; the fire atlas is one 512×512 texture in it. It
+  qualifies as a Licensed Product and the textures are an embedded component.
+  (The FAQ carries its own *"provided to you 'AS IS' and does not constitute
+  legal advice"* disclaimer.)
+- **What is NOT permitted, and the standing rules that follow:**
+  1. **The raw source files may never enter this repository.** Committing the
+     `.tga`/`.png` sources, or either `.unitypackage`, is distribution that is
+     not "as incorporated and embedded" and is outside the grant. They live in
+     `.planning/debug/ressources/`, which is gitignored, and the pipeline
+     script reads them from there.
+  2. **Nobody downstream receives a licence.** The grant is expressly
+     *"non-transferable"* and §2.2.1.1(d) forbids sublicensing. Recipients of
+     the mod get these texels only as an embedded component of it. If this
+     project ever adopts a blanket open-source licence, **this asset must be
+     carved out explicitly** — a repo-wide MIT/GPL statement would be
+     inaccurate, because there is no right to grant it.
+  3. **Monetisation and UGC.** §2.2.1.1(b)/(c) bar enabling users to
+     redistribute the assets for commercial gain and bar monetising them in a
+     product whose primary purpose is creating user-generated content. A free
+     mod trips neither.
+  4. Under §1.4 the **publisher, not Unity, is the Licensor** and the only
+     party with standing. A short written permission from Vefects/N2Studio
+     would moot this entire analysis, and the FAQ explicitly invites it
+     (*"You are always free to reach out to the publisher directly to negotiate
+     additional rights."*).
+- **Why these and not a CC0 alternative**: they were supplied by the project
+  owner with a direct instruction to use a ready-made fire FX rather than a
+  hand-built one. Both packages' **shaders are unusable here** — Vefects' five
+  shaders are tagged `RenderPipeline = "HDRenderPipeline"` and N2Studio's Nova
+  Shader `"UniversalPipeline"`, while this project is BUILT-IN — so what was
+  taken is the art only.
+- **Modifications** (reproducible: `Assets/Editor/fire_atlas_pipeline.py`,
+  python3 + numpy + Pillow, run against the two `.unitypackage` files): the
+  ground-flame mask is cropped to its lower 64 %, horizontally re-scaled and
+  squeezed into a bottom band to make the **bed**; the same mask full-height
+  makes **tongue A**; the flame mask is mirrored and narrowed to 0.80 width for
+  **tongue B**; one frame of N2Studio's turbulence sheet, radially feathered,
+  makes the **puff**. Each is then normalised on its own peak, given a
+  base/tip feed profile, holed by the Vefects noise map, feathered sideways to
+  zero well inside its cell, soft-knee compressed to a ceiling of 0.90–0.95 so
+  no region can saturate in the additive pass, given a hard-zero 3.5 % border,
+  and packed into this project's own 2×2 cell layout with RGB forced to white
+  (all colour comes from `EnvFire.cginc`'s three-stop temperature ramp).
+  **The result is a re-authored composite: no source image survives in the
+  shipped file as delivered, at its delivered size, or in its delivered
+  framing.**
+- **Not used, and pruned deliberately**: everything else in both packages —
+  all HDRP/URP shaders, the Nova Shader library and its editor scripts, the
+  demo scenes, the 18 prefabs, all materials, the three fire WAVs, and the 14
+  `Vefects_*_Extra_01.tga` files (which are advertising banners for other
+  packs). Only the four greyscale masks named above are ever read, and only by
+  the pipeline script, which is editor-only.
 
 ## Night-sky panorama — REMOVED in ModBuild 134
 

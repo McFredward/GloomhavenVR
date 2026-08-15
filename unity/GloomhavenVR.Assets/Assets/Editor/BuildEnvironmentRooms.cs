@@ -99,6 +99,18 @@ namespace GloomhavenVR
             // gets within arm's length of - the cellar's brackets sit at
             // 0.20-1.70 m on walls he stands next to.
             ["fungus"] = 1024,
+            // THE FIRE ATLAS (ModBuild 147). 512, which is exactly what the
+            // procedural atlas it replaces was (BuildEnvironments.FireTile 256
+            // x FireAtlasCols 2) — the swap is the ART, not the budget, and the
+            // bundle does not grow by a byte. 512 is also the honest ceiling
+            // here: the four sources are 512, 512, 256 and a 512 crop of a 1k
+            // sheet, so a 1k atlas would be upsampling three of them.
+            // NOT in HqAlbedo, deliberately, and for the reason MakeFireAtlas
+            // already wrote down: this is a single channel that varies smoothly,
+            // i.e. the BEST case for BC3's alpha block rather than the worst
+            // case its RGB blocks are. RGB is a constant 255 and compresses to
+            // nothing. ~170 KiB with mips.
+            ["fire_atlas"] = 512,
             // minor props
             ["wooden_stool_02"] = 512, ["wooden_bucket_01"] = 512,
             ["jug_01"] = 512, ["root_cluster_01"] = 512,
@@ -589,15 +601,74 @@ namespace GloomhavenVR
         /// than a build error — the shader's "white" default would draw every
         /// card as a solid rectangle of flame colour, which at a glance in a dark
         /// preview looks like a bright fire. The same argument, and the same
-        /// throw, as BuildHaunts makes about Env_Haunt.png.</para></summary>
+        /// throw, as BuildHaunts makes about Env_Haunt.png.</para>
+        ///
+        /// <para>=== ModBuild 147: IT IS REAL FIRE ART NOW, NOT A PROCEDURAL ONE.
+        ///
+        /// USER, verbatim: "Ich hab dir in .debug/ressources zwei Feuer FX System
+        /// abgelegt. Schau sie dir und importiere sie gegenfalls und ersetze damit
+        /// dein eigens gebautes feuer - das sieht nicht wirklich gut aus." And,
+        /// earlier and more strongly: "Bitte benutze irgendein Feuer FX das schon
+        /// vorgefertigt ist als es selber zu bauen ... Ich will lieber das du es
+        /// mit solchen fx Dingen umsetzt statt selber zu machen."</para>
+        ///
+        /// <para>WHAT MOVED AND WHAT DID NOT. Both packages he supplied are for a
+        /// pipeline this project does not use — "Fire 001" (N2Studio) ships the
+        /// Nova Shader tagged RenderPipeline = "UniversalPipeline", "Free Fire VFX
+        /// - HDRP" (Vefects) is tagged "HDRenderPipeline", and this project is
+        /// BUILT-IN. Neither package's shaders can run here at all. So the SHADER
+        /// stays ours (which is also the whole answer to his second question — see
+        /// the wind note below) and the ART becomes theirs, which is the half that
+        /// was actually wrong.</para>
+        ///
+        /// <para>THE EVIDENCE THAT THE ART WAS THE WRONG HALF. Put the two atlases
+        /// side by side. MakeFireAtlas's tongue cells are an ANALYTIC CONE with a
+        /// sharp apex, filled with a coarse four-octave fBm that reads as curdled
+        /// blobs; its bed is a rounded rectangle. A cone with a sharp point is the
+        /// candle silhouette this feature has now been rejected for twice, and the
+        /// file's own comments say so ("WIDE, and that is the lesson of both
+        /// previous bakes: a tongue as narrow as a candle flame IS a candle
+        /// flame"). The imported masks are real turbulent flame — filaments,
+        /// wisps, a torn organic outline, no straight edge and no analytic curve
+        /// anywhere. Measured, per cell, alpha-weighted drawn mass in cell units:
+        ///   bed     0.445 x 0.182  ->  0.468 x 0.137
+        ///   tongueA 0.187 x 0.359  ->  0.302 x 0.408   (the fat tongue, at last)
+        ///   tongueB 0.191 x 0.410  ->  0.250 x 0.355
+        ///   puff    0.364 x 0.433  ->  0.292 x 0.283
+        /// FireMesh's ArtScale table below is derived from exactly those numbers,
+        /// so the fire keeps the SIZE six rounds of tuning settled on and changes
+        /// only its SHAPE.</para>
+        ///
+        /// <para>THE PROCEDURAL ATLAS COSTS THE BUNDLE NOTHING, and that was
+        /// checked rather than assumed. BuildEnvironments.MakeFireAtlas still
+        /// bakes Textures/Env_Fire.png, but nothing references it any more and
+        /// the bake's own sweep takes it straight back out — the log line reads
+        /// "pruned unreferenced Assets/Bundle/Environments/Textures/Env_Fire.png".
+        /// So the swap is bundle-neutral WITHOUT touching BuildEnvironments.cs,
+        /// which is another lane's file this round. Retiring the generator itself
+        /// (the WritePng call and MakeFireAtlas, ~100 lines) is a tidy-up for
+        /// whoever owns that file next; it is named in the report and deliberately
+        /// not reached into here.</para>
+        ///
+        /// <para>PROVENANCE AND LICENCE: see Bundle/Environments/License.md. The
+        /// shipped PNG is a re-authored composite — four greyscale masks cropped,
+        /// re-profiled, knee-compressed and packed into this project's own 2x2
+        /// layout — and no source file survives in it as delivered. It is derived
+        /// reproducibly by Assets/Editor/fire_atlas_pipeline.py, which reads the
+        /// two .unitypackage files directly, exactly as cobweb_pipeline.py and
+        /// polyhaven_pipeline.py derive their own imports.</para></summary>
         private static Texture2D FireAtlas()
         {
-            var t = AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Fire.png");
+            var t = AssetDatabase.LoadAssetAtPath<Texture2D>(ImpTex + "/fire_atlas_alb.png");
             if (t == null)
-                throw new Exception("Env_Fire.png is missing — the fires would be drawn as solid "
-                                    + "rectangles and would look like a fire in a dark preview. "
-                                    + "EnvironmentsBuilder.MakeFireAtlas bakes it; GenerateTextures "
-                                    + "must run before the rooms.");
+                throw new Exception("Imported/Textures/fire_atlas_alb.png is missing — the fires "
+                                    + "would be drawn as solid rectangles and would look like a "
+                                    + "fire in a dark preview, which is why this throws instead of "
+                                    + "letting the shader's \"white\" default through. Re-derive "
+                                    + "it: python3 Assets/Editor/fire_atlas_pipeline.py "
+                                    + "<dir with the two .unitypackage files> "
+                                    + "Assets/Bundle/Environments/Imported/Textures/"
+                                    + "fire_atlas_alb.png");
             return t;
         }
 
@@ -7035,6 +7106,71 @@ namespace GloomhavenVR
         /// cycle). Acc is not used because Acc has no UV1, and a fourth kind of
         /// per-card datum is exactly what the previous version ran out of room
         /// for when it needed to say "this one detaches".</para></summary>
+
+        // ==================================================== ART COMPENSATION ==
+        // ModBuild 147. THE SPRITE CHANGED; THE FIRE MAY NOT.
+        //
+        // The atlas under these cards is no longer procedural — it is real fire
+        // art (see FireAtlas and Assets/Editor/fire_atlas_pipeline.py). A card's
+        // quad is only a WINDOW: what the player sees is the sprite's own drawn
+        // mass inside it, so swapping the sprite silently resizes and re-weights
+        // every fire in both rooms even though not one vertex moved. Six rounds
+        // of tuning went into those sizes and into the additive energy budget,
+        // and none of that tuning is about the shape of the mask.
+        //
+        // So the swap is made SIZE-NEUTRAL by measurement rather than by eye.
+        // fire_atlas_pipeline.py's `extent()` reports, per cell, the alpha-
+        // weighted RMS extent x2 — a robust "how big is the drawn mass", in cell
+        // units — and the same function was run over the atlas being replaced:
+        //
+        //   cell       OLD w x h        NEW w x h       w      h    mean alpha
+        //   bed     0.445 x 0.182   0.404 x 0.139   0.908  0.764   0.192 -> 0.124  (x0.646)
+        //   tongueA 0.187 x 0.359   0.301 x 0.408   1.610  1.137   0.098 -> 0.240  (x2.461)
+        //   tongueB 0.191 x 0.410   0.250 x 0.355   1.309  0.866   0.125 -> 0.194  (x1.552)
+        //   puff    0.364 x 0.433   0.289 x 0.280   0.794  0.647   0.294 -> 0.151  (x0.515)
+        //
+        // Drawn ENERGY is mean alpha times quad area, and quad area scales with
+        // the width factor here (the heights below are 1.00 except the puff's),
+        // so the energy factor is chosen to make (width factor) x (alpha ratio) x
+        // (energy factor) land on 1.00. The three rows:
+        //
+        //   BED     w x1.10  h x1.00  E x1.41   0.646 x 1.10 x 1.41 = 1.00
+        //           0.75 TALL IS THE POINT and is not corrected — a bed is the
+        //           part of a fire that lies on something, and the procedural
+        //           cell was a rounded rectangle standing a quarter too proud of
+        //           its own seat. The 10 % of width IS corrected: the sideways
+        //           feather the pipeline needs (see fire_atlas_pipeline.feather,
+        //           and the render that forced it) costs the mass 9 % of its
+        //           extent, and the bed is the one card whose whole job is to be
+        //           wider than it is tall.
+        //   TONGUE  w x0.80  h x1.00  E x0.62   mean 1.46 x 0.80 = 1.17 wide,
+        //                                       mean 2.01 x 0.80 x 0.62 = 1.00
+        //           NOT x0.68, which would hold the width exactly. The tongues
+        //           are deliberately left 17 % FATTER than the ones that shipped,
+        //           because "wider" is the one correction this file has written
+        //           down twice and never actually got: the old drawn tongue was
+        //           0.19 x 0.38 cell units, an aspect of 0.50, which is a candle
+        //           flame's proportion whatever is painted inside it. The new one
+        //           at x0.80 is 0.22 x 0.38 of a card, aspect 0.58, and the mask
+        //           inside it is domed and torn instead of tapering to a point.
+        //   PUFF    w x1.30  h x1.30  E x1.15   0.79/0.65 x 1.30 = 1.03 / 0.84;
+        //                                       0.515 x 1.69 x 1.15 = 1.00
+        //           The imported puff is the smallest of the four relative to its
+        //           cell (it is feathered radially to nothing, so it has no edge
+        //           of its own), and a detached piece that reads at four metres
+        //           is most of what separates this fire from a candle. Scaled
+        //           back up, isotropically, so its aspect is the art's.
+        //
+        // IF THE PIPELINE'S CROPS CHANGE, THIS TABLE IS STALE. That is why the
+        // script prints `drawn mass w x h` for every cell on every run: re-derive
+        // these six numbers from that line rather than nudging them.
+        //
+        // Indexed by GHVR_FKIND_* (0 bed, 1 tongue, 2 puff), which is the same
+        // order EnvFire.cginc defines them in.
+        private static readonly float[] ArtW = { 1.10f, 0.80f, 1.30f };
+        private static readonly float[] ArtH = { 1.00f, 1.00f, 1.30f };
+        private static readonly float[] ArtE = { 1.41f, 0.62f, 1.15f };
+
         private static Mesh FireMesh(string name, float radius, float height, int cards, int seed,
                                      float bedFrac = 0.38f)
         {
@@ -7154,6 +7290,16 @@ namespace GloomhavenVR
                     col = new Color(h1, 0.55f + 0.45f * h2, outw,
                                     0.11f + 0.14f * (1f - outw) + 0.08f * h3);
                 }
+
+                // ---- the art compensation, applied once, in one place --------
+                // See the ArtW/ArtH/ArtE block above. It is deliberately OUTSIDE
+                // the three branches: every one of those numbers was tuned
+                // against a sprite that no longer exists, and a reviewer has to
+                // be able to see the whole correction without reading them.
+                int akind = isBed ? 0 : (isPuff ? 2 : 1);
+                tw *= ArtW[akind];
+                th *= ArtH[akind];
+                col.a *= ArtE[akind];
 
                 // every card's cross is turned by its own angle: two quads at a
                 // fixed 90 deg, repeated a dozen times, is a visible lattice from
