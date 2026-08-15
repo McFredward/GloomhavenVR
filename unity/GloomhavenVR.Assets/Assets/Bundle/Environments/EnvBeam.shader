@@ -348,12 +348,18 @@ Shader "GloomhavenVR/EnvBeam"
                 float3 wDir = normalize(_DraftDir.xyz + float3(0, 1e-5, 0));
                 float3 wSide = normalize(cross(float3(0, 1, 0), wDir) + 1e-6);
                 float3 wUp = cross(wDir, wSide);
-                // 1.35 m/s, the draught's own speed. It is not a free parameter:
-                // the mouth emitter's motes leave at 0.45-1.00 m/s and carry a
-                // shared 0.55-0.95 m/s along DraftDir on top, so they cross the
-                // room at about 1.4 m/s — and if the air INSIDE the beam moved at
-                // a different speed from the matter drifting through it, the two
-                // would read as two different winds in the same room.
+                // 1.35 m/s, the draught's own speed. It is kept at the number the
+                // two deleted streak emitters were reconciled against (their
+                // motes crossed the room at about 1.4 m/s) even though those
+                // emitters are gone, because it is the speed of the AIR and not
+                // of any one thing in it: it is what the flames' lean, the webs'
+                // billow and the puddle's travelling cat's paws are all timed
+                // against, and if the air inside the beam moved at a different
+                // speed from the room's the two would read as two winds. What
+                // drifts through the shaft now (ElemBeamMote) moves at 0.10-0.30
+                // m/s, deliberately slower — that is Brownian jitter on top of
+                // the flow, not the flow, which is what dust in a sunbeam
+                // actually does.
                 float wPhase = t * 1.35;
 
                 // ---- the integral itself, midpoint rule ----
@@ -398,14 +404,52 @@ Shader "GloomhavenVR/EnvBeam"
                         // ridges are corrugated iron; snaking ones are dust.
                         float f = sin(pv * 17.0 + sin(pa * 2.1) * 2.3)
                                 * sin(pc * 11.0 - sin(pa * 1.3) * 1.7);
-                        // 0.95 at full Air: the beam BREAKS UP into streaming
-                        // filaments rather than merely mottling. This is the
-                        // draught's MAIN visible statement, deliberately — the
-                        // particles outside are dimmer than the first bake's
-                        // because a mote glowing in unlit air reads as a spark,
-                        // and the one place light really falls is in here. It may
-                        // not go negative: that would be a hole in the air.
-                        dens *= max(1.0 + 0.95 * air * f, 0.0);
+                        // 1.30 at full Air, up from 0.95, and the reason is that
+                        // it is now the draught's ONLY loud statement rather than
+                        // its main one. ModBuild 147 DELETED both of the cellar's
+                        // free-air streak emitters — up to 126 pale 17-78 cm
+                        // filaments crossing the room at head height, drawn just
+                        // as brightly in unlit air as in here — on the user's
+                        // second rejection of that family ("diese weißen Linien
+                        // gefallen mir so nicht", after 143's "weiße Funken").
+                        // What is left outside this volume is a couple of dozen
+                        // slow motes that live INSIDE it and are masked by this
+                        // shader's own envelope (EnvParticleAlpha/_BeamMask).
+                        //
+                        // So the shaft has to carry the wind by itself, and it can
+                        // afford to: at 0.95 the density swings x0.05..x1.95 about
+                        // its mean, at 1.30 it swings x0.00..x2.30 and the beam
+                        // genuinely BREAKS INTO SEPARATE FILAMENTS with dark air
+                        // between them instead of merely mottling. The clamp is
+                        // what makes that legal — the crests brighten and the
+                        // troughs bottom out AT zero rather than going negative,
+                        // which would be a hole in the air.
+                        //
+                        // IT COSTS NOTHING. This is a constant multiply inside a
+                        // loop that already runs, on a uniform branch that is
+                        // already taken; not one instruction is added, and with
+                        // Air down `air` is exactly 0 and the whole line is the
+                        // identity.
+                        //
+                        // MEASURED IN THE PREVIEW (BeamSide, full Air against
+                        // rest): the contrast INSIDE the shaft — std/mean over
+                        // the beam's own brightest pixels — goes 0.548 -> 0.939,
+                        // and the peak goes x1.93 while the mean falls to x0.78,
+                        // which is precisely what "it breaks up" means rather
+                        // than "it gets brighter".
+                        //
+                        // AND THE ONE HONEST RESERVATION, stated here so the next
+                        // round does not have to rediscover it: at 1.30 the
+                        // BeamSide frame shows the shaft as THREE SEPARATED
+                        // PACKETS of light rather than as fine streaming
+                        // filaments, because any amplitude at or above 1.0 clamps
+                        // the troughs to exact zero and the gaps then open. That
+                        // is a legitimate read — gusts of dust crossing a shaft
+                        // look like that — but the verdict this round answers used
+                        // the word "grob", so if hardware says the beam is now the
+                        // coarse thing, THIS NUMBER is the knob and 0.95 is where
+                        // it came from. Nothing else in the lane depends on it.
+                        dens *= max(1.0 + 1.30 * air * f, 0.0);
                     }
                     acc += dens; sAcc += dens * s; tAcc += dens * tk;
                 }

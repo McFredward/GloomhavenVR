@@ -40,8 +40,8 @@ Material:
     - _MinSin: 0.45
     - _RadPow: 1.35
     - _Ramp: 0.55
-    - _Shimmer: 0.22
-    - _ShimmerSpeed: 0.17
+    - _Shimmer: 0.3
+    - _ShimmerSpeed: 0.21
     - _Softness: 4.6
     - _Steps: 24
     - _W0: 0.24

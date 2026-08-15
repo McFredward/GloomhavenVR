@@ -48,7 +48,7 @@ Material:
     m_Floats:
     - _BumpScale: 1.15
     - _DirScale: 0.38
-    - _ElemFrost: 0.9
+    - _ElemFrost: 1.35
     - _ElemGrowFreq: 3
     - _ElemMoss: 1
     - _ElemRad: 12

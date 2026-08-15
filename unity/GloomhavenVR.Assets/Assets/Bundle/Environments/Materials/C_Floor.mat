@@ -33,7 +33,7 @@ Material:
     - _BumpScale: 1
     - _Cutoff: 0.5
     - _Cutout: 0
-    - _ElemFrost: 1
+    - _ElemFrost: 1.55
     - _ElemGrowFreq: 3
     - _ElemMoss: 1
     - _ElemRad: 5

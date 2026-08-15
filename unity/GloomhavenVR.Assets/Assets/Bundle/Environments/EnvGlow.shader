@@ -3,6 +3,34 @@
 // silhouette (dot(N,V) falloff): reads as a volumetric halo from EVERY direction and
 // in stereo, with no billboarding and nothing attached to the camera. Additive,
 // no depth write.
+//
+// ---- ModBuild 148: THE HALO WAS NEVER DRAWN ---------------------------------
+// USER, ModBuild 147: "Es sind mehrere sichtbare 'Striche' auf den assets
+// drauf", with feuer1.jpg — thin lines through the fires, and a stepped dark-red
+// block in the wood's misty gap, both only under Fire.
+//
+// Env_GlowSphere was WOUND INSIDE OUT (BuildSphere's "outward" order emits faces
+// whose normal points at the centre). Under this shader's `Cull Back` the near
+// hemisphere was culled and the FAR one rasterised, and on the far shell the
+// outward vertex normal points away from the eye — so `dot(N,V)` was negative
+// across the entire disc and `core` was exactly 0. Every halo in both rooms drew
+// NOTHING but a one-pixel seam at the geometric limb, and that limb is the
+// silhouette of a 16x8 UV sphere: straight segments, near-vertical along the
+// meridian edges, stepped over the poles. The Striche ARE the halo's outline.
+// Measured, FireSnagWide under full Fire: the halo's whole contribution to the
+// frame was a single column of 23/255 with 0 on either side of it.
+//
+// Two things changed and they are one fix:
+//   * the shell is built by BuildGlowSphere, wound to be seen from OUTSIDE and
+//     circumscribing the unit sphere, behind a gate that is proven to reject the
+//     winding that shipped;
+//   * the falloff is solved ANALYTICALLY against that unit sphere instead of off
+//     the interpolated normal (see THE FALLOFF, SOLVED ON THE SPHERE ITSELF),
+//     which is the same expression on an infinitely fine sphere and therefore
+//     has neither the Mach band at every triangle edge nor the hard stepped rim
+//     a coarse shell's limb leaves behind.
+// Vertex and triangle counts are unchanged; the rasterised hull grows 7.9 % in
+// area, all of it in an annulus the falloff takes to zero.
 Shader "GloomhavenVR/EnvGlow"
 {
     Properties
@@ -22,6 +50,60 @@ Shader "GloomhavenVR/EnvGlow"
         _BlinkPeriod ("Blink period (s)", Float) = 4.7
         _Away ("Absence depth", Range(0,1)) = 0
         _AwayPeriod ("Absence period (s)", Float) = 26
+
+        // ---- RETROREFLECTION (ModBuild 149) ---------------------------------
+        // USER, ModBuild 148: "Bei der 'Fratze' im Wald erscheinen einfach so
+        // zwei Tennisbälle. Nicht sehr viel Horror." He is right, and the reason
+        // is physics rather than tuning.
+        //
+        // AN EYESHINE IS NOT A LAMP. It is a RETROREFLECTION: light goes in
+        // through the pupil, bounces off the tapetum lucidum and comes back out
+        // in a NARROW LOBE about the direction it arrived from. You see a deer's
+        // eyes from behind your own torch and from nowhere else; step two paces
+        // off the beam and they are gone. A sphere of constant brightness has no
+        // lobe at all, and a thing that is equally bright from every direction
+        // is not an eye, it is a ball — which is exactly the word he used.
+        //
+        // THERE IS NO GEOMETRIC WAY TO DO THIS. The projected area of ANY convex
+        // shape falls off no faster than cos(theta): a disc at 20 deg off axis
+        // still shows 94 % of its face, so no amount of flattening a bead makes a
+        // narrow lobe. It has to be a term, and this is the term.
+        //
+        //   _Shine      0 = off (every other halo in both rooms), 1 = full lobe.
+        //   _ShineAxis  xyz = the axis the lobe points down, in OBJECT space —
+        //               i.e. from the eye toward the light-and-viewer. w = the
+        //               exponent: cos^w, so w = 12 gives a half-brightness
+        //               half-angle of 19.4 deg and a quarter at 27.7 deg.
+        //
+        // IT IS NOT A BILLBOARD AND NOTHING RE-ORIENTS. The geometry is the same
+        // world-fixed sphere it always was; what varies with the eye is a
+        // BRIGHTNESS, which is what every specular highlight in every renderer
+        // does. The stereo cost is the disparity of the lobe across a 63 mm IPD
+        // at 8-13 m, which is 0.3-0.45 deg out of a 19 deg half-angle, i.e. under
+        // 2 % of brightness between the eyes — three orders below the masonry
+        // dissolve that this project has already ruled unshippable.
+        _Shine ("Retroreflective lobe (0 = off)", Range(0,1)) = 0
+        _ShineAxis ("Shine axis (OBJECT space, w = cos exponent)", Vector) = (0,0,1,12)
+
+        // ---- A HALO THAT ONLY EXISTS DURING A HAUNT EVENT --------------------
+        // The wood's eyeshines are an EVENT (forest card 0): they open, hold,
+        // blink and are gone. They used to be alpha-blended solids in the haunt
+        // mesh, and an alpha-blended solid is PAINT — it can never be brighter
+        // than the colour written into its vertices, which is why a 0.17 key came
+        // out as a flat grey-yellow disc. Light is ADDITIVE, so an eyeshine
+        // belongs in this shader and not in that mesh.
+        //
+        // The schedule is read through GhvrHauntPresence — the same call, on the
+        // same two authored vectors, that the moonbeam uses to dim for the thing
+        // at the window and the cobwebs use to shiver. There is no second
+        // schedule and no second envelope: EnvHaunt.cginc is included already
+        // (via EnvShelfTip.cginc), so this is one function call.
+        //   _HauntSched  (slot period s, cards in the room, this card, 1 = ON)
+        //   _HauntEnv    (reveal, hold, fade) — the card's authored envelope
+        // w = 0 (the default, and every halo that shipped before) skips the
+        // branch entirely, so their arithmetic is untouched to the bit.
+        _HauntSched ("Haunt gate (period, cards, card, on)", Vector) = (0,0,0,0)
+        _HauntEnv ("Haunt envelope (reveal, hold, fade)", Vector) = (0,0,0,0)
         // ELEMENT ART (EnvElement.cginc). A halo IS a source, so this is where
         // the Light/Dark split is most visible: Light makes every halo bigger and
         // brighter, Dark does not extinguish them but pulls them in — the falloff
@@ -121,46 +203,77 @@ Shader "GloomhavenVR/EnvGlow"
 
             fixed4 _Tint;
             float _Falloff, _Flicker, _Rate, _Phase, _Blink, _BlinkPeriod, _Away, _AwayPeriod, _ElemWarm;
-            float _ElemGate, _ElemCandle;
+            float _ElemGate, _ElemCandle, _Shine;
+            float4 _ShineAxis, _HauntSched, _HauntEnv;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
-            struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; };
-            struct v2f { float4 pos : SV_POSITION; float3 wn : TEXCOORD0; float3 wp : TEXCOORD1;
+            struct appdata { float4 vertex : POSITION; };
+            // SPHERE SPACE — the frame the falloff is solved in. Origin at the
+            // halo's centre, unit radius, axes the object's own (so a squashed
+            // halo like the window's stays squashed). `sp` is the rasterised hull
+            // point in it and `sc` the eye; `sc` is the same value at every
+            // vertex, so its interpolation is exact.
+            struct v2f { float4 pos : SV_POSITION; float3 sp : TEXCOORD0; float3 sc : TEXCOORD1;
                          // SHELF RIDERS: the flame's life, so a halo goes out with
                          // the candle it belongs to. NEGATIVE means "not riding",
                          // and it is a sentinel rather than a neutral 1 for the
                          // reason spelled out at GhvrTipLight: an interpolated
                          // constant is not the constant, and every other halo in
                          // both rooms has to stay bit-identical.
-                         float life : TEXCOORD2; };
+                         float life : TEXCOORD2;
+                         // HAUNT-GATED halos: the card's envelope, solved once in
+                         // the vertex shader. Written to a literal 1 for every
+                         // other halo and READ ONLY behind the same uniform
+                         // branch that wrote it — an interpolated constant is not
+                         // the constant, and the zero state has to be exact.
+                         float pres : TEXCOORD3; };
 
             v2f vert (appdata v)
             {
                 v2f o;
+                o.pres = 1.0;
+                // A HALO ON A HAUNT SLOT exists only while its card is running.
+                // Collapsed, not merely transparent, for the same reason the
+                // element gate collapses: an invisible sphere still costs the
+                // fill of every pixel it covers, twice, under MultiPass.
+                if (_HauntSched.w > 0.5)
+                {
+                    o.pres = GhvrHauntPresence(_Time.y + _GhvrTimeOfs,
+                                               _HauntSched.x, _HauntSched.y, _HauntSched.z,
+                                               _HauntEnv.x, _HauntEnv.y, _HauntEnv.z);
+                    if (o.pres <= 1e-4)
+                    {
+                        o.pos = float4(0, 0, 0, 1);
+                        o.sp = float3(0, 0, 2); o.sc = float3(0, 0, 4); o.life = -1;
+                        return o;
+                    }
+                }
                 // REAL FIRE: collapse a gated halo whose element is down. Not an
                 // alpha of zero — that would still cost the fill of a sphere that
                 // covers a good part of the frame from close to.
                 if (_ElemGate > 0.5 && GhvrElems().fire <= 0.0)
                 {
                     o.pos = float4(0, 0, 0, 1);
-                    o.wn = float3(0, 1, 0); o.wp = float3(0, 0, 0); o.life = -1;
+                    o.sp = float3(0, 0, 2); o.sc = float3(0, 0, 4); o.life = -1;
                     return o;
                 }
                 // SHELF RIDERS. A halo is a sphere of light around a flame, so
                 // it takes the flame's rigid transform whole — there is nothing
                 // about a sphere to bend. One uniform compare when the shelf is
                 // standing, which is always outside the event.
+                //
+                // The CENTRE takes the same transform as the hull, and that is
+                // what makes the analytic falloff below survive the topple: the
+                // sphere the fragment shader solves against is the rotated one,
+                // not the one the mesh was authored at.
                 float3 p = v.vertex.xyz;
-                float3 n = v.normal;
+                float3 cen = float3(0, 0, 0);
                 o.life = -1;
                 GhvrTip tip = GhvrTipNow(_Time.y + _GhvrTimeOfs);
                 if (tip.live > 0.5 && _TipUse.x > 0.5)
                 {
-                    p = GhvrTipRot(p, tip.pivot, tip.axis, tip.ang);
-                    // the sphere's normals turn with it: the falloff is measured
-                    // against them, and a halo whose normals stayed put would
-                    // brighten on the wrong side as it travelled
-                    n = GhvrTipRot(n, float3(0, 0, 0), tip.axis, tip.ang);
+                    p   = GhvrTipRot(p,   tip.pivot, tip.axis, tip.ang);
+                    cen = GhvrTipRot(cen, tip.pivot, tip.axis, tip.ang);
                     if (_TipUse.z > 0.5)
                     {
                         float life = GhvrTipFlameLife(tip);
@@ -168,14 +281,13 @@ Shader "GloomhavenVR/EnvGlow"
                     }
                 }
                 o.pos = UnityObjectToClipPos(float4(p, 1.0));
-                o.wn = UnityObjectToWorldNormal(n);
-                o.wp = mul(unity_ObjectToWorld, float4(p, 1.0)).xyz;
+                o.sp  = p - cen;
+                o.sc  = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0)).xyz - cen;
                 return o;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
-                float3 V = normalize(_WorldSpaceCameraPos - i.wp);
 
                 // ---- ELEMENT ART: the halo's size, colour and edge -----------
                 GhvrElem e = GhvrElems();
@@ -197,7 +309,28 @@ Shader "GloomhavenVR/EnvGlow"
                     // a fire-fed halo goes ember; nothing else recolours it
                     elemCol = lerp(_Tint.rgb, float3(1.00, 0.46, 0.14), saturate(warm * 0.85));
                 }
-                float core = pow(saturate(dot(normalize(i.wn), V)), fall);
+                // ---- THE FALLOFF, SOLVED ON THE SPHERE ITSELF ----------------
+                // dot(N,V) at the near intersection of a ray with a unit sphere
+                // is EXACTLY sqrt(1 - d^2), where d is the ray's perpendicular
+                // distance from the centre — independent of how far away the eye
+                // is, and independent of how the shell happens to be tessellated.
+                // Taking it analytically is therefore not an approximation of the
+                // old expression: it is the same expression evaluated on an
+                // infinitely fine sphere, which is the shape the shader has
+                // always claimed to be shading.
+                //
+                // WHY IT MATTERS HERE. Off the interpolated normal, a 16x8 shell
+                // has a C1 crack at every triangle edge (a Mach band along every
+                // meridian and parallel) and, worse, its limb sits INSIDE the true
+                // limb: the halo would stop at pow(sin(11.25 deg), fall) instead of
+                // at zero, which is a hard stepped rim. Both are gone by
+                // construction. The mesh's only remaining duty is to cover the
+                // true silhouette, and BuildGlowSphere's gate enforces exactly
+                // that.
+                float3 rd = i.sp - i.sc;                    // eye -> fragment
+                float  rr = max(dot(rd, rd), 1e-12);
+                float3 q  = i.sc - rd * (dot(i.sc, rd) / rr);// closest point on the ray
+                float  core = pow(sqrt(saturate(1.0 - dot(q, q))), fall);
 
                 float t = _Time.y + _GhvrTimeOfs;
                 float ft = t * _Rate;
@@ -263,6 +396,26 @@ Shader "GloomhavenVR/EnvGlow"
                     // and a halo added on top of a moonlit smoke column would be
                     // the second visual layer the composition rule forbids.
                 }
+
+                // ---- THE RETROREFLECTIVE LOBE -------------------------------
+                // `i.sc` is the eye in SPHERE SPACE, i.e. the vector from this
+                // halo's own centre to the camera — the same value at every
+                // vertex, so its interpolation is exact and the lobe is one
+                // number for the whole bead. dot() it against the authored axis
+                // and the shine only fires when the eye is near the axis the
+                // light arrives down. Nothing here moves a vertex.
+                if (_Shine > 0.001)
+                {
+                    float3 vd = normalize(i.sc);
+                    float lobe = pow(saturate(dot(vd, normalize(_ShineAxis.xyz))),
+                                     max(_ShineAxis.w, 1.0));
+                    amp *= lerp(1.0, lobe, _Shine);
+                }
+
+                // HAUNT-GATED: the card's envelope, computed in the vertex shader
+                // (which is also where a halo outside its event was collapsed, so
+                // this only ever multiplies by a value in (0,1]).
+                if (_HauntSched.w > 0.5) amp *= i.pres;
 
                 // SHELF RIDERS: untouched unless this halo belongs to a candle
                 // that has just been tipped over — see the vertex shader.

@@ -7,9 +7,11 @@
 //
 // For each Env_*.prefab (FX-only shells): loads it into an empty temp scene,
 // fast-forwards every particle system 6 s (so fog banks, fireflies and — with
-// luck — a shooting star are populated), then renders 5 views from the seated player position
-// (0, 1.4, 0): N/E/S/W at 60° FOV horizontal plus one 30°-up view. 1280x720 PNGs go
-// to $ENV_PREVIEW_OUT (or ./env-previews under the project when unset).
+// luck — a shooting star are populated), then renders the Views table below.
+// Most of it hangs off a fixed 1.4 m station; the HEAD SET at the end of the
+// table is shot from where the player's eye really is relative to the floating
+// board (2.02/1.66 m in the cellar, 2.80/2.30 m in the wood — see THE PLAYER'S
+// HEAD). 1280x720 PNGs go to $ENV_PREVIEW_OUT (or ./env-previews when unset).
 using System;
 using System.IO;
 using UnityEditor;
@@ -26,7 +28,70 @@ namespace GloomhavenVR
         // NOTE: declared BEFORE Views — C# initialises static fields in textual
         // order, so a Views table that referenced Eye from above would capture
         // (0,0,0) and render every view from inside the floor.
-        private static readonly Vector3 Eye = new Vector3(0f, 1.4f, 0f); // seated player head
+        //
+        // ---- WHAT THIS CONSTANT IS, AND WHAT IT IS NOT (ModBuild 148) --------
+        // 1.4 m is a FIXED STATION, not the player's head. It predates the
+        // board-anchored placement, and against the board's own plane it reads
+        // very differently in the two rooms:
+        //   cellar  board underside 1.08 m authored — 1.4 is 0.32 m ABOVE it
+        //   wood    board underside 1.50 m authored — 1.4 is 0.10 m BELOW it,
+        //           i.e. every forest frame in the review set is shot from under
+        //           the table, and no judgement about what the board looks like
+        //           from the player's seat can be made from one.
+        // It is NOT moved, and that is deliberate: fifty views hang off it and
+        // moving it would silently invalidate every frame previous lanes have
+        // already reasoned from. What is added instead is the head heights the
+        // player really has (HeadY below) and a small set of views shot from
+        // them — see THE HEAD SET at the end of the Views table.
+        private static readonly Vector3 Eye = new Vector3(0f, 1.4f, 0f); // fixed 1.4 m station
+
+        // ---- THE PLAYER'S HEAD, DERIVED FROM THE BOARD ----------------------
+        // src/GloomhavenVR/Core/SkyAlternative.cs anchors the room to the board:
+        //     roomScale = (PlaySpaceToBoardRatio * boardWorldExtent) / authoredPlayExtent
+        //     floorY    = boardUndersideY - FloatGapToBoardRatio * boardWorldExtent
+        // so in AUTHORED metres the board's underside is always
+        //     FloatGapToBoardRatio * playDia / PlaySpaceToBoardRatio
+        // (1.50 m in the wood, 1.08 m in the cellar — the same expression
+        // EnvRoomBuilder.BoardUndersideY evaluates), and one authored metre is
+        // (playDia / PlaySpaceToBoardRatio) / boardWidth of a board width.
+        //
+        // The head follows from the SAME ratio and is therefore zoom-invariant
+        // like everything else in this placement: if the player's eye is `u`
+        // BOARD WIDTHS above the board's underside, then in authored metres
+        //     eyeY = (FloatGapToBoardRatio + u) * playDia / PlaySpaceToBoardRatio.
+        // Nothing here depends on how big the board happens to be measured, which
+        // is the property that makes it safe to write down as a constant at all.
+        //
+        // u IS AN ASSUMPTION AND IS WRITTEN AS ONE. A board floating like a
+        // tabletop puts its underside somewhere around 0.75-0.95 m over the real
+        // floor and is 1.0-1.4 m across, against a 1.55-1.70 m standing eye and a
+        // 1.15-1.30 m seated one — i.e. u lands in 0.43..0.95 standing and around
+        // 0.4 seated. The middles of those are what is used; change these two
+        // numbers and every head view moves together, which is the point of
+        // spending a function on it.
+        private const float PlaySpaceToBoardRatio = 4.5f;   // SkyAlternative.cs
+        private const float FloatGapToBoardRatio = 0.75f;   // SkyAlternative.cs
+        private const float StandOverBoard = 0.65f;         // board widths, standing
+        private const float SeatOverBoard = 0.40f;          // board widths, seated
+        private static float HeadY(float playDia, float overBoard) =>
+            (FloatGapToBoardRatio + overBoard) * (playDia / PlaySpaceToBoardRatio);
+        private static readonly float HeadCellar =
+            HeadY(EnvRoomBuilder.CellarPlaySpaceDia, StandOverBoard);   // 2.02 m
+        private static readonly float SeatCellar =
+            HeadY(EnvRoomBuilder.CellarPlaySpaceDia, SeatOverBoard);    // 1.66 m
+        private static readonly float HeadForest =
+            HeadY(EnvRoomBuilder.ForestPlaySpaceDia, StandOverBoard);   // 2.80 m
+        private static readonly float SeatForest =
+            HeadY(EnvRoomBuilder.ForestPlaySpaceDia, SeatOverBoard);    // 2.30 m
+        // ...and where he stands: at the board's edge with a little standoff, so
+        // the down-view has the board's footprint in front of him rather than
+        // under his chin. 1.20 m in the cellar and 1.70 m in the wood are 0.83
+        // and 0.85 board widths from the centre against a worst board corner at
+        // 0.71 — i.e. just outside the board, which is where a player reaching
+        // it stands.
+        private const float StandOffCellar = 1.20f;
+        private const float StandOffForest = 1.70f;
+        private const float Diag = 0.70710678f;
 
         // The mandatory self-review set. 4 yaws at seated eye height, the most
         // detailed corner of each room, two upward views (canopy / zenith), a
@@ -111,11 +176,29 @@ namespace GloomhavenVR
             // ...and one at standing height, which is the distance and angle the
             // entry is really met at: a hole in a skirting seen from 1.3 m.
             ("RatHoleSWide", new Vector3(-1.00f, 1.30f, -2.20f), new Vector3(29, 179, 0), false, 45f),
-            // ...and the ONE new one: the door of light at the top of the stair.
-            // Both from inside the room, because that is the only place it can be
-            // seen from — the shaft's own walls crop it to the doorway.
-            ("HauntDoor", new Vector3(-2.20f, 1.40f, 2.45f), new Vector3(4, 271, 0), false, 50f),
-            ("HauntDoorOff", new Vector3(-1.60f, 1.45f, 4.10f), new Vector3(3, 244, 0), false, 50f),
+            // ...and the two that watch the MOON POOL.
+            //
+            // THE NAMES ARE STALE AND ARE KEPT ON PURPOSE. HauntDoor/HauntDoorOff
+            // were framed on "the door of light at the top of the stair" — a dim
+            // warm rectangle at the far end of the stair shaft. That rectangle was
+            // DELETED (user, ModBuild 148: "Bei 'Gesicht am Boden' dem Effekt im
+            // Keller leuchtet einfach nur der Ausgang einfarbig. Lösch das") and
+            // card 2 now holds the SWELL: the water at the far edge of the moon
+            // pool lifts, holds and sinks, at (-3.92, 0, 2.58). The old stations
+            // looked 4 degrees ABOVE the horizon down a 6 m shaft, so since that
+            // swap they have photographed an empty doorway — a frame that is
+            // indistinguishable from a regression, which is what this lane was
+            // asked to fix. RENAMING them would break every previous lane's
+            // evidence trail (the files are compared by name across render sets),
+            // so the aim moves and the name does not.
+            //
+            // Both look DOWN at the water from the two postures that exist in this
+            // room: 1.55 m across the pool, and a low raking one from the far side
+            // where the moonbeam's own landing point is behind the swell — a mass
+            // rising at the edge of the one lit patch, which is the composition the
+            // card was authored for.
+            ("HauntDoor", new Vector3(-1.95f, 1.55f, 1.55f), new Vector3(35, 298, 0), false, 46f),
+            ("HauntDoorOff", new Vector3(-3.30f, 0.60f, 0.55f), new Vector3(16, 343, 0), false, 44f),
             // (EIGHTEEN HAUNT VIEWS WERE DELETED HERE, ModBuild 146. Every one of
             // them was aimed at an imported apparition FIGURE — the bust at the
             // window and its shadow, the head on the flagstones, the strider in the
@@ -258,8 +341,35 @@ namespace GloomhavenVR
             // caught all seven of them. A "*Off" view is the same event from 35-60
             // degrees round, and if a picture still looks like a picture there,
             // the fix did not work.
-            // the prints moved down to 0.85 m, so this looks DOWN at the wall
-            ("HauntHands", new Vector3(-3.20f, 1.40f, 1.30f), new Vector3(12, 272, 0), false, 45f),
+            // ---- THE HANDPRINTS, five frames ---------------------------------
+            // Rebuilt this round with the marks themselves: three LIFE-SIZE prints
+            // on the west wall at z 1.36 / 0.94 / 0.50, y 1.34 / 1.08 / 0.80. The
+            // old station framed a 1.24 m card at 0.85 m and is 1.7 m off the new
+            // group's centre.
+            //
+            // The close read: the whole group, square on, from 1.66 m.
+            ("HauntHands", new Vector3(-3.55f, 1.32f, 0.84f), new Vector3(4, 270, 0), false, 34f),
+            // THE GRAZING FRAME, and it is the one that answers "es schwebt über
+            // den Mauern". The camera is 0.25 m off the wall looking ALONG it, so
+            // the sightline meets the stone at 5 degrees: at that angle a mark
+            // standing 30 mm proud shows 0.34 m of parallax against the stone
+            // behind it, and one lying 2 mm off it shows 23 mm. If the fix did not
+            // work, this is the frame it fails in.
+            ("HauntHandsGraze", new Vector3(-5.00f, 1.25f, 2.10f), new Vector3(6, 186, 0), false, 40f),
+            // SCALE, with a known reference IN FRAME: the stair opening is 1.6 m
+            // wide and 2.35 m tall and is cut out of this same wall, so a frame
+            // holding both it and the prints settles "are these life size?"
+            // without a single number. (It is also the frame fault (d) is visible
+            // in: the card this replaces spanned z 0.68..1.92 and the opening
+            // starts at 1.66.)
+            ("HauntHandsWide", new Vector3(-1.60f, 1.55f, 1.20f), new Vector3(5, 278, 0), false, 28f),
+            // ...from the player's real EYE HEIGHT, standing at the middle of the
+            // room: 5.4 m away, which is how far the west wall actually is.
+            ("HauntHandsHead", new Vector3(0f, HeadCellar, 0f), new Vector3(9, 279, 0), false, 40f),
+            // ...and from the DIORAMA posture, at the board's east edge looking
+            // down and across. If the prints cannot be found from here they are
+            // not in the game most of the time.
+            ("HauntHandsBoard", new Vector3(2.30f, 1.95f, 0.30f), new Vector3(6, 274, 0), false, 30f),
             // ...and the head on the floor is at the edge of the moon pool now
             // THE BOOKSHELF GOING OVER. Two viewpoints and, unlike everything else
             // here, four PHASES rather than three, because the event is a
@@ -374,6 +484,32 @@ namespace GloomhavenVR
             // burning spill is the widest, flattest fire in either room and is the
             // one that would show a stroke first if the fade were wrong.
             ("FireSpillGraze", new Vector3(-1.55f, 0.34f, -2.55f), new Vector3(2, 226, 0), false, 42f),
+            // ================== THE HEAD SET — ModBuild 148 ====================
+            // Every view above is shot from the 1.4 m station or lower. In the
+            // WOOD that is 10 cm UNDER the board's own underside plane, so no
+            // frame this harness has ever produced shows the room from where the
+            // player's eye is, and "is the board still readable / does the art
+            // intrude on it" has been judged from beneath the table for as long
+            // as the board-anchored placement has existed. See THE PLAYER'S HEAD
+            // above for the derivation; the numbers are 2.02/1.66 m in the cellar
+            // and 2.80/2.30 m in the wood, standing and seated.
+            //
+            // NOTHING ABOVE MOVED. These are additions, so every previous lane's
+            // frame is still reproducible pixel for pixel.
+            //
+            // Two per room across the room (the yaws of FireRoom and FireWood, so
+            // each has a same-aim 1.4 m twin to be read against), and one per room
+            // looking DOWN at the board's footprint from the board's edge — the
+            // only frame in which an intrusion into the sightline to a figure can
+            // be seen at all.
+            ("HeadC", new Vector3(0f, HeadCellar, 0f), new Vector3(4, 232, 0), false, 75f),
+            ("HeadSeatC", new Vector3(0f, SeatCellar, 0f), new Vector3(4, 232, 0), false, 75f),
+            ("HeadBoardC", new Vector3(StandOffCellar * Diag, HeadCellar, StandOffCellar * Diag),
+                           new Vector3(29, 225, 0), false, 60f),
+            ("HeadS", new Vector3(0f, HeadForest, 0f), new Vector3(2, 250, 0), false, 78f),
+            ("HeadSeatS", new Vector3(0f, SeatForest, 0f), new Vector3(2, 250, 0), false, 78f),
+            ("HeadBoardS", new Vector3(StandOffForest * Diag, HeadForest, StandOffForest * Diag),
+                           new Vector3(28, 225, 0), false, 60f),
         };
 
         // ================================================================ HAUNT
@@ -435,8 +571,23 @@ namespace GloomhavenVR
         // ones (cellar 0 Window, 1 Hands, 2 Tremble, 3 Stair, 4 Shelf).
         private static readonly (string view, int card, Vector3 env)[] CellarHaunts =
         {
-            ("HauntHands", 1, new Vector3(2.8f, 2.2f, 3.0f)),
-            // the NEW one: light at the top of the stair, seen from the room
+            // THE HANDPRINTS. 0.10 + 5.10 + 2.80, and the reveal is 0.10 because a
+            // hand hitting a wall is instantaneous — the 2.8 s bloom it replaces is
+            // the grammar of a photograph developing, which is the register the
+            // user called "kein echter Horror". The three marks carry three
+            // different RISE RATES off this same start (0.10 / 0.55 / 1.10) and
+            // all three sum to 8.00 s, so `phase` is common and this one triple
+            // solves the clock for all of them. The 0.25 phase therefore lands at
+            // t = 2.0 s, by which time all three are up: the ORDER is only visible
+            // in the first second, which no fixed phase can photograph, so it is
+            // argued from the envelope in the builder rather than claimed here.
+            ("HauntHands", 1, new Vector3(0.10f, 5.10f, 2.80f)),
+            ("HauntHandsGraze", 1, new Vector3(0.10f, 5.10f, 2.80f)),
+            ("HauntHandsWide", 1, new Vector3(0.10f, 5.10f, 2.80f)),
+            ("HauntHandsHead", 1, new Vector3(0.10f, 5.10f, 2.80f)),
+            ("HauntHandsBoard", 1, new Vector3(0.10f, 5.10f, 2.80f)),
+            // card 2 is the SWELL in the moon pool (the name of the view is stale
+            // and deliberately kept — see the station list)
             ("HauntDoor", 2, new Vector3(2.2f, 3.0f, 1.6f)),
             ("HauntDoorOff", 2, new Vector3(2.2f, 3.0f, 1.6f)),
             ("HauntWeb", 3, new Vector3(0.0f, 1.1f, 0.9f)),
@@ -446,6 +597,15 @@ namespace GloomhavenVR
             ("HauntWideC", 5, new Vector3(0.001f, 26f, 0.001f)),
             // ...and the shelf from the BOARD, which is where a player meets it
             ("HauntFarC", 5, new Vector3(0.001f, 26f, 0.001f)),
+            // THE PLAYER'S OWN EYE, during an event. Every other frame in this
+            // series is shot from 1.4 m or lower — i.e. from under the table — so
+            // "does an easter egg intrude on the board" has never once been judged
+            // from where the head is. These two reuse the ModBuild 148 head
+            // stations unchanged (nothing is renamed or moved, so every previous
+            // lane's evidence is still reproducible) on the biggest event in the
+            // room.
+            ("HeadC", 5, new Vector3(0.001f, 26f, 0.001f)),
+            ("HeadBoardC", 5, new Vector3(0.001f, 26f, 0.001f)),
         };
 
         // The wood draws exactly ONE haunt now — the pair of eyeshines. Its other
@@ -454,6 +614,10 @@ namespace GloomhavenVR
         private static readonly (string view, int card, Vector3 env)[] ForestHaunts =
         {
             ("HauntEyes", 0, new Vector3(1.6f, 3.0f, 0.8f)),
+            // ...and the same event from the player's real eye height, standing
+            // and at the board. See the cellar's note.
+            ("HeadS", 0, new Vector3(1.6f, 3.0f, 0.8f)),
+            ("HeadBoardS", 0, new Vector3(1.6f, 3.0f, 0.8f)),
         };
 
         // THE ELEMENT COMPENSATION, which is a requirement and therefore has to be
@@ -573,11 +737,19 @@ namespace GloomhavenVR
         private static readonly string[] CellarElementViews =
         { "Corner", "DarkCornerSW", "Puddle", "Window", "S", "IceClose", "IceTop", "BeamSide",
           "FireCrate", "FireCrateLow", "FireSpill", "FireSpillLow", "FireShelf", "FireShelfLow",
-          "FireRoom", "FireSpillGraze" };
+          "FireRoom", "FireSpillGraze",
+          // ...and the room under Fire from the head the player actually has
+          // (THE HEAD SET): the fires are peripheral by design, and whether that
+          // reads is a property of the eye height it is judged from.
+          "HeadC", "HeadBoardC" };
         private static readonly string[] ForestElementViews =
         { "TreeLine", "FloorToMoon", "Fireflies", "SkyBand", "N", "ShaftMoon",
           "FireSnag", "FireSnagWide", "FireLog", "FireBrush", "FireWood",
-          "FireLogGraze", "FireLogGrazeB", "FireSnagGraze", "FireSnagGrazeLow" };
+          "FireLogGraze", "FireLogGrazeB", "FireSnagGraze", "FireSnagGrazeLow",
+          // ...and the wood under Fire from the head the player actually has
+          // (THE HEAD SET). This is the room whose 1.4 m station is BELOW the
+          // board, so it is the one where the difference is structural.
+          "HeadS", "HeadBoardS" };
 
         // The animated things only exist in motion, so the review set below is
         // ALSO rendered at these offsets of the shared shader clock

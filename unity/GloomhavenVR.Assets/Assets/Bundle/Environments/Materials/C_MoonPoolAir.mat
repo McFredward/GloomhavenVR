@@ -28,6 +28,7 @@ Material:
     m_Floats:
     - _ElemAlpha: 0
     - _ElemGain: 0
+    - _ElemMoon: 1
     - _ElemSpark: 0
     - _ElemTintAmt: 0
     m_Colors:

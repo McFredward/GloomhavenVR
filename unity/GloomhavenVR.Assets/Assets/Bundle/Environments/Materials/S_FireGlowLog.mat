@@ -29,12 +29,16 @@ Material:
     - _ElemCandle: 0
     - _ElemGate: 1
     - _ElemWarm: 1
-    - _Falloff: 1.7
+    - _Falloff: 3
     - _Flicker: 0.85
     - _Phase: 1.9
     - _Rate: 0.828
+    - _Shine: 0
     m_Colors:
-    - _Tint: {r: 1, g: 0.45, b: 0.15, a: 0.14}
+    - _HauntEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _HauntSched: {r: 0, g: 0, b: 0, a: 0}
+    - _ShineAxis: {r: 0, g: 0, b: 1, a: 12}
+    - _Tint: {r: 1, g: 0.45, b: 0.15, a: 0.035}
     - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
     - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
     - _TipPivot: {r: 0, g: 0, b: 0, a: 0}

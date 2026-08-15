@@ -485,7 +485,7 @@ namespace GloomhavenVR
         /// <summary>Tile indices in Env_Haunt.png. EnvHaunt.shader is handed one
         /// of these per card in TEXCOORD1.w, and BuildEnvironmentRooms names them
         /// in its catalogues — so this is the one place the numbering lives.</summary>
-        // HAUNT SOLID, ModBuild 144 — ONLY HTileHands IS STILL DRAWN. The user's
+        // HAUNT SOLID, ModBuild 144 — ONLY THE HANDPRINT TILES ARE STILL DRAWN. The user's
         // verdict ("generell keine 2D Pappaufsteller") moved every apparition onto
         // real geometry (haunt_figures_pipeline.py, EnvHaunt.shader), and a
         // CPU-rendered likeness on a quad is exactly the thing that had to go. What
@@ -508,8 +508,15 @@ namespace GloomhavenVR
         public const int HTileTallFig = 5;      // crossing; its head is above the card
         public const int HTileHang = 6;         // hung by the feet, head down
         public const int HTileLoom = 7;         // a featureless mass, occlusion only
-        public const int HTileHands = 8;        // three prints, one per tile third
+        // 8, 10 and 11 — ONE HANDPRINT EACH, photo-derived. See HandMarks and
+        // HauntHandTiles. Tiles 10..15 were empty, which is what made the fix to
+        // "sie sind keine wirklichen Hände" free: three prints that used to share
+        // one 256 tile (and therefore one 1.24 m card) get a tile apiece, and with
+        // it a 0.9-1.5 mm texel instead of a 3.9 mm one.
+        public const int HTileHandContact = 8;  // the first contact, with its drips
         public const int HTileEye = 9;          // ONE eye; the shader places two
+        public const int HTileHandChild = 10;   // a CHILD's hand among the adults'
+        public const int HTileHandSmear = 11;   // the one that slid
 
         // ---------------------------------------------------------- tiny kit
         // A tile is four float planes of HauntTile^2. Index [iy * T + ix] with
@@ -1054,69 +1061,296 @@ namespace GloomhavenVR
             return new HauntTileData { key = litK, rim = HRimBand(cov, seed), fill = litF, cov = cov };
         }
 
-        /// <summary>THE HANDPRINTS. Three, in the tile's three vertical thirds, so
-        /// that the shader can bloom them one at a time with a floor() and needs
-        /// no extra channel to know the order.
+        // ====================================================== THE HANDPRINTS
+        // USER, wave 2, verbatim: "Sie sind keine wirklichen Hände / es schwebt
+        // über den Mauern / es ist kackbraun statt blutig / die Position ist
+        // nicht gut, da ein Teil davon über dem Eingang schwebt wo gar keine
+        // Mauer ist. Nutze hier irgendwelche Texturen aus dem Internet die
+        // tatsächlich Horror verursachen könnten."
+        //
+        // WHAT WAS HERE. A signed-distance handprint generator: a capsule for the
+        // palm, n capsules radiating for the fingers, one for the thumb, all
+        // min-unioned and smoothed. That grammar can only ever produce A MITTEN
+        // WITH SAUSAGES, and it is the exact structural failure this file's own
+        // header already diagnosed for the SDF faces — "a silhouette with
+        // features drawn on it is exactly the grammar of a pictogram". The prints
+        // were the one card that never got the fix. They also came out at 0.41 x
+        // 1.09 m each on a 1.24 m card, i.e. 5.5x LIFE SIZE, which in VR — where
+        // the player has his own hands in the frame — no texture survives.
+        //
+        // WHAT REPLACES IT. Three real photographed prints, keyed out of a CC0
+        // photograph by handprint_atlas_pipeline.py (see there for the licence
+        // trail, the channel algebra and every step's reason; the licence itself
+        // is quoted verbatim in Environments/License.md). They carry what the
+        // capsules could not fake: MISSING PALM ARCHES, DETACHED THUMBS, FINGERS
+        // BROKEN INTO PAD SEGMENTS, real gravity drips, and four distinct hands.
+        //
+        // ONE PRINT PER TILE, at LIFE SIZE (190 mm adult, 132 mm child), each on
+        // its own small card. That is what buys back the resolution: 0.9-1.5 mm
+        // per texel instead of 3.9, so a pad gap is 5 texels instead of one.
+        //
+        // The derived PNG is a BAKE-TIME INPUT ONLY. It is decoded from its own
+        // bytes (ImageConversion) exactly as the vegetation lane decodes the twig
+        // atlas and the floor lane the flagstones — never by flipping isReadable
+        // on the imported asset, which would keep a CPU copy alive in the bundle
+        // for a build-time question. Its importer is deliberately set to a tiny
+        // maxTextureSize: nothing at runtime samples it, and the pixels the bake
+        // needs come from the file, not from the import. DO NOT "fix" that.
+
+        /// <summary>Where one photographed print lands on the cellar's west wall,
+        /// and how big its card is. THIS IS THE ONE PLACE THE PLACEMENT LIVES:
+        /// the atlas needs it (to mask the print out of the masonry's mortar
+        /// grooves, which needs the wall UV) and EnvRoomBuilder needs it (to build
+        /// the quad). Two copies of these numbers would be two chances to drift.
         ///
-        /// <para>They are NOT three copies of one print: the left one is DRAGGED
-        /// downward into a smear, the middle one has SIX fingers, and the right
-        /// one is small and half outside the card. A neat row of identical prints
-        /// is a stencil; a set where one is wrong is a set somebody made.</para></summary>
-        private static HauntTileData HauntHands(int seed = 31)
+        /// <para>z is room-space z of the card centre, y its height. The wall runs
+        /// -4.5..+4.5 in z and the STAIR DOORWAY is cut out of it; the clearance
+        /// against that opening is asserted in EnvRoomBuilder, where the hole's
+        /// snapped rect lives.</para></summary>
+        public struct HandMark
+        {
+            public string name;
+            public int tile;
+            public float side;   // the card is `side` x `side` metres
+            public float z, y;   // room-space centre, on the west wall
+            public string why;
+        }
+
+        // THE STORY THE ARRANGEMENT TELLS, since the shader cannot tell it in
+        // time (see EnvRoomBuilder's "Hands" card for the proof that a delayed
+        // onset is not reachable): three prints DESCENDING along the wall, 0.42
+        // and 0.44 m apart, the last one a SMEAR whose drag trails back the way
+        // the body came. That is a body going along this wall and down it. The
+        // middle print is a CHILD'S — an anomaly of SCALE, which works
+        // pre-attentively, and it replaces the old middle print's SIX FINGERS.
+        // A wrongness the player has to count is a joke, not a fright.
+        public static readonly HandMark[] HandMarks =
+        {
+            new HandMark
+            {
+                name = "contact", tile = HTileHandContact, side = 0.340f,
+                z = 1.26f, y = 1.46f,
+                why = "first contact at 1.46 m, nearest the stair doorway — the height a "
+                      + "standing adult braces at, and its drips have run furthest",
+            },
+            new HandMark
+            {
+                name = "child", tile = HTileHandChild, side = 0.220f,
+                z = 0.84f, y = 1.22f,
+                why = "0.42 m along and 0.24 m lower — and it is a CHILD'S hand, "
+                      + "132 mm, between two adult ones",
+            },
+            new HandMark
+            {
+                name = "smear", tile = HTileHandSmear, side = 0.380f,
+                z = 0.42f, y = 0.94f,
+                why = "0.42 m further and 0.28 m lower, and it SLID: the drag "
+                      + "trails back toward +z, the way the body came",
+            },
+        };
+
+        // The cellar west wall's texture mapping, MIRRORED from EnvRoomBuilder
+        // (WallMesh's uv = ((x + uOff) / uvScale, y / uvScale), the wall placed at
+        // z = -CD/2 running +z). EnvRoomBuilder asserts these three against its
+        // own constants, so the mirror cannot drift silently.
+        public const float WallUvScale = 3.3f;
+        public const float WallWUOff = 0.73f;
+        public const float CellarHalfDepth = 4.5f;
+
+        // How much of the print the mortar grooves eat. A hand pressed to a block
+        // wall marks the FACES and skips the recesses; that one multiply is what
+        // makes it look pressed INTO the stone rather than laid over it.
+        private const float MortarKeep = 0.12f;   // alpha left in the deepest joint
+        private const int MortarN = 512;          // 6.4 mm per texel over the 3.3 m tile
+
+        /// <summary>The masonry's own cavity field, from medieval_blocks_05's
+        /// albedo. Same detector as EnvRoomBuilder.CellarJointMask (a wrapping
+        /// high pass, thresholded by PERCENTILE so it cannot be thrown off by the
+        /// exposure of whatever texture a future round swaps in) — but returned
+        /// as a continuous 0..1 depth rather than a boolean, because a print does
+        /// not stop dead at a joint edge.</summary>
+        private static float[] _mortar;
+
+        private static float[] MortarCavity()
+        {
+            if (_mortar != null) return _mortar;
+            string path = Root + "/Imported/Textures/medieval_blocks_05_alb.jpg";
+            if (!File.Exists(path))
+                throw new Exception($"{path} is missing — the handprints are masked out of "
+                                    + "THIS masonry's mortar grooves, so without it they would "
+                                    + "have to lie over the joints, which is the 'sticker' look "
+                                    + "this pass exists to remove.");
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!tex.LoadImage(File.ReadAllBytes(path)))
+                throw new Exception($"Could not decode {path} for the mortar cavity field.");
+            int w = tex.width, h = tex.height;
+            var src = tex.GetPixels32();
+            var lum = new float[MortarN * MortarN];
+            var cnt = new float[MortarN * MortarN];
+            for (int y = 0; y < h; y++)
+            {
+                int jy = y * MortarN / h;
+                for (int x = 0; x < w; x++)
+                {
+                    var c = src[y * w + x];
+                    int k = jy * MortarN + x * MortarN / w;
+                    lum[k] += (0.299f * c.r + 0.587f * c.g + 0.114f * c.b) / 255f;
+                    cnt[k] += 1f;
+                }
+            }
+            for (int i = 0; i < lum.Length; i++) lum[i] /= Mathf.Max(cnt[i], 1f);
+            UnityEngine.Object.DestroyImmediate(tex);
+
+            // wrapping separable box blur over ~13 cm — wider than a joint, far
+            // narrower than a block, so what survives the subtraction IS the joint
+            const int R = 20;
+            var tmp = new float[lum.Length];
+            var blur = new float[lum.Length];
+            for (int j = 0; j < MortarN; j++)
+                for (int i = 0; i < MortarN; i++)
+                {
+                    float s = 0f;
+                    for (int k = -R; k <= R; k++)
+                        s += lum[j * MortarN + ((i + k) % MortarN + MortarN) % MortarN];
+                    tmp[j * MortarN + i] = s / (2 * R + 1);
+                }
+            for (int j = 0; j < MortarN; j++)
+                for (int i = 0; i < MortarN; i++)
+                {
+                    float s = 0f;
+                    for (int k = -R; k <= R; k++)
+                        s += tmp[(((j + k) % MortarN + MortarN) % MortarN) * MortarN + i];
+                    blur[j * MortarN + i] = s / (2 * R + 1);
+                }
+            var dark = new float[lum.Length];
+            for (int i = 0; i < lum.Length; i++) dark[i] = blur[i] - lum[i];
+            var sorted = (float[])dark.Clone();
+            Array.Sort(sorted);
+            // the 78th and 96th percentiles of "how far below its own
+            // neighbourhood" — between them the joint fades in
+            float lo = sorted[(int)(sorted.Length * 0.78f)];
+            float hi = sorted[(int)(sorted.Length * 0.96f)];
+            if (hi - lo < 1e-4f)
+                throw new Exception("medieval_blocks_05 has no mortar contrast at all "
+                                    + $"(p78 {lo:F5}, p96 {hi:F5}) — the cavity detector would "
+                                    + "return noise and the prints would be masked at random.");
+            var cav = new float[lum.Length];
+            float sum = 0f;
+            for (int i = 0; i < cav.Length; i++)
+            {
+                cav[i] = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(lo, hi, dark[i]));
+                sum += cav[i];
+            }
+            Debug.Log($"[GloomhavenVR][Env] HANDPRINT mortar mask: medieval_blocks_05_alb {w}x{h} "
+                      + $"-> {MortarN}^2 cavity field over {WallUvScale:F1} m "
+                      + $"({WallUvScale / MortarN * 1000f:F1} mm/texel); mean cavity {sum / cav.Length:F3}, "
+                      + $"joint band {lo:F4}..{hi:F4} of local darkening.");
+            _mortar = cav;
+            return _mortar;
+        }
+
+        /// <summary>Read the derived print tiles and turn each into a
+        /// HauntTileData, masked out of the masonry's mortar grooves.
+        ///
+        /// <para>THE CHANNELS ARE NOT WHAT THE OTHER TILES PUT IN THEM, and they
+        /// cannot be: EnvHaunt's decal path composes `col = COLOR * T.r +
+        /// _Fill * T.b`, and that shader belongs to another lane this round. So
+        /// the two weights are solved in the pipeline against a THICKNESS RAMP
+        /// (thin edge bright red, bulk near-black, drip head black) and the two
+        /// basis colours are set on the card and on the material. R and B here
+        /// are therefore ramp WEIGHTS, not values; G is the wet specular mask
+        /// the shader adds as a rim; A is coverage.</para></summary>
+        private static HauntTileData[] HauntHandTiles()
         {
             int T = HauntTile;
-            var cov = new float[T * T];
-            var lit = new float[T * T];
-            // cx, cy, scale, rotation, fingers, smear, sub-seed
-            var specs = new[]
+            string path = Root + "/Imported/Textures/handprints_alb.png";
+            if (!File.Exists(path))
+                throw new Exception($"{path} is missing. It is derived from a CC0 photograph by "
+                                    + "Assets/Editor/handprint_atlas_pipeline.py (which downloads its own "
+                                    + "source; the photograph is never committed). Without it the "
+                                    + "handprints would fall back to nothing at all.");
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!tex.LoadImage(File.ReadAllBytes(path)))
+                throw new Exception($"Could not decode {path}.");
+            int w = tex.width, h = tex.height;
+            if (h != T || w != T * HandMarks.Length)
+                throw new Exception($"{path} is {w}x{h}; the bake wants {T * HandMarks.Length}x{T} "
+                                    + $"({HandMarks.Length} tiles of {T}). Re-run "
+                                    + "handprint_atlas_pipeline.py.");
+            // GetPixels32 index 0 is BOTTOM-left (Unity flips the PNG's rows on
+            // decode), which is the same convention every HauntPlane in this file
+            // uses — so a row copied straight across keeps the print upright.
+            var src = tex.GetPixels32();
+            UnityEngine.Object.DestroyImmediate(tex);
+
+            var cav = MortarCavity();
+            var outTiles = new HauntTileData[HandMarks.Length];
+            float allTotal = 0f, allEaten = 0f;
+            for (int m = 0; m < HandMarks.Length; m++)
             {
-                new [] { -0.635f, -0.12f, 0.62f, -0.30f, 5f, 0.55f, 3f },
-                new [] {  0.005f,  0.18f, 0.70f,  0.16f, 6f, 0.00f, 9f },
-                new [] {  0.660f, -0.30f, 0.58f,  0.52f, 4f, 0.00f, 15f },
-            };
-            foreach (var sp in specs)
-            {
-                float cx = sp[0], cy = sp[1], sc = sp[2], rot = sp[3];
-                int nf = (int)sp[4]; float smear = sp[5]; int sd = (int)sp[6];
-                float cr = Mathf.Cos(rot), sr = Mathf.Sin(rot);
+                var mark = HandMarks[m];
+                var key = new float[T * T];
+                var rim = new float[T * T];
+                var fill = new float[T * T];
+                var cov = new float[T * T];
+                float eaten = 0f, total = 0f;
                 for (int iy = 0; iy < T; iy++)
                     for (int ix = 0; ix < T; ix++)
                     {
+                        var c = src[iy * w + m * T + ix];
+                        float a = c.a / 255f;
+                        // where this texel lands on the wall, and therefore on the
+                        // masonry's own texture
+                        float z = mark.z + ((ix + 0.5f) / T - 0.5f) * mark.side;
+                        float y = mark.y + ((iy + 0.5f) / T - 0.5f) * mark.side;
+                        float u = (z + CellarHalfDepth + WallWUOff) / WallUvScale;
+                        float v = y / WallUvScale;
+                        int cx = Mathf.FloorToInt(u * MortarN);
+                        int cy = Mathf.FloorToInt(v * MortarN);
+                        cx = ((cx % MortarN) + MortarN) % MortarN;
+                        cy = ((cy % MortarN) + MortarN) % MortarN;
+                        float keep = Mathf.Lerp(1f, MortarKeep, cav[cy * MortarN + cx]);
+                        total += a;
+                        eaten += a * (1f - keep);
                         int i = iy * T + ix;
-                        float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
-                        float qx = (x - cx) / sc, qy = (y - cy) / sc;
-                        float px = qx * cr - qy * sr, py = qx * sr + qy * cr;
-                        py += smear * Mathf.Pow(Mathf.Max(-py, 0f), 1.4f) * 1.2f;
-                        float d = HSegDist(px, py, 0f, -0.30f, 0f, 0.14f, out _) - 0.30f;  // palm pad
-                        for (int f = 0; f < nf; f++)
-                        {
-                            float a = (f - (nf - 1) * 0.5f) * 0.40f + 0.06f * Mathf.Sin(sd + f);
-                            float L = 0.62f + 0.16f * Mathf.Sin(sd * 1.7f + f * 2.1f);
-                            float dd = HSegDist(px, py, Mathf.Sin(a) * 0.12f, 0.02f,
-                                                Mathf.Sin(a) * L, 0.10f + Mathf.Cos(a) * L, out float t);
-                            d = Mathf.Min(d, dd - (0.12f - 0.055f * t));
-                        }
-                        float dt = HSegDist(px, py, -0.22f, -0.14f, -0.62f, 0.16f, out float tt);
-                        d = Mathf.Min(d, dt - (0.13f - 0.05f * tt));
-                        float n = HFbm(px * 5f + sd, py * 5f, 4, seed + sd) - 0.5f;
-                        float m = HSStep(0.02f, -0.03f, d + 0.10f * n);
-                        // a print is grease and damp, not paint: eaten through by
-                        // the stone it is on
-                        m *= 0.35f + 0.95f * HFbm(px * 9f, py * 9f + 2f, 4, seed + sd + 3);
-                        m = Mathf.Clamp01(m);
-                        cov[i] = Mathf.Max(cov[i], m * 0.92f);
-                        lit[i] = Mathf.Max(lit[i], m * (0.45f + 0.55f * HFbm(px * 14f, py * 14f, 3, seed + sd + 7)));
+                        cov[i] = a * keep;
+                        key[i] = c.r / 255f;
+                        rim[i] = c.g / 255f;
+                        fill[i] = c.b / 255f;
                     }
+                outTiles[m] = new HauntTileData { key = key, rim = rim, fill = fill, cov = cov };
+                if (total < 400f)
+                    throw new Exception($"handprint '{mark.name}' has {total:F0} texels of coverage — "
+                                        + "the tile is empty.");
+                float frac = eaten / total;
+                allTotal += total; allEaten += eaten;
+                // NOT A PER-MARK GATE. A 220 mm print can honestly land wholly on
+                // one block face — medieval_blocks_05's stones are much bigger
+                // than that at 3.3 m per tile — so "this one mark met no joint" is
+                // a legitimate outcome and only the AGGREGATE says whether the
+                // cavity field is aligned with the wall at all. What IS a per-mark
+                // error is a mark that has been eaten alive.
+                if (frac > 0.55f)
+                    throw new Exception($"handprint '{mark.name}': the mortar grooves eat {frac * 100f:F1}% "
+                                        + "of it — the print is sitting in a joint and there is nothing "
+                                        + "left of it.");
+                Debug.Log($"[GloomhavenVR][Env] HANDPRINT '{mark.name}' -> atlas tile {mark.tile}: "
+                          + $"{mark.side * 1000f:F0} mm card ({mark.side / T * 1000f:F2} mm/texel), "
+                          + $"coverage {total / (T * T) * 100f:F2}% of the tile, mortar takes "
+                          + $"{frac * 100f:F1}% of it — {mark.why}.");
             }
-            for (int iy = 0; iy < T; iy++)
-                for (int ix = 0; ix < T; ix++)
-                {
-                    int i = iy * T + ix;
-                    float x = (ix + 0.5f) / T * 2f - 1f, y = (iy + 0.5f) / T * 2f - 1f;
-                    cov[i] *= HSStep(1.00f, 0.92f, Mathf.Max(Mathf.Abs(x), Mathf.Abs(y)));
-                    lit[i] = Mathf.Clamp01(lit[i] * cov[i]);
-                }
-            return new HauntTileData { key = lit, rim = HRimBand(cov, seed), fill = new float[T * T], cov = cov };
+            float all = allEaten / Mathf.Max(allTotal, 1f);
+            if (all < 0.02f || all > 0.45f)
+                throw new Exception($"the mortar grooves eat {all * 100f:F1}% of the handprints taken "
+                                    + "together. Under 2% means the cavity field is not aligned with the "
+                                    + "wall they are on at all (check EnvRoomBuilder's WallW UV arguments "
+                                    + "against WallUvScale/WallWUOff/CellarHalfDepth); over 45% means the "
+                                    + "detector is firing on the stones and not on the joints.");
+            Debug.Log($"[GloomhavenVR][Env] HANDPRINTS: the masonry's own mortar takes {all * 100f:F1}% of "
+                      + "the three prints taken together — a hand pressed to a block wall marks the FACES "
+                      + "and skips the recesses, and that one multiply is what makes it read as pressed "
+                      + "into the stone rather than laid over it.");
+            return outTiles;
         }
 
         /// <summary>ONE EYE. The shader places it TWICE, at two different sizes,
@@ -1285,7 +1519,8 @@ namespace GloomhavenVR
                new Vector3(-0.80f, -0.20f, 0.30f), 0.25f, 3.0f,
                ragged: 0.085f, hem: 0.10f, hemY: -0.90f);
 
-            tiles[HTileHands] = HauntHands();
+            var hands = HauntHandTiles();
+            for (int i = 0; i < HandMarks.Length; i++) tiles[HandMarks[i].tile] = hands[i];
             tiles[HTileEye] = HauntEye();
 
             // ---- compose. Unused cells stay fully transparent black, which is
@@ -1313,7 +1548,8 @@ namespace GloomhavenVR
                     }
             }
             Debug.Log($"[GloomhavenVR][Env] HAUNT ATLAS baked — {W}x{H} RGBA32, {HauntAtlasCols}x{HauntAtlasRows} "
-                      + $"cells of {T}, 10 used. R = key value, G = rim band, B = fill value, A = coverage. "
+                      + $"cells of {T}, 12 used. R = key value, G = rim band, B = fill value, A = coverage — "
+                      + "except the three photo-derived HANDPRINT tiles, whose R and B are the two weights of a blood THICKNESS RAMP and whose G is a wet specular mask (see HauntHandTiles). "
                       + "Uncompressed on purpose: the three RGB channels are independent masks and BC3 "
                       + "encodes RGB as one interpolated pair per block.");
             return px;
@@ -1874,7 +2110,11 @@ namespace GloomhavenVR
             // EVERYTHING from the object-space vertex direction, which is also the
             // only space in which it cannot slide against the star geometry.
             SaveMesh(MeshDir + "/Env_Dome.asset", BuildSphere(64, 32, inward: true));
-            SaveMesh(MeshDir + "/Env_GlowSphere.asset", BuildSphere(16, 8, inward: false));
+            // THE HALO SHELL. Its own builder, and not BuildSphere(..., inward:
+            // false), because that call was WOUND INSIDE OUT and every EnvGlow
+            // halo in both rooms was drawing its own far shell — see
+            // BuildGlowSphere and AssertGlowShellSeenFromOutside below.
+            SaveMesh(MeshDir + "/Env_GlowSphere.asset", BuildGlowSphere(16, 8));
             SaveMesh(MeshDir + "/Env_StarField.asset", BuildStarField());
         }
 
@@ -2104,6 +2344,215 @@ namespace GloomhavenVR
             m.SetNormals(v.Select(p => (inward ? -1f : 1f) * p.normalized).ToList());
             m.SetTriangles(t, 0);
             return m;
+        }
+
+        // ======================================================== THE HALO SHELL
+        // WHICH SIDE THIS MESH MUST BE SEEN FROM: from OUTSIDE. Every one of its
+        // faces is wound so that its own geometric normal points away from the
+        // centre, and EnvGlow draws it `Cull Back`. That sentence is the whole
+        // reason this function exists instead of a fourth call to BuildSphere.
+        //
+        // WHAT WENT WRONG, and it is the winding class this project has now paid
+        // for five times (the moonbeam hull, the rat's body, the puddle, the two
+        // growth meshes). `BuildSphere(..., inward: false)` emits its faces as
+        // {a,c,b} / {b,c,d}, whose cross product points at the CENTRE — i.e. the
+        // "outward" sphere was wound to be seen from the inside. Under
+        // EnvGlow's `Cull Back` the near hemisphere was therefore culled and the
+        // FAR one rasterised, and on the far shell the vertex normal points away
+        // from the eye, so `dot(N,V)` is negative over the whole disc and
+        // EnvGlow's falloff is exactly zero. Every halo in both rooms — the
+        // candle scheines, the window, the wisps, the lantern, the rat's
+        // eyeshines and all nine fire halos — has been drawing NOTHING except a
+        // one-pixel seam at the geometric limb, where the interpolated normal
+        // crosses zero. That seam is the silhouette of a 16x8 UV sphere: a chain
+        // of straight segments, near-vertical where the meridian edges run and a
+        // stepped cap over each pole. It is the user's "mehrere sichtbare
+        // Striche" (ModBuild 147, feuer1.jpg) and the stepped block in the wood's
+        // misty gap, and it is gated on Fire for two independent reasons — the
+        // nine fire halos carry _ElemGate=1 and so exist only under Fire, and
+        // Fire is also the only mood that lifts the seam above the noise floor.
+        //
+        // ...AND THE SHELL CIRCUMSCRIBES THE UNIT SPHERE. EnvGlow now evaluates
+        // its falloff ANALYTICALLY against the object-space unit sphere (see
+        // EnvGlow.shader) rather than off the interpolated normal, so the mesh's
+        // only remaining job is to COVER that sphere's silhouette. An inscribed
+        // polyhedron does not: its limb sits inside the true limb, so the halo
+        // would be cut off at pow(sin(11.25 deg), falloff) instead of at zero —
+        // a hard stepped rim, which is the same artefact by another route. Every
+        // vertex is therefore pushed out by 1/(closest face-plane distance), the
+        // smallest factor for which no face plane cuts the sphere. The halo's
+        // world size is unchanged (the analytic sphere is still radius 1 in
+        // object space); what grows is the rasterised hull, by k^2 - 1 = 7.9 %
+        // of fill at 16x8, all of it in an annulus the shader takes to zero.
+        //
+        // Vertex and triangle counts are identical to the mesh this replaces:
+        // 153 vertices, 256 triangles. Nothing here costs a vertex.
+        private static Mesh BuildGlowSphere(int lon, int lat)
+        {
+            var v = new List<Vector3>(); var uv = new List<Vector2>(); var t = new List<int>();
+            for (int y = 0; y <= lat; y++)
+            {
+                float vv = y / (float)lat;
+                float latAng = (vv - 0.5f) * Mathf.PI; // -90..+90
+                float r = Mathf.Cos(latAng), py = Mathf.Sin(latAng);
+                for (int x = 0; x <= lon; x++)
+                {
+                    float uu = x / (float)lon;
+                    float lonAng = uu * Mathf.PI * 2f;
+                    v.Add(new Vector3(Mathf.Sin(lonAng) * r, py, Mathf.Cos(lonAng) * r));
+                    uv.Add(new Vector2(uu, vv));
+                }
+            }
+            // {a,b,c} / {b,d,c}: the order whose cross product comes out ALONG the
+            // radius, i.e. the face is seen from outside. The mirror order is the
+            // one that shipped, and the self-test below builds exactly it.
+            for (int y = 0; y < lat; y++)
+                for (int x = 0; x < lon; x++)
+                {
+                    int a = y * (lon + 1) + x, b = a + 1, c = a + lon + 1, d = c + 1;
+                    t.AddRange(new[] { a, b, c, b, d, c });
+                }
+            // push the hull out until it encloses the unit sphere
+            float k = 1f / GlowShellClosestPlane(v, t);
+            var vs = v.Select(p => p * k).ToList();
+
+            var m = new Mesh();
+            m.SetVertices(vs);
+            m.SetUVs(0, uv);
+            // normals stay the true outward radial direction. EnvGlow no longer
+            // reads them (the falloff is analytic), but a mesh whose normals
+            // disagreed with its winding is exactly the state this whole comment
+            // is about, and the gate checks both.
+            m.SetNormals(v.Select(p => p.normalized).ToList());
+            m.SetTriangles(t, 0);
+            AssertGlowShellSeenFromOutside(m, k, lon, lat);
+            return m;
+        }
+
+        /// The smallest distance from the centre to any (non-degenerate) face
+        /// plane of the unit-radius shell. 1/this is the factor that makes the
+        /// hull circumscribe rather than inscribe the sphere.
+        private static float GlowShellClosestPlane(List<Vector3> v, List<int> t)
+        {
+            float min = float.MaxValue;
+            for (int i = 0; i < t.Count; i += 3)
+            {
+                Vector3 p0 = v[t[i]], p1 = v[t[i + 1]], p2 = v[t[i + 2]];
+                Vector3 n = Vector3.Cross(p1 - p0, p2 - p0);
+                if (n.sqrMagnitude < 1e-12f) continue;   // the pole fan's degenerate half
+                min = Mathf.Min(min, Mathf.Abs(Vector3.Dot(n.normalized, p0)));
+            }
+            if (min == float.MaxValue)
+                throw new Exception("Env_GlowSphere: every face is degenerate.");
+            return min;
+        }
+
+        private static bool GlowShellGateProven;
+
+        /// <summary>The gate for "this shell is seen from OUTSIDE". Proven to
+        /// fire: the first call runs it on the same shell with every triangle
+        /// reversed and requires it to throw.</summary>
+        private static void AssertGlowShellSeenFromOutside(Mesh m, float k, int lon, int lat)
+        {
+            if (!GlowShellGateProven)
+            {
+                GlowShellGateProven = true;
+                GlowShellGateSelfTest(lon, lat);
+            }
+            GlowShellCheck(m, k, "Env_GlowSphere");
+            Debug.Log($"[GloomhavenVR][Env] glow-shell gate: 'Env_GlowSphere' PASSED — "
+                      + $"{m.vertexCount} vertices, {m.triangles.Length / 3} triangles, every face "
+                      + "wound to be seen from OUTSIDE (EnvGlow is Cull Back), every vertex normal "
+                      + $"radially outward, and the hull circumscribes the unit sphere (k = {k:F4}, "
+                      + $"+{(k * k - 1f) * 100f:F1}% fill) so EnvGlow's analytic falloff reaches zero "
+                      + "inside the geometry instead of being cut off at the limb.");
+        }
+
+        /// The measurable half, split out so the self-test can run it on a
+        /// deliberately reversed shell.
+        private static void GlowShellCheck(Mesh m, float k, string name)
+        {
+            var V = m.vertices; var N = m.normals; var T = m.triangles;
+            if (V.Length != N.Length)
+                throw new Exception($"Glow shell '{name}': {V.Length} vertices but {N.Length} normals.");
+            int bad = 0, faces = 0;
+            float minPlane = float.MaxValue;
+            for (int i = 0; i < T.Length; i += 3)
+            {
+                Vector3 p0 = V[T[i]], p1 = V[T[i + 1]], p2 = V[T[i + 2]];
+                Vector3 n = Vector3.Cross(p1 - p0, p2 - p0);
+                if (n.sqrMagnitude < 1e-12f) continue;    // the pole fan's degenerate half
+                faces++;
+                Vector3 c = (p0 + p1 + p2) / 3f;
+                // SEEN FROM OUTSIDE: the face's own normal must point AWAY from
+                // the centre, which is the only place this shell is ever looked
+                // at from (a camera inside a halo sees nothing today and saw
+                // nothing before — Cull Back, both windings).
+                if (Vector3.Dot(n.normalized, c) <= 0f) bad++;
+                minPlane = Mathf.Min(minPlane, Mathf.Abs(Vector3.Dot(n.normalized, p0)));
+            }
+            if (bad > 0)
+                throw new Exception($"Glow shell '{name}': {bad} of {faces} faces are wound to be "
+                                    + "seen from INSIDE. EnvGlow draws this mesh Cull Back from "
+                                    + "outside, so those faces are culled and their opposite number "
+                                    + "on the far shell is rasterised instead — where the outward "
+                                    + "normal points away from the eye, dot(N,V) is negative and the "
+                                    + "halo is exactly zero everywhere except a one-pixel seam at the "
+                                    + "limb. That seam is the 'Striche' of ModBuild 147.");
+            for (int i = 0; i < V.Length; i++)
+            {
+                if (V[i].sqrMagnitude < 1e-12f) continue;
+                if (Vector3.Dot(N[i], V[i].normalized) < 0.999f)
+                    throw new Exception($"Glow shell '{name}': vertex {i}'s normal is not the outward "
+                                        + "radial direction. A shell whose normals disagree with its "
+                                        + "winding is the fault this gate exists for.");
+            }
+            // ...and the property EnvGlow's analytic falloff depends on: the hull
+            // must ENCLOSE the unit sphere, or the halo is cut off at its limb.
+            if (minPlane < 1f - 1e-4f)
+                throw new Exception($"Glow shell '{name}': the closest face plane is {minPlane:F4} "
+                                    + "from the centre, i.e. the hull cuts into the unit sphere "
+                                    + "EnvGlow shades against. The halo would end at a hard stepped "
+                                    + "rim. Push the vertices out by 1/(closest plane distance).");
+            if (k < 1f) throw new Exception($"Glow shell '{name}': hull factor {k} < 1.");
+        }
+
+        /// <summary>Proof that the gate fires. Builds the shell with the winding
+        /// that actually shipped — {a,c,b} / {b,c,d}, BuildSphere's "outward"
+        /// order — and requires the check to reject it.</summary>
+        private static void GlowShellGateSelfTest(int lon, int lat)
+        {
+            var v = new List<Vector3>(); var t = new List<int>();
+            for (int y = 0; y <= lat; y++)
+            {
+                float latAng = (y / (float)lat - 0.5f) * Mathf.PI;
+                float r = Mathf.Cos(latAng), py = Mathf.Sin(latAng);
+                for (int x = 0; x <= lon; x++)
+                {
+                    float lonAng = x / (float)lon * Mathf.PI * 2f;
+                    v.Add(new Vector3(Mathf.Sin(lonAng) * r, py, Mathf.Cos(lonAng) * r));
+                }
+            }
+            for (int y = 0; y < lat; y++)
+                for (int x = 0; x < lon; x++)
+                {
+                    int a = y * (lon + 1) + x, b = a + 1, c = a + lon + 1, d = c + 1;
+                    t.AddRange(new[] { a, c, b, b, c, d });   // the shipped, inside-out order
+                }
+            var bad = new Mesh();
+            bad.SetVertices(v);
+            bad.SetNormals(v.Select(p => p.normalized).ToList());
+            bad.SetTriangles(t, 0);
+            bool threw = false;
+            try { GlowShellCheck(bad, 1f, "<self-test: the shipped winding>"); }
+            catch (Exception) { threw = true; }
+            UnityEngine.Object.DestroyImmediate(bad);
+            if (!threw)
+                throw new Exception("Glow-shell gate SELF-TEST FAILED: the check accepted the "
+                                    + "inside-out winding that shipped in ModBuild 147. A gate that "
+                                    + "cannot reject the fault it was written for is not a gate.");
+            Debug.Log("[GloomhavenVR][Env] glow-shell gate self-test: the shipped inside-out "
+                      + "winding was REJECTED, so the gate below is load-bearing.");
         }
 
         // =============================================================== materials

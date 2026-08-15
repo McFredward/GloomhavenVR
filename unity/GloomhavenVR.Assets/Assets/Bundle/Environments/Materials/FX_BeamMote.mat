@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: FX_ElemSnow
+  m_Name: FX_BeamMote
   m_Shader: {fileID: 4800000, guid: fc339339a405d7e1eaf904b0a723d429, type: 3}
   m_ValidKeywords: []
   m_InvalidKeywords: []
@@ -21,20 +21,30 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: fbc70a2567687c3f9a7cb64f73d5afa1, type: 3}
+        m_Texture: {fileID: 2800000, guid: eb44feae523bbac8bbca5dc1a95c5e2a, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
+    - _BeamMask: 1
+    - _Decay: 1.3
     - _ElemAlpha: 0
     - _ElemGain: 0
-    - _ElemSpark: 0
+    - _ElemMoon: 0
+    - _ElemSpark: 0.8
     - _ElemTintAmt: 0
+    - _EndFade: 0.55
+    - _Len: 4.015604
+    - _Ramp: 0.55
+    - _W0: 0.24
+    - _WK: 0.045
     m_Colors:
+    - _BeamDir: {r: -0.49255642, g: -0.6427071, b: -0.5867843, a: 0}
+    - _BeamOrg: {r: -1.3522726, g: 2.5928571, b: 4.5, a: 0}
     - _ElemCol: {r: 1, g: 1, b: 1, a: 1}
-    - _ElemMod: {r: 0, g: 0, b: 0, a: 0}
+    - _ElemMod: {r: 0, g: 0, b: 1, a: 0}
     - _ElemMod2: {r: 0, g: 0, b: 0, a: 0}
-    - _ElemOwn: {r: 0, g: 1, b: 0, a: 0}
+    - _ElemOwn: {r: 0, g: 0, b: 1, a: 0}
     - _ElemOwn2: {r: 0, g: 0, b: 0, a: 0}
-    - _Tint: {r: 0.86, g: 0.92, b: 1, a: 1}
+    - _Tint: {r: 0.46, g: 0.52, b: 0.62, a: 1}
   m_BuildTextureStacks: []

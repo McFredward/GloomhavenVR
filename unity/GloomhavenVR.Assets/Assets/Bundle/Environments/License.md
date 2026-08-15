@@ -152,6 +152,81 @@ The loose hanging strands (`Textures/Env_Strand.png`) are still generated —
   — a vertically stacked cluster, but wholly inside the trunk's shadow band, so
   the brackets are darker than the lit bark around them.
 
+### Handprints (`handprints_alb.png`)
+
+- **Asset**: three real photographed handprints, keyed by this project out of
+  ONE **Flickr** photograph and re-authored into the three blood-mark tiles of
+  the apparition atlas (`Textures/Env_Haunt.png`, tiles 8, 10 and 11).
+- **Source**: *“handprints 4”* by **lisafree54** (Lisa Ann Yount) —
+  photo page <https://www.flickr.com/photos/136594255@N06/26383403281>,
+  original file
+  <https://live.staticflickr.com/1679/26383403281_ba8bfae8de_o.jpg>,
+  **2730 × 1820**, Canon PowerShot SX260 HS, EXIF intact.
+- **License**: **CC0 1.0 Universal** (public domain dedication). No attribution
+  required; credited here with thanks. Verified **first-hand at the source on
+  2026-08-15**, immediately before download, by fetching the photo page itself.
+  Quoted **verbatim** from that page:
+  - its embedded JSON — `"title":"handprints 4"`, `"license":9` and
+    `"license": "https://creativecommons.org/publicdomain/zero/1.0/"`
+    (Flickr licence id **9** is *Public Domain Dedication*, CC0);
+  - and its rendered licence link —
+    `<a href="https://creativecommons.org/publicdomain/zero/1.0/deed.en" class="license-icons" rel="license noopener noreferrer" title="CC0 (Public Domain Dedication)" target="_newtab">`.
+- **The source photograph is NEVER committed.** `handprint_atlas_pipeline.py`
+  downloads it and only the derived RGBA PNG lands in the tree — the same
+  convention as the fire and cobweb pipelines. `handprints_alb.png` is itself a
+  BAKE-TIME INPUT ONLY: `EnvironmentsBuilder.HauntHandTiles` decodes its bytes
+  and stamps the result into `Env_Haunt.png`; nothing at runtime samples it, and
+  its importer is deliberately pinned to a 32 px maximum for that reason.
+- **Why a photograph**: the prints it replaces were built from signed-distance
+  capsules — a palm capsule plus finger capsules, min-unioned — and the user's
+  verdict was *“Sie sind keine wirklichen Hände … Nutze hier irgendwelche
+  Texturen aus dem Internet die tatsächlich Horror verursachen könnten.”* A real
+  print carries what that grammar cannot fake and what makes it read as a
+  contact rather than a pictogram: **a missing palm arch** (a flat hand touches
+  at the heel and the pads; the hollow often does not touch at all), **a
+  detached thumb**, **fingers broken into pad segments**, **real gravity drips**,
+  and four genuinely different hands. Measured from the file: ink coverage
+  8.21 %, mean ink sRGB (175, 86, 69), darkest 5 % of ink sRGB (142, 13, 6),
+  and the coverage moves only 8.41 % → 7.80 % across thresholds 0.02–0.15, i.e.
+  it keys out of the white paper in **one step**, with no rotoscoping.
+- **Modifications** (reproducible:
+  `Assets/Editor/handprint_atlas_pipeline.py`, python3 + numpy + Pillow):
+  chroma key `R − min(G,B)`; the four prints separated by explicit region
+  predicates that are gated against the coverage and bounding box each must
+  produce, so a different photograph fails the build loudly; each print scaled
+  to **life size** (190 mm adult, 132 mm child) and area-resampled into its own
+  256² tile; one print mirrored for handedness and one dragged into a **smear**;
+  and — the substantive change — **the colour is thrown away and re-authored**.
+  The source is red PAINT, terracotta and far too light. Blood's colour is a
+  function of optical depth, so a per-texel thickness is measured from the
+  green-channel optical density (de-highlighted by a greyscale closing, whose
+  residual becomes the wet specular mask) and mapped through a three-stop ramp —
+  thin edge sRGB (0.62, 0.10, 0.06), bulk (0.20, 0.020, 0.014), deepest
+  (0.06, 0.005, 0.005) — whose two basis weights are what the atlas actually
+  carries.
+- **Shape library, same author, same licence, not shipped**: *“handprints 2”*
+  — <https://www.flickr.com/photos/136594255@N06/25844671504>, original
+  <https://live.staticflickr.com/1447/25844671504_e490989a0e_o.jpg>,
+  2080 × 2310, `"license":9` and the same
+  `creativecommons.org/publicdomain/zero/1.0/deed.en` link, verified the same
+  way on the same date. ~60 real prints on a plank door, adult and child. Used
+  only as a reference for what real contact patterns look like; **no pixel of it
+  is in this repository**.
+- **Searched and rejected** (recorded so a future round need not repeat it): a
+  photorealistic *blood-on-masonry* handprint does not exist under CC0. Poly
+  Haven (849 textures) and ambientCG (2000 materials) have **zero** blood or
+  handprint assets — both catalogues dumped in full. The two best genuine-blood
+  handprint photographs on Wikimedia Commons (Ura Tepe, Tajikistan; and a
+  menstrual print) are **CC BY-SA** and are therefore rejected under this
+  project's standard. Unsplash and Pexels are not CC0 and both carry
+  redistribution clauses an extractable bundle would breach. Prehistoric cave
+  hand *stencils* are public domain but are the photographic INVERSE of a print
+  (pigment sprayed around the hand). Grauman's-Chinese-Theatre-class handprints
+  are impressions in cement — relief, no pigment, no silhouette. Commons
+  `File:Serbian_bloody_handprint_symbol.svg` is genuinely CC0 and genuinely
+  print-shaped but is a live political emblem of the 2024–25 Serbian protests,
+  which is a needless association and cheap to avoid.
+
 ### Fire atlas (`fire_atlas_alb.png`) — **THE ONE NON-CC0 SOURCE IN THIS BUNDLE**
 
 > **Read this section before adding any further Asset Store material.** Every

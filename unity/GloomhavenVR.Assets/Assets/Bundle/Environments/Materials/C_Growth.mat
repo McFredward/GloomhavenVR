@@ -54,7 +54,7 @@ Material:
     - _DirDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
     - _ElemCentre: {r: 0, g: 0, b: 0, a: 0}
     - _ElemWind: {r: 0, g: 0, b: 0, a: 1}
-    - _ElemWindDir: {r: 0, g: 0, b: 1, a: 0.3}
+    - _ElemWindDir: {r: 0, g: 0, b: 1, a: 0.4}
     - _HauntEnv: {r: 0, g: 1, b: 1, a: 0}
     - _L0Col: {r: 2.1, g: 1.26, b: 0.63, a: 0.9}
     - _L0Pos: {r: 3.72, g: 0.7882587, b: 2.95, a: 0.32258067}

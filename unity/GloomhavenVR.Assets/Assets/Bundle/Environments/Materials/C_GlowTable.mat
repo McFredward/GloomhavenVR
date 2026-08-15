@@ -33,7 +33,11 @@ Material:
     - _Flicker: 0.95
     - _Phase: 0
     - _Rate: 1
+    - _Shine: 0
     m_Colors:
+    - _HauntEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _HauntSched: {r: 0, g: 0, b: 0, a: 0}
+    - _ShineAxis: {r: 0, g: 0, b: 1, a: 12}
     - _Tint: {r: 1, g: 0.55, b: 0.2, a: 0.6}
     - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
     - _TipEnv: {r: 0, g: 0, b: 0, a: 0}

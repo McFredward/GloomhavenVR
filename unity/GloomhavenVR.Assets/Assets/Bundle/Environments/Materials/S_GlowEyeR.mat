@@ -24,17 +24,21 @@ Material:
     m_Floats:
     - _Away: 0
     - _AwayPeriod: 26
-    - _Blink: 0
-    - _BlinkPeriod: 4.7
+    - _Blink: 1
+    - _BlinkPeriod: 7.3
     - _ElemCandle: 0
     - _ElemGate: 0
     - _ElemWarm: 0.35
-    - _Falloff: 3.2
+    - _Falloff: 4.2
     - _Flicker: 0
-    - _Phase: 0
+    - _Phase: 2.7
     - _Rate: 1
+    - _Shine: 1
     m_Colors:
-    - _Tint: {r: 1, g: 0.88, b: 0.45, a: 0.85}
+    - _HauntEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _HauntSched: {r: 0, g: 0, b: 0, a: 0}
+    - _ShineAxis: {r: -0.7065439, g: 0.06609441, b: 0.70457596, a: 12}
+    - _Tint: {r: 1, g: 0.83, b: 0.39, a: 0.48}
     - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
     - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
     - _TipPivot: {r: 0, g: 0, b: 0, a: 0}

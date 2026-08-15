@@ -416,7 +416,70 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 147;
+    public const ushort ModBuild = 148;
+    // Build 148: the SECOND pass over the same subjects, and the through-line is that FOUR separate
+    // findings had a cause other than the one reported. No wire change; the BUNDLE IS REBUILT.
+    //
+    // THE SEVENTH MESH WOUND AGAINST ITS OWN VIEWER, and it is the headline. Env_GlowSphere shipped
+    // INSIDE-OUT, so Cull Back kept the FAR hemisphere while the normals pointed outward, dot(N,V)
+    // was never positive and the halo's core term was exactly 0. EVERY halo in both rooms - nine fire
+    // halos, the window, the wisps, the lantern - had been drawing nothing but a ONE-PIXEL SEAM at
+    // its geometric limb. A subpixel circle fit of that seam oscillates +-1.0-1.6 px with the sign
+    // flipping every ~11 deg, against a predicted 2.09 px sagitta for the 16-gon silhouette of a 16x8
+    // UV sphere. THAT POLYGON IS THE "Striche" IN THE USER'S OWN feuer1.jpg. Ridge energy as a
+    // fraction of the glow: 100.3% -> 8.3% in the cellar, 65.7% -> 8.4% in the forest's misty gap.
+    // Consequence: every _Tint.a had been authored blind against an invisible halo and had to be
+    // retuned on differenced pixels - net ambient glow area -60%.
+    //
+    // THE FIGURES. "Teleportiert sich" was a FULL REBUILD, not a jump: a latched trigger's loop is
+    // event length PLUS a gap, and in that gap the event counted as ended, so the clone, its
+    // materials, its Addressables child and its light bind were destroyed and rebuilt - nine `armed
+    // at` lines 2.5 s apart on one latch prove it, and 147's guard against exactly this was dead code.
+    // "Texturen laden zu langsam" was our own dissolve (a half-streamed texture is flat grey; it is
+    // never a swirl with holes shaped like a noise field). And "voll angestrahlt" could not have been
+    // fixed by 147's approach at all: SH IS ADDITIVE AMBIENT - it can add light and never remove it.
+    // The lever was found in the game rather than guessed: Choreographer names the character shader
+    // Amp_Char_Shader and drives _MOD_TINT, a whole-model albedo tint.
+    //
+    // THE FIRE, fourth attempt. The "Striche" that really were the fire were the CROSS-QUADS, and the
+    // no-billboard ruling forbade the obvious fix. Resolved a third way: the geometry never moves,
+    // but a card's OPACITY falls to zero as the view reaches its plane, on a rosette of three quads
+    // at 60 deg each 2/3 as wide - so mean projected area is unchanged by construction (3 x 2/3 =
+    // 2 x 1) and no spindle exists from any direction. Seats now DERIVE from the prop's measured
+    // surface (the floating cellar fire was one line carrying the shelf's old z), the wood has GLUT,
+    // and the erosion the previous round could not reach now ships animated.
+    //
+    // THE MOSS IS DELETED on his fourth complaint, and the rule generalises furthest: A FUNCTION OF
+    // THE ALBEDO HAS NO SILHOUETTE - it computes inside the object's own outline, which is the
+    // definition of a stain. Three rounds each answered the ADJECTIVE and were each right about it
+    // and wrong about the category. Replaced by planted geometry, including inward to 1.75 m - the
+    // forest's growth ring started at 4.90 m against a 4.5 m play radius, so nothing had ever grown
+    // in the clearing the player stands in.
+    //
+    // THE PUDDLE was never missing: a LOCATE pass returned 45,895 px with Cull Back and 45,895 with
+    // Cull Off. Its sheen's Fresnel was half angle-INDEPENDENT (milk, edge to edge) and its rim is a
+    // 32 cm feather, so it had no edge to be seen by. The bright patch that survived full Dark was
+    // the moonbeam's LANDING POOL, 31 cm away, on a particle path with no moonlight term - now gated,
+    // measured at x0.031 of resting against a retained p99 of 0.96 before.
+    //
+    // THE HANDPRINTS were ~5.5x LIFE SIZE, and in VR the player has their own hands in frame as a
+    // scale reference - that alone defeated any texture. Rebuilt at 190/132/190 mm from a CC0
+    // photograph, on the wall's reconstructed bilinear surface + 2 mm instead of 30 mm proud of a
+    // plane the wall bulges 35 mm past, masked out of the mortar, clear of the stair opening it hung
+    // 26 cm over, and coloured by a THICKNESS RAMP - dried blood genuinely is cocoa-brown, so the fix
+    // was to make it fresh, not browner.
+    //
+    // THE DRAUGHT was the comic-book speed-line: 17-78 cm pale streaks drawn just as brightly in
+    // unlit air as inside the shaft. The invariant across BOTH of his rejections of this effect is
+    // not the sprite shape but BRIGHT MATTER IN UNLIT AIR. Deleted; 24 motes now live inside the beam
+    // behind a vertex-shader mask reading EnvBeam's own uniforms (8134 lit vs 2 unlit pixels).
+    //
+    // Also: the snow is deleted (a clear starry sky and snowfall are a contradiction), frost reaches
+    // under the board, the eyeshines gained a retroreflective lobe and an animal to belong to, the
+    // flat lit door became a swell in the moon pool that holds three seconds and sinks, the ice was a
+    // tuning fork at Q 157 on a 0.45 s beat, and the shelf's impact fired 3.68 s early - when the
+    // shelf had leaned about one degree.
+    //
     // Build 147: THE BIG ENVIRONMENT ROUND — nine user findings, eight lanes, and the apparitions
     // rebuilt on the game's own monsters. No wire change; the BUNDLE IS REBUILT.
     //
