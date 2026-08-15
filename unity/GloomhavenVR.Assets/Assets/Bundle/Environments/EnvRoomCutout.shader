@@ -67,7 +67,15 @@ Shader "GloomhavenVR/EnvRoomCutout"
         _ElemRad ("Element: room outer radius (object units)", Float) = 6
         _ElemScl ("Element: object units in metres", Float) = 1
         _ElemFrost ("Element: ice frost susceptibility", Range(0,2)) = 0
-        _ElemMoss ("Element: earth moss susceptibility", Range(0,2)) = 0
+        // _ElemMoss IS GONE. The painted green a card used to take under Earth
+        // was deleted on the user's fourth rejection of that surface (see THE
+        // MOSS IS GONE in EnvGrowth.cginc). It is worth being exact about what
+        // this shader loses, because it is the shader the CARDS run through:
+        // nothing about the cards themselves changes. They keep their own
+        // textures, their own _Tint, their frost, their wind and — above all —
+        // _ElemGrow below, the vertex fold that stands them up out of the
+        // ground. That fold IS Earth's statement now. What is gone is only the
+        // green that was being painted over a fern that was already green.
         _ElemGrowFreq ("Element: growth cells per metre", Float) = 3.0
         // AIR. x is the tip amplitude in OBJECT units and 0 is off; y and z are
         // the object-space base and 1/height of this mesh, which is how a
@@ -110,7 +118,7 @@ Shader "GloomhavenVR/EnvRoomCutout"
             sampler2D _BumpMap;
             float _BumpScale, _VCol, _Cutoff, _PtHard, _Sway, _SwayRate, _SwayPhase;
             float _HauntTremble, _HauntPeriod, _HauntCards, _HauntWatch;
-            float _ElemRad, _ElemScl, _ElemFrost, _ElemMoss, _ElemGrowFreq, _ElemGrow;
+            float _ElemRad, _ElemScl, _ElemFrost, _ElemGrowFreq, _ElemGrow;
             fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col;
             float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _SwayDir, _HauntEnv;
             float4 _ElemCentre, _ElemWind, _ElemWindDir;
@@ -322,18 +330,25 @@ Shader "GloomhavenVR/EnvRoomCutout"
                 n_ts.xy *= _BumpScale;
 
                 // ============================================ SURFACE GROWTH ==
-                // Frost on the leaves, and the deeper green Earth puts on a
-                // living plant. A card is not a wall, so the affinity is
+                // Frost on the leaves. A card is not a wall, so the affinity is
                 // simpler: there is no wall foot and no mortar course, and what
                 // a frond knows about itself is only how high it is and which
                 // way it faces. `place` therefore leans on the sky term (frost
-                // settles on top of a fern, not under it) and, for moss, on
-                // being LOW, which is what separates the ground moss from the
-                // canopy 7 m up.
+                // settles on top of a fern, not under it) and on being LOW,
+                // where the cold air lies.
+                //
+                // THE DEEPER GREEN Earth used to put on a living plant is gone —
+                // deleted, not zeroed, after the fourth rejection of that
+                // surface (THE MOSS IS GONE, EnvGrowth.cginc). It was at its
+                // most pointless exactly here: painting a green film over a
+                // photoscanned FERN, i.e. over the one kind of surface in this
+                // project that already reads as a plant because it has an
+                // outline. That contrast — cards fine, paint a stain — is what
+                // the user's own screenshot shows, side by side, in one frame.
                 GhvrElem e = GhvrHauntElems();
                 float eLive = _GhvrElemB.w * _GhvrElemB.z;
-                float frost = 0.0, moss = 0.0, mthk = 0.0;
-                if (eLive > 0.0 && (_ElemFrost > 0.0 || _ElemMoss > 0.0))
+                float frost = 0.0;
+                if (eLive > 0.0 && _ElemFrost > 0.0)
                 {
                     float gt = _Time.y + _GhvrTimeOfs;
                     float rr = GhvrRim(length(i.opos.xz - _ElemCentre.xz), _ElemRad, 0.18);
@@ -354,33 +369,8 @@ Shader "GloomhavenVR/EnvRoomCutout"
                                           saturate(0.58 * sky + 0.42 * low),
                                           ice * (0.25 + 1.20 * rr), creep);
                     }
-                    // MOSS REAL — the same surface treatment the walls and the
-                    // floor get (EnvGrowth.cginc), and a card wants it more than
-                    // either: a fern has no normal map at all, so before this
-                    // round a mossed frond was a FLAT green shape on a flat
-                    // green shape, which is "grüne Flecken" in its purest form.
-                    // Here the moss's own relief is the only relief there is.
-                    float ea = e.earth * _ElemMoss;
-                    float4 mrel = float4(0, 0, 0, 0);
-                    // WHICH BODY this fragment belongs to and WHAT COLOUR that
-                    // body is — GhvrMossRelief's second output (x = clump field,
-                    // y = tone), new in ModBuild 146. See MOSS REAL, SECOND PASS
-                    // in EnvGrowth.cginc; GhvrMossOn only reads it under `m`, so
-                    // the initialiser is never seen.
-                    float2 morg = float2(0.5, 0.5);
-                    if (ea > 0.0)
-                    {
-                        float mfld = GhvrGrowField(q + 37.1);
-                        moss = GhvrGrow(GhvrGrowA(mfld, grain,
-                                                  saturate(0.62 * low + 0.38 * sky)),
-                                        ea * (0.20 + 1.55 * rr), -creep);
-                        mrel = GhvrMossRelief(q, mfld, morg);
-                        mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
-                    }
                     float lum = GhvrGrowLum(alb.rgb);
                     alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x, morg);
-                    n_ts.xy -= float2(dot(mrel.yzw, i.t), dot(mrel.yzw, i.b)) * mthk;
                 }
                 // =============================================================
 
@@ -413,7 +403,7 @@ Shader "GloomhavenVR/EnvRoomCutout"
 
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
                 float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5)
-                               * (ambGain + 0.30 * frost - 0.12 * mthk);
+                               * (ambGain + 0.30 * frost);
                 light += _DirCol.rgb * saturate(dot(N, normalize(_DirDir.xyz))) * dirGain;
                 // SHELF RIDERS — GhvrTipSlot touches nothing at all unless a slot
                 // is really riding, so the three accumulations below are the

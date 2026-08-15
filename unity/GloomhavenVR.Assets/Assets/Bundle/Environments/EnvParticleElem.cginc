@@ -19,6 +19,35 @@ float4 _ElemOwn, _ElemOwn2;     // gate weights   (fire,ice,air,earth) / (light,
 float4 _ElemMod, _ElemMod2;     // modulation weights, same order
 fixed4 _ElemCol;
 float _ElemGain, _ElemAlpha, _ElemTintAmt, _ElemSpark;
+
+// IS THIS EMITTER MOONLIGHT? 1 = yes, and it must die with the moon; 0 = no, and
+// this costs one multiply by an exact 1.0. Default 0, so an unwritten material is
+// bit-identical to what shipped.
+//
+// USER REPORT, ModBuild 148 (hardware, cellar, verbatim): "Bei der Dunkelheit im
+// Keller ist wo die Pfütze war immer noch ein heller Fleck, obwohl der Mond nicht
+// mehr scheint - entferne den."
+//
+// The patch is not the puddle. It is the moonbeam's LANDING POOL - an additive
+// re-add of the floor's own albedo, drawn by this shader, whose mesh centre sits
+// 31 cm from the puddle's and covers it. A shading lane measured it: at Dark = 1
+// the pool still stands at 0.50 of its resting value at the median lit pixel and
+// 0.96 at p99, while every term in the surface shaders falls to 0.0275; and with
+// both puddle passes neutralised the residue barely moves (0.00733 vs 0.00762),
+// which is what proves the puddle is only 4% of it. The residue also measures
+// R/B = 0.34, i.e. cold blue - the moon's colour, not the candles' 5.0 orange.
+//
+// The cause is simply that THIS FILE HAS NO MOONLIGHT TERM AT ALL. Its gate and
+// its modulation are linear in the six element strengths, and no linear
+// combination of those is the eclipse: GhvrMoonLight is a coverage integral over
+// the disc. So a material-only stopgap was rejected on measurement rather than on
+// taste - the closest linear fit lands the reviewed Light+Dark "split" mood at
+// 2.245x where the contract says 0.161x.
+//
+// This is the SAME expression EnvBeam applies to the shaft, deliberately: the
+// beam and the pool it lands in must not be able to disagree about how much moon
+// there is.
+float _ElemMoon;
 // The shared environment epoch — the twinkle below has to run on the SAME clock
 // on every client or two players watch the same ember flicker out of phase.
 float _GhvrTimeOfs;
@@ -59,6 +88,13 @@ bool GhvrParticleElem (float4 vertex, inout float4 col)
         // to give — that an element is on its way out.
         col.a *= g;
     }
+
+    // ---- THE MOON, before anything else touches the colour ----
+    // Multiplicative and unconditional for a moonlight emitter, because the eclipse
+    // is not an element effect layered on top of the pool - it is how much moon
+    // there is to make the pool at all. At rest both factors are exactly 1.0.
+    if (_ElemMoon > 0.0)
+        col.rgb *= lerp(1.0, GhvrDirGain(e) * GhvrMoonLight(), saturate(_ElemMoon));
 
     // ---- the modulation ----
     float m = dot(_ElemMod, A) + dot(_ElemMod2.xy, B);

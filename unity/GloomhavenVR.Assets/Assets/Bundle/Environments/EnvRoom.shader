@@ -56,12 +56,17 @@ Shader "GloomhavenVR/EnvRoom"
         _ElemCentre ("Element: room centre (OBJECT space)", Vector) = (0,0,0,0)
         _ElemRad ("Element: room outer radius (object units)", Float) = 6
         // Per-material susceptibility. Frost and the fire rim are ON by default
-        // (stone, bark, wood — everything the elements should reach); the green
-        // is OFF by default and switched on for the things that can plausibly
-        // grow moss, because a green barrel is a bug and a green root is Earth.
+        // (stone, bark, wood — everything the elements should reach).
+        //
+        // _ElemMoss IS GONE, and it is worth one line here because thirty
+        // materials in the bundle still carry the value: the painted moss was
+        // deleted on the user's fourth rejection of it (see THE MOSS IS GONE in
+        // EnvGrowth.cginc). This shader no longer declares the property, so
+        // those material values are inert data. Earth reaches this room through
+        // the GROWTH CARDS (EnvRoomCutout/_ElemGrow) — geometry standing up out
+        // of the ground — and through nothing else.
         _ElemFrost ("Element: ice frost susceptibility", Range(0,2)) = 1
         _ElemWarm ("Element: fire rim susceptibility", Range(0,2)) = 1
-        _ElemMoss ("Element: earth green susceptibility", Range(0,2)) = 0
         // SURFACE GROWTH (EnvGrowth.cginc). _ElemScl is this material's object
         // units expressed in metres, written by ApplyRig beside _ElemCentre, so
         // a 0.45 m patch of frost is 0.45 m on a prop scaled 2.0 as well as on
@@ -124,7 +129,7 @@ Shader "GloomhavenVR/EnvRoom"
     fixed4 _Tint, _AmbUp, _AmbDown, _DirCol, _L0Col, _L1Col, _L2Col, _RimCol;
     float4 _DirDir, _L0Pos, _L1Pos, _L2Pos, _RimDir;
     float4 _ElemCentre;
-    float _ElemRad, _ElemFrost, _ElemWarm, _ElemMoss, _ElemScl, _ElemGrowFreq;
+    float _ElemRad, _ElemFrost, _ElemWarm, _ElemScl, _ElemGrowFreq;
 
     // PREVIEW-ONLY global clock offset. Never set at runtime (=> 0, the shipped
     // behaviour); EnvironmentsPreview sets it with Shader.SetGlobalFloat so a
@@ -280,11 +285,23 @@ Shader "GloomhavenVR/EnvRoom"
         n_ts.xy *= _BumpScale;
 
         // ================================================= SURFACE GROWTH ====
-        // ICE and EARTH, and they are ONE feature: a coverage that advances over
-        // this surface and retreats when the element falls. The mechanism, the
-        // affinity terms and the argument against the ModBuild 142 fade this
-        // replaces are all in EnvGrowth.cginc; what is chosen HERE is only where
-        // frost and moss each START on a wall, a flagstone or a trunk.
+        // ICE: a coverage that advances over this surface and retreats when the
+        // element falls. The mechanism, the affinity terms and the argument
+        // against the ModBuild 142 fade this replaces are all in
+        // EnvGrowth.cginc; what is chosen HERE is only where frost STARTS on a
+        // wall, a flagstone or a trunk.
+        //
+        // EARTH IS NO LONGER IN THIS BLOCK. It used to grow a second, green
+        // covering here on the same machinery, and the user has now rejected
+        // that surface four times ("Entferne das 'Moos' komplett", ModBuild
+        // 147). It is deleted rather than disabled — the look functions, the
+        // frontier call, the thickness, the moss normal and the wet sheen are
+        // all gone from this file, and _ElemMoss is no longer declared. The full
+        // argument, including why no amount of reworking a fragment function
+        // could have fixed it, is THE MOSS IS GONE in EnvGrowth.cginc. What
+        // Earth does instead is stand growth CARDS up out of the ground
+        // (EnvRoomCutout/_ElemGrow), which is geometry and therefore has a
+        // silhouette.
         //
         // It runs BEFORE the normal is assembled on purpose: a crust fills the
         // relief it grew into, so the mask also flattens the normal map. That is
@@ -292,16 +309,16 @@ Shader "GloomhavenVR/EnvRoom"
         // painted over a picture of stone, and it costs one multiply.
         //
         // Behind the same single uniform compare as everything else, and then
-        // behind one more per element: with only Fire or Light up, neither noise
-        // is sampled at all.
+        // behind one more per element: with only Fire or Light up, the noise is
+        // not sampled at all.
         GhvrElem e = GhvrElems();
-        float frost = 0.0, moss = 0.0, rr = 0.0, mthk = 0.0;
+        float frost = 0.0, rr = 0.0;
         if (e.live > 0.0)
         {
             float gt = _Time.y + _GhvrTimeOfs;
             rr = GhvrRim(length(i.opos.xz - _ElemCentre.xz), _ElemRad, 0.18);
-            // the GEOMETRIC normal, not the mapped one: frost and moss follow
-            // the shape of the wall, and the texture's own bumps come in through
+            // the GEOMETRIC normal, not the mapped one: the frost follows the
+            // shape of the wall, and the texture's own bumps come in through
             // `grain` instead, where they belong.
             float3 gN = normalize(i.n) * face;
             float3 gnw = normalize(mul((float3x3)unity_ObjectToWorld, gN));
@@ -320,9 +337,10 @@ Shader "GloomhavenVR/EnvRoom"
 
             // FROST starts where the cold does: on faces that look at the sky,
             // on the side the moon never reaches, and low down where the cold
-            // air lies. Not primarily at the foot — that is moss's tell, and
-            // giving both the same one is what made ModBuild 142's two elements
-            // read as two colours of one stain.
+            // air lies. Not primarily at the foot, which is where DAMP collects
+            // — the two used to be told apart here because two coverings shared
+            // this block; the distinction survives the moss's deletion because
+            // it is what makes frost read as cold rather than as wear.
             float ice = e.ice * _ElemFrost;
             if (ice > 0.0)
             {
@@ -337,56 +355,19 @@ Shader "GloomhavenVR/EnvRoom"
                                   ice * (0.15 + 1.15 * rr), creep);
             }
 
-            // MOSS starts where the damp is: the foot of the wall above all
-            // (0.52 of the whole affinity), the side that never dries, and the
-            // upward faces that catch what drips. A different noise offset from
-            // the frost's, so the two do not occupy the same patches when Ice
-            // and Earth are up together — moss under frost, not moss AS frost.
-            // MOSS REAL — the moss is a SURFACE here and not a tint; the five
-            // things that makes it are in EnvGrowth.cginc's MOSS REAL block.
-            // What is chosen on this side is only where it starts.
-            float ea = e.earth * _ElemMoss;
-            float4 mrel = float4(0, 0, 0, 0);
-            // WHICH BODY each fragment belongs to and WHAT COLOUR that body is —
-            // GhvrMossRelief's second output (x = clump field, y = tone),
-            // new in ModBuild 146; see MOSS REAL, SECOND PASS. The 0.5s are the
-            // middle of the palette and are what the un-grown path leaves them at,
-            // which is unreachable anyway: GhvrMossOn only reads it under `m`.
-            float2 morg = float2(0.5, 0.5);
-            if (ea > 0.0)
-            {
-                // 0.10 in the middle against frost's 0.15, and a steeper ramp:
-                // moss is the slower, meaner grower, so the middle of the room
-                // must stay barer for it than for ice while the walls it starts
-                // from get more. The creep runs the OTHER WAY, so a frontier of
-                // moss and a frontier of frost never breathe in step.
-                //
-                // The frontier is now taken WITHOUT GhvrGrown's depth factor:
-                // moss owns its own thickness (GhvrMossThick), which needs the
-                // frontier and the field separately. Frost keeps GhvrGrown.
-                float mfld = GhvrGrowField(q + 37.1);
-                moss = GhvrGrow(GhvrGrowA(mfld, grain,
-                                          saturate(0.52 * foot + 0.28 * shade + 0.20 * sky)),
-                                ea * (0.10 + 1.90 * rr), -creep);
-                mrel = GhvrMossRelief(q, mfld, morg);
-                mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
-            }
+            // `foot` and `shade` used to feed a SECOND frontier here — the moss —
+            // which started where the damp is: the foot of the wall above all,
+            // the side that never dries, the upward faces that catch what drips.
+            // The placement was never what was rejected; the fact that the
+            // result was a colour lying inside the wall's own outline was. See
+            // THE MOSS IS GONE in EnvGrowth.cginc. `foot` survives because
+            // frost's own `place` uses it.
 
             float lum = GhvrGrowLum(alb.rgb);
             alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-            alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x, morg);
             // the crust fills what it grew into. Exactly 1.0 where nothing grew,
-            // so a lit-but-ungrown pixel is untouched. The moss takes far more
-            // of the stone's relief than ModBuild 143's 0.30 did — a cushion
-            // 2 cm deep does not have the mortar course showing through it, and
-            // leaving the joint visible under the green was half of why the
-            // patch read as a stain ON the stone rather than as a thing growing.
-            n_ts.xy *= 1.0 - 0.62 * frost - 0.78 * moss;
-            // ...and puts its OWN relief back. A height field's normal is
-            // (-dh/du, -dh/dv, 1), hence the subtraction; the tangent frame is
-            // in object space, which is the frame GhvrMossRelief's gradient is
-            // already in, so this is two dots and no change of basis.
-            n_ts.xy -= float2(dot(mrel.yzw, i.t), dot(mrel.yzw, i.b)) * mthk;
+            // so a lit-but-ungrown pixel is untouched.
+            n_ts.xy *= 1.0 - 0.62 * frost;
         }
         // =====================================================================
 
@@ -494,52 +475,24 @@ Shader "GloomhavenVR/EnvRoom"
             if (e.fire > 0.0)
                 fireAdd = GhvrFireSeats(i.opos, N, t, GhvrTipNow(t), e) * e.fire;
 
-            // ---- EARTH: the moss is grown above; here is only its SHEEN.
-            // A grazing-angle wet gloss, cold and very small, and now weighted
-            // by the coverage rather than by the element — a wall that has not
-            // been grown on is not wet, which is the tell that gave ModBuild
-            // 142's whole-surface green away even where the tint was subtle.
+            // ---- EARTH: NOTHING HAPPENS TO A SURFACE HERE ANY MORE.
             //
-            // A THIRD of what it was, and the reason is the coverage weighting
-            // itself: spread over a whole trunk at the element's strength it was
-            // a wash worth 0.085 on a surface lit at 0.05, which was invisible
-            // as a sheen and merely lifted everything a little. Concentrated
-            // into the patches it now lit them like little lamps — the first
-            // render of this round showed the moss on the near trunks reading
-            // PALER than the bark, which is the exact opposite of moss.
+            // What stood here was the moss's SHEEN — a cold grazing wet gloss,
+            // float3(0.014, 0.026, 0.017) weighted by the coverage, the thin
+            // frontier and the periphery, and already multiplied out to zero
+            // indoors after ModBuild 146's "es sieht eher aus wie Schleim" — and
+            // beside it `ambGain -= 0.12 * mthk`, the moss swallowing the room's
+            // ambient. Both are deleted with the moss itself (THE MOSS IS GONE,
+            // EnvGrowth.cginc).
             //
-            // MOSS REAL — and (1 - mthk) is the whole of ModBuild 143's "grüne
-            // Flecken" verdict expressed as one factor. A gloss over a patch of
-            // moss is a VARNISH: it is the single strongest signal a surface can
-            // send that it has been painted rather than grown. Real moss is the
-            // matt-est thing in a cellar. So the sheen lives only on the THIN
-            // frontier, where the stone genuinely is wet and the moss has barely
-            // taken, and the deep middle of a cushion has none at all.
-            //
-            // ...AND INDOORS IT IS GONE ENTIRELY. USER VERDICT, ModBuild 146
-            // (verbatim): "Das Moos gefällt mir immer noch nicht insbesondere
-            // nicht im Keller - es sieht eher aus wie Schleim, es soll eher
-            // aussehen wie wuchende Pflanzen und Pilze die an den Wänden
-            // wachsen." A grazing wet gloss is not one of the reasons a surface
-            // looks like slime, it is THE reason: slime is defined by being wet,
-            // and the frontier this sheen sits on is the one part of every patch
-            // the eye traces to find its shape. Restricting it to the thin edge
-            // in ModBuild 145 made it smaller and left it exactly where it did
-            // the most damage. What grows on damp cellar stone with no sun is
-            // lichen crust and fungus — chalky, matt, DUSTY things — so indoors
-            // the term is multiplied out to nothing and the cushion's own
-            // relief normal is left to do all the work.
-            // Outdoors it stays: real moss after rain does catch a grazing
-            // sheen, the forest was not the room he named, and taking a working
-            // cue out of a room nobody complained about is how a fix becomes a
-            // regression.
-            elemAdd += float3(0.014, 0.026, 0.017)
-                     * (moss * (1.0 - mthk) * graze * graze * (0.5 + 0.5 * rr)
-                        * (1.0 - GhvrIndoor()));
-            // ...and it swallows the ambient rather than answering it, which is
-            // the other half of "matt": a cushion of moss is the darkest thing
-            // on a moonlit wall. Frost is the opposite and is added above.
-            ambGain -= 0.12 * mthk;
+            // THIS IS NOT AN OVERSIGHT AND IT IS THE POINT OF THE ROUND: a green
+            // ADD on a trunk is a green trunk, whatever it is called. A sheen
+            // that only exists where a covering was grown cannot survive the
+            // covering, and one that exists everywhere is the ModBuild 142 wash
+            // this whole feature replaced. Earth's statement in both rooms is
+            // now vegetation STANDING UP out of the ground — real cards with
+            // real outlines, EnvRoomCutout/_ElemGrow — and it is the bake lane's
+            // to make denser. Nothing in this shader paints anything green.
         }
         // =====================================================================
 

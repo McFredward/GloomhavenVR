@@ -1,33 +1,36 @@
 // ============================================================================
-//  SURFACE GROWTH — frost and moss as a COVERAGE THAT ADVANCES, plus the WIND
-//  that moves the things that grew.
+//  SURFACE GROWTH — FROST as a COVERAGE THAT ADVANCES, the GROW-IN of the cards
+//  Earth brings up, and the WIND that moves the things that grew.
 //
 //  This is a companion to EnvElement.cginc, which owns the CHANNEL (_GhvrElemA/B,
 //  the master switch, the periphery ramp) and whose five rules this file obeys
 //  without restating them. What lives here is the one mechanism three shaders
 //  need to spell identically — EnvRoom (cellar masonry AND forest trunks),
 //  EnvGround (forest floor) and EnvRoomCutout (every alpha-cut card) — because
-//  a wall and the flagstone at its foot growing two different mosses is worse
-//  than neither growing at all.
+//  a wall and the flagstone at its foot frosting two different frosts is worse
+//  than neither frosting at all.
+//
+//  ============ THERE IS NO PAINTED MOSS IN THIS FILE ANY MORE ============
+//  It was removed in full — not disabled, not faded to zero — on the FOURTH
+//  rejection of it. Read THE MOSS IS GONE below before adding anything that
+//  puts a colour on a surface under Earth. That block is the whole argument and
+//  it is the reason this header no longer says "frost and moss".
+//  ========================================================================
 //
 //  USER FINDING, ModBuild 142 (hardware, verbatim):
 //    "Beim Eis würde ich gerne Frost auf dem Boden wachsen sehen an den Wänden
 //     oder Bäumen - nicht komplett flächendeckend aber animiert und immersiv."
-//    "Bei Erde möchte das Wände und Böden teilweise mit Moos bewachsen - auch
-//     im Wald das die Stämme teilweise und der Boden mit Moos bzw. Gras
-//     bewachsen wird."
 //    "Bei der Luft bzw Wind möchte ich das die Blätter der Bäume wackeln!"
 //
-//  The first two sentences are one request made twice, and ModBuild 142 answered
-//  both with a FADE — alb = lerp(alb, colour, intensity * k). That is why he is
-//  asking again. A fade over a whole wall says "this wall is being LIT
-//  differently"; what he asked for says "this wall is being COVERED". The
-//  difference is not the colour. It is that a covering has a FRONTIER: an edge,
-//  in an irregular place, that moves.
+//  ModBuild 142 answered the first with a FADE — alb = lerp(alb, colour,
+//  intensity * k) — and that is why he asked again. A fade over a whole wall
+//  says "this wall is being LIT differently"; what he asked for says "this wall
+//  is being COVERED". The difference is not the colour. It is that a covering
+//  has a FRONTIER: an edge, in an irregular place, that moves.
 //
-//  THE MECHANISM, and it is deliberately ONE idea used four times (ice, earth,
-//  the grass that grows in, and — as a threshold on position rather than on a
-//  surface — which clumps have come up yet):
+//  THE MECHANISM, and it is deliberately ONE idea used twice (ice, and — as a
+//  threshold on position rather than on a surface — which clumps of the growth
+//  cards have come up yet):
 //
 //    * every pixel computes an AFFINITY A in 0..1: how eager THIS pixel is to be
 //      grown on. It is a property of the SURFACE and not of the element — the
@@ -62,9 +65,9 @@
 //    place  what each surface knows about itself that the other two cannot —
 //           height above the floor, how much sky it can see, which side of it
 //           the moon is on, whether it is the wet half of the ground. The three
-//           consumers compute this differently and that is the whole reason
-//           frost and moss look like different substances rather than like two
-//           colours of the same stain.
+//           consumers compute this differently, which is what makes frost start
+//           where cold actually settles on THAT surface rather than everywhere
+//           at once.
 //
 //  REJECTED, and why:
 //    * a second noise octave (8 more hashes/pixel) — `grain` is free and truer.
@@ -219,7 +222,7 @@ float GhvrGrowA (float field, float grain, float place)
 ///
 /// At cover = 0 the threshold sits at 1 + GHVR_GROW_EDGE, so smoothstep's lower
 /// bound is exactly 1.0 and A <= 1 returns EXACTLY 0. Not small: zero. That is
-/// what lets a consumer write `lerp(alb, moss, GhvrGrow(...))` and still be
+/// what lets a consumer write `lerp(alb, frost, GhvrGrow(...))` and still be
 /// bit-identical with the element down, and it is why A is clamped above.
 ///
 /// THE EASE. `cover` is squashed toward 1 before it drives the threshold, and
@@ -315,523 +318,107 @@ float3 GhvrFrostOn (float3 alb, float lum, float m)
 }
 
 // ============================================================================
-//  MOSS REAL — moss as a SURFACE and not as a colour.
+//  THE MOSS IS GONE — and this block is the only thing left of it.
 //
-//  USER VERDICT, ModBuild 143 (hardware, both rooms, verbatim):
-//    forest: "Erde sind einfach grüne Flecken die hier und da zu sehen sind und
-//             nicht wirklich wie Moos, das musst du überarbeiten"
-//    cellar: "Bei Erde ist ähnlich wie im Wald einfach grüne Flecken statt
-//             wirklich 'Moos' und Bewachsung, nicht sehr glaubwürdig"
+//  USER VERDICT, ModBuild 147 (hardware, verbatim, and the FOURTH rejection of
+//  the same surface):
+//    "Entferne das 'Moos' komplett, das sieht nicht gut aus (siehe moos.jpg).
+//     Mach stattdessen mehr Bewachsung, auch zB im Wald innerhalb der Lichtung,
+//     so dass man einen deutlichen Unterschied erkennt."
+//    "Entferne bei 'Erde' im Keller diese Flecken auf dem Boden komplett — gehe
+//     sonst auch im Keller in die Richtung von mehr sichtbarer Bewachsung an den
+//     Wänden und im Boden, nicht diese Flecken mehr."
 //
-//  He is NOT complaining about where it grows. ModBuild 143's frontier put the
-//  patches at the foot of the wall, in the mortar courses and in the wet
-//  hollows, and none of that is in the verdict. He is complaining that a patch
-//  is a FLAT GREEN SHAPE — which it was, exactly: `lerp(alb, oneGreen, m)`.
-//  A single chroma with the stone's own luminance showing through it is the
-//  definition of a stain, and no amount of moving it or reshaping its outline
-//  can make a stain read as a plant.
+//  WHAT WAS DELETED, so that nobody has to go to the history to find out what
+//  was tried: GhvrTri4 (the smoothed triangle wave and its analytic derivative),
+//  GhvrMossRelief (four incommensurate corrugations warped by the patch field,
+//  plus a value-noise CLUMP field and a hue TONE), GhvrMossThick (the cushion
+//  depth) and GhvrMossOn (three tiers cut out of the clump field, two body hues
+//  chosen by the tone, a pale crown, a dry rim, a luminance carry-through and an
+//  occlusion lip, with a separate indoor lichen/fungus palette). Roughly 340
+//  lines of shading and four rounds of tuning. Every call site went with it, and
+//  so did the wet grazing SHEEN EnvRoom.shader used to add under Earth — a green
+//  add on a trunk is a green surface however small it is.
 //
-//  So the attack is on the SURFACE, and it is five things a stain cannot have.
-//  Every one of them is a property of moss that survives being seen at three
-//  metres in a room lit at 0.03, which is the only test that counts here:
+//  THE ROOT CAUSE, stated once and plainly, because three previous rounds each
+//  diagnosed a DIFFERENT cause and each was wrong in the same way. The verdicts
+//  went: "einfach grüne Flecken" (143), "eher wie Schleim" (146), and now
+//  "sieht nicht gut aus" with a photograph attached. Each round answered the
+//  adjective: 143's answer was flat colour, so 145 gave it micro-relief, its own
+//  normal, two greens and an occlusion lip; 146's answer was a smooth gradient
+//  and one hue, so it gave it discrete bodies cut out of a value-noise clump
+//  field, two body hues, a crown and a dry rim. Both were real improvements to
+//  the thing that was wrong, and neither could work, because the defect is not
+//  in the adjective. It is CATEGORICAL:
 //
-//   1. ITS OWN MICRO-TEXTURE. Moss is a mat of fronds a few millimetres across;
-//      at arm's length you see the fronds, at three metres you see the mottling
-//      they make. GhvrMossRelief below is that mottling, at 7-25 cm (the
-//      weighting moved in ModBuild 146 — see S3 below).
-//   2. ITS OWN NORMAL. A stain is as flat as what it is on; a cushion has
-//      relief, and it also DESTROYS the relief underneath (the mortar course
-//      under 2 cm of moss is gone). Both halves matter — the consumers scale
-//      the material's own normal DOWN by the coverage and add the moss's own.
-//      The gradient is analytic (see GhvrTri4), so this costs no extra fetch
-//      and no second noise octave.
-//   3. COLOUR THAT VARIES WITHIN ONE PATCH. Two greens, mixed by the relief:
-//      near-black in the gaps between the fronds, a yellow-green on the tips.
-//      This is the single biggest difference in the picture, and it is what
-//      makes the patch look GRANULAR instead of poured.
-//      SUPERSEDED IN ModBuild 146, and it is worth saying why rather than
-//      quietly deleting it: this was RIGHT about needing colour variation and
-//      WRONG about how much of it and where. Two colours of one hue, mixed
-//      smoothly, measurably spend half the patch in the middle of the mix — one
-//      green, softly modulated, which is slime. See S1/S2 below.
-//   4. A SOFT RAISED EDGE. A cushion stands proud of the stone, so its border
-//      is a crease with an occlusion line in it, not a cut. GhvrMossOn's `band`
-//      is three instructions and it is the cue that reads as "raised" — the
-//      first render with the colours in and the lip out still looked painted.
-//   5. IT KILLS THE SPECULAR AND SWALLOWS LIGHT. ModBuild 143 gave the moss a
-//      wet GRAZING SHEEN, which is precisely a varnish: it made the patches
-//      look like paint that had not dried. It is now weighted by (1 - thick),
-//      so only the thin frontier — where the stone really is wet — is glossy,
-//      and the deep middle of a cushion is matt and slightly darker than the
-//      room around it.
+//      A FUNCTION OF THE ALBEDO HAS NO SILHOUETTE. Whatever it computes, it
+//      computes it ON the surface it was handed, inside that surface's own
+//      outline. A plant is legible because its edge is against the BACKGROUND —
+//      you read a fern as a fern by the black between its fronds. Paint the
+//      most convincing moss in the world onto a tree trunk and it is still a
+//      shape lying inside the trunk's outline, i.e. a mark ON the bark. That is
+//      what a stain is. Nothing that lives in a fragment shader can escape it.
 //
-//  ...and one thing that is NOT in this file, because a shader cannot do it:
-//  where a patch is thick enough to be a CUSHION rather than a film, it needs a
-//  silhouette. That is real geometry, and it is the growth cards — see the
-//  SURFACE GROWTH block in BuildEnvironmentRooms.cs, where the cellar now grows
-//  cushions up the wall face as well as along its foot and the forest floor
-//  gets half as many tufts again.
+//  moos.jpg is that argument as a picture, and it is worth describing because
+//  the file itself will not survive the next cleanup: a green blob with darker
+//  spots inside it, lying flat on a lit trunk — while the CARD-BASED grass and
+//  ferns standing in front of the same trunk, in the same frame, at the same
+//  three metres, read as plants without any help at all. The two treatments are
+//  side by side and the verdict between them is not close. Card geometry reads
+//  as vegetation; painted growth reads as a stain. That is the lesson, and it is
+//  the reason the replacement is a BAKE-LANE job (more cards, denser, in more
+//  places, including inside the forest clearing) and not another look function.
 //
-// ============================================================================
-//  MOSS REAL, SECOND PASS — the slime verdict, and why the FIVE ABOVE WERE NOT
-//  ENOUGH. This is the third complaint about the same surface, so the response
-//  is a rebuild of the look function and not a tuning of its constants.
+//  THE SECOND VERDICT IS THE SAME FAULT ON A FLOOR. "diese Flecken auf dem
+//  Boden" in the cellar were this same code path on C_Floor (_ElemMoss 1.0):
+//  patches of a different colour lying in the flagstones. A patch of colour on a
+//  floor cannot be growth for exactly the reason above, and the cellar's own
+//  bracket fungi — which ARE geometry — were never complained about once.
 //
-//  USER VERDICT, ModBuild 146 (hardware, verbatim):
-//    "Das Moos gefällt mir immer noch nicht insbesondere nicht im Keller - es
-//     sieht eher aus wie Schleim, es soll eher aussehen wie wuchende Pflanzen
-//     und Pilze die an den Wänden wachsen."
+//  WHAT SURVIVED, and how:
+//   * THE BRACKET FUNGI AND EVERY GROWTH CARD. They never went through this
+//     path at all: C_Fungus.mat, C_Growth.mat, S_GrowthMoss.mat, S_GrowthGrass.
+//     mat and S_Moss0..3.mat all carry _ElemMoss = 0 (checked, all 74 Env
+//     materials), and they take their colour from their own textures
+//     (fungus_alb, moss_01_alb) and their own _Tint. What Earth does to them is
+//     GhvrGrowCard below — a VERTEX fold that stands them up out of the ground —
+//     and that is untouched, because the grow-in is geometry appearing and is
+//     the one thing about Earth the user has never objected to.
+//   * FROST. GhvrFrostOn, the frontier, the affinity, the creep and the whole
+//     of Ice are untouched: Ice was never the complaint, and frost genuinely IS
+//     a film on a surface, which is the one thing this mechanism can honestly
+//     draw.
+//   * THE WIND and the grow-in, below.
 //
-//  WHAT MAKES A GREEN SURFACE READ AS SLIME RATHER THAN AS A COLONY. Five
-//  properties, and ModBuild 145's moss had all five. They were MEASURED off the
-//  functions below (400k samples of the real GhvrTri4 sum, not an impression):
-//
-//   S1. THE VALUE STRUCTURE WAS A GRADIENT, NOT A STRUCTURE. The colour was
-//       lerp(gapGreen, tipGreen, saturate(relief*0.85 + 0.5)), and `relief` is a
-//       weighted sum of four smoothed triangle waves whose distribution is
-//       concentrated about zero: measured sigma 0.370, so the blend factor spent
-//       54.5% of the covered area between 0.25 and 0.75. More than half of every
-//       patch was a smooth mix of the two greens — which is to say ONE green,
-//       softly modulated. A smooth continuous ramp over a wet-looking film is
-//       the definition of slime. A colony is the opposite: discrete bodies with
-//       DARK BETWEEN THEM, and the eye reads the darkness, not the bodies.
-//   S2. THERE WAS NO HUE VARIANCE AT ALL. Both colours were green
-//       (0.048,0.090,0.038 and 0.175,0.315,0.110 — the same hue, the same
-//       saturation, two values). Real moss, lichen and fungus growing together
-//       are never one hue: yellow-green, grey-green, ochre, rust-brown at the
-//       dry edges, and near-white on a bracket fungus. One hue over a whole
-//       surface is a coating; several hues over the same surface are organisms.
-//   S3. THE MOTTLING WAS AT THE WRONG SCALE. The four corrugations were weighted
-//       0.18/0.16/0.28/0.38, i.e. two thirds of the amplitude on the 13.6 cm and
-//       25.1 cm waves. So the surface undulated at BODY scale — big soft swells
-//       across the whole patch — and the 7-8.5 cm waves that are the size of an
-//       actual cushion or bracket only rippled its edges. Big soft swells of one
-//       green is, again, a sheet of slime; and the scale is what it is because
-//       ModBuild 144 backed away from a 3.5-14 cm lattice that aliased, which
-//       was the right retreat from the wrong position.
-//   S4. IT WAS SHINY EXACTLY WHERE IT WAS LOOKED AT. The wet grazing sheen was
-//       cut down to the thin frontier in ModBuild 145 — and the frontier is the
-//       one part of a patch the eye traces to find its shape. A dark green shape
-//       with a glossy rim is a slick. (Fixed in EnvRoom.shader, which owns the
-//       sheen: indoors it is now multiplied out entirely.)
-//   S5. THE CELLAR AND THE WOOD GREW THE SAME ORGANISM. "insbesondere nicht im
-//       Keller" is the user pointing straight at this. Lawn-green moss belongs
-//       on a forest floor under an open sky; four metres underground, on damp
-//       stone, with no sun at all, what grows is lichen crust, bracket fungus
-//       and etiolated (light-starved, pale, drawn-out) growth — pale ochre,
-//       bone, grey-green, rust. Painting the cellar the wood's green is not a
-//       shade too far, it is the wrong kingdom, and it is the single largest
-//       and cheapest correction available.
-//
-//  WHAT IS DONE ABOUT EACH, all of it in GhvrMossRelief and GhvrMossOn below:
-//   S1 -> THE CLUMP TRANSFER. The colour is no longer blended by the relief at
-//         all. It is cut into three tiers by a THRESHOLD on a separate clump
-//         field, smoothstep(0.02, 0.26), giving 72% body, 11% flank and 17% deep
-//         crease (measured). The creases are ~2.4 cm wide on the wall — at three
-//         metres that is a third of a degree, seven headset pixels, so it is a
-//         line the eye can actually see and not a sub-pixel pattern that would
-//         moire.
-//   S2 -> TWO BODY HUES AND A CROWN, chosen per organism by `tone`, a SECOND and
-//         nearly independent combination of the same four waves (measured
-//         correlation with the relief 0.15, so a pale individual is not
-//         systematically the tall one). `tone` is only ever a smooth hue
-//         modulation and is never thresholded, which is why it may still ride on
-//         the four waves when the clump field may not — see S3. Plus a dry rim
-//         colour driven by the cushion's own thickness, because a colony browns
-//         off at its edge where it is losing its damp — which is also the
-//         strongest single cue that the patch has a BOUNDARY it grew to rather
-//         than one it was cut to.
-//   S3 -> THE INDIVIDUALS COME FROM A VALUE NOISE, not from the four waves, and
-//         this is the one thing this round paid a render to learn. The first
-//         attempt levelled the wave weights to 0.26/0.24/0.26/0.24 so the 7-8 cm
-//         pair would lead, and cut the tiers out of that. The cellar floor came
-//         back a LEOPARD SKIN: a regular lattice of dark spots. Four plane waves
-//         on fixed axes are a crystal, and thresholding a crystal gives a crystal
-//         of dots — which also explains why ModBuild 145 read as slime, because
-//         the only way to hide the lattice in that field is to keep its contrast
-//         so low that the surface has no structure at all. Slime and lattice were
-//         the same property. So the clump field is now GhvrGrowField at 3.6x the
-//         frontier's density (~9 cm cells): aperiodic, organic islands, at the
-//         cost of eight more hashes on a path that only runs under Earth. The
-//         four waves keep the smooth micro-corrugation and its free gradient,
-//         at their ORIGINAL ModBuild 145 weights and bump strength — the normal
-//         was never what was complained about. Full argument in GhvrMossRelief.
-//   S4 -> EnvRoom.shader, quoted there.
-//   S5 -> GhvrIndoor(). One shader, two palettes, two biologies. The cellar
-//         grows pale crusts and fungus, the wood grows moss.
-//
-//  WHAT A SHADER STILL CANNOT DO, and it is owed to the bake lane rather than
-//  hidden: a bracket fungus is a HORIZONTAL SHELF standing out of a vertical
-//  wall, and no albedo function has a silhouette. The growth cards the cellar
-//  grows today are vertical plumb quads, which is a tuft of grass, not a
-//  polypore. See the report note; this file paints what is there and cannot
-//  put a shelf on a wall.
+//  WHAT IS OWED TO THE BAKE LANE, in the report and repeated here so the next
+//  reader of this file finds it: _ElemMoss is no longer declared by EnvRoom,
+//  EnvGround or EnvRoomCutout, so the ~30 SetFloat("_ElemMoss", ...) calls in
+//  BuildEnvironmentRooms.cs are now writes to a property that does not exist.
+//  They are harmless (Unity ignores them; the guarded ones test HasProperty
+//  first) but they should go, together with the "earth moss" rows of
+//  ReportGrowth, which now report a coverage nothing consumes.
 //
 //  REJECTED, this round:
-//   * cutting the individuals out of the four waves, to keep the round free of
-//     any extra hash. Tried, rendered, rejected — it is the leopard skin in S3,
-//     and no weighting fixes it because the defect is that a sum of plane waves
-//     is periodic.
-//   * a distance-based detail LOD (fine texture near, coarse far), which is the
-//     standard answer to S3's aliasing. _WorldSpaceCameraPos differs between the
-//     two eyes by the IPD, so a detail level derived from it is a per-eye
-//     albedo. The masonry wall fade already cost this project a round to stereo
-//     rivalry; a cue that has no per-eye term in it at all is worth more than a
-//     sharper moss.
-//   * making the cellar's growth WARM OCHRE, on the argument that fungus is warm
-//     against cold moonlit stone. Tried, rendered, rejected: three quarters of
-//     the cellar wall a player looks at is lit by CANDLES, and warm growth on
-//     warm stone under orange light vanishes into the masonry. The palette that
-//     shipped is sage and cream — the two hues that are neither candle-warm nor
-//     moon-cold — and it leans on the tiers rather than on the hue.
-//   * making the cellar's growth GREY. It reads as mould, and mould on a wall is
-//     the flat stain this whole block exists to escape.
-//
-//  REJECTED (ModBuild 145, and the FIRST of these was overturned in 146 — see
-//  S3 above and GhvrMossRelief; it is left standing here because the reasoning
-//  was sound for what the field had to do at the time):
-//   * a second value-noise octave for the micro-texture (8 more hashes, ~40
-//     ALU, on the one path that already runs a full octave). The corrugation
-//     below is quasi-periodic rather than random, which for a 4 cm frond mat
-//     under moonlight is a distinction without a difference — and it hands
-//     over an exact derivative, which a value noise would charge two more
-//     evaluations for. OVERTURNED: it stopped being a distinction without a
-//     difference the moment the same field had to be cut into visible bodies.
-//   * a moss NORMAL MAP. There is no second UV set on any of these meshes
-//     (walls, welded trunk bands, the forest floor), so it would have to be
-//     triplanar: three fetches where this is one ALU block.
-//   * screen-space derivatives of the albedo as a cheap bump (ddx/ddy). It is
-//     two instructions and it looks right in a screenshot — and it is
-//     per-EYE, so the two eyes get different relief on the same pixel. That is
-//     the stereo-rivalry trap this project has already been bitten by once
-//     (the masonry wall fade); it is not being walked into for a moss.
+//   * KEEPING THE FUNCTIONS AND SETTING THE SUSCEPTIBILITIES TO 0. It is the
+//     one-line change and it is exactly what the user forbade ("Entferne ...
+//     komplett"). A look function that four rounds have failed to make work,
+//     left in the file behind a zero, is a look function that comes back.
+//   * KEEPING A "SUBTLE" VERSION FOR THE CELLAR ONLY, on the argument that the
+//     indoor lichen palette (sage/cream, the ModBuild 146 work) was never shown
+//     to him separately. It was: "Entferne bei 'Erde' im Keller diese Flecken
+//     auf dem Boden komplett" names the cellar explicitly.
+//   * KEEPING THE MOSS NORMAL (the relief bump) without the colour, so that
+//     Earth would still rough up a surface. Tempting, cheap, and wrong twice: a
+//     normal perturbation with no albedo behind it reads as a dent, not a plant,
+//     and it would keep GhvrTri4 + GhvrMossRelief alive as the seed of the next
+//     revival.
 // ============================================================================
-
-/// The cubic-smoothed triangle wave AND its exact derivative, four at a time.
-/// Same wave as GhvrWave4 (see there for the SpeedTree/Crytek provenance and
-/// for why it is not a sine); this form additionally returns d/dx, which is
-/// what buys the moss a normal for free.
-///
-///   g(v) = 2*(3v^2 - 2v^3) - 1   with  v = |frac(x + 0.5)*2 - 1|
-///   dg/dx = dg/dv * dv/dx = 12v(1-v) * 2*sign(...) = 24 v(1-v) sign(...)
-/// so |value| <= 1 and |derivative| <= 6, both by construction rather than by
-/// measurement — which is what lets the bump strength below be a constant.
-void GhvrTri4 (float4 x, out float4 v, out float4 d)
-{
-    float4 s = frac(x + 0.5) * 2.0 - 1.0;
-    float4 a = abs(s);
-    v = (a * a * (3.0 - 2.0 * a) - 0.5) * 2.0;
-    // sign(), and the s = 0 case needs no thought: a is 0 there too, so the
-    // product is 0 whatever sign(0) returns.
-    d = 24.0 * a * (1.0 - a) * sign(s);
-}
-
-/// The moss's own micro-relief: value in [-1,1] in .x, and its GRADIENT in the
-/// same frame `q` is measured in, in .yzw.
-///
-/// Four incommensurate corrugations: two fine, one middling and one coarse, and
-/// the WEIGHTS lean hard on the coarse ones. None of the four axes is parallel
-/// to another and no two lengths are in a small integer ratio, so the sum does
-/// not repeat anywhere a player can walk to; it is the same trick the flicker
-/// uses on three sines, done in one float4.
-///
-/// THE SCALES ARE WHAT THE FIRST RENDER GOT WRONG, and it is worth recording
-/// because it is a trap this kind of function walks into every time. The first
-/// pass put all four between 3.5 and 14 cm, which is the physical size of a
-/// moss frond and is therefore "correct" — and the picture came out as a green
-/// CHECKERBOARD. Two reasons, both fatal:
-///   * ALIASING. This is an analytic pattern, so it has no mip chain and
-///     nothing filters it. A 4 cm feature at four metres is well under a pixel,
-///     and an unfiltered sub-pixel pattern does not become smooth, it becomes
-///     a moiré — which is exactly the regular speckle the render showed.
-///     (fwidth-based fading was rejected: it is a SCREEN-space quantity, i.e.
-///     per-eye, and this project has already lost a round to stereo rivalry on
-///     the masonry wall fade. A pattern coarse enough not to need filtering is
-///     the answer that has no per-eye term in it at all.)
-///   * REGULARITY. Four waves at roughly equal weights and roughly equal
-///     lengths read as a lattice however incommensurate the axes are. Moss is
-///     CLUMPY: big soft lumps with fine texture riding on them, not a weave.
-/// So the coarse pair carries two thirds of the weight and the sizes span
-/// 7 cm to 25 cm — the band that survives being seen from across a room, which
-/// is the only distance this is ever judged at.
-///
-/// THE WARP is the third thing the first render taught, and it is the one that
-/// finally killed the weave. Four waves with fixed axes are QUASI-PERIODIC
-/// however carefully the lengths are chosen: on a lit floor the eye finds the
-/// repeat in about a second, and what it found was a honeycomb. `warp` is the
-/// patch field the frontier already computed — an organic value that varies
-/// over ~33 cm — and offsetting the whole lattice by it drags the corrugation
-/// about by a wavelength or two per patch. Three adds, no extra evaluation, and
-/// the result has no repeat at all because the thing displacing it has none.
-/// (The gradient does not carry the warp's own derivative and is therefore
-/// approximate. It is a bump on a moss cushion; being a few degrees off the
-/// exact normal of a fictional height field is not a defect anybody can name.)
-///
-/// It is evaluated in `q` — GhvrGrowQ's coordinate, i.e. the room's own metric
-/// frame relative to the room centre — so it obeys the same rule the patch
-/// field does: two identical walls in two yaws grow two different mosses, and
-/// two clients compute the same one.
-///
-/// `org` IS THE SECOND OUTPUT, new in ModBuild 146, and it is what the three
-/// tiers in GhvrMossOn are cut from:
-///   org.x  THE CLUMP FIELD, 0..1 — WHERE ONE ORGANISM ENDS AND THE NEXT BEGINS.
-///   org.y  THE TONE, 0..1 — WHICH ORGANISM this is, i.e. what colour it takes.
-///
-/// WHY THE CLUMP FIELD IS A VALUE NOISE AND NOT THESE FOUR WAVES, which is the
-/// one thing this round paid a render to learn and the reason the cost below is
-/// accepted. The first attempt cut the crease/body/crown tiers straight out of
-/// the corrugation above, with its weights levelled so the 7-8 cm waves led. On
-/// paper it is right — the individuals come out individual-sized and it costs
-/// nothing. In the render the cellar floor came out as a LEOPARD SKIN: a regular
-/// lattice of dark spots, dead obvious at two metres.
-///   The cause is structural rather than a tuning. Four plane waves on fixed
-/// axes are a CRYSTAL. The old code hid that by never letting the field's
-/// contrast rise — which is precisely why it read as slime, so "slime" and
-/// "lattice" were the same property seen from two sides, and no weighting of
-/// four waves can give one without the other. The warp (below) drags the crystal
-/// about but does not dissolve it, and M0/M1 are 8.5 and 7.2 cm — a ratio of
-/// 1.18, which is the "roughly equal lengths" case this file's own header warns
-/// about. THRESHOLDING A CRYSTAL GIVES A CRYSTAL OF DOTS.
-///   So the tiers are cut from GhvrGrowField instead — the same trilinear value
-/// noise the frontier already advances through, evaluated at 3.6x the frontier's
-/// density so its cells are ~9 cm. Value noise thresholded gives irregular
-/// islands with no repeat anywhere a player can walk to, because it has no
-/// period at all. THE COST IS EIGHT MORE HASHES, about 40 ALU, and this file's
-/// header rejected exactly that in ModBuild 145 ("a second value-noise octave
-/// for the micro-texture ... the corrugation is quasi-periodic rather than
-/// random, which for a 4 cm frond mat under moonlight is a distinction without a
-/// difference"). That was true while the relief only had to be FELT. It stopped
-/// being true the moment the same field had to be cut into visible individuals,
-/// and the render is the proof. It is paid only inside `if (ea > 0)`, i.e. only
-/// while Earth is up and only on a material with _ElemMoss > 0.
-///
-/// The four waves keep the two jobs they are still the best tool for: the smooth
-/// micro-corrugation WITHIN one organism, and its exact analytic gradient, which
-/// is what buys the moss a normal for free. Their weights are unchanged from
-/// ModBuild 145 (0.18/0.16/0.28/0.38, bump 0.022) — the bump was never what was
-/// complained about, and a coarse bump is also the one that cannot alias.
-/// `org.y` is a second, sign-alternating combination of the same four wave
-/// values, so it is free: it varies the HUE smoothly and is never thresholded,
-/// which is why a residual lattice in it is invisible where one in the clump
-/// field was fatal. Measured correlation with the returned relief: 0.15 — a pale
-/// individual is not systematically the tall one.
-///
-/// (SIGNATURE CHANGED this round: `out float2 org` is new. All three consumers —
-/// EnvRoom, EnvGround, EnvRoomCutout — are updated in the same change.)
-float4 GhvrMossRelief (float3 qIn, float warp, out float2 org)
-{
-    float3 q = qIn + warp * float3(3.71, -2.93, 5.27);
-    const float3 M0 = float3( 3.41,  1.62, -1.10);   // |M| 3.93 ->  8.5 cm
-    const float3 M1 = float3(-1.23,  3.05,  3.26);   // |M| 4.63 ->  7.2 cm
-    const float3 M2 = float3( 1.79, -1.06,  1.31);   // |M| 2.46 -> 13.6 cm
-    const float3 M3 = float3( 0.71,  0.94, -0.62);   // |M| 1.33 -> 25.1 cm
-    float4 v, d;
-    GhvrTri4(float4(dot(q, M0), dot(q, M1), dot(q, M2), dot(q, M3)), v, d);
-    const float4 W = float4(0.18, 0.16, 0.28, 0.38); // sums to 1 => |value| <= 1
-    // THE CLUMP FIELD. 3.6x the frontier's own density puts the noise lattice at
-    // ~9 cm, so the islands it makes are 9-14 cm across: a bracket fungus, a
-    // lichen plate, a moss cushion. The offset keeps it uncorrelated with the
-    // frontier's own field (which the consumers sample at q + 37.1) — the
-    // frontier decides WHETHER this pixel is grown on, the clump field decides
-    // WHICH BODY it belongs to, and those must not be the same question.
-    org.x = GhvrGrowField(q * 3.6 + 71.3);
-    // WHICH ORGANISM. |B| does not have to sum to anything: the consumer maps it
-    // through a saturate, and the 1.35 gain there is chosen against the measured
-    // sigma of 0.365 so that about a third of the area lands at each end of the
-    // palette and a third mixes. See GhvrMossOn.
-    const float4 B = float4(0.34, -0.30, 0.22, -0.14);
-    org.y = saturate(dot(v, B) * 1.35 + 0.5);
-    float3 g = M0 * (d.x * W.x) + M1 * (d.y * W.y)
-             + M2 * (d.z * W.z) + M3 * (d.w * W.w);
-    // 0.022 puts the RMS slope of the sum near 0.11 in tangent-space units,
-    // which is a moss cushion and not a rock face. The bound is
-    // 0.022 * 6 * sum(|M| * W) = 0.35, so a consumer adding this to n_ts.xy
-    // tilts the normal by at most 19 deg and can never invert it. (0.030 was
-    // the first render's number and it made a candle-lit floor of moss boil:
-    // a relief this size only has to be FELT, and the moment it can be read
-    // as a shape it is a pattern again.)
-    return float4(v.x * W.x + v.y * W.y + v.z * W.z + v.w * W.w, g * 0.022);
-}
-
-/// How DEEP the cushion is here, 0..1 — the number that separates a film from a
-/// cushion, and the one every "is this paint?" cue is weighted by.
-///
-/// m*m is the taper: a cushion has no vertical wall at its frontier, it thins
-/// to nothing, and the square is what stops the whole patch reading as one
-/// slab of uniform thickness (which is what ModBuild 143's single `m` did).
-/// `field` is how long this pixel has been covered — the same patch field the
-/// frontier advanced through, so the middle of an old patch is the deep part.
-/// `grain` is the surface's own relief: moss is deeper in the mortar course and
-/// in the fissure than on the face of the stone, because that is where it had
-/// somewhere to sit.
-float GhvrMossThick (float m, float field, float grain, float relief)
-{
-    return m * m * saturate(0.26 + 0.52 * field + 0.34 * grain)
-             * (0.72 + 0.28 * (relief * 0.5 + 0.5));
-}
-
-/// Growth, laid on. A PIGMENT and not a light (an additive green over dark bark
-/// glows like a screen), and a REPLACEMENT where it covers: at m = 1 the pixel
-/// is the organism, not tinted stone.
-///
-/// REBUILT IN ModBuild 146 on the slime verdict. Read MOSS REAL, SECOND PASS
-/// above for the five measured reasons the previous version read as slime; this
-/// is the answer to four of them (the fifth, the wet sheen, is EnvRoom's). The
-/// old body was three lines: one lerp between two greens weighted by the raw
-/// relief, one luminance carry-through and one lip. Everything below that is not
-/// the carry-through or the lip is new.
-///
-///   `org`   GhvrMossRelief's second output. org.x is THE CLUMP FIELD (where one
-///           body ends and the next begins) and org.y is THE TONE (which
-///           organism it is, i.e. what colour it takes). Both 0..1.
-///
-/// THE THREE TIERS, all cut from org.x, and each is a different claim about what
-/// the eye is looking at:
-///   CREASE  the dark between the bodies. This is the tier that did not exist
-///           before, and it is the one that decides whether the surface reads as
-///           a colony or as a coating: a colony is legible because of its
-///           SHADOWS. Near-black, over a measured 17% of the covered area, in
-///           lines ~2.4 cm wide — narrow lines, not a mottle.
-///   BODY    the organism itself, one of two hues chosen by org.y. In the wood
-///           that is a shaded deep green and a yellow-green; in the cellar a
-///           sage lichen crust and a cream etiolated growth.
-///   CROWN   the top of the field, and only where the cushion is already deep:
-///           the pale, almost-white cap of a bracket fungus, the sun-dried tip
-///           of a moss cushion. It is a small area on purpose — a highlight that
-///           covers a quarter of a patch is just a lighter patch.
-/// ...plus a DRY RIM, keyed to thickness rather than to the field: a colony
-/// browns off where it is thin and losing its damp, which is both true and the
-/// strongest available cue that the boundary is one the thing GREW to.
-/// ...and `relief`, the four-wave corrugation, survives as a gentle value
-/// modulation WITHIN one body — the texture of a single cushion, under the
-/// structure that separates it from its neighbour. It is deliberately weak and
-/// deliberately never thresholded; see GhvrMossRelief for why anything cut hard
-/// out of that field comes out as a lattice.
-///
-/// CHROMA, NOT VALUE, is still what makes this readable in the wood, and the
-/// night forest is still the reason: everything there is a dark blue-grey, a
-/// growth that is merely a darker grey disappears into it and one that is
-/// BRIGHTER is a lamp. The cellar palette cannot use hue the same way, because
-/// most of that room is lit by candles and a warm growth on warm stone under
-/// orange light is invisible (measured, first render of this round). It leans on
-/// the tiers instead: sage and cream bodies with near-black creases between them
-/// and bone crowns on top, which separate under a candle and under the moonbeam
-/// alike because what separates them is structure and not colour.
-///
-/// EXACT AT ZERO: m = 0 gives thick = 0 (GhvrMossThick has an m*m in it),
-/// lerp(alb, .., 0) = alb and band = 0, so the return is alb * 1.0 — the same
-/// bits, which is what the zero-state rule in EnvElement.cginc requires of every
-/// consumer. None of the tiers below can change that: they only decide `c`.
-///
-/// SIGNATURE CHANGED this round (`float2 org` added). All three consumers —
-/// EnvRoom, EnvGround, EnvRoomCutout — are updated in the same change.
-float3 GhvrMossOn (float3 alb, float lum, float m, float thick, float relief, float2 org)
-{
-    // ---- THE INDIVIDUALS ------------------------------------------------
-    // The clump transfer, on the value-noise field (NOT on `relief` — see
-    // GhvrMossRelief for the leopard skin that cost). Measured against that
-    // field's own distribution: 72% body, 11% flank, 17% deep crease, and the
-    // crease is ~2.4 cm wide on the wall — at three metres that is a third of a
-    // degree, seven headset pixels, so it is a line the eye resolves rather than
-    // a sub-pixel pattern that would moire.
-    //   The old code used `relief` RAW as a two-colour blend weight, which put a
-    // measured 54.5% of every patch in the middle of the mix: one green, softly
-    // modulated, i.e. slime (S1).
-    float cap = smoothstep(0.02, 0.26, org.x);
-    // the very tops only, and only where there is a cushion to have a top. The
-    // field's own 2.4x contrast stretch clamps 14% of it at exactly 1.0, so the
-    // crown lands on real PLATEAUX — a bracket cap is flat, which is convenient
-    // rather than a compromise — and the thickness gate takes the area back to
-    // ~8%. The upper bound of 1.05 is past the top of the field on purpose: even
-    // on a plateau this saturates at 0.77, so the palest colour in the palette is
-    // never laid on at full strength anywhere. A crown that reached 1.0 read as a
-    // bleached patch rather than as a cap.
-    float crown = smoothstep(0.88, 1.05, org.x) * smoothstep(0.14, 0.48, thick);
-    // WHICH ORGANISM (already mapped to 0..1 by GhvrMossRelief against the
-    // measured sigma, so about a third of the area lands at each end of the
-    // palette and a third mixes). The wall carries individuals of two colours
-    // standing next to each other, which is the thing a single hue can never say
-    // however it is modulated (S2).
-    float who = org.y;
-
-    // ---- TWO BIOLOGIES ---------------------------------------------------
-    // GhvrIndoor() is 1 in the cellar and 0 in the wood (EnvElement.cginc), and
-    // this is the whole of S5. Four metres underground, on damp stone, with no
-    // sun that ever reaches it, what grows is lichen crust, bracket fungus and
-    // etiolated — light-starved, drawn-out, pigment-less — growth. Lawn green
-    // down there is not a shade too far, it is the wrong kingdom, and it is what
-    // "insbesondere nicht im Keller" is pointing at.
-    // The lerp is per-fragment on a global uniform, so both palettes are in the
-    // constant buffer and neither room pays a branch.
-    //
-    // THE CELLAR PALETTE IS PALE AND ONLY HALF-DESATURATED, and the first render
-    // of this round is why. A first pass painted the indoor growth warm ochre, on
-    // the argument that fungus is warm against cold moonlit stone. It is — and
-    // three quarters of the cellar wall a player actually looks at is lit by
-    // CANDLES, which are the warmest thing in the room, so ochre growth on ochre
-    // stone under orange light simply disappeared into the masonry. The colours
-    // below answer both lights instead of one: a SAGE grey-green body (the only
-    // hue in the room that is neither candle-warm nor moon-cold, so it separates
-    // under either) and a near-neutral CREAM one, with bone crowns and a rust rim.
-    // Under the candles the patch reads by hue and by its crevices; under the
-    // moonbeam it reads because it is warmer and paler than the blue-grey stone.
-    float ind = GhvrIndoor();
-    float3 cCrease = lerp(float3(0.016, 0.024, 0.012),   // wood: black-green shade
-                          float3(0.024, 0.027, 0.021),   // cellar: neutral, damp
-                          ind);
-    float3 cBodyA  = lerp(float3(0.058, 0.112, 0.040),   // wood: deep shade moss
-                          float3(0.105, 0.128, 0.092),   // cellar: sage lichen crust
-                          ind);
-    float3 cBodyB  = lerp(float3(0.190, 0.310, 0.105),   // wood: yellow-green tips
-                          float3(0.216, 0.223, 0.162),   // cellar: cream etiolated growth
-                          ind);
-    float3 cCrown  = lerp(float3(0.290, 0.300, 0.165),   // wood: sun-dried tip
-                          float3(0.425, 0.415, 0.355),   // cellar: bone fungus cap
-                          ind);
-    float3 cDry    = lerp(float3(0.135, 0.105, 0.052),   // wood: ochre-brown edge
-                          float3(0.150, 0.110, 0.065),   // cellar: rust on stone
-                          ind);
-
-    // ---- ASSEMBLE --------------------------------------------------------
-    float3 body = lerp(cBodyA, cBodyB, who);
-    // the pale caps belong to the pale individuals: a bracket fungus is not a
-    // bleached patch of the moss beside it, it is a different organism, and
-    // tying the crown to `who` is what stops the highlight reading as a lighting
-    // artefact laid over everything equally.
-    body = lerp(body, cCrown, crown * (0.30 + 0.70 * who));
-    // ...and the four-wave corrugation as a gentle value modulation INSIDE one
-    // body: the texture of a single cushion, ±14%, never thresholded. This is
-    // all that is left of ModBuild 145's use of `relief`, and it is the part of
-    // it that was right — what was wrong was making it carry the colour.
-    body *= 0.86 + 0.28 * (relief * 0.5 + 0.5);
-    float3 c = lerp(cCrease, body, cap);
-    // THE DRY RIM. Where the cushion is thin it is at its frontier, losing its
-    // damp to the bare stone, and it browns off. smoothstep(0, 0.40) means the
-    // middle of any mature patch never sees this at all.
-    c = lerp(cDry, c, smoothstep(0.0, 0.40, thick));
-
-    // The stone shows through the THIN edge of the cushion and not through its
-    // middle: 2 cm of moss does not carry the mortar course under it, a film
-    // does. (ModBuild 143 carried the surface's luminance at full strength
-    // everywhere, which is exactly how a patch stays legible AS the stone.)
-    c *= lerp(0.50 + 1.00 * lum, 0.94, thick);
-    // THE LIP. A cushion stands proud of what it grew on, so its border is a
-    // crease and not a cut: a narrow occlusion band right through the frontier.
-    // Three instructions, no geometry, and without it the patch still reads as
-    // paint no matter how good its interior is.
-    //
-    // DEEPER INDOORS (0.46 against the wood's 0.34), because the cellar palette
-    // is the pale one: a bone-and-sage crust on light masonry has less VALUE
-    // separation from what it grew on than a green cushion on black bark does,
-    // so the one cue that says "this stands off the wall" has to carry more.
-    float band = m * (1.0 - m) * 4.0;
-    return lerp(alb, c, m) * (1.0 - lerp(0.34, 0.46, ind) * band * band);
-}
-
-/// The one channel of the albedo the two look functions need. Green, not a
-/// luminance dot: it is one component instead of three multiplies and an add,
-/// and on every texture in both rooms it tracks the luminance closely enough to
-/// carry the modelling (that much ModBuild 142 had right).
+/// The one channel of the albedo GhvrFrostOn needs. Green, not a luminance dot:
+/// it is one component instead of three multiplies and an add, and on every
+/// texture in both rooms it tracks the luminance closely enough to carry the
+/// modelling (that much ModBuild 142 had right). It is kept as a named function
+/// rather than inlined at the three call sites so that "what the covering
+/// carries of the surface under it" stays one decision.
 float GhvrGrowLum (float3 alb) { return alb.g; }
 
 // ============================================================================
@@ -1013,7 +600,11 @@ float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp,
     return dir * (bend * bendA) + side * (s.z * sideA) + float3(0.0, s.z * upA, 0.0);
 }
 
-/// The GROW-IN of a whole card, for the grass and moss that Earth brings up.
+/// The GROW-IN of a whole card, for the grass, the moss cushions and the tufts
+/// Earth brings up. SINCE THE PAINTED MOSS WAS DELETED THIS IS THE WHOLE OF
+/// WHAT EARTH DOES TO A SURFACE — the vegetation is geometry standing up out of
+/// the ground, and nothing anywhere puts a colour on a wall any more. See THE
+/// MOSS IS GONE above; the bake lane owns how MANY cards there are and where.
 ///
 /// A card is collapsed onto its own base edge: `w` is 0 along the bottom edge
 /// and 1 along the top, so subtracting (1-g) * span * w from y folds the quad

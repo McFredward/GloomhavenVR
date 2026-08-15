@@ -30,6 +30,9 @@ Shader "GloomhavenVR/EnvParticleAlpha"
         _ElemCol ("Element: colour it moves toward", Color) = (1,1,1,1)
         _ElemTintAmt ("Element: how far it moves", Range(0,2)) = 0
         _ElemSpark ("Element: fast twinkle amount", Range(0,2)) = 0
+        // 1 = this emitter IS moonlight and dies with the moon under the eclipse.
+        // Default 0 keeps every unwritten material bit-identical. See EnvParticleElem.cginc.
+        _ElemMoon ("Element: emitter is moonlight", Range(0,1)) = 0
     }
     SubShader
     {

@@ -74,8 +74,12 @@ Shader "GloomhavenVR/EnvGround"
         _ElemCentre ("Element: room centre (OBJECT space)", Vector) = (0,0,0,0)
         _ElemRad ("Element: room outer radius (object units)", Float) = 6
         _ElemScl ("Element: object units in metres", Float) = 1
+        // _ElemMoss IS GONE — the painted moss was deleted on the user's fourth
+        // rejection of it (see THE MOSS IS GONE in EnvGrowth.cginc). S_Ground.mat
+        // still carries the value; nothing reads it. Earth reaches the forest
+        // floor through the GRASS AND TUFT CARDS that stand up out of it
+        // (EnvRoomCutout/_ElemGrow) and through nothing else.
         _ElemFrost ("Element: ice frost susceptibility", Range(0,2)) = 0
-        _ElemMoss ("Element: earth moss susceptibility", Range(0,2)) = 0
         _ElemGrowFreq ("Element: growth cells per metre", Float) = 3.0
 
         // ---- FIRE SEATS (the receiving half of the fire lane's contract) ----
@@ -115,7 +119,7 @@ Shader "GloomhavenVR/EnvGround"
             #include "EnvFire.cginc"
 
             float4 _ElemCentre;
-            float _ElemRad, _ElemScl, _ElemFrost, _ElemMoss, _ElemGrowFreq;
+            float _ElemRad, _ElemScl, _ElemFrost, _ElemGrowFreq;
 
             sampler2D _MainTex; float4 _MainTex_ST;
             sampler2D _BumpMap;
@@ -352,14 +356,24 @@ Shader "GloomhavenVR/EnvGround"
                 float vis = CsVisible(CsCoord(i.opos));
 
                 // ============================================ SURFACE GROWTH ==
-                // The forest floor's own answer to "Frost auf dem Boden" and
-                // "der Boden mit Moos bzw. Gras bewachsen". The mechanism is
-                // EnvGrowth.cginc's; what this floor knows that a wall does not
-                // is WHERE ITS WATER IS — vcol.a is the heightfield generator's
-                // mud/litter blend, painted wet-hollows-first, so `blend` IS the
-                // damp map and moss can simply be told to follow it.
+                // The forest floor's own answer to "Frost auf dem Boden". The
+                // mechanism is EnvGrowth.cginc's; what this floor knows that a
+                // wall does not is WHERE ITS WATER IS — vcol.a is the
+                // heightfield generator's mud/litter blend, painted
+                // wet-hollows-first, so `blend` is the damp map and the dry
+                // litter can be told to frost first.
+                //
+                // "der Boden mit Moos bzw. Gras bewachsen" USED to be answered
+                // here as well, by a second green frontier on the same
+                // machinery. It is deleted — not zeroed — after the fourth
+                // rejection ("Entferne das 'Moos' komplett", ModBuild 147); see
+                // THE MOSS IS GONE in EnvGrowth.cginc for why a fragment
+                // function was never going to be able to answer it. The "Gras"
+                // half of that sentence is the part that always worked, and it
+                // is the part that stays: GrowthGrass/GrowthMoss are real cards
+                // that stand up out of this floor under Earth.
                 GhvrElem e = GhvrElems();
-                float frost = 0.0, moss = 0.0, mthk = 0.0;
+                float frost = 0.0;
                 float ambGain = 1.0, dirGain = 1.0, poolGain = 1.0;
                 float3 elemAdd = float3(0, 0, 0);
                 // the fire wash is kept SEPARATE from elemAdd because it is added
@@ -384,39 +398,18 @@ Shader "GloomhavenVR/EnvGround"
                                           saturate(0.50 * vis + 0.30 * (1.0 - blend) + 0.20 * rr),
                                           ice * (0.34 + 1.05 * rr), creep);
                     }
-                    // MOSS: the wet hollows first (0.55 of the affinity is the
-                    // mud blend), then the shaded ground under the crowns, then
-                    // outward. The board sits on the lit middle of the clearing,
-                    // which is the driest and most open ground there is, so this
-                    // ordering keeps it clear for a second reason beyond `rr`.
-                    // MOSS REAL — see EnvGrowth.cginc for what makes it a
-                    // surface rather than a green patch; what is chosen here is
-                    // only where it starts on a forest floor.
-                    float ea = e.earth * _ElemMoss;
-                    float4 mrel = float4(0, 0, 0, 0);
-                    // WHICH BODY this fragment belongs to and WHAT COLOUR that
-                    // body is — GhvrMossRelief's second output (x = clump field,
-                    // y = tone), new in ModBuild 146. See MOSS REAL, SECOND PASS
-                    // in EnvGrowth.cginc; GhvrMossOn only reads it under `m`, so
-                    // the initialiser is never seen.
-                    float2 morg = float2(0.5, 0.5);
-                    if (ea > 0.0)
-                    {
-                        // the frontier without GhvrGrown's depth factor: moss
-                        // owns its own thickness now (GhvrMossThick), which
-                        // wants the frontier and the field separately.
-                        float mfld = GhvrGrowField(q + 37.1);
-                        moss = GhvrGrow(GhvrGrowA(mfld, grain,
-                                                  saturate(0.55 * blend + 0.25 * (1.0 - vis) + 0.20 * rr)),
-                                        ea * (0.16 + 1.60 * rr), -creep);
-                        mrel = GhvrMossRelief(q, mfld, morg);
-                        mthk = GhvrMossThick(moss, mfld, grain, mrel.x);
-                    }
+                    // A SECOND FRONTIER used to stand here: the moss, starting in
+                    // the wet hollows (0.55 of its affinity was `blend`), then
+                    // the shaded ground under the crowns, then outward. Nothing
+                    // about that placement was ever what the user objected to —
+                    // what he objected to, four times, is that the result is a
+                    // colour lying inside the floor's own outline, which is a
+                    // stain and not a plant. Deleted in full; THE MOSS IS GONE
+                    // in EnvGrowth.cginc carries the argument and the list of
+                    // what went with it.
                     float lum = GhvrGrowLum(alb.rgb);
                     alb.rgb = GhvrFrostOn(alb.rgb, lum, frost);
-                    alb.rgb = GhvrMossOn(alb.rgb, lum, moss, mthk, mrel.x, morg);
-                    n_ts.xy *= 1.0 - 0.62 * frost - 0.78 * moss;
-                    n_ts.xy -= float2(dot(mrel.yzw, i.t), dot(mrel.yzw, i.b)) * mthk;
+                    n_ts.xy *= 1.0 - 0.62 * frost;
 
                     // ================================== LIGHT AND DARK ======
                     // USER VERDICT, ModBuild 143 (forest, verbatim): "Licht und
@@ -486,10 +479,11 @@ Shader "GloomhavenVR/EnvGround"
 
                 float3 nw = normalize(mul((float3x3)unity_ObjectToWorld, N));
                 // frost answers the ambient more strongly than wet leaf litter,
-                // exactly as it does on EnvRoom's stone; a moss cushion swallows
-                // it. Exactly 1.0 with no ice, no moss and no element.
+                // exactly as it does on EnvRoom's stone. Exactly 1.0 with no ice
+                // and no element. (A `- 0.12 * mthk` stood beside it: the moss
+                // cushion swallowing the ambient. It went with the moss.)
                 float3 light = lerp(_AmbDown.rgb, _AmbUp.rgb, nw.y * 0.5 + 0.5)
-                               * (ambGain + 0.30 * frost - 0.12 * mthk);
+                               * (ambGain + 0.30 * frost);
                 // USER FINDING, ModBuild 137 (hardware): "... ich würde hier
                 // gerne das die Bäume entsprechende Schatten werfen." Half of
                 // "the trees cast shadows" is the trunk shadows lying across the
