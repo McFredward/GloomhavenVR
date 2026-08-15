@@ -602,9 +602,9 @@ internal sealed partial class PlayTray
     }
 
     // ---- Overlay shader (items 5/6) --------------------------------------------------
+    // The "logged once each way" latches are gone with the inlined lookup: Core.BundleShaders owns
+    // both lines now, so a shader cannot be announced twice from two call sites either.
     private static Shader? _overlayShader;
-    private static bool _overlayFoundLogged;
-    private static bool _overlayMissLogged;
 
     /// <summary>
     /// The bundled <c>GloomhavenVR/Overlay</c> shader (loaded from the asset bundle at
@@ -619,37 +619,20 @@ internal sealed partial class PlayTray
     /// </summary>
     internal static Shader? OverlayShader()
     {
-        if (_overlayShader == null)
-        {
-            // A bundled shader is NOT discoverable via Shader.Find until something loads it
-            // into memory. BoardLit resolves only because a bundle PREFAB's material
-            // references it; GloomhavenVR/Overlay is referenced ONLY by runtime C#, so it is
-            // never loaded and Shader.Find returns null (root cause of the STILL-invisible
-            // gear/glows in build 0258fbb). Load it explicitly from whichever loaded bundle
-            // holds it (the tray/hands bundle is already loaded by the time widgets build).
-            _overlayShader = Shader.Find("GloomhavenVR/Overlay");
-            if (_overlayShader == null)
-            {
-                foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
-                {
-                    if (b == null) continue;
-                    var s = b.LoadAsset<Shader>("Assets/Bundle/Table/Overlay.shader");
-                    if (s != null) { _overlayShader = s; break; }
-                }
-            }
-        }
-        if (_overlayShader != null && !_overlayFoundLogged)
-        {
-            _overlayFoundLogged = true;
-            VRLog.Info("Cards", "Overlay shader 'GloomhavenVR/Overlay' loaded — board HUD widgets " +
-                                "(round readout, gear/follow-toggle, slot glows) will draw over the opaque board.");
-        }
-        else if (_overlayShader == null && !_overlayMissLogged)
-        {
-            _overlayMissLogged = true;
-            VRLog.Warn("Cards", "Overlay shader 'GloomhavenVR/Overlay' NOT found (bundle not updated yet) — " +
-                                "board HUD widgets fall back to Standard/Sprites and may be occluded by the board.");
-        }
+        // A bundled shader is NOT discoverable via Shader.Find until something loads it into
+        // memory. BoardLit resolves only because a bundle PREFAB's material references it;
+        // GloomhavenVR/Overlay is referenced ONLY by runtime C#, so it is never loaded and
+        // Shader.Find returns null (root cause of the STILL-invisible gear/glows in build 0258fbb).
+        // The find-then-probe-the-bundles logic that used to be inlined here now lives in
+        // Core.BundleShaders — the same trap cost ModBuild 153 a whole hardware round at a THIRD
+        // site (HauntFigures.Albedo), because this fix was written down as a comment and a comment
+        // is not a guard. There is now one implementation and a wire test that fails the build gate
+        // if a bare Shader.Find on a GloomhavenVR/* name is written anywhere in src/ again.
+        _overlayShader ??= Core.BundleShaders.Resolve(
+            "GloomhavenVR/Overlay", "Cards",
+            "board HUD widgets (round readout, gear/follow-toggle, slot glows) get the only shader "
+            + "in reach that exposes _ZTest, so they are not occluded by the opaque board.",
+            "Board HUD widgets fall back to Standard/Sprites and may be occluded by the board.");
         return _overlayShader;
     }
 
@@ -662,8 +645,6 @@ internal sealed partial class PlayTray
 
     // ---- BoardLit shader (item 5: solid, shaded button walls) -------------------------
     private static Shader? _boardLitShader;
-    private static bool _boardLitFoundLogged;
-    private static bool _boardLitMissLogged;
 
     /// <summary>
     /// Item 5: the bundled <c>GloomhavenVR/BoardLit</c> shader — a self-contained BAKED-lit
@@ -682,31 +663,10 @@ internal sealed partial class PlayTray
     /// </summary>
     internal static Shader? BoardLitShader()
     {
-        if (_boardLitShader == null)
-        {
-            _boardLitShader = Shader.Find("GloomhavenVR/BoardLit");
-            if (_boardLitShader == null)
-            {
-                foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
-                {
-                    if (b == null) continue;
-                    var s = b.LoadAsset<Shader>("Assets/Bundle/Table/BoardLit.shader");
-                    if (s != null) { _boardLitShader = s; break; }
-                }
-            }
-        }
-        if (_boardLitShader != null && !_boardLitFoundLogged)
-        {
-            _boardLitFoundLogged = true;
-            VRLog.Info("Cards", "BoardLit shader 'GloomhavenVR/BoardLit' loaded — square board buttons " +
-                                "get shaded, solid side walls (baked-lit, works in the unlit scenes).");
-        }
-        else if (_boardLitShader == null && !_boardLitMissLogged)
-        {
-            _boardLitMissLogged = true;
-            VRLog.Warn("Cards", "BoardLit shader 'GloomhavenVR/BoardLit' NOT found — square board buttons " +
-                                "fall back to Standard/Sprites and their side walls may read flat.");
-        }
+        _boardLitShader ??= Core.BundleShaders.Resolve(
+            "GloomhavenVR/BoardLit", "Cards",
+            "square board buttons get shaded, solid side walls (baked-lit, works in the unlit scenes).",
+            "Square board buttons fall back to Standard/Sprites and their side walls may read flat.");
         return _boardLitShader;
     }
 

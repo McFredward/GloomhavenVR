@@ -75,19 +75,47 @@ internal static partial class HauntFigures
         /// <summary>
         /// The shader whose fragment is <c>tex2D(_MainTex, i.uv) * _Color</c>.
         ///
-        /// <para><b>IT IS CERTAINLY IN THE BUNDLE, by construction rather than by hope.</b> The
-        /// head-avatar masks are built as bundled MATERIALS on this shader
-        /// (unity/.../Editor/BuildHeads.cs:33, <c>Mask_&lt;n&gt;.mat</c> under
-        /// <c>Assets/Bundle/Head</c>), and a shader a bundled material references is compiled into
-        /// the bundle — that is the "pink-material trap" rule the shader's own header states. That
-        /// <see cref="Shader.Find"/> then resolves it is the pattern two shipped features already
-        /// depend on for the same bundle (<c>GloomhavenVR/MapUnlit</c> in FlatScreenStereo.3.Map.cs
-        /// and <c>GloomhavenVR/Overlay</c> in PlayTray.6.Build.cs). And the bundle cannot fail to be
-        /// loaded by the time this runs: an apparition only exists inside an environment room, and
-        /// the rooms come out of the same bundle.</para>
+        /// <para><b>THE PARAGRAPH THAT USED TO BE HERE WAS WRONG, AND IT COST ModBuild 153 ENTIRELY.</b>
+        /// It argued that because the head-avatar masks are built as bundled MATERIALS on this
+        /// shader (unity/.../Editor/BuildHeads.cs:33, <c>Mask_&lt;n&gt;.mat</c> under
+        /// <c>Assets/Bundle/Head</c>), the shader is compiled into the bundle and
+        /// <see cref="Shader.Find"/> therefore resolves it. The first half is true and the second
+        /// does not follow. <c>Shader.Find</c> returns only shaders that are LOADED, and a bundled
+        /// shader is loaded when something pulls it in — here, when a head-avatar MASK MATERIAL is
+        /// instantiated. In a cellar scenario with no head avatars standing, nothing ever loads it.
+        /// The ModBuild 153 log says so in one line (LogOutput.log:1244), the fail-dark branch
+        /// engaged exactly as designed, the apparition kept the colour lever that same build proved
+        /// inert — and the user photographed the ModBuild 152 picture for the sixth time.</para>
         ///
-        /// <para>It is nonetheless checked and logged rather than assumed, and a miss fails DARK —
-        /// see <see cref="Apply"/>.</para>
+        /// <para><b>IT IS NOW RESOLVED THROUGH <see cref="BundleShaders"/></b>, which loads the
+        /// shader ASSET out of whichever bundle holds it. That turns the precondition from "a head
+        /// avatar happens to be up" into "the mod bundle is open" — and the bundle is necessarily
+        /// open here, because an apparition only exists inside a mod-built environment room and the
+        /// rooms come out of the same bundle. The coupling to the head subsystem is gone; what
+        /// remains is a coupling to one asset PATH, which the wire test pins against the real file.</para>
+        ///
+        /// <para><b>WHY THE CHAIN STOPS AT THIS SHADER rather than falling back to another one.</b>
+        /// Every other shader reachable at runtime would produce a WORSE picture than failing dark:
+        /// <c>Sprites/Default</c>, <c>UI/Default</c>, <c>GloomhavenVR/Overlay</c> and the particle
+        /// shaders all multiply by a vertex COLOUR that <see cref="Graphics.Blit"/>'s quad does not
+        /// reliably supply (an unbound COLOR attribute reads as black on D3D11 — a silently BLACK
+        /// creature); <c>GloomhavenVR/MapUnlit</c>, <c>EnvRoom</c> and <c>EnvGround</c> all end their
+        /// fragment with a hard <c>return fixed4(col, 1.0)</c>, which flattens the alpha the
+        /// material's <c>_Cutoff = 0.5</c> alpha-TESTS and would turn the cultist's skirt, the
+        /// ribbons and the skeleton's pelvis-cloth into solid slabs; <c>GloomhavenVR/BoardLit</c> is
+        /// LIT, so it would bake a studio rig into the albedo. The redundancy that IS worth having
+        /// is redundancy of MECHANISM, not of shader, and that is what BundleShaders provides
+        /// (Shader.Find, then every loaded bundle by asset path, then a live-object sweep).</para>
+        ///
+        /// <para><b>THE RECOMMENDATION THIS LANE COULD NOT IMPLEMENT.</b> Borrowing the head
+        /// avatar's shader still couples this feature to an unrelated subsystem's ASSET PATH: rename
+        /// <c>Assets/Bundle/Head/HeadUnlit.shader</c> and this feature breaks with no compile error.
+        /// The right long-term answer is a dedicated blit shader in the bundle — and, while one is
+        /// being added, one that also carries a per-texel LUMA DOT PRODUCT, which is the one thing
+        /// the colour lever could do and a per-channel multiply cannot (see the desaturation
+        /// paragraph in the class doc). Adding it means editing <c>unity/</c>, which another lane
+        /// owns this round, so it is written down here and in the lane report instead of reached
+        /// for.</para>
         /// </summary>
         private const string BlitShader = "GloomhavenVR/HeadUnlit";
 
@@ -95,7 +123,14 @@ internal static partial class HauntFigures
         private static readonly int BlitColourId = Shader.PropertyToID("_Color");
 
         private static Material? _blit;
-        private static bool _blitSought;
+
+        /// <summary>Frame of the last blit-shader lookup attempt. A MISS is retried (a bundle can
+        /// load later than the first apparition) but not every frame — <see cref="RetryFrames"/>
+        /// apart, because the probe walks every loaded bundle.</summary>
+        private static int _blitTriedFrame = int.MinValue;
+
+        private const int RetryFrames = 120;
+
         private static string _blitWhy = string.Empty;
 
         /// <summary>
@@ -191,9 +226,95 @@ internal static partial class HauntFigures
         private static float _appliedLevel = -1f;
         private static int _appliedQ = -1;
 
+        /// <summary>
+        /// WHAT ACTUALLY HAPPENED TO THE ALBEDO, as opposed to what the design intends. Every
+        /// diagnostic that mentions the darkening reads this, because the two standing rules this
+        /// feature has broken are "a comment is not a guard" and "a log line must report an outcome,
+        /// not an intention" — and the second is precisely how ModBuild 153 was lost: the
+        /// <c>HAUNT FIGURES light level</c> line said "IT IS MULTIPLIED INTO THE ALBEDO TEXTURE"
+        /// unconditionally, in a log in which the multiply had never run.
+        /// </summary>
+        internal enum State
+        {
+            /// <summary><see cref="Apply"/> has not run since the last <see cref="Forget"/>.</summary>
+            NotAsked,
+
+            /// <summary>No material on this creature declares an albedo-ish texture slot at all, so
+            /// there is nothing for this lever to hold. The name matcher (<see cref="AlbedoLike"/>)
+            /// is the suspect.</summary>
+            NoSlots,
+
+            /// <summary>The blit shader could not be resolved. THIS IS THE ModBuild 153 FAILURE.</summary>
+            NoShader,
+
+            /// <summary>The blit ran but reading the texture back off the material did not return the
+            /// darkened copy on any material — the write did not land.</summary>
+            DidNotLand,
+
+            /// <summary>The darkened copy is on the material, verified by read-back.</summary>
+            Ran,
+        }
+
+        private static State _state = State.NotAsked;
+
+        /// <summary>The outcome the log has already stated. One line per DISTINCT outcome rather
+        /// than one per apparition: a periodic apparition would otherwise repeat the same sentence
+        /// every eight seconds, and a state CHANGE (a bundle that finished loading late) is the one
+        /// event that must not be swallowed. The per-apparition repetition the brief asks for is on
+        /// the <c>HAUNT FIGURES light level</c> line and in the census, both of which quote
+        /// <see cref="Outcome"/>.</summary>
+        private static State _announced = State.NotAsked;
+
+        /// <summary>Measured mean-luma ratios (darkened / source) of every texture freshly blitted
+        /// this apparition — the MEASUREMENT the decisive line reports. -1 until one is taken.</summary>
+        private static float _ratioMin = -1f, _ratioMax = -1f;
+        private static int _ratioCount;
+
+        /// <summary>Materials that carry the lever, and materials that were offered it.</summary>
+        private static int _landed, _offered;
+
         internal static bool Wears(Material m) => m != null && Levered.Contains(m.GetInstanceID());
 
         internal static float AppliedLevel => _appliedLevel;
+
+        /// <summary>What actually happened. Read by the <c>HAUNT FIGURES light level</c> line and by
+        /// the material census, so neither can claim a multiply that did not occur.</summary>
+        internal static State Status => _state;
+
+        /// <summary>
+        /// THE ONE SENTENCE ANY OTHER DIAGNOSTIC MUST QUOTE INSTEAD OF DESCRIBING THE DESIGN. It
+        /// names the outcome first, in the words a reader will search for, and only then the
+        /// numbers.
+        /// </summary>
+        internal static string Outcome => _state switch
+        {
+            State.Ran =>
+                $"ALBEDO DARKENING RAN — the multiply is on the albedo TEXTURE of {_landed} of "
+                + $"{_offered} material slot(s), confirmed by reading the texture reference back off "
+                + $"the material. Intended level {_appliedLevel:F4}; MEASURED mean-luma ratio "
+                + $"{Ratio()} over {_ratioCount} freshly blitted texture(s), taken off the render "
+                + $"targets. Blit shader '{BlitShader}' via {BundleShaders.How(BlitShader)}",
+            State.NoShader =>
+                "ALBEDO DARKENING DID NOT RUN — THE FIGURE IS DRAWN AT ITS FULL AUTHORED BRIGHTNESS "
+                + "AND NOTHING ABOUT DarkFloor/LightGain/MaxLevel/the cinder share HAS BEEN TESTED BY "
+                + $"THIS BUILD. Cause: {_blitWhy}",
+            State.DidNotLand =>
+                $"ALBEDO DARKENING DID NOT LAND — the blit produced a darkened copy (ratio {Ratio()}) "
+                + $"but NONE of the {_offered} material slot(s) returned it on read-back, so the "
+                + "figure is drawn at its full authored brightness and nothing about the fitted "
+                + "constants has been tested by this build",
+            State.NoSlots =>
+                "ALBEDO DARKENING HAD NOTHING TO HOLD — not one material on this creature declares a "
+                + "texture slot that reads as an albedo, so the figure is drawn at its full authored "
+                + "brightness. The suspect is the name matcher (Albedo.AlbedoLike), not the fitted "
+                + "constants; the per-material ALBEDO TEXTURE lines name every slot each shader has",
+            _ => "ALBEDO DARKENING NOT YET ASKED — no apparition has reached Shade in this room",
+        };
+
+        private static string Ratio() =>
+            _ratioCount == 0 ? "<none measured>"
+            : _ratioCount == 1 ? $"{_ratioMin:F4}"
+            : $"{_ratioMin:F4}..{_ratioMax:F4}";
 
         // ---- binding -----------------------------------------------------------------------------
 
@@ -254,8 +375,10 @@ internal static partial class HauntFigures
             }
 
             Verdicts.Add(taken > 0
-                ? $"'{m.name}' [{sh.name}] ALBEDO TEXTURE: {taken} of {textures} texture slot(s) will be "
-                  + $"darkened by blit — {found}"
+                ? $"'{m.name}' [{sh.name}] ALBEDO TEXTURE: {taken} of {textures} texture slot(s) are "
+                  + "CANDIDATES for the blit (this line is a registration, NOT an outcome — ModBuild "
+                  + "153 printed exactly this and the blit never ran; the OUTCOME line above the "
+                  + $"census says whether it did) — {found}"
                 : $"'{m.name}' [{sh.name}] ALBEDO TEXTURE: NONE of its {textures} texture slot(s) reads "
                   + $"as an albedo{(found.Length > 0 ? " (" + found + ")" : string.Empty)}. This material "
                   + "keeps the COLOUR lever alone, and on a shader that ignores it that means it is "
@@ -283,7 +406,11 @@ internal static partial class HauntFigures
         internal static void Apply(float level)
         {
             if (Slots.Count == 0)
+            {
+                _state = State.NoSlots;
+                Announce();
                 return;
+            }
             int q = Mathf.Clamp(Mathf.RoundToInt(level * LevelSteps), 0, LevelSteps);
             if (q == _appliedQ)
                 return;
@@ -297,8 +424,10 @@ internal static partial class HauntFigures
                 // dropping the level on the strength of a texture write that did not happen would be
                 // strictly BRIGHTER than 152 and would make this round a regression.
                 Levered.Clear();
-                _appliedQ = q;                     // do not retry every frame; the shader will not appear
+                _appliedQ = q;                     // retried on the next level change, not per frame
                 _appliedLevel = -1f;
+                _state = State.NoShader;
+                Announce();
                 return;
             }
 
@@ -307,6 +436,11 @@ internal static partial class HauntFigures
 
             // Rebuilt from the READ-BACK below, never from the candidate list. See Register.
             Levered.Clear();
+            _offered = Slots.Count;
+            // The measured range describes THIS level, so it is re-derived whenever the level moves
+            // rather than accumulated across the apparition.
+            _ratioMin = _ratioMax = -1f;
+            _ratioCount = 0;
 
             for (int i = 0; i < Slots.Count; i++)
             {
@@ -337,6 +471,16 @@ internal static partial class HauntFigures
                 if (!fresh)
                     continue;                      // one verdict per (texture, level), not per frame
 
+                // THE MEASUREMENT, kept for the decisive line as well as for the per-material one.
+                // A ratio is only meaningful where the source is not black.
+                if (srcMean > 1e-6f)
+                {
+                    float ratio = dstMean / srcMean;
+                    _ratioMin = _ratioCount == 0 ? ratio : Mathf.Min(_ratioMin, ratio);
+                    _ratioMax = _ratioCount == 0 ? ratio : Mathf.Max(_ratioMax, ratio);
+                    _ratioCount++;
+                }
+
                 Verdicts.Add(
                     $"'{s.Mat.name}' [{(s.Mat.shader != null ? s.Mat.shader.name : "<null>")}] "
                     + $"{s.PropName}: '{s.Src.name}' {s.Src.width}x{s.Src.height} -> darkened copy at "
@@ -355,21 +499,92 @@ internal static partial class HauntFigures
                     + "flat dark cutout shader — which would cost the dissolve, because the dissolve "
                     + "belongs to the game shader.");
             }
+
+            _landed = Levered.Count;
+            _state = _landed > 0 ? State.Ran : State.DidNotLand;
+            Announce();
+        }
+
+        /// <summary>
+        /// THE LINE THIS ROUND EXISTS TO ADD. One statement of the OUTCOME per apparition, at the
+        /// severity the outcome deserves, phrased so that the words a reader searches for —
+        /// "ALBEDO DARKENING DID NOT RUN" — are in it.
+        ///
+        /// <para><b>WHY IT IS NOT ENOUGH THAT THE OLD LINE EXISTED.</b> ModBuild 153 DID log its
+        /// failure: one Warning, at LogOutput.log:1244 of a 3600-line log, phrased as a shader
+        /// lookup rather than as a feature outcome. It took a human reading the whole log to connect
+        /// it to "the fix did nothing". So this line is an ERROR when the lever did not reach a
+        /// pixel (the log's error list is short and is read first), it names the FEATURE and not the
+        /// lookup, and the same sentence is repeated on the <c>HAUNT FIGURES light level</c> line and
+        /// in the material census — which between them are the three places anybody looks.</para>
+        /// </summary>
+        private static void Announce()
+        {
+            if (_state == _announced)
+                return;
+            _announced = _state;
+            string line = "HAUNT FIGURES " + Outcome + ".";
+            if (_state == State.Ran)
+            {
+                VRLog.Info("Core", line
+                    + $" colourSpace={QualitySettings.activeColorSpace}. THE THREE READINGS THIS LINE "
+                    + "DISTINGUISHES, and the next hardware round is exactly one of them: (a) this "
+                    + "line says DID NOT RUN — the mechanism was bypassed and nothing was tested; "
+                    + "(b) it says RAN but the measured ratio disagrees with the intended level by "
+                    + "more than a few percent — the multiply landed in the wrong colour space and "
+                    + "the lever is the RenderTexture's sRGB flag, NOT DarkFloor/LightGain (a ratio "
+                    + "near level^2.2 or level^(1/2.2) is that signature exactly); (c) it says RAN, "
+                    + "the ratio matches, and the figure still photographs fully lit — then _Diffuse "
+                    + "is not what Amp_Char_Shader draws either, every property-level lever on this "
+                    + "shader has now been tried, and the only remaining one is REPLACING THE SHADER "
+                    + "with a flat dark cutout shader, which costs the dissolve. Per-texture detail "
+                    + "is in the PER-MATERIAL ALBEDO TEXTURE block of the material census.");
+            }
+            else
+            {
+                VRLog.Error("Core", line
+                    + " THIS IS READING (a) OF THE THREE THE 'light level' LINE LISTS: the mechanism "
+                    + "was bypassed, so the photograph that follows this build says NOTHING about "
+                    + "DarkFloor/LightGain/MaxLevel and they must not be re-tuned on the strength of "
+                    + "it. The apparition keeps the COLOUR lever alone, which ModBuild 153 measured "
+                    + "to be INERT on Amp_Char_Shader (no ForwardBase pass, _MOD_TINT ignored), so "
+                    + "the figure renders exactly as it did in ModBuild 152. "
+                    + BundleShaders.Inventory() + ".");
+            }
         }
 
         private static Material? Blit()
         {
-            if (_blitSought)
+            if (_blit != null)
                 return _blit;
-            _blitSought = true;
-            Shader? sh = Shader.Find(BlitShader);
+            // A MISS IS RETRIED. ModBuild 153 latched the first miss for the life of the process,
+            // so a bundle that finished loading one frame later could never be picked up. It is not
+            // retried every frame either: the probe walks every loaded bundle.
+            int now = Time.frameCount;
+            if (_blitTriedFrame != int.MinValue && now - _blitTriedFrame < RetryFrames)
+                return null;
+            _blitTriedFrame = now;
+
+            // THE LOOKUP THAT COST ModBuild 153 ITS ENTIRE ROUND. It used to be a bare
+            // Shader.Find, which sees only shaders something else has already LOADED — see the
+            // BlitShader doc. BundleShaders loads the asset out of the bundle itself.
+            Shader? sh = BundleShaders.Resolve(
+                BlitShader, "Core",
+                "the haunt apparition's albedo texture can be darkened by a GPU blit (the only lever "
+                + "on Amp_Char_Shader that reaches a pixel).",
+                "THE HAUNT APPARITION CANNOT BE DARKENED AT ALL and will render at its full authored "
+                + "brightness — this is the ModBuild 149-153 picture.");
             if (sh == null)
             {
-                _blitWhy = $"Shader.Find(\"{BlitShader}\") returned null — the mod bundle did not load "
-                           + "or the shader was stripped. The apparition keeps the COLOUR lever alone.";
-                VRLog.Warn("Core", "HAUNT FIGURES albedo darkening UNAVAILABLE: " + _blitWhy);
+                _blitWhy = $"the blit shader '{BlitShader}' could not be resolved by any of "
+                           + "BundleShaders' three mechanisms (Shader.Find, AssetBundle.LoadAsset "
+                           + $"\"{BlitShader}\" by asset path across every loaded bundle, live-object "
+                           + "sweep), so no darkened copy could be produced. The apparition keeps the "
+                           + "COLOUR lever alone, and ModBuild 153 measured that lever to be inert on "
+                           + "Amp_Char_Shader";
                 return null;
             }
+            _blitWhy = $"'{BlitShader}' resolved via {BundleShaders.How(BlitShader)}";
             _blit = new Material(sh) { name = "GHVR_HauntAlbedoDarken", hideFlags = HideFlags.HideAndDontSave };
             // Identity TRANSFORM_TEX: the copy must be texel-for-texel, because the GAME shader
             // applies its own tiling/offset when it samples the result.
@@ -498,6 +713,12 @@ internal static partial class HauntFigures
             Verdicts.Clear();
             _appliedQ = -1;
             _appliedLevel = -1f;
+            // The OUTCOME is per apparition and so is reset here; _announced deliberately is NOT,
+            // so a periodic apparition does not restate the same sentence every eight seconds.
+            _state = State.NotAsked;
+            _ratioMin = _ratioMax = -1f;
+            _ratioCount = 0;
+            _landed = _offered = 0;
             Trim();
         }
 
@@ -540,12 +761,18 @@ internal static partial class HauntFigures
             if (_blit != null)
                 Object.Destroy(_blit);
             _blit = null;
-            _blitSought = false;
+            _blitTriedFrame = int.MinValue;
             _blitWhy = string.Empty;
+            _announced = State.NotAsked;
         }
 
-        /// <summary>What the census prints when no material got the lever at all.</summary>
-        internal static string Why => _blitWhy.Length > 0 ? _blitWhy : "the blit shader resolved";
+        /// <summary>The blit shader's own story — how it resolved, or why it did not. Distinct from
+        /// <see cref="Outcome"/>, which is the FEATURE's story; the census prints both, because
+        /// "the shader resolved" and "a pixel got darker" are different claims and ModBuild 153
+        /// conflated them.</summary>
+        internal static string Why => _blitWhy.Length > 0
+            ? _blitWhy
+            : $"'{BlitShader}' has not been looked up yet";
 
         /// <summary>Live copies and the VRAM they hold, for the census. A cache that is quietly
         /// growing is the one way this class could become the leak it exists to avoid.</summary>

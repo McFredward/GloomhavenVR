@@ -126,6 +126,44 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 154** (commit `PENDING`, bundle 67,148,369 bytes) — two reports, **one shape of fault:
+  a lever that was built, logged and shipped without ever being reached.**
+  * **The figures' darkening never executed once in 153.** `Shader.Find("GloomhavenVR/HeadUnlit")`
+    returned null — `Shader.Find` resolves only shaders that are already **loaded**, and a bundled
+    shader is loaded when something pulls it in; for `HeadUnlit` that is a head-avatar mask material,
+    absent in a cellar. The fail-dark branch engaged as designed and the figure rendered
+    pixel-for-pixel as in 152. **Nothing** about the blit, the colour space or the four fitted
+    constants was tested by that build.
+  * **And this repository had already paid for the lesson.** `PlayTray.6.Build.cs:625` carries a
+    comment written after the same trap cost build `0258fbb`. The fix was two files away, in prose,
+    for months. Now one helper (`Core/BundleShaders.cs`) owns the name→path table and **three**
+    mechanisms, and **caches successes only** — the old code latched the MISS for the process, so a
+    bundle loading later could never be picked up (the same latch was found in the flat-screen map).
+  * **The guard is a build gate:** a source lint fails if `Shader.Find("GloomhavenVR/` appears in
+    non-comment `src/`, if a table path does not exist, or if the `.shader` there does not declare
+    that exact name. **It would have failed 153 before the bundle was built.** It fired on
+    NetProtocol's own build note first, which is why comments are exempt — a lint that forbids
+    *writing down* the bug it guards pushes the explanation out of the file the next reader opens.
+  * **A log line that describes an intention rather than an outcome is how a round is lost.** The
+    `light level` line claimed "IT IS MULTIPLIED INTO THE ALBEDO TEXTURE" unconditionally while the
+    mechanism was bypassed. It is now composed *after* the attempt and reports the measured ratio.
+  * **The candle vanished because frustum culling cannot see a vertex program.** The bookcase's fall
+    is a vertex rotation — no transform moves — so Unity kept culling every rider against its
+    **upright** box. Walk up to the fallen candle and the stale box leaves the frustum while the
+    pixels are straight ahead; in MultiPass the two eyes cull against different frusta, which is the
+    **one-eye** band exactly. Six of seven riders shipped a box too small — by 2.32 m (the wax),
+    2.59 m, 5.67 m and **7.96 m** (the candle halo). The one that was covered was covered by a
+    **typed pad**, which is why nobody noticed the other six.
+  * **Reproduced, then removed**: a near-approach series over nine stations shows `FireGlowShelf`
+    present at 2.96 m and CULLED at 2.36 m on the shipped boxes; afterwards nothing is culled at any
+    station in any pose. The fix is an **arc, not a pad** — and the reachable angle set is
+    `[0, _TipAxis.w]` by construction because `GhvrShelfTip` returns a `saturate()`, so it cannot
+    drift when the fall is retuned.
+  * **Two editor traps worth carrying:** `Renderer.localBounds` **is not serialized** in 2021.3.5
+    (measured, not assumed), so `mesh.bounds` is the only mechanism; and `mesh.bounds = …;
+    SetDirty()` without `AssetDatabase.SaveAssets()` at the point of computation reads back as the
+    vertex box — a perfect log and nothing shipped.
+
 - **ModBuild 153** (commit `5650602`, bundle 67,150,694 bytes) — four reports, and **three of them
   were already written down in this repository as known, accepted faults.** That is the lesson:
   **a trade-off recorded in a comment is not a trade-off the user has agreed to**, and it will be

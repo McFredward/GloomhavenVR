@@ -13,6 +13,7 @@
 // board (2.02/1.66 m in the cellar, 2.80/2.30 m in the wood — see THE PLAYER'S
 // HEAD). 1280x720 PNGs go to $ENV_PREVIEW_OUT (or ./env-previews when unset).
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using UnityEditor;
@@ -1152,6 +1153,372 @@ namespace GloomhavenVR
             Debug.Log(log.ToString());
         }
 
+        // =========== THE NEAR APPROACH TO THE FALLEN CANDLE (ModBuild 154) =====
+        // The three nodes the shelf candle is made of. They are three renderers
+        // with three separate culling volumes, which is the whole of the ModBuild
+        // 153 fault: the carcass's box had been padded and theirs had not.
+        private static readonly string[] ShelfCandleNodes =
+            { "CandlesShelf", "FlameShelf0", "CandleGlowShelf" };
+
+        /// The phases this series is shot at, and the shelf angle at each — and the
+        /// angle is not sampled from a curve, it is READ OFF THE SCHEDULE. Anything
+        /// in 0.204..0.620 is the LIE-DOWN, where GhvrShelfTip is pinned at exactly
+        /// 1 (GhvrTipArc is flat past ARC and the rebound window has closed), so the
+        /// angle there is exactly _TipAxis.w. 0.00 is the rest state, exactly 0.
+        private static readonly (float phase, bool fallen)[] ShelfNearPhases =
+            { (0.00f, false), (0.30f, true), (0.50f, true) };
+
+        /// How far along the walk each station stands: 0 is a player's head at the
+        /// far end, 1 is leaning right over the thing. Nine of them, closing up
+        /// toward the end, because that is where the frustum gets narrow and where
+        /// the report says the candle goes.
+        private static readonly float[] ShelfNearSteps =
+            { 0f, 0.25f, 0.45f, 0.60f, 0.72f, 0.82f, 0.90f, 0.96f, 1.00f };
+
+        /// <summary>Walk a camera in to the shelf candle and COUNT THE PIXELS it
+        /// covers at each distance, at the pose it is upright in and at the pose it
+        /// is lying on the floor in.
+        ///
+        /// <para>USER, hardware, ModBuild 153: "Wenn das Bücherregal umkippt und man
+        /// dann nah an die Kerze herangeht verschwindet sie! Wenn ich eine
+        /// bestimmte Distanz erreiche sogar nur auf einem Auge."</para>
+        ///
+        /// <para>THE POSE IS READ OFF THE SHIPPED MATERIAL and not re-derived: the
+        /// wax carries _TipPivot and _TipAxis in its own object space, written by
+        /// the one writer (EnvRoomBuilder.WriteShelfTip), so this camera cannot
+        /// disagree with the shader about where the candle ends up however the prop
+        /// moves. That is the ModBuild 149/153 lesson — a station aimed by hand
+        /// photographs the wall where the prop used to be, and renders happily.</para>
+        ///
+        /// <para>WHAT THE NUMBERS MEAN. Each frame's window is the projection of a
+        /// 0.60 m box on the candle; inside it the harness counts pixels above a
+        /// fixed threshold and sums their luminance. Walking towards something can
+        /// only make it bigger, so in a series where nothing is culled the count
+        /// rises monotonically. A count that COLLAPSES between two stations of one
+        /// phase — while the candle is still in front of the camera — is a renderer
+        /// leaving the frustum on a box its geometry has already left, i.e. exactly
+        /// the reported fault. The harness cannot see the ONE-EYE half of the
+        /// report: it renders one monoscopic camera, and the band in which one
+        /// eye's frustum contains the stale box and the other's does not is a
+        /// property of two frusta. What it CAN settle is whether the box is stale at
+        /// all, and that is the same cause.</para></summary>
+        private static void ShelfNearApproach(GameObject inst, Camera cam, Texture2D tex,
+            Action<string, Vector3, Vector3, bool, float, string> shoot, Action<float> stepEmitters)
+        {
+            // ---- THE GROUP UNDER TEST IS DISCOVERED, NOT LISTED: every renderer in
+            // the room whose material declares _TipUse.x = 1, i.e. everything whose
+            // geometry the shelf's vertex rotation moves. That is the carcass, the
+            // candle's wax, its flame, its halo, the two bay fires and the near
+            // fire halo — seven renderers with seven separate culling volumes, and
+            // the ModBuild 153 fault was that ONE of them (the carcass) had been
+            // padded and the other six had not. Listing them here by name would be
+            // a second copy of the bake's own answer sheet; reading the flag off the
+            // shipped material cannot drift from it.
+            var parts = new List<(string name, Renderer r, Bounds vb)>();
+            Material poseMat = null; Transform poseXf = null;
+            foreach (var mr in inst.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var mat = mr.sharedMaterial;
+                if (mat == null || !mat.HasProperty("_TipUse") || !mat.HasProperty("_TipPivot")) continue;
+                if (mat.GetVector("_TipPivot").w < 0.5f || mat.GetVector("_TipUse").x < 0.5f) continue;
+                var mf = mr.GetComponent<MeshFilter>();
+                if (mf == null || mf.sharedMesh == null) continue;
+                var v = mf.sharedMesh.vertices;
+                var b = new Bounds(mr.transform.TransformPoint(v[0]), Vector3.zero);
+                for (int i = 1; i < v.Length; i++) b.Encapsulate(mr.transform.TransformPoint(v[i]));
+                parts.Add((mr.gameObject.name, mr, b));
+                if (mr.gameObject.name == "CandlesShelf") { poseMat = mat; poseXf = mr.transform; }
+            }
+            // ...and the three the report is literally about must be among them, by
+            // name, because a renamed one takes the default (0, litSlot, 0, 0) and
+            // silently stops riding — which looks like nothing at all.
+            foreach (var n in ShelfCandleNodes)
+                if (parts.FindIndex(p => p.name == n) < 0)
+                    throw new Exception($"No riding renderer called '{n}' in the cellar prefab. "
+                        + "The shelf candle is three renderers (wax, flame, halo) and this series "
+                        + "exists to prove all three survive being walked up to; a renamed one "
+                        + "drops out of the count and the series goes on agreeing with whatever "
+                        + "was already believed.");
+            if (poseMat == null || !poseMat.HasProperty("_TipPivot"))
+                throw new Exception("The shelf candle's wax carries no _TipPivot, so this harness "
+                    + "cannot know where the candle ends up. Either WriteShelfTip stopped being "
+                    + "called for it or EnvRoom lost the property — both of which mean the wax "
+                    + "does not fall with the shelf at all.");
+            var pv = poseMat.GetVector("_TipPivot");
+            var ax = poseMat.GetVector("_TipAxis");
+            if (pv.w < 0.5f)
+                throw new Exception("The shelf candle's wax carries a DEAD pose (_TipPivot.w = 0): "
+                    + "it does not ride the bookshelf, so there is no fallen candle to walk up to.");
+            var pivotW = poseXf.TransformPoint(new Vector3(pv.x, pv.y, pv.z));
+            var axisW = poseXf.TransformDirection(new Vector3(ax.x, ax.y, ax.z)).normalized;
+            float maxAng = ax.w;
+
+            // ---- ENV_PREVIEW_STALEBOUNDS=1: THE CONTROL RUN, and the only thing
+            // that makes the numbers below evidence rather than a photograph of a
+            // room that happens to look fine. It puts the three candle meshes back
+            // on the box their own VERTICES occupy — i.e. exactly the state the bake
+            // shipped before the swept volume existed — so the series can be run
+            // twice and the two tables compared. An instrument that cannot produce
+            // the fault on demand cannot be said to have found it absent.
+            if (Environment.GetEnvironmentVariable("ENV_PREVIEW_STALEBOUNDS") == "1")
+            {
+                foreach (var (n, r, _) in parts)
+                {
+                    var mesh = r.GetComponent<MeshFilter>().sharedMesh;
+                    var v = mesh.vertices;
+                    var vb = new Bounds(v[0], Vector3.zero);
+                    for (int i = 1; i < v.Length; i++) vb.Encapsulate(v[i]);
+                    mesh.bounds = vb;
+                    Debug.Log($"[GloomhavenVR][EnvPreview] STALEBOUNDS: '{n}' put back on its own "
+                              + $"vertex box {vb.size.x:F2} x {vb.size.y:F2} x {vb.size.z:F2} m — "
+                              + "the pre-ModBuild-154 culling volume.");
+                }
+            }
+
+            // WHERE THE CAMERA LOOKS is the CANDLE's own three renderers and not the
+            // whole rider set: the report is "man geht nah an die Kerze heran", and
+            // a frame centred on the 2 m carcass would put the candle in a corner
+            // of it. What is MEASURED is still the whole rider set.
+            var standing = new Bounds();
+            bool first = true;
+            foreach (var (n, _, vb) in parts)
+                if (Array.IndexOf(ShelfCandleNodes, n) >= 0)
+                { if (first) { standing = vb; first = false; } else standing.Encapsulate(vb); }
+            // the halo's own world radius, measured off its vertices and its
+            // transform — see the stand-off below.
+            float haloR = 0f;
+            foreach (var (n, _, vb) in parts)
+                if (n == "CandleGlowShelf")
+                    haloR = Mathf.Max(vb.extents.x, Mathf.Max(vb.extents.y, vb.extents.z));
+            var log = new System.Text.StringBuilder();
+            log.Append("[GloomhavenVR][EnvPreview] SHELF CANDLE — THE NEAR APPROACH. User, "
+                + "hardware, ModBuild 153: \"Wenn das Bücherregal umkippt und man dann nah an die "
+                + "Kerze herangeht verschwindet sie! Wenn ich eine bestimmte Distanz erreiche "
+                + "sogar nur auf einem Auge.\" A fixed station cannot show this — the fault is a "
+                + "function of DISTANCE — so this walks the camera in and counts pixels. The "
+                + $"candle stands at ({standing.center.x:F2},{standing.center.y:F2},"
+                + $"{standing.center.z:F2}) and hinges at ({pivotW.x:F2},{pivotW.y:F2},"
+                + $"{pivotW.z:F2}) about ({axisW.x:F2},{axisW.y:F2},{axisW.z:F2}) through "
+                + $"{maxAng * Mathf.Rad2Deg:F1} deg — all four read off the SHIPPED material, not "
+                + "typed here. Walking towards a thing can only make it bigger, so a count that "
+                + "collapses between two stations is a renderer being culled on a box its own "
+                + "vertex program has already left.\n"
+                + $"    {parts.Count} renderers ride this pose and all {parts.Count} are measured, "
+                + "BY DIFFERENCE — the same station rendered with them on and off — because the "
+                + "total light in a window is mostly the wall behind it and rises as the camera "
+                + "closes whether they are drawn or not. Measuring the CANDLE alone would not "
+                + "settle anything either: it is designed to gutter out while the shelf is over, "
+                + "so its own three renderers are legitimately dark at the fallen poses and a "
+                + "difference on them reads zero whether they are culled or not. The walk stops "
+                + $"{haloR + 0.20f:F2} m out: the halo is a {haloR:F2} m additive shell with Cull "
+                + "Back, so a camera inside it sees only its far side and the glow goes out. That "
+                + "is a real thing a player can do to this candle and it is filed here as a "
+                + "SEPARATE finding — it happens with the bookshelf standing, so it is not the "
+                + "'nur beim umgekippten Bücherregal' report.\n");
+
+            foreach (var (phase, fallen) in ShelfNearPhases)
+            {
+                float ang = fallen ? maxAng : 0f;
+                var at = Rodrigues(standing.center, pivotW, axisW, ang);
+                // the walk: from a standing head 2.6 m off, in to a head leaning
+                // right over it. Both ends are in the candle's own frame, so they
+                // follow the prop.
+                var away = new Vector3(-axisW.z, 0f, axisW.x);   // out of the wall, horizontally
+                if (Vector3.Dot(away, Vector3.zero - at) < 0f) away = -away;  // toward the room
+                var from = at + away * 2.60f + Vector3.up * (1.55f - at.y);
+                // ...and the walk STOPS OUTSIDE THE HALO, which is a measured
+                // property of the shipped candle and not a fudge. The halo is an
+                // additive shell of radius `haloR` drawn with Cull Back: a camera
+                // INSIDE it sees only its far side, which is back-facing, so the
+                // glow goes out. That is a real thing a player can do and it is
+                // worth its own line (see the log below), but it is a different
+                // mechanism from frustum culling, it happens whether the shelf is
+                // over or not, and mixing the two into one series would make the
+                // number this series exists to produce unreadable. The stand-off is
+                // the halo's own radius read off the renderer, plus 0.20 m.
+                var to = at + away * (haloR + 0.20f) + Vector3.up * 0.22f;
+
+                // ---- FIRE IS INFUSED FOR THIS SERIES, and that is a measurement
+                // decision with a reason. The shelf candle is DESIGNED to gutter
+                // out while the shelf is over (GhvrTipFlameLife: fully out past
+                // 35.5 degrees of tilt), so at the fallen poses the flame and the
+                // halo draw nothing and the wax is an unlit dark cylinder on a dark
+                // flagstone floor — a difference measurement on that reads zero
+                // whether the renderer is culled or not, which would make this
+                // instrument agree with whatever was already believed. The burning
+                // bookcase beside it is what puts light on the wax, and it is also
+                // the state the report is about: every term at this site belongs to
+                // a shelf that is on fire.
+                Shader.SetGlobalVector("_GhvrElemA", new Vector4(1f, 0f, 0f, 0f));
+                Shader.SetGlobalVector("_GhvrElemB", new Vector4(0f, 0f, 1f, 1f));
+                Shader.SetGlobalVector("_GhvrHaunt", new Vector4(1f, 1f, 0f, 0f));
+                Shader.SetGlobalFloat("_GhvrTimeOfs",
+                    EnvRoomBuilder.HauntPreviewClock(5, 6, 0.001f, 26f, 0.001f, phase));
+                stepEmitters(phase * 26.002f);
+                log.Append($"    phase {phase:F2} ({(fallen ? "ON THE FLOOR" : "upright")}), the "
+                    + $"candle at ({at.x:F2},{at.y:F2},{at.z:F2}):\n");
+                // one column per rider: the distance at which it stopped being drawn
+                // at all, and how many of the frame's pixels it changed at its best.
+                var gone = new float[parts.Count];
+                var culled = new float[parts.Count];
+                var best = new int[parts.Count];
+                for (int i = 0; i < gone.Length; i++) { gone[i] = -1f; culled[i] = -1f; }
+                foreach (float s in ShelfNearSteps)
+                {
+                    var pos = Vector3.Lerp(from, to, s);
+                    var dir = (at - pos).normalized;
+                    var euler = new Vector3(-Mathf.Asin(Mathf.Clamp(dir.y, -1f, 1f)) * Mathf.Rad2Deg,
+                                            Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg, 0f);
+                    float dist = Vector3.Distance(pos, at);
+                    shoot("ShelfNear", pos, euler, false, 60f,
+                          $"_p{Mathf.RoundToInt(phase * 100f):D2}_d{Mathf.RoundToInt(dist * 100f):D3}");
+                    // THE ASPECT HAS TO BE SAID OUT LOUD (ModBuild 153): in batch
+                    // mode an un-driven camera reports the phantom 640x480 screen's
+                    // 1.333, not the render target's 1.778, and a window measured
+                    // with the wrong one is 33 % too narrow.
+                    cam.aspect = W / (float)H;
+                    var win = Project(cam, at, 0.30f);
+                    cam.ResetAspect();
+                    // ---- ONE RIDER AT A TIME, BY DIFFERENCE. The aggregate is no
+                    // use: half of what rides is EMISSIVE (the flames, the halos)
+                    // and half is a dark OCCLUDER (the carcass, the wax), the
+                    // carcass covers most of the window whatever else happens, and
+                    // the candle is DESIGNED to be out at these poses. Toggling one
+                    // renderer at a time and counting the pixels it CHANGES — in
+                    // either direction, because being drawn and being bright are
+                    // different claims — is the only reading that says which of the
+                    // seven is in the frame. Raw linear, not the PNG's gamma.
+                    var on = ReadWindow(cam, tex, win);
+                    // ...AND WHETHER THE CULLER CAN STILL SEE IT, which is the
+                    // question the pixel count on its own cannot answer. A rider
+                    // that changes no pixels may be culled (the fault) or may be
+                    // legitimately dark or hidden behind the fallen carcass (the
+                    // candle flame is DESIGNED to be out at these poses). The two
+                    // are told apart by testing the same box Unity culls on against
+                    // the same frustum it culls with. `cam.aspect` is pinned first
+                    // for the ModBuild 153 reason: batch mode reports the phantom
+                    // 640x480 screen's 1.333 and the frustum would be 33 % narrow.
+                    cam.aspect = W / (float)H;
+                    var planes = GeometryUtility.CalculateFrustumPlanes(cam);
+                    cam.ResetAspect();
+                    var line = new System.Text.StringBuilder();
+                    for (int i = 0; i < parts.Count; i++)
+                    {
+                        bool inF = GeometryUtility.TestPlanesAABB(planes, parts[i].r.bounds);
+                        parts[i].r.enabled = false;
+                        var off = ReadWindow(cam, tex, win);
+                        parts[i].r.enabled = true;
+                        int px = 0;
+                        for (int k = 0; k < on.px.Length; k++)
+                            if (Mathf.Abs(on.px[k] - off.px[k]) > 0.004f) px++;
+                        best[i] = Mathf.Max(best[i], px);
+                        if (!inF && culled[i] < 0f) culled[i] = dist;
+                        if (px == 0 && best[i] > 0 && gone[i] < 0f) gone[i] = dist;
+                        if (px > 0 && gone[i] >= 0f) gone[i] = -2f;   // came back: not a clean cut
+                        line.Append($"{parts[i].name} {px}{(inF ? "" : "/CULLED")}, ");
+                    }
+                    log.Append($"        {dist,5:F2} m away, window {win.width,4:F0}x{win.height,3:F0}"
+                        + $" px at ({win.xMin,4:F0},{win.yMin,4:F0}): " + line.ToString().TrimEnd(' ', ',')
+                        + "\n");
+                }
+                int faults = 0;
+                for (int i = 0; i < parts.Count; i++)
+                {
+                    if (culled[i] > 0f)
+                    {
+                        faults++;
+                        log.Append($"        -> {parts[i].name}: FRUSTUM-CULLED from {culled[i]:F2} m "
+                            + "in, while its drawn geometry is straight ahead. That is the "
+                            + "ModBuild 153 fault: the box Unity culls on is not where the vertex "
+                            + "program put the pixels.\n");
+                    }
+                    else if (gone[i] > 0f)
+                    {
+                        faults++;
+                        log.Append($"        -> {parts[i].name}: STOPPED BEING DRAWN at "
+                            + $"{gone[i]:F2} m having covered {best[i]} px further out, with its "
+                            + "box still inside the frustum. Not culling, then — look at ZWrite, "
+                            + "the queue and the near plane.\n");
+                    }
+                    else if (best[i] == 0)
+                        log.Append($"        -> {parts[i].name}: drew nothing at any distance, "
+                            + "and its box was inside the frustum at every station — so it is "
+                            + "not culled. At the fallen poses the candle's flame and halo are "
+                            + "OUT by design (GhvrTipFlameLife is 0 past 35.5 deg of tilt) and "
+                            + "the two bay fires are behind the carcass they are lying under. "
+                            + "Stated rather than counted as a pass.\n");
+                }
+                if (faults == 0)
+                    log.Append("        -> nothing in this pose is culled at any station on the "
+                        + "way in. Every rider's box contains the pixels its vertex program "
+                        + "draws.\n");
+            }
+            Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+            Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+            Debug.Log(log.ToString());
+        }
+
+        /// Re-render the camera where it stands and read one window back RAW —
+        /// linear, un-gamma'd, because what is being measured is drawn energy and
+        /// not what a PNG looks like.
+        private static (float sum, float[] px) ReadWindow(Camera cam, Texture2D tex, Rect win)
+        {
+            cam.Render();
+            RenderTexture.active = cam.targetTexture;
+            tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            tex.Apply();
+            int x0 = (int)win.xMin, x1 = (int)win.xMax, y0 = (int)win.yMin, y1 = (int)win.yMax;
+            int n = Mathf.Max((x1 - x0) * (y1 - y0), 0);
+            var px = new float[n];
+            float sum = 0f;
+            int k = 0;
+            for (int y = y0; y < y1; y++)
+                for (int x = x0; x < x1; x++)
+                {
+                    var c = tex.GetPixel(x, H - 1 - y);
+                    float l = 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+                    px[k++] = l; sum += l;
+                }
+            return (sum, px);
+        }
+
+        private static Transform FindDeep(Transform root, string name)
+        {
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (t.name == name) return t;
+            return null;
+        }
+
+        /// The SAME map EnvShelfTip's GhvrTipRot applies, written out for the same
+        /// reason EnvRoomBuilder's landing gate writes it out: two libraries agreeing
+        /// about handedness is a thing to check, not to assume.
+        private static Vector3 Rodrigues(Vector3 p, Vector3 pivot, Vector3 axis, float ang)
+        {
+            var q = p - pivot;
+            float c = Mathf.Cos(ang), s = Mathf.Sin(ang);
+            return pivot + q * c + Vector3.Cross(axis, q) * s + axis * (Vector3.Dot(axis, q) * (1f - c));
+        }
+
+        /// The pixel window a `r`-radius box about `at` occupies, clamped to frame.
+        private static Rect Project(Camera cam, Vector3 at, float r)
+        {
+            float x0 = float.MaxValue, x1 = float.MinValue, y0 = float.MaxValue, y1 = float.MinValue;
+            int behind = 0;
+            for (int k = 0; k < 8; k++)
+            {
+                var c = at + new Vector3((k & 1) == 0 ? -r : r, (k & 2) == 0 ? -r : r,
+                                         (k & 4) == 0 ? -r : r);
+                var vp = cam.WorldToViewportPoint(c);
+                if (vp.z <= 0f) { behind++; continue; }
+                x0 = Mathf.Min(x0, vp.x * W); x1 = Mathf.Max(x1, vp.x * W);
+                y0 = Mathf.Min(y0, (1f - vp.y) * H); y1 = Mathf.Max(y1, (1f - vp.y) * H);
+            }
+            if (behind == 8) return new Rect(0, 0, 0, 0);
+            x0 = Mathf.Clamp(x0, 0f, W - 1f); x1 = Mathf.Clamp(x1, 0f, W - 1f);
+            y0 = Mathf.Clamp(y0, 0f, H - 1f); y1 = Mathf.Clamp(y1, 0f, H - 1f);
+            return new Rect(x0, y0, Mathf.Max(x1 - x0, 0f), Mathf.Max(y1 - y0, 0f));
+        }
+
         // ---- THE RAT'S TWO MOUTHS, over the entry itself (ModBuild 143) -------
         // A crossing lasts 2.4-9.2 s of a 26 s slot and the entry is 0.45 s of
         // THAT, so the offsets above cannot land on it except by luck — which is
@@ -1669,6 +2036,30 @@ namespace GloomhavenVR
                             Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
                         }
                     }
+
+                    // ---- WALKING UP TO THE FALLEN CANDLE — ModBuild 153 -------
+                    // USER, hardware (verbatim): "Wenn das Bücherregal umkippt und
+                    // man dann nah an die Kerze herangeht verschwindet sie! Wenn
+                    // ich eine bestimmte Distanz erreiche sogar nur auf einem Auge."
+                    //
+                    // NO EXISTING STATION CAN SHOW THIS AND NONE EVER COULD. A
+                    // preview station is a fixed camera and the report is about
+                    // APPROACHING: the fault is frustum culling on a box the
+                    // shader's own vertex rotation has left behind, so it appears
+                    // as a function of DISTANCE and only once the shelf is over.
+                    // A single frame at 3.4 m is a frame in which the stale box is
+                    // still comfortably inside the frustum and everything looks
+                    // right — which is exactly why thirteen confident PNGs shipped
+                    // the bug.
+                    //
+                    // So this walks a camera in along the line to the candle, at
+                    // the two poses that matter, and COUNTS THE PIXELS the candle
+                    // covers in each frame. The reading is not "does it look
+                    // right": it is that the count must RISE as the camera closes,
+                    // because a candle you walk towards only gets bigger. A count
+                    // that collapses between two stations of one series is the
+                    // fault, reproduced.
+                    if (cellar) ShelfNearApproach(inst, cam, tex, Shoot, StepEmitters);
 
                     Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
                     Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);

@@ -416,7 +416,85 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 153;
+    public const ushort ModBuild = 154;
+    // Build 154: BOTH REPORTS ARE THE SAME SHAPE OF FAULT — A LEVER THAT WAS BUILT, LOGGED AND
+    // SHIPPED WITHOUT EVER BEING REACHED. One never ran because its shader could not be resolved;
+    // the other ran but was drawn against a bounding box that had not been told the geometry moved.
+    //
+    // THE FIGURES' DARKENING NEVER EXECUTED A SINGLE TIME IN ModBuild 153. LogOutput.cs:1244:
+    // `Shader.Find("GloomhavenVR/HeadUnlit") returned null`. Shader.Find resolves only shaders that
+    // are already LOADED, and a bundled shader is loaded when something pulls it in - for HeadUnlit
+    // that is a head-avatar MASK MATERIAL, so in a cellar scenario with no head avatars standing
+    // nothing ever loads it. The fail-dark branch engaged exactly as designed and the apparition
+    // kept the COLOUR lever, which 153 itself had proven inert on Amp_Char_Shader - so the figure
+    // rendered pixel-for-pixel as in 152 and the user is right that nothing changed. NOTHING about
+    // the blit, the colour space, the alpha handling or the four constants fitted from the three
+    // photographs has been tested by that build; the mechanism was bypassed at its first line.
+    //   * AND THIS REPOSITORY HAD ALREADY PAID FOR THE LESSON. PlayTray.6.Build.cs:625 carries a
+    //     comment written after the same trap cost build 0258fbb: "BoardLit resolves only because a
+    //     bundle PREFAB's material references it; GloomhavenVR/Overlay is referenced ONLY by runtime
+    //     C#, so it is never loaded and Shader.Find returns null." The fix was sitting two files
+    //     away, in prose, for months.
+    //   * Now one helper (Core/BundleShaders.cs) owns the name->asset-path table and THREE distinct
+    //     mechanisms - Shader.Find, then LoadAsset<Shader> across every loaded bundle, then a
+    //     Resources.FindObjectsOfTypeAll sweep. It caches SUCCESSES ONLY: the old code latched the
+    //     MISS for the life of the process, so a bundle that loaded later could never be picked up.
+    //     The same latch was found and removed in the flat-screen map path. Of five call sites
+    //     exactly ONE was bare - the figures' - and the other four are routed through the helper so
+    //     there is one way to do this rather than five.
+    //   * THE GUARD IS A BUILD GATE, NOT A COMMENT: a source lint fails if `Shader.Find("Gloomhaven
+    //     VR/` appears anywhere in src/, if a table path does not exist under unity/, or if the
+    //     .shader file at that path does not declare that exact name (a path copied from the line
+    //     above is the second half of the trap). It would have failed ModBuild 153 BEFORE the bundle
+    //     was built. Verified to fire against a deliberately broken probe file.
+    //   * AND THE LOG LINE THAT SAID "IT IS MULTIPLIED INTO THE ALBEDO TEXTURE" WAS LYING. It was
+    //     composed from the design's intention before the attempt was made. It is now composed after
+    //     Albedo.Apply and reports the OUTCOME, with the measured mean-luma ratio of the darkened
+    //     copy against its source; the failure case is an ERROR that says in as many words that the
+    //     figure was drawn at full brightness and that the constants must NOT be re-tuned on the
+    //     strength of the photograph that follows. A log line that describes an intention rather
+    //     than an outcome is how a whole round was lost.
+    //
+    // AND THE CANDLE VANISHED BECAUSE FRUSTUM CULLING CANNOT SEE A VERTEX PROGRAM. The bookcase's
+    // fall is a vertex rotation - no transform in the scene moves - so Unity keeps culling every
+    // rider against the box its mesh had while UPRIGHT. Walk up to where the fallen candle now
+    // APPEARS and the stale box, still up at the shelf's seat, leaves the frustum: the renderer is
+    // culled while the pixels it would draw are straight ahead. In MultiPass the two eyes are culled
+    // against different frusta, which is exactly the "nur auf einem Auge" band the user reported.
+    //   * Measured in object space: SIX of seven riders shipped a box too small, by 2.32 m (the
+    //     wax), 2.59 m (the shelf candle's flame), 5.67 m (the fire halo) and 7.96 m (the candle
+    //     halo). The ONE that was covered - the carcass - was covered by a TYPED `Expand(2*size.y)`
+    //     pad, i.e. by a number, which is why nobody noticed the other six.
+    //   * REPRODUCED, then removed. A new near-approach series drives nine stations from 2.96 m in
+    //     to 0.56 m at three tip phases and tests GeometryUtility.TestPlanesAABB on the same box
+    //     Unity culls with. On the shipped boxes `FireGlowShelf` is present at 2.96 m and CULLED at
+    //     2.36 m - the report, to the metre. After the fix: zero culled renderers at any station in
+    //     any pose, and the wax and the halo rise monotonically all the way in.
+    //   * THE FIX IS AN ARC, NOT A PAD. `ArcSweep` computes the exact AABB a box sweeps under
+    //     rotation about the real hinge over the closed angle interval, composed with EnvFlame's own
+    //     bend about the card origin and the lag's second-order remainder. The reachable angle set
+    //     is `[0, _TipAxis.w]` BY CONSTRUCTION because GhvrShelfTip returns a saturate(), so the
+    //     sweep needs no knowledge of the fall curve and cannot drift when it is retuned; only the
+    //     LAG needs the curve, and its constants are PARSED OUT OF THE CGINC at bake time so a
+    //     deleted #define fails the bake rather than silently freezing a mirror.
+    //   * AND THE SWEEP WENT WIDE, because the user made it a general ruling ("das darf generell nie
+    //     passieren"). `VertexMovers` is a table of every Env* shader and what its vertex program can
+    //     do; A MATERIAL WHOSE SHADER HAS NO ROW FAILS THE BAKE, and that already fired once. It
+    //     widened five candle flames (0.23-0.33 m short), nine bonfires (up to 2.23 m), twenty-four
+    //     cobwebs, strands and growth cards (0.06-0.49 m) and the rat (0.567 m). The drip and the
+    //     haunt cards were judged safe WITH THE MARGIN STATED (0.008 m and 0.130 m of room), because
+    //     "it only moves a little" is not a margin.
+    //   * TWO EDITOR TRAPS WORTH CARRYING. `Renderer.localBounds` IS NOT SERIALIZED in 2021.3.5 -
+    //     measured, not assumed: set it, save the prefab, instantiate, and the mesh's own box comes
+    //     back. So mesh.bounds is the only mechanism and riders sharing a mesh need a per-renderer
+    //     copy. And `mesh.bounds = ...; SetDirty()` without `AssetDatabase.SaveAssets()` at the
+    //     point of computation reads back as the vertex box off the asset - a perfect log and
+    //     nothing shipped, for one whole iteration. The gate's margin is now read back OFF THE SAVED
+    //     ASSET rather than off the object in memory.
+    //
+    // WIRE: nothing on it. No record and no format changed; every packet is byte-identical to build
+    // 153's. The bump exists so the handshake still refuses a peer with a different bundle.
+    //
     // Build 153: FOUR REPORTS, AND THREE OF THEM WERE ALREADY WRITTEN DOWN IN THIS REPOSITORY AS
     // KNOWN, ACCEPTED FAULTS. That is this round's lesson and it is worth more than the fixes: a
     // trade-off recorded in a comment is not a trade-off the user has agreed to, and it will be

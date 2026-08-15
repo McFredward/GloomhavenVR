@@ -152,7 +152,7 @@ Mesh:
     m_UVInfo: 0
   m_LocalAABB:
     m_Center: {x: -0.875032, y: 2.58286, z: 4.742447}
-    m_Extent: {x: 0.0789209, y: 0.24470687, z: 0.050588608}
+    m_Extent: {x: 0.48592967, y: 0.6517154, z: 0.4575975}
   m_MeshUsageFlags: 0
   m_BakedConvexCollisionMesh: 
   m_BakedTriangleCollisionMesh: 

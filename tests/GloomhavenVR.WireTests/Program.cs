@@ -21,6 +21,9 @@ internal static class Program
             ScrollTurnGateVectors.Run(t);
             EnvSoundScheduleVectors.Run(t);
             HauntFigureVectors.Run(t);
+            // Source lint, not a packet: a bundled shader looked up with a bare Shader.Find
+            // resolves to null with the bundle open, and has silently cost two builds.
+            BundledShaderVectors.Run(t, repoRoot);
         }
         catch (Exception e)
         {

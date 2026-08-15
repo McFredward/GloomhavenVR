@@ -140,8 +140,9 @@ internal static class HexHighlightFix
 {
     private const string Scope = "HexHighlightFix";
 
-    /// <summary>Bundle asset path of the stable decal shader (BuildBundles packs everything under Assets/Bundle/).</summary>
-    private const string StableShaderAssetPath = "Assets/Bundle/Table/HexDecalStable.shader";
+    // The bundle ASSET PATH of the stable decal shader used to be a const here. It lives in
+    // Core.BundleShaders now, with every other bundled shader's, so no call site can get the folder
+    // or the casing wrong and a stale path fails a build gate instead of a hardware round.
     private const string StableShaderName = "GloomhavenVR/HexDecalStable";
     private const string OriginalShaderName = "OmniDecal_Shd";
 
@@ -207,12 +208,10 @@ internal static class HexHighlightFix
             "first few materials seen (evidence for tuning the fix).");
     }
 
-    // -------- stable shader lookup (OverlayShader/BoardLitShader probe pattern) --------
+    // -------- stable shader lookup (Core.BundleShaders) --------
 
     private static Shader? _stableShader;
     private static Shader? _originalShader;   // kept for best-effort restore on Reset()
-    private static bool _stableFoundLogged;
-    private static bool _stableMissLogged;
     private static bool _knobsBypassLogged;
     /// <summary>Last ZTest value logged for the stable shader; -1 = none yet (log on change only).</summary>
     private static int _lastLoggedZTest = -1;
@@ -225,31 +224,12 @@ internal static class HexHighlightFix
     /// </summary>
     private static Shader? StableShader()
     {
-        if (_stableShader == null)
-        {
-            _stableShader = Shader.Find(StableShaderName);
-            if (_stableShader == null)
-            {
-                foreach (var b in AssetBundle.GetAllLoadedAssetBundles())
-                {
-                    if (b == null) continue;
-                    var s = b.LoadAsset<Shader>(StableShaderAssetPath);
-                    if (s != null) { _stableShader = s; break; }
-                }
-            }
-        }
-        if (_stableShader != null && !_stableFoundLogged)
-        {
-            _stableFoundLogged = true;
-            VRLog.Info(Scope, $"stable hex decal shader '{StableShaderName}' loaded — hex highlight " +
-                              "materials will be swapped off the depth-reconstructing OmniDecal_Shd.");
-        }
-        else if (_stableShader == null && !_stableMissLogged)
-        {
-            _stableMissLogged = true;
-            VRLog.Warn(Scope, $"stable hex decal shader '{StableShaderName}' NOT found (older bundle?) — " +
-                              "falling back to zeroing the swimming OmniDecal layers.");
-        }
+        // find-then-probe-every-loaded-bundle now lives in Core.BundleShaders, which also owns the
+        // asset path. See that class for why the inlined version had to be centralised.
+        _stableShader ??= BundleShaders.Resolve(
+            StableShaderName, Scope,
+            "hex highlight materials will be swapped off the depth-reconstructing OmniDecal_Shd.",
+            "Falling back to zeroing the swimming OmniDecal layers.");
         return _stableShader;
     }
 

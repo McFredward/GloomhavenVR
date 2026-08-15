@@ -957,6 +957,938 @@ namespace GloomhavenVR
             Debug.Log(log.ToString());
         }
 
+        // ====== THE CULLING VOLUME OF SOMETHING THAT MOVES IN THE SHADER =======
+        // USER, hardware, ModBuild 153 (verbatim): "Wenn das Bücherregal umkippt
+        // und man dann nah an die Kerze herangeht verschwindet sie! Wenn ich eine
+        // betsimmte Distanz erreiche sogar nur auf einem Auge. Das darf generell
+        // nie passieren. Und die Kerze soll auch nicht verschwinden wenn man nah
+        // rangeht. Das ist nur beim umgekippten bücherregal so."
+        //
+        // THREE STATEMENTS AND ONE MECHANISM. Unity's frustum culler works on the
+        // RENDERER's bounds, which are `mesh.bounds` through the object's
+        // transform — and a mesh's bounds know nothing about a vertex program. The
+        // shelf's fall is a vertex rotation (EnvShelfTip.cginc): nothing in the
+        // scene moves, so while the candle's DRAWN geometry travels 2.3 m, its
+        // box stays where the wax was authored. Walk up to where the candle now
+        // appears to be and the box — up at the shelf's old seat, behind or above
+        // you — leaves the frustum; the renderer is culled and the candle is gone
+        // although its pixels are in front of your face. In MultiPass the two eyes
+        // are culled against two slightly different frusta, so there is a band of
+        // positions in which the box is inside one and outside the other: that is
+        // "nur auf einem Auge", and it is a property of the bounds, not of any
+        // shader term. It is DISTANCE-dependent because the near frustum is
+        // narrow, and it happens ONLY when the shelf is over because that is the
+        // only time the drawn geometry and the box are not in the same place.
+        //
+        // "DAS DARF GENERELL NIE PASSIEREN" is the general ruling, so the answer
+        // is not a bigger box on one candle. It is: every renderer whose vertices
+        // a vertex program displaces gets bounds that CONTAIN ITS SWEPT EXTENT,
+        // the sweep is derived from the same arc the shader applies, and the bake
+        // FAILS if one of them does not (AssertShelfSweep below).
+        //
+        // WHY mesh.bounds AND NOT Renderer.localBounds. Unity 2021.3 has a
+        // per-renderer bounds override and it is the obvious answer; it is also
+        // NOT SERIALIZED. Measured in this editor (2021.3.5f1): a MeshRenderer
+        // with localBounds set to (1,2,3)/(9,8,7), saved as a prefab and
+        // instantiated back, reads its mesh's own (0,0,0)/(1,1,1). The override
+        // lives for the session and dies at the asset boundary, i.e. it would
+        // have "worked" in the editor and shipped nothing into the bundle.
+        // mesh.bounds is what survives, which is why the carcass already uses it
+        // (HauntPropMesh) and why a rider that SHARES its mesh with something that
+        // does not ride has to be given a copy of it here.
+
+        /// <summary>The shelf pose's own constants, READ OUT OF THE SHADER rather
+        /// than retyped here.
+        ///
+        /// <para>EnvShelfTip.cginc is the single source of truth for the pose, and
+        /// a C# copy of its numbers would be a second one — which is the exact
+        /// failure that file's opening block exists to prevent. So the
+        /// <c>#define</c>s are parsed out of it at bake time: retune the curve and
+        /// this measurement retunes with it, and DELETE a constant and the bake
+        /// fails on the missing key instead of measuring a pose nobody ships.</para>
+        /// </summary>
+        private static readonly Dictionary<string, float> ShaderDefs
+            = new Dictionary<string, float>(StringComparer.Ordinal);
+        private static float Def(string name)
+        {
+            if (ShaderDefs.Count == 0)
+                foreach (var file in new[] { "EnvShelfTip.cginc", "EnvHaunt.cginc", "EnvFire.cginc" })
+                {
+                    string path = Path.Combine(Application.dataPath,
+                                               "Bundle/Environments/" + file);
+                    if (!File.Exists(path))
+                        throw new Exception($"{file} is missing. The shelf sweep reads the pose's "
+                                            + "constants out of the shader so that there is only "
+                                            + "one copy of them.");
+                    foreach (var raw in File.ReadAllLines(path))
+                    {
+                        var line = raw.Trim();
+                        if (!line.StartsWith("#define GHVR_", StringComparison.Ordinal)) continue;
+                        var tok = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (tok.Length < 3) continue;
+                        if (float.TryParse(tok[2], System.Globalization.NumberStyles.Float,
+                                           System.Globalization.CultureInfo.InvariantCulture,
+                                           out float val))
+                            ShaderDefs[tok[1]] = val;
+                    }
+                }
+            if (!ShaderDefs.TryGetValue(name, out float v))
+                throw new Exception($"The shader constant '{name}' is not defined in "
+                    + "EnvShelfTip.cginc or EnvHaunt.cginc any more. The swept culling volume is "
+                    + "derived from the pose's own constants; a renamed or deleted one must fail "
+                    + "the bake rather than silently fall back to a number typed in C#.");
+            return v;
+        }
+
+        /// GhvrTipArc, mirrored. Three lines, and they are PINNED rather than
+        /// trusted — see AssertShelfSweep, which checks the two exact zeros and
+        /// the exact one that EnvShelfTip's ZERO STATE block guarantees.
+        private static float TipArcAt(float s)
+        {
+            float x = Mathf.Clamp01(s / Def("GHVR_TIP_FALL"));
+            float n = Mathf.Clamp01((4f * Mathf.Atan(Def("GHVR_TIP_U0")
+                                                     * Mathf.Exp(Def("GHVR_TIP_K") * x))
+                                     - Def("GHVR_TIP_PHI0B")) * Def("GHVR_TIP_INVSPAN"));
+            float w = Mathf.Clamp01((s - Def("GHVR_TIP_FALL")) / Def("GHVR_TIP_LAND"));
+            return Mathf.Clamp01(n - Def("GHVR_TIP_BAMP") * 4f * w * (1f - w));
+        }
+
+        /// GhvrShelfTip, mirrored: the one-line schedule, addressed backwards over
+        /// the recovery exactly as the shader addresses it.
+        private static float ShelfTipFrac(float ph)
+        {
+            float rise = Def("GHVR_TIP_RISE");
+            float q = Mathf.Clamp01((ph - rise) / (1f - rise));
+            return TipArcAt(Mathf.Min(ph, Def("GHVR_TIP_ARC")) * (1f - q));
+        }
+
+        /// The fastest the pose ever turns, in radians per second, sampled with the
+        /// SHADER'S OWN central difference (GhvrTipSlope's e = 0.0025 in phase) and
+        /// against the SHORTEST run the schedule can hand it (durMul's low end).
+        /// This is only needed for the flame LAG, which is a displacement
+        /// proportional to it; the sweep itself needs no curve at all (see below).
+        private static float ShelfTipPeakRate(float durSeconds)
+        {
+            const float e = 0.0025f;
+            float peak = 0f;
+            for (int i = 0; i <= 40000; i++)
+            {
+                float ph = i / 40000f;
+                peak = Mathf.Max(peak, Mathf.Abs((ShelfTipFrac(ph + e) - ShelfTipFrac(ph - e))
+                                                 / (2f * e)));
+            }
+            return Tip.maxAngle * peak / Mathf.Max(durSeconds, 1e-3f);
+        }
+
+        /// <summary>The EXACT axis-aligned box a box sweeps while it is rotated
+        /// about <paramref name="axis"/> through <paramref name="pivot"/> over the
+        /// closed angle interval [<paramref name="aLo"/>, <paramref name="aHi"/>].
+        ///
+        /// <para>EXACT, and not sampled: a rotation is rigid, so the rotated box is
+        /// the convex hull of its eight rotated corners and an AABB of a hull is an
+        /// AABB of its vertices. Each corner travels a circle, and each COORDINATE
+        /// of a point on a circle is c + r cos(t - phi) — one cosine, whose extrema
+        /// over a closed interval are the two ends plus at most one interior
+        /// turning point. So the answer is a closed form and there is no step size
+        /// to argue about.</para>
+        ///
+        /// <para>Sweeping the BOX rather than the vertices is deliberate and is
+        /// what makes this compose: every mesh in this builder whose shader already
+        /// moves it locally carries that motion in its own authored bounds (the
+        /// fires' explicit `radius*3+0.5 by height*3.4` box is the biggest), so
+        /// starting from the box inherits the local padding instead of asking this
+        /// function to know about tongues and puffs.</para></summary>
+        private static Bounds ArcSweep(Bounds b, Vector3 pivot, Vector3 axis,
+                                       float aLo, float aHi)
+        {
+            axis = axis.normalized;
+            var lo = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            var hi = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+            for (int k = 0; k < 8; k++)
+            {
+                var p = new Vector3((k & 1) == 0 ? b.min.x : b.max.x,
+                                    (k & 2) == 0 ? b.min.y : b.max.y,
+                                    (k & 4) == 0 ? b.min.z : b.max.z);
+                var q = p - pivot;
+                var onAxis = axis * Vector3.Dot(axis, q);
+                var u = q - onAxis;                     // the arm at angle 0
+                var v = Vector3.Cross(axis, u);         // ...and a quarter turn on
+                var c = pivot + onAxis;                 // the centre of this corner's circle
+                for (int i = 0; i < 3; i++)
+                {
+                    float ui = u[i], vi = v[i], ci = c[i];
+                    float mn = Mathf.Min(Ev(aLo), Ev(aHi));
+                    float mx = Mathf.Max(Ev(aLo), Ev(aHi));
+                    // the interior turning points: the maximum at t = phi and the
+                    // minimum a half turn on, each taken only if the interval
+                    // really contains it.
+                    float phi = Mathf.Atan2(vi, ui);
+                    for (int h = -2; h <= 2; h++)
+                    {
+                        float tMax = phi + h * 2f * Mathf.PI;
+                        float tMin = tMax + Mathf.PI;
+                        if (tMax >= aLo && tMax <= aHi) mx = Mathf.Max(mx, Ev(tMax));
+                        if (tMin >= aLo && tMin <= aHi) mn = Mathf.Min(mn, Ev(tMin));
+                    }
+                    lo[i] = Mathf.Min(lo[i], mn);
+                    hi[i] = Mathf.Max(hi[i], mx);
+                    float Ev(float t) => ci + ui * Mathf.Cos(t) + vi * Mathf.Sin(t);
+                }
+            }
+            var outB = new Bounds();
+            outB.SetMinMax(lo, hi);
+            return outB;
+        }
+
+        /// One renderer that carries a live shelf pose, and what its box has to be.
+        private class ShelfSweep
+        {
+            public string node, mat, shader, mesh, local;
+            public float self, stiff;
+            public float before;             // the slack the box had BEFORE this bake
+            public Mesh meshRef;
+            public Bounds authored, swept;   // both in the RENDERER's object space
+            public float reachOut;           // how far the sweep leaves the authored box, in m
+            public float margin;             // ...and what the shipped box has over the sweep
+            public bool cloned, lag;
+        }
+        private static readonly List<ShelfSweep> ShelfSweeps = new List<ShelfSweep>();
+
+        /// <summary>Copy a mesh into an asset of its own, ALL of it.
+        ///
+        /// <para>A rider whose mesh is shared with things that do not ride cannot
+        /// be given a swept box without inflating theirs, and mesh.bounds is the
+        /// only per-renderer culling volume that survives into an AssetBundle. So
+        /// it gets a copy. Eight UV sets, tangents and colours are carried across
+        /// and the vertex count is read back off the ASSET, for the reason
+        /// SaveHauntMesh spells out: a mesh writer that drops channels does not
+        /// fail, it lies.</para></summary>
+        private static Mesh CloneMeshAsset(Mesh src, string file)
+        {
+            string path = MeshDir + "/" + file;
+            var dst = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+            if (dst == null)
+            {
+                dst = new Mesh { name = Path.GetFileNameWithoutExtension(file) };
+                AssetDatabase.CreateAsset(dst, path);
+            }
+            dst.Clear();
+            dst.indexFormat = src.indexFormat;
+            var v = new List<Vector3>(); src.GetVertices(v); dst.SetVertices(v);
+            var n = new List<Vector3>(); src.GetNormals(n); if (n.Count == v.Count) dst.SetNormals(n);
+            var t = new List<Vector4>(); src.GetTangents(t); if (t.Count == v.Count) dst.SetTangents(t);
+            var c = new List<Color>(); src.GetColors(c); if (c.Count == v.Count) dst.SetColors(c);
+            for (int k = 0; k < 8; k++)
+            {
+                var uv = new List<Vector4>(); src.GetUVs(k, uv);
+                if (uv.Count == v.Count) dst.SetUVs(k, uv);
+            }
+            dst.subMeshCount = src.subMeshCount;
+            for (int s = 0; s < src.subMeshCount; s++) dst.SetTriangles(src.GetTriangles(s), s);
+            EditorUtility.SetDirty(dst);
+            if (dst.vertexCount != src.vertexCount)
+                throw new Exception($"{file}: the rider copy has {dst.vertexCount} vertices for "
+                                    + $"the source's {src.vertexCount}.");
+            return dst;
+        }
+
+        /// <summary>Give every renderer that is displaced by the shelf's vertex
+        /// rotation a box that contains what it sweeps, and FAIL THE BAKE if one of
+        /// them is left behind.
+        ///
+        /// <para>Called from BuildCellarRoom after FlushRig and after
+        /// AssertShelfSiteTerms, i.e. once every rider material carries the pose it
+        /// will ship with. The whole composition per renderer is three exact
+        /// sweeps and no typed padding anywhere:</para>
+        ///
+        /// <para>1. THE BEND, for a flame. EnvFlame rotates the card about its own
+        /// origin by <c>-tip.ang * _TipUse.w * h*h</c> before the rigid part, so the
+        /// box is first swept about the ORIGIN over [-stiff*maxAngle, 0]. h is in
+        /// 0..1 and the union over the interval covers every weight it can take.</para>
+        ///
+        /// <para>2. THE RIGID PART, about the real hinge, over [0, maxAngle] — and
+        /// that interval needs NO KNOWLEDGE OF THE CURVE. GhvrShelfTip returns a
+        /// saturate(), so the angle is <c>_TipAxis.w * s</c> with s in [0,1] by
+        /// construction whatever shape the curve is retuned to; both ends are
+        /// attained (the ZERO STATE block pins them). A re-authored fall therefore
+        /// cannot invalidate this box.</para>
+        ///
+        /// <para>3. THE LAG, for a flame. GhvrTipLag adds
+        /// <c>-cross(axis, p - pivot) * vel * 0.055 * h*h</c>, which is the arc's
+        /// own tangent scaled — i.e. to first order the point of a rotation by a
+        /// further <c>-0.055*vel</c> radians. So the interval simply opens by that
+        /// much at the bottom, and the second-order difference (arm * lam^2 / 2,
+        /// under 5 mm here) is added on top and printed.</para></summary>
+        private static void ApplyShelfSweptBounds(Transform root)
+        {
+            if (Tip == null)
+                throw new Exception("ApplyShelfSweptBounds ran with no shelf record published.");
+            ShelfSweeps.Clear();
+
+            // the shortest run the schedule can give this event, which is the one
+            // that turns the pose fastest and therefore lags a flame furthest.
+            float durMin = (Tip.env.x + Tip.env.y + Tip.env.z) * Def("GHVR_HAUNT_DURLO");
+            float velPeak = ShelfTipPeakRate(durMin);
+            float lam = 0.055f * velPeak;              // the lag, as an extra angle
+
+            // how many renderers in the room share each mesh — a rider that shares
+            // one with something that does not ride needs a copy, because
+            // mesh.bounds is per MESH and the culling volume has to be per RENDERER.
+            var users = new Dictionary<Mesh, int>();
+            foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true))
+                if (mf.sharedMesh != null)
+                    users[mf.sharedMesh] = users.TryGetValue(mf.sharedMesh, out int c) ? c + 1 : 1;
+
+            var done = new HashSet<Material>();
+            foreach (var mr in root.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var mat = mr.sharedMaterial;
+                if (mat == null || !TipUse.TryGetValue(mat, out var use)) continue;
+                var mf = mr.GetComponent<MeshFilter>();
+                var e = new ShelfSweep
+                {
+                    node = mr.gameObject.name,
+                    mat = mat.name,
+                    shader = mat.shader != null ? mat.shader.name : "(none)",
+                    mesh = mf != null && mf.sharedMesh != null ? mf.sharedMesh.name : "(none)",
+                    self = use.x,
+                    stiff = use.w,
+                };
+                if (use.x < 0.5f)
+                {
+                    // it FADES and does not move: its drawn geometry never leaves
+                    // the box it was authored in, so the box is right by
+                    // construction and there is nothing to sweep.
+                    e.authored = mr.bounds;
+                    e.swept = mr.bounds;
+                    e.reachOut = 0f;
+                    e.margin = float.PositiveInfinity;
+                    ShelfSweeps.Add(e);
+                    done.Add(mat);
+                    continue;
+                }
+                if (mf == null || mf.sharedMesh == null)
+                    throw new Exception($"Shelf rider '{mat.name}' on node '{mr.gameObject.name}' "
+                        + "moves its own geometry (self = 1) and has no mesh. A rider whose mesh "
+                        + "the bake cannot find is a rider whose culling volume cannot be fixed.");
+
+                var xf = mr.transform;
+                var pivotO = xf.InverseTransformPoint(Tip.pivotW);
+                var axisO = xf.InverseTransformDirection(Tip.axisW).normalized;
+                // ...the same two lines WriteShelfTip uses, and they have to be: a
+                // box swept about a different hinge from the one the shader turns
+                // about is a box in the wrong place.
+                if (!mat.HasProperty("_TipPivot")
+                    || (mat.GetVector("_TipPivot") - new Vector4(pivotO.x, pivotO.y, pivotO.z, 1f))
+                       .magnitude > 1e-3f)
+                    throw new Exception($"Shelf rider '{mat.name}': the hinge this sweep is "
+                        + $"computed about ({pivotO:F3}) is not the hinge the material carries "
+                        + $"({mat.GetVector("_TipPivot")}). One of the two is measuring a pose "
+                        + "nobody sees.");
+
+                string sh = e.shader.Substring(e.shader.LastIndexOf('/') + 1);
+                bool lag = sh == "EnvFlame";
+                e.lag = lag;
+                // 1. THE LOCAL BOX: the mesh's own vertices plus whatever its shader
+                //    does to them IN PLACE, from the same budget every other
+                //    renderer in the room is measured with (VertexRequired). Only
+                //    EnvFlame has any: EnvRoom, EnvGlow and EnvHaunt's prop path do
+                //    the tip rotation and nothing else, so for those three the local
+                //    box IS the vertex box. Composed rather than added on top of the
+                //    old typed pad, so nothing is counted twice.
+                e.authored = VertexBox(mf.sharedMesh);
+                var b = lag ? VertexRequired(sh, mat, mf.sharedMesh, e.authored, out e.local)
+                            : e.authored;
+                // 2. the bend about the card's own origin, for a flame that refuses
+                //    part of the rotation.
+                if (e.stiff > 1e-4f)
+                    b = ArcSweep(b, Vector3.zero, axisO, -e.stiff * Tip.maxAngle, 0f);
+                // 3. the rigid part, about the real hinge, over the whole arc — plus
+                //    the lag, which opens the interval at the bottom.
+                b = ArcSweep(b, pivotO, axisO, lag ? -lam : 0f, Tip.maxAngle);
+                // ...and the lag's second-order remainder, arm * lam^2 / 2. Derived,
+                // measured and printed rather than rounded up to a comfortable box.
+                float arm = 0f;
+                if (lag)
+                {
+                    for (int k = 0; k < 8; k++)
+                    {
+                        var p = new Vector3((k & 1) == 0 ? b.min.x : b.max.x,
+                                            (k & 2) == 0 ? b.min.y : b.max.y,
+                                            (k & 4) == 0 ? b.min.z : b.max.z) - pivotO;
+                        arm = Mathf.Max(arm, Vector3.Cross(axisO, p).magnitude);
+                    }
+                    b.Expand(2f * arm * lam * lam * 0.5f);
+                }
+                e.swept = b;
+
+                // how far the sweep reaches outside the box as the mesh ships it —
+                // i.e. exactly how much of the drawn geometry the frustum culler
+                // was being told to ignore.
+                e.reachOut = Mathf.Max(
+                    Mathf.Max(Mathf.Max(e.authored.min.x - b.min.x, e.authored.min.y - b.min.y),
+                              e.authored.min.z - b.min.z),
+                    Mathf.Max(Mathf.Max(b.max.x - e.authored.max.x, b.max.y - e.authored.max.y),
+                              b.max.z - e.authored.max.z));
+
+                // ---- and now GIVE it the box. A mesh shared with a renderer that
+                // does not ride gets copied first, so nothing else in the room pays
+                // for this one prop's fall.
+                var mesh = mf.sharedMesh;
+                // ...but FIRST, the number the report is really about: how much
+                // room the box this mesh already carried had over the sweep. It is
+                // negative for every rider but the carcass, and by how much is the
+                // whole finding.
+                e.before = Slack(mesh.bounds, b);
+                if (users.TryGetValue(mesh, out int n) && n > 1)
+                {
+                    mesh = CloneMeshAsset(mesh, $"Env_Ride_{mr.gameObject.name}.asset");
+                    mf.sharedMesh = mesh;
+                    e.cloned = true;
+                    e.mesh = mesh.name;
+                }
+                mesh.bounds = b;
+                EditorUtility.SetDirty(mesh);
+                e.meshRef = mesh;
+                ShelfSweeps.Add(e);
+                done.Add(mat);
+            }
+
+            // A DECLARED RIDER THAT WAS NEVER FOUND is the failure this whole block
+            // exists to make impossible: a renamed node, a moved prop or a material
+            // that stopped being assigned leaves the pose live on a renderer nobody
+            // measured, and that renderer is the one that vanishes.
+            foreach (var kv in TipUse)
+                if (!done.Contains(kv.Key) && !(kv.Key.shader != null
+                        && kv.Key.shader.name.EndsWith("EnvParticleAdd", StringComparison.Ordinal)))
+                    throw new Exception($"Shelf rider '{kv.Key.name}' was declared (self "
+                        + $"{kv.Value.x:F0}) and no MeshRenderer in the room uses it. Its culling "
+                        + "volume therefore was not measured, and a renderer whose geometry the "
+                        + "shader moves out of an unmeasured box is exactly the candle the user "
+                        + "watched disappear. Find the renderer or drop the declaration.");
+
+            // WRITE THEM OUT HERE AND NOT AT THE END OF THE BAKE. A Mesh's box is
+            // serialized in m_LocalAABB, and anything later in this build that
+            // touches the asset database can reload the asset from the file it was
+            // created with — at which point the swept box is gone and nothing has
+            // failed. Saving them at the moment they are computed is one line and
+            // it is the difference between a fix and a fix-shaped comment; the
+            // read-back below is what proves it landed.
+            AssetDatabase.SaveAssets();
+            AssertShelfSweep(velPeak, lam, durMin);
+        }
+
+        /// <summary>The gate. Every displaced renderer's shipped box must contain
+        /// its swept extent, the mirrored curve must reproduce the shader's own
+        /// pinned values, and the table is printed with the metres in it.</summary>
+        private static void AssertShelfSweep(float velPeak, float lam, float durMin)
+        {
+            // ---- the mirror is PINNED, not trusted. EnvShelfTip's ZERO STATE
+            // block guarantees three exact values and they are the three this C#
+            // copy has to reproduce before any number below means anything.
+            float f0 = ShelfTipFrac(0f), f1 = ShelfTipFrac(1f), fMax = 0f;
+            for (int i = 0; i <= 40000; i++) fMax = Mathf.Max(fMax, ShelfTipFrac(i / 40000f));
+            if (f0 != 0f || f1 != 0f || Mathf.Abs(fMax - 1f) > 1e-4f)
+                throw new Exception($"The C# mirror of GhvrShelfTip reads {f0:E3} at phase 0, "
+                    + $"{f1:E3} at phase 1 and peaks at {fMax:F6}. EnvShelfTip.cginc's ZERO STATE "
+                    + "block guarantees exactly 0, exactly 0 and exactly 1; a mirror that does not "
+                    + "reproduce them is measuring a different fall from the one that ships, and "
+                    + "the swept boxes below would be boxes for that other fall.");
+
+            var log = new System.Text.StringBuilder();
+            log.Append("[GloomhavenVR][Env] SHELF SWEEP — the culling volume of everything the "
+                + "bookshelf's VERTEX ROTATION moves. User, hardware, ModBuild 153: \"Wenn das "
+                + "Bücherregal umkippt und man dann nah an die Kerze herangeht verschwindet sie! "
+                + "Wenn ich eine betsimmte Distanz erreiche sogar nur auf einem Auge. Das darf "
+                + "generell nie passieren.\" Unity culls on mesh.bounds through the transform and "
+                + "a mesh's box knows nothing about a vertex program, so a rider whose box stays "
+                + "at the seat while its pixels travel 2.3 m is culled the moment the BOX leaves "
+                + "the frustum — and in MultiPass the two eyes have two frusta, which is the "
+                + "one-eye band. Everything below is in the renderer's OWN object space; "
+                + "'reaches out' is how far the sweep left the box as the mesh shipped it, i.e. "
+                + "how much drawn geometry the culler was being told to ignore.\n");
+            log.Append($"    the arc: 0..{Tip.maxAngle * Mathf.Rad2Deg:F1} deg about "
+                + $"({Tip.axisW.x:F2},{Tip.axisW.y:F2},{Tip.axisW.z:F2}) through the hinge at "
+                + $"({Tip.pivotW.x:F2},{Tip.pivotW.y:F2},{Tip.pivotW.z:F2}). The interval needs no "
+                + "knowledge of the CURVE: GhvrShelfTip returns a saturate(), so the angle is "
+                + "_TipAxis.w times something in [0,1] whatever the fall is retuned to.\n");
+            log.Append($"    the lag: the shortest run this event can be given is {durMin:F2} s "
+                + $"(durMul {Def("GHVR_HAUNT_DURLO"):F2}), the pose then turns at up to "
+                + $"{velPeak:F3} rad/s, and GhvrTipLag's 0.055 makes that {lam:F4} rad "
+                + $"({lam * Mathf.Rad2Deg:F2} deg) of extra arc at the bottom of the interval — "
+                + "applied to the two shaders that take it and to nothing else.\n");
+
+            float worst = float.PositiveInfinity;
+            foreach (var e in ShelfSweeps.OrderBy(x => x.node, StringComparer.Ordinal))
+            {
+                if (e.self < 0.5f)
+                {
+                    log.Append($"    {e.node,-16} [{e.mat}] SELF 0 — it does not move its own "
+                        + "geometry (it fades), so its drawn extent never leaves its authored box "
+                        + "and there is nothing to sweep. Margin: exact, by construction.\n");
+                    continue;
+                }
+                // THE MARGIN IS READ BACK OFF THE SAVED ASSET, not off the local
+                // that was just written into it. That is the whole claim of this
+                // gate — "what ships contains the sweep" — and the first draft of
+                // this round proved why it has to be worded that way: mesh.bounds
+                // set in memory and merely SetDirty'd came back off the asset as
+                // the vertex box, i.e. the fix rendered a perfect log and shipped
+                // nothing.
+                if (e.meshRef != null) e.margin = Slack(e.meshRef.bounds, e.swept);
+                if (!(e.margin >= -1e-4f))
+                    throw new Exception($"Shelf rider '{e.mat}' on node '{e.node}' ships bounds "
+                        + $"that do NOT contain its swept extent ({e.margin * 1000f:F1} mm short). "
+                        + "This is the ModBuild 153 report: a renderer whose vertex program takes "
+                        + "its geometry outside its own box is frustum-culled while its pixels are "
+                        + "in front of the player, and in MultiPass it goes on one eye first.");
+                worst = Mathf.Min(worst, e.margin);
+                string had = e.before >= 0f ? $"{e.before:F2} m of room"
+                                            : $"{-e.before:F2} m TOO LITTLE";
+                log.Append($"    {e.node,-16} [{e.mat}, {e.shader.Substring(e.shader.LastIndexOf('/') + 1)}"
+                    + (e.stiff > 1e-4f ? $", stiffness {e.stiff:F2}" : "")
+                    + (e.lag ? ", + lag" : "") + (e.cloned ? ", own mesh copy" : "") + "]\n"
+                    + $"        authored {Fmt(e.authored)} = {e.authored.size.x:F2} x "
+                    + $"{e.authored.size.y:F2} x {e.authored.size.z:F2} m\n"
+                    + $"        swept    {Fmt(e.swept)} = {e.swept.size.x:F2} x "
+                    + $"{e.swept.size.y:F2} x {e.swept.size.z:F2} m\n"
+                    + (e.local != null ? $"        local first: {e.local}\n" : "")
+                    + $"        the drawn geometry reaches {e.reachOut:F2} m outside the box its "
+                    + $"own vertices occupy, and the box this mesh carried when the sweep ran had "
+                    + had + ". It ships the swept box now: margin "
+                    + $"{e.margin * 1000f:F2} mm.\n");
+            }
+            log.Append($"    the tightest margin in the table is {worst * 1000f:F2} mm, and a "
+                + "margin of zero is the intended answer rather than a near miss: the box a mesh "
+                + "is given IS the swept extent, and the swept extent is already the CONSERVATIVE "
+                + "union — the exact arc of the mesh's whole bounding box (not of its vertices), "
+                + "over the whole reachable angle set, with the flame bend and the lag folded in "
+                + "at their maxima. Padding that by a comfortable number would be the thing this "
+                + "round exists to delete. The gate below tolerates 0.1 mm, which is float noise "
+                + "on a 10 m box and nothing else.\n");
+            log.Append("    WHAT WOULD DISPROVE THIS. Every line above is a claim about a BOX, "
+                + "not about a picture, so the reading that kills it is a render: "
+                + "PreviewEnvironments' ShelfNear series walks a camera in along the line to the "
+                + "FALLEN candle at several tip phases and counts the lit pixels the candle "
+                + "covers. A phase in which that count goes to zero between two distances while "
+                + "the candle is still in front of the camera is this fault, unfixed — the count "
+                + "must rise monotonically as the camera closes, because the candle only gets "
+                + "bigger. A hardware log that still carries this line and a user who still sees "
+                + "the candle vanish would mean the culling volume is not the mechanism, and the "
+                + "next suspects are the near plane against an additive quad and a per-eye term "
+                + "in EnvGlow's analytic falloff — neither of which can produce the "
+                + "'only once it has tipped' half of the report.\n");
+            Debug.Log(log.ToString());
+
+            string Fmt(Bounds b) => $"({b.min.x:F2},{b.min.y:F2},{b.min.z:F2})"
+                                    + $"..({b.max.x:F2},{b.max.y:F2},{b.max.z:F2})";
+        }
+
+        // ===== AND NOW EVERY OTHER VERTEX PROGRAM IN THE BUNDLE ================
+        // "Das darf GENERELL nie passieren." The bookshelf is the big one because
+        // it moves a prop-sized mesh a room-sized distance, but it is not the only
+        // vertex program in here that takes geometry outside the box Unity culls
+        // it on: the drop falls the height of the room, the rat walks a Bezier
+        // across it, the star field turns on the pole, a cobweb billows, a flame
+        // leans in the draught. Each one is exposed in proportion to how far it
+        // moves, and each one is answered here by the SAME question — what is the
+        // furthest this shader can put a vertex, expressed in the material's own
+        // properties, and does the mesh's box contain it?
+        //
+        // THE TABLE IS THE GATE. Every shader that draws a MeshRenderer in either
+        // room has a row; a material whose shader has no row FAILS THE BAKE,
+        // because "we have not asked this shader the question" and "this shader
+        // does not move anything" have to be different states. That is the
+        // ShelfSiteTerms lesson applied one level up.
+
+        /// What each Env* vertex program can do to a vertex, and where the number
+        /// comes from. `budget` is a per-material displacement bound in OBJECT
+        /// units; VertexBudget below evaluates it.
+        private static readonly (string shader, bool moves, string what)[] VertexMovers =
+        {
+            ("EnvRoom", true,
+             "the shelf rider only (GhvrTipPoint under _TipUse.x) — measured exactly by the "
+             + "SHELF SWEEP above; nothing else in this vertex program moves a vertex"),
+            ("EnvHaunt", true,
+             "the PROP path is the shelf rider (exact, above); the CARD paths travel their own "
+             + "authored mv lane, which HauntCardsMesh already encapsulates, plus 0.22 m of Air "
+             + "drift and 0.15 m of Earth sink"),
+            ("EnvGlow", true,
+             "the shelf rider only (the hull AND the centre take GhvrTipRot) — exact, above"),
+            ("EnvFlame", true,
+             "sway, the draught lean, the tongue wander, the tip wrinkle, the lick and the puff "
+             + "growth, then the shelf rider; a bonfire's height is hard-capped at "
+             + "GHVR_FIRE_CAP x _FireH"),
+            ("EnvRoomCutout", true,
+             "the cobweb billow along _SwayDir, the whirl on the perpendicular, the haunt tremble "
+             + "along the normal and GhvrWind's bend/flutter/lift"),
+            ("EnvDrip", true,
+             "the drop is PLACED by the vertex program: it hangs at _Y0, falls to _Y1 under "
+             + "gravity, is dragged downwind and then splashes outward"),
+            ("EnvCritter", true,
+             "the animal is placed entirely by the vertex program — a cubic Bezier from _W0.._W3 "
+             + "with per-slot wander, plus the burrow travel and the gait"),
+            ("EnvStarPoints", true,
+             "the whole field turns about _Pole, so a star can be anywhere on its own sphere"),
+            ("EnvParticleAdd", false,
+             "on a MESH renderer (the moon pool, the element cards) the vertex program only ever "
+             + "COLLAPSES a gated quad to clip (0,0,0,1) — it never moves one outward. On a "
+             + "Shuriken emitter Unity computes the bounds from the live population and this "
+             + "walk does not see it at all"),
+            ("EnvParticleAlpha", false,
+             "the same: a collapse to clip zero under its element gate, and nothing else"),
+            ("EnvGround", false, "o.pos = UnityObjectToClipPos(v.vertex), verbatim"),
+            ("EnvBeam", false, "o.pos = UnityObjectToClipPos(v.vertex), verbatim"),
+            ("EnvShaft", false, "o.pos = UnityObjectToClipPos(v.vertex), verbatim"),
+            ("EnvPuddle", false, "o.pos = UnityObjectToClipPos(v.vertex), verbatim (both passes)"),
+            ("EnvStars", false, "o.pos = UnityObjectToClipPos(v.vertex), verbatim"),
+        };
+
+        private class DispEntry
+        {
+            public string room, node, mat, shader, mesh, why;
+            public Mesh meshRef;
+            public float before;       // the slack the shipped box had BEFORE this bake widened it
+            public Bounds authored, required, shipped;
+            public float margin;       // metres of slack in the tightest direction
+            public bool grown, proven;
+        }
+
+        /// <summary>The box the mesh's OWN VERTICES occupy — the truth a culling
+        /// volume has to be judged against. Deliberately NOT mesh.bounds: several
+        /// meshes in this builder already ship a box their builder padded by hand
+        /// (the fires, the drop, the rat), and measuring a pad against itself
+        /// proves nothing at all.</summary>
+        private static readonly Dictionary<Mesh, Bounds> VertexBoxes
+            = new Dictionary<Mesh, Bounds>();
+        private static Bounds VertexBox(Mesh mesh)
+        {
+            if (VertexBoxes.TryGetValue(mesh, out var got)) return got;
+            var v = mesh.vertices;
+            var b = new Bounds();
+            if (v != null && v.Length > 0)
+            {
+                b = new Bounds(v[0], Vector3.zero);
+                for (int i = 1; i < v.Length; i++) b.Encapsulate(v[i]);
+            }
+            VertexBoxes[mesh] = b;
+            return b;
+        }
+
+        /// How much room <paramref name="have"/> has around <paramref name="need"/>,
+        /// in metres, in its tightest direction. Negative is geometry outside its
+        /// own culling volume.
+        private static float Slack(Bounds have, Bounds need)
+            => Mathf.Min(Mathf.Min(Mathf.Min(need.min.x - have.min.x, need.min.y - have.min.y),
+                                   need.min.z - have.min.z),
+                         Mathf.Min(Mathf.Min(have.max.x - need.max.x, have.max.y - need.max.y),
+                                   have.max.z - need.max.z));
+
+        /// How far <paramref name="a"/> sticks out past <paramref name="b"/> at its
+        /// worst face. The MAXIMUM and not the minimum: Slack answers "does it fit",
+        /// this answers "does it move at all", and a term that pushes one face out
+        /// by half a metre while another does not move is still a term that moves.
+        private static float Grew(Bounds a, Bounds b)
+            => Mathf.Max(Mathf.Max(Mathf.Max(b.min.x - a.min.x, b.min.y - a.min.y),
+                                   b.min.z - a.min.z),
+                         Mathf.Max(Mathf.Max(a.max.x - b.max.x, a.max.y - b.max.y),
+                                   a.max.z - b.max.z));
+
+        private static float MatF(Material m, string n, float dflt = 0f)
+            => m.HasProperty(n) ? m.GetFloat(n) : dflt;
+        private static Vector4 MatV(Material m, string n)
+            => m.HasProperty(n) ? m.GetVector(n) : Vector4.zero;
+
+        /// <summary>The box a renderer's vertex program can reach, in the mesh's
+        /// own object space — derived from the material's properties and the
+        /// shader's own documented bounds, never from a padded guess.</summary>
+        private static Bounds VertexRequired(string shader, Material m, Mesh mesh,
+                                             Bounds b, out string why)
+        {
+            float radXZ = Mathf.Max(Mathf.Abs(b.min.x), Mathf.Abs(b.max.x));
+            radXZ = Mathf.Max(radXZ, Mathf.Max(Mathf.Abs(b.min.z), Mathf.Abs(b.max.z)));
+            switch (shader)
+            {
+                case "EnvFlame":
+                {
+                    float sway = MatF(m, "_Sway"), gust = MatF(m, "_Gust");
+                    var gd = MatV(m, "_GustDir");
+                    float air = 1f + MatF(m, "_AirGust");
+                    if (MatF(m, "_Bonfire") < 0.5f)
+                    {
+                        // A CANDLE. Everything between the surge and the puff sits
+                        // inside `if (_Bonfire > 0.5)`, so what is left is the sway
+                        // (x2.3 under full Air), the draught lean along _GustDir
+                        // (x(1 + _AirGust)), and `p.y *= tall`, tall <= 1.55.
+                        float lx = 2.3f * sway + Mathf.Abs(gd.x) * gust * air;
+                        float lz = 0.6f * 2.3f * sway + Mathf.Abs(gd.z) * gust * air;
+                        why = $"candle: sway {2.3f * sway:F3} m + lean {Mathf.Abs(gd.x) * gust * air:F3} m "
+                              + $"on x, height x1.55 (tall)";
+                        var r = new Bounds();
+                        r.SetMinMax(new Vector3(b.min.x - lx, Mathf.Min(b.min.y, b.min.y * 1.55f),
+                                                b.min.z - lz),
+                                    new Vector3(b.max.x + lx, b.max.y * 1.55f, b.max.z + lz));
+                        return r;
+                    }
+                    // A BONFIRE. The lateral terms are the swayW pair, the tongue
+                    // wander (1.9 x _Sway), the tip wrinkle (0.45 x _Sway) and the
+                    // radial tear (x(1 + _Flare)); a DETACHED puff then scales x/z
+                    // about the seat by up to 2.95 (all three Fire pairings at
+                    // once). The height is not open: line 1225 asymptotes p.y at
+                    // GHVR_FIRE_CAP x _FireH.
+                    float lat = sway * (1f + 1.9f + 0.45f);
+                    float grow = 2.95f * (1f + MatF(m, "_Flare"));
+                    float cap = Def("GHVR_FIRE_CAP") * Mathf.Max(MatF(m, "_FireH"), 1e-3f);
+                    why = $"bonfire: lateral {lat:F3} m of sway/wander/wrinkle on a seat radius "
+                          + $"grown x{grow:F2} (tear x puff), height capped at "
+                          + $"{cap:F2} m (GHVR_FIRE_CAP x _FireH)";
+                    var rb = new Bounds();
+                    rb.SetMinMax(new Vector3(-(radXZ * grow + lat), Mathf.Min(b.min.y, 0f),
+                                             -(radXZ * grow + lat)),
+                                 new Vector3(radXZ * grow + lat, Mathf.Max(b.max.y, cap),
+                                             radXZ * grow + lat));
+                    return rb;
+                }
+                case "EnvRoomCutout":
+                {
+                    // The billow reaches 3.1 x _Sway along _SwayDir (2.2 of billow
+                    // plus a 0.9 one-sided lean under Air), the whirl 2.2 x _Sway x
+                    // _SwayDir.w on the perpendicular, the tremble 2.2 x
+                    // _HauntTremble (its own 1.0 along the normal plus 1.2 folded
+                    // into the billow), and GhvrWind is bounded by its own doc
+                    // comment at 2.04 x _ElemWind.x. Taken isotropically, which is
+                    // conservative: no two of them share an axis.
+                    float sw = MatF(m, "_Sway");
+                    float d = 3.1f * sw + 2.2f * sw * Mathf.Abs(MatV(m, "_SwayDir").w)
+                              + 2.2f * MatF(m, "_HauntTremble")
+                              + 2.04f * MatV(m, "_ElemWind").x;
+                    why = $"billow+whirl {3.1f * sw + 2.2f * sw * Mathf.Abs(MatV(m, "_SwayDir").w):F3} m, "
+                          + $"tremble {2.2f * MatF(m, "_HauntTremble"):F3} m, wind "
+                          + $"{2.04f * MatV(m, "_ElemWind").x:F3} m = {d:F3} m isotropic";
+                    var r = b; r.Expand(2f * d); return r;
+                }
+                case "EnvDrip":
+                {
+                    // The mesh is a corner offset around the origin; the SHADER
+                    // places the drop. Vertical: it hangs at _Y0 and falls to _Y1.
+                    // Lateral: the draught drags it (0.027 hanging, 0.332 falling,
+                    // both x _DraftPush) and the splash throws it out.
+                    float y0 = MatF(m, "_Y0"), y1 = MatF(m, "_Y1");
+                    float push = MatF(m, "_DraftPush");
+                    float outR = MatF(m, "_SplashOut") * 1.9f * MatF(m, "_SplashLife");
+                    float drift = (0.027f + 0.332f) * push;
+                    float corner = 1.44f * Mathf.Max(radXZ, Mathf.Max(Mathf.Abs(b.min.y),
+                                                                      Mathf.Abs(b.max.y)));
+                    why = $"the drop is placed from y {y0:F2} to {y1:F2}, drifts {drift:F3} m "
+                          + $"downwind and splashes {outR:F3} m out; the quad's own corner is "
+                          + $"{corner:F3} m after the stretch";
+                    float w = drift + outR + corner;
+                    var r = new Bounds();
+                    r.SetMinMax(new Vector3(-w, Mathf.Min(y0, y1) - corner, -w),
+                                new Vector3(w, Mathf.Max(y0, y1) + 0.07f + corner, w));
+                    return r;
+                }
+                case "EnvCritter":
+                {
+                    // The animal is authored at the origin in its own body metres
+                    // and PUT on its route by the shader: the Bezier hull of
+                    // _W0.._W3 with the per-slot wander on the two inner control
+                    // points, plus the burrow travel, plus its own body radius.
+                    var w0 = MatV(m, "_W0"); var w1 = MatV(m, "_W1");
+                    var w2 = MatV(m, "_W2"); var w3 = MatV(m, "_W3");
+                    var wob1 = MatV(m, "_Wob1"); var wob2 = MatV(m, "_Wob2");
+                    var hA0 = MatV(m, "_Hole0A"); var hA1 = MatV(m, "_Hole1A");
+                    var hB0 = MatV(m, "_Hole0B"); var hB1 = MatV(m, "_Hole1B");
+                    float scale = Mathf.Max(MatF(m, "_Scale", 1f), 1e-3f);
+                    // the body, its gait and its sniff, in room metres
+                    float body = scale * Mathf.Max(b.extents.x,
+                                                   Mathf.Max(b.extents.y, b.extents.z))
+                                 + 0.071f + 0.034f + 0.13f;
+                    var r = new Bounds((Vector3)w0, Vector3.zero);
+                    foreach (var c in new[] { (Vector3)w1, (Vector3)w2, (Vector3)w3 })
+                        r.Encapsulate(c);
+                    // the wander opens the hull on both inner points, in both signs
+                    float wob = Mathf.Max(
+                        Mathf.Abs(wob1.x) + Mathf.Abs(wob1.z), Mathf.Abs(wob1.y) + Mathf.Abs(wob1.w));
+                    wob = Mathf.Max(wob, Mathf.Abs(wob2.x) + Mathf.Abs(wob2.z));
+                    wob = Mathf.Max(wob, Mathf.Abs(wob2.y) + Mathf.Abs(wob2.w));
+                    r.Expand(2f * wob);
+                    // ...and the two burrows, which take it into the wall and down
+                    foreach (var (a, bb) in new[] { (hA0, hB0), (hA1, hB1) })
+                    {
+                        r.Encapsulate(new Vector3(a.x, a.y - a.w, a.z));
+                        r.Encapsulate(new Vector3(a.x + bb.x, a.y + bb.y - a.w, a.z + bb.z));
+                    }
+                    r.Expand(2f * body);
+                    why = $"the Bezier hull of _W0.._W3 opened by {wob:F2} m of wander, both "
+                          + $"burrows, and {body:F2} m of body/gait/sniff/stare at scale {scale:F2}";
+                    return r;
+                }
+                case "EnvStarPoints":
+                {
+                    // Rodrigues about _Pole keeps |v| — so the reachable set is the
+                    // SPHERE the field is authored on, plus one star's own quad.
+                    float rad = 0f;
+                    foreach (var v in mesh.vertices) rad = Mathf.Max(rad, v.magnitude);
+                    float ext = 0f;
+                    var uv1 = new List<Vector4>(); mesh.GetUVs(1, uv1);
+                    foreach (var u in uv1) ext = Mathf.Max(ext, Mathf.Abs(u.x));
+                    why = $"the field turns about _Pole, so every star can reach anywhere on its "
+                          + $"own sphere: radius {rad:F1} m plus {ext:F2} m of quad";
+                    return new Bounds(Vector3.zero, Vector3.one * (2f * (rad + ext)));
+                }
+                case "EnvHaunt":
+                {
+                    // The card paths travel their own authored `mv` lane, which
+                    // HauntCardsMesh has already encapsulated in both signs (and
+                    // then expanded by 1.0 m). What is left to add is the pair of
+                    // element drifts, which are hard constants in the shader.
+                    why = "cards: mv already encapsulated by HauntCardsMesh; + 0.22 m of Air "
+                          + "drift and 0.15 m of Earth sink";
+                    var r = b; r.Expand(2f * 0.37f); return r;
+                }
+                default:
+                    why = "no vertex displacement";
+                    return b;
+            }
+        }
+
+        /// <summary>Measure every renderer in a room against what its vertex
+        /// program can do to it, widen the boxes that fall short, and print the
+        /// table with the metres in it. A shader with no row in VertexMovers fails
+        /// the bake.</summary>
+        private static void ApplyDisplacedBounds(string room, Transform root)
+        {
+            var need = new Dictionary<Mesh, Bounds>();
+            var rows = new List<DispEntry>();
+            foreach (var mr in root.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var mat = mr.sharedMaterial;
+                var mf = mr.GetComponent<MeshFilter>();
+                if (mat == null || mat.shader == null || mf == null || mf.sharedMesh == null) continue;
+                string full = mat.shader.name;
+                string sh = full.Substring(full.LastIndexOf('/') + 1);
+                int i = Array.FindIndex(VertexMovers, r => r.shader == sh);
+                if (i < 0)
+                    throw new Exception($"Material '{mat.name}' in the {room} is drawn by "
+                        + $"'{full}', which has no row in VertexMovers. Every shader that draws a "
+                        + "MeshRenderer has to state what its VERTEX PROGRAM can do to a vertex, "
+                        + "because Unity culls on the mesh's box and a box knows nothing about a "
+                        + "vertex program — a renderer whose geometry leaves an unmeasured box is "
+                        + "the candle the user watched disappear (ModBuild 153). Add the row and "
+                        + "the budget in VertexRequired; 'it does not move anything' is a valid "
+                        + "row and an ABSENT row is not.");
+                // the shelf riders are measured exactly by the SHELF SWEEP and
+                // their meshes already carry it; measuring them again with a
+                // per-shader budget would only report the looser of two answers.
+                if (TipUse.TryGetValue(mat, out var u) && u.x > 0.5f) continue;
+
+                var mesh = mf.sharedMesh;
+                var vb = VertexBox(mesh);
+                string why = "no vertex displacement";
+                var req = VertexMovers[i].moves
+                    ? VertexRequired(sh, mat, mesh, vb, out why)
+                    : vb;
+                var e = new DispEntry
+                {
+                    room = room, node = mr.gameObject.name, mat = mat.name, shader = sh,
+                    mesh = mesh.name, meshRef = mesh, authored = vb, required = req,
+                    why = why, proven = sh != "EnvHaunt",
+                    // ...and the number the ruling actually asks for: how many
+                    // metres of room the box the mesh ALREADY carried had over what
+                    // its vertex program can reach. It is taken BEFORE anything is
+                    // widened, because after that it is 0 by construction and says
+                    // nothing about which of these were ever exposed.
+                    before = Slack(mesh.bounds, req),
+                };
+                rows.Add(e);
+                if (need.TryGetValue(mesh, out var acc)) { acc.Encapsulate(req); need[mesh] = acc; }
+                else need[mesh] = req;
+            }
+
+            // ---- and GIVE them the box. A mesh several renderers share takes the
+            // union of what each of them needs IN ITS OWN OBJECT SPACE: they share
+            // the mesh, so they share the box, and the union is the only answer
+            // that is right for all of them. (The one displacement in the bundle
+            // for which that would be wasteful — the shelf's room-scale rigid
+            // transform of a prop-scale mesh — is exactly the one that gets a mesh
+            // copy of its own, in ApplyShelfSweptBounds.)
+            foreach (var kv in need)
+            {
+                var mesh = kv.Key; var req = kv.Value;
+                var have = mesh.bounds;
+                if (have.Contains(req.min) && have.Contains(req.max)) continue;
+                var grown = have; grown.Encapsulate(req);
+                mesh.bounds = grown;
+                EditorUtility.SetDirty(mesh);
+            }
+            // ...and SAVED HERE, for the reason spelled out in ApplyShelfSweptBounds:
+            // a mesh box that is only set in memory comes back off the asset as the
+            // vertex box and the whole round ships nothing.
+            AssetDatabase.SaveAssets();
+            foreach (var e in rows)
+            {
+                e.shipped = e.meshRef != null ? e.meshRef.bounds : e.authored;
+                e.grown = e.before < 0f;
+                e.margin = Slack(e.shipped, e.required);
+            }
+            ReportDisplaced(room, rows);
+        }
+
+        private static void ReportDisplaced(string room, List<DispEntry> rows)
+        {
+            var log = new System.Text.StringBuilder();
+            log.Append($"[GloomhavenVR][Env] {room} DISPLACED RENDERERS — every vertex program in "
+                + "the room against the box Unity culls it on. User, hardware, ModBuild 153: "
+                + "\"Das darf generell nie passieren.\" The bookshelf is measured exactly by the "
+                + "SHELF SWEEP; everything below is bounded from its own material's properties "
+                + "and the shader's own documented reach. 'needs' is the furthest the vertex "
+                + "program can put a vertex, 'ships' is the mesh's box, and the margin is the "
+                + "tightest of the six faces. Negative would mean geometry outside its own "
+                + "culling volume.\n");
+            foreach (var g in rows.GroupBy(r => r.shader).OrderBy(g => g.Key, StringComparer.Ordinal))
+            {
+                int k = Array.FindIndex(VertexMovers, r => r.shader == g.Key);
+                if (k >= 0 && !VertexMovers[k].moves)
+                {
+                    log.Append($"    {g.Key,-14} {g.Count(),3} renderer(s): SAFE BY CONSTRUCTION — "
+                               + VertexMovers[k].what + ".\n");
+                    continue;
+                }
+                // "moved" = the vertex program can really take this renderer's
+                // geometry outside the box its own vertices occupy. The rest
+                // carry the shader but with the term switched off in their
+                // material, and their box is exact.
+                var moved = g.Where(x => Grew(x.required, x.authored) > 1e-4f).ToList();
+                int still = g.Count() - moved.Count;
+                log.Append($"    {g.Key,-14} {g.Count(),3} renderer(s): " + VertexMovers[k].what
+                    + (still > 0 ? $"\n        ({still} of them are not moved by it at all — the "
+                                   + "term is off in their material, so their box is exact)" : "")
+                    + "\n");
+                foreach (var e in moved.OrderBy(x => x.before))
+                {
+                    string verdict = e.before >= 0f
+                        ? $"{e.before:F3} m of room — SAFE as authored"
+                        : $"{-e.before:F3} m TOO LITTLE — WIDENED this bake";
+                    log.Append($"        {e.node,-20} vertices {Fmt3(e.authored)}, needs "
+                        + $"{Fmt3(e.required)} m; the box it carried had {verdict}, and now has "
+                        + $"{e.margin:F3} m.\n            {e.why}\n");
+                }
+            }
+            log.Append("    THE ONE ENTRY THAT IS NOT PROVEN: EnvHaunt's card paths take a one-shot "
+                + "lean and a damped sway (GhvrHauntRot) about the card's OWN anchor, and the "
+                + "angle is authored per vertex in the mesh's rot.w/env.w lanes rather than in a "
+                + "material property — so the number above bounds the two element drifts and the "
+                + "mv travel, and NOT that rotation. It is a rotation about a pivot inside the "
+                + "card, so its reach is at most the card's own radius, which the 1.0 m expansion "
+                + "in HauntCardsMesh covers for every card in this bake; it is stated rather than "
+                + "asserted, and a card ever authored more than a metre across would make it a "
+                + "real gap.\n");
+            Debug.Log(log.ToString());
+
+            string Fmt3(Bounds b) => $"{b.size.x:F2}x{b.size.y:F2}x{b.size.z:F2}";
+        }
+
         private static void FlushRig(LightRig rig)
         {
             foreach (var (m, t, tint) in Pending)
@@ -3552,7 +4484,7 @@ namespace GloomhavenVR
             // SHELF RIDERS: the pose does not exist until the shelf is placed and
             // measured, and it must not leak from one bake of one room into the
             // next. Both are cleared here and again at the top of the forest.
-            Tip = null; TipUse.Clear();
+            Tip = null; TipUse.Clear(); VertexBoxes.Clear(); ShelfSweeps.Clear();
 
             // Light positions are patched in AFTER the props are stacked (the
             // candles sit ON the props — bounds-derived); see rig fixup below.
@@ -5527,6 +6459,14 @@ namespace GloomhavenVR
             // and the wax are deferred, so before it their _TipUse is unwritten
             // and the gate would be reading an intention rather than a bake.
             AssertShelfSiteTerms(rig);
+            // ...and the CULLING VOLUME of everything that site moves. User,
+            // hardware, ModBuild 153: "Wenn das Bücherregal umkippt und man dann
+            // nah an die Kerze herangeht verschwindet sie!" The answer sheet above
+            // says what each term DOES with the pose; this says whether the box
+            // Unity culls it on knows about it. Same place, same reason, and after
+            // FlushRig for the same reason: it reads what ships.
+            ApplyShelfSweptBounds(root);
+            ApplyDisplacedBounds("Cellar", root);
             // SURFACE GROWTH — the coverage table, printed after the rig so the
             // frame it is computed against is the one the shader will use.
             // (the two "earth moss" rows are deleted with the painted moss —
@@ -8599,13 +9539,17 @@ namespace GloomhavenVR
             m.colors = col;
             m.triangles = src.triangles;
             if (m.normals == null || m.normals.Length != v.Length) m.RecalculateNormals();
-            // THE BOUNDS HAVE TO COVER THE FALL. The shelf's own box is the box it
-            // occupies STANDING; half way through the event it is lying two metres
-            // from there, and a frustum-culled bookshelf is an event in which
-            // nothing visibly happens.
-            var bb = m.bounds;
-            bb.Expand(2.0f * bb.size.y);
-            m.bounds = bb;
+            // THE BOUNDS HAVE TO COVER THE FALL — and they are no longer PADDED
+            // here. `bb.Expand(2.0f * bb.size.y)` used to stand at this line: a
+            // typed box that happened to be big enough for the carcass and told
+            // nobody anything about the candle, the wax, the flame or the two
+            // halos standing on it, every one of which is a separate renderer and
+            // none of which got the same treatment. That asymmetry is the ModBuild
+            // 153 report ("Wenn das Bücherregal umkippt und man dann nah an die
+            // Kerze herangeht verschwindet sie"). The box is now DERIVED, for the
+            // carcass and for every rider alike, from the same arc the shader
+            // turns through — see ApplyShelfSweptBounds, which runs at the end of
+            // the room and writes this mesh's bounds along with the rest.
             return m;
         }
 
@@ -14823,7 +15767,7 @@ namespace GloomhavenVR
             root.SetParent(shellRoot, false);
             _groundY = ForestY;
             // nothing in a wood stands on a cellar bookshelf
-            Tip = null; TipUse.Clear();
+            Tip = null; TipUse.Clear(); VertexBoxes.Clear(); ShelfSweeps.Clear();
 
             float moonAz = MoonAzimuth();
             var moonHoriz = new Vector3(MoonDir.x, 0f, MoonDir.z).normalized;
@@ -16989,6 +17933,10 @@ namespace GloomhavenVR
             // 'Ground' is the floor the board stands on and 'MoonShafts' are
             // light, not matter — everything else must stay outside the clearing.
             AssertPlaySpaceClear(root, "Forest", ForestPlaySpaceDia, "Ground", "MoonShafts");
+            // "Das darf GENERELL nie passieren" is a ruling about the project and
+            // not about one prop, so the wood is measured on the same terms as the
+            // cellar even though nothing in it stands on a bookshelf.
+            ApplyDisplacedBounds("Forest", root);
             Debug.Log("[GloomhavenVR][Env] Night-forest room geometry assembled.");
         }
 

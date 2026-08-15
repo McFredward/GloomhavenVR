@@ -123,6 +123,13 @@
     <Compile Include="ScrollTurnGateVectors.cs" />
     <Compile Include="EnvSoundScheduleVectors.cs" />
     <Compile Include="HauntFigureVectors.cs" />
+    <!-- A SOURCE LINT rather than a vector, and it earns its place on this list for the reason the
+         header of BundledShaderVectors.cs sets out: `Shader.Find` on a bundled shader returns null
+         with the bundle open and nothing thrown, and that has silently cost two shipped builds
+         (invisible board gear in 0258fbb, the whole haunt-figure darkening in ModBuild 153). It
+         links no mod source at all — it reads src/ and unity/ as TEXT, because the property being
+         checked is a property of the text and the compiled form cannot show it. -->
+    <Compile Include="BundledShaderVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

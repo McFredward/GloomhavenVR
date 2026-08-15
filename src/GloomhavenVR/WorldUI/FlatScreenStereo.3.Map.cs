@@ -799,11 +799,10 @@ internal sealed partial class FlatScreenStereo
 
     // ---- GloomhavenVR/MapUnlit shader (bundled — Shader.Find can't see bundle shaders, so probed
     // across the loaded AssetBundles, mirroring PlayTray.BoardLitShader). ----
-    private const string MapUnlitShaderAssetPath = "Assets/Bundle/Table/MapUnlit.shader";
+    // The asset path lives in Core.BundleShaders now — one table, checked against the real
+    // unity/.../Assets/Bundle/**.shader files by the BundledShaderVectors wire test, so a renamed
+    // or re-cased asset fails a gate instead of failing silently at runtime.
     private static Shader? _mapUnlitShader;
-    private static bool _mapUnlitShaderProbed;
-    private static bool _mapUnlitFoundLogged;
-    private static bool _mapUnlitMissLogged;
 
     /// <summary>
     /// Load the bundled <c>GloomhavenVR/MapUnlit</c> shader. <c>Shader.Find</c> does NOT see shaders
@@ -814,32 +813,16 @@ internal sealed partial class FlatScreenStereo
     /// </summary>
     private static Shader? MapUnlitShader()
     {
-        if (!_mapUnlitShaderProbed)
-        {
-            _mapUnlitShaderProbed = true;
-            _mapUnlitShader = Shader.Find("GloomhavenVR/MapUnlit");
-            if (_mapUnlitShader == null)
-            {
-                foreach (AssetBundle b in AssetBundle.GetAllLoadedAssetBundles())
-                {
-                    if (b == null) continue;
-                    Shader? s = b.LoadAsset<Shader>(MapUnlitShaderAssetPath);
-                    if (s != null) { _mapUnlitShader = s; break; }
-                }
-            }
-        }
-        if (_mapUnlitShader != null && !_mapUnlitFoundLogged)
-        {
-            _mapUnlitFoundLogged = true;
-            VRLog.Info("WorldUI", "MAP RENDER: shader 'GloomhavenVR/MapUnlit' loaded from the AssetBundle — " +
-                                  "the real campaign-map mesh is drawn forward, textured, tracking the game pan/zoom.");
-        }
-        else if (_mapUnlitShader == null && !_mapUnlitMissLogged)
-        {
-            _mapUnlitMissLogged = true;
-            VRLog.Warn("WorldUI", "MAP RENDER: shader 'GloomhavenVR/MapUnlit' NOT found in any loaded AssetBundle — " +
-                                  "the campaign map cannot be textured; the base RT is left as-is (map black).");
-        }
+        // The find-then-probe-the-bundles logic that used to be inlined here now lives in
+        // Core.BundleShaders (which also owns the asset path). It ALSO drops the one-shot
+        // `_mapUnlitShaderProbed` latch this method used to carry: a single miss at startup latched
+        // the null for the life of the process, so a bundle that finished loading a frame later
+        // could never be picked up. BundleShaders caches successes only.
+        _mapUnlitShader ??= BundleShaders.Resolve(
+            "GloomhavenVR/MapUnlit", "WorldUI",
+            "MAP RENDER: the real campaign-map mesh is drawn forward, textured, tracking the game "
+            + "pan/zoom.",
+            "MAP RENDER: the campaign map cannot be textured; the base RT is left as-is (map black).");
         return _mapUnlitShader;
     }
 

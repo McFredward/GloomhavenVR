@@ -2038,6 +2038,13 @@ internal static partial class HauntFigures
             // for a figure that reaches its hold and stays there.
             Albedo.Apply(Lighting.Level);
 
+            // ...AND ONLY NOW MAY THE LIGHT-LEVEL LINE BE PRINTED. It is composed inside
+            // Lighting.Apply, which runs earlier in the frame than this statement, so a line printed
+            // there could only ever describe the DESIGN — and in ModBuild 153 it described a
+            // multiply that had not happened. Printed here it carries Albedo.Outcome, which is a
+            // measured fact. See Lighting._levelText.
+            Lighting.LogLevel();
+
             // THE DUMP IS TAKEN BEFORE THE EARLY-OUT, and that is not where it looks like it
             // belongs. It used to sit at the bottom of this method, where it could be missed
             // entirely: the last write of a rising envelope happens when the scalar stops moving by
@@ -2962,6 +2969,40 @@ internal static partial class HauntFigures
             private static float _measured;
             private static bool _levelLogged;
 
+            /// <summary>
+            /// THE LINE, COMPOSED HERE AND HELD BACK ONE STEP SO IT CAN REPORT AN OUTCOME.
+            ///
+            /// <para>The <c>HAUNT FIGURES light level</c> line used to be emitted from inside
+            /// <see cref="Apply"/> — which runs BEFORE <see cref="Shade"/>, i.e. before
+            /// <c>Albedo.Apply</c> has tried to put the multiply onto a texture. It therefore had no
+            /// choice but to describe the DESIGN, and it said "IT IS MULTIPLIED INTO THE ALBEDO
+            /// TEXTURE" in a ModBuild 153 log in which the multiply had never run: the blit shader
+            /// had not resolved, the feature had taken its fail-dark branch, and this line asserted
+            /// the opposite. A whole hardware round was spent on a build whose central mechanism was
+            /// bypassed at its first line, and this log line is why nobody noticed.</para>
+            ///
+            /// <para>So the measurement is composed here and PRINTED from <see cref="Shade"/>,
+            /// immediately after <c>Albedo.Apply</c>, with <c>Albedo.Outcome</c> — a fact by then —
+            /// as its first clause. The standing rule it now obeys: a log line must report an
+            /// outcome, not an intention.</para>
+            /// </summary>
+            private static string _levelText = string.Empty;
+            private static bool _levelPending;
+
+            /// <summary>
+            /// Print the composed <c>HAUNT FIGURES light level</c> line, once per apparition, with
+            /// what ACTUALLY happened to the albedo at its head. Called from <see cref="Shade"/>
+            /// right after <c>Albedo.Apply</c>; a no-op on every other frame and in every other room.
+            /// </summary>
+            internal static void LogLevel()
+            {
+                if (!_levelPending)
+                    return;
+                _levelPending = false;
+                VRLog.Info("Core", "HAUNT FIGURES light level — " + Albedo.Outcome + ". " + _levelText);
+                _levelText = string.Empty;
+            }
+
             private static MaterialPropertyBlock? _block;
             private static Vector3 _lastAt = new(1e9f, 1e9f, 1e9f);
             private static float _lastAmb = -1f, _lastDir = -1f;
@@ -3000,6 +3041,7 @@ internal static partial class HauntFigures
             {
                 Forget();
                 _levelLogged = false;   // one measured-level line per apparition, not per frame
+                _levelPending = false;
                 _indoor = style == SkyStyle.Cellar;
                 if (room == null)
                     return;
@@ -3224,21 +3266,34 @@ internal static partial class HauntFigures
                 if (!_levelLogged)
                 {
                     _levelLogged = true;
+                    // COMPOSED HERE, PRINTED FROM Shade — see _levelText. Nothing below may claim
+                    // that the multiply reached a texture, because at this point in the frame that
+                    // has not been attempted yet.
+                    _levelPending = true;
                     // ...and what the SURFACE behind the figure keeps of that same moon. Everything
                     // in `a` except the directional term is common to both, so the occluded
                     // luminance is the delivered one minus the share of the moon the surface loses.
                     Vector3 moonTerm = d * LobeConst;
                     float lumMoon = 0.2126f * moonTerm.x + 0.7152f * moonTerm.y + 0.0722f * moonTerm.z;
                     float lumSurf = Mathf.Max(lum - lumMoon * (1f - _surfMoonShare), 0f);
-                    VRLog.Info("Core", "HAUNT FIGURES light level — the room delivers luminance "
+                    _levelText = ("The room delivers luminance "
                         + $"{_measured:F4} at the figure's chest (SH constant term "
                         + $"({a.x:F4},{a.y:F4},{a.z:F4}), the same numbers the wall behind it is shaded "
-                        + $"with), so the apparition's albedo is multiplied by {Level:F4}. THIS IS THE "
-                        + "LINE TO TUNE FROM: the mapping is DarkFloor 0.100 + LightGain 0.470 x "
-                        + "luminance, clamped to [0.100, 0.28] (HauntFigures.Math.cs), and IT IS "
-                        + "MULTIPLIED INTO THE ALBEDO TEXTURE, not into a colour property — see the "
-                        + "ALBEDO TEXTURE lines in the material census for the per-material proof "
-                        + "that it landed. ALL FOUR WERE RE-FITTED IN ModBuild 153 AND NONE OF THE "
+                        + $"with), so the apparition's albedo is TO BE multiplied by {Level:F4} — an "
+                        + "intended value, and the outcome clause at the head of this line is the "
+                        + "measured one. THIS IS THE "
+                        + "LINE TO TUNE FROM — BUT ONLY IF THE OUTCOME CLAUSE AT THE HEAD OF THIS "
+                        + "LINE SAYS 'ALBEDO DARKENING RAN'. The mapping is DarkFloor 0.100 + "
+                        + "LightGain 0.470 x luminance, clamped to [0.100, 0.28] "
+                        + "(HauntFigures.Math.cs), and its DESTINATION is the albedo TEXTURE rather "
+                        + "than a colour property. Whether it reached that texture is not something "
+                        + "this sentence may assert: it is reported, measured, by the outcome clause "
+                        + "above and by the ALBEDO TEXTURE lines in the material census. THROUGH "
+                        + "ModBuild 153 this line claimed the multiply unconditionally, and in that "
+                        + "build it had never run — the blit shader had not resolved. If the clause "
+                        + "above says DID NOT RUN or DID NOT LAND, every number below describes an "
+                        + "intention only and NOTHING may be re-tuned from the photograph that "
+                        + "accompanies it. ALL FOUR WERE RE-FITTED IN ModBuild 153 AND NONE OF THE "
                         + "ModBuild 152 VALUES SURVIVES, because 152's own escape hatch fired: it "
                         + "wrote _MOD_TINT with alpha 1.000 and a near-black RGB, the log still "
                         + "reported 'lit=NO (no ForwardBase pass)', and the user photographed three "
@@ -3269,6 +3324,11 @@ internal static partial class HauntFigures
                         + "  THE ESCAPE HATCH FOR THE NEXT ROUND, in the form ModBuild 152 left one "
                         + "and this round's answer came out of. READ THE 'PER-MATERIAL ALBEDO "
                         + "TEXTURE' LINES FIRST — they carry a measured ratio, not an intention:\n"
+                        + "    * READING (a), AND IT IS THE ONE THAT COST ModBuild 153: if the "
+                        + "outcome clause at the head of this line says 'ALBEDO DARKENING DID NOT "
+                        + "RUN' (or DID NOT LAND, or HAD NOTHING TO HOLD), then the mechanism was "
+                        + "bypassed and the photograph tests NOTHING. Search the log for that phrase "
+                        + "and for 'BUNDLED SHADER' before reading any number below. Do not re-tune.\n"
                         + "    * If the ratio is NOT the intended level (say 0.12 intended but 0.36 "
                         + "or 0.02 measured), the multiply landed in the wrong colour space and the "
                         + "lever is the RenderTexture's sRGB flag, NOT the four constants. A ratio "
@@ -3450,12 +3510,14 @@ internal static partial class HauntFigures
                               + "ModBuild 153 CHANGE. 152's escape hatch fired exactly as written — it "
                               + "wrote _MOD_TINT with alpha 1.000 and a near-black RGB, the shader "
                               + "still reported 'lit=NO (no ForwardBase pass)', and the user "
-                              + "photographed three more fully-lit figures. So the room LEVEL is now "
-                              + "multiplied into the albedo TEXTURE by a blit (see the ALBEDO TEXTURE "
-                              + "block below, which measures the result off the render target rather "
-                              + "than describing an intention), and on any material that got that "
-                              + "lever the colour above carries the ENVELOPE ALONE — writing the level "
-                              + "through both would darken by its square.\n"
+                              + "photographed three more fully-lit figures. So the room LEVEL is "
+                              + "DESTINED for the albedo TEXTURE, by a blit — and whether it got "
+                              + "there in THIS run is not something this sentence may assert: "
+                              + $"{Albedo.Outcome}. On any material that actually got that lever the "
+                              + "colour above carries the ENVELOPE ALONE — writing the level through "
+                              + "both would darken by its square — and on any material that did NOT, "
+                              + "the colour above still carries level x envelope, exactly as ModBuild "
+                              + "152 wrote it, which is a lever this shader ignores.\n"
                               + "  THE DISSOLVE IS BACK, as two short windows rather than as a state. "
                               + "152 pinned _Toggle_Dissolve to a hard 0 because its emissive burn "
                               + "edge was the 'schwarze Flecken' and half of the 'voll angestrahlt' "
@@ -3518,6 +3580,7 @@ internal static partial class HauntFigures
                               + "pauldron — findable while the body is not, THEN THE CAUSE IS "
                               + "SATURATION AND NOT LEVEL, and the next lever is a bundle blit shader "
                               + "with a luma dot product in it.\n"
+                              + $"    OUTCOME: {Albedo.Outcome}.\n"
                               + $"    cache: {Albedo.CacheReport()}; blit shader: {Albedo.Why}; "
                               + $"applied level {Albedo.AppliedLevel:F4}\n");
                     for (int i = 0; i < Albedo.Verdicts.Count
@@ -3654,9 +3717,12 @@ internal static partial class HauntFigures
                                     + "figure ever responds to the rig despite this line, that is why"
                                   : ", and none is untagged either, so this shader genuinely does not "
                                     + "sample light probes and the room's rig cannot reach it")
-                           + ". Either way the DARKENING no longer depends on this: since ModBuild 153 "
-                           + "it is multiplied into the albedo TEXTURE, which is sampled by any pass "
-                           + "that draws the creature at all.";
+                           + ". Either way the DARKENING is not supposed to depend on this: since "
+                           + "ModBuild 153 it is aimed at the albedo TEXTURE, which is sampled by any "
+                           + "pass that draws the creature at all. WHETHER IT GOT THERE IS REPORTED, "
+                           + "NOT ASSUMED, on the 'HAUNT FIGURES light level' line and in the OUTCOME "
+                           + "line of the PER-MATERIAL ALBEDO TEXTURE block below — ModBuild 153 "
+                           + "asserted this multiply in a log in which it had never run.";
                 }
                 catch (System.Exception ex)
                 {

@@ -42,8 +42,8 @@ runtime, which is why a runtime audit could never do this job (see
 | `ActorBehaviour_HeldTransform_Patch`<br/><sub>src/GloomhavenVR/Board/FigureGrab/ActorBehaviour_HeldTransform_Patch.cs:39</sub> | `ActorBehaviour.Update()` *(private)* | prefix | `BoardModule`:110 |
 | &nbsp; | `ActorBehaviour.LateUpdate()` *(private)* | prefix | &nbsp; |
 | &nbsp; | `ActorBehaviour.SetHilighted()` | prefix | &nbsp; |
-| `HexHighlightFix.ProjectorModifier_Awake_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:428</sub> | `ProjectorModifier.Awake()` *(private)* | postfix | `BoardModule`:106 |
-| `HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:542</sub> | `HexSelect_Control.ProjectorMaterialAdjustment()` *(private)* | postfix | `BoardModule`:98 |
+| `HexHighlightFix.ProjectorModifier_Awake_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:408</sub> | `ProjectorModifier.Awake()` *(private)* | postfix | `BoardModule`:106 |
+| `HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:522</sub> | `HexSelect_Control.ProjectorMaterialAdjustment()` *(private)* | postfix | `BoardModule`:98 |
 | `AllCardsViewerBlock`<br/><sub>src/GloomhavenVR/Board/Patches/AllCardsViewerBlock.cs:116</sub> | `CardsHandManager.ToggleViewAllCards(CPlayerActor, bool)` | prefix | `BoardModule`:133 |
 | &nbsp; | `CardsHandUI.ToggleFullCardsPreview(bool, bool)` | prefix | &nbsp; |
 | `HexHoverClear`<br/><sub>src/GloomhavenVR/Board/Patches/HexHoverClear.cs:145</sub> | `WorldspaceStarHexDisplay.Update()` | postfix | `BoardModule`:92 |
@@ -56,9 +56,9 @@ runtime, which is why a runtime audit could never do this job (see
 | `Placement_Click_Diagnostics`<br/><sub>src/GloomhavenVR/Board/Patches/PlacementDiagnostics.cs:155</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:144 |
 | `InitiativeTrackPlayerAvatar_OnClick_Guard`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:60</sub> | `InitiativeTrackPlayerAvatar.OnClick()` | prefix | `BoardModule`:114 |
 | &nbsp; | `InitiativeTrackPlayerAvatar.OnClick()` | postfix | &nbsp; |
-| `InteractabilityManager_PortraitFocusBypass`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:259</sub> | `InteractabilityManager.ShouldAllowClickForExtendedButton()` | prefix | `BoardModule`:122 |
-| `Choreographer_TileHandler_OwnershipGuard`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:337</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:127 |
-| `CharacterManager_OnControlReleased_Fallback`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:392</sub> | `CharacterManager.OnControlReleased()` | prefix | `BoardModule`:137 |
+| `InteractabilityManager_PortraitFocusBypass`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:291</sub> | `InteractabilityManager.ShouldAllowClickForExtendedButton()` | prefix | `BoardModule`:122 |
+| `Choreographer_TileHandler_OwnershipGuard`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:369</sub> | `Choreographer.TileHandler()` | prefix | `BoardModule`:127 |
+| `CharacterManager_OnControlReleased_Fallback`<br/><sub>src/GloomhavenVR/Board/Patches/SelectionGuardPatches.cs:424</sub> | `CharacterManager.OnControlReleased()` | prefix | `BoardModule`:137 |
 | &nbsp; | `CharacterManager.OnControlReleased()` | postfix | &nbsp; |
 
 ## Cards
