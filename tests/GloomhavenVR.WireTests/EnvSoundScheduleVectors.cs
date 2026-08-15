@@ -1,4 +1,8 @@
 using GloomhavenVR.Core;
+// The game's own UnityEngine.CoreModule, exactly as the csproj explains: Mathf's rounding and its
+// MoveTowards are the ones the shipped build runs, so the gate driver below walks the same floats
+// the headset does.
+using UnityEngine;
 
 namespace GloomhavenVR.WireTests;
 
@@ -47,6 +51,12 @@ internal static class EnvSoundScheduleVectors
         TheFireCrackleCannotWoodpecker(t);
         TheFireCrackleRateIsDezent(t);
         TheFireBurstsFitTheirBuffers(t);
+
+        TheShippedCandleBedWasAWind(t);
+        TheWindClipIsSilentWithoutAir(t);
+        FireRaisesOnlyWhatIsOnFire(t);
+        TheCandleAndTheWindAreIndependent(t);
+        TheGatesLeaveAndArriveWithoutAStep(t);
     }
 
     /// <summary>
@@ -631,5 +641,384 @@ internal static class EnvSoundScheduleVectors
                    $"ember {v}: the last thud ends at {(train[train.Length - 1] + 0.05f) * 1000f:F1} ms, "
                    + "inside the 220 ms clip");
         }
+    }
+
+    // =============================================================================================
+    //  THE BED LEVELS (EnvSound.WindBed / CandleBed / FireBed), ModBuild 153 — the regression that
+    //  would have caught the shipped bug.
+    // =============================================================================================
+    //
+    //  THE USER REPORT THIS SECTION EXISTS FOR, ModBuild 152 hardware, verbatim:
+    //
+    //      "Beim Feuer Geräusch ist auch immer das Wind geräusch mit dabei. Das soll nicht sein.
+    //       Das Wind gEräusch soll nur dann kommen wenn Wind auch aktiv ist."
+    //
+    //  ...and it is the SECOND time he has had to say it. ModBuild 147: "Wind Geräusch nur wenn auch
+    //  Wind aktiv ist, sonst kein Geräusch". ModBuild 148 built THE WIND GATE, put the window
+    //  Draught and the swamp Leaves behind it, and left the cellar's three candle beds playing
+    //  EnvSoundClip.Bed — the wind buffer itself — with no gate at all and with a FIRE term in their
+    //  gain. So the wind clip was audible with Air fully off, and infusing Fire made it louder.
+    //
+    //  WHY A LINT OR A REVIEW WOULD NOT HAVE CAUGHT IT AND THIS DOES. The fault was not a wrong
+    //  number, it was three correct-looking arguments to one call — a clip, a modulator and a
+    //  filter — none of which is checkable from the line itself. What IS checkable is the
+    //  CONSEQUENCE, and the consequence is arithmetic: with Air at zero, the total level of every
+    //  emitter that plays the wind buffer must be EXACTLY zero, for every time and every element
+    //  state there is, INCLUDING Fire fully infused. That is one assertion and it fails loudly on
+    //  the shipped code (see TheShippedCandleBedWasAWind, which drives the shipped lambda and shows
+    //  it failing).
+    //
+    //  THE LEVEL MATH IS MIRRORED HERE, for the reason the fire's four constants above are: this
+    //  project is a plugin against Unity and EnvSound.cs cannot be compiled into this harness (it
+    //  needs AudioSource, AudioClip, AudioListener and the whole audio module), while
+    //  EnvSoundSchedule.cs deliberately can. scripts/check-mirrors.sh cannot register these either —
+    //  its extractor resolves every site under src/GloomhavenVR and has no test-file form — which is
+    //  the same position TheFireCrackleRateIsDezent's mirrors are already in. What is held is not
+    //  the constants but the PROPERTY, and a drift in a constant cannot make the property pass
+    //  falsely: every assertion below is about a level being exactly zero, or about one level moving
+    //  while another does not, and neither survives a gate being wired to the wrong element.
+    //
+    //  WHAT THIS SECTION CANNOT HOLD, stated so nobody trusts it further than it goes. It holds the
+    //  ARITHMETIC and not the WIRING. BuildCellar's `AddBed(..., clip, modulator, ...)` call lives in
+    //  EnvSound.cs, which is not on this harness, so no case here can see which lambda a given clip
+    //  was actually handed — and that pairing IS the shipped defect. Two mechanisms cover the half
+    //  this cannot:
+    //    * EnvSound.AddBed WARNS AT BUILD if an emitter declares EnvSoundClip.Bed without
+    //      airGated: true. That is the wiring, checked where it is declared.
+    //    * EnvSound.TickBeds WARNS AT RUNTIME ("ENV SOUND WIND LEAK") if a wind-clip bed's modulator
+    //      returns anything but zero while Air is down. That is the consequence, checked on the
+    //      device, and it is what would have turned the last two user reports into one log line.
+    //  This section is the third leg: it proves the level functions those two lean on are correct,
+    //  so a WIND LEAK line can only ever mean a mis-wired emitter and never a broken gate.
+
+    // ---- mirrors of EnvSound's gate constants ---------------------------------------------------
+    private const float AirGateOn = 0.06f;
+    private const float AirGateFull = 0.45f;
+    private const float AirGateOpenSeconds = 0.9f;
+    private const float AirGateCloseSeconds = 2.4f;
+
+    private const float FireGateOn = 0.05f;
+    private const float FireGateFull = 0.40f;
+    private const float FireGateOpenSeconds = 0.7f;
+    private const float FireGateCloseSeconds = 1.6f;
+
+    /// <summary>Mirror of <c>EnvSound.CandleFireLift</c> — how much a full Fire infusion lifts the
+    /// CANDLE bed, on top of its resting 0.72..1.00. It was 0.90 until ModBuild 153, on a bed that
+    /// was playing the wind buffer.</summary>
+    private const float CandleFireLift = 0.30f;
+
+    /// <summary>The four beds' authored gains, mirrored from <c>EnvSound.BuildCellar</c>,
+    /// <c>BuildSwamp</c> and <c>FireBedGain</c>. They are here so that "the total level of every
+    /// wind bed" is a level and not a modulator value — the user's complaint is about what he hears,
+    /// which is gain times modulator.</summary>
+    private const float DraughtGain = 0.075f;
+    private const float LeavesGain = 0.070f;
+    private const float CandleGain = 0.055f;
+    private const float FireGain = 0.16f;
+
+    /// <summary>
+    /// EnvSound's three gated level functions and the two gates behind them, driven frame by frame.
+    ///
+    /// <para>The gates are STATEFUL — <c>Mathf.MoveTowards</c> per frame at an asymmetric rate — so
+    /// this is a driver and not a table of pure functions. That matters for what it can catch: a
+    /// gate that opened on the wrong element, or one that never closed, is a defect nobody can see
+    /// in a single evaluation.</para>
+    /// </summary>
+    private sealed class Beds
+    {
+        internal float WindGate;
+        internal float FireGate;
+        internal float Clock;      // stands in for Time.time, which drives the LFOs only
+
+        /// <summary>One frame. <paramref name="air"/> and <paramref name="fire"/> are the live
+        /// element intensities <c>ElementMood.Live(2)</c> / <c>Live(0)</c>.</summary>
+        internal void Step(float dt, float air, float fire)
+        {
+            Clock += dt;
+
+            float wt = Mathf.Clamp01((Mathf.Clamp01(air) - AirGateOn)
+                                     / Mathf.Max(AirGateFull - AirGateOn, 1e-4f));
+            wt = wt * wt * (3f - 2f * wt);
+            WindGate = Mathf.MoveTowards(WindGate, wt,
+                                         dt / Mathf.Max(wt > WindGate ? AirGateOpenSeconds
+                                                                      : AirGateCloseSeconds, 0.01f));
+
+            float ft = Mathf.Clamp01((Mathf.Clamp01(fire) - FireGateOn)
+                                     / Mathf.Max(FireGateFull - FireGateOn, 1e-4f));
+            ft = ft * ft * (3f - 2f * ft);
+            FireGate = Mathf.MoveTowards(FireGate, ft,
+                                         dt / Mathf.Max(ft > FireGate ? FireGateOpenSeconds
+                                                                      : FireGateCloseSeconds, 0.01f));
+        }
+
+        private float Lfo(float period) =>
+            0.5f + 0.5f * Mathf.Sin(Clock * (2f * Mathf.PI / Mathf.Max(period, 0.1f)));
+
+        /// <summary>Mirror of <c>EnvSound.WindBed</c>. Returns a LITERAL zero with the gate shut,
+        /// which is what <c>TickBeds</c> tests to PAUSE the source.</summary>
+        internal float WindBed(float period, float air)
+        {
+            if (WindGate <= 0f)
+                return 0f;
+            return WindGate * (0.55f + 0.45f * Lfo(period) + 1.0f * Mathf.Clamp01(air));
+        }
+
+        /// <summary>Mirror of <c>EnvSound.FireBed</c>.</summary>
+        internal float FireBed(float period, float fire)
+        {
+            if (FireGate <= 0f)
+                return 0f;
+            return FireGate * (0.58f + 0.14f * Lfo(period) + 0.28f * Mathf.Clamp01(fire));
+        }
+
+        /// <summary>Mirror of <c>EnvSound.CandleBed</c> — ModBuild 153's. NOT gated on anything: the
+        /// candles are alight for the whole scenario.</summary>
+        internal float CandleBed(float period, float fire) =>
+            0.72f + 0.28f * Lfo(period) + CandleFireLift * Mathf.Clamp01(fire);
+
+        /// <summary>THE SHIPPED ModBuild 152 CANDLE LAMBDA, verbatim, kept so the regression can be
+        /// shown failing rather than asserted to have existed. It played EnvSoundClip.Bed.</summary>
+        internal float ShippedCandleBed(float fire) =>
+            0.72f + 0.28f * Lfo(3.11f) + 0.9f * fire;
+    }
+
+    /// <summary>Every element state worth driving, as (air, fire) pairs — the corners plus the two
+    /// places a gate has a knee (its ON threshold and its FULL point), because a threshold crossed
+    /// is where a level function is most likely to be wrong by a hair.</summary>
+    private static readonly float[] ElementSweep =
+    {
+        0f, 0.001f, AirGateOn, 0.2f, AirGateFull, 0.7f, 1f,
+    };
+
+    /// <summary>
+    /// THE DEFECT, DRIVEN. The shipped candle bed is evaluated with Air at zero — every time, every
+    /// Fire — and it is non-zero everywhere and RISES WITH FIRE. That is the user's sentence turned
+    /// into arithmetic: the clip it multiplied was EnvSoundClip.Bed, the wind buffer.
+    ///
+    /// <para>It is a vector rather than a comment for the reason <see cref="TheCreakThatFroze"/> is:
+    /// a defect that is only described is a defect the next reader may reintroduce believing it was
+    /// a style choice. This case FAILS if somebody restores the old lambda, because the case below
+    /// it asserts the opposite of what this one measures.</para>
+    /// </summary>
+    private static void TheShippedCandleBedWasAWind(Harness t)
+    {
+        t.Case("bed levels: the ModBuild 152 candle bed played the wind clip, ungated and fire-lit");
+        var b = new Beds();
+        float quiet = 0f, lit = 0f;
+        for (int i = 0; i < 400; i++)
+        {
+            b.Step(1f / 90f, 0f, 0f);          // AIR ZERO, FIRE ZERO — the gate stays shut
+            quiet += b.ShippedCandleBed(0f);
+            lit += b.ShippedCandleBed(1f);
+        }
+        t.True(b.WindGate == 0f, "the wind gate is shut throughout — there is no Air anywhere in this case");
+        t.True(quiet > 0f,
+               $"the shipped candle bed averaged {quiet / 400f:F3} of its gain with Air at zero, on a "
+               + "clip that IS the window draught — \"sonst kein Geräusch\" was not true of it");
+        t.True(lit / quiet > 1.9f,
+               $"and a full Fire infusion multiplied that wind by {lit / quiet:F2}x "
+               + $"({20f * System.Math.Log10(lit / quiet):F1} dB) — \"beim Feuer Geräusch ist auch "
+               + "immer das Wind Geräusch mit dabei\", as a number");
+    }
+
+    /// <summary>
+    /// THE REGRESSION. With Air at zero, the TOTAL level of every emitter that plays the wind buffer
+    /// is exactly zero — across a long sweep of frames and across every Fire state, including fully
+    /// infused. Exactly zero and not "small": <c>EnvSound.TickBeds</c> tests <c>want &lt;= 0</c> to
+    /// PAUSE the source, so a level of 1e-7 is not a quiet wind, it is a wind bed that never stops
+    /// being spatialised.
+    ///
+    /// <para>THE SUM IS OVER BOTH ROOMS' WIND BEDS AT ONCE even though only one can exist at a time,
+    /// deliberately: the assertion is about the CLIP and not about a room, and a future room that
+    /// added a third wind emitter should be added to this sum rather than tested separately.</para>
+    /// </summary>
+    private static void TheWindClipIsSilentWithoutAir(Harness t)
+    {
+        t.Case("bed levels: with Air at 0 the wind clip's total level is EXACTLY zero");
+        float worst = 0f;
+        string worstAt = string.Empty;
+        foreach (float fire in ElementSweep)
+        {
+            var b = new Beds();
+            // Come from a fully OPEN gate, so this also holds while the gate is closing and after it
+            // has closed — a bed that leaked only on the way down would pass a fresh-start test.
+            for (int i = 0; i < 300; i++)
+                b.Step(1f / 90f, 1f, fire);
+            t.True(b.WindGate > 0.99f, $"fire {fire:F2}: the gate really did open first");
+
+            for (int i = 0; i < 900; i++)     // 10 s at 90 Hz — four times the 2.4 s close
+            {
+                b.Step(1f / 90f, 0f, fire);
+                if (b.WindGate > 0f)
+                    continue;                 // still closing; the gate's own ramp is not a leak
+                float total = DraughtGain * b.WindBed(7.93f, 0f) + LeavesGain * b.WindBed(11.31f, 0f);
+                if (total <= worst)
+                    continue;
+                worst = total;
+                worstAt = $"fire {fire:F2}, frame {i}, gate {b.WindGate:F6}";
+            }
+            t.True(b.WindGate == 0f, $"fire {fire:F2}: the gate reaches a HARD zero, not an asymptote "
+                                     + "— MoveTowards lands on the target and a lerp would not");
+        }
+        t.True(worst == 0f,
+               $"the loudest the wind clip ever reached with Air down was {worst:E3} ({worstAt}) — it "
+               + "must be exactly 0, because TickBeds pauses on `want <= 0` and anything above it is "
+               + "a source that keeps running");
+
+        t.Case("bed levels: and a full Fire infusion cannot open the wind gate");
+        var f = new Beds();
+        for (int i = 0; i < 900; i++)
+            f.Step(1f / 90f, 0f, 1f);
+        t.True(f.WindGate == 0f && f.FireGate > 0.99f,
+               $"after 10 s of full Fire with no Air: wind gate {f.WindGate:F3} (must be 0), fire gate "
+               + $"{f.FireGate:F3} (must be open) — the two gates read different elements and this is "
+               + "the case that says so");
+        t.True(f.WindBed(7.93f, 0f) == 0f && f.WindBed(11.31f, 0f) == 0f,
+               "so both wind beds are at a literal zero while the room is fully on fire");
+    }
+
+    /// <summary>
+    /// WHAT A FIRE INFUSION IS ALLOWED TO RAISE, and by how much. The seated fires, from nothing;
+    /// the candles, by a flare; the wind, not at all.
+    ///
+    /// <para>The candle's lift is asserted as a BAND rather than as a value. Zero would be wrong —
+    /// <c>EnvFlame.shader</c> scales a candle flame by (1 + 1.05·fire) in brightness and names that
+    /// as a standing design, so a silent candle under Fire is the picture and the sound disagreeing
+    /// about one object. And the old 0.90 was wrong the other way: it made the candles the room's
+    /// whole fire response, which is what put a wind under a Fire infusion for five builds.</para>
+    /// </summary>
+    private static void FireRaisesOnlyWhatIsOnFire(Harness t)
+    {
+        t.Case("bed levels: a Fire infusion raises the fires and flares the candles, and moves no wind");
+
+        // Two rooms, identical but for the Fire element, driven the same number of frames from the
+        // same start — so every difference below is Fire and nothing else.
+        var cold = new Beds();
+        var hot = new Beds();
+        float coldFire = 0f, hotFire = 0f, coldCandle = 0f, hotCandle = 0f, coldWind = 0f, hotWind = 0f;
+        for (int i = 0; i < 900; i++)
+        {
+            cold.Step(1f / 90f, 1f, 0f);
+            hot.Step(1f / 90f, 1f, 1f);
+            coldFire += FireGain * cold.FireBed(8.17f, 0f);
+            hotFire += FireGain * hot.FireBed(8.17f, 1f);
+            coldCandle += CandleGain * cold.CandleBed(3.11f, 0f);
+            hotCandle += CandleGain * hot.CandleBed(3.11f, 1f);
+            coldWind += DraughtGain * cold.WindBed(7.93f, 1f);
+            hotWind += DraughtGain * hot.WindBed(7.93f, 1f);
+        }
+
+        t.True(coldFire == 0f,
+               "with no Fire the fire beds are at a literal zero — TickBeds pauses them, so a lit "
+               + "room costs nothing when nothing is lit");
+        t.True(hotFire > 0f, $"and with Fire they play (mean {hotFire / 900f:F4} of full scale)");
+
+        float candleLift = 20f * (float)System.Math.Log10(hotCandle / coldCandle);
+        t.True(candleLift > 1.5f && candleLift < 4f,
+               $"the candles FLARE by {candleLift:F2} dB — enough to answer EnvFlame's own "
+               + "(1 + 1.05*fire) brightness, and far under the +6.2 dB the ModBuild 152 lambda "
+               + "applied to a clip that was the window draught");
+
+        t.True(hotWind == coldWind,
+               $"and the wind bed is BIT-IDENTICAL between the two rooms ({hotWind:F6} vs "
+               + $"{coldWind:F6}) — no term in WindBed reads the Fire element, and that is the "
+               + "property the user's report is literally about");
+    }
+
+    /// <summary>
+    /// THE TWO BEDS DO NOT KNOW ABOUT EACH OTHER, asserted in both directions because the shipped
+    /// defect was one direction of it and the obvious over-correction is the other.
+    ///
+    /// <list type="number">
+    ///   <item>No element state makes the CANDLE bed a function of the wind gate. Gating the candles
+    ///   on Air would have "fixed" the report by making the cellar silent, which is not what the
+    ///   user asked for — his 147 ruling explicitly keeps what is not wind.</item>
+    ///   <item>No element state makes the WIND bed a function of Fire. That is the defect.</item>
+    /// </list>
+    /// </summary>
+    private static void TheCandleAndTheWindAreIndependent(Harness t)
+    {
+        t.Case("bed levels: the candle bed is not a function of the wind gate");
+        foreach (float fire in ElementSweep)
+        {
+            var noAir = new Beds();
+            var fullAir = new Beds();
+            bool same = true;
+            float openedTo = 0f;
+            for (int i = 0; i < 600; i++)
+            {
+                noAir.Step(1f / 90f, 0f, fire);
+                fullAir.Step(1f / 90f, 1f, fire);
+                if (noAir.CandleBed(3.11f, fire) != fullAir.CandleBed(3.11f, fire))
+                    same = false;
+                openedTo = fullAir.WindGate;
+            }
+            t.True(openedTo > 0.99f, $"fire {fire:F2}: the second room's wind gate really did open");
+            t.True(same,
+                   $"fire {fire:F2}: the candle bed is bit-identical with the wind gate shut and with "
+                   + "it fully open — a candle is not wind, and gating it would answer the report by "
+                   + "deleting a sound nobody complained about");
+        }
+
+        t.Case("bed levels: the wind bed is not a function of Fire");
+        foreach (float air in ElementSweep)
+        {
+            var noFire = new Beds();
+            var fullFire = new Beds();
+            bool same = true;
+            for (int i = 0; i < 600; i++)
+            {
+                noFire.Step(1f / 90f, air, 0f);
+                fullFire.Step(1f / 90f, air, 1f);
+                if (noFire.WindBed(7.93f, air) != fullFire.WindBed(7.93f, air)
+                    || noFire.WindBed(11.31f, air) != fullFire.WindBed(11.31f, air))
+                    same = false;
+            }
+            t.True(same,
+                   $"air {air:F2}: both wind beds are bit-identical with Fire at 0 and at 1 — this is "
+                   + "the assertion that fails the day somebody puts an ElementMood.Live(0) term back "
+                   + "into anything that plays EnvSoundClip.Bed");
+        }
+    }
+
+    /// <summary>
+    /// THE GATES ARRIVE AND LEAVE WITHOUT A STEP, which is the argument THE WIND GATE's doc makes
+    /// and which nothing has ever checked. A cut is itself an event — the ear tracks offsets as
+    /// keenly as onsets — so "kein Geräusch" has to arrive without announcing itself.
+    ///
+    /// <para>The bound is per FRAME rather than per second, because a step is what the ear hears and
+    /// a step happens in one frame. At 90 Hz the wind's 2.4 s close is 0.0046 per frame and the
+    /// fire's 0.7 s open is 0.0159; the assertion allows 0.05, which is comfortably above both and
+    /// far below anything audible as an edge — it fails only if a gate is made an <c>if</c> again.</para>
+    /// </summary>
+    private static void TheGatesLeaveAndArriveWithoutAStep(Harness t)
+    {
+        t.Case("bed levels: neither gate can move more than a hair in one frame");
+        var b = new Beds();
+        float worstWind = 0f, worstFire = 0f;
+        // Full on, full off, and a spike through the middle of both thresholds — the shapes an
+        // element channel actually produces when a card resolves.
+        float[][] script =
+        {
+            new[] { 1f, 1f, 300f }, new[] { 0f, 0f, 400f }, new[] { 0.5f, 0.2f, 120f },
+            new[] { 0f, 1f, 200f }, new[] { 1f, 0f, 200f }, new[] { 0f, 0f, 400f },
+        };
+        foreach (float[] leg in script)
+        {
+            for (int i = 0; i < (int)leg[2]; i++)
+            {
+                float w = b.WindGate, f = b.FireGate;
+                b.Step(1f / 90f, leg[0], leg[1]);
+                worstWind = Mathf.Max(worstWind, Mathf.Abs(b.WindGate - w));
+                worstFire = Mathf.Max(worstFire, Mathf.Abs(b.FireGate - f));
+            }
+        }
+        t.True(worstWind < 0.05f,
+               $"the wind gate's largest single-frame move is {worstWind:F4} of full scale");
+        t.True(worstFire < 0.05f,
+               $"the fire gate's largest single-frame move is {worstFire:F4} of full scale");
+        t.True(b.WindGate == 0f && b.FireGate == 0f,
+               "and both are back at a hard zero at the end of the script, so the sources are paused "
+               + "rather than spinning at an inaudible level");
     }
 }

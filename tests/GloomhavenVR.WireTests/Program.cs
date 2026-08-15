@@ -20,6 +20,7 @@ internal static class Program
             ConfigStepVectors.Run(t, repoRoot);
             ScrollTurnGateVectors.Run(t);
             EnvSoundScheduleVectors.Run(t);
+            HauntFigureVectors.Run(t);
         }
         catch (Exception e)
         {

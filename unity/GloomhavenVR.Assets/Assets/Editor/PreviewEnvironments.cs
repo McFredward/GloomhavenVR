@@ -108,6 +108,62 @@ namespace GloomhavenVR
         private static readonly float MoonAlt =
             Mathf.Asin(EnvironmentsBuilder.MoonDir.y) * Mathf.Rad2Deg;
 
+        // ==================== THE BOOKCASE'S OWN FRAME (ModBuild 153) ============
+        // A PREVIEW STATION THAT POINTS AT NOTHING DOES NOT FAIL. It renders, and
+        // it agrees with you. This project has now paid for that twice at this one
+        // prop: the two FireShelf stations spent several builds photographing a
+        // bare wall after the bookcase moved 3.85 m south (fixed at ModBuild 149,
+        // and it is why a fire hanging 18.6 cm over a board had to be found on
+        // hardware), and "HauntShelf" was still doing it at ModBuild 152 — aimed in
+        // 143, 65 degrees off the prop, framing the candle TABLE in the opposite
+        // corner. Every _pride and _shelf frame taken through it since 147 is a
+        // photograph of the wrong corner of the room.
+        //
+        // Typed camera numbers are what did that, so the shelf stations are DERIVED
+        // — from EnvRoomBuilder's own two constants, exactly as the Moon views are
+        // derived from EnvironmentsBuilder.MoonDir. A prop move re-aims the cameras
+        // that watch it. And because "derived" is still only an argument, the
+        // harness MEASURES it at render time as well: AssertShelfStations finds the
+        // real bookcase in the loaded prefab, projects its bounds into each of
+        // these cameras, and FAILS THE RUN if it is not in the frame — with the
+        // pixel rectangle it occupies printed for every one that is.
+        private static readonly Vector3 ShelfAt = EnvRoomBuilder.CellarShelfAt;
+        /// The way it faces, and therefore the way it falls: its prop forward.
+        private static readonly Vector3 ShelfFall =
+            Quaternion.Euler(0f, EnvRoomBuilder.CellarShelfYaw, 0f) * Vector3.forward;
+        /// ...and the hinge axis, i.e. along the wall it has its back to.
+        private static readonly Vector3 ShelfSide =
+            new Vector3(ShelfFall.z, 0f, -ShelfFall.x);
+
+        /// <summary>Aim at the standing carcass from an arbitrary station: the
+        /// Euler a camera at <paramref name="from"/> needs to have the bookcase at
+        /// the middle of its frame, <paramref name="aim"/> metres up it.</summary>
+        private static Vector3 LookAtShelf(Vector3 from, float aim)
+        {
+            var to = ShelfAt + Vector3.up * aim - from;
+            return new Vector3(-Mathf.Asin(Mathf.Clamp(to.normalized.y, -1f, 1f)) * Mathf.Rad2Deg,
+                               Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg, 0f);
+        }
+        /// <summary>A station in the BOOKCASE's own frame: <paramref name="outM"/>
+        /// metres along the way it falls, <paramref name="side"/> metres along the
+        /// wall it stands against, <paramref name="up"/> metres off the floor —
+        /// aimed at a point <paramref name="aim"/> metres up the standing
+        /// carcass.</summary>
+        private static (Vector3 pos, Vector3 euler) ShelfStand(float outM, float side,
+                                                               float up, float aim)
+        {
+            var p = ShelfAt + ShelfFall * outM + ShelfSide * side + Vector3.up * up;
+            return (p, LookAtShelf(p, aim));
+        }
+        // THE THREE-QUARTER VIEW, which is what "HauntShelf" was aimed to be in
+        // ModBuild 143 and has not been since 147. 3.40 m out along the fall and
+        // 1.20 m along the wall, from 2.10 m: at fov 62 that holds the standing
+        // carcass (top corner 12 deg off axis), the whole 2.35 m sweep, and the
+        // fallen carcass's far end (29 deg off axis, inside the 47 deg half-width)
+        // — i.e. the same frame before, during and after, which is the whole point
+        // of a station that watches an event rather than a pose.
+        private static readonly (Vector3 pos, Vector3 euler) VShelf = ShelfStand(3.40f, 1.20f, 2.10f, 0.90f);
+
         private static readonly (string name, Vector3 pos, Vector3 euler, bool skyOnly, float fov)[] Views =
         {
             ("N", Eye, new Vector3(0, 0, 0), false, 60f),
@@ -365,18 +421,44 @@ namespace GloomhavenVR
             // THE BOOKSHELF GOING OVER. Two viewpoints and, unlike everything else
             // here, four PHASES rather than three, because the event is a
             // trajectory: standing, falling, down, and back up again.
-            ("HauntShelf", new Vector3(0.60f, 2.10f, -1.30f), new Vector3(14, 48, 0), false, 62f),
-            ("HauntShelfOff", new Vector3(2.30f, 1.75f, 3.60f), new Vector3(8, 150, 0), false, 58f),
+            // ---- ModBuild 153: RE-AIMED, AND DERIVED SO IT CANNOT DRIFT AGAIN --
+            // This station was (0.60, 2.10, -1.30) on yaw 48 with a comment three
+            // lines below saying it no longer sees the bookshelf. MEASURED: the
+            // bookcase bears 113.5 deg from there and the camera looked at 48, i.e.
+            // 65 deg off against a 47 deg half-width — the prop was not in the
+            // frame at all. What WAS in it, at 11.7 deg off axis and 5.2 m away, is
+            // the candle table in the opposite corner of the room. Every haunt and
+            // element frame taken through this station since ModBuild 147 is a
+            // photograph of that table.
+            //
+            // It is not repointed by eye: ShelfStand puts it in the bookcase's own
+            // frame, so it follows CellarShelfAt. The three-quarter geometry is
+            // kept (a station out along the fall and to one side, from above head
+            // height, looking slightly down), and so are the height and the fov, so
+            // it is the same KIND of frame the 143 comment describes — it is now
+            // pointed at the thing that frame was always about.
+            ("HauntShelf", VShelf.pos, VShelf.euler, false, 62f),
+            // ...and this one is aimed from where it already stood: the "watching
+            // from across the room" viewpoint is a property of the ROOM, not of the
+            // prop, so its position stays typed and only its AIM is derived. It was
+            // 9.2 deg off (yaw 150 against a bearing of 159.2) — in frame, but with
+            // the bookcase off toward the edge for no reason anybody wrote down.
+            ("HauntShelfOff", new Vector3(2.30f, 1.75f, 3.60f),
+             LookAtShelf(new Vector3(2.30f, 1.75f, 3.60f), 1.00f), false, 58f),
             // ...and a THIRD, square on the plane the carcass actually sweeps —
-            // ModBuild 152, and it exists because "HauntShelf" above does not see
-            // the bookshelf any more. That view was aimed in ModBuild 143 and the
-            // prop moved 3.85 m south in 147 (see the FLYING FIRE block in
-            // BuildEnvironmentRooms); it now frames the table and two candles, so
-            // every _pride frame taken through it since has been a photograph of
-            // the wrong corner of the room. Not repointed here: it is the haunt
-            // lane's review station and moving it would move that lane's whole
-            // comparison set. Flagged instead, and answered with a station of
-            // this series' own.
+            // ModBuild 152, and it exists because "HauntShelf" above did not see
+            // the bookshelf. (That station is re-aimed at ModBuild 153 and this one
+            // is deliberately NOT folded into it: they answer different questions.
+            // HauntShelf looks AT the carcass; this one looks ALONG the plane it
+            // sweeps, which is the only way to judge what is left behind in the air
+            // it vacates — the sparks in 152, the wall wash in 153.)
+            //
+            // ITS NUMBERS ARE TYPED AND STAY TYPED, which is the one exception in
+            // this block and is deliberate: it is not aimed at the prop, it is
+            // aimed along a PLANE, so LookAtShelf would turn it 20 degrees and
+            // destroy exactly the framing it exists for. AssertShelfStations
+            // measures it against the real prop like every other station here, so
+            // "typed" does not mean "unchecked".
             //
             // DERIVED FROM THE BAKE, not aimed by eye: the hinge is at
             // (4.57, -0.02, -3.15) with the axis (0,0,1), so the fall is entirely
@@ -409,7 +491,15 @@ namespace GloomhavenVR
             // "eher im Hintergrund", and the only way to check that an apparition
             // is NOT intrusive is to look at the room the way a player would and
             // see whether it pulls the eye.
-            ("HauntWideC", Eye, new Vector3(-4, 320, 0), false, 78f),
+            // ...and it faced the WRONG WAY, ModBuild 153. It is listed in
+            // CellarHaunts for card 5 and card 5 only — i.e. the bookshelf is the
+            // one thing it has ever been asked to photograph — and yaw 320 is
+            // north-west while the bookcase bears 123 deg from the eye. 197 deg
+            // off: the event was directly behind the camera in every frame of it.
+            // The station itself is right and is not moved (a wide frame from the
+            // player's own station is exactly how "eher im Hintergrund" is judged);
+            // its AIM is derived now, from the prop.
+            ("HauntWideC", Eye, LookAtShelf(Eye, 1.00f), false, 78f),
             // ...and the cellar's shelf face from the BOARD, which is the distance
             // a player actually meets it at.
             // ...from 5.5 m, on the side the face comes out on. NOT from the
@@ -418,7 +508,13 @@ namespace GloomhavenVR
             // it completely and the frame is a picture of an empty shelf. Where an
             // apparition can be seen from is part of its placement, and a preview
             // that does not show that is a preview that cannot check it.
-            ("HauntFarC", new Vector3(0f, 1.45f, 0.0f), new Vector3(-3, 96, 0), false, 62f),
+            // (ModBuild 153: 27 deg off the prop — in frame, but out at the edge of
+            // it, and the paragraph above is about an apparition CARD that has not
+            // existed since 146. Card 5 is the bookcase now, so the aim is derived
+            // from the bookcase; the station, which is the whole point of the
+            // paragraph, is untouched.)
+            ("HauntFarC", new Vector3(0f, 1.45f, 0.0f),
+             LookAtShelf(new Vector3(0f, 1.45f, 0.0f), 1.00f), false, 62f),
             // THE SHADOW. User, cellar 7: "gruselig wäre auch wenn sie beim
             // Mondlicht einen Schatten wirft wenn sie durchs Fenster schaut."
             // It lands at (-3.19, 2.76) — computed from the bust's own vertices
@@ -447,6 +543,16 @@ namespace GloomhavenVR
             // BARE WALL, and that is why a fire floating 18.6 cm above a shelf board survived a
             // whole round of previews and had to be found on hardware by the user. A preview
             // station that points at nothing does not fail; it renders, and it agrees with you.
+            // RE-MEASURED AT ModBuild 153 AND LEFT ALONE, which is a finding and not
+            // an omission: against CellarShelfAt the bookcase bears 107.0 deg from
+            // the first station (aimed 108, so 1.0 deg off, 2.05 m away) and
+            // 114.2 deg from the second (aimed 117, so 2.8 deg off, 1.71 m away).
+            // Both are on the prop. They are NOT re-derived, because deriving them
+            // would turn each by a degree or two and silently invalidate the fire
+            // lane's whole comparison set for no gain — and the drift these numbers
+            // are exposed to is caught now rather than tolerated: AssertShelfStations
+            // measures every station in this block against the real prop in the
+            // loaded prefab and FAILS THE RUN if one stops seeing it.
             ("FireShelf", new Vector3(2.90f, 1.50f, -2.55f), new Vector3(-4, 108, 0), false, 42f),
             ("FireShelfLow", new Vector3(3.30f, 0.95f, -2.45f), new Vector3(-15, 117, 0), false, 42f),
             // ...and the room WITH the fires in it, from the board: "bedrohlich"
@@ -886,10 +992,20 @@ namespace GloomhavenVR
         // Three phases off HauntShelfPhases, chosen for the trajectory rather
         // than the envelope: 0.08 barely off plumb (the fire is where it was),
         // 0.16 the fast part of the topple (it must be leaning WITH the boards),
-        // 0.30 down just after the rebound (it must be lying with them). The
-        // wall wash deliberately does NOT ride and must stay put across all
-        // three — that is an authored asymmetry, not a fault, and this series is
-        // where it can be seen.
+        // 0.30 down just after the rebound (it must be lying with them).
+        //
+        // THE WALL WASH IS THE OTHER HALF OF WHAT THIS SERIES IS FOR, and the
+        // ModBuild 152 version of this comment said the wrong thing about it: "the
+        // wall wash deliberately does NOT ride and must stay put across all three
+        // — that is an authored asymmetry, not a fault." It was a fault, the user
+        // filed it off hardware the same round ("Da wo die Funken waren und
+        // deaktiviert wurden ist aber immer noch eine Lichtquelle die dort
+        // scheint"), and this series is where it was visible all along: at phase
+        // 0.30 the frame is a bookcase on the floor under a metre-wide oval of
+        // firelight still burning on the wall above it. It still does not RIDE —
+        // that would swing a sphere of light through masonry — it FADES, so what
+        // these frames must now show is the oval going to nothing by the arrival
+        // (0.18) and coming back over the righting (0.62 onward).
         //
         // ---- AND THE WHOLE EVENT SINCE ModBuild 152 -------------------------
         // The three phases above are enough to judge a RIDER (does the fire lean
@@ -909,6 +1025,132 @@ namespace GloomhavenVR
         private static readonly float[] FireShelfRidePhases =
             { 0f, 0.08f, 0.12f, 0.16f, 0.18f, 0.204f, 0.30f, 0.45f, 0.62f, 0.70f,
               0.80f, 0.90f, 1f };
+
+        // =============== THE INSTRUMENT CHECKS ITSELF (ModBuild 153) ============
+        // Every station in this harness that is supposed to see the bookcase, and
+        // the smallest share of the frame the bookcase may occupy in it before the
+        // run FAILS. `minPct` is deliberately generous — this is not a framing
+        // policy, it is the difference between "photographing the prop" and
+        // "photographing the wall where the prop used to be", which are 15 % and
+        // 0 % and have nothing in between.
+        //
+        // WHY IT IS MEASURED AND NOT ARGUED. The stations above are derived from
+        // EnvRoomBuilder.CellarShelfAt, which is a good argument and not a
+        // measurement: it is right about where the prop is ANCHORED and says
+        // nothing about how big it is, whether it imported, or whether something
+        // was placed in front of it. This finds the real Renderer in the loaded
+        // prefab and projects its real world bounds through the real camera. The
+        // rectangle it prints is the answer to "name the pixel region the bookcase
+        // occupies", which is the question a reviewer has to be able to answer
+        // before citing a frame at all.
+        private static readonly (string view, float minPct)[] ShelfStations =
+        {
+            ("HauntShelf", 1.0f),      // the three-quarter review station
+            ("HauntShelfOff", 0.2f),   // from across the room: small on purpose
+            ("HauntShelfRide", 1.0f),  // along the sweep plane
+            ("HauntWideC", 0.3f),      // the player's own wide frame
+            ("HauntFarC", 0.3f),       // from the board
+            ("FireShelf", 3.0f),       // the fire close-ups
+            ("FireShelfLow", 3.0f),
+        };
+
+        /// <summary>Fail the run if a station that is supposed to be looking at the
+        /// tipping bookcase is not, and print the pixel rectangle it covers in the
+        /// ones that are. Uses the caller's camera, so it is checking the exact
+        /// projection Shoot() will use.</summary>
+        private static void AssertShelfStations(GameObject inst, Camera cam)
+        {
+            MeshFilter shelf = null;
+            foreach (var mf in inst.GetComponentsInChildren<MeshFilter>(true))
+                if (mf.gameObject.name == "Shelf") { shelf = mf; break; }
+            if (shelf == null || shelf.sharedMesh == null)
+                throw new Exception("The cellar prefab has no mesh called 'Shelf'. Either the "
+                    + "tipping bookcase failed to build, or it was renamed — in which case every "
+                    + "station below is now aimed at a hole in the room and would have gone on "
+                    + "rendering happily.");
+            // THE VERTICES AND NOT Renderer.bounds, and this cost a run: the
+            // bookcase's fall is a VERTEX ROTATION, so its mesh bounds are inflated
+            // to the volume it sweeps (4.70 x 6.19 x 5.50 m) to keep it out of the
+            // frustum culler mid-topple. Measured against those, every station
+            // below "covered 100 % of the frame" — including the one that was
+            // 65 degrees off the prop. An instrument that measures a culling volume
+            // agrees with you exactly as enthusiastically as one that measures
+            // nothing. This is the STANDING CARCASS, built the way the bake builds
+            // it (EnvRoomBuilder's WorldVerts): the authored vertices through the
+            // object's own transform.
+            var xf = shelf.transform;
+            var verts = shelf.sharedMesh.vertices;
+            if (verts == null || verts.Length == 0)
+                throw new Exception("The 'Shelf' mesh has no vertices to measure.");
+            var b = new Bounds(xf.TransformPoint(verts[0]), Vector3.zero);
+            for (int i = 1; i < verts.Length; i++) b.Encapsulate(xf.TransformPoint(verts[i]));
+            var log = new System.Text.StringBuilder();
+            log.Append("[GloomhavenVR][EnvPreview] SHELF STATIONS — measured against the real "
+                       + $"prop, whose standing bounds are ({b.min.x:F2},{b.min.y:F2},{b.min.z:F2})"
+                       + $"..({b.max.x:F2},{b.max.y:F2},{b.max.z:F2}). A station that points at "
+                       + "nothing does not fail; it renders, and it agrees with you — so this "
+                       + $"fails instead. Frame is {W}x{H}, pixel rows counted from the TOP.\n");
+            // THE ASPECT HAS TO BE SAID OUT LOUD. Camera.fieldOfView is VERTICAL, so
+            // the horizontal extent comes from cam.aspect — and in batch mode an
+            // un-driven camera's aspect is the phantom 640x480 screen's 1.333, not
+            // the 1280x720 render target's 1.778. Left alone, this check measured a
+            // frame 33 % narrower than the one Shoot() actually writes: it put the
+            // bookcase at x 469..815 in a PNG where it really spans 511..772. The
+            // vertical numbers were right all along, which is exactly what makes
+            // that kind of error survive a read-through.
+            cam.aspect = W / (float)H;
+            foreach (var (vn, minPct) in ShelfStations)
+            {
+                var v = Array.Find(Views, x => x.name == vn);
+                if (v.name == null)
+                    throw new Exception($"ShelfStations names an unknown view '{vn}'.");
+                cam.fieldOfView = v.fov;
+                cam.transform.position = v.pos;
+                cam.transform.rotation = Quaternion.Euler(v.euler);
+                float x0 = float.MaxValue, x1 = float.MinValue;
+                float y0 = float.MaxValue, y1 = float.MinValue;
+                int behind = 0;
+                for (int k = 0; k < 8; k++)
+                {
+                    var c = new Vector3((k & 1) == 0 ? b.min.x : b.max.x,
+                                        (k & 2) == 0 ? b.min.y : b.max.y,
+                                        (k & 4) == 0 ? b.min.z : b.max.z);
+                    var vp = cam.WorldToViewportPoint(c);
+                    if (vp.z <= 0f) { behind++; continue; }
+                    x0 = Mathf.Min(x0, vp.x * W); x1 = Mathf.Max(x1, vp.x * W);
+                    y0 = Mathf.Min(y0, (1f - vp.y) * H); y1 = Mathf.Max(y1, (1f - vp.y) * H);
+                }
+                if (behind == 8)
+                    throw new Exception($"Preview station '{vn}' has the whole bookcase BEHIND it. "
+                        + "It is not photographing the prop it is listed for.");
+                var ctr = cam.WorldToViewportPoint(b.center);
+                float cx = ctr.x * W, cy = (1f - ctr.y) * H;
+                float cw = Mathf.Max(Mathf.Min(x1, W) - Mathf.Max(x0, 0f), 0f);
+                float ch = Mathf.Max(Mathf.Min(y1, H) - Mathf.Max(y0, 0f), 0f);
+                float pct = 100f * cw * ch / (W * (float)H);
+                bool ctrIn = ctr.z > 0f && ctr.x >= 0f && ctr.x <= 1f && ctr.y >= 0f && ctr.y <= 1f;
+                if (!ctrIn || pct < minPct)
+                    throw new Exception($"Preview station '{vn}' at ({v.pos.x:F2},{v.pos.y:F2},"
+                        + $"{v.pos.z:F2}) yaw {v.euler.y:F1} fov {v.fov:F0} does not see the "
+                        + $"bookcase: its centre projects to ({cx:F0},{cy:F0}) which is "
+                        + $"{(ctrIn ? "in" : "OUTSIDE")} the frame, and the carcass covers "
+                        + $"{pct:F2} % of it against a floor of {minPct:F2} %. This is the "
+                        + "ModBuild 149 lesson and the ModBuild 152 one: a station that points at "
+                        + "nothing renders happily and agrees with whatever you already believed. "
+                        + "Re-derive it from EnvRoomBuilder.CellarShelfAt (see LookAtShelf / "
+                        + "ShelfStand) rather than nudging the numbers.");
+                log.Append($"    {vn,-14} centre at pixel ({cx,4:F0},{cy,4:F0}), carcass covers "
+                           + $"x {Mathf.Max(x0, 0f),4:F0}..{Mathf.Min(x1, W),4:F0}, y "
+                           + $"{Mathf.Max(y0, 0f),4:F0}..{Mathf.Min(y1, H),4:F0} = {pct,5:F2} % of "
+                           + $"the frame ({Vector3.Distance(v.pos, b.center):F2} m away"
+                           + (behind > 0 ? $", {behind}/8 corners behind the camera)" : ")") + "\n");
+            }
+            // ...and hand the camera back exactly as it was found: Shoot() relies
+            // on the aspect being driven by the render target, and an aspect that
+            // is set once stays set.
+            cam.ResetAspect();
+            Debug.Log(log.ToString());
+        }
 
         // ---- THE RAT'S TWO MOUTHS, over the entry itself (ModBuild 143) -------
         // A crossing lasts 2.4-9.2 s of a 26 s slot and the entry is 0.45 s of
@@ -1103,6 +1345,13 @@ namespace GloomhavenVR
                     File.WriteAllBytes(png, tex.EncodeToPNG());
                     Debug.Log($"[GloomhavenVR][EnvPreview] wrote {Path.GetFullPath(png)}");
                 }
+
+                // ---- BEFORE ANY FRAME IS TAKEN: does the harness point at the
+                // thing it says it points at? See AssertShelfStations. It runs
+                // whatever ENV_PREVIEW_VIEWS says, because a filtered run that
+                // skipped the check would be exactly the run in which a mis-aim
+                // gets past.
+                if (env == "Env_Cellar") AssertShelfStations(inst, cam);
 
                 // ---- the still set, at the shader clock's origin ----
                 // HAUNT OFF for this pass, which is also the shipped default state

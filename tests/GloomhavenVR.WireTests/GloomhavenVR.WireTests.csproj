@@ -100,6 +100,20 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\EnvSoundSchedule.cs" Link="core\EnvSoundSchedule.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file either, and here for the ConfigSteps reason at its sharpest. It decides how
+       dark a haunt apparition is drawn and how it materialises, and both are observed ONLY by feel,
+       from inside a headset, one photograph per round. Through ModBuild 152 the darkening
+       multiplier was written into a material colour property the game's character shader ignores,
+       so its four constants were re-fitted FOUR TIMES against photographs in which the lever did
+       nothing — four shipped builds, four "immer noch viel zu hell" reports, and nothing in this
+       repository that could have noticed. The mapping and the materialise window were pulled out of
+       HauntFigures.Clone.cs / .Events.cs (Addressables, Animator, the whole clone factory) into a
+       file free of everything but Mathf precisely so they could be linked in here and driven
+       instant by instant. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\HauntFigures.Math.cs" Link="core\HauntFigures.Math.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
@@ -108,6 +122,7 @@
     <Compile Include="ConfigStepVectors.cs" />
     <Compile Include="ScrollTurnGateVectors.cs" />
     <Compile Include="EnvSoundScheduleVectors.cs" />
+    <Compile Include="HauntFigureVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

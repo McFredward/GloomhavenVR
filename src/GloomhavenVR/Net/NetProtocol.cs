@@ -416,7 +416,108 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 152;
+    public const ushort ModBuild = 153;
+    // Build 153: FOUR REPORTS, AND THREE OF THEM WERE ALREADY WRITTEN DOWN IN THIS REPOSITORY AS
+    // KNOWN, ACCEPTED FAULTS. That is this round's lesson and it is worth more than the fixes: a
+    // trade-off recorded in a comment is not a trade-off the user has agreed to, and it will be
+    // filed as a bug the first time it is seen.
+    //
+    // THE FIGURES: THE LEVER IS THE ALBEDO TEXTURE, AND 152's ESCAPE HATCH FIRED EXACTLY AS WRITTEN.
+    // Alpha was not the gate. `Amp_Char_Shader` dumps as `lit=NO` with `_MOD_TINT=(1,1,1,0)` read
+    // LIVE off the rendering material, and three more photographs show a fully lit figure - so the
+    // colour property is simply INERT on this shader and all four earlier fits of DarkFloor/
+    // LightGain/MaxLevel were solving for the wrong unknown. The darkening is now a multiply on the
+    // ALBEDO TEXTURE, blitted into a cached RenderTexture through the bundle's own HeadUnlit
+    // (`tex2D(_MainTex,uv) * _Color`, POSITION+TEXCOORD0, no Blend, no vertex colour - the built-in
+    // blit candidates all multiply by a vertex colour a blit quad does not supply). `_Color =
+    // (k,k,k,1)`, so ALPHA PASSES THROUGH UNTOUCHED and the shader's `_Cutoff = 0.5` alpha test
+    // still sees the cloth and the ribbons rather than a slab. THE FALLBACK FAILS DARK: `Levered` is
+    // populated from a READ-BACK of the texture property, so a missing blit shader leaves the old
+    // colour path carrying the level instead of dropping it - a failure can never make the figure
+    // brighter than 152. Refitted from the three photographs (figure p50 0.1630/0.1605/0.0966
+    // against surrounds 0.0059-0.0650): p50 and p90 land on 0.12 cellar / 0.20 wood INDEPENDENTLY,
+    // and that agreement is what makes it a fit rather than a wish. Level = 0.100 + 0.470 x lum,
+    // clamped [0.100, 0.28].
+    //
+    // AND THE MATERIALISE IS THE GAME'S OWN, DRIVEN BY `_Cutout` - NOT by `_DeathDissolvePos`.
+    // Read out of the decompiled source rather than guessed: BOTH runtime drivers (SummonAppear and
+    // DeathDissolve) ramp `_Cutout` under `_Toggle_Dissolve`, and nothing at runtime ever writes
+    // `_DeathDissolvePos` or `_DeathDissolveTop/_Bottom` - only the character-select scene does,
+    // with an offset of its own. Following the two runtime precedents leaves the authored band
+    // alone, which makes the object-vs-world-space question MOOT instead of guessed: every monster
+    // death in the shipped game sweeps that same band on these same meshes. Cinder emission is
+    // scaled by the room (`_CindersGlow = 0.85 x Level`): wood edge 0.0906 = 2.0x the figure's own
+    // p90, cellar 0.0544 = 1.17x. The AUTHORED 2.0 would have been 23.6x the figure - ModBuild 151's
+    // glowing face coming back through a new door. The cinder trio is exempted from the emissive
+    // loop, which scales colour AND strength and would have taken the edge as k squared.
+    //
+    // THE FIRE'S SOUND CARRIED THE WIND BECAUSE THE CANDLES PLAY THE WIND BUFFER. `EnvSoundClip.Bed`
+    // has exactly three callers - the window Draught, the swamp Leaves, and the cellar's three
+    // candle "Flame" beds. The first two go through `WindBed()` and are hard-zeroed by the Air gate;
+    // the candles never did, so the wind clip was audible with Air fully OFF (the ModBuild 147
+    // ruling broken on its face) and their `+0.90 x ElementMood.Live(0)` is the FIRE element, so an
+    // infusion raised the WIND CLIP by +6.2 dB on each of three sources. 152 diagnosed this in the
+    // comment above AddFireBeds, added the proper Roar/Crackle/Ember beside it, and left the wind-
+    // clip candles standing next to a sentence claiming they were fine. New synthesised `Flutter`
+    // (2-pole HP 470 Hz / 4-pole LP 1050 Hz, an 11 Hz noise-derived envelope, 18 wick sputters):
+    // 1.1% of its energy under 200 Hz against the draught's 53.2% - a 48x ratio, in a band a 20 mm
+    // flame cannot physically occupy - and 0.66 octaves of spread against 1.10. THE CENTROID ALONE
+    // WOULD NOT HAVE SETTLED IT (660 vs 598 Hz over the audible band); the low band and the spread
+    // do. Fire lift 0.90 -> 0.30, because EnvFlame really does flare a candle by (1 + 1.05 x fire)
+    // and a candle that goes silent under Fire would be this bug's mirror image.
+    //
+    // ...AND THE ROAR ITSELF WAS A WIND, MEASURED. `RoarPuffFloor = 0.42` claims 7.54 dB of
+    // breathing, but the generator normalised the twice-low-passed envelope by its PEAK, whose
+    // peak/sigma is 3.13 - so the realised 5-95% swing was 3.81 dB, while the STATIONARY DRAUGHT,
+    // with no envelope applied at all, measures 4.02 dB. The fire's deliberate pulse was smaller
+    // than the wind's accident, which is precisely what makes low-passed broadband noise read as
+    // air. Normalised by 1.8 sigma with a clamp: 7.47 dB at a modulation centroid of 7.44 Hz with
+    // 61.2% of the modulation in 1-8 Hz, against the draught's 18.13 Hz and 23.3%. Spectrum
+    // untouched - a broadband envelope does not move band shares.
+    //
+    // THE WALL WENT ON GLOWING ABOVE THE FALLEN BOOKCASE, and the bake said so about itself: the
+    // 1.40 m wall wash at the bookshelf fire was declared a non-rider in a comment that called the
+    // resulting 26 seconds "what it gets wrong". The ModBuild 152 preview series had PHOTOGRAPHED
+    // the fault and the comment beside it said it was intentional. The user allowed two answers and
+    // the bake's own argument rules out the first (a sphere of light sweeping through masonry is
+    // worse), so it fades. `GhvrTipUprightEnergy = GhvrTipUpright^2`, AND THE SQUARE IS A BLEND-MODE
+    // FACT RATHER THAN A TUNING: EnvParticleAdd premodulates, so the sparks' drawn energy already
+    // goes as upright^2 while EnvGlow's is linear in alpha - squaring makes the wash and the sparks
+    // shed the SAME FRACTION of drawn energy at every instant, out of one function with no constant
+    // in it. Measured on a bare-wall patch over thirteen phases: 36-44 levels of red removed for the
+    // whole lie-down, 0.02 at rest and 0.00 exactly at the end; analytically identically zero for
+    // 0.204 <= phase <= 0.620. Applied AFTER the five Fire pairings, so Fire+Dark (x2.35) cannot
+    // resurrect it.
+    //
+    // THE INSTRUMENT WAS WRONG IN TWO WAYS THAT BOTH MADE IT AGREE. `Renderer.bounds` on the shelf
+    // is the SWEPT culling volume (4.70 x 6.19 x 5.50 m), because the fall is a vertex rotation - so
+    // every station "covered 100% of the frame", including one that was 65 degrees off. And in
+    // batchmode `cam.aspect` is the phantom 640x480 screen's 1.333, not the render target's 1.778,
+    // so every horizontal measurement was 33% too wide. Four of seven cellar shelf stations were
+    // mis-aimed; `HauntWideC` was 197 degrees off with ALL EIGHT CORNERS BEHIND THE CAMERA, and
+    // `HauntShelf` put the bookcase 547 px past the right edge at 0.00% of frame while photographing
+    // a candle table 5.33 m away. Stations are now derived from `CellarShelfAt`/`CellarShelfYaw`,
+    // and `AssertShelfStations` fails the preview run - with the pixel rectangle - if any of them
+    // stops seeing the prop. Third mis-aimed station in eight days.
+    //
+    // GUARDS, NOT COMMENTS, because a comment is what let all three of the above ship: the ride/
+    // fade/neither table is now a `static readonly` array that `AssertShelfSiteTerms` checks against
+    // the BUILT materials after FlushRig and FAILS THE BAKE on a mismatch, a rename, a dead pose, a
+    // light slot off the shelf or a fire-seat count other than one; the bake log is printed from the
+    // same table. `AddBed` now REQUIRES its clip name and its Air/Fire declarations and warns at
+    // build time if anything hands it `EnvSoundClip.Bed` without `airGated: true`, and `TickBeds`
+    // warns once per build if a wind-clip bed is non-zero with Air down. Wire assertions 1675 ->
+    // 23370.
+    //
+    // A TOOLCHAIN FINDING WORTH CARRYING: written as nested if/else inside the `_TipUse.z` branch,
+    // glcore's shader compiler PROCESS DIED on EnvGlow's vertex program ("failed to read magic
+    // number"), the shader fell back to Unity's error pass, and the wash rendered MAGENTA - through
+    // a bake that reported OK and a preview run that produced thirteen confident PNGs. Bisected
+    // against an untouched-but-touched original. Rewritten as a select.
+    //
+    // WIRE: nothing on it. No record changed, no format changed; every packet is byte-identical to
+    // build 152's. The bump exists so the handshake still refuses a peer with a different bundle.
+    //
     // Build 152: THE DARKENING LEVER WAS NEVER CONNECTED, and the proof is two of the user's own
     // photographs. `_MOD_TINT`'s fourth component is the shader's blend weight, and every write this
     // feature has ever made PRESERVED THE MATERIAL'S AUTHORING DEFAULT OF ZERO - so four rounds of

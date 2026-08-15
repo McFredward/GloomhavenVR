@@ -549,6 +549,51 @@ float GhvrTipUpright (GhvrTip tip)
     return saturate(1.0 - tip.ang / max(_TipAxis.w, 1e-4));
 }
 
+/// THE SAME FADE, EXPRESSED AS ENERGY INSTEAD OF AS ALPHA — for the terms at the
+/// bookshelf's fire site that are drawn WITHOUT premodulation.
+///
+/// USER, hardware, ModBuild 152 (verbatim): "Da wo die Funken waren und
+/// deaktiviert wurden ist aber immer noch eine Lichtquelle die dort scheint. Die
+/// muss entweder auch mitwander oder auch deaktiviert werden."
+///
+/// He named both acceptable answers and the bake had already ruled the first one
+/// out in writing: the term he is looking at is C_FireWashShelf, the GLOW ON THE
+/// WALL behind the burning bookcase, and riding it would swing a 1.4 m sphere of
+/// light through masonry. So it is deactivated — with the pose, exactly as the
+/// sparks are, and out of this file so that there is no second fall curve.
+///
+/// WHY IT IS THE SQUARE AND NOT GhvrTipUpright ITSELF, which is the only decision
+/// in this function and is a statement about BLEND MODES, not a tuning:
+///   * the sparks multiply an ALPHA by GhvrTipUpright, and EnvParticleAdd
+///     PREMODULATES (c.rgb *= c.a) before blending SrcAlpha One — so their drawn
+///     energy already goes as GhvrTipUpright SQUARED. That is stated in the
+///     function above and measured in the bake log.
+///   * EnvGlow does not premodulate: it returns (colour, alpha) into the same
+///     SrcAlpha One, so a halo's drawn energy is LINEAR in its alpha.
+/// Feeding a halo GhvrTipUpright would therefore give the wall and the sparks the
+/// same-shaped alpha and two different-looking fades; feeding it the square makes
+/// every term at the site lose THE SAME FRACTION OF ITS DRAWN ENERGY at every
+/// instant of the topple. One function, one relationship, and nothing to tune
+/// apart.
+///
+/// IT THEREFORE LEADS THE SPARKS' ALPHA, and that is the direction to err in: the
+/// complaint is a term that OUTLIVES the fire, so a wash that is already half gone
+/// while the sparks are at 0.71 is answering the complaint rather than restating
+/// it. Both still reach exactly 0 at the same instant — the arrival — and both
+/// come back on the identity that runs the arc backwards, because they are the
+/// same expression.
+///
+/// MEASURED, at the shipped TipDeg = 90 (the bake prints this table against the
+/// fire seat's own measured distance from the wash it feeds): 1.00 upright,
+/// 0.69 at a 15 deg lean, 0.44 at 30, 0.25 at 45, 0.11 at 60 and EXACTLY 0.00 at
+/// the arrival. Against the same 26.002 s event that is 1.00 at t = 0, 0.92 at
+/// 1.3 s, 0.53 at 3.1 s, 0.12 at 4.2 s and 0.00 at 4.68 s.
+float GhvrTipUprightEnergy (GhvrTip tip)
+{
+    float u = GhvrTipUpright(tip);
+    return u * u;
+}
+
 /// A CANDLE ON A FALLING SHELF GOES OUT, and comes back when the shelf does.
 ///
 /// The alternative was a flame that burns steadily through a 90-degree topple, a

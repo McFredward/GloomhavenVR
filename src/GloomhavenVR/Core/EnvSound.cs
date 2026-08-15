@@ -138,8 +138,13 @@ namespace GloomhavenVR.Core;
 /// <item><b>A hard gain budget.</b> Every emitter's level is a fraction under
 /// <see cref="MaxEmitterGain"/>, and <see cref="MasterCeiling"/> caps what the dial can reach even
 /// at its maximum. The player CAN turn it up; they cannot turn it up to where it competes.</item>
-/// <item><b>Spectral separation.</b> The continuous beds are pink-ish noise low-passed at
-/// <see cref="BedLowPassHz"/>. This is the one "never mask" measure that had to be chosen on
+/// <item><b>Spectral separation.</b> The continuous beds are noise held under the speech band —
+/// the wind, the insects and the Earth rumble by a runtime filter at <see cref="BedLowPassHz"/>,
+/// and the fire's roar and the candles' flutter by BAKED bands that are tighter still (three poles
+/// at 820 Hz and four at 1050 against this filter's single pole at 1150; see
+/// <c>EnvSoundBank</c>'s THE FIRE and THE CANDLE, and <see cref="AddBed"/>'s <c>lowPassHz</c> for
+/// why those two turn the runtime filter off rather than adding to it). This is the one "never
+/// mask" measure that had to be chosen on
 /// principle rather than measured: the game's clips live in AudioObject prefabs and asset bundles,
 /// not in the decompiled C#, so their actual spectra are NOT readable from here. What IS certain is
 /// that speech intelligibility and UI transients live in roughly 1–4 kHz, so the beds are rolled off
@@ -456,17 +461,114 @@ internal static class EnvSound
     /// nothing here a listener could compare.</para></summary>
     private static float _windGate;
 
+    // ---- the candles -----------------------------------------------------------------------------
+    //
+    // USER REPORT, ModBuild 152 hardware, verbatim: "Beim Feuer Geräusch ist auch immer das Wind
+    // geräusch mit dabei. Das soll nicht sein. Das Wind gEräusch soll nur dann kommen wenn Wind auch
+    // aktiv ist."
+    //
+    // IT IS THE 147 RULING RESTATED, and he had to restate it because the round that answered it
+    // answered only two thirds of it. THE WIND GATE above put Draught and Leaves behind _windGate
+    // and stopped there; the cellar's three candle beds were left playing EnvSoundClip.Bed — THE
+    // WIND BUFFER — with no gate at all and with `+ 0.9f * ElementMood.Live(0)` in their gain. So:
+    //
+    //   * the wind clip was audible in the cellar with Air fully off, which is the 147 ruling broken
+    //     on its face; and
+    //   * infusing FIRE made the WIND CLIP louder, by +6.2 dB on each of the room's three candle
+    //     beds, which is the 152 report word for word.
+    //
+    // ModBuild 152 even wrote the diagnosis down — the comment above AddFireBeds says "until
+    // ModBuild 152 the only thing that answered a Fire infusion here was the candle beds' gain — on
+    // a clip that is the window draught" — added the proper Roar/Crackle/Ember beside it, and LEFT
+    // THE CANDLE BEDS ON THE WIND CLIP. A diagnosis in a comment is not a fix.
+    //
+    // WHAT THE FIX IS, AND WHAT IT IS NOT. It is not "gate the candles on Air": a candle is not
+    // wind, and gating it would have made the cellar silent rather than correct. It is a CLIP OF ITS
+    // OWN — EnvSoundClip.Flutter, whose band, envelope and measurements are in EnvSoundBank's THE
+    // CANDLE — plus the three placement changes in BuildCellar: the runtime low pass off (the band
+    // is baked), the Fire term cut to a flare, and the group count logged.
+    //
+    // WHY THE CANDLES STILL ANSWER FIRE AT ALL, since removing the term entirely would have been the
+    // simpler edit. Because the PICTURE does: EnvFlame.shader scales a candle's flame by
+    // (1 + 0.55 * e.fire) in height and (1 + 1.05 * e.fire) in brightness, and its own comment names
+    // that as the ModBuild 142 design ("Die Kerzen flackern auf, wenn der Raum infundiert ist") and
+    // as the one candle response no later ruling touches. A sound that ignored a flame visibly
+    // doubling in brightness would be the mirror image of this round's bug: the picture and the
+    // sound disagreeing about the same object.
+
+    /// <summary>The candle bed's gain. UNCHANGED at 0.055 across the rebuild, deliberately: the clip
+    /// under it is new and the level must not be, or the next hardware report cannot say which of
+    /// the two it is judging. The bank normalises the flutter so that this gain lands 1.76 dB under
+    /// what the wind buffer gave the same emitter — measured, and erring quiet.</summary>
+    private const float CandleBedGain = 0.055f;
+
+    /// <summary>
+    /// How much a full Fire infusion lifts the candle bed, on top of a resting 0.72..1.00.
+    ///
+    /// <para><b>0.90 -> 0.30, which is +6.2 dB -> +2.6 dB.</b> The old coefficient did not come from
+    /// the candles at all: until ModBuild 152 these beds were the ONLY thing in the room that
+    /// answered a Fire infusion, so the term was carrying the whole "the fire got louder" job on a
+    /// clip that was a draught. The six seated fires now carry that job themselves, with their own
+    /// clip, their own gate and their own place (see THE FIRE), and what is left for the candles is
+    /// what the shader actually does to them: a FLARE. A candle that doubled in loudness under Fire
+    /// while a burning crate three metres away was doing the same thing would put two fires in the
+    /// room where the picture has one.</para>
+    ///
+    /// <para>NOT ZERO, and that is a decision rather than a leftover — see the block above for why
+    /// the picture requires it. It is also the reason this is a named constant: the next reader who
+    /// wants the candles inert under Fire has to disagree with EnvFlame.shader, not with a
+    /// literal.</para></summary>
+    private const float CandleFireLift = 0.30f;
+
+    /// <summary>How many "Candles*" groups the room actually gave us, so <see cref="LogBuilt"/> can
+    /// say. Zero in a cellar is not impossible but it IS a report: it means the bake renamed
+    /// CandleGroup, and a bed that never resolves is silent in exactly the way a room with no
+    /// candles is. That ambiguity cost this feature the swamp's wisp bed for months.</summary>
+    private static int _candleGroups;
+
+    /// <summary>
+    /// A candle group's bed level, 0..2. NOT GATED ON AIR and that is correct: a candle flame is not
+    /// wind, it is a small flame that is there whether or not the air is moving, and gating it would
+    /// have answered the user's report by deleting a sound he never complained about. What answers
+    /// his report is that this bed no longer plays the WIND CLIP — see
+    /// <see cref="EnvSoundClip.Flutter"/> — and that the Fire term below is a flare rather than the
+    /// room's entire fire response.
+    ///
+    /// <para>It is a separate function from <see cref="WindBed"/> and <see cref="FireBed"/> rather
+    /// than a lambda in the room builder for the reason those two are: a level that lives in one
+    /// named place can be asserted about, and the wire vectors do exactly that (no element state may
+    /// make this a function of <c>_windGate</c>, and none may make <see cref="WindBed"/> a function
+    /// of Fire).</para>
+    ///
+    /// <para>NEVER RETURNS ZERO, unlike the other two, and the difference is worth stating because
+    /// <see cref="TickBeds"/> PAUSES a source that reaches zero: the candles are alight for the whole
+    /// scenario, so this bed plays for the whole scenario. Its floor is 0.72.</para>
+    /// </summary>
+    /// <param name="periodSeconds">This group's slow LFO period. The three groups' periods are
+    /// non-commensurate with each other and with the 7 s flutter buffer, so three candle beds in one
+    /// room never come into phase — item 6 of the class doc, and the same treatment the three fire
+    /// sites get.</param>
+    private static float CandleBed(float periodSeconds) =>
+        0.72f + 0.28f * Lfo(periodSeconds) + CandleFireLift * Mathf.Clamp01(ElementMood.Live(0));
+
     // ---- the fire ------------------------------------------------------------------------------------
     //
     // USER REQUEST, ModBuild 151 hardware, verbatim: "Geb auch Feuer dezente Geräusche."
     //
     // WHAT WAS THERE. Nothing, and the state file has said so since ModBuild 148: THE FIRE'S AUDIO
-    // BED WAS LITERALLY A DRAUGHT. BuildCellar's three "Flame<n>" beds ride EnvSoundClip.Bed — the
+    // BED WAS LITERALLY A DRAUGHT. BuildCellar's three "Flame<n>" beds rode EnvSoundClip.Bed — the
     // same buffer as the window draught and the swamp canopy — with `0.9f * ElementMood.Live(0)` in
     // the gain lambda. So a Fire infusion made the WIND louder at the candles, and the eleven fires
     // the content lane actually seated (six in the cellar, five in the wood) made no sound at all.
-    // The candle beds are untouched by this round; they are candles, they are steady, and the shared
-    // bed is the right model for them. What is added is the FIRES.
+    // What THIS round adds is the FIRES.
+    //
+    // AND THE SENTENCE THAT USED TO FOLLOW WAS WRONG, which is why it is quoted rather than deleted:
+    // "The candle beds are untouched by this round; they are candles, they are steady, and the
+    // shared bed is the right model for them." It is not. A candle is steady, but the shared bed is
+    // the WIND, and leaving three ungated, fire-lit copies of the wind buffer standing beside a new
+    // fire sound is exactly what the user reported one build later ("beim Feuer Geräusch ist auch
+    // immer das Wind geräusch mit dabei"). ModBuild 153 gave the candles a clip of their own; see
+    // THE CANDLES above.
     //
     // THREE LAYERS, THREE PLACES, ONE SOURCE EACH — and the shape of this is decided by the user's
     // own two standing rulings rather than by taste:
@@ -653,6 +755,24 @@ internal static class EnvSound
         internal float MaxMeters;
         internal System.Func<float>? Modulate;        // per-frame 0..1 multiplier, null = flat
         internal string NodeName = "(unresolved)";    // which node it actually landed on
+
+        // ---- WHAT THIS BED IS, recorded so a LOG can say it and so TickBeds can CHECK it.
+        //
+        // Three facts, and they exist because for five builds the only way to find out which clip an
+        // emitter played and what gated it was to read BuildCellar. That is how a bed named "Flame"
+        // went on playing the window draught, ungated, with a Fire term in its gain, through two
+        // rounds of user reports about exactly that. A fact nobody can read from a log is a fact
+        // nobody checks.
+        internal EnvSoundClip Clip;
+        internal bool AirGated;                       // its level is zero unless Air is up
+        internal bool FireLit;                        // its level rises with a Fire infusion
+
+        /// <summary>True for the emitters that play the WIND buffer, which is the one clip in the
+        /// bank with a user ruling attached to it ("Wind Geräusch nur wenn auch Wind aktiv ist").
+        /// <see cref="TickBeds"/> asserts on this: a wind-clip bed whose level is not exactly zero
+        /// with Air down is the shipped ModBuild 152 defect, and it now writes a warning instead of
+        /// playing.</summary>
+        internal bool IsWindClip => Clip == EnvSoundClip.Bed;
     }
 
     private static readonly List<Voice> Beds = new();
@@ -914,15 +1034,28 @@ internal static class EnvSound
     private static void BuildCellar(GameObject room)
     {
         // THE CANDLES. Three groups, each a node the bake named "Candles<n>" (BuildEnvironmentRooms
-        // .cs:2653, CandleGroup). A flame is the "Feuergeräusch" the user asked for at its resting
-        // size; the Fire infusion pushes it up (see the modulator).
-        int candles = 0;
+        // .cs:2653, CandleGroup). See THE CANDLES for what this call used to be and why every part
+        // of it moved: the clip, the filter and the Fire term are three separate corrections to the
+        // same mistake.
+        //
+        // A MISSING GROUP IS NOW LOUD. This loop used to walk whatever it found and say nothing, so
+        // "the cellar has no candles today" and "the bake renamed CandleGroup" were the same silence
+        // — the WispWisp trap exactly. The count is recorded and LogBuilt reports it.
+        _candleGroups = 0;
+        float[] candlePeriods = { 3.11f, 4.37f, 5.83f };
         foreach (Transform t in FindByPrefix(room.transform, "Candles"))
         {
-            AddBed($"Flame{candles}", t, EnvSoundBank.Bank(EnvSoundClip.Bed), 0.055f, 0.6f, 5.5f,
-                   () => 0.72f + 0.28f * Lfo(3.11f) + 0.9f * ElementMood.Live(0));
-            candles++;
-            if (candles >= 3)
+            float period = candlePeriods[_candleGroups];
+            AddBed($"Flame{_candleGroups}", t, EnvSoundBank.Bank(EnvSoundClip.Flutter),
+                   CandleBedGain, 0.6f, 5.5f,
+                   () => CandleBed(period),
+                   // NO RUNTIME LOW PASS, for the fire's reason: the flutter's band (470..1050 Hz,
+                   // two poles up and FOUR down) is baked into its buffer and is far tighter than
+                   // the 1150 Hz single pole this would add. See EnvSoundBank's THE CANDLE.
+                   lowPassHz: 0f,
+                   clipName: EnvSoundClip.Flutter, airGated: false, fireLit: true);
+            _candleGroups++;
+            if (_candleGroups >= candlePeriods.Length)
                 break;
         }
 
@@ -936,18 +1069,22 @@ internal static class EnvSound
         Transform? window = Find(room.transform, "WindowGlow", "WindowReveal", "WindowBars");
         if (window != null)
             AddBed("Draught", window, EnvSoundBank.Bank(EnvSoundClip.Bed), 0.075f, 1.2f, 14f,
-                   () => WindBed(7.93f));
+                   () => WindBed(7.93f),
+                   clipName: EnvSoundClip.Bed, airGated: true, fireLit: false);
 
         // THE FIRES. Three sites, and they are NOT the candles above: a burning crate is not a big
-        // candle, and until ModBuild 152 the only thing that answered a Fire infusion here was the
-        // candle beds' gain — on a clip that is the window draught. See THE FIRE.
+        // candle. Until ModBuild 152 the only thing that answered a Fire infusion in this room was
+        // the candle beds' gain, on a clip that was the window draught — the fires got their own
+        // voice at 152 and the candles got theirs at 153, which is the other half of the same fault.
+        // See THE FIRE and THE CANDLES.
         AddFireBeds(room, CellarFireSites, CellarFireNodes);
 
         // EARTH. No node of its own — it is the room itself settling, so it sits at the room root
         // and is silent until an Earth infusion is up. This is the one bed with no resting level:
         // a permanent subsonic rumble in a cellar would be a drone, not an atmosphere.
         AddBed("Rumble", room.transform, EnvSoundBank.Bank(EnvSoundClip.Rumble), 0.10f, 2f, 26f,
-               () => 1.30f * ElementMood.Live(3));
+               () => 1.30f * ElementMood.Live(3),
+               clipName: EnvSoundClip.Rumble, airGated: false, fireLit: false);
     }
 
     private static void BuildSwamp(GameObject room)
@@ -963,14 +1100,16 @@ internal static class EnvSound
         Transform? canopy = Find(room.transform, "Canopy", "TrunksNear", "Ground");
         if (canopy != null)
             AddBed("Leaves", canopy, EnvSoundBank.Bank(EnvSoundClip.Bed), 0.070f, 2f, 22f,
-                   () => WindBed(11.31f));
+                   () => WindBed(11.31f),
+                   clipName: EnvSoundClip.Bed, airGated: true, fireLit: false);
 
         // THE GROUND. Night insects. This is the swamp's floor, so it is the one sound the player
         // is inside rather than beside — a wide rolloff, deliberately.
         Transform? ground = Find(room.transform, "Ground", "RoomGeo");
         if (ground != null)
             AddBed("Night", ground, EnvSoundBank.Bank(EnvSoundClip.Chirr), 0.050f, 3f, 30f,
-                   () => 0.80f + 0.20f * Lfo(13.77f));
+                   () => 0.80f + 0.20f * Lfo(13.77f),
+                   clipName: EnvSoundClip.Chirr, airGated: false, fireLit: false);
 
         // THERE IS NO WISP BED, and this note is here so nobody re-derives one from the clip.
         // The wood used to carry three free-standing halos — WispWisp, WispLantern, WispFar — and
@@ -989,7 +1128,8 @@ internal static class EnvSound
         AddFireBeds(room, SwampFireSites, SwampFireNodes);
 
         AddBed("Rumble", room.transform, EnvSoundBank.Bank(EnvSoundClip.Rumble), 0.10f, 2f, 26f,
-               () => 1.30f * ElementMood.Live(3));
+               () => 1.30f * ElementMood.Live(3),
+               clipName: EnvSoundClip.Rumble, airGated: false, fireLit: false);
     }
 
     /// <summary>
@@ -1027,6 +1167,7 @@ internal static class EnvSound
             Voice? v = AddBed("Fire" + siteNames[s], at, EnvSoundBank.Bank(EnvSoundClip.Roar),
                               FireBedGain, FireMinMeters, FireMaxMeters,
                               () => FireBed(period),
+                              clipName: EnvSoundClip.Roar, airGated: false, fireLit: true,
                               // NO RUNTIME LOW PASS. See AddBed's lowPassHz: the 1150 Hz corner every
                               // other bed uses would delete the crackle, which comes out of this same
                               // source. The roar's band is baked into its buffer instead.
@@ -1066,8 +1207,18 @@ internal static class EnvSound
     /// rides this same source. The fire's band separation is baked into its two clips instead (the
     /// roar is three-pole low-passed at 820 Hz in the generator, i.e. tighter than this filter), so
     /// nothing is given up; see <c>EnvSoundBank</c>'s THE FIRE.</param>
+    /// <param name="clipName">WHICH clip this is, as a name — recorded on the voice so that
+    /// <see cref="LogBuilt"/> can print it and <see cref="TickBeds"/> can check it. It is passed
+    /// separately from the <see cref="AudioClip"/> because an <c>AudioClip</c> reference cannot say
+    /// what it IS, and "which emitter plays the wind buffer" is the exact question two user reports
+    /// have now turned on. REQUIRED, so that a new emitter cannot be added without answering it.</param>
+    /// <param name="airGated">True if this bed's level is EXACTLY zero whenever the Air element is
+    /// down — i.e. it goes through <see cref="WindBed"/>. Every wind-clip bed must set it.</param>
+    /// <param name="fireLit">True if a Fire infusion raises this bed. Recorded so the log can answer
+    /// "what got louder when I infused Fire" without anybody reading the source.</param>
     private static Voice? AddBed(string name, Transform at, AudioClip? clip, float gain,
                                  float minMeters, float maxMeters, System.Func<float> modulate,
+                                 EnvSoundClip clipName, bool airGated, bool fireLit,
                                  float lowPassHz = BedLowPassHz)
     {
         if (clip == null)
@@ -1094,12 +1245,32 @@ internal static class EnvSound
                                "existing bed out; do not leave this line in a shipped build.");
             return null;
         }
+        // THE ONE RULE THIS FEATURE HAS BROKEN TWICE, CHECKED WHERE IT IS DECLARED. Nothing that is
+        // not wind may play the wind buffer without the Air gate: the user has ruled on this clip
+        // twice ("Wind Geräusch nur wenn auch Wind aktiv ist, sonst kein Geräusch") and both times
+        // the violation was invisible from a log. It cannot be a compile-time check — the gate lives
+        // in a lambda — so it is a build-time one, and it is LOUD.
+        if (clipName == EnvSoundClip.Bed && !airGated)
+        {
+            VRLog.Warn("Core", $"ENV SOUND bed '{name}' on '{at.name}' plays the WIND buffer " +
+                               "(EnvSoundClip.Bed) but declares itself NOT Air-gated. That is the " +
+                               "ModBuild 152 defect exactly: the candle beds played this clip with " +
+                               "no gate, so a wind was audible with Air fully off. Either route its " +
+                               "level through WindBed() and pass airGated: true, or give it a clip " +
+                               "of its own — see EnvSoundBank's THE CANDLE for what that costs " +
+                               "(about a hundred lines of arithmetic). The bed is still created; " +
+                               "this line is here so the next hardware log names the fault.");
+        }
+
         var v = NewVoice(name, at, clip, gain, minMeters, maxMeters, loop: true,
                          lowPass: lowPassHz > 0f);
         if (v.LowPass != null)
             v.LowPass.cutoffFrequency = lowPassHz;
         v.Modulate = modulate;
         v.NodeName = at.name;
+        v.Clip = clipName;
+        v.AirGated = airGated;
+        v.FireLit = fireLit;
         v.Source.volume = 0f;   // faded in by the first TickBeds — nothing ever starts at full
 
         // START EACH BED AT A DIFFERENT POINT IN ITS BUFFER. The flame, the draught and the leaves
@@ -1231,8 +1402,13 @@ internal static class EnvSound
 
     private static void TickBeds()
     {
+        bool windWasOpen = _windGate > 0f;
+        bool fireWasOpen = _fireGate > 0f;
+
         TickWindGate();
         TickFireGate();
+
+        float air = Mathf.Clamp01(ElementMood.Live(2));
 
         float master = Master();
         for (int i = 0; i < Beds.Count; i++)
@@ -1240,6 +1416,33 @@ internal static class EnvSound
             Voice v = Beds[i];
             float m = v.Modulate != null ? Mathf.Clamp(v.Modulate(), 0f, 2f) : 1f;
             float want = v.BaseGain * m * master;
+
+            // ================= THE ASSERTION THIS FEATURE HAS EARNED TWICE ============================
+            //
+            //  A WIND-CLIP BED WITH A NON-ZERO LEVEL WHILE AIR IS DOWN IS THE SHIPPED DEFECT, and
+            //  from ModBuild 153 it writes a line instead of just playing. The check is on the
+            //  MODULATOR's result rather than on the source volume, deliberately: the volume walks
+            //  down over about a tenth of a second, so testing it would need a tolerance and a
+            //  tolerance is a place for the next bug to live. The modulator's answer is EXACTLY zero
+            //  when the gate is shut (WindBed returns a literal 0), so this compares against nothing
+            //  and can be believed.
+            //
+            //  ONCE PER BUILD, not per frame: the flag is cleared by Teardown. A per-frame warning
+            //  would be 90 lines a second in a log that has to stay readable.
+            if (v.IsWindClip && !_windLeakLogged && air <= 0f && _windGate <= 0f && m > 0f)
+            {
+                _windLeakLogged = true;
+                VRLog.Warn("Core", $"ENV SOUND WIND LEAK — bed '{v.Name}' on '{v.NodeName}' plays " +
+                                   $"the WIND buffer (EnvSoundClip.Bed) and its level is {m:F3} of " +
+                                   "its own gain while the Air element reads 0.000 and the wind gate " +
+                                   "is fully shut. That is not allowed: the user's standing ruling is " +
+                                   "\"Wind Geräusch nur wenn auch Wind aktiv ist, sonst kein " +
+                                   "Geräusch\", and a bed that plays this clip must take its level " +
+                                   "from WindBed(), which returns a literal zero with the gate shut. " +
+                                   "If this line is in the log, THE WIND IS AUDIBLE WITH NO AIR UP " +
+                                   "and the fault is in whatever lambda that bed was given, not in " +
+                                   "the gate. Logged once per build.");
+            }
             // Walked, never jumped: a bed whose level stepped with the element ramp would click.
             v.Source.volume = Mathf.MoveTowards(v.Source.volume, want, Time.deltaTime * 0.6f);
 
@@ -1268,6 +1471,90 @@ internal static class EnvSound
                 v.Source.UnPause();
             }
         }
+
+        // ...and THE LINE THAT SETTLES THE REPORT FROM A LOG. See LogGates.
+        //
+        // ONE LINE EVEN WHEN BOTH GATES MOVE ON THE SAME FRAME, which a card that infuses two
+        // elements at once really does produce. The label names both edges and the line reports both
+        // gates and every bed regardless, so nothing is lost by not writing it twice — and "the wind
+        // came up AND the fires caught" is the single most interesting frame in the whole feature.
+        bool windEdge = windWasOpen != _windGate > 0f;
+        bool fireEdge = fireWasOpen != _fireGate > 0f;
+        if (windEdge || fireEdge)
+        {
+            string wind = windEdge ? (_windGate > 0f ? "THE WIND CAME UP" : "THE WIND WENT DOWN") : "";
+            string fire = fireEdge ? (_fireGate > 0f ? "THE FIRES CAUGHT" : "THE FIRES WENT OUT") : "";
+            LogGates(windEdge && fireEdge ? wind + " and " + fire : wind + fire, air);
+        }
+    }
+
+    /// <summary>Set once per build, the first time a wind-clip bed is caught with a level while Air
+    /// is down. Cleared by <see cref="Teardown"/>, so a session that stands two environments up gets
+    /// at most one line per environment rather than one per frame.</summary>
+    private static bool _windLeakLogged;
+
+    /// <summary>
+    /// EVERY BED, ITS CLIP, ITS GATES AND ITS LEVEL — written on the frame a gate opens or shuts and
+    /// on no other frame.
+    ///
+    /// <para><b>THIS IS THE LINE THE LAST THREE ROUNDS DID NOT HAVE.</b> The user has now reported
+    /// twice that a wind is audible when it should not be, and both times the log could not settle
+    /// it: <see cref="LogBuilt"/> named the beds and their gains, and then nothing in the session
+    /// ever said what any of them was DOING. A wind-clip bed playing at full level with Air at zero
+    /// and a correctly-gated one at zero looked identical from Player.log, which is why the fix took
+    /// three rounds to find and why it was found by reading BuildCellar rather than by reading a
+    /// log.</para>
+    ///
+    /// <para>SO THE TRIGGER IS THE EVENT ITSELF. Air and Fire are infused a handful of times in a
+    /// scenario, so this is a handful of lines — and each one is emitted exactly when the thing the
+    /// report is about changes, with the source volumes as they stand on that frame. A reader with
+    /// this line can answer "is the wind clip audible while Air is down" by looking, and can answer
+    /// "what got louder when I infused Fire" by diffing two of them.</para>
+    /// </summary>
+    private static void LogGates(string what, float air)
+    {
+        float fire = Mathf.Clamp01(ElementMood.Live(0));
+        var sb = new StringBuilder(560);
+        sb.Append("ENV SOUND ").Append(what).Append(" — Air ").Append(air.ToString("F3"))
+          .Append(" (wind gate ").Append(_windGate.ToString("F3")).Append("), Fire ")
+          .Append(fire.ToString("F3")).Append(" (fire gate ").Append(_fireGate.ToString("F3"))
+          .Append("), Earth ").Append(Mathf.Clamp01(ElementMood.Live(3)).ToString("F3"))
+          .Append(", duck ").Append(_duck.ToString("F2")).Append(", master ")
+          .Append(Master().ToString("F3")).Append(". EVERY BED, as it stands this frame: ");
+
+        for (int i = 0; i < Beds.Count; i++)
+        {
+            Voice v = Beds[i];
+            sb.Append('[').Append(v.Name).Append(" clip=").Append(v.Clip)
+              .Append(v.AirGated ? " AIR-GATED" : " not-air-gated")
+              .Append(v.FireLit ? " FIRE-LIT" : " not-fire-lit")
+              .Append(" vol ").Append(v.Source.volume.ToString("F4"))
+              .Append(v.Source.isPlaying ? " PLAYING" : " paused")
+              .Append("] ");
+        }
+
+        // The one sentence a reader should not have to assemble themselves.
+        int windBeds = 0;
+        float windLevel = 0f;
+        for (int i = 0; i < Beds.Count; i++)
+        {
+            if (!Beds[i].IsWindClip)
+                continue;
+            windBeds++;
+            windLevel += Beds[i].Source.volume;
+        }
+        sb.Append("THE WIND CLIP (EnvSoundClip.Bed) IS PLAYED BY ").Append(windBeds)
+          .Append(" bed(s) in this room and their volumes sum to ").Append(windLevel.ToString("F4"))
+          .Append(air <= 0f
+                      ? " WITH AIR AT ZERO — that sum MUST be 0.0000, and anything else is the "
+                        + "ModBuild 152 defect back (the candle beds used to play this clip ungated, "
+                        + "and their gain rose with FIRE, which is why 'beim Feuer Geräusch ist auch "
+                        + "immer das Wind Geräusch mit dabei')."
+                      : " with Air up, which is the only state in which it is allowed to be audible "
+                        + "at all.")
+          .Append(" The candles play EnvSoundClip.Flutter and the seated fires EnvSoundClip.Roar; "
+                  + "neither is this buffer, and neither is gated on Air.");
+        VRLog.Info("Core", sb.ToString());
     }
 
     /// <summary>
@@ -2529,6 +2816,11 @@ internal static class EnvSound
         // ...and the fire's, for the identical reason: a style change during a Fire infusion must not
         // put the new room's fires up at full level on the frame they are created.
         _fireGate = 0f;
+        _candleGroups = 0;
+        // The leak warning is per BUILD and not per session: a style change builds a different set
+        // of beds, and a fault in the new room's table has to be able to report itself even if the
+        // old room already reported one.
+        _windLeakLogged = false;
         for (int i = 0; i < FireSites; i++)
         {
             _fireVoices[i] = null;
@@ -2823,7 +3115,13 @@ internal static class EnvSound
         for (int i = 0; i < Beds.Count; i++)
         {
             Voice v = Beds[i];
-            sb.Append('[').Append(v.Name).Append(" on '").Append(v.NodeName).Append("' gain ")
+            // CLIP, AIR, FIRE — on every bed, from ModBuild 153, because the defect the user
+            // reported twice was exactly the combination of those three on one emitter and this
+            // line named none of them. "Flame0 on 'CandlesTable' gain 0.055" was in the log of the
+            // build that shipped the fault and told nobody anything.
+            sb.Append('[').Append(v.Name).Append(" on '").Append(v.NodeName).Append("' clip=")
+              .Append(v.Clip).Append(v.AirGated ? " AIR-GATED" : " not-air-gated")
+              .Append(v.FireLit ? " FIRE-LIT" : " not-fire-lit").Append(" gain ")
               .Append(v.BaseGain.ToString("F3")).Append(", ")
               .Append(v.MinMeters.ToString("F1")).Append("..").Append(v.MaxMeters.ToString("F1"))
               .Append(" m perceived = ")
@@ -2851,6 +3149,18 @@ internal static class EnvSound
           .Append("s, and while it is shut the source is PAUSED, not merely silent — so a 'Draught' ")
           .Append("or 'Leaves' line above with no audible wind under it is the gate working, not a ")
           .Append("missing sound. The Earth rumble is paused the same way whenever no Earth is up. ")
+          .Append("EXACTLY THE BEDS MARKED clip=Bed ABOVE PLAY THE WIND BUFFER, and every one of ")
+          .Append("them must also read AIR-GATED. Until ModBuild 153 the three cellar 'Flame' beds ")
+          .Append("played it NOT air-gated and FIRE-LIT, which is the whole of the user's report ")
+          .Append("(\"beim Feuer Geräusch ist auch immer das Wind Geräusch mit dabei\"); they now ")
+          .Append("play clip=Flutter, a clip of their own with 1.1% of its energy under 200 Hz ")
+          .Append("against the wind bed's 53.2% and a spectral spread of 0.66 octaves against 1.10. ")
+          .Append("CANDLE GROUPS RESOLVED: ").Append(_candleGroups)
+          .Append(_candleGroups == 0 && style == SkyStyle.Cellar
+                      ? " — NONE, and in the cellar that is a FAULT, not a quiet room: the bake "
+                        + "names them 'Candles<n>' (CandleGroup) and this build found no node with "
+                        + "that prefix, so the candles are silent for the whole session. "
+                      : ". ")
           .Append("FIRE: ").Append(_fireResolution.Length == 0 ? "no sites " : _fireResolution)
           .Append("— each site is ONE source carrying BOTH the roar (looped) and its crackles ")
           .Append("(AudioSource.PlayOneShot, so they inherit its gate, place, rolloff and every gain ")

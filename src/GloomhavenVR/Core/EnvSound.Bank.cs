@@ -18,9 +18,20 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal enum EnvSoundClip
 {
-    /// <summary>The shared stationary noise bed — the candle flames, the draught and the leaves all
-    /// ride this one. IT IS NOT THE FIRE: see <see cref="Roar"/>.</summary>
+    /// <summary>THE WIND. The shared stationary noise bed the window <c>Draught</c> and the swamp
+    /// <c>Leaves</c> ride, and NOTHING ELSE MAY RIDE IT — every emitter that plays this clip is
+    /// hard-gated on the Air element through <c>EnvSound.WindBed</c>, because the user's standing
+    /// ruling is that there is no wind SOUND without wind ("Wind Geräusch nur wenn auch Wind aktiv
+    /// ist, sonst kein Geräusch"). Until ModBuild 153 the cellar's candle flames played it too, and
+    /// were not gated, and got LOUDER with a Fire infusion; see <see cref="Flutter"/>. IT IS NOT THE
+    /// FIRE either: see <see cref="Roar"/>.</summary>
     Bed,
+
+    /// <summary>A CANDLE FLAME — narrow-band noise fluttering at ~11 Hz with the wick's sputters in
+    /// it. Looped, 7 s. Its own clip since ModBuild 153, because it is neither a draught (it has no
+    /// low end at all: 1.1% under 200 Hz against the wind bed's 53.2%) nor a fire's convective roar;
+    /// see <c>EnvSoundBank</c>'s THE CANDLE.</summary>
+    Flutter,
 
     /// <summary>The convective column of a real fire — the low, breathy rush. Looped, 6 s, and its
     /// own clip rather than <see cref="Bed"/> because a fire PULSES and a draught does not; see
@@ -103,13 +114,12 @@ internal enum EnvSoundClip
 /// a listener's report ("the drip sounds wrong") mean the same thing on the machine that has to fix
 /// it.</para>
 ///
-/// <para><b>COST.</b> One shared 8 s noise bed, the fire's own 6 s roar, and nineteen shorter clips
-/// (fifteen named plus the drip's, the crackle's and the ember's extra realisations) at the output
-/// sample rate, mono. The DEVICE's own figure was 14 clips / ~5.8 MB / 103 ms at 48 kHz before
-/// ModBuild 152 (Player.log:3570, the ModBuild 151 session); the fire adds 6.66 s of audio — the
-/// roar plus four 55 ms crackles and two 220 ms settles — for about +1.3 MB, so 21 clips and
-/// ~7.1 MB. The <see cref="Build"/> log line prints the real figure for the device's own rate rather
-/// than this estimate. Generated once per session on the frame the
+/// <para><b>COST.</b> One shared 8 s wind bed, the candles' 7 s flutter, the fire's 6 s roar, and
+/// nineteen shorter clips (fifteen named plus the drip's, the crackle's and the ember's extra
+/// realisations) at the output sample rate, mono. The DEVICE's own figure was 21 clips / ~7.0 MB /
+/// 127 ms at 48 kHz for ModBuild 152 (Player.log:720); ModBuild 153 adds the 7 s flutter for about
+/// +1.3 MB, so 22 clips and ~8.3 MB. The <see cref="Build"/> log line prints the real figure for the
+/// device's own rate rather than this estimate. Generated once per session on the frame the
 /// room is first placed, and never touched again.
 /// ModBuild 149 gives back the ice clip's 0.42 s and its ~0.70 ms of build time entirely (the
 /// sound is DELETED, see the ruling block below) and spends about +0.35 ms of it again on the
@@ -123,23 +133,31 @@ internal static class EnvSoundBank
     private static int Rate => AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
 
     /// <summary>
-    /// THE SHARED BED. Eight seconds of stationary broadband noise, looped by the three CONTINUOUS
-    /// AND STEADY emitters — the candle flames, the window draught and the swamp canopy — and shaped
-    /// per emitter by a runtime low-pass filter plus a runtime gain LFO.
+    /// THE WIND. Eight seconds of stationary broadband noise, looped by the TWO emitters that are
+    /// air moving through an aperture — the window draught and the swamp canopy — and shaped per
+    /// emitter by a runtime low-pass filter plus a runtime gain LFO.
     ///
-    /// <para>ONE BUFFER FOR THREE SOUNDS is not a memory trick, it is what makes them not repeat.
-    /// A candle flame and a draught differ physically by their spectrum, not by their noise; giving
-    /// them one source of noise and two different filters is the correct model, and it means the
-    /// only thing that could ever sound periodic — the buffer — is the one thing that carries no
-    /// information at all.</para>
-    ///
-    /// <para><b>AND THE SEATED FIRES ARE NOT ON IT ANY MORE, which is the correction ModBuild 152
-    /// makes.</b> This paragraph used to say "a fire and a draught" and the cellar's fire really did
-    /// ride this buffer — so the sound the user was answered with when he asked for a fire was
-    /// literally the draught, at a level that rose with the Fire element. That argument holds for a
-    /// CANDLE, whose flame is small enough to be steady, and it breaks for a burning crate: a real
-    /// fire PUFFS at a few hertz and CRACKLES, and neither is reachable by filtering stationary noise.
-    /// See THE FIRE below, and <see cref="Roar"/>.</para>
+    /// <para><b>NOTHING THAT IS NOT WIND MAY PLAY THIS BUFFER, and that sentence is the whole of two
+    /// user reports.</b> The claim this doc used to make — one source of noise plus different filters
+    /// is the correct physical model for several steady sounds — is true only while the sounds really
+    /// are the same phenomenon at different scales, and it was stretched twice past that:</para>
+    /// <list type="number">
+    /// <item><b>THE SEATED FIRES came off it at ModBuild 152.</b> A fire PUFFS at a few hertz and
+    /// CRACKLES, and neither is reachable by filtering stationary noise, so what the user was
+    /// answered with when he asked for a fire sound was literally the draught, at a level that rose
+    /// with the Fire element. See THE FIRE and <see cref="Roar"/>.</item>
+    /// <item><b>THE CANDLE FLAMES came off it at ModBuild 153</b>, and the same round found the two
+    /// faults hiding behind that: they were never Air-gated, so the wind buffer played in the cellar
+    /// with Air fully off, and their gain carried a FIRE term, so infusing Fire made the wind clip
+    /// louder. That is the ModBuild 152 report word for word. See THE CANDLE and
+    /// <see cref="Flutter"/>.</item>
+    /// </list>
+    /// <para>What is left on this buffer is a window draught and a canopy full of leaves, which
+    /// really are one phenomenon at two scales — and both of them are hard-zeroed by
+    /// <c>EnvSound._windGate</c>, so this clip is INAUDIBLE whenever the Air element is down. That is
+    /// now a property of the bank as well as of the caller: if a future emitter reaches for
+    /// <c>EnvSoundClip.Bed</c> without going through <c>WindBed()</c>, <c>EnvSound.TickBeds</c> logs
+    /// it as a defect rather than playing it.</para>
     ///
     /// <para>EIGHT SECONDS, and the length is chosen against the FILTER rather than against the
     /// ear: a 40 Hz-cornered low pass needs a good many cycles of its lowest passed frequency
@@ -147,6 +165,11 @@ internal static class EnvSoundBank
     /// cross-faded (see below) so even that cannot tick.</para>
     /// </summary>
     internal static AudioClip? Bed { get; private set; }
+
+    /// <summary>THE CANDLE FLAME — narrow-band noise, fluttering at 11 Hz, with the wick's sputters
+    /// in it. Looped, 7 s. See <see cref="MakeFlutter"/>, and see THE CANDLE below for the user
+    /// report that took the candles off <see cref="Bed"/>.</summary>
+    internal static AudioClip? Flutter { get; private set; }
 
     /// <summary>THE FIRE'S CONVECTIVE COLUMN — the low, breathy rush. Looped, 6 s. See
     /// <see cref="MakeRoar"/>, and see THE FIRE below for why the fire could not go on riding
@@ -296,6 +319,7 @@ internal static class EnvSoundBank
     internal static AudioClip? Bank(EnvSoundClip which) => which switch
     {
         EnvSoundClip.Bed => Bed,
+        EnvSoundClip.Flutter => Flutter,
         EnvSoundClip.Drip => Drip,
         EnvSoundClip.Squeak => Squeak,
         EnvSoundClip.Skitter => Skitter,
@@ -334,6 +358,7 @@ internal static class EnvSoundBank
             int rate = Rate;
 
             Bed = MakeBed(rate);
+            Flutter = MakeFlutter(rate);
             Roar = MakeRoar(rate);
             Crackle = MakeCrackles(rate);   // fills _crackles and hands back element 0
             Ember = MakeEmbers(rate);       // fills _embers  and hands back element 0
@@ -387,7 +412,7 @@ internal static class EnvSoundBank
         // Every clip made by Finish is in _made, Bed included — so the ONE loop below destroys
         // everything exactly once. A separate "kill the bed first" step used to live here and was
         // a double-destroy waiting to happen.
-        Bed = null; Drip = null; Squeak = null; Skitter = null;
+        Bed = null; Flutter = null; Drip = null; Squeak = null; Skitter = null;
         Rumble = null; Chirr = null;
         Creak = null; Breath = null; Drag = null; Fly = null; Fall = null; Settle = null;
         Roar = null; Crackle = null; Ember = null;
@@ -696,15 +721,20 @@ internal static class EnvSoundBank
     //      1.0-1.2 ms decay to -20 dB, i.e. shorter than the drip's transient, and the clause is
     //      about duration rather than about taste.
     //
-    //  MEASURED, off the finished buffers, by a replica of these generators run outside Unity. The
-    //  replica is validated rather than asserted: it reproduces the SHIPPED Fall clip's published
-    //  table exactly (peak 0.980 at 2.44 ms, RMS 0.0697, 90% of peak in 0.19 ms, -20 dB in 27 ms,
-    //  centroid 1530 Hz, bands 26.9/5.3/34.5/17.3/10.0/5.9), so the figures below are the same
-    //  arithmetic on the same harness. The DEVICE's own peak and attack for any of these is printed
-    //  by MeasuredShape wherever a cue logs.
+    //  MEASURED, off the finished buffers, by a replica of these generators run outside Unity
+    //  (.planning/envsound-replica/fire.py). The replica is validated rather than asserted: it
+    //  reproduces the SHIPPED Fall clip's published table exactly (peak 0.980 at 2.44 ms, RMS 0.0697,
+    //  90% of peak in 0.19 ms, -20 dB in 27 ms, centroid 1530 Hz, bands 26.9/5.3/34.5/17.3/10.0/5.9),
+    //  so the figures below are the same arithmetic on the same harness. The DEVICE's own peak and
+    //  attack for any of these is printed by MeasuredShape wherever a cue logs.
+    //
+    //  THE ROAR'S RMS AND ITS 20 ms WINDOW MOVED AT ModBuild 153 (0.0628 -> 0.0567, 0.1015 ->
+    //  0.1019) and nothing else in this table did. That is the puff envelope becoming real; see
+    //  RoarPuffSigmas for the defect and the measurement. The SPECTRUM is untouched, because
+    //  multiplying by a slow broadband envelope does not move a band share.
     //
     //                 len     peak  peak at   90%     RMS   -20dB   20 ms   centroid
-    //    Roar        6.000 s  0.300    43 ms  43 ms  0.0628      -  0.1015     446 Hz
+    //    Roar        6.000 s  0.300    43 ms  43 ms  0.0567      -  0.1019     446 Hz
     //    Crackle0    0.055 s  0.950  0.48 ms 0.48ms  0.0710  1.2 ms 0.1086    3175 Hz
     //    Crackle1    0.055 s  0.780  0.54 ms 0.52ms  0.0457  1.2 ms 0.0656    2076 Hz
     //    Crackle2    0.055 s  0.950  0.75 ms 0.73ms  0.0680  1.0 ms 0.1127    1856 Hz
@@ -788,6 +818,41 @@ internal static class EnvSoundBank
     /// of breathing, which is a fire seen to surge rather than a tremolo.</summary>
     private const float RoarPuffFloor = 0.42f;
 
+    /// <summary>
+    /// HOW MANY STANDARD DEVIATIONS OF THE PUFF STREAM SPAN THE FULL FLOOR-TO-ONE RANGE — and this
+    /// constant exists because ModBuild 152's roar did not actually puff.
+    ///
+    /// <para><b>THE DEFECT, MEASURED.</b> The shipped generator normalised the envelope stream by its
+    /// own PEAK (<c>e2 / emax</c>). A twice-low-passed noise stream's peak is a rare excursion: the
+    /// replica measures peak/sigma = <b>3.13</b> over the 6 s buffer, so dividing by the peak
+    /// squeezes the typical excursion into the middle of the range. <see cref="RoarPuffFloor"/>
+    /// claims 20·log10(1/0.42) = <b>7.54 dB</b> of breathing; what the buffer actually carried was a
+    /// 5-95% swing of <b>3.81 dB</b>. The stationary draught bed's OWN envelope — the accidental
+    /// fluctuation of band-limited noise through a 20 ms window, with no envelope applied at all —
+    /// measures <b>4.02 dB</b>. So the fire's deliberate puff was SMALLER than the wind's accident,
+    /// and "a fire puffs and a draught does not" (this block's own argument for why the fire could
+    /// not ride <c>Bed</c>) was true of the intent and false of the buffer.</para>
+    ///
+    /// <para><b>THAT IS THE MEASURABLE HALF OF THE ModBuild 152 USER REPORT.</b> "Beim Feuer Geräusch
+    /// ist auch immer das Wind geräusch mit dabei" had an obvious cause — the candle beds were
+    /// literally playing the draught, see THE CANDLE — and this second one behind it: with the puff
+    /// flattened, the roar was steady low-passed broadband noise, which IS a wind. The band alone
+    /// could not separate them either; the replica measures the roar's audible centroid at 436 Hz
+    /// against the draught's 598 Hz, well inside what two noises can share.</para>
+    ///
+    /// <para><b>1.8 SIGMA, and the clamp is the point rather than a safety net.</b> Normalising by
+    /// k·sigma and clamping to [0,1] makes the realised swing a stated number instead of a property
+    /// of one buffer's luckiest sample. At k = 1.8 the measured 5-95% swing is about <b>6.8 dB</b> on
+    /// the envelope stream and <b>7.47 dB</b> on the finished buffer, against the draught's 4.02 dB,
+    /// and about 6.6% of samples sit on a clamp — i.e. the surge tops out and the lull bottoms out, which is
+    /// what a fire being fed does. A larger k gives the shipped defect back gradually (k = 2.5 is
+    /// 4.81 dB); a smaller one is a square wave.</para>
+    ///
+    /// <para>THE COST, stated: the deeper envelope lowers the buffer's RMS at the same peak, so the
+    /// roar is <b>0.9 dB</b> quieter overall (0.0567 against 0.0628). That is the right direction for
+    /// this feature and it is not compensated.</para></summary>
+    private const float RoarPuffSigmas = 1.8f;
+
     /// <summary>The roar's band. THE FLOOR IS THE HARDWARE (a Quest 3 speaker gives essentially
     /// nothing under ~200 Hz, so energy below it is energy spent on silence — the bookshelf's 72.7%
     /// is the measured cost of not knowing that), applied TWICE for 12 dB/oct because one pole leaves
@@ -828,22 +893,27 @@ internal static class EnvSoundBank
         int n = (int)(rate * RoarSeconds);
         var d = new float[n];
 
-        // ---- pass 1: THE ENVELOPE, into d, and its peak.
+        // ---- pass 1: THE ENVELOPE, into d, and its SIGMA. Not its peak — see RoarPuffSigmas for
+        // what normalising by the peak cost, measured.
         var er = new Rng(0xF12E0000u ^ 0x5A5A5A5Au);
         float ke = 1f - Mathf.Exp(-2f * Mathf.PI * RoarPuffHz / rate);
-        float e1 = 0f, e2 = 0f, emax = 0f;
+        float e1 = 0f, e2 = 0f;
+        // The sum of squares is accumulated in DOUBLE: 288 000 terms of ~6e-5 each summed in float
+        // loses the tail of the accumulator to rounding, and this is a number the puff depth is
+        // divided by. The mean is zero by construction (the stream is a filtered zero-mean noise),
+        // so the RMS is the standard deviation and no second pass is needed.
+        double acc = 0.0;
         for (int i = 0; i < n; i++)
         {
             float v = er.Next();
             e1 += ke * (v - e1);
             e2 += ke * (e1 - e2);
             d[i] = e2;
-            float a = e2 < 0f ? -e2 : e2;
-            if (a > emax)
-                emax = a;
+            acc += (double)e2 * e2;
         }
-        if (emax <= 1e-6f)
-            emax = 1f;
+        float span = RoarPuffSigmas * (float)System.Math.Sqrt(acc / Mathf.Max(n, 1));
+        if (!(span > 1e-9f))
+            span = 1f;
 
         // ---- pass 2: THE CARRIER, times that envelope mapped onto [RoarPuffFloor, 1].
         var r = new Rng(0xF12E0000u);
@@ -858,8 +928,8 @@ internal static class EnvSoundBank
             a2 += k2 * (w - a2);
             a3 += k3 * (w - a3);
             float pink = a1 * RoarPinkMix[0] + a2 * RoarPinkMix[1] + a3 * RoarPinkMix[2];
-            float env = RoarPuffFloor + (1f - RoarPuffFloor) * 0.5f * (1f + d[i] / emax);
-            d[i] = pink * env;
+            float u = Mathf.Clamp01(0.5f * (1f + d[i] / span));
+            d[i] = pink * (RoarPuffFloor + (1f - RoarPuffFloor) * u);
         }
 
         for (int p = 0; p < RoarLoPoles; p++)
@@ -1065,6 +1135,264 @@ internal static class EnvSoundBank
 
         Normalise(d, EmberPeak);
         return Finish("Ember" + which, d, rate);
+    }
+
+    // =============================================================================================
+    //  THE CANDLE — ModBuild 153, and it is a DELETION of a wind as much as an addition of a flame.
+    // =============================================================================================
+    //
+    //  USER REPORT, ModBuild 152 hardware, verbatim:
+    //
+    //      "Beim Feuer Geräusch ist auch immer das Wind geräusch mit dabei. Das soll nicht sein.
+    //       Das Wind gEräusch soll nur dann kommen wenn Wind auch aktiv ist."
+    //
+    //  He is restating a ruling he already gave at ModBuild 147 ("Wind Geräusch nur wenn auch Wind
+    //  aktiv ist, sonst kein Geräusch") and which ModBuild 148 believed it had implemented. It had
+    //  not, and the reason is in one line of EnvSound.BuildCellar rather than in his ears:
+    //
+    //      AddBed($"Flame{candles}", t, EnvSoundBank.Bank(EnvSoundClip.Bed), 0.055f, ...,
+    //             () => 0.72f + 0.28f * Lfo(3.11f) + 0.9f * ElementMood.Live(0));
+    //
+    //  THREE SEPARATE FAULTS IN ONE CALL, and all three are the same mistake — a sound borrowing a
+    //  convenient noise buffer:
+    //    1. EnvSoundClip.Bed IS THE WIND. It is the buffer the window Draught and the swamp Leaves
+    //       play; its own doc comment says so. So the cellar's three candle groups have been playing
+    //       the draught since the feature shipped.
+    //    2. THEY WERE NOT AIR-GATED. Draught and Leaves go through WindBed(), which is hard-zeroed by
+    //       _windGate; the Flame beds did not, so the wind buffer was audible in the cellar with Air
+    //       fully off — the 147 ruling broken on its face.
+    //    3. `+ 0.9f * ElementMood.Live(0)` IS FIRE. Infusing Fire made the WIND CLIP louder, by a
+    //       measured +6.2 dB on each of the room's three candle beds. That is, literally, "beim Feuer
+    //       Geräusch ist auch immer das Wind Geräusch mit dabei".
+    //  ModBuild 152 added the seated fires' own Roar/Crackle/Ember beside this call and LEFT IT
+    //  STANDING, which is why the report survived that round.
+    //
+    //  WHAT A CANDLE ACTUALLY IS, because the fix is not "quieter wind". A candle flame is 15-30 mm
+    //  of laminar-to-barely-turbulent combustion. Three consequences, and each one is a constant
+    //  below:
+    //    * IT HAS NO LOW END AT ALL. A radiator that small cannot move air at 100 Hz; the draught's
+    //      body — 53.2% of the shared bed's energy is under 200 Hz — is a property of a window-sized
+    //      APERTURE and a candle has no equivalent. FlutterLoHz.
+    //    * IT IS NARROW-BAND. A draught is a broadband rush (measured spread 1.10 octaves); a small
+    //      flame is a band of noise around its own eddy scale (0.66 octaves). This is the strongest
+    //      spectral separation available and it is what "narrow-band flutter" means as a number.
+    //    * IT FLUTTERS FASTER THAN A FIRE. The instability rate goes as 1/sqrt(size), so a candle
+    //      guts several times a second where a burning crate puffs at RoarPuffHz = 5.5. FlutterHz is
+    //      11 — twice the fire's, and deliberately under 20 Hz, above which amplitude modulation
+    //      stops being heard as flutter and starts being heard as roughness.
+    //  ...and the WICK, which is the only part of a candle that makes a discrete sound: a trapped
+    //  impurity or a bead of wax spitting. FlutterTicks.
+    //
+    //  MEASURED, off the finished buffers by the replica in .planning/envsound-replica/candle.py.
+    //  "Draught" is the shared bed THROUGH ITS RUNTIME 1150 Hz LOW PASS, i.e. what the player is
+    //  actually handed, because comparing raw buffers would compare something nobody hears.
+    //
+    //    energy by band     0-200  200-500  500-1k    1-2k    2-5k   5-24k   centroid  spread(>200Hz)
+    //    Draught (Bed)      53.2%    22.0%   13.2%    7.9%    3.2%    0.5%     441 Hz     1.10 oct
+    //    Candle (Flutter)    1.1%    26.7%   54.5%   16.8%    0.9%    0.0%     728 Hz     0.66 oct
+    //    Roar                11.4%   56.2%   28.8%    3.5%    0.1%    0.0%     446 Hz     0.64 oct
+    //
+    //    envelope (20 ms)   sigma/mean   5-95% swing   mod centroid   1-8 Hz share
+    //    Draught (Bed)           0.150       4.02 dB       18.13 Hz          23.3%
+    //    Candle (Flutter)        0.247       7.46 dB        7.80 Hz          56.0%
+    //    Roar                    0.257       7.47 dB        7.44 Hz          61.2%
+    //
+    //  THE TWO NUMBERS THAT SETTLE "DOES IT STILL READ AS WIND":
+    //    * 0-200 Hz: 1.1% against 53.2%. The draught's whole body is in a band the candle does not
+    //      occupy at all — a 48x ratio, and it is the physics rather than a filter choice.
+    //    * SPREAD: 0.66 octaves against 1.10. The candle is a BAND and the draught is a RUSH. The
+    //      centroid alone would NOT have settled it (728 vs 441 raw, 660 vs 598 over the audible
+    //      band only) because the draught's own centroid is dragged up by a hiss tail; that is
+    //      exactly the measurement that would have been quoted if only one had been taken.
+    //
+    //  AND THE LEVEL IS NOT PART OF THE CHANGE. At EnvSound's unchanged 0.055 gain, the rebuilt bed
+    //  measures 1.76 dB QUIETER than the wind buffer it replaces (RMS through a 200 Hz high pass,
+    //  the headset stand-in). It also puts 5.3 dB LESS absolute energy into the 1-5 kHz band the
+    //  class doc protects than the draught bed does — so the narrower, higher band is not bought
+    //  with any of the "never mask" budget. Both are measured, not argued.
+    //
+    //  REJECTED:
+    //    * KEEPING Bed AND FILTERING IT HARDER AT RUNTIME. The runtime AudioLowPassFilter is ONE
+    //      pole; carving a 470-1050 Hz band out of a buffer whose energy is 53% below 200 Hz would
+    //      need a high pass this feature has no runtime component for, and would leave the candle
+    //      playing the draught's own samples — perfectly correlated with the window bed three metres
+    //      away, which is the correlation AddBed's start offset exists to prevent.
+    //    * DERIVING IT FROM Roar AT A LOWER LEVEL. Weighed seriously, since it needs no new buffer.
+    //      It fails the measurement: the roar's audible centroid is 436 Hz and its spread 0.64
+    //      octaves — it is DARKER than the draught, not brighter, so a quiet roar under the candles
+    //      would have been a second low rush in the same room and the report would have survived
+    //      another round.
+    //    * SCHEDULING THE WICK TICKS AS ONE-SHOTS, the way TickFire schedules crackles. It is the
+    //      technically purer answer (nothing recurs with the buffer) and it was rejected on cost: it
+    //      needs a per-site scheduler, three more Voice references, teardown state and its own wire
+    //      vectors, for a sound 16 dB under a crackle that only plays when the player is leaning
+    //      over the candles. The ticks are baked instead, and the loop argument is answered by
+    //      MEASUREMENT rather than by construction — see FlutterTickMix.
+
+    /// <summary>Length of the flutter loop. SEVEN seconds, against the shared bed's eight and the
+    /// roar's six: the three continuous buffers in a room are then mutually prime in whole seconds,
+    /// so no two of their wraps coincide inside three minutes. (They also never play in the same
+    /// room as each other at full level — but "nothing loops at a period the ear can find" is item 6
+    /// of the class doc and a free property is worth taking.)</summary>
+    private const float FlutterSeconds = 7f;
+
+    /// <summary>THE CANDLE'S BAND, and it is the whole of what separates this clip from the draught.
+    /// Two poles at 470 Hz off the bottom and FOUR at 1050 off the top.
+    ///
+    /// <para>THE FLOOR IS PHYSICS, not the hardware for once: a 20 mm flame does not radiate at
+    /// 100 Hz, so the 53.2% of the draught's energy that lives under 200 Hz has no counterpart here
+    /// and the measured figure is 1.1%. THE CEILING IS THE CLASS DOC — this is a CONTINUOUS layer, so
+    /// it is held under the 1-4 kHz band where speech and the game's UI cues live. Four poles rather
+    /// than the roar's three because the corner is higher and the band has to close before 2 kHz:
+    /// the finished buffer measures 0.9% above 2 kHz.</para>
+    ///
+    /// <para>AND THE RUNTIME FILTER IS TURNED OFF FOR THIS BED (EnvSound.AddBed's <c>lowPassHz: 0</c>,
+    /// the same call the fire makes), which is a tightening rather than a relaxation: the runtime
+    /// filter is ONE pole at 1150 Hz, i.e. -6 dB/oct, while this is -24 dB/oct from 1050. At 3 kHz
+    /// the runtime filter gives -8.6 dB and this gives -23 dB. Nothing is given up in the band the
+    /// class doc protects, and three AudioLowPassFilter components stop being evaluated per DSP
+    /// block.</para></summary>
+    private const float FlutterLoHz = 470f;
+    private const float FlutterHiHz = 1050f;
+    private const int FlutterLoPoles = 2;
+    private const int FlutterHiPoles = 4;
+
+    /// <summary>The flutter rate. TWICE the fire's <see cref="RoarPuffHz"/>, because the instability
+    /// that drives both scales as 1/sqrt(size) and a candle flame is two orders of magnitude smaller
+    /// than a burning crate. It is not scaled the whole way — the law would give some 35 Hz — and the
+    /// reason is a bound rather than taste: above roughly 20 Hz an amplitude modulation stops being
+    /// heard as a FLUTTER and starts being heard as roughness, i.e. as a timbre of the noise rather
+    /// than as something moving. 11 Hz keeps it visibly the same phenomenon as the fire's puff, twice
+    /// as fast, which is what a candle beside a fire should be.</summary>
+    private const float FlutterHz = 11f;
+
+    /// <summary>How far the flutter may pull the bed down, and over how many sigma of the envelope
+    /// stream that range is spanned. Both mirror <see cref="RoarPuffFloor"/>/<see cref="RoarPuffSigmas"/>
+    /// and the second one exists for the reason set out there — a peak-normalised envelope delivers
+    /// about half the swing its floor claims.
+    ///
+    /// <para>0.38 against the fire's 0.42: a candle is a smaller flame with less momentum, so it
+    /// guts deeper relative to itself. Measured on the finished buffer that is a 5-95% swing of
+    /// 7.46 dB with 56.0% of the modulation between 1 and 8 Hz, against the draught's 4.02 dB at a
+    /// modulation centroid of 18 Hz — which is the number that says the draught's "envelope" is
+    /// nothing but the fluctuation of stationary noise, and this one is a flame.</para></summary>
+    private const float FlutterFloor = 0.38f;
+    private const float FlutterSigmas = 1.8f;
+
+    /// <summary>THE WICK. How many sputters are laid into the buffer and the window they land in —
+    /// an impurity in the braid or a bead of wax reaching the flame, which is the only discrete
+    /// sound a candle makes. The train is <see cref="EnvSoundSchedule.SlipTrain"/>'s, at shrink 1
+    /// (no drift either way — a wick has no cascade) and a heavy jitter, so the spacing is irregular
+    /// and the loop TERMINATES BY CONSTRUCTION like every other caller of it.</summary>
+    private const int FlutterTicks = 18;
+    private const float FlutterTickFirst = 0.08f;
+    private const float FlutterTickLast = 6.90f;
+    private const float FlutterTickSpread = 1f;
+    private const float FlutterTickJitter = 0.90f;
+
+    /// <summary>One sputter's decay, the power law on its size, and how loud the whole layer is
+    /// against the flutter.
+    ///
+    /// <para><b>THE MIX IS WHERE THE LOOP ARGUMENT IS SETTLED, and it is settled by measurement.</b>
+    /// Item 6 of the class doc forbids a recognisable EVENT inside a looping buffer — the ear finds
+    /// it and from then on the bed announces its own period. So the ticks were measured against the
+    /// flutter's own 4 ms level: at this mix the MEDIAN sputter is +3.2 dB over it (i.e. inside the
+    /// noise's own fluctuation and not an event at all) and only four of the eighteen exceed +5 dB,
+    /// the loudest reaching +8.2 dB. The buffer's crest factor is 15.2 dB against the flutter's own
+    /// 14.4 dB — the sputters barely touch the peak, which matters because the peak is what
+    /// <see cref="Normalise"/> sets the WHOLE BED's level from: a loud tick would buy itself by
+    /// making every candle in the room quieter. What recurs every 7 s is therefore a
+    /// TEXTURE, and the three candle groups start at different offsets in it (EnvSound.AddBed) and
+    /// run their own gain LFOs on top.</para>
+    ///
+    /// <para>0.8 ms of decay: a wick tick is a pressure step and not a click with a tail. The
+    /// exponent is the crackle's and the drip's and the shelf scatter's — <c>u^1.5</c> is the inverse
+    /// CDF of a size distribution where the small vastly outnumber the large, which is what a wick
+    /// spits. The ticks go through the same band filters as the flutter, deliberately: a wick sputter
+    /// is a dull little pop from inside the same small flame, not a spark.</para></summary>
+    private const float FlutterTickTau = 0.0008f;
+    private const float FlutterTickExponent = 1.5f;
+    private const float FlutterTickMix = 2f;
+
+    /// <summary>The flutter's peak. Chosen so that the REBUILT bed lands within about 2 dB of the
+    /// level the wind buffer gave the candles at the same 0.055 gain — measured 1.76 dB quieter
+    /// through a 200 Hz high pass. This round changes what the candles sound like and deliberately
+    /// not how loud they are: a rebuild that also moved the level would leave the next hardware
+    /// report unable to say which of the two it was judging. Where it is not exactly level it errs
+    /// QUIET, which is this file's standing bias.</summary>
+    private const float FlutterPeak = 0.70f;
+
+    private const uint FlutterSeed = 0xCA9D1E00u;
+
+    /// <summary>
+    /// THE CANDLE FLAME. Narrow-band noise inside the flame's own eddy band, fluttering at
+    /// <see cref="FlutterHz"/>, with the wick's sputters laid in. See THE CANDLE above for the user
+    /// report that produced it, the physics and the measurements.
+    ///
+    /// <para>TWO PASSES OVER ONE BUFFER, exactly as <see cref="MakeRoar"/> does it and for the same
+    /// reason: the envelope has to be normalised before it can be applied, and writing it into
+    /// <c>d</c> saves a second buffer inside a bank build that runs on the frame the room is
+    /// placed.</para>
+    /// </summary>
+    private static AudioClip MakeFlutter(int rate)
+    {
+        int n = (int)(rate * FlutterSeconds);
+        var d = new float[n];
+
+        // ---- pass 1: THE ENVELOPE, into d, and its sigma. See RoarPuffSigmas.
+        var er = new Rng(FlutterSeed ^ 0x5A5A5A5Au);
+        float ke = 1f - Mathf.Exp(-2f * Mathf.PI * FlutterHz / rate);
+        float e1 = 0f, e2 = 0f;
+        double acc = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            float v = er.Next();
+            e1 += ke * (v - e1);
+            e2 += ke * (e1 - e2);
+            d[i] = e2;
+            acc += (double)e2 * e2;
+        }
+        float span = FlutterSigmas * (float)System.Math.Sqrt(acc / Mathf.Max(n, 1));
+        if (!(span > 1e-9f))
+            span = 1f;
+
+        // ---- pass 2: a WHITE carrier times that envelope. White and not pink: the band filters
+        // below are four poles wide at the top and two at the bottom, so the shape inside the band
+        // is set by them and a pink tilt underneath would only push the centroid back down toward
+        // the draught's — which is the one thing this clip exists not to do.
+        var r = new Rng(FlutterSeed);
+        for (int i = 0; i < n; i++)
+        {
+            float u = Mathf.Clamp01(0.5f * (1f + d[i] / span));
+            d[i] = r.Next() * (FlutterFloor + (1f - FlutterFloor) * u);
+        }
+
+        // ---- the wick.
+        var ticks = new float[FlutterTicks];
+        EnvSoundSchedule.SlipTrain(ticks, FlutterTickFirst, FlutterTickLast,
+                                   shrink: FlutterTickSpread, jitter: FlutterTickJitter,
+                                   seed: FlutterSeed);
+        int tickLen = (int)(rate * 0.004f);
+        var tr = new Rng(FlutterSeed ^ 0x7C1C0000u);
+        for (int k = 0; k < FlutterTicks; k++)
+        {
+            int at = (int)(ticks[k] * rate);
+            float amp = Mathf.Pow(Mathf.Abs(tr.Next()), FlutterTickExponent) * FlutterTickMix;
+            for (int i = 0; i < tickLen && at + i < n; i++)
+            {
+                float tt = i / (float)rate;
+                d[at + i] += tr.Next() * Mathf.Exp(-tt / FlutterTickTau) * amp;
+            }
+        }
+
+        for (int p = 0; p < FlutterLoPoles; p++)
+            HighPass(d, rate, FlutterLoHz);
+        for (int p = 0; p < FlutterHiPoles; p++)
+            LowPass(d, rate, FlutterHiHz);
+
+        LoopFade(d, rate / 2);
+        Normalise(d, FlutterPeak);
+        return Finish("Flutter", d, rate);
     }
 
     // ---- one-shots ------------------------------------------------------------------------------

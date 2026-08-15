@@ -1080,7 +1080,19 @@ internal static partial class HauntFigures
         if (_anchor != null)
             _anchor.transform.localPosition = PathAt(style, u);
 
-        Clone.Drive(presence, ev.RunBlend);
+        // THE MATERIALISE AND THE DISSOLVE, off THE SAME t AND THE SAME len the envelope above used.
+        // Not "the same numbers written twice" — DissolveCutout computes its window as
+        // min(EdgeSeconds, len/3), which is character-for-character what EdgeFade computes, from
+        // arguments that are literally the same two locals. A change to EdgeSeconds moves both or
+        // neither, and neither can outlast the run.
+        //
+        // THE INTERLOCK ABOVE APPLIES TO THIS TOO. When a run is blanked (a restarted loop, a
+        // backwards step) presence goes to 0 and the renderers switch off; the cutout is driven to 1
+        // — fully gone — in the same frame, so a figure that is not there yet can never be caught
+        // mid-materialise at the moment its anchor snaps back to the start of the path.
+        float cutout = presence <= 0f ? 1f : DissolveCutout(t, len);
+
+        Clone.Drive(presence, cutout, ev.RunBlend);
     }
 
     /// <summary>
@@ -1154,9 +1166,11 @@ internal static partial class HauntFigures
         return Mathf.Clamp01(up * down);
     }
 
-    /// <summary>The floor on a figure's appearance and dissolution, in seconds, at each end. See
-    /// <see cref="EdgeFade"/>.</summary>
-    private const float EdgeSeconds = 0.35f;
+    // EdgeSeconds — the floor on a figure's appearance and dissolution — MOVED to
+    // HauntFigures.Math.cs in ModBuild 153. It is now shared by this brightness envelope and by
+    // DissolveCutout, and it is declared in the file the wire tests compile so that the window the
+    // two share is driven by vectors rather than trusted. Declaring it twice is precisely the defect
+    // "a comment is not a guard" is about.
 
     /// <summary>Room-local position at walk fraction <paramref name="u"/>, with the forest's ground
     /// followed and the cellar's ignored (the cellar floor undulates by ±6 mm,

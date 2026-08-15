@@ -18,6 +18,7 @@ RoarPink = (90.0, 420.0, 1500.0)
 RoarPinkMix = (0.46, 0.34, 0.20)
 RoarPuffHz = 5.5
 RoarPuffFloor = 0.42
+RoarPuffSigmas = 1.8
 RoarLoHz = 230.0
 RoarHiHz = 820.0
 RoarLoPoles = 2
@@ -47,10 +48,19 @@ def make_roar(rate=RATE, seed=0xF12E0000):
         e1 += ke * (v - e1)
         e2 += ke * (e1 - e2)
         env[i] = e2
-    m = float(np.max(np.abs(env)))
-    if m > 1e-6:
-        env = env / m
-    d *= (RoarPuffFloor + (1.0 - RoarPuffFloor) * 0.5 * (1.0 + env))
+    # ModBuild 153: normalised by SIGMA and clamped, not by the peak. Dividing a
+    # twice-low-passed noise stream by its own peak (whose peak/sigma measured
+    # 3.13) left the shipped roar with a 5-95% swing of 3.81 dB against the
+    # 7.54 dB RoarPuffFloor claims — less breathing than the stationary draught's
+    # own 4.02 dB, i.e. no audible puff at all.
+    # RMS and not np.std: the C# accumulates the sum of squares without subtracting
+    # a mean (the stream is zero-mean by construction), and this file mirrors the
+    # C# sample for sample.
+    span = RoarPuffSigmas * float(np.sqrt(np.mean(env * env)))
+    if not span > 1e-9:
+        span = 1.0
+    d *= (RoarPuffFloor + (1.0 - RoarPuffFloor)
+          * np.clip(0.5 * (1.0 + env / span), 0.0, 1.0))
     for _ in range(RoarLoPoles):
         high_pass(d, rate, RoarLoHz)
     for _ in range(RoarHiPoles):

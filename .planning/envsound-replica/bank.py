@@ -15,8 +15,10 @@ those numbers come out, the harness is the same arithmetic the device runs and t
 figures it prints for anything else can be quoted. If they do NOT, a generator was
 edited without this file being updated, and every doc table it fed is suspect.
 
-    python3 bank.py     the validation case (Fall)
+    python3 bank.py     the validation case (Fall), then the shared wind bed
     python3 fire.py     the three fire layers (ModBuild 152)
+    python3 candle.py   the candle flutter against the wind bed and the roar
+                        (ModBuild 153 — the question "does this read as wind?")
 
 The C# is the source of truth; this is a mirror, and a mirror that has drifted is
 worse than no mirror. Keep the constants in step by hand, exactly as
@@ -218,6 +220,50 @@ def make_fall(rate=RATE):
     return d
 
 
+# --------------------------------------------------------------- the shared bed
+# MakeBed. THE WIND BUFFER — the window draught and the swamp canopy ride it, and
+# until ModBuild 153 the candle flames did too, which is the defect that round
+# fixed. It is here rather than in candle.py because it is the REFERENCE every
+# "does this read as wind?" measurement is taken against.
+BedSeconds = 8.0
+BedPink = (40.0, 320.0, 2600.0)
+BedPinkMix = (0.62, 0.30, 0.14)
+BedPeak = 0.85
+
+# The runtime AudioLowPassFilter EnvSound.AddBed puts on every bed but the fire's
+# (EnvSound.BedLowPassHz). A bed's SPECTRUM AS HEARD is the buffer through this;
+# comparing raw buffers would compare something no listener is ever handed.
+BedLowPassHz = 1150.0
+
+
+def make_bed(rate=RATE):
+    n = int(rate * BedSeconds)
+    d = np.zeros(n)
+    r = Rng(0x5EEDBED)
+    k1 = 1 - math.exp(-2 * PI * BedPink[0] / rate)
+    k2 = 1 - math.exp(-2 * PI * BedPink[1] / rate)
+    k3 = 1 - math.exp(-2 * PI * BedPink[2] / rate)
+    a1 = a2 = a3 = 0.0
+    for i in range(n):
+        w = r.next()
+        a1 += k1 * (w - a1)
+        a2 += k2 * (w - a2)
+        a3 += k3 * (w - a3)
+        d[i] = a1 * BedPinkMix[0] + a2 * BedPinkMix[1] + a3 * BedPinkMix[2]
+    loop_fade(d, rate // 2)
+    normalise(d, BedPeak)
+    return d
+
+
+def as_heard(d, rate=RATE, hz=BedLowPassHz, peak=None):
+    """A bed through its runtime low pass, renormalised so the comparison is of
+    SHAPE and not of level (the level is EnvSound's gain budget, not the bank's)."""
+    out = d.copy()
+    low_pass(out, rate, hz)
+    normalise(out, peak if peak is not None else float(np.max(np.abs(d))))
+    return out
+
+
 # ------------------------------------------------------------------ measurement
 BANDS = [(0, 200), (200, 500), (500, 1000), (1000, 2000), (2000, 5000), (5000, 24000)]
 
@@ -273,3 +319,6 @@ def show(m):
 
 if __name__ == "__main__":
     show(measure(make_fall(), label="Fall"))
+    bed = make_bed()
+    show(measure(bed, label="Bed"))
+    show(measure(as_heard(bed), label="Bed@1150"))

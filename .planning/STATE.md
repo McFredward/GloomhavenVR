@@ -126,6 +126,66 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 152** (commit `fe71ecf`, bundle 67,138,818 bytes) — **the darkening lever was never
+  connected**, and two of the user's own photographs prove it.
+  * **`_MOD_TINT`'s fourth component is the shader's BLEND WEIGHT**, and every write this feature
+    ever made preserved the material's authoring default of **zero**. Four rounds of colour work went
+    through a gate held shut. The shipped game has no path to that state: `Choreographer.cs:851-853`
+    writes the tint from `ColorUtility.TryParseHtmlString(ColourHTML)`, which returns alpha 1 for a
+    6-digit `#RRGGBB`, and `MonsterYMLData` initialises the string to `#FFFFFF`. `(1,1,1,0)` is an
+    ASSET default; our clone bypasses `Choreographer` and inherited it.
+  * **And the pixels said so.** Two frames of the same forest event: nominal `Level` 0.321 measures
+    the figure at p90 **0.0290**; nominal 0.078 measures **0.0291**. The multiplier fell **4.1×** and
+    the figure moved **0.3 %** — the user's "ich sehe keinen Unterschied", as a number.
+  * The pop was the same bug: 151's fade was correct and drove the inert lever, so the only visible
+    transition was the renderer switch.
+  * **A shuffle indexed by the wrong thing is not a shuffle.** Successive apparitions are ~3 slots
+    apart and the cast is 3, so a SLOT-indexed permutation lands on the same position every time —
+    28-35 % repeats, no better than the hash it replaced. Indexed by the **apparition ordinal**:
+    0.0 % over 4000 slots in both rooms, still stateless and still zero wire bytes.
+  * **The fire's bed WAS THE DRAUGHT.** The cellar's flame beds have ridden the wind buffer since the
+    feature shipped, so a Fire infusion made *wind* louder and eleven seated fires made no sound.
+    Three new synthesised layers; 71-87 % of every crackle sits in 1-5 kHz. Rolloff was the other
+    half: the candle beds' 0.6 m minimum costs −15.3 dB at 3.5 m.
+  * **A second preview station was found pointing at nothing** — `HauntShelf` has photographed a
+    table and two candles since the bookcase moved 3.85 m in 147. Second in one week.
+
+- **ModBuild 151** (commit `a7b501d`) — **four causes, three of them invisible to the instrument
+  meant to find them.**
+  * The apparition's face glowed for two reasons, neither the albedo: an **emissive map**
+    (`_UseEmissiveMap = 1`, `_EmissiveMapBoost = 2.0` — emission is ADDED after lighting, so no tint
+    round could ever reach it; 190 of 8.3 M pixels over luminance 0.05, all in one rectangle, peak
+    0.892 against a body median 0.00015) and **a live point light inside the creature**
+    (`LivingSpirit_Light (1)`, intensity 20, range 1 m). `Strip` swept
+    `GetComponentsInChildren<MonoBehaviour>()` and **`Light` derives from `Behaviour`, not
+    `MonoBehaviour`** — a structural blind spot that also hid `LensFlare` and `Projector`.
+  * **The census that should have caught it had a cap of 24 properties, and the shader declares
+    exactly 24 interesting ones** — every dump truncated precisely where `_MOD_TINT` would appear.
+  * **The instrument watched the wrong transform AND the wrong creature**: `AnimPin` reported 0.00 mm
+    for two builds, but `applyRootMotion = false` only stops Unity *extracting* translation — on
+    these Generic rigs the travel stays in the BONE CURVES, and the once-per-process latch had been
+    spent on a creature that never takes a step.
+  * The wind no longer moves the fire at all (user ruling: sparks instead of streaks) — and
+    **deleting a term deletes its frequency too**: the first cut also removed the only two
+    frequencies in the bonfire path not near-harmonic with the fire's own bands.
+  * The ice's white smears were the **plates**, not the seams — measured before anything was tuned.
+
+- **ModBuild 150** (commit `7e2a50b`) — the debug triggers go on the wire, and four findings the
+  instruments answered without a line being changed first.
+  * Three user rulings, the third governing the other two: debug-menu events **synchronise** (new
+    extension record 32, 8 bytes — a state, never a stream, last-writer-wins with an explicit
+    release); the easter-egg **frequency comes from the host** (record 31 grew a sixth byte, riding
+    the clock record so "host" and "clock owner" cannot be two clients); and **local settings take
+    precedence** — the wire carries the schedule override, the local settings carry the permissions.
+    Wire format stays v3; every packet of a player not holding a latch is byte-identical to 149's.
+  * **A type bug Unity had been printing all along**: on `Amp_Char_Shader_2Side`, `_Diffuse` is the
+    albedo **TEXTURE**. `HasProperty` answers true, `GetColor` logs an error and returns
+    `(0,0,0,0)`, and the near-black guard then dropped the material **silently** — 37 % of everything
+    the figure emitted. A uniform multiply was also making the figure MORE colourful as it darkened
+    it (mean saturation 0.253 → 0.437), hence the desaturation toward the room's light colour.
+  * **"Teleportiert sich" was the gait.** `RunBlend` is a blend WEIGHT, not a speed, held at 0.55 for
+    every creature at every speed while the game's own sustained travel drives it to 1.0.
+
 - **ModBuild 149** (commit `95d6d97`, bundle 67,154,625 bytes) — seventeen user findings, and the
   through-line is a **class of bug**, found three times in three unrelated files by three lanes.
   * **AN ELEMENT STRENGTH MULTIPLIED A FREQUENCY THAT IS THEN MULTIPLIED BY ABSOLUTE TIME.** `t` is

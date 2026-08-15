@@ -217,6 +217,19 @@ Shader "GloomhavenVR/EnvGlow"
         // the candle, on the same GhvrTipFlameLife the flame and the baked light
         // slot take, which is the only way the three can agree about a candle
         // being out. Zero on every other glow in both rooms.
+        //
+        // ---- AND A THIRD SPHERE, WHICH GOES OUT WITHOUT MOVING (ModBuild 153) --
+        // USER, hardware: "Da wo die Funken waren und deaktiviert wurden ist aber
+        // immer noch eine Lichtquelle die dort scheint. Die muss entweder auch
+        // mitwander oder auch deaktiviert werden."
+        //
+        // C_FireWashShelf is the 1.40 m sphere that makes the masonry BEHIND the
+        // burning bookcase look lit. It cannot ride — the wall does not fall over,
+        // and a sphere of light sweeping through masonry is worse than the fault
+        // it would fix, which is what the bake said when it accepted the cost. So
+        // it takes the second of the user's two answers: _TipUse = (0, -1, 1, 0),
+        // i.e. "I do not move, and the topple puts me out". See the vertex shader
+        // for why one flag serves both kinds and how they are told apart.
         _TipPivot ("Shelf hinge (OBJECT space, w = pose valid)", Vector) = (0,0,0,0)
         _TipAxis ("Shelf hinge axis (OBJECT space, w = max angle rad)", Vector) = (0,0,0,0)
         _TipSched ("Shelf schedule (period, cards, card)", Vector) = (0,0,0,0)
@@ -257,8 +270,11 @@ Shader "GloomhavenVR/EnvGlow"
             // point in it and `sc` the eye; `sc` is the same value at every
             // vertex, so its interpolation is exact.
             struct v2f { float4 pos : SV_POSITION; float3 sp : TEXCOORD0; float3 sc : TEXCOORD1;
-                         // SHELF RIDERS: the flame's life, so a halo goes out with
-                         // the candle it belongs to. NEGATIVE means "not riding",
+                         // SHELF RIDERS: how much of this halo is left — the
+                         // flame's life for the candle halo that travels with its
+                         // flame, the shelf's own uprightness (in energy) for the
+                         // wall wash that does not. NEGATIVE means "the bookshelf
+                         // has nothing to do with me",
                          // and it is a sentinel rather than a neutral 1 for the
                          // reason spelled out at GhvrTipLight: an interpolated
                          // constant is not the constant, and every other halo in
@@ -313,14 +329,51 @@ Shader "GloomhavenVR/EnvGlow"
                 float3 cen = float3(0, 0, 0);
                 o.life = -1;
                 GhvrTip tip = GhvrTipNow(_Time.y + _GhvrTimeOfs);
-                if (tip.live > 0.5 && _TipUse.x > 0.5)
+                if (tip.live > 0.5)
                 {
-                    p   = GhvrTipRot(p,   tip.pivot, tip.axis, tip.ang);
-                    cen = GhvrTipRot(cen, tip.pivot, tip.axis, tip.ang);
+                    // ...the RIDERS move first. A halo that belongs to a flame
+                    // standing on the shelf goes where the flame goes.
+                    if (_TipUse.x > 0.5)
+                    {
+                        p   = GhvrTipRot(p,   tip.pivot, tip.axis, tip.ang);
+                        cen = GhvrTipRot(cen, tip.pivot, tip.axis, tip.ang);
+                    }
+                    // ...and then whatever the topple PUTS OUT, goes out. This
+                    // shader has two kinds of them and _TipUse.x is which one you
+                    // are — not a second flag, because it is not a second
+                    // question: it is the answer to the first one read back.
+                    //
+                    //   IT MOVED (x = 1): you are the CANDLE'S OWN HALO, the air
+                    //     around a flame that has travelled with it. You die when
+                    //     the flame dies and you flare when it relights, on the
+                    //     same GhvrTipFlameLife the flame card and the baked light
+                    //     slot take — which is the only way the three can agree
+                    //     about a candle being out.
+                    //   IT DID NOT (x = 0): you are a GLOW ON SOMETHING, and the
+                    //     something did not fall over. USER, hardware, ModBuild
+                    //     152: "Da wo die Funken waren und deaktiviert wurden ist
+                    //     aber immer noch eine Lichtquelle die dort scheint. Die
+                    //     muss entweder auch mitwander oder auch deaktiviert
+                    //     werden." He named both answers; riding is the one the
+                    //     bake already refused in writing, because a 1.4 m sphere
+                    //     of light swinging through masonry is worse than the
+                    //     fault. So you go out with the shelf's UPRIGHTNESS, on
+                    //     the same pose the sparks fade with and in the same
+                    //     drawn-energy units (GhvrTipUprightEnergy).
+                    //
+                    // A SELECT AND NOT A NESTED BRANCH, which is a note about this
+                    // project's toolchain rather than about style: written as an
+                    // if/else inside the `_TipUse.z` branch, glcore's shader
+                    // compiler process DIED on this vertex program ("Protocol error
+                    // - failed to read magic number", the subprocess gone), the
+                    // shader fell back to Unity's error pass, and the wash rendered
+                    // as a magenta ball. Both arms are cheap and both are uniform,
+                    // so a select costs nothing and cannot trip it.
                     if (_TipUse.z > 0.5)
                     {
                         float life = GhvrTipFlameLife(tip);
-                        o.life = life * GhvrTipRelightFlare(tip, life);
+                        life *= GhvrTipRelightFlare(tip, life);
+                        o.life = (_TipUse.x > 0.5) ? life : GhvrTipUprightEnergy(tip);
                     }
                 }
                 o.pos = UnityObjectToClipPos(float4(p, 1.0));
@@ -466,8 +519,16 @@ Shader "GloomhavenVR/EnvGlow"
                 // this only ever multiplies by a value in (0,1]).
                 if (_HauntSched.w > 0.5) amp *= i.pres;
 
-                // SHELF RIDERS: untouched unless this halo belongs to a candle
-                // that has just been tipped over — see the vertex shader.
+                // SHELF RIDERS: untouched unless the bookshelf's topple puts this
+                // halo out — the candle halo that rides down with its flame, or
+                // the wall wash that stays where it is and stops being fed. Both
+                // arrive here as one number; see the vertex shader.
+                //
+                // AND IT IS APPLIED LAST, AFTER THE FIVE FIRE PAIRINGS, which is
+                // the whole point of putting it here rather than into `elemAmp`:
+                // Fire+Dark multiplies a fire halo's amplitude by up to 2.35, and
+                // a fade that ran before that would be undone by it. A term that
+                // is zero here is zero in every element state there is.
                 if (i.life >= 0.0) amp *= i.life;
 
                 return fixed4(elemCol, core * _Tint.a * max(amp, 0.0) * elemAmp);

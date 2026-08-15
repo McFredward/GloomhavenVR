@@ -40,9 +40,9 @@ Material:
     - _HauntSched: {r: 0, g: 0, b: 0, a: 0}
     - _ShineAxis: {r: 0, g: 0, b: 1, a: 12}
     - _Tint: {r: 1, g: 0.4, b: 0.13, a: 0.026}
-    - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
-    - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
-    - _TipPivot: {r: 0, g: 0, b: 0, a: 0}
-    - _TipSched: {r: 0, g: 0, b: 0, a: 0}
-    - _TipUse: {r: 0, g: -1, b: 0, a: 0}
+    - _TipAxis: {r: -0.000000119209275, g: 0, b: 1, a: 1.5707964}
+    - _TipEnv: {r: 0.001, g: 26, b: 0.001, a: 0}
+    - _TipPivot: {r: -0.1290386, g: -1.3321536, b: 0, a: 1}
+    - _TipSched: {r: 83, g: 6, b: 5, a: 0}
+    - _TipUse: {r: 0, g: -1, b: 1, a: 0}
   m_BuildTextureStacks: []

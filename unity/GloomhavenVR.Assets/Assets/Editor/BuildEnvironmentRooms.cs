@@ -699,6 +699,264 @@ namespace GloomhavenVR
                 TipUse.TryGetValue(m, out var u) ? u : new Vector4(0f, Tip.litSlot, 0f, 0f));
         }
 
+        // ============ THE BOOKSHELF SITE'S ANSWER SHEET, AND ITS GATE ==========
+        // USER, hardware, ModBuild 152 (verbatim): "Da wo die Funken waren und
+        // deaktiviert wurden ist aber immer noch eine Lichtquelle die dort scheint.
+        // Die muss entweder auch mitwander oder auch deaktiviert werden."
+        //
+        // That is the THIRD term at this one site to be filed in three builds: the
+        // candles and the fire in 144, the sparks in 151, the wall wash in 152.
+        // Every one of them was a thing standing at the bookshelf that nobody had
+        // asked the question of, and every one of them was answered by adding one
+        // more `if (onShelf)` two thousand lines from the last one. There is no
+        // fourth round of that: the site's WHOLE answer sheet is the table below,
+        // it is checked against the built materials at bake time, and it is what
+        // the bake log prints. A term that appears at this site without an entry
+        // fails the build; an entry whose answers change without the table
+        // changing fails the build.
+        //
+        // WHY THE TABLE IS KEYED ON THE `RideShelf` DECLARATIONS and not on "every
+        // material that carries a live pose": EVERY lit material in the cellar
+        // carries the pose (see WriteShelfTip's channel block — the wall needs the
+        // hinge in its own space in order to move a light it is being lit by), so
+        // that set is the whole room and would say nothing. `TipUse` is exactly
+        // the set of materials somebody deliberately gave a non-default answer to,
+        // which is exactly the set this round is about.
+        //
+        // THREE ANSWERS AND NO FOURTH:
+        //   RIDE    it takes the shelf's rigid transform (self = 1). Only geometry
+        //           that goes through a shader can do this; nothing CPU-simulated
+        //           can, and there is no transform in the scene to parent to,
+        //           because the fall is a vertex rotation.
+        //   FADE    it cannot ride, so it goes out with the pose and comes back
+        //           with it (gutter = 1). The curve is EnvShelfTip's and carries
+        //           no constant of its own.
+        //   NEITHER it is not at this site at all. Nothing in this table.
+        private static readonly (string mat, float self, float lit, float gutter, string what)[]
+            ShelfSiteTerms =
+        {
+            ("C_Shelf", 1f, 1f, 0f,
+             "RIDE  the carcass itself (EnvHaunt kind 4), and it is a rider of its own pose so "
+             + "that there is no 'the shelf's copy' of the hinge to drift from"),
+            ("C_WaxShelf", 1f, 1f, 0f,
+             "RIDE  the shelf candle's wax (EnvRoom), welded in room space; lit slot 1 is the "
+             + "one that travels, so the pool of candlelight goes down the wall with it"),
+            ("C_FlameShelf0", 1f, -1f, 1f,
+             "RIDE+FADE  the candle flame (EnvFlame): rigid, then bent back 0.80 about its own "
+             + "origin, and it GUTTERS OUT on GhvrTipFlameLife — a candle on a falling shelf "
+             + "goes out and relights on the way up"),
+            ("C_GlowShelf", 1f, -1f, 1f,
+             "RIDE+FADE  that candle's halo (EnvGlow): a halo IS the flame's light, so it "
+             + "travels with the flame AND dies with it, on the same GhvrTipFlameLife"),
+            ("C_FireShelfTop", 1f, -1f, 0f,
+             "RIDE  the fire in the top bay (EnvFlame, 0.35 stiffness): a burning shelf that "
+             + "topples is still burning, so it does NOT gutter"),
+            ("C_FireShelfMid", 1f, -1f, 0f,
+             "RIDE  the fire in the bay below it, same answers for the same reason"),
+            ("C_FireGlowShelf", 1f, -1f, 0f,
+             "RIDE  the near halo at the top fire (EnvGlow, r 0.34 m): the AIR around a flame "
+             + "that is still alight, so it goes with the flame and does not fade"),
+            ("C_FireWashShelf", 0f, -1f, 1f,
+             "FADE  the wall wash (EnvGlow, r 1.40 m) — ModBuild 153, the user's report. It "
+             + "may NOT ride (the wall does not fall over and a 1.40 m sphere of light "
+             + "sweeping through masonry is worse than the fault), so it goes out on "
+             + "GhvrTipUprightEnergy"),
+            ("C_FireSparkShelf", 0f, -1f, 1f,
+             "FADE  the resting sparks (EnvParticleAdd, a bake-time copy of FX_ElemEmber): "
+             + "world-simulated on the CPU, so nothing can move the emitter"),
+            ("CShelf_FireGustSpark", 0f, -1f, 1f,
+             "FADE  the downwind sparks (EnvParticleAdd), same mechanism and the same reason"),
+        };
+
+        /// Where the top shelf fire sits and where the wash it feeds hangs, in ROOM
+        /// space, published by AddCellarFire for the gate below. They are stashed
+        /// rather than recomputed for the same reason the hinge is: two derivations
+        /// of one point is how a fire ends up 18.6 cm above the board it stands on.
+        private static Vector3 ShelfFireSeatW, ShelfWashAtW;
+        private static float ShelfWashR;
+
+        /// <summary>Check the bookshelf site's whole answer sheet against what was
+        /// actually built, and print it. Called from BuildCellarRoom AFTER FlushRig,
+        /// because the carcass and the wax are deferred materials whose _TipUse is
+        /// not written until then — so this reads what SHIPS, not what was
+        /// intended.</summary>
+        private static void AssertShelfSiteTerms(LightRig rig)
+        {
+            if (Tip == null)
+                throw new Exception("AssertShelfSiteTerms ran with no shelf record published. It "
+                                    + "belongs after BuildTippingShelf and after FlushRig.");
+            var log = new System.Text.StringBuilder();
+            log.Append("[GloomhavenVR][Env] BOOKSHELF SITE — every term that stands at the "
+                       + "tipping shelf, and what it does when the shelf goes over. User, "
+                       + "ModBuild 152: \"Da wo die Funken waren und deaktiviert wurden ist aber "
+                       + "immer noch eine Lichtquelle die dort scheint. Die muss entweder auch "
+                       + "mitwander oder auch deaktiviert werden.\" Three answers exist (RIDE, "
+                       + "FADE, and nothing) and this table is the gate, not a comment: a "
+                       + "material declared at this site without a row here fails the bake.\n");
+
+            var seen = new HashSet<string>();
+            foreach (var kv in TipUse.OrderBy(k => k.Key.name, StringComparer.Ordinal))
+            {
+                var m = kv.Key;
+                Vector4 u = kv.Value;
+                int i = Array.FindIndex(ShelfSiteTerms, r => r.mat == m.name);
+                if (i < 0)
+                    throw new Exception($"Material '{m.name}' was declared a shelf rider "
+                        + $"(self {u.x:F0}, lit {u.y:F0}, gutter {u.z:F0}) and has no row in "
+                        + "ShelfSiteTerms. Every term at the bookshelf site must state whether it "
+                        + "RIDES or FADES and why — three of them have been filed by the user in "
+                        + "three builds, each one a thing nobody had asked the question of. Add "
+                        + "the row (see the block above the table); do not delete this check.");
+                var r = ShelfSiteTerms[i];
+                if (!seen.Add(r.mat))
+                    throw new Exception($"Two materials called '{m.name}' were declared shelf "
+                        + "riders. The table is keyed on the name, so this cannot be checked — "
+                        + "give one of them its own name.");
+                if (u.x != r.self || u.y != r.lit || u.z != r.gutter)
+                    throw new Exception($"Shelf rider '{m.name}' was declared (self {u.x:F0}, "
+                        + $"lit {u.y:F0}, gutter {u.z:F0}) but ShelfSiteTerms says (self "
+                        + $"{r.self:F0}, lit {r.lit:F0}, gutter {r.gutter:F0}). One of the two is "
+                        + "a retune nobody wrote down. The row says why it is what it is: "
+                        + $"\"{r.what}\"");
+                // ...and what actually LANDED on the material, which is a different
+                // claim: WriteShelfTip gates on HasProperty and returns silently,
+                // so a shader that lost its _Tip* block would ship looking
+                // unchanged. That is precisely how a fade ships as a no-op.
+                var pv = m.GetVector("_TipPivot");
+                if (pv.w < 0.5f)
+                    throw new Exception($"Shelf rider '{m.name}' was declared but never got a "
+                        + "live pose (_TipPivot.w = 0). Either WriteShelfTip was not called for "
+                        + "it, or its shader has no _TipPivot — in which case WriteShelfTip "
+                        + "returned silently and this material does nothing at all.");
+                var wu = m.GetVector("_TipUse");
+                if (wu.x != u.x || wu.y != u.y || wu.z != u.z)
+                    throw new Exception($"Shelf rider '{m.name}' declared (self {u.x:F0}, lit "
+                        + $"{u.y:F0}, gutter {u.z:F0}) but the material carries (self {wu.x:F0}, "
+                        + $"lit {wu.y:F0}, gutter {wu.z:F0}). Something wrote _TipUse behind "
+                        + "RideShelf's back.");
+                log.Append($"    {r.what}\n        [{m.name}] self {u.x:F0}, lit slot "
+                           + $"{u.y:F0}, gutter {u.z:F0}, stiffness {u.w:F2}\n");
+            }
+            foreach (var r in ShelfSiteTerms)
+                if (!seen.Contains(r.mat))
+                    throw new Exception($"ShelfSiteTerms has a row for '{r.mat}' and no material "
+                        + "of that name was declared a shelf rider. Either the term was deleted "
+                        + "and the row was not, or — much worse — it was RENAMED and has silently "
+                        + "stopped riding: a renamed material takes the default (0, litSlot, 0, "
+                        + "0), which does nothing and looks like nothing. "
+                        + $"The row says: \"{r.what}\"");
+
+            // ---- THE BAKED LIGHT SLOT, which is the one term that is not a
+            // material of its own: it is a POSITION in the room's rig, carried by
+            // every lit material in the cellar, and the shelf's own record names
+            // which of the three travels. A litSlot pointing at the table's candle
+            // would sweep the WRONG pool of light down the east wall, and nothing
+            // else in this file would notice.
+            if (Tip.litSlot < 0 || Tip.litSlot >= rig.points.Length)
+                throw new Exception($"The shelf's ridden light slot is {Tip.litSlot} and the "
+                                    + $"cellar has {rig.points.Length} of them.");
+            // 3.0 m, and the number is mostly HEIGHT rather than slack: the hinge
+            // is at the base edge and the candle stands on top of a 2.06 m
+            // carcass, so the correct answer is already 2.25 m. What this rejects
+            // is a slot on the TABLE (5.7 m) or on the CRATES (7.1 m).
+            float slotD = Vector3.Distance(rig.points[Tip.litSlot].pos, Tip.pivotW);
+            if (slotD > 3.0f)
+                throw new Exception($"The shelf's ridden light slot {Tip.litSlot} is {slotD:F2} m "
+                    + "from the shelf's hinge, i.e. it is not standing on the bookshelf. Riding "
+                    + "it would sweep some other candle's pool of light across the room every "
+                    + "time the shelf went over. litSlot is set in BuildTippingShelf and must be "
+                    + "the CandleGroup that stands on it.");
+            log.Append($"    RIDE  the baked light slot: slot {Tip.litSlot} of {rig.points.Length}"
+                       + $" at ({rig.points[Tip.litSlot].pos.x:F2},{rig.points[Tip.litSlot].pos.y:F2},"
+                       + $"{rig.points[Tip.litSlot].pos.z:F2}), {slotD:F2} m from the hinge — the "
+                       + "shelf candle's own slot, substituted per fragment by GhvrTipSlot in "
+                       + "every lit material in the room, and dimmed by the same "
+                       + "GhvrTipFlameLife the flame takes.\n");
+
+            // ---- THE FIRE SEAT, which is the SURFACE half of the fire's light
+            // (EnvRoom/EnvGround read it through _FireRide) and is a different
+            // thing from the halo: it is what makes the flagstones under a fallen
+            // burning bookcase actually light up.
+            var riding = rig.fires.Where(f => f.ridesShelf).ToArray();
+            if (riding.Length != 1)
+                throw new Exception($"{riding.Length} of the cellar's fire seats ride the "
+                    + "bookshelf. Exactly one does: the seat between its two bay fires.");
+            float seatD = Vector3.Distance(riding[0].pos, Tip.pivotW);
+            if (seatD > 3.0f)
+                throw new Exception($"The riding fire seat '{riding[0].name}' is {seatD:F2} m from "
+                    + "the shelf's hinge — that is not the fire standing on it, and rotating it "
+                    + "would swing another fire's pool of light across the room.");
+            log.Append($"    RIDE  the baked fire seat '{riding[0].name}' at "
+                       + $"({riding[0].pos.x:F2},{riding[0].pos.y:F2},{riding[0].pos.z:F2}), range "
+                       + $"{riding[0].range:F2} m, {seatD:F2} m from the hinge — _FireRide.z, "
+                       + "rotated in EnvFire's GhvrFireSeats, so the WASH ON THE STONE and the "
+                       + "glut of coals travel with the carcass. The two halos above are the air; "
+                       + "this is the light.\n");
+
+            // ---- AND THE MEASURED GEOMETRY THE FADE IS ANSWERING. Not a claim
+            // about a curve: the top fire's seat is rotated about the real hinge by
+            // the real angles and its distance to the wash's own centre is measured
+            // at each. The last column is what the wash is multiplied by there.
+            log.Append($"    the wash hangs at ({ShelfWashAtW.x:F2},{ShelfWashAtW.y:F2},"
+                       + $"{ShelfWashAtW.z:F2}) with r {ShelfWashR:F2} m and does not move; the "
+                       + "NEAR HALO it belongs with — the one that rides, and the best available "
+                       + $"stand-in for where the fire is — is at ({ShelfFireSeatW.x:F2},"
+                       + $"{ShelfFireSeatW.y:F2},{ShelfFireSeatW.z:F2}), "
+                       + $"{Vector3.Distance(ShelfFireSeatW, ShelfWashAtW):F2} m from the wash's "
+                       + "centre while the shelf stands. Rotated about the real hinge by the real "
+                       + "angles, MEASURED rather than assumed:\n");
+            foreach (float deg in new[] { 0f, 15f, 30f, 45f, 60f, 90f })
+            {
+                float a = deg * Mathf.Deg2Rad;
+                var q = ShelfFireSeatW - Tip.pivotW;
+                var p = Tip.pivotW + q * Mathf.Cos(a) + Vector3.Cross(Tip.axisW, q) * Mathf.Sin(a)
+                        + Tip.axisW * (Vector3.Dot(Tip.axisW, q) * (1f - Mathf.Cos(a)));
+                float d = Vector3.Distance(p, ShelfWashAtW);
+                float up = Mathf.Clamp01(1f - deg / (Tip.maxAngle * Mathf.Rad2Deg));
+                log.Append($"        {deg,2:F0} deg: it is at ({p.x,5:F2},{p.y,5:F2},"
+                           + $"{p.z,6:F2}), {d:F2} m from the wash's centre "
+                           + $"({d / Mathf.Max(ShelfWashR, 1e-3f):F2} of its radius); sparks keep "
+                           + $"{up:F2} of their alpha and the wash {up * up:F2} of its energy "
+                           + $"(GhvrTipUpright and its square — ONE function, so the two cannot "
+                           + $"be tuned apart)\n");
+            }
+            // ...and the one thing the RIDING halo gets wrong, measured rather than
+            // left for the next report. It is a real 0.34 m sphere and it arrives
+            // 0.09 m off the flagstones, so its lower quarter ends up under the
+            // floor. It is additive with ZWrite off and the floor is opaque and
+            // drawn first, so the buried part is depth-rejected and never drawn:
+            // what a player sees is a pool of firelight sitting ON the stone,
+            // which is what a fire lying on a floor looks like. Stated because it
+            // is the sort of thing that gets filed as a bug from a screenshot.
+            {
+                float ea = Tip.maxAngle;
+                var eq = ShelfFireSeatW - Tip.pivotW;
+                float endY = (Tip.pivotW + eq * Mathf.Cos(ea)
+                              + Vector3.Cross(Tip.axisW, eq) * Mathf.Sin(ea)
+                              + Tip.axisW * (Vector3.Dot(Tip.axisW, eq) * (1f - Mathf.Cos(ea)))).y;
+                log.Append($"    the riding near halo ends {endY:F2} m off the floor with a "
+                           + "0.34 m radius, i.e. its lower quarter is under the flagstones — "
+                           + "depth-rejected (additive, ZWrite off, opaque floor drawn first), "
+                           + "so it reads as a pool of firelight on the stone.\n");
+            }
+            log.Append("    WHAT WOULD DISPROVE THIS, as a number and not as an impression: in "
+                       + "PreviewEnvironments' HauntShelfRide series, the bare east wall inside "
+                       + "the wash's disc and clear of the carcass in every phase is the patch "
+                       + "x 520..700, y 120..280 of the 1280x720 frame. Measured on this bake, "
+                       + "its mean RED runs 82.7 at _pride00 (upright), 31.6 at _pride16, 22.1 "
+                       + "at _pride18 (the arrival), 21.3 at _pride30, 14.2 at _pride62 (the "
+                       + "righting), 31.7 at _pride70, 91.8 at _pride80 and 91.5 at _pride100 — "
+                       + "i.e. the wash's whole contribution, which is 36-44 levels of red, is "
+                       + "gone for the whole of the lie-down and comes back over the recovery. A "
+                       + "run in which that patch stays near 60-80 through _pride18..62 means "
+                       + "the fade is not reaching the material. The fade is applied AFTER the "
+                       + "five Fire pairings in EnvGlow, so Fire+Dark — which multiplies a fire "
+                       + "halo by up to 2.35 — cannot bring it back; an _edark frame that still "
+                       + "shows the oval over a fallen carcass would mean the multiply moved "
+                       + "above the pairings.");
+            Debug.Log(log.ToString());
+        }
+
         private static void FlushRig(LightRig rig)
         {
             foreach (var (m, t, tint) in Pending)
@@ -2653,8 +2911,18 @@ namespace GloomhavenVR
         // triangle instead of a cluster, the dead quadrant gets the one light it
         // was missing, and the deliberately black corners (the south-west, the
         // stair alcove) are untouched.
-        private static readonly Vector3 CellarShelfAt = new Vector3(4.86f, 0f, -3.15f);
-        private const float CellarShelfYaw = -90f;   // its back to the east wall, facing -X
+        //
+        // ...AND IT IS PUBLIC, WHICH IS THE EIGHTH THING THAT USED TO CARRY A COPY.
+        // PreviewEnvironments' shelf stations were the one reader outside this
+        // file, and they were typed: when the prop moved 3.85 m south they went on
+        // photographing the corner it had left, which is how a fire floating
+        // 18.6 cm above a shelf board survived a whole round of headless previews
+        // ("a preview station that points at nothing does not fail; it renders,
+        // and it agrees with you"). They are DERIVED from these two now, so a prop
+        // move re-aims the cameras that watch it — the same discipline the Moon
+        // views already get from EnvironmentsBuilder.MoonDir.
+        public static readonly Vector3 CellarShelfAt = new Vector3(4.86f, 0f, -3.15f);
+        public const float CellarShelfYaw = -90f;   // its back to the east wall, facing -X
         /// <summary>A point on the shelf, given as the offset from its anchor
         /// that the ModBuild 145 build had from ITS anchor. Everything that
         /// stands on the shelf is placed through this, so the arrangement on the
@@ -5254,6 +5522,11 @@ namespace GloomhavenVR
 
             PaintContactAO(floorGo, 0.40f, 0.30f);
             FlushRig(rig);
+            // ...and the bookshelf site's answer sheet, checked against the
+            // materials as they will ship. AFTER FlushRig on purpose: the carcass
+            // and the wax are deferred, so before it their _TipUse is unwritten
+            // and the gate would be reading an intention rather than a bake.
+            AssertShelfSiteTerms(rig);
             // SURFACE GROWTH — the coverage table, printed after the rig so the
             // frame it is computed against is the one the shader will use.
             // (the two "earth moss" rows are deleted with the painted moss —
@@ -10544,6 +10817,10 @@ namespace GloomhavenVR
                 {
                     RideShelf(g, self: 1f, lit: -1f, gutter: 0f, stiff: 0f);
                     WriteShelfTip(g, go.transform);
+                    // ...and publish the two points the gate measures with, from
+                    // the arguments this call was really made with rather than
+                    // from a second copy of them (AssertShelfSiteTerms).
+                    ShelfFireSeatW = at; ShelfWashAtW = wallAt; ShelfWashR = wallR;
                 }
                 if (wallR > 0f)
                 {
@@ -10557,14 +10834,60 @@ namespace GloomhavenVR
                     w.SetFloat("_Rate", FireHz * FireHaloRate);
                     w.SetFloat("_Phase", phaseOfs);
                     w.SetFloat("_ElemGate", 1f);
-                    // ...and this one deliberately does NOT ride the shelf, even
-                    // for the fire that does: it is the glow ON THE WALL, and the
-                    // wall does not fall over. What it gets wrong for twenty-six
-                    // seconds of a haunt slot is that the wall is still glowing
-                    // above a fire that has come down off it; what riding would
-                    // get wrong is a sphere of light swinging through masonry.
-                    Place(root, $"FireWash{n}", glowMesh, wallAt, Vector3.zero,
-                          Vector3.one * wallR, w);
+                    var wgo = Place(root, $"FireWash{n}", glowMesh, wallAt, Vector3.zero,
+                                    Vector3.one * wallR, w);
+                    // ============ THE WALL KEPT GLOWING OVER A FALLEN SHELF =====
+                    // USER, hardware, ModBuild 152 (verbatim): "Da wo die Funken
+                    // waren und deaktiviert wurden ist aber immer noch eine
+                    // Lichtquelle die dort scheint. Die muss entweder auch
+                    // mitwander oder auch deaktiviert werden."
+                    //
+                    // THIS BLOCK USED TO BE THE DEFENCE OF THAT BUG, and it is
+                    // worth leaving the argument standing because half of it was
+                    // right. It said: this one deliberately does NOT ride the
+                    // shelf, even for the fire that does — it is the glow ON THE
+                    // WALL, and the wall does not fall over; what it gets wrong
+                    // for twenty-six seconds of a haunt slot is that the wall is
+                    // still glowing above a fire that has come down off it, and
+                    // what riding would get wrong is a sphere of light swinging
+                    // through masonry.
+                    //
+                    // The refusal to RIDE stands, and the user's own wording
+                    // allows it ("mitwandern ODER deaktiviert werden"): a 1.40 m
+                    // sphere of additive light sweeping 2.35 m across a stone wall
+                    // and down onto the floor is a worse artefact than the one
+                    // being fixed. What does not stand is the second half — a
+                    // twenty-six second cost that the person looking at it filed
+                    // as a bug is not a cost, it is the bug. So it takes the other
+                    // answer and goes OUT.
+                    //
+                    // ONE FLAG, ONE CURVE, NO NEW NUMBER. `gutter: 1` is the same
+                    // declaration the shelf candle's flame and the two shelf spark
+                    // emitters carry — "does the topple put me out?" — and the
+                    // factor is EnvShelfTip's GhvrTipUprightEnergy, which is
+                    // GhvrTipUpright squared and therefore contains no constant of
+                    // its own either. The square is a BLEND MODE, not a tuning:
+                    // EnvParticleAdd premodulates and EnvGlow does not, so the
+                    // square is what makes the wash and the sparks lose the same
+                    // fraction of their DRAWN ENERGY at every instant instead of
+                    // merely sharing a curve's shape. See the function.
+                    //
+                    // `self: 0` and `lit: -1` are the other two answers and both
+                    // are load-bearing: the sphere must not move (that is the
+                    // masonry argument above) and a halo casts no baked light.
+                    if (onShelf)
+                    {
+                        RideShelf(w, self: 0f, lit: -1f, gutter: 1f, stiff: 0f);
+                        WriteShelfTip(w, wgo.transform);
+                        if (w.GetVector("_TipPivot").w < 0.5f
+                            || w.GetVector("_TipUse").z < 0.5f)
+                            throw new Exception($"Wall wash '{w.name}' was meant to go out with "
+                                + "the tipping bookshelf and did not get a live pose. Either the "
+                                + "shelf record is not published yet (AddCellarFire must run after "
+                                + "BuildTippingShelf) or EnvGlow has lost its _Tip* properties — "
+                                + "WriteShelfTip gates on HasProperty and returns silently, which "
+                                + "is exactly how this would ship looking unchanged.");
+                    }
                 }
             }
 
@@ -10726,9 +11049,13 @@ namespace GloomhavenVR
             Gust("Spill", spill + new Vector3(0f, 0.14f, 0f), 0.50f, 18, 9.5f);
 
             // ---- 3. the bookshelf: paper and dry boards ----------------------
-            // ...and this is the site that TOPPLES. Both fires and the near halo
-            // ride the shelf; the wall wash and the sparks do not (see their
-            // blocks for why, and the bake log states it).
+            // ...and this is the site that TOPPLES, and NOTHING HERE IS ALLOWED TO
+            // BE LEFT BEHIND ANY MORE. Both fires, the near halo, the candle
+            // group and the baked fire seat RIDE it; the wall wash and the two
+            // spark populations cannot ride and therefore FADE OUT with it; and
+            // there is no third answer. AssertShelfSiteTerms below is the gate
+            // that says so — the site's whole answer sheet is one table, it is
+            // checked at bake time, and the bake log prints it.
             // ============ "ÜBER EINEM BRETT STATT AUF EINEM BRETT" ============
             // USER, hardware, ModBuild 149. Both faults are here and both are
             // the same mistake made twice:
@@ -10821,10 +11148,12 @@ namespace GloomhavenVR
                  Mathf.Min(0.38f, BayH(midBoards, midIdx) * 0.78f),
                  22, 2.3f, 7406, 0.045f, onShelf: true);
             // ...and the WALL WASH behind it had the same z = 0.70 for the same
-            // reason and is derived now too. It deliberately does not RIDE the
-            // shelf (the wall does not fall over); riding and being derived are
-            // different questions and this one was only ever wrong about the
-            // second.
+            // reason and is derived now too. It still does not RIDE the shelf (the
+            // wall does not fall over) — but since ModBuild 153 it GOES OUT with
+            // it, which is the user's second answer to a light left shining over a
+            // fallen bookcase. Riding and being derived are different questions
+            // and this one was only ever wrong about the second; going out is a
+            // third, and it was wrong about that too.
             // ...and the NEAR halo is a bay's size now, not a bookcase's: 0.62 m
             // of radius is a 1.24 m ball, which was wider than the whole carcass
             // and passed through three boards. Same argument as the forest
@@ -10959,6 +11288,27 @@ namespace GloomhavenVR
             log.Append("    air: one EnvGlow halo at each seat plus a wall halo behind it. It is "
                        + "the air around the fire glowing and nothing else now — the surfaces are "
                        + "lit by the wash above, which is what a halo never could do.\n");
+            log.Append("    the WALL HALO ON THE BOOKSHELF (C_FireWashShelf, r 1.40 m, the only "
+                       + "one of the three that stands behind something that falls over) GOES OUT "
+                       + "with the carcass — user, ModBuild 152: \"Da wo die Funken waren und "
+                       + "deaktiviert wurden ist aber immer noch eine Lichtquelle die dort "
+                       + "scheint. Die muss entweder auch mitwander oder auch deaktiviert "
+                       + "werden.\" It takes the SECOND of his two answers, because the first is "
+                       + "worse than the fault: riding would sweep a 1.40 m sphere of additive "
+                       + "light 2.35 m across stone and down onto the flagstones, and the wall it "
+                       + "is painted on does not move. The factor is EnvShelfTip's "
+                       + "GhvrTipUprightEnergy = GhvrTipUpright squared — no constant of its own, "
+                       + "and the square is a BLEND MODE and not a tuning: EnvParticleAdd "
+                       + "premodulates and EnvGlow does not, so the square is what makes the wash "
+                       + "and the sparks lose the same fraction of their DRAWN ENERGY at the same "
+                       + "instant instead of merely sharing a curve's shape. Measured against the "
+                       + "sparks' own alpha: 1.00/1.00 upright, 0.69/0.83 at a 15 deg lean, "
+                       + "0.25/0.50 at 45 deg, 0.00/0.00 at the arrival (phase 0.180, t = 4.68 s) "
+                       + "and the mirror of that from the righting. It therefore LEADS the sparks "
+                       + "on the way down, which is the direction to err in for a term that was "
+                       + "filed for outliving its fire. The near halo (C_FireGlowShelf) does the "
+                       + "opposite and rides: it is the air around a flame that is still burning. "
+                       + "See BOOKSHELF SITE for the whole table and its gate.\n");
             log.Append("    wind: NOT ONE VERTEX OF A FLAME CARD IS A FUNCTION OF DraftDir any "
                        + "more — user, ModBuild 151: \"Loesch die bisherige Implementierung "
                        + "dahingehend und mach stattdessen Funken, die in die Richtung wehen\". "
