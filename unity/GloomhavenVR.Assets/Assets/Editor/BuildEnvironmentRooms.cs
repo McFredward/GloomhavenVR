@@ -10149,6 +10149,172 @@ namespace GloomhavenVR
             return Place(root, $"Fire{n}", mesh, seat, Vector3.zero, Vector3.one, m);
         }
 
+        // ==================== THE WIND IS THE SPARKS NOW — ModBuild 151 ========
+        // USER, hardware, and it is an instruction rather than a report:
+        //
+        //   "Die Windinteraktion mit dem Feuer zieht diese lange Streifen, es ist
+        //    extremer wenn Wind an ist — sonst ist das trotzdem noch zu sehen.
+        //    Lösch die bisherige Implementierung dahingehend und mach stattdessen
+        //    Funken, die in die Richtung wehen. Das wird besser aussehen."
+        //
+        // EnvFlame.shader's DIE STREIFEN block has the deletion half: no vertex of
+        // a bonfire card is a function of _GustDir any more, at any coefficient,
+        // with Air up or down. This is the other half — the wind has to stay
+        // LEGIBLE, and the sparks are what it is told with. They are the one part
+        // of the fire the user has praised, twice and verbatim ("Die Funken
+        // gefallen mir gut"), and they are the one part that structurally cannot
+        // draw the fault: Env_Spark is a radially symmetric point sprite, so a
+        // spark thrown ten metres is still a round dot ten metres away. A line of
+        // them reads as a TRAIL, which is a population, not as a STROKE, which is
+        // one long drawn shape. That distinction is the whole design.
+        //
+        // ---- THE PROBLEM THIS HAS TO SOLVE, AND HOW -------------------------
+        // The bundle ships NO MonoBehaviours, so nothing can change an emitter's
+        // rate, speed or lifetime when Air comes up. Every Shuriken number below
+        // is frozen at bake time. The only element-aware thing in a particle's
+        // path is its MATERIAL (EnvParticleAdd / EnvParticleElem.cginc), which can
+        // gate a quad to nothing and scale its colour and alpha.
+        //
+        // So the wind response is built as a SECOND POPULATION rather than as a
+        // change to the first: every burning site gets a `Sparks` emitter (the
+        // resting one, unchanged — it is what he liked) and a `GustSparks` one
+        // whose particles ALWAYS blow hard downwind and whose material makes them
+        // essentially invisible until Air rises. The Air-up look is then exactly
+        // the Air-down look PLUS a downwind trail, which is the superset the round
+        // asks for, and there is no discontinuity anywhere: the reveal is a smooth
+        // multiply that follows ElementMood's own ramp.
+        //
+        // THE ARITHMETIC OF THE REVEAL. EnvParticleAdd premodulates
+        // (c.rgb *= c.a) and then blends SrcAlpha One, so a particle's drawn
+        // ENERGY goes as alpha squared. With _Tint.a = GustSparkRestAlpha and
+        // _ElemAlpha = GustSparkAirAlpha, alpha runs 0.13 -> 0.13*(1+6.40) = 0.962
+        // and the energy ratio is (7.40)^2 x the 1.35 colour gain = 74x. At Air 0
+        // the downwind population therefore carries 1.4 % of its own peak — a few
+        // barely-there embers going the way the room's resting draught goes, which
+        // is correct rather than merely cheap — and at Air 1 it is the loudest
+        // thing the fire does.
+        //
+        // WHY THE GATE IS FIRE AND NOT AIR. _ElemOwn is a dot product over the six
+        // strengths, so it can express "owned by Air" but not "owned by Fire AND
+        // Air" — there is no product of two elements anywhere in
+        // EnvParticleElem.cginc. Gating on Air would have put a shower of embers
+        // over an unlit crate whenever the room was infused with Air alone. Gating
+        // on Fire is exact in the direction that matters (no fire, no sparks), and
+        // the Air half is carried by the modulation instead, which is the one of
+        // the two mechanisms that does not have to be a switch.
+        private const float GustSparkRestAlpha = 0.13f;
+        private const float GustSparkAirAlpha = 6.40f;
+        private const float GustSparkAirGain = 0.35f;
+        // ...and the twinkle, which only exists while Air is up (it is inside the
+        // modulation). A fanned ember scintillates; a resting one glows.
+        private const float GustSparkAirTwinkle = 0.45f;
+
+        /// <summary>The material the downwind spark population is drawn with. One
+        /// per room, because the two rooms' emitters are otherwise identical and a
+        /// shared material would be one fewer thing to keep in step — but the
+        /// cellar's and the wood's fires are tuned separately everywhere else in
+        /// this file and a future round will want to move one without the
+        /// other.</summary>
+        private static Material GustSparkMat(string room)
+        {
+            var m = NewRoomMat($"{room}_FireGustSpark.mat", "GloomhavenVR/EnvParticleAdd");
+            m.SetTexture("_MainTex",
+                AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Spark.png")
+                ?? throw new Exception("Env_Spark.png missing — the downwind sparks would "
+                                       + "fall back to the shader's white default, which is a "
+                                       + "square, and a square is exactly the shape this round "
+                                       + "exists to remove."));
+            // The ember colour of FX_ElemEmber, so the two populations are the same
+            // spark and only their velocity differs. The ALPHA is the resting
+            // level; see the arithmetic above.
+            m.SetColor("_Tint", new Color(1f, 0.42f, 0.13f, GustSparkRestAlpha));
+            m.SetVector("_ElemOwn", new Vector4(1f, 0f, 0f, 0f));   // no fire, no sparks
+            m.SetVector("_ElemOwn2", Vector4.zero);
+            m.SetVector("_ElemMod", new Vector4(0f, 0f, 1f, 0f));   // ...revealed by Air
+            m.SetVector("_ElemMod2", Vector4.zero);
+            m.SetFloat("_ElemAlpha", GustSparkAirAlpha);
+            m.SetFloat("_ElemGain", GustSparkAirGain);
+            m.SetFloat("_ElemSpark", GustSparkAirTwinkle);
+            m.SetFloat("_ElemTintAmt", 0f);
+            m.SetColor("_ElemCol", Color.white);
+            return m;
+        }
+
+        /// <summary>One downwind spark population, off one burning site.
+        ///
+        /// <para>`wind` is the room's own authored direction (DraftDir /
+        /// ForestWind) — the SAME constant the resting sparks already drift along,
+        /// so the two populations agree about which way the air is going and the
+        /// strong one simply goes further. `speedLo/speedHi` are metres per second
+        /// ALONG that direction, and they are the whole of "further": the resting
+        /// sparks travel 0.10-0.30 m/s x their life, these travel five to ten
+        /// times that.</para>
+        ///
+        /// <para>NO STRETCHED BILLBOARD, and that is a decision rather than an
+        /// omission. Env_Streak in Shuriken's Stretch mode scales a sprite along
+        /// its own world velocity, which is the documented escape hatch under the
+        /// no-billboarding ruling and is what the fog and the shooting stars use —
+        /// and it is also precisely the mechanism that turns "fast downwind
+        /// particle" back into "extrem lange Strahlen", at a length that is a
+        /// function of a speed nobody is looking at while they tune it. Every
+        /// sprite here is Env_Spark, radially symmetric, aspect exactly 1:1 at
+        /// every speed and from every angle. The bound this round is verified
+        /// against is therefore not a tuning result, it is a property of the
+        /// asset.</para></summary>
+        private static void GustSparks(Transform root, string n, Vector3 at, Vector3 wind,
+                                       Material mat, float spread, int maxAlive, float rate,
+                                       float lifeLo, float lifeHi,
+                                       float speedLo, float speedHi, float riseHi)
+        {
+            var ps = ElemPS(root, $"FireGust{n}", at, mat, maxAlive);
+            var m = ps.main;
+            m.duration = 9f;
+            m.startLifetime = new ParticleSystem.MinMaxCurve(lifeLo, lifeHi);
+            // The THROW is small — 0.10-0.40 m/s out of the seat. All of the
+            // motion that matters is the wind below, so that the trail's direction
+            // is the wind's direction and not a cone the wind happens to bend.
+            m.startSpeed = new ParticleSystem.MinMaxCurve(0.10f, 0.40f);
+            // A shade smaller than the resting sparks. Something being carried off
+            // by a draught is the small end of what a fire sheds; the big embers
+            // are the ones that fall out of it near the seat.
+            m.startSize = new ParticleSystem.MinMaxCurve(0.013f, 0.036f);
+            m.startColor = Color.white;
+            m.gravityModifier = -0.030f;
+            var e = ps.emission; e.rateOverTime = rate;
+            var sh = ps.shape; sh.enabled = true;
+            sh.shapeType = ParticleSystemShapeType.Cone;
+            sh.angle = 30f;
+            sh.radius = spread;
+            sh.radiusThickness = 1f;
+            ps.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            var v = ps.velocityOverLifetime; v.enabled = true;
+            v.space = ParticleSystemSimulationSpace.World;
+            v.x = WindRange(wind.x, speedLo, speedHi);
+            v.z = WindRange(wind.z, speedLo, speedHi);
+            // ...and they still rise, but LESS than the resting sparks do. A spark
+            // that is being blown is spending its buoyancy on the horizontal; a
+            // trail that climbed as fast as it travelled would read as a plume and
+            // would not say "wind" at all.
+            v.y = new ParticleSystem.MinMaxCurve(0.20f, riseHi);
+            // Deliberately WEAKER noise than the resting population's (0.14-0.16).
+            // The trail has to be readable AS a direction; curl is what turns a
+            // line of embers back into a cloud of them.
+            var no = ps.noise; no.enabled = true; no.quality = ParticleSystemNoiseQuality.Low;
+            no.strength = 0.09f; no.frequency = 0.55f; no.scrollSpeed = 0.4f;
+            // OUT EARLIER than the resting sparks (0.06/0.42): these travel much
+            // further in the same time, so an envelope that held them to full
+            // brightness for the same fraction of their life would leave bright
+            // dots at the far end of the trail — which is the "evenly spaced
+            // bright things along a straight line" that the flame cards were just
+            // deleted for. Fading through most of the journey puts the population's
+            // energy at the SEAT and lets the trail taper out, which is what a real
+            // one does.
+            ElemFade(ps, 0.05f, 0.22f);
+            var sol = ps.sizeOverLifetime; sol.enabled = true;
+            sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
+                new Keyframe(0f, 1f), new Keyframe(0.45f, 0.62f), new Keyframe(1f, 0.10f)));
+        }
+
         /// <summary>The cellar's fires, the light they throw and their sparks.
         /// Called from BuildCellarRoom once the props are stacked, because every
         /// seat is derived from the real surface the fire stands on.</summary>
@@ -10354,6 +10520,22 @@ namespace GloomhavenVR
                 particles += maxAlive; emitters++;
             }
 
+            // ...and the DOWNWIND population beside it — ModBuild 151. See the
+            // block above GustSparks for why the wind is told with sparks at all
+            // and why this is a second emitter rather than a change to the one
+            // above. Indoors the speeds are held to 0.85-1.70 m/s: over a 1.0-2.2 s
+            // life that is 0.9-3.7 m of travel (mean 2.0 m) in a room 10.5 x 9.0 m,
+            // so a trail crosses a good part of the cellar and still mostly ends
+            // inside it. The wood's are half again as fast, because out there they
+            // have somewhere to go.
+            var gustMat = GustSparkMat("C");
+            void Gust(string n, Vector3 at, float spread, int maxAlive, float rate)
+            {
+                GustSparks(root, n, at, DraftDir, gustMat, spread, maxAlive, rate,
+                           1.0f, 2.2f, 0.85f, 1.70f, 0.55f);
+                particles += maxAlive; emitters++;
+            }
+
             float hw = CW / 2f, hd = CD / 2f;
 
             // SCALE. USER, ModBuild 144: the fires read as candle flames, and one
@@ -10387,6 +10569,7 @@ namespace GloomhavenVR
             Halo("Crate", crateSeat + new Vector3(0f, 0.30f, 0f), 0.66f, 0.038f,
                  new Vector3(-1.35f, 1.55f, -hd + 0.22f), 1.15f, 0.028f, 0f);
             Sparks("Crate", crateSeat + new Vector3(0f, 0.34f, 0f), 0.26f, 18, 8.5f);
+            Gust("Crate", crateSeat + new Vector3(0f, 0.34f, 0f), 0.26f, 22, 11.5f);
 
             // ---- 2. the casks: one burning at the bung, one spilled ----------
             var bung = new Vector3(-4.25f, barrelTop, -2.0f);
@@ -10409,6 +10592,8 @@ namespace GloomhavenVR
                  Vector3.zero, 0f, 0f, 4.9f);
             Sparks("Barrel", bung + new Vector3(0f, 0.28f, 0f), 0.20f, 14, 6.0f);
             Sparks("Spill", spill + new Vector3(0f, 0.14f, 0f), 0.50f, 16, 7.0f);
+            Gust("Barrel", bung + new Vector3(0f, 0.28f, 0f), 0.20f, 16, 8.5f);
+            Gust("Spill", spill + new Vector3(0f, 0.14f, 0f), 0.50f, 18, 9.5f);
 
             // ---- 3. the bookshelf: paper and dry boards ----------------------
             // ...and this is the site that TOPPLES. Both fires and the near halo
@@ -10519,6 +10704,7 @@ namespace GloomhavenVR
                  new Vector3(hw - 0.50f, 1.85f, CellarShelfAt.z), 1.40f, 0.026f, 0f,
                  onShelf: true);
             Sparks("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 16, 7.5f);
+            Gust("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 18, 9.5f);
 
             // ================= THE LIGHT THE FIRE THROWS =======================
             // USER, ModBuild 144: "... und auch die Lichtverhältnisse entsprechend
@@ -10637,10 +10823,36 @@ namespace GloomhavenVR
             log.Append("    air: one EnvGlow halo at each seat plus a wall halo behind it. It is "
                        + "the air around the fire glowing and nothing else now — the surfaces are "
                        + "lit by the wash above, which is what a halo never could do.\n");
+            log.Append("    wind: NOT ONE VERTEX OF A FLAME CARD IS A FUNCTION OF DraftDir any "
+                       + "more — user, ModBuild 151: \"Loesch die bisherige Implementierung "
+                       + "dahingehend und mach stattdessen Funken, die in die Richtung wehen\". "
+                       + "Deleted from EnvFlame's bonfire path: the whole-fire lean, the rim "
+                       + "tear's Air factor, the Air term in `tall`, the shared candle lean "
+                       + "(_Gust/_GustDir/_AirGust are now read by the CANDLE path only), a "
+                       + "detached piece's drift and its climb multiplier, and the Air extension "
+                       + "of its alpha envelope. What Air still does to a flame is "
+                       + "GhvrFireDepth, i.e. the flicker swings +-88 % instead of +-45 %: an "
+                       + "amplitude, not a displacement.\n");
+            log.Append($"    sparks: two populations per burning site. RESTING (FireSparks*, "
+                       + $"FX_ElemEmber, Fire-gated) unchanged — 0.10-0.30 m/s along DraftDir, "
+                       + $"0.35 m of travel. DOWNWIND (FireGust*, C_FireGustSpark, ALSO "
+                       + $"Fire-gated so an Air-only infusion cannot spark an unlit crate) at "
+                       + $"0.85-1.70 m/s along DraftDir "
+                       + $"({DraftDir.x:F2},{DraftDir.z:F2}) over a 1.0-2.2 s life = 0.9-3.7 m, "
+                       + $"mean 2.0 m, i.e. 5.8x the resting reach. It is revealed by AIR in the "
+                       + $"material and not by any script: _Tint.a {GustSparkRestAlpha:F2} x "
+                       + $"(1 + {GustSparkAirAlpha:F2} x air) and rgb x "
+                       + $"(1 + {GustSparkAirGain:F2} x air), and EnvParticleAdd premodulates, so "
+                       + $"the drawn energy runs 1.4 % of peak at Air 0 to 100 % at Air 1 — a "
+                       + $"74x reveal with no step in it anywhere. Env_Spark, radially "
+                       + $"symmetric: NO Stretch mode, no billboard, aspect 1:1 at every speed "
+                       + $"(the streaks may not come back through the side door).\n");
             log.Append("    cost when Fire is down: every flame card and every halo collapses to "
                        + "a point in the vertex shader (zero-area triangles, no fill); the fire "
                        + "wash is inside `if (e.fire > 0)` and its colour is black; the spark "
-                       + "emitters keep simulating and keep one draw call each.");
+                       + "emitters keep simulating and keep one draw call each — and there are "
+                       + "twice as many of them as there were, which is what a wind response "
+                       + "costs in a bundle with no MonoBehaviours.");
             Debug.Log(log.ToString());
         }
 
@@ -10758,6 +10970,22 @@ namespace GloomhavenVR
                 var sol = ps.sizeOverLifetime; sol.enabled = true;
                 sol.size = new ParticleSystem.MinMaxCurve(1f, new AnimationCurve(
                     new Keyframe(0f, 1f), new Keyframe(0.55f, 0.7f), new Keyframe(1f, 0.15f)));
+                particles += maxAlive; emitters++;
+            }
+
+            // ...and the DOWNWIND population — ModBuild 151, "mach stattdessen
+            // Funken, die in die Richtung wehen". See the block above GustSparks.
+            // 1.30-2.80 m/s over a 1.6-3.6 s life is 2.1-10.1 m of travel (mean
+            // 5.3 m) along ForestWind: an ember off the burning snag crosses the
+            // clearing and goes out among the trunks, which is what the wood has
+            // that the cellar does not. Half again the cellar's speed and twice
+            // its reach, for the same reason the resting sparks out here already
+            // live twice as long.
+            var gustMat = GustSparkMat("S");
+            void Gust(string n, Vector3 at, float spread, int maxAlive, float rate)
+            {
+                GustSparks(root, n, at, ForestWind, gustMat, spread, maxAlive, rate,
+                           1.6f, 3.6f, 1.30f, 2.80f, 0.70f);
                 particles += maxAlive; emitters++;
             }
 
@@ -10879,6 +11107,7 @@ namespace GloomhavenVR
             // the wash and now genuinely reddened by the coals.
             Halo("Snag", foot + new Vector3(0f, 0.45f, 0f), 0.80f, 0.028f, 0f);
             Sparks("Snag", mid + new Vector3(0f, 0.45f, 0f), 0.28f, 22, 9.0f);
+            Gust("Snag", mid + new Vector3(0f, 0.45f, 0f), 0.28f, 26, 8.5f);
 
             // ---- 2. THE DEADFALL LOG at the clearing edge --------------------
             // Log1 is at (6.9, 5.0) yawed 128 deg, i.e. 8.5 m out, and it burns
@@ -10977,6 +11206,7 @@ namespace GloomhavenVR
                          foot: FireFoot.Along(new Vector2(la.x, la.z), acrossR));
                     logSeatY += at.y;
                     if (i == 1) Sparks("Log", at + new Vector3(0f, 0.24f, 0f), 0.30f, 16, 6.5f);
+                    if (i == 1) Gust("Log", at + new Vector3(0f, 0.24f, 0f), 0.30f, 20, 6.5f);
                 }
                 // ---- AND THIS HALO WAS TYPED, WHICH IS THE SAME FAULT -------
                 // `logMid.y = 0.42f` was the one height in this function that
@@ -11014,6 +11244,7 @@ namespace GloomhavenVR
             // the render this one comes from.
             Halo("Brush", brush + new Vector3(0f, 0.14f, 0f), 0.58f, 0.026f, 3.4f);
             Sparks("Brush", brush + new Vector3(0f, 0.18f, 0f), 0.52f, 18, 7.5f);
+            Gust("Brush", brush + new Vector3(0f, 0.18f, 0f), 0.52f, 22, 7.2f);
 
             // ================= THE LIGHT ======================================
             // Three sites, one per burning thing, and in the wood the wash lands
@@ -11149,9 +11380,24 @@ namespace GloomhavenVR
                        + $"{rig.fireWash.b:F2}) at +-{rig.fireWash.a * 100f:F0} % flicker, "
                        + $"{rig.fireHz:F1} Hz — the same Hz the flames burn at. Deliberately below "
                        + "the cellar's: the tree line has to stay unwalkable.\n");
+            log.Append("    wind: NOT ONE VERTEX OF A FLAME CARD IS A FUNCTION OF ForestWind any "
+                       + "more — see the cellar's `wind:` line for the six deleted terms and the "
+                       + "user's instruction they answer. Air reaches a flame through "
+                       + "GhvrFireDepth alone.\n");
+            log.Append($"    sparks: two populations per burning site. RESTING (FireSparks*, "
+                       + $"FX_ElemEmber) unchanged — 0.12-0.38 m/s along ForestWind. DOWNWIND "
+                       + $"(FireGust*, S_FireGustSpark, Fire-gated, Air-revealed in the material) "
+                       + $"at 1.30-2.80 m/s along ForestWind "
+                       + $"({ForestWind.x:F2},{ForestWind.z:F2}) over a 1.6-3.6 s life = "
+                       + $"2.1-10.1 m, mean 5.3 m — an ember off the snag crosses the clearing. "
+                       + $"Energy 1.4 % of peak at Air 0, 100 % at Air 1 (_Tint.a "
+                       + $"{GustSparkRestAlpha:F2} x (1 + {GustSparkAirAlpha:F2} x air), "
+                       + $"premodulated). Env_Spark, radially symmetric, NO Stretch mode.\n");
             log.Append("    cost when Fire is down: every flame card and every halo collapses to a "
                        + "point in the vertex shader; the wash is black and inside `if (e.fire > 0)`; "
-                       + "the spark emitters keep simulating and keep one draw call each.");
+                       + "the spark emitters keep simulating and keep one draw call each — and "
+                       + "there are twice as many of them as there were, which is what a wind "
+                       + "response costs in a bundle with no MonoBehaviours.");
             Debug.Log(log.ToString());
         }
 

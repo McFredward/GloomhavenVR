@@ -476,6 +476,121 @@ float GhvrGrown (float field, float grain, float place, float cover, float creep
 //  difference to 1e-5 — so the shading still agrees with the height it claims.
 // ----------------------------------------------------------------------------
 
+// ============ THE CRUST PAINTS AT THE DEPTH ITS ROOM CAN CARRY ==============
+//  USER VERDICT, ModBuild 150 (hardware, verbatim, and ONE room only):
+//    "Eis: man sieht statt schwarze Streifen bzw. so ein Muster nun weiße
+//     Muster im Keller. Im Wald fällt das nicht auf, da passt es."
+//  eis_boden2.jpg is the cellar's flagstone floor under Ice=Strong: pale
+//  feathery strokes lying across the stones with a fine bright hatch inside
+//  them. The block above did its job — the black lattice is gone, and the wood,
+//  which got exactly the same change, is accepted. So this is not a defect of
+//  the field. It is a defect of its AMPLITUDE, in one room.
+//
+//  IT IS NOT A SHAPE BUG, and that was the first thing checked, because a warp
+//  that is large against the boundary width would turn a hairline into a
+//  ribbon and the honest fix would then be a narrower warp rather than a
+//  quieter one. MEASURED, over a 7 m floor slab, the width of the |sin| < 0.11
+//  band ALONG THE FLOOR (i.e. of |k| projected into the floor plane, which is
+//  what a floor actually shows, and not of the 3D |k| the comment above quotes):
+//  family 0 6.8/8.2/10.1 mm at p5/p50/p95, family 1 7.4/9.9/15.3, family 2
+//  3.5/4.3/5.5 — against plate periods of 23.3, 28.2 and 12.2 cm. A boundary is
+//  3-5% of a plate at every percentile, and it cannot become a ribbon: the
+//  warp's worst perturbation of a family's |k| is 44%, so the width can at most
+//  double. The strokes in the photograph are 20-40 cm across. They are PLATES,
+//  seen at their own scale, and not boundaries that have swollen.
+//
+//  WHY THE SAME CRUST FITS ONE ROOM AND NOT THE OTHER. Rendered-pixel
+//  decomposition at the two stations that actually show frosted floor (cellar
+//  Puddle, forest FloorToMoon, Ice=Strong, each term zeroed in turn and diffed
+//  against the shipped frame; the swing is the term's signed change AS A
+//  FRACTION OF THE SAME PIXEL WITH THAT TERM OFF, i.e. of the surface it sits
+//  on, at p05..p95 over the frosted floor, and the mean is area-weighted):
+//                          CELLAR                     FOREST
+//    dome  (albedo)   -27.6% .. +27.9%, mean 13.2%   -19.1% .. +19.2%, mean  5.5%
+//    seam  (albedo)     +1.3% .. +44.5%, mean  3.2%    +0.4% .. +33.2%, mean  1.1%
+//    normal (shading) -25.8% .. +23.9%, mean 11.2%   -38.7% .. +35.6%, mean 19.3%
+//    WHOLE CRUST      -32.3% .. +52.8%, mean 20.4%   -37.8% .. +52.8%, mean 22.5%
+//  The crust takes the SAME share of the pixel in both rooms — 20.4% against
+//  22.5%. What differs is WHICH CHANNEL DELIVERS IT: the two PAINT terms are
+//  2.4x and 2.9x louder in the cellar, and the SHADING term is 0.58x, i.e.
+//  quieter. In the wood the crust is three quarters SHADING: the moon is
+//  _DirCol (0.70, 0.79, 0.94) at _DirScale
+//  0.38 against an ambient of (0.024, 0.029, 0.040), i.e. 6.9:1 directional to
+//  ambient, plus an unscaled (0.70, 0.79, 0.94) on the 44-power glint. In the
+//  cellar the same moon is _DirCol (0.048, 0.070, 0.128) against an ambient of
+//  (0.028, 0.032, 0.045) — 1.5:1, and a glint an order of magnitude down. There
+//  is nothing indoors to shade a relief WITH, so the crust falls back on the
+//  only channel that works without a light: it PAINTS. A pattern that is drawn
+//  into the albedo and does not move with any light in the room is exactly what
+//  "weiße Muster" describes, and it is what paint is.
+//
+//  ...AND THE FLOOR IT IS PAINTED ON, which is the other half. Plate-scale
+//  contrast of the frosted floor itself — median |9-61 px band| over its own
+//  mean luminance, with the crust removed and with it restored:
+//    cellar flagstones  0.109 -> 0.161   the crust ADDS 47% of the floor's own
+//                                        structure
+//    forest litter      0.195 -> 0.207   +6%
+//  "Im Wald fällt das nicht auf" is that 6%, measured. The wood's floor is
+//  litter, roots and leaf edges and it carries 1.8x the cellar's own detail
+//  before any frost lands on it; a crust laid on it is one more thing among
+//  many. The cellar's is smooth flagstone, and there the same crust is half
+//  again as much structure as the floor had.
+//  (A per-pixel-normalised version of this statistic was tried first and thrown
+//  away: a handful of near-black pixels put the ratio in the thousands and moved
+//  the number by 2x for a 0.07% change of the mask. Anything quoted here is the
+//  median form, which reproduces to 2% across two runs of the harness.)
+//
+//  THE FIX: indoors the two ALBEDO terms are scaled down and the shading terms
+//  are not touched at all. 9.00 * 0.35 takes the dome's mean lift from 13.2% to
+//  4.6% and 0.45 * 0.20 takes the boundary's from 3.2% to 0.6%, against the
+//  wood's 5.5% and 1.1% — i.e. a little UNDER parity with the accepted room,
+//  deliberately, because parity in absolute lift is not parity in prominence on
+//  a floor that carries 1.8x less of its own detail. MEASURED AFTER: the whole
+//  crust's mean lift falls 20.4% -> 13.7% and its plate-scale addition falls
+//  from +47% of the bare floor to +31%. The crust's HEIGHT, its analytic normal,
+//  GHVR_FROST_RELIEF, the glint, the trapped air and the coverage frontier are
+//  all unchanged — the relief is still there and still lit by whatever light the
+//  room has; what stops is drawing a second copy of it in paint, at a depth
+//  calibrated against a floor that is not this one.
+//
+//  WHAT IS LEFT IF HE STILL SEES A PATTERN, so the next round does not have to
+//  re-derive it: 82% of the cellar's remaining crust structure is the NORMAL
+//  (mean lift 11.2%, untouched here because it is the term that is already
+//  QUIETER indoors than out and because it is the one channel that reads as ice
+//  rather than as a mark). The only lever left is GHVR_FROST_RELIEF, indoors,
+//  and it would want the same treatment: 0.35 -> about 0.20.
+//
+//  WHY _GhvrIndoor AND NOT _ElemFrost. The cause measured above is a property of
+//  the ROOM — its moon, its ambient, the floor it lit — and not of one material,
+//  so the lever has to be the room. Every indoor surface is in the same
+//  position: the cellar's walls carry the same crust at 14.5% coverage and its
+//  crates and barrels at 100% susceptibility, all under the same 1.5:1 light.
+//  _ElemFrost is the wrong lever twice over. It is the COVERAGE dial — it feeds
+//  `cover` in GhvrGrown, not anything in this function — so turning it down
+//  would delete frost rather than quieten it; and C_Floor's value is 1.55,
+//  raised deliberately by the play-disc round to answer "Der Frost kann gerne
+//  auch direkt in dem Bereich unter dem Spielfeld auch auftauchen"
+//  (BuildEnvironmentRooms, THE FROST REACHES THE BOARD). Touching it would undo
+//  a request the user has already been given.
+//
+//  REJECTED: moving the boundary's brightening out of the albedo and onto the
+//  DIRECTIONAL term, which is the physically honest form of the argument the
+//  block above makes (a fracture returns more of the light that REACHES it, and
+//  a hemisphere of ambient is not a beam, so a crack under ambient alone should
+//  not flare at all). It is the better model and it would be room-aware for
+//  free. It is rejected because it changes the WOOD, which the verdict
+//  explicitly accepts as it is, and no amount of being right about optics is
+//  worth re-opening a room the user has signed off.
+//  REJECTED: cutting the crust's amplitude everywhere. The wood is accepted at
+//  22.5% and the same cut would take it out of a room nobody complained about.
+//  REJECTED: raising GHVR_FROST_RELIEF indoors to buy back in shading what the
+//  paint gives up. It is tempting — same total, delivered through the channel
+//  that reads as ice rather than as a mark — but the cellar has 1.5:1 of
+//  directional light to spend, so buying back 15% of paint costs a relief the
+//  crust cannot carry without becoming crumpled foil, and it would move the one
+//  term (the normal) that is already QUIETER indoors than out.
+// ----------------------------------------------------------------------------
+
 /// Half-amplitudes of the three plate waves, in metres of relief, and their wave
 /// vectors in rad/m. |k0| = 28.5 (22 cm plates), |k1| = 34.8 (18 cm), |k2| = 64.4
 /// (9.8 cm) — a quilt with a coarse family, a medium one and a fine chatter, none
@@ -519,6 +634,24 @@ float GhvrGrown (float field, float grain, float place, float cover, float creep
 /// EnvPuddle's _IceRelief 0.45 lands its sheet at (22 deg), because a frost
 /// crust on stone is rougher than a sheet that froze flat on water.
 #define GHVR_FROST_RELIEF 0.35
+
+/// HOW DEEP THE CRUST PAINTS ITSELF INTO THE ALBEDO, and how much of that depth
+/// survives INDOORS — see THE CRUST PAINTS AT THE DEPTH ITS ROOM CAN CARRY.
+///   DOME  9.00 spans 0.63..1.37 of the plate body, i.e. a dome is more than
+///         twice its own trough. It is the strongest single cue that the patch
+///         has a top surface, and it is what the strokes in eis_boden2.jpg are.
+///   LIFT  0.45, the boundary's brightening — a fracture in ice scatters (see A
+///         CRACK IN ICE IS BRIGHT). It is the term the ModBuild 150 verdict
+///         names, since it is the one that used to be the black lattice.
+/// The two INDOOR factors are not tuning-by-eye: they take the cellar's measured
+/// mean lift from 13.2% to 4.6% and from 3.2% to 0.6%, against the wood's 5.5%
+/// and 1.1% — just under parity with the room the user accepted. They apply to
+/// the PAINT only; f.h itself, f.grad, GHVR_FROST_RELIEF and the glint are the
+/// same in both rooms.
+#define GHVR_FROST_DOME        9.00
+#define GHVR_FROST_LIFT        0.45
+#define GHVR_FROST_INDOOR_DOME 0.35
+#define GHVR_FROST_INDOOR_LIFT 0.20
 
 /// Everything the crust knows about itself at one fragment.
 ///   h     the surface height of the crust, +-0.046 "relief units"
@@ -639,6 +772,14 @@ GhvrFrostIce GhvrFrostCrustZero ()
 /// whole of the word "schwarze") and the bubbles are added rather than lerped,
 /// because trapped air scatters light out of the solid and is not a colour of it.
 ///
+/// BOTH OF THOSE TWO ARE PAINT, and paint is the only channel a room with no
+/// directional light has left — which is why they are the two terms that carry a
+/// ROOM factor. See THE CRUST PAINTS AT THE DEPTH ITS ROOM CAN CARRY: in the
+/// wood the crust is three quarters shading and adds 6% to a floor that is
+/// already busy; in the cellar it is mostly paint and adds 47% to a floor that
+/// is not. The bubbles do NOT take the factor: they are 2.4% of the surface in
+/// isolated specks, not a pattern, and nothing in the verdict is about them.
+///
 /// THE BOUNDARY IS MULTIPLICATIVE AND THE BUBBLE IS NOT, and that difference is
 /// deliberate: a bubble is a body of its own with its own albedo, so it adds a
 /// fixed white; a fracture has no substance at all, it only returns more of the
@@ -650,8 +791,17 @@ GhvrFrostIce GhvrFrostCrustZero ()
 /// Exactly the shipped function when the crust is zero: 9*0 = 0, seam 0, bub 0.
 float3 GhvrFrostOn (float3 alb, float lum, float m, GhvrFrostIce f)
 {
+    // THE ROOM'S SHARE OF THE PAINT. Two mads on a uniform, inside the caller's
+    // existing `if (ice > 0.0)`. OUTDOORS IT IS THE IDENTITY TO THE BIT:
+    // GhvrIndoor() is 0 in the wood and lerp(a, b, 0) is a + 0*(b - a) = a, so
+    // the two coefficients below are 9.00 and 0.45 exactly and the forest's
+    // fragment is the shipped one instruction for instruction.
+    float2 paint = lerp(float2(1.0, 1.0),
+                        float2(GHVR_FROST_INDOOR_DOME, GHVR_FROST_INDOOR_LIFT),
+                        GhvrIndoor());
     float3 ice = float3(0.66, 0.76, 0.94) * (0.34 + 0.95 * lum);
-    ice *= (1.0 + 9.0 * f.h) * (1.0 + 0.45 * f.seam);
+    ice *= (1.0 + (GHVR_FROST_DOME * paint.x) * f.h)
+         * (1.0 + (GHVR_FROST_LIFT * paint.y) * f.seam);
     ice += float3(0.95, 0.98, 1.00) * (f.bub * 0.30);
     return lerp(alb, ice, m);
 }

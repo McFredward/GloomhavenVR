@@ -464,6 +464,66 @@ internal static partial class HauntFigures
                 foreach (KeyValuePair<string, int> kv in comps)
                     sb.Append($"{kv.Key}x{kv.Value} ");
 
+                // ---- THE LIGHTS, NAMED. -------------------------------------------------------------
+                //
+                // WHY THIS BLOCK EXISTS. The component histogram above listed 'Lightx2' for 'Living
+                // Spirit' through ModBuild 150 and nobody read it as a fault, because the same line
+                // also lists Clothx1 and CapsuleColliderx1 — which Strip DOES destroy — so every entry
+                // in it looked like a deferred-destroy artifact. Light was the one entry that was not:
+                // it is a Behaviour, not a MonoBehaviour, and the allow-list sweep walked past it. A
+                // count cannot distinguish those two cases; a name, an intensity and a range can. The
+                // scene dump had the evidence all along ('LivingSpirit_Light (1)', intensity 20.00,
+                // range 1.0) but nothing tied it to the figure.
+                //
+                // This runs AFTER Strip, so anything printed here is either a genuine survivor or a
+                // component destroyed this frame whose Destroy has not landed — and the line says which
+                // by reporting `enabled`, since Strip disables before it destroys.
+                var lights = new List<UnityEngine.Light>(4);
+                foreach (UnityEngine.Light l in go.GetComponentsInChildren<UnityEngine.Light>(true))
+                    if (l != null)
+                        lights.Add(l);
+                sb.Append(lights.Count == 0
+                              ? "| NO Light component survives on this figure, which is the required "
+                                + "state: a haunt is lit BY THE ROOM and adds none of its own "
+                              : $"| {lights.Count} Light component(s) STILL PRESENT — ");
+                for (int i = 0; i < lights.Count && i < 8; i++)
+                {
+                    UnityEngine.Light l = lights[i];
+                    sb.Append($"'{l.name}' {l.type} colour={l.color} intensity={l.intensity:F2} "
+                              + $"range={l.range:F1} mask=0x{l.cullingMask:X8} enabled={l.enabled}"
+                              + (l.enabled
+                                     ? " <-- STILL LIVE: this one lights the creature's own face and the "
+                                       + "ground around it, and no albedo or emissive lever can reach it. "
+                                     : " (disabled by Strip; its Destroy lands at end of frame) "));
+                }
+
+                // ---- THE NON-SKINNED RENDERERS, with their disposition. ------------------------------
+                //
+                // The same census listed 'MeshRendererx3' beside the two lights and it is a fair
+                // question whether those are body or effect: an enemy's body is SKINNED, so a plain
+                // MeshRenderer on a creature is usually a prop or a VFX quad. They are NOT in the same
+                // blind spot as Light — Collect() already has a policy (a distort/particle/fog/FX
+                // shader is destroyed, anything else is kept and darkened with the body) — but through
+                // ModBuild 150 the only way to know WHICH branch each took was to notice that the
+                // material dump listed six renderers where the histogram implied nine. That is an
+                // inference, so this prints the answer instead. `enabled=False` means Collect killed it.
+                var meshes = new List<MeshRenderer>(4);
+                foreach (MeshRenderer mr in go.GetComponentsInChildren<MeshRenderer>(true))
+                    if (mr != null)
+                        meshes.Add(mr);
+                if (meshes.Count > 0)
+                {
+                    sb.Append($"| {meshes.Count} non-skinned MeshRenderer(s): ");
+                    for (int i = 0; i < meshes.Count && i < 6; i++)
+                    {
+                        MeshRenderer mr = meshes[i];
+                        Material? sm = mr.sharedMaterial;
+                        Shader? sh = sm != null ? sm.shader : null;
+                        sb.Append($"'{mr.name}' [{(sh != null ? sh.name : "<no shader>")}] "
+                                  + $"{(mr.enabled ? "KEPT (darkened with the body)" : "DESTROYED as VFX")} ");
+                    }
+                }
+
                 sb.Append($"| scale {scale:F3} | playing '{state}' | RunBlend parameter "
                           + $"{(hasRunBlend ? "PRESENT" : "ABSENT — the walk cycle cannot be driven and this "
                                                           + "creature will slide")}");

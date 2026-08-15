@@ -416,7 +416,79 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 150;
+    public const ushort ModBuild = 151;
+    // Build 151: FOUR CAUSES, AND THREE OF THEM WERE INVISIBLE TO THE INSTRUMENT THAT WAS
+    // SUPPOSED TO FIND THEM. That is the lesson of this build and it is worth more than the fixes.
+    //
+    // THE APPARITION'S FACE GLOWED FOR TWO REASONS, NEITHER OF THEM THE ALBEDO.
+    //   * AN EMISSIVE MAP. Amp_Char_Shader ships `_UseEmissiveMap = 1` with `_EmissiveMapBoost =
+    //     2.0`, and emission is ADDED after albedo and after lighting - so three rounds of tint work
+    //     could never have reached it. Measured on the user's own photograph: of 8,294,400 pixels
+    //     exactly 190 exceed luminance 0.05 and EVERY ONE lies in one rectangle (eyes, brow,
+    //     pendant), peak 0.892 against a body median of 0.00015 - a 6000:1 face-to-torso ratio while
+    //     the albedo was already multiplied by 0.048.
+    //   * A LIVE POINT LIGHT INSIDE THE CREATURE. 'LivingSpirit_Light (1)', Point, intensity 20.00,
+    //     range 1.0 m, parented in the prefab - a lamp centimetres from its own face. `Strip`'s
+    //     sweep is `GetComponentsInChildren<MonoBehaviour>()` and **Light derives from Behaviour,
+    //     not MonoBehaviour**, so the sweep walked past it structurally. Corroborated by chromaticity
+    //     without being fitted to it: the light's colour is 0.535:0.718:1.000 and the brightest
+    //     0.03% of the photograph is 0.545:0.764:1.000 - the same colour to 6%. It also broke the
+    //     feature's own contract ("lit by the room and by nothing else"): a lamp on a figure lights
+    //     the trunks and the ground around it. LensFlare and Projector sit in the identical blind
+    //     spot and went with it; the census now names every surviving Light with its intensity.
+    //
+    // AND THE CENSUS THAT WAS SUPPOSED TO CATCH ALL THIS HAD A CAP OF 24 PROPERTIES, while
+    // Amp_Char_Shader declares exactly 24 interesting ones - so every dump was truncated precisely
+    // where `_MOD_TINT` would have appeared, and the AFTER dump never once printed the value it had
+    // just written. Cap 64, named properties first, and the dump key is now creature+ROOM, because
+    // the per-creature latch had been spent on the forest instance and the cellar figure the user
+    // photographed has never been logged at all.
+    //
+    // THE WALKING FIGURE: THE INSTRUMENT WATCHED THE WRONG TRANSFORM *AND* THE WRONG CREATURE.
+    // AnimPin reported 0.00 mm for two builds and the conclusion drawn was "the clips carry no
+    // travel". It does not follow: `applyRootMotion = false` only stops Unity EXTRACTING translation
+    // onto the GameObject, and on these Generic rigs the travel stays in the BONE CURVES, which
+    // AnimPin was not watching. On top of that its once-per-process latch was spent on the standing
+    // treeline watcher - the one measurement the walkers needed went to a creature that never takes
+    // a step. The scan now covers every descendant and reports the node, its peak-to-peak, its mean
+    // (a sawtooth has one, an oscillation does not) and its period; the root chain's x and z are
+    // pinned and the vertical bob is kept, because killing that would make it glide.
+    //
+    // THE FIGURES POPPED IN AND OUT because two of the events author `fade: 0.00` outright, and
+    // because the envelope was spent in LINEAR light - presence 0.10, twelve per cent into the
+    // reveal, already looks like 0.36 of the final figure. Every figure now gets at least 0.35 s of
+    // dissolve at each end whatever its event says, on a perceptual curve, and the on/off threshold
+    // is a fraction of the room's level instead of an absolute 0.0015 that was a TENTH of the whole
+    // ramp at the cellar's brightness. It cannot read as ModBuild 148's rejected dissolve: it is one
+    // colour per material, so there are no holes and no marbling.
+    //
+    // THE WIND NO LONGER MOVES THE FIRE AT ALL - the user's instruction, after two tuning passes
+    // failed: "Loesch die bisherige Implementierung und mach stattdessen Funken, die in die Richtung
+    // wehen." Every term by which the draught displaced, leaned, stretched or drifted a FLAME CARD
+    // is gone, the resting ones too (he saw the streaks with Air down, and the log confirms Air was
+    // at exactly 0.00 between two toggles). `grep _GustDir` now reaches nothing in the bonfire path.
+    // The flame-body centroid shifts 17.94 px downwind in build 150 and 0.44 px now. The wind's
+    // whole story is a second, Fire-gated spark population that carries 74x the drawn energy at full
+    // Air and 1.4% at rest, round sprites only, no stretch and no billboard. AND ONE THING THE FIRST
+    // CUT GOT WRONG: deleting the sway line also deleted the only two frequencies in the bonfire path
+    // that are not near-harmonic with the fire's own bands, and self-similarity got worse - DELETING
+    // A TERM DELETES ITS FREQUENCY TOO. The waveform is back without its Air factor.
+    //
+    // THE FIRE PREVIEW HARNESS HAD NEVER STEPPED THE EMITTERS: every fire time series ever taken in
+    // this project showed FROZEN sparks. Fixed, and the air level is now in the tag so two series
+    // cannot overwrite each other.
+    //
+    // THE ICE'S WHITE SMEARS WERE THE PLATES, NOT THE SEAMS - measured before anything was tuned.
+    // The boundary band is 7-15 mm projected into the floor plane against plate periods of 12-28 cm,
+    // while the strokes in the photograph are 20-40 cm. The two rooms take almost the same share of
+    // the pixel (20.4% cellar, 22.5% forest) THROUGH A DIFFERENT CHANNEL: the wood's moon stands
+    // 6.9:1 over its ambient and the cellar's 1.5:1, so indoors there is nothing to shade a relief
+    // WITH and the crust falls back on paint - and paint that does not move with any light IS a
+    // pattern. Room-aware fix on the two painted terms only; the forest is bit-identical by
+    // construction and 24/24 element frames confirm it. `_ElemFrost` was deliberately not touched:
+    // it is the COVERAGE dial, and the cellar floor's value had been raised for a different user
+    // request.
+    //
     // Build 150: THE DEBUG TEST TRIGGERS AND THE EASTER-EGG FREQUENCY ARE SYNCHRONISED. Three user
     // rulings in one round, and the third governs the other two:
     //   * "Auch wenn jemand im Debugmenu ein Event startet sollte dies auch von ALLEN im

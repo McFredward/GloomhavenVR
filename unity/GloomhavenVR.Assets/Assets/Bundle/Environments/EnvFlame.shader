@@ -106,12 +106,16 @@
 //
 // The composition rule, the reason there is one, and what each pair means are
 // in EnvFire.cginc's PAIRINGS block. What this shader contributes:
-//   FIRE+AIR   the rate (GhvrFireHz) and the depth (GhvrFireDepth) — the same
-//              two functions the wash takes, so the flame and its light cannot
-//              come apart under wind; a harder outward tear; the WHOLE fire
-//              leaning, bed included; and detached pieces thrown three times as
-//              far downwind and alive for three quarters of their cycle instead
-//              of a third, which is "noch mehr Glut" made of one number.
+//   FIRE+AIR   THE DEPTH, and nothing else in this file — ModBuild 151. It is
+//              GhvrFireDepth, the same function the wash on the ground takes, so
+//              the flame and the light it casts cannot come apart under wind;
+//              the flicker swings +-88 % instead of +-45 %. The rate is the
+//              identity (GhvrFireHz, and the rule is in EnvFire.cginc). What
+//              used to be listed here — a harder outward tear, the whole fire
+//              leaning, and detached pieces thrown further and kept alive longer
+//              — was the streak family and is deleted; see the DIE STREIFEN
+//              block below. "Noch mehr Glut" is now the sparks, which is what
+//              glut is (EnvRoomBuilder's GustSparks).
 //   FIRE+DARK  the bonfire stops taking the CANDLE's Dark response (which would
 //              have dimmed it to 55% — the exact opposite of the pairing) and
 //              gains a third instead.
@@ -346,6 +350,44 @@
 // he had already rejected as "zappelt viel zu schnell". The whole argument is
 // in EnvFire.cginc at GhvrFireHz.
 // ============================================================================
+//
+// ====== DIE STREIFEN: THE WIND STOPS TOUCHING THE FLAME — ModBuild 151 ======
+// "Die Windinteraktion mit dem Feuer zieht diese lange Streifen, es ist
+//  extremer wenn Wind an ist — sonst ist das trotzdem noch zu sehen. Lösch die
+//  bisherige Implementierung dahingehend und mach stattdessen Funken, die in
+//  die Richtung wehen. Das wird besser aussehen."
+//
+// An instruction, after two rounds of tuning the same terms down (149 cut the
+// drift 3.10 -> 0.80 and linearised it; 150 cut the puff's envelope and rise).
+// The clause that decides it is "sonst ist das trotzdem noch zu sehen": the
+// streak is there with Air OFF, at the RESTING draught's coefficient, which no
+// round has ever raised. So the fault is not a magnitude.
+//
+// WHAT IT IS. A flame card is a flat sheet 2-3x taller than it is wide, drawn
+// additively, six to eight of them per fire with their phases spread. Translate
+// that population along ONE fixed world direction by an amount monotone in each
+// card's own age and they lie, at every instant, on a straight line with even
+// spacing and a brightness gradient along it. That is a drawn stroke by
+// construction and it is a stroke at any coefficient — shortening the line
+// shortens the stroke, it does not stop it being one.
+//
+// SO EVERY SUCH TERM IS DELETED, on the Air-scaled and the resting side alike.
+// Nothing about a bonfire card's geometry is a function of _GustDir any more;
+// the six terms and where each one was are listed at the WHAT THE WIND DOES
+// block in the vertex shader. The candle path keeps its own lean, because a
+// 2 cm teardrop has no long axis to smear along and because the draught from
+// the cellar window is a feature the user asked for by name.
+//
+// WHAT CARRIES THE WIND INSTEAD: the sparks. They are the one part of this fire
+// the user has praised twice ("Die Funken gefallen mir gut"), they are round
+// point sprites that cannot draw a stroke however far they travel, and each
+// burning site now has a second, Air-revealed downwind population beside its
+// resting one — EnvRoomBuilder's `Sparks` and `GustSparks`.
+//
+// WHAT AIR STILL DOES HERE: GhvrFireDepth, the flicker swinging +-88 % instead
+// of +-45 %. An amplitude on a waveform, no geometry, and the user's own
+// "flackert wenn Wind an ist".
+// ============================================================================
 Shader "GloomhavenVR/EnvFlame"
 {
     Properties
@@ -364,8 +406,12 @@ Shader "GloomhavenVR/EnvFlame"
         // The DRAFT. Deliberately UNPHASED and slow, so every flame in the room
         // leans the same way at the same moment: that is what reads as one
         // draught through the cellar rather than three independent candles.
-        _Gust ("Draft amount", Range(0,0.3)) = 0
-        _GustDir ("Draft direction (OBJECT space XZ)", Vector) = (1,0,0,0)
+        // ...and as of ModBuild 151 these three are read by the CANDLE PATH
+        // ONLY. A bonfire material still writes them (the builder hands every
+        // fire its room's wind), but no term inside `_Bonfire > 0.5` reads
+        // _GustDir, _Gust or _AirGust any more — see the DIE STREIFEN block.
+        _Gust ("Draft amount (CANDLES ONLY since ModBuild 151)", Range(0,0.3)) = 0
+        _GustDir ("Draft direction (OBJECT space XZ) — candles only", Vector) = (1,0,0,0)
 
         // ---- ELEMENT ART: AIR, and why this is a per-material number --------
         // USER VERDICT, ModBuild 142: "Im Keller sollte es noch mehr wie ein
@@ -604,18 +650,16 @@ Shader "GloomhavenVR/EnvFlame"
                     // The FIRE and AIR terms stay in both rooms — the flare under a Fire
                     // infusion is the ModBuild 142 design he has never objected to, and
                     // the lean under Air is the draught from the window he asked FOR.
-                    // ...and the AIR term is 0.06 and not 0.25 — ModBuild 149,
-                    // "Wenn Wind an ist sind die Strahlen vom Feuer extrem
-                    // lang". A flame in a draught is LAID OVER, not grown: its
-                    // plume bends downwind and its tip is torn off sooner, and
-                    // the one thing it does not do is stand a quarter taller.
-                    // 0.25 was a quarter of a metre of extra reach on the snag,
-                    // added on top of a lick of up to 1.34 and a card that is
-                    // already the tallest thing this shader draws, and it was
-                    // the cheapest of the four terms that made feuer5's rays
-                    // long. The energy is in the LEAN instead (see the gust
-                    // term below, 0.55 -> 0.85) and in the depth (EnvFire).
-                    tall = max(1.0 + 0.55 * e.fire + 0.06 * e.air
+                    // ...AND THERE IS NO AIR TERM HERE AT ALL — ModBuild 151.
+                    // It was 0.25 at ModBuild 148, 0.06 at ModBuild 149, and
+                    // the user's verdict on the second tuning pass was that the
+                    // streaks had survived it. A coefficient that has been
+                    // halved twice and still draws the fault is not a
+                    // coefficient problem: length along one axis is the axis
+                    // the fault is ON, so Air may not touch it by any amount.
+                    // The wind's whole story is told by the SPARKS now (see the
+                    // WHAT THE WIND DOES block below).
+                    tall = max(1.0 + 0.55 * e.fire
                                    - 0.40 * e.dark * (1.0 - GhvrIndoor()), 0.05);
                     // THE FIRE TERM IS FOR CANDLES ONLY. `1.05 * e.fire` is "the
                     // candles flare while the room is infused", and on a bonfire —
@@ -666,8 +710,16 @@ Shader "GloomhavenVR/EnvFlame"
 
                 // sway grows with height (uv.y=0 at flame base) — the tip dances
                 float h = v.uv.y;
-                float sway = (sin(ft * 5.7 + _Phase) * 0.6 + sin(ft * 9.3 + 1.3 + _Phase) * 0.4)
-                             * _Sway * swayMul * h * h;
+                // ...and it is split from its AIR SCALING — ModBuild 151. `swayMul`
+                // is 1 + 1.3 * e.air, i.e. Air doubling a lateral excursion of the
+                // whole card, and on a bonfire that is the fire swinging as a body
+                // when the wind comes up. The waveform itself is Air-free and stays
+                // on both paths (see the split below the surge); only the CANDLE
+                // takes the multiplier, where a draught leaning a 2 cm teardrop is
+                // the ModBuild 142 feature the user asked for.
+                float swayW = (sin(ft * 5.7 + _Phase) * 0.6 + sin(ft * 9.3 + 1.3 + _Phase) * 0.4)
+                              * _Sway * h * h;
+                float sway = swayW * swayMul;
                 // the draft: slow, shared, unphased (see _Gust)
                 float g = sin(t * 0.37) * 0.62 + sin(t * 0.83 + 1.1) * 0.38;
                 float4 p = v.vertex;
@@ -756,56 +808,66 @@ Shader "GloomhavenVR/EnvFlame"
                     // dies sooner; COLOR.b is how far out it stands. Without this
                     // the tongues all point straight up and the fire reads as a
                     // bush.
-                    // FIRE+AIR: a tongue in a draught is torn outward harder and
-                    // dies back sooner. Same term, more of it.
-                    float tear = _Flare * (1.0 + 1.9 * pair.air) * v.color.b * (0.55 + 0.45 * w.y);
+                    // THE OUTWARD TEAR, and it no longer knows the wind exists.
+                    // It was `_Flare * (1 + 1.9 * pair.air)`; see the block
+                    // below for why every Air coefficient in this shader is now
+                    // zero rather than smaller. What is left is the authored
+                    // rim tear, which is a property of standing at the edge of
+                    // a fire and not of the air moving.
+                    float tear = _Flare * v.color.b * (0.55 + 0.45 * w.y);
                     p.x += p.x * tear * h;
                     p.z += p.z * tear * h;
-                    // FIRE+AIR: ...and the WHOLE fire leans, bed included. The
-                    // bed is the one part that does not wander on its own (see
-                    // COLOR.g), so without this a windblown fire is tongues
-                    // leaning off a seat that is standing still — which is a fire
-                    // in a room with a draught, not a fire being blown.
-                    // ...and it leans on the SLOW pair. The whole fire is the
-                    // largest structure in the picture (0.5-1.2 m across, i.e.
-                    // 1.35-2.17 Hz by f = 1.5/sqrt(D)), so of the four bands it
-                    // must take the two slowest; on w.x it was a metre of fire
-                    // being shoved about at the rate of an 11 cm eddy.
-                    // ============ AND IT LEANS BY HEIGHT IN THE **FIRE** ======
-                    // ModBuild 149, and this is the fourth ray-maker — the one
-                    // that is not a length at all but a SHEAR, which is why two
-                    // rounds of shortening things did not remove it.
+                    // ============ WHAT THE WIND DOES — USER RULING, ModBuild 151
+                    // "Die Windinteraktion mit dem Feuer zieht diese lange
+                    //  Streifen, es ist extremer wenn Wind an ist — sonst ist
+                    //  das trotzdem noch zu sehen. Lösch die bisherige
+                    //  Implementierung dahingehend und mach stattdessen Funken,
+                    //  die in die Richtung wehen. Das wird besser aussehen."
                     //
-                    // `h` is uv.y, the height up THIS CARD, 0 at its own base.
-                    // So every card was sheared over its OWN height: a detached
-                    // puff 40 cm tall, sitting a metre and a half up, had its
-                    // top displaced the full 0.55 m while its bottom did not
-                    // move — a 54-degree skew on a card 30 cm wide, which
-                    // rasterises as a thin diagonal shard with two straight
-                    // edges. Every card in the fire got the same skew whatever
-                    // its size, so the picture under wind was a fan of shards
-                    // all leaning the same way. That is feuer5.jpg's other
-                    // half, and the first ModBuild 149 bake (which raised this
-                    // to 0.85 while fixing the drift) made it worse and showed
-                    // it plainly: env_swamp_FireSnag_efair, the parallelograms
-                    // over the trunk.
+                    // This is an INSTRUCTION and not a report, and it arrives
+                    // after two rounds that tried to tune the same four terms
+                    // down (ModBuild 149 cut the drift 3.10 -> 0.80 and
+                    // linearised it; ModBuild 150 cut the puff's envelope and
+                    // its rise). Both times the streaks survived, which is the
+                    // evidence that the fault is STRUCTURAL: a flame card is a
+                    // flat sheet 2-3 times taller than it is wide, and ANY
+                    // displacement of it along a fixed world direction — at any
+                    // coefficient — smears the population along a line and
+                    // draws a stroke. The eye finds a line of aligned bright
+                    // fragments at amplitudes far below the ones that were
+                    // being argued about; that is why "sonst ist das trotzdem
+                    // noch zu sehen" is true of the RESTING draught too, whose
+                    // coefficient nobody had ever raised.
                     //
-                    // A plume does not shear each parcel of gas about its own
-                    // base — it displaces the WHOLE upper fire downwind. The
-                    // gradient belongs to the FIRE and not to the card, so the
-                    // weight is now height in the fire's own frame. Every card
-                    // is then skewed by exactly as much as the fire is (35 deg
-                    // at full Air, whatever the card's size or where it sits),
-                    // a high puff translates almost rigidly instead of being
-                    // sheared to a sliver, and the fire still bends over.
+                    // So the whole family is DELETED rather than reduced, on
+                    // both the Air-scaled and the resting side. What used to be
+                    // here, in the order it was applied:
                     //
-                    // 0.15 + 0.85 x is the bed keeping a little of it: "the
-                    // WHOLE fire leans, bed included" is the ModBuild 145 note
-                    // below and it is right — a bed at hFire = 0 would
-                    // otherwise be the one part standing still under a gale.
-                    float hFire = saturate(p.y / max(_FireH, 1e-3));
-                    p.xz += _GustDir.xz * (0.85 * pair.air * (0.15 + 0.85 * hFire)
-                                           * (0.6 + 0.4 * (0.6 * w.w + 0.4 * w.y)));
+                    //   * the whole-fire lean `p.xz += _GustDir.xz * (0.85 *
+                    //     pair.air * (0.15 + 0.85 * hFire) * ...)` — 35 deg of
+                    //     shear over the fire's own height at full Air, which
+                    //     is a fan of parallelograms all pointing one way;
+                    //   * the outward tear's Air factor (above);
+                    //   * the Air term in `tall` (above);
+                    //   * the candle-family lean `_GustDir * _Gust * gustMul *
+                    //     g * h * h`, on the BONFIRE path only (below);
+                    //   * the detached piece's drift and its climb multiplier
+                    //     (below), and the Air extension of its alpha envelope.
+                    //
+                    // NOT ONE VERTEX OF A FLAME CARD IS A FUNCTION OF _GustDir
+                    // ANY MORE. The wind is legible instead from the SPARKS,
+                    // which are the one part of this fire the user has praised
+                    // twice ("Die Funken gefallen mir gut") and which are round
+                    // point sprites that cannot draw a stroke however far they
+                    // travel — EnvRoomBuilder.AddCellarFire/AddForestFire,
+                    // `Sparks` and `GustSparks`.
+                    //
+                    // WHAT AIR STILL DOES TO THE FLAME: GhvrFireDepth, i.e. the
+                    // flicker swings wider (+-88 % instead of +-45 %). That is
+                    // an amplitude on a waveform and moves no geometry; the
+                    // user's own "flackert wenn Wind an ist" is a request for
+                    // exactly it, and he has never objected to it.
+                    //
                     // ...and every tongue wanders on its OWN phase. _Sway is one
                     // number per material, so without this the whole fire leans
                     // as a single bush and the tongues stay in the rows the mesh
@@ -994,23 +1056,26 @@ Shader "GloomhavenVR/EnvFlame"
                                               - 0.12 * pr.z, 0.98);
                         cardA = smoothstep(0.0, 0.08, age)
                               * (1.0 - smoothstep(tEnd * 0.20, tEnd, age));
-                        // FIRE+AIR: MORE GLUT, and it lives longer because it is
-                        // being fed on the way. His own example, so it is the one
-                        // that has to be unmistakable — the piece is visible over
-                        // three quarters of its cycle instead of a third, which
-                        // is the same thing as several times as many in the air.
+                        // ---- ModBuild 151: THE AIR EXTENSION IS GONE TOO -----
+                        // It was a second envelope, `max`'d over the one above,
+                        // that kept a detached piece drawn to age 0.96 at full
+                        // Air instead of 0.55. Two things were wrong with it
+                        // once the drift below was deleted:
                         //
-                        // KEPT, and kept LONG, because a piece that is being
-                        // thrown downwind at half a metre a second is not the
-                        // thing he objected to: a hovering blob is one that
-                        // does not appear to be going anywhere. What it may not
-                        // do is still be drawn at age 1, so the fade now ends
-                        // at 0.96 instead of at exactly 1.0 — a card that is
-                        // cut off at the wrap is a pop whatever else is right.
-                        cardA = max(cardA, smoothstep(0.0, 0.07, age)
-                                           * (1.0 - smoothstep(0.42 + 0.30 * pair.air,
-                                                               0.80 + 0.16 * pair.air, age))
-                                           * saturate(pair.air * 1.6));
+                        //  * WITHOUT the drift it is no longer "a piece being
+                        //    thrown downwind"; it is the same piece, on the same
+                        //    trajectory, hanging about for twice as long. That
+                        //    is precisely the hovering blob of ModBuild 149.
+                        //  * IT MOVED THE FIRE'S SILHOUETTE AS A BODY. `climb`
+                        //    is linear in age, so doubling the age at which a
+                        //    piece goes out doubles how far above the flame it
+                        //    is still drawn — the whole fire visibly grew when
+                        //    Air came up, which is the one thing this round's
+                        //    verification forbids.
+                        //
+                        // "Noch mehr Glut wenn Wind an ist" is now answered
+                        // where glut belongs: by the spark emitters, which get
+                        // a second downwind population under Air.
                     }
                 }
 
@@ -1019,8 +1084,67 @@ Shader "GloomhavenVR/EnvFlame"
                 // the candle (CrossQuadMesh puts uv.y=0 at y=0). For a bonfire the
                 // origin is the seat of the fire and the same argument holds.
                 p.y *= tall * lick;
-                p.x += sway + _GustDir.x * _Gust * gustMul * g * h * h;
-                p.z += sway * 0.6 + _GustDir.z * _Gust * gustMul * g * h * h;
+                // ---- THE CANDLE FAMILY'S SWAY AND LEAN, AND WHO STILL GETS IT
+                // ModBuild 151. These two lines are the CANDLE path's, and the
+                // bonfire merely inherited them: `sway` is a 0.9-1.5 Hz
+                // oscillation weighted h*h, and the second term is the room's
+                // draught pushing the top of a card along _GustDir.
+                //
+                // ON A BONFIRE THE LEAN IS DELETED AND THE SWAY LOSES ITS AIR.
+                // The lean is a per-card shear along a fixed world axis — 5 cm
+                // at rest and 16 cm at full Air on the crate fire, applied to
+                // every card with the same direction — i.e. the same
+                // stroke-maker as the whole-fire lean above, one scale down, and
+                // it is the term that is present with Air OFF ("sonst ist das
+                // trotzdem noch zu sehen"). Gone outright.
+                //
+                // `sway` is NOT the same kind of term and is kept, at `swayW`,
+                // i.e. without `swayMul = 1 + 1.3 * e.air`. It is a zero-mean
+                // OSCILLATION rather than a displacement along a world
+                // direction, so it cannot smear a population into a line at any
+                // amplitude — but its Air scaling made it a +-5.5 -> +-12.6 cm
+                // excursion of the whole card, which is the fire swinging as a
+                // body when the wind rises, and that is the thing this round's
+                // third measurement forbids.
+                //
+                // KEEPING THE WAVEFORM IS MEASURED AND NOT SENTIMENT. Its two
+                // components run at 0.91 and 1.48 Hz, which are the only
+                // frequencies in the bonfire path that are not multiples of the
+                // fire's own four bands. Deleting the whole line (the first cut
+                // this round made) removed them, and the 60-frame series showed
+                // the picture returning closer to its own first frame at 1.10 s
+                // and 1.80 s than ModBuild 150 ever did — self-similarity
+                // 0.00132 -> 0.00063 against a series mean of 0.00214. An
+                // incommensurate slow signal is what stops an ensemble of
+                // near-harmonic bands looking periodic, and this is the only one
+                // the bonfire has.
+                //
+                // ON A CANDLE BOTH STAY, unchanged, and that is deliberate:
+                //   * a candle flame is a 2 cm teardrop. Its whole drawn height
+                //     is smaller than the amplitude being argued about on the
+                //     fires; it has no long axis to smear along and cannot draw
+                //     a Strich at any coefficient.
+                //   * the draught response is a feature the user ASKED FOR, in
+                //     his own words and about these flames specifically
+                //     ("Im Keller sollte es noch mehr wie ein Windzug wirken
+                //     der insbesondere aus dem Fenster kommt", ModBuild 142) —
+                //     it is why _AirGust is a per-material number derived from
+                //     each candle's distance to the window at all. Deleting it
+                //     would delete the one way the player can find the window
+                //     by watching the room.
+                // The instruction this round is about the FIRE's streaks; this
+                // is the one line in the family that is shared with something
+                // else, so it is split rather than removed.
+                if (_Bonfire < 0.5)
+                {
+                    p.x += sway + _GustDir.x * _Gust * gustMul * g * h * h;
+                    p.z += sway * 0.6 + _GustDir.z * _Gust * gustMul * g * h * h;
+                }
+                else
+                {
+                    p.x += swayW;
+                    p.z += swayW * 0.6;
+                }
                 // ...and a detached puff travels, AFTER the fire's own growth: it
                 // has already left, so it does not grow with what it left.
                 if (_Bonfire > 0.5 && v.fp.y > 1.5)
@@ -1045,53 +1169,41 @@ Shader "GloomhavenVR/EnvFlame"
                                      + 0.55 * pr.z * age;
                     p.y *= grow;
                     p.xz *= grow;
-                    // ...and AIR is 0.45 and not 1.30 — ModBuild 149. See the
-                    // drift below; the same argument governs both, and a piece
-                    // that is thrown 2.3 fire-heights up is as much of a ray as
-                    // one thrown three metres sideways.
-                    float climb = v.fp.z * (1.0 + 0.45 * pair.air + 2.40 * pr.x
+                    // ...and there is NO AIR TERM LEFT IN THE CLIMB — ModBuild
+                    // 151. It was 1.30, then 0.45; a piece thrown further up
+                    // when the wind rises is the fire's own extent growing as a
+                    // body under Air, which is the thing verification item (3)
+                    // of this round measures. The three that remain are the
+                    // PAIRINGS, and none of them is the wind: smoke climbs
+                    // (Fire+Light), steam is heavy (Fire+Ice), a smoulder
+                    // barely lifts (Fire+Earth).
+                    float climb = v.fp.z * (1.0 + 2.40 * pr.x
                                             - 0.55 * pr.y - 0.62 * pr.z);
                     p.y += climb * age;
-                    // it drifts with the room's draught as it rises, which is what
-                    // ties it to the same air the flames lean in — and under
-                    // FIRE+AIR that drift becomes a visible EMBER TRAIL running
-                    // downwind off whatever is burning, which in the wood is the
-                    // thing the pairing is meant to be recognised by.
+                    // ============ THE DRIFT IS DELETED — ModBuild 151 ========
+                    // `float drift = v.fp.z * age * (0.35 + 0.80 * pair.air);`
+                    // and the two _GustDir adds under it are gone. This was the
+                    // loudest of the family and it had already been tuned twice
+                    // — 3.10 -> 0.80 on the coefficient and age^2 -> age on the
+                    // profile, both at ModBuild 149 — and the user's answer to
+                    // the second pass is the instruction at the top of the
+                    // block above.
                     //
-                    // ============ "DIE STRAHLEN SIND EXTREM LANG" ============
-                    // USER, hardware, feuer5.jpg, ModBuild 149. This line was
-                    // the loudest of the four Air terms and the arithmetic is
-                    // not close: `rise` is up to 0.95 fire-heights, age^2 is 1
-                    // at the end of the cycle, and 0.35 + 3.10 is 3.45 — so on
-                    // the burning snag a detached piece travelled up to
-                    // 0.95 x 1.05 x 3.45 = 3.4 METRES downwind while climbing
-                    // another 2.3, i.e. a four-metre trajectory shed by a fire
-                    // one metre tall. Nine times the still-air distance.
+                    // WHY NO COEFFICIENT COULD HAVE WORKED, stated once so a
+                    // fourth round does not try a third: this term translates
+                    // eight puff cards per fire along ONE world direction by an
+                    // amount monotone in their own age. Their ages are spread,
+                    // so at any instant they lie on a straight line, evenly
+                    // spaced, with brightness falling along it. That is the
+                    // definition of a drawn streak, and it is a streak at 0.35
+                    // (the resting term, which is why the user sees it with Air
+                    // off) exactly as it is at 3.45 — only shorter. The way to
+                    // remove a streak made of aligned cards is to stop aligning
+                    // them, not to shorten the line.
                     //
-                    // Two things are wrong with it and both are fixed here:
-                    //
-                    //  1. THE COEFFICIENT. 3.10 -> 0.80, so the piece goes
-                    //     1.15 x rise instead of 3.45 x rise: 1.15 m on the
-                    //     snag, 0.48 m on a log fire. An ember off a real fire
-                    //     in a breeze travels about its own fire's width before
-                    //     it is out, and that is now what this says.
-                    //  2. THE age^2. A quadratic in age is an ACCELERATION, so
-                    //     the piece covers three quarters of its whole journey
-                    //     in the last half of its life — the population is
-                    //     therefore piled up at the far end of the trajectory
-                    //     with a thin trail behind it, and a thin trail of
-                    //     evenly spaced pieces along a straight line IS a ray,
-                    //     which is what the screenshot shows. Linear in age
-                    //     spreads the same pieces evenly along a shorter line,
-                    //     which is a scatter of embers.
-                    // Both halves of the pairing the user asked for survive
-                    // untouched: the pieces are still visible over three
-                    // quarters of their cycle instead of a third (cardA above,
-                    // "noch mehr Glut"), and the fire still flickers harder
-                    // (GhvrFireDepth). What is gone is the geometry.
-                    float drift = v.fp.z * age * (0.35 + 0.80 * pair.air);
-                    p.x += _GustDir.x * drift;
-                    p.z += _GustDir.z * drift;
+                    // A detached piece therefore now only RISES, on `climb`
+                    // above, and goes out inside the flame body. Which way the
+                    // air is going is the sparks' job.
                 }
                 // ---- THE CEILING, and it is the only place anything in this
                 // shader knows how tall the WHOLE fire has got. See

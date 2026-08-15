@@ -1,5 +1,14 @@
 # The fire's loop — measured, ModBuild 150
 
+> **ModBuild 151 supersedes two things here.** (a) `ENV_PREVIEW_FIRELOOP` now also STEPS THE
+> PARTICLE EMITTERS with the clock and puts the air level in the tag (`pl` / `pla`) — every
+> series taken before that showed the sparks frozen, so no claim about them could be read off
+> one. (b) The drift and the lean this file names as the loop's per-cycle motion are DELETED,
+> not retuned: see `.planning/fire-wind-sparks.md`, which also carries the ModBuild 150 baseline
+> re-measured with the new instrument and the rule about deleting a term's frequency along with
+> its amplitude.
+
+
 User, hardware, on ModBuild 149:
 
 > "Das Feuer zieht in einem Loop in eine Richtung, glitcht dann zurück und beginnt diesen Loop

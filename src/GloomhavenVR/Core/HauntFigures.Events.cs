@@ -792,7 +792,7 @@ internal static partial class HauntFigures
         // Before the start the figure is loading and MUST NOT be visible: the anchor exists (so the
         // audio cue can find it) but presence is 0, which the clone factory reads as "stay hidden".
         float u = Mathf.Clamp01(t / len);
-        float presence = Envelope(t, ev, _durMul);
+        float presence = Envelope(t, ev, _durMul) * EdgeFade(t, ev, len);
 
         // ---- THE NO-BACKWARDS-STEP INTERLOCK ---------------------------------------------------
         //
@@ -846,6 +846,55 @@ internal static partial class HauntFigures
             : (t <= r + h ? 1f : 0f);
         return Mathf.Clamp01(up * down);
     }
+
+    /// <summary>
+    /// A SHORT APPEARANCE AND A SHORT DISSOLUTION THAT NO EVENT CAN AUTHOR AWAY.
+    ///
+    /// <para><b>USER REPORT, ModBuild 150, verbatim:</b> "Das Verschwinden und Auftauchen der Figuren
+    /// geschieht aktuell abrupt von einem Frame auf den anderen. Ich hätte gerne eine kurze
+    /// Erscheinen- bzw. Auflösen-Animation."</para>
+    ///
+    /// <para><b>THE DISAPPEARANCE HALF IS LITERAL AND IT IS IN THIS FILE.</b> Two of the four events
+    /// are authored <c>fade: 0.00f</c> — the cellar stair figure (:288) and the treeline watcher
+    /// (:326) — and <see cref="Envelope"/> honours that with a real step
+    /// (<c>t &lt;= r + h ? 1f : 0f</c>), which was a deliberate design choice recorded as "the instant
+    /// vanish the watcher is built around". The user has now looked at it on hardware and asked for
+    /// the opposite, so the step goes: this multiplier gives every figure at least
+    /// <see cref="EdgeSeconds"/> of dissolve whatever its event says. The SHADER-drawn apparitions
+    /// keep their instant vanish — <c>GhvrHauntEnvelope</c> is untouched — because nothing about them
+    /// was reported.</para>
+    ///
+    /// <para><b>IT ONLY EVER SHORTENS THE FIGURE'S PRESENCE, NEVER LENGTHENS THE EVENT.</b> It is a
+    /// multiplier in 0..1 applied on top of the envelope, and its ramps are clamped to a third of the
+    /// run so a very short slot cannot end up as nothing but edges. An event that already fades over
+    /// 0.60 s or 0.80 s is unaffected in practice: its own envelope is below this ramp for the whole
+    /// overlap.</para>
+    ///
+    /// <para><b>WHY 0.35 s AND WHY IT CANNOT READ AS A LOADING BUG.</b> It is comfortably under the
+    /// 0.6 s the brief asks for at each end, so it reads as an event rather than as a wait. And it is
+    /// a change in BRIGHTNESS of the whole figure at once — the tint is one colour per material
+    /// (<c>Clone.Shade</c>) — so there is no moment at which part of the creature is present and part
+    /// is not. That is the entire distinction from the ModBuild 148 noise-field dissolve the user read
+    /// as half-streamed textures ("viele schwarze flecken in ihnen"), which this must not and does not
+    /// resemble: no holes, no marbling, no per-texel anything. The second half of the same fix is
+    /// <c>Clone.PerceptualGamma</c>, which stops the rising envelope from spending a third of its
+    /// visible change in the first eighth of its time.</para>
+    /// </summary>
+    private static float EdgeFade(float t, in HauntEvent ev, float len)
+    {
+        float e = Mathf.Min(EdgeSeconds, len / 3f);
+        if (e <= 1e-4f)
+            return 1f;
+        // The event's own ramps are already at least this long where they exist, so taking the
+        // minimum of the two is a no-op there and the whole of the effect where fade is 0.
+        float up = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / e));
+        float down = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((len - t) / e));
+        return Mathf.Clamp01(up * down);
+    }
+
+    /// <summary>The floor on a figure's appearance and dissolution, in seconds, at each end. See
+    /// <see cref="EdgeFade"/>.</summary>
+    private const float EdgeSeconds = 0.35f;
 
     /// <summary>Room-local position at walk fraction <paramref name="u"/>, with the forest's ground
     /// followed and the cellar's ignored (the cellar floor undulates by ±6 mm,

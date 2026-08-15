@@ -423,13 +423,26 @@ GhvrFirePair GhvrFirePairs (GhvrElem e)
 /// of the SIZE of the thing moving, and an element does not change the size of
 /// a flame's eddies — it changes how hard they are fed.
 ///
-/// So the rate is now flat and the whole of Fire+Air's energy is in AMPLITUDE:
-/// the depth below (harder), the lean (EnvFlame, harder), the outward tear
-/// (EnvFlame, unchanged) and the embers it sheds (EnvFlame, more of them and
-/// alive for longer). The user's own example — "das Feuer der brennenden Bäume
-/// noch mehr Glut wirft und flackert wenn Wind an ist" — is a request for MORE
-/// GLUT and MORE FLICKER, and both of those are amplitudes. Neither of them is
-/// a request for a faster fire.
+/// So the rate is now flat and the whole of Fire+Air's energy is in AMPLITUDE.
+///
+/// ...AND AS OF ModBuild 151 IT IS IN EXACTLY TWO PLACES, which is a stronger
+/// statement than this block used to make. It used to list four: the depth
+/// below, the whole-fire lean, the outward tear and the embers a card sheds.
+/// The last three were all DISPLACEMENTS of flame geometry along the room's
+/// wind, the user photographed the streaks they draw across three builds, and
+/// at ModBuild 151 he ruled them out entirely rather than smaller (EnvFlame's
+/// DIE STREIFEN block). What is left is:
+///
+///   1. THE DEPTH, below. The flame and the light it casts flicker deeper.
+///   2. THE SPARKS, which are not shaders at all: each burning site has a
+///      second Shuriken population that is revealed by Air and blows downwind
+///      (EnvRoomBuilder's `GustSparks`). Round point sprites, so however far
+///      they are thrown they cannot draw a stroke.
+///
+/// The user's own example — "das Feuer der brennenden Bäume noch mehr Glut
+/// wirft und flackert wenn Wind an ist" — is a request for MORE GLUT and MORE
+/// FLICKER: (2) is the glut, (1) is the flicker. Neither of them is a request
+/// for a faster fire, and neither is a request to move the flame.
 ///
 /// ======== ...AND IT WAS ALSO A PHASE SCRUB, WHICH IS THE HARDER BUG ========
 /// The rule above is about the LOOK. There is a second, purely mechanical fault

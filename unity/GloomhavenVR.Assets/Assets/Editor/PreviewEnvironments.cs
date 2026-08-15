@@ -1215,6 +1215,36 @@ namespace GloomhavenVR
                     var fireViews = cellar ? CellarFireViews : ForestFireViews;
                     var windViews = cellar ? CellarWindViews : ForestWindViews;
 
+                    // ---- THE EMITTERS HAVE TO MOVE TOO — ModBuild 151 ---------
+                    // The fire series steps `_GhvrTimeOfs`, which is the clock
+                    // every Env* SHADER reads. A Shuriken system reads none of
+                    // it: it is simulated on the CPU, and in batch mode there is
+                    // no game loop, so until now every frame of every fire series
+                    // showed the sparks FROZEN at the one state FastForward left
+                    // them in. That was a hole exactly as big as the fire-phase
+                    // one it sits inside — and this round it would have been
+                    // fatal, because the round's whole answer to "the wind draws
+                    // streaks" is that the wind is now told by the SPARKS, and a
+                    // series in which the sparks cannot move cannot show it.
+                    //
+                    // Stepped by a FULL RESTART to (prewarm + t) rather than by
+                    // advancing the previous frame: Simulate(t, ..., restart:
+                    // true) with the seeds pinned (ElemPS's useAutoRandomSeed =
+                    // false) is a pure function of t, so frame k of a series does
+                    // not depend on whether frames 0..k-1 were rendered — which
+                    // is what makes ENV_PREVIEW_VIEWS-filtered runs comparable
+                    // with full ones, and what makes a frame-to-frame difference
+                    // measurement mean what it says.
+                    const float FirePrewarm = 6f;   // the same 6 s FastForward uses
+                    void StepEmitters(float t)
+                    {
+                        if (roomGeo == null) return;
+                        foreach (var ps in roomGeo.GetComponentsInChildren<ParticleSystem>(true))
+                            if (ps.transform.parent == null
+                                || ps.transform.parent.GetComponent<ParticleSystem>() == null)
+                                ps.Simulate(FirePrewarm + t, true, true);
+                    }
+
                     void FireSeries(string[] vns, float[] phases, string tagPrefix,
                                     Vector4 ea, Vector4 eb)
                     {
@@ -1229,6 +1259,7 @@ namespace GloomhavenVR
                             foreach (float t in phases)
                             {
                                 Shader.SetGlobalFloat("_GhvrTimeOfs", t);
+                                StepEmitters(t);
                                 // milliseconds in the tag, so the sequence sorts
                                 // in time order in a directory listing and the
                                 // STEP is readable off the file names — which is
@@ -1269,7 +1300,12 @@ namespace GloomhavenVR
                             ? float.Parse(pc[2], CultureInfo.InvariantCulture) : 0f;
                         var ph = new float[n];
                         for (int k = 0; k < n; k++) ph[k] = k * step;
-                        FireSeries(fireViews, ph, "pl",
+                        // ...and the AIR LEVEL IS IN THE TAG — ModBuild 151. The
+                        // measurement this round is judged on is a COMPARISON of
+                        // two series at the same offsets with Air down and Air
+                        // up, and with one tag the second run silently overwrote
+                        // the first. `pl` is Air 0, `pla` is Air > 0.
+                        FireSeries(fireViews, ph, air > 0f ? "pla" : "pl",
                                    new Vector4(1f, 0f, air, 0f), new Vector4(0f, 0f, 1f, 1f));
                     }
 
@@ -1325,6 +1361,11 @@ namespace GloomhavenVR
                     Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
                     Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
                     Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+                    // ...and put the emitters back where the rest of the harness
+                    // expects to find them, so that the element series after this
+                    // one is comparable with the bakes taken before the fire
+                    // series ever touched a particle system.
+                    StepEmitters(0f);
                 }
 
                 // ---- ELEMENT ART: the six elements, their two levels and the

@@ -244,9 +244,12 @@ internal static partial class HauntFigures
         /// statement. See <see cref="AnimPin"/>.</summary>
         private static AnimPin? _pin;
 
-        /// <summary>The drift readout is written ONCE per process: it answers a yes/no question
-        /// about the game's clips, and the answer cannot change between two apparitions.</summary>
-        private static bool _driftLogged;
+        /// <summary>Creatures whose drift readout has already been written. PER CREATURE and no longer
+        /// once per process: the answer cannot change between two apparitions OF THE SAME MODEL, but it
+        /// is a different answer for a walker than for a stander, and the once-per-process latch spent
+        /// the ModBuild 150 session's only line on the treeline watcher — which stands. See
+        /// <see cref="AnimPin"/>.</summary>
+        private static readonly HashSet<string> DriftLogged = new(8);
 
         /// <summary>
         /// PIN THE ANIMATOR'S OWN TRANSFORM. One <c>LateUpdate</c>, one compare, one conditional
@@ -292,27 +295,285 @@ internal static partial class HauntFigures
         /// <para>It is added to the clone's ROOT (which <see cref="Strip"/> has already finished
         /// with) rather than to the animator's object, so nothing that walks the animated hierarchy
         /// can see it, and <see cref="Release"/> destroys it with the clone.</para>
+        ///
+        /// <para><b>ModBuild 151 — THE MEASUREMENT ABOVE WAS TAKEN ON THE WRONG TRANSFORM AND, AS IT
+        /// HAPPENS, ALSO ON THE WRONG CREATURE. BOTH FAULTS ARE FIXED HERE.</b> The ModBuild 150 log
+        /// reads "the animation put at most 0.00 mm on the animator's OWN transform" (Player.log:7161)
+        /// and that was read as "the clips do not carry travel". It does not follow, twice over:</para>
+        /// <list type="number">
+        /// <item><b>WRONG TRANSFORM.</b> <c>applyRootMotion = false</c> does not mean a clip has no
+        /// translation in it — it means Unity does not EXTRACT translation onto the GameObject
+        /// transform. These are the game's own Generic monster rigs, not humanoids this project
+        /// controls (the decompiled sources contain no <c>GetBoneTransform</c>, no
+        /// <c>HumanBodyBones</c>, no <c>AvatarMask</c> and no read of <c>Animator.avatar</c> anywhere;
+        /// bones are addressed by string, e.g. <c>C_headSkel01_JNT</c>,
+        /// WorldspaceDisplayPanelBase.cs:103). On such a rig the forward motion stays in the BONE
+        /// CURVES: a root or hip joint translates inside the hierarchy, the whole skinned mesh slides
+        /// with it, and at the end of the cycle it snaps back. The old pin watched the ONE transform
+        /// that provably does not move, so it could not have seen any of it.</item>
+        /// <item><b>WRONG CREATURE.</b> <c>_driftLogged</c> was a once-per-PROCESS latch, and the first
+        /// apparition of the ModBuild 150 session was <c>'Living Spirit'</c> — the treeline watcher,
+        /// which is STANDING (Player.log:6965). The single line the walkers needed was spent on a
+        /// creature that never takes a step. It is now latched per creature and says which.</item>
+        /// </list>
+        ///
+        /// <para><b>THE USER'S REPORT IS THE SPECIFICATION, verbatim (ModBuild 150):</b> "Es ist ein
+        /// 'Zurück-Teleportieren'. Die Figur rennt schnell vor und teleportiert sich dann wieder ein
+        /// Stück nach hinten. Das ganze passiert in einem Loop — aber es bewegt sich insgesamt weiter
+        /// nach vorne. ... Also als ob die Animation selber die Figur zusätzlich zu deinem Bewegen auch
+        /// nach vorne drückt." A sawtooth riding on top of the mod's own smooth travel is precisely a
+        /// clip-carried translation curve on a bone, and it is a better observation than two rounds of
+        /// inference were.</para>
+        ///
+        /// <para><b>SO THIS COMPONENT NOW DOES TWO THINGS AND PUBLISHES BOTH.</b> It walks EVERY
+        /// descendant of the animator once per <c>LateUpdate</c>, measures each one's horizontal local
+        /// offset from the rest pose it was born in, and keeps per node: the peak excursion, the running
+        /// mean, and a WRAP COUNT — a wrap being the collapse the user described, the excursion falling
+        /// by more than half its own peak between two frames. From those three the log names the node
+        /// that carries the travel, its depth and path, its peak-to-peak amplitude in millimetres and
+        /// its period in seconds. That single line settles the question permanently, whichever way it
+        /// falls.</para>
+        ///
+        /// <para><b>AND IT CANCELS.</b> The pin set is the ROOT CHAIN: every direct child of the
+        /// animator, plus the single-child descent below each of them down to and including the first
+        /// node that branches. On a normal rig that is exactly {root, hips} — the branch point is the
+        /// pelvis, where the spine and the two legs part company — and whole-body travel is always
+        /// authored at or above it. Arms and legs are BELOW the branch and are never touched, so the
+        /// gait itself is untouched: the legs cycle, the feet plant, and only the body's horizontal
+        /// slide is removed.</para>
+        ///
+        /// <para><b>HORIZONTAL ONLY, AND THAT IS THE POINT.</b> A walk cycle bobs; cancelling the
+        /// vertical as well would turn a gait into a glide, which is the failure this whole area has
+        /// been chasing since ModBuild 148. The cost is any authored lateral weight-shift on the root
+        /// itself, which is a few centimetres of sway at 6-13 m and is worth a figure that never steps
+        /// backwards.</para>
+        ///
+        /// <para><b>WHY NOT <c>applyRootMotion = true</c> WITH AN <c>OnAnimatorMove</c> THAT DISCARDS
+        /// <c>deltaPosition</c>.</b> It was considered and rejected. It would only help clips that have
+        /// an EXTRACTABLE root, which is the case this side has no evidence for and which the 0.00 mm
+        /// measurement is actually good evidence against; it would hand Unity back a job this feature
+        /// already does correctly (the mod owns the travel); and the game itself does not use it —
+        /// there is no <c>OnAnimatorMove</c> and no <c>Animator.deltaPosition</c> anywhere in the
+        /// decompiled sources, and <c>applyRootMotion</c> is never assigned. <c>ActorBehaviour.ApplyMotion</c>
+        /// harvests the animator transform's WORLD position into the actor root and re-seats the child
+        /// at local zero (:610-611), which is what the pin above already reimplements. The bone-curve
+        /// case it does NOT cover is what this scan adds.</para>
         /// </summary>
         private sealed class AnimPin : MonoBehaviour
         {
+            /// <summary>Enough for any character rig in this game and a hard stop against a pathological
+            /// hierarchy: the scan is per frame and its cost is linear in this number.</summary>
+            private const int MaxNodes = 192;
+
+            /// <summary>Below this a horizontal excursion is a modelling offset or float noise rather
+            /// than travel. 2 mm, i.e. a hundredth of the shortest stride in the roster.</summary>
+            private const float TravelFloorMetres = 0.002f;
+
             internal Transform? Target;
             internal Vector3 Seat;
 
             /// <summary>Largest offset, in local units, the animation managed to put on the
-            /// animator's transform before this component took it off again.</summary>
+            /// animator's transform before this component took it off again. Kept because it is the
+            /// ModBuild 148 measurement and it is still worth having — see the class doc for what it
+            /// does and does not mean.</summary>
             internal float MaxDrift;
+
+            private Transform[] _nodes = System.Array.Empty<Transform>();
+            private Vector3[] _rest = System.Array.Empty<Vector3>();
+            private bool[] _pin = System.Array.Empty<bool>();
+            private int[] _depth = System.Array.Empty<int>();
+            private float[] _peak = System.Array.Empty<float>();
+            private float[] _lastMag = System.Array.Empty<float>();
+            private Vector2[] _sum = System.Array.Empty<Vector2>();
+            private int[] _wraps = System.Array.Empty<int>();
+            private float[] _firstWrap = System.Array.Empty<float>();
+            private float[] _lastWrap = System.Array.Empty<float>();
+            private int _samples;
+            private int _pinned;
+
+            /// <summary>Take the rest pose and choose the pin set. Called once, at spawn, with the
+            /// animator already live and already told which state to play — the localPositions read
+            /// here are the ones the rig was authored with.</summary>
+            internal void Seed(Animator a)
+            {
+                Transform root = a.transform;
+                Target = root;
+                Seat = root.localPosition;
+
+                var nodes = new List<Transform>(64);
+                var depth = new List<int>(64);
+                Gather(root, 0, nodes, depth);
+
+                int n = nodes.Count;
+                _nodes = nodes.ToArray();
+                _depth = depth.ToArray();
+                _rest = new Vector3[n];
+                _pin = new bool[n];
+                _peak = new float[n];
+                _lastMag = new float[n];
+                _sum = new Vector2[n];
+                _wraps = new int[n];
+                _firstWrap = new float[n];
+                _lastWrap = new float[n];
+                for (int i = 0; i < n; i++)
+                {
+                    _rest[i] = _nodes[i].localPosition;
+                    _firstWrap[i] = -1f;
+                }
+
+                // THE ROOT CHAIN — see the class doc. Every direct child of the animator, then the
+                // single-child descent below it, stopping at (and including) the first node that
+                // branches. Two shapes of rig both come out right: animator -> root -> hips -> {spine,
+                // legs} pins {root, hips}; animator -> {hips, mesh} pins {hips, mesh}, and a mesh node
+                // sitting at its own origin is a write of the value it already holds.
+                for (int c = 0; c < root.childCount; c++)
+                {
+                    Transform t = root.GetChild(c);
+                    while (true)
+                    {
+                        int idx = System.Array.IndexOf(_nodes, t);
+                        if (idx < 0)
+                            break;
+                        if (!_pin[idx])
+                        {
+                            _pin[idx] = true;
+                            _pinned++;
+                        }
+                        if (t.childCount != 1)
+                            break;
+                        t = t.GetChild(0);
+                    }
+                }
+            }
+
+            private static void Gather(Transform t, int depth, List<Transform> nodes, List<int> depths)
+            {
+                for (int i = 0; i < t.childCount && nodes.Count < MaxNodes; i++)
+                {
+                    Transform c = t.GetChild(i);
+                    nodes.Add(c);
+                    depths.Add(depth + 1);
+                    Gather(c, depth + 1, nodes, depths);
+                }
+            }
 
             private void LateUpdate()
             {
-                if (Target == null)
+                // The ModBuild 148 pin on the animator's own transform, unchanged.
+                if (Target != null)
+                {
+                    float d = (Target.localPosition - Seat).magnitude;
+                    if (d > MaxDrift)
+                        MaxDrift = d;
+                    // The write is CONDITIONAL: a transform write dirties Unity's hierarchy even when
+                    // the value is unchanged, and on a skinned figure that is a bind-pose recompute.
+                    if (d > 1e-6f)
+                        Target.localPosition = Seat;
+                }
+
+                if (_nodes.Length == 0)
                     return;
-                float d = (Target.localPosition - Seat).magnitude;
-                if (d > MaxDrift)
-                    MaxDrift = d;
-                // The write is CONDITIONAL: a transform write dirties Unity's hierarchy even when
-                // the value is unchanged, and on a skinned figure that is a bind-pose recompute.
-                if (d > 1e-6f)
-                    Target.localPosition = Seat;
+
+                float now = Time.time;
+                _samples++;
+
+                for (int i = 0; i < _nodes.Length; i++)
+                {
+                    Transform t = _nodes[i];
+                    if (t == null)
+                        continue;
+
+                    // MEASURE FIRST, CANCEL SECOND, and the order is the whole instrument. Unity
+                    // re-evaluates a clip from its curves every frame rather than integrating it, so
+                    // what is read here is the animation's ABSOLUTE authored value at this time — a
+                    // node cancelled last frame still reports its full excursion this frame, and the
+                    // amplitude below is the clip's own and not a residue.
+                    Vector3 lp = t.localPosition;
+                    Vector3 r = _rest[i];
+                    float ox = lp.x - r.x;
+                    float oz = lp.z - r.z;
+                    float mag = Mathf.Sqrt(ox * ox + oz * oz);
+
+                    if (mag > _peak[i])
+                        _peak[i] = mag;
+                    _sum[i] += new Vector2(ox, oz);
+
+                    // A WRAP IS THE SNAP BACK THE USER DESCRIBED: the horizontal excursion collapsing
+                    // by more than half of the largest it has ever reached, between two frames. An
+                    // oscillation (an arm swinging) passes through its rest pose smoothly and never
+                    // trips this; a sawtooth trips it exactly once per cycle, which is what makes the
+                    // period below a real measurement rather than the clip length restated.
+                    if (_peak[i] > TravelFloorMetres && _lastMag[i] - mag > 0.5f * _peak[i])
+                    {
+                        _wraps[i]++;
+                        if (_firstWrap[i] < 0f)
+                            _firstWrap[i] = now;
+                        _lastWrap[i] = now;
+                    }
+                    _lastMag[i] = mag;
+
+                    if (!_pin[i] || mag <= 1e-6f)
+                        continue;
+                    // THE CANCELLATION. Horizontal only — the vertical bob is the gait.
+                    t.localPosition = new Vector3(r.x, lp.y, r.z);
+                }
+            }
+
+            /// <summary>The descendant scan, as one line for the log. Names the node with the largest
+            /// horizontal excursion, how deep it is, how far it travels, and how often it snaps
+            /// back.</summary>
+            internal string Report()
+            {
+                if (_nodes.Length == 0 || _samples == 0)
+                    return "the descendant scan never ran (no animator, or no frame was drawn)";
+
+                int best = -1;
+                for (int i = 0; i < _nodes.Length; i++)
+                    if (best < 0 || _peak[i] > _peak[best])
+                        best = i;
+
+                if (best < 0 || _peak[best] <= TravelFloorMetres)
+                    return $"{_nodes.Length} descendant(s) of the animator were measured over "
+                           + $"{_samples} frame(s) and NOT ONE of them moved horizontally by more than "
+                           + $"{TravelFloorMetres * 1000f:F1} mm (the largest was "
+                           + $"{_peak[Mathf.Max(best, 0)] * 1000f:F2} mm). So the clips really do NOT "
+                           + "carry travel, on the animator's transform OR in the bone curves, and the "
+                           + "remaining suspect for a figure that appears to jump is the GAIT — compare "
+                           + "the m/s on the 'armed at shared clock' line with the walk clip length on "
+                           + "the CENSUS line for the same creature.";
+
+                float pk = _peak[best] * 1000f;
+                Vector2 mean = _sum[best] / _samples;
+                float meanMm = mean.magnitude * 1000f;
+                int wraps = _wraps[best];
+                float period = wraps >= 2 && _lastWrap[best] > _firstWrap[best]
+                                   ? (_lastWrap[best] - _firstWrap[best]) / (wraps - 1)
+                                   : -1f;
+
+                return $"{_nodes.Length} descendant(s) measured over {_samples} frame(s). THE NODE THAT "
+                       + $"MOVES is '{Path(_nodes[best])}' at depth {_depth[best]} below the animator: "
+                       + $"peak horizontal excursion {pk:F1} mm from its rest pose, time-averaged offset "
+                       + $"{meanMm:F1} mm, {wraps} snap-back(s)"
+                       + (period > 0f
+                              ? $" at a period of {period:F2}s"
+                              : " (too few to time a period)")
+                       + $". It is {(_pin[best] ? "IN" : "NOT IN")} the pin set, which holds "
+                       + $"{_pinned} node(s). A large peak with a NON-ZERO mean is the sawtooth the user "
+                       + "described — the clip pushes the body forward and drops it back — and the pin "
+                       + "is what removes it. A large peak with a mean near zero is an oscillation (an "
+                       + "arm, a chain) and is none of this feature's business. IF THE NODE NAMED HERE "
+                       + "IS NOT IN THE PIN SET AND ITS MEAN IS LARGE, that is the next edit: the root "
+                       + "chain did not reach it and the pin set has to be widened to this depth.";
+            }
+
+            private static string Path(Transform t)
+            {
+                var sb = new StringBuilder(64);
+                sb.Append(t.name);
+                Transform? p = t.parent;
+                for (int guard = 0; p != null && guard < 8; guard++, p = p.parent)
+                    sb.Insert(0, p.name + "/");
+                return sb.ToString();
             }
         }
 
@@ -387,6 +648,127 @@ internal static partial class HauntFigures
             "glow", "emiss", "rim", "outline", "highlight", "spec", "fog", "shadow", "cinder",
             "dissolve", "burn", "fresnel", "sss", "subsurface",
         };
+
+        /// <summary>
+        /// EMISSION — THE TERM AN ALBEDO MULTIPLY CANNOT REACH, and the whole of what was left of the
+        /// "viel zu hell" report once the body had gone dark.
+        ///
+        /// <para><b>USER REPORT, ModBuild 150, verbatim:</b> "Die Figur ist immer noch viel zu hell, in
+        /// der dunklen Ecke wo die Figur steht sollte nur eine Silhouette sichtbar sein da es so dunkel
+        /// ist." This is NOT the previous complaint repeated — it is a different picture with a
+        /// different cause, and the picture says so. Measured off
+        /// <c>.planning/debug/Figur_hell2.jpg</c>, linearised to Rec.709 luminance: of 8 294 400 pixels
+        /// exactly <b>190</b> exceed 0.05, and every one of those 190 lies inside
+        /// x[1804..1908] y[1026..1183] — the eyes, the brow ridge and a pendant on the sternum. Their
+        /// peak is <b>0.892</b>; the mean linear colour of the brightest 0.03% of the frame is
+        /// (0.030, 0.042, 0.055), i.e. CYAN; and the median luminance of the body inside the same crop
+        /// is <b>0.00015</b>. A ratio of roughly 6000:1 between the face and the torso of ONE creature
+        /// cannot be produced by any multiply on any one albedo property — last round's lever landed,
+        /// and what is left is a second term that was never touched.</para>
+        ///
+        /// <para><b>WHAT IT IS, read off the ModBuild 150 log rather than inferred</b>
+        /// (Player.log:7110 — the AFTER dump, taken while the albedo was already multiplied by 0.048).
+        /// All six materials of the treeline watcher carry:</para>
+        /// <code>
+        ///   _UseEmissiveMap = 1.000   _EmissiveMap = MO_LivingSpirit_emissive   _EmissiveMapBoost = 2.000
+        /// </code>
+        /// <para>Emission is ADDED after the albedo and after lighting, so <c>_MOD_TINT</c> cannot reach
+        /// it, and the boost DOUBLES it. Nor does the game ever normalise it: the ONLY four properties
+        /// <c>CharacterManager.RefreshVisibility</c> writes are <c>_InvisibilityControl</c>,
+        /// <c>_Glow</c>, <c>_Opacity</c> and <c>_Toggle_Dissolve</c> (CharacterManager.cs:413-436). The
+        /// emissive channel is authored on the material asset and NOTHING in the shipped game ever
+        /// touches it — which is exactly the trap the class doc already documents for the other four,
+        /// arrived at a second time by a different route.</para>
+        ///
+        /// <para><b>THE OTHER TWO CANDIDATES ARE RULED OUT BY THE SAME EVIDENCE.</b> There is no
+        /// separate eye or face material and no second renderer on the head: the full renderer census
+        /// for the watcher is six SkinnedMeshRenderers (<c>_BackCloth, _Chains, _Cloth, _Main,
+        /// _SleeveCloth, _WristChains</c>) sharing two materials, and no material, submesh or renderer
+        /// anywhere in the game contains "eye", "iris" or "pupil" — the head exists only as the BONE
+        /// <c>C_headSkel01_JNT</c> (WorldspaceDisplayPanelBase.cs:103). And nothing this side pins is
+        /// inverted: the AFTER dump shows <c>_Glow = 0</c>, <c>_Opacity = 1</c>,
+        /// <c>_InvisibilityControl = 0</c>, <c>_Toggle_Dissolve = 0</c> exactly as intended.</para>
+        ///
+        /// <para>Names are matched as SUBSTRINGS, lower-cased, so a creature on a shader nobody in this
+        /// project has looked at is still caught. <c>_Glow</c> is deliberately NOT driven from here:
+        /// <see cref="Shade"/> already pins it to a hard 0, which is strictly darker than any scale of
+        /// the authored 10 could be.</para>
+        /// </summary>
+        private static readonly string[] EmissiveLike =
+        {
+            "emissive", "emission", "glow", "cinder", "highlight", "selfillum", "rim", "fresnel",
+        };
+
+        /// <summary>
+        /// The emission properties that are 0/1 SWITCHES rather than strengths, and which are therefore
+        /// driven to a hard 0 instead of being scaled.
+        ///
+        /// <para><b>WHY A SWITCH IS NOT SCALED, and this is the honest half of this round.</b> There is
+        /// no ShaderLab source for these shaders anywhere — the character family ships as four compiled
+        /// Amplify graphs (<c>Amp_CharShader</c>, <c>Amp_CharShader_2Side</c>, <c>Amp_CharDistort</c>,
+        /// <c>Amp_CharShader_Alpha_Ether</c>, Player.log:1497/:1501) and this project can read their
+        /// property LIST but never their wiring. So what <c>_UseEmissiveMap = 0.048</c> would mean is
+        /// genuinely unknown: a lerp alpha would give 4.8% of the map, a step or a branch node would
+        /// give either all of it or none. 0 is the one value that means the same thing under every one
+        /// of those readings, and it is the value that guarantees the outcome the user asked for five
+        /// times. The un-gated STRENGTHS are scaled instead — see <see cref="EmissiveShare"/>.</para>
+        /// </summary>
+        private static readonly string[] EmissiveGate = { "_use", "_toggle", "_animate", "asmask" };
+
+        /// <summary>Emission properties that are RATES rather than amounts, and which are therefore
+        /// left exactly as authored. The same argument as <see cref="EmissiveGate"/> from the other
+        /// end: <c>_Emissive_Anim_Time</c> is a period, and multiplying a period by 0.004 does not make
+        /// a pulse dimmer, it makes it two hundred and fifty times faster. Amplitudes beside it
+        /// (<c>_Emissive_Anim_Min</c>, <c>_Emissive_Anim_Max</c>) are amounts and ARE scaled.</summary>
+        private static readonly string[] EmissiveRate = { "time", "speed", "freq", "phase", "scroll" };
+
+        /// <summary>
+        /// How bright an un-gated emissive STRENGTH may leave a texel, as a fraction of what the same
+        /// room light makes of a mid-grey albedo texel on the same creature.
+        ///
+        /// <para><b>0.25, and the arithmetic is one line.</b> An emissive map peaks at 1.0 by
+        /// construction while a character's albedo peaks around 0.5, so at the wood's k = 0.048 the
+        /// body's brightest pixel lands at 0.5 x 0.048 = 0.024, and an emissive texel driven at
+        /// 1.0 x 2.0 (the authored <c>_EmissiveMapBoost</c>) x 0.048 x 0.25 lands at 0.024 as well.
+        /// THE EMISSIVE DETAIL COMES OUT AT EXACTLY THE BRIGHTNESS OF THE BODY, which is the definition
+        /// of a silhouette.</para>
+        ///
+        /// <para>It is a FRACTION and not an absolute because the whole point is that it tracks the
+        /// room: in the cellar (k = 0.015) both sides fall together to 0.0075 and the relationship
+        /// holds without a second number to tune.</para>
+        /// </summary>
+        private const float EmissiveShare = 0.25f;
+
+        /// <summary>One material's emission control: which property, whether it is a switch or a
+        /// strength, and what it shipped with. Same shape and same discipline as
+        /// <see cref="TintTarget"/> — the ORIGINAL is captured in <see cref="Collect"/>, strictly
+        /// before this side has written anything, and every write is derived from it.</summary>
+        private readonly struct EmissiveTarget
+        {
+            internal readonly Material Mat;
+            internal readonly int Prop;
+            internal readonly bool IsColour;
+            internal readonly bool IsGate;
+            internal readonly float OrigF;
+            internal readonly Color OrigC;
+
+            internal EmissiveTarget(Material mat, int prop, bool isColour, bool isGate,
+                                    float origF, Color origC)
+            {
+                Mat = mat; Prop = prop;
+                IsColour = isColour; IsGate = isGate;
+                OrigF = origF; OrigC = origC;
+            }
+        }
+
+        private static readonly List<EmissiveTarget> Emissives = new(32);
+
+        /// <summary>One line per material saying what the emission census found and what was done with
+        /// it, printed by <see cref="Diag.Materials"/>. Parallel to <see cref="Verdicts"/>, and it is
+        /// the line that answers the NEXT question rather than this one: a creature that is still too
+        /// bright after this build has either no emission at all (in which case the albedo lever is the
+        /// only suspect left) or one this list did not name.</summary>
+        private static readonly List<string> EmissiveVerdicts = new(16);
 
         /// <summary>One material's darkening lever plus the value it shipped with. The ORIGINAL is
         /// captured before this side writes anything, and every write is
@@ -913,10 +1295,12 @@ internal static partial class HauntFigures
                     break;
                 }
 
-                // ...AND THE ONE LINE OF ActorBehaviour THE STRIP TOOK AWAY. See AnimPin.
+                // ...AND THE ONE LINE OF ActorBehaviour THE STRIP TOOK AWAY, plus the descendant scan
+                // and the root-chain pin that the ModBuild 150 report made necessary. Seeded AFTER the
+                // idle state has been chosen so the rest pose it records is the one the rig is
+                // actually going to be animated away from. See AnimPin.
                 AnimPin pin = _go.AddComponent<AnimPin>();
-                pin.Target = _animator.transform;
-                pin.Seat = _animator.transform.localPosition;
+                pin.Seed(_animator);
                 _pin = pin;
 
                 // ...and the GAIT, which needs the finished scale and the live controller. See Gait.
@@ -952,6 +1336,40 @@ internal static partial class HauntFigures
         /// Outlinable.cs:264-267), and the three dissolve/appear scripts that would fight the
         /// dissolve this feature drives.</para>
         ///
+        /// <para><b>AND THE CREATURE'S OWN LIGHTS GO, WHICH IS A CLASS OF MISS THE MonoBehaviour SWEEP
+        /// STRUCTURALLY CANNOT CATCH.</b> <c>UnityEngine.Light</c> derives from <c>Behaviour</c>, NOT
+        /// from <c>MonoBehaviour</c>, so the allow-list sweep below walks straight past it — and the
+        /// ModBuild 150 census proves two of them survived onto the mod layer: <c>Lightx2</c> in the
+        /// component list for 'Living Spirit' (Player.log:6998), with the game's own
+        /// <c>RFX4_LightCurves</c> beside them to ANIMATE them. The scene dump taken in the same frame
+        /// names one outright (Player.log:6999):</para>
+        /// <code>
+        ///   'LivingSpirit_Light (1)' Point colour=RGBA(0.298, 0.400, 0.557) intensity=20.00 range=1.0
+        /// </code>
+        /// <para><b>THAT IS A SECOND CONTRIBUTOR TO THE "viel zu hell" REPORT AND IT IS PROBABLY THE
+        /// LARGER ONE.</b> Intensity 20 at a range of 1 m, on a light parented INSIDE the creature, is
+        /// a lamp a few centimetres from its own face — and no albedo multiply and no emissive scale
+        /// can reach it, because it is not a property of the figure's materials at all. The
+        /// chromaticity says the same thing independently: the light is (0.298, 0.400, 0.557), which
+        /// normalises to 0.535 : 0.718 : 1.000, and the brightest 0.03% of Figur_hell2.jpg measures
+        /// 0.545 : 0.764 : 1.000. Those are the same colour to within 6%.</para>
+        ///
+        /// <para><b>AND IT BREAKS THIS FEATURE'S CONTRACT OUTRIGHT, which is the reason that does not
+        /// depend on any measurement.</b> An apparition is lit BY THE ROOM AND BY NOTHING ELSE — "in
+        /// an unlit corner you will barely make one out, and that is deliberate". A live point light
+        /// hanging off a figure lights the trunks and the ground around it as well as itself, so the
+        /// haunt would be announcing its own position with a lamp. The lights are therefore DISABLED
+        /// first and destroyed second: <c>Object.Destroy</c> is deferred to the end of the frame (which
+        /// is exactly why this census lists <c>Clothx1</c> and <c>CapsuleColliderx1</c> that <b>are</b>
+        /// destroyed here), and <c>enabled = false</c> takes effect on the instant, so there is no
+        /// window at all rather than a window this side has argued itself out of.</para>
+        ///
+        /// <para>NOTE FOR THE NEXT READER on how to read that census line: it is a snapshot taken in
+        /// the SAME FRAME as the strip, so every MonoBehaviour in it — <c>Outlinablex1</c>,
+        /// <c>DeathDissolvex1</c>, <c>RFX4_LightCurvesx1</c> — is a deferred-destroy artifact and not a
+        /// survivor. <c>Lightx2</c> was the one entry that was neither, and it took a second pair of
+        /// eyes to see that the artifact argument did not cover it.</para>
+        ///
         /// <para><b>PARTICLE SYSTEMS GO TOO</b>, and that is a deliberate loss. Some creatures carry
         /// idle VFX; those particles do not have the <c>_InvisibilityControl</c> property, so they
         /// cannot dissolve with the body and would instead pop in and out around a figure that was
@@ -971,6 +1389,36 @@ internal static partial class HauntFigures
                 if (c != null) Object.Destroy(c);
             foreach (Rigidbody r in root.GetComponentsInChildren<Rigidbody>(true))
                 if (r != null) Object.Destroy(r);
+
+            // THE CREATURE'S OWN LIGHTS. Light is a Behaviour and not a MonoBehaviour, so the sweep
+            // below cannot see it — see the LIGHTS paragraph in this method's doc for the two lights
+            // this missed through ModBuild 150 and for why an apparition may never carry one.
+            // DISABLED THEN DESTROYED: the disable lands on the instant, the destroy at end of frame.
+            foreach (UnityEngine.Light l in root.GetComponentsInChildren<UnityEngine.Light>(true))
+            {
+                if (l == null)
+                    continue;
+                l.enabled = false;
+                Object.Destroy(l);
+            }
+
+            // ...and the two other light-emitting Behaviours in the same blind spot. Neither has been
+            // seen on a creature in this roster; they cost one GetComponentsInChildren each and they
+            // close the CLASS of miss rather than the one instance of it.
+            foreach (LensFlare f in root.GetComponentsInChildren<LensFlare>(true))
+            {
+                if (f == null)
+                    continue;
+                f.enabled = false;
+                Object.Destroy(f);
+            }
+            foreach (Projector p in root.GetComponentsInChildren<Projector>(true))
+            {
+                if (p == null)
+                    continue;
+                p.enabled = false;
+                Object.Destroy(p);
+            }
 
             // The system must go before its renderer (RequireComponent), and it is stopped and
             // cleared first so nothing emits during the frame Destroy is deferred to.
@@ -1055,6 +1503,9 @@ internal static partial class HauntFigures
                     // binds that exact property, so a donor picked because it happened to declare
                     // _Color would fail its own verification and revert every time.
                     Bind(m);
+                    // ...AND THE SECOND TERM, which no albedo lever can reach. See EmissiveLike for
+                    // the measurement that put this line here.
+                    BindEmissive(m);
                     if (_donor == null && ColourPropId(m.shader, TintNames[0]) >= 0)
                         _donor = m.shader;
                 }
@@ -1176,6 +1627,109 @@ internal static partial class HauntFigures
                          + $"and none of its {scanned} colour propertie(s) is an albedo tint. This is "
                          + "the material that was drawn at FULL authored brightness in ModBuild 149.");
             return false;
+        }
+
+        /// <summary>
+        /// Find every emission-like control this material declares, record what it shipped with, and
+        /// append exactly one census line. Called once per material from <see cref="Collect"/>,
+        /// strictly before anything on this side has written to it.
+        ///
+        /// <para>TEXTURES ARE RECORDED BUT NEVER DRIVEN: the lever is the strength that multiplies the
+        /// map, not the map itself — swapping an artist's emissive texture for a black one would be a
+        /// second way to do the same job and a much harder one to undo. Switches go to 0 and strengths
+        /// are scaled; see <see cref="EmissiveGate"/> for why those two are treated differently and
+        /// <see cref="EmissiveLike"/> for the measurement that produced the whole block.</para>
+        /// </summary>
+        private static void BindEmissive(Material m)
+        {
+            Shader? sh = m.shader;
+            if (sh == null)
+            {
+                EmissiveVerdicts.Add($"'{m.name}' [<null shader>] EMISSION: no shader, nothing readable");
+                return;
+            }
+
+            var found = new StringBuilder(192);
+            int driven = 0;
+            int count = sh.GetPropertyCount();
+            for (int p = 0; p < count; p++)
+            {
+                string name = sh.GetPropertyName(p);
+                string low = name.ToLowerInvariant();
+                if (!Any(low, EmissiveLike))
+                    continue;
+
+                if (found.Length > 0)
+                    found.Append(", ");
+
+                // The game's own preview glow. Shade() pins it to a hard 0 every time it writes, which
+                // is strictly darker than any scale of the authored 10 would be, so it is REPORTED
+                // here and driven there — two places writing one property is how a pin gets lost.
+                if (name == "_Glow")
+                {
+                    found.Append($"{name}={m.GetFloat(name):F3} [pinned to 0 by Shade, not scaled here]");
+                    continue;
+                }
+
+                ShaderPropertyType type = sh.GetPropertyType(p);
+
+                // A RATE IS NOT AN AMOUNT — see EmissiveRate. Reported, never driven. The type is
+                // checked before the read for the reason ColourPropId exists: asking a material for a
+                // float that is really a texture is an engine error and a zero, and ModBuild 149 lost
+                // three of the High Cultist's four materials to exactly that mistake.
+                if (Any(low, EmissiveRate))
+                {
+                    found.Append(type is ShaderPropertyType.Float or ShaderPropertyType.Range
+                                     ? $"{name}={m.GetFloat(name):F3} [rate, left as authored]"
+                                     : $"{name} [rate, left as authored]");
+                    continue;
+                }
+
+                bool gate = Any(low, EmissiveGate);
+                switch (type)
+                {
+                    case ShaderPropertyType.Float:
+                    case ShaderPropertyType.Range:
+                    {
+                        float v = m.GetFloat(name);
+                        Emissives.Add(new EmissiveTarget(m, Shader.PropertyToID(name),
+                                                         isColour: false, isGate: gate, v, default));
+                        driven++;
+                        found.Append($"{name}={v:F3} ")
+                             .Append(gate ? "[SWITCH -> hard 0]" : $"[strength x k x {EmissiveShare:F2}]");
+                        break;
+                    }
+
+                    case ShaderPropertyType.Color:
+                    {
+                        Color c = m.GetColor(name);
+                        Emissives.Add(new EmissiveTarget(m, Shader.PropertyToID(name),
+                                                         isColour: true, isGate: false, 0f, c));
+                        driven++;
+                        found.Append($"{name}=({c.r:F3},{c.g:F3},{c.b:F3}) [colour x k x {EmissiveShare:F2}]");
+                        break;
+                    }
+
+                    case ShaderPropertyType.Texture:
+                    {
+                        Texture? tex = m.GetTexture(name);
+                        found.Append($"{name}={(tex != null ? tex.name : "<none>")} [map, deliberately "
+                                     + "not driven — the strength beside it is the lever]");
+                        break;
+                    }
+
+                    default:
+                        found.Append($"{name}=? [type not drivable]");
+                        break;
+                }
+            }
+
+            EmissiveVerdicts.Add(found.Length > 0
+                ? $"'{m.name}' [{sh.name}] EMISSION: {driven} control(s) driven — {found}"
+                : $"'{m.name}' [{sh.name}] EMISSION: this shader declares NO emission-like property at "
+                  + "all, so nothing on this material can light itself and its brightness is ENTIRELY "
+                  + "the albedo lever. If a creature made only of materials like this one still reads "
+                  + "as too bright, emission is not the cause and the light level is.");
         }
 
         private static bool Any(string haystack, string[] needles)
@@ -1334,10 +1888,13 @@ internal static partial class HauntFigures
         {
             presence = Mathf.Clamp01(presence);
 
+            // THE RAMP IS SHAPED FOR THE EYE AND NOT FOR THE FRAMEBUFFER. See PerceptualGamma.
+            float shown = presence >= 1f ? 1f : Mathf.Pow(presence, PerceptualGamma);
+
             // THE ROOM'S LEVEL, measured where the figure stands (Lighting.Apply ran first this
             // frame). With no rig readable this is a fixed dim constant rather than 1: a figure the
             // room cannot be measured for is still a figure in the dark.
-            float k = presence * Lighting.Level;
+            float k = shown * Lighting.Level;
 
             // THE DUMP IS TAKEN BEFORE THE EARLY-OUT, and that is not where it looks like it
             // belongs. It used to sit at the bottom of this method, where it could be missed
@@ -1350,14 +1907,25 @@ internal static partial class HauntFigures
             if (presence >= 0.995f)
                 Diag.Materials(_wantModel, "AFTER", k);
 
+            // THE SWITCH-ON POINT AND THE WRITE STEP ARE FRACTIONS OF THE ROOM'S OWN LEVEL, not the
+            // absolute 0.0015 they were through ModBuild 150 — and that constant was a real
+            // interaction between this round's two halves. The darker a room is made, the smaller the
+            // whole ramp becomes: at the cellar's Level of 0.015 an absolute 0.0015 threshold is a
+            // TENTH of everything the envelope can express, and an absolute 0.0015 write step resolved
+            // the entire appearance in ten visible stairs. Both now scale with the room, so the wood
+            // and the cellar get the same number of steps and the same fraction of ramp spent below
+            // the switch — which is what makes the entrance read the same in both.
+            float on = Mathf.Max(Lighting.Level * OnFraction, 1e-5f);
+            float step = Mathf.Max(Lighting.Level * StepFraction, 1e-6f);
+
             // GONE IS GONE — except on a creature with no tint lever at all, where the only
             // visibility this side has is the renderer switch and the honest place to throw it is
             // the middle of the envelope. See THE FALLBACK in the doc.
-            bool visible = Tints.Count > 0 ? k > 0.0015f : presence >= 0.5f;
+            bool visible = Tints.Count > 0 ? k > on : presence >= 0.5f;
 
             // Both tests are needed: the state test catches the frame the figure becomes visible or
             // invisible, the scalar test skips everything else.
-            if (Mathf.Abs(k - _lastShade) < 0.0015f && (_lastShade > 0.0015f) == visible)
+            if (Mathf.Abs(k - _lastShade) < step && (_lastShade > on) == visible)
                 return;
             _lastShade = k;
 
@@ -1427,7 +1995,73 @@ internal static partial class HauntFigures
                 // a see-through monster is the "leuchtende Silhouette" the last round removed.
                 t.Mat.SetColor(t.Prop, new Color(r * k, g * k, b * k, c.a));
             }
+
+            // ---- THE EMISSION, driven by the SAME scalar the albedo is -----------------------------
+            //
+            // This is the loop that was missing, and its absence is the whole of Figur_hell2.jpg: the
+            // treeline watcher's six materials all ship _UseEmissiveMap = 1 with an _EmissiveMapBoost
+            // of 2.0, emission is ADDED after the albedo, and nothing above this line can reach it.
+            // Switches go hard off; strengths and colours ride k times EmissiveShare so an emissive
+            // texel lands at the brightness of a mid-grey albedo texel in the same room. See
+            // EmissiveLike, EmissiveGate and EmissiveShare — the argument, the honesty about what
+            // cannot be read, and the arithmetic are one block each.
+            float kEm = k * EmissiveShare;
+            for (int i = 0; i < Emissives.Count; i++)
+            {
+                EmissiveTarget e = Emissives[i];
+                if (e.Mat == null)
+                    continue;
+                if (e.IsGate)
+                    e.Mat.SetFloat(e.Prop, 0f);
+                else if (e.IsColour)
+                    e.Mat.SetColor(e.Prop, new Color(e.OrigC.r * kEm, e.OrigC.g * kEm,
+                                                     e.OrigC.b * kEm, e.OrigC.a));
+                else
+                    e.Mat.SetFloat(e.Prop, e.OrigF * kEm);
+            }
         }
+
+        /// <summary>
+        /// THE EXPONENT THAT MAKES THE APPEARANCE A FADE INSTEAD OF A POP, and it is the one number
+        /// that answers "das Auftauchen geschieht abrupt von einem Frame auf den anderen".
+        ///
+        /// <para><b>THE ENVELOPE WAS ALREADY A SMOOTHSTEP, SO WHY DID IT POP.</b> Because the envelope
+        /// was spent in LINEAR LIGHT and the eye does not work in linear light. The albedo multiplier
+        /// is proportional to presence, so radiance is proportional to presence; perceived lightness
+        /// goes roughly as the 1/2.2 power of radiance. A presence of 0.10 — reached 12% of the way
+        /// into the reveal — therefore already LOOKS like 0.10^(1/2.2) = 0.36 of the final figure. A
+        /// third of the appearance happens in the first eighth of the time it was given, and the
+        /// remaining seven eighths carry a change the eye can barely find. That is a pop with a long
+        /// tail, and it is exactly what a photograph of a rising envelope would show.</para>
+        ///
+        /// <para><b>2.2 INVERTS IT EXACTLY.</b> Raising presence to 2.2 before it multiplies the albedo
+        /// makes perceived lightness proportional to presence itself, so the smoothstep the envelope
+        /// was always shaped like is the curve the player actually sees: slow at both ends, quickest in
+        /// the middle, and no part of the ramp wasted. It costs one <c>Mathf.Pow</c> on frames the
+        /// scalar moves, it cannot be mistaken for a rendering fault (the whole figure changes
+        /// brightness together — no holes, no noise field, no per-texel anything), and it is
+        /// deliberately NOT the ModBuild 148 dissolve, which the class doc records as the effect the
+        /// user read as half-loaded textures.</para>
+        ///
+        /// <para>The exact-1 short circuit is not a micro-optimisation: <c>Mathf.Pow(1, 2.2)</c> is
+        /// 0.99999994 on some runtimes and the full-presence dump is gated on 0.995, so a figure that
+        /// never quite reaches 1 would never quite reach its own light level.</para>
+        /// </summary>
+        private const float PerceptualGamma = 2.2f;
+
+        /// <summary>The fraction of the ROOM'S OWN LEVEL at which the renderers are switched on. At the
+        /// cellar's Level of 0.015 this is a k of 6e-5, i.e. a body pixel at 3e-5 — three orders below
+        /// anything a headset resolves, so nothing is ever seen to appear at a step. It is a fraction
+        /// rather than the absolute constant it replaced so that a darker room does not silently spend
+        /// a larger share of its ramp below the switch. See the block in <see cref="Shade"/>.</summary>
+        private const float OnFraction = 0.004f;
+
+        /// <summary>The fraction of the room's level by which the combined scalar must move before the
+        /// materials are re-written. 0.01 gives about a hundred steps across the whole ramp in EVERY
+        /// room — where the absolute constant it replaced gave ten in the cellar and thirty-two in the
+        /// wood. At 90 Hz over a 2.1 s reveal that is a write on roughly half the frames, each one a
+        /// few dozen <c>SetFloat</c>s on one skinned figure.</summary>
+        private const float StepFraction = 0.01f;
 
         /// <summary>
         /// How far toward colourless the albedo is pulled before it is darkened, 0..1. See THE
@@ -1486,23 +2120,21 @@ internal static partial class HauntFigures
             // false` did not stop and AnimPin now cancels; a zero means they do not, and the
             // remaining suspect is the GAIT — the path speed against the walk clip's own, both of
             // which are printed on the `armed at shared clock` and CENSUS lines.
-            if (!_driftLogged && _pin != null)
+            if (_pin != null && _wantModel.Length > 0 && DriftLogged.Add(_wantModel))
             {
-                _driftLogged = true;
                 float drift = _pin.MaxDrift;
-                VRLog.Info("Core", "HAUNT FIGURES animation drift (once per process) — over the whole of "
-                    + $"the first apparition ('{_wantModel}'), the animation put at most {drift * 1000f:F2} mm "
-                    + "on the animator's OWN transform before AnimPin cancelled it. "
-                    + (drift > 0.0005f
-                           ? "THAT IS THE TELEPORT: the walk clip carries its own travel, it loops, and "
-                             + "before this build nothing took it off again — the mesh crept forward "
-                             + "through the cycle and snapped back at the wrap. The game cancels exactly "
-                             + "this in ActorBehaviour.ApplyMotion (:611), which this feature strips, and "
-                             + "AnimPin is that line restored."
-                           : "So the clips do NOT carry travel here and 'applyRootMotion = false' is "
-                             + "holding: whatever is left of the teleport report is the GAIT rather than "
-                             + "the position — compare the m/s on the 'armed at shared clock' line with "
-                             + "the walk clip length on the CENSUS line for the same creature."));
+                VRLog.Info("Core", $"HAUNT FIGURES animation drift for '{_wantModel}' (once per creature "
+                    + $"per process; it {(_gaitSpeed > 0.01f ? $"WALKED at {_gaitSpeed:F2} m/s" : "STOOD STILL")} "
+                    + "— which matters, because through ModBuild 150 this line was latched once per "
+                    + "PROCESS and the first apparition of that session was the STANDING treeline "
+                    + "watcher, so the one measurement the walkers needed was spent on a creature that "
+                    + "never takes a step).\n"
+                    + $"  ON THE ANIMATOR'S OWN TRANSFORM: at most {drift * 1000f:F2} mm before the pin "
+                    + "cancelled it. A zero here does NOT mean the clips carry no travel — "
+                    + "'applyRootMotion = false' only stops Unity EXTRACTING translation onto the "
+                    + "GameObject; on a Generic rig the travel stays in the bone curves, which is what "
+                    + "the next line measures and what the old instrument could not see.\n"
+                    + $"  IN THE BONE CURVES: {_pin.Report()}");
             }
             _pin = null;
 
@@ -1511,6 +2143,7 @@ internal static partial class HauntFigures
             // Materials first: they are instances this side created and Unity will not collect them
             // with the objects that reference them.
             Tints.Clear();          // holds Material references — cleared BEFORE they are destroyed
+            Emissives.Clear();      // ...and so does this one, for the same reason
             for (int i = 0; i < Mats.Count; i++)
                 if (Mats[i] != null)
                     Object.Destroy(Mats[i]);
@@ -1539,6 +2172,7 @@ internal static partial class HauntFigures
             _lastShade = -1f;
             _tintName = string.Empty;
             Verdicts.Clear();
+            EmissiveVerdicts.Clear();
             _donated = 0;
             _gaitSpeed = 0f;
             _gaitBlend = -1f;
@@ -2339,7 +2973,15 @@ internal static partial class HauntFigures
         {
             private const int MaxRenderers = 8;
             private const int MaxMaterialsPerRenderer = 4;
-            private const int MaxPropsPerMaterial = 24;
+
+            /// <summary>Was 24, AND THE CAP WAS ITSELF A BUG. <c>Amp_Char_Shader</c> declares exactly 24
+            /// properties this census calls interesting, so the ModBuild 150 dumps were truncated at
+            /// precisely the point where the list would have reached <c>_MOD_TINT</c> — the AFTER dump
+            /// never once printed the value it had just written, and "the tint landed" stayed an
+            /// inference through two rounds of hardware. <see cref="Named"/> is now printed FIRST for
+            /// the same reason: a cap must never be able to eat the property the round is about.</summary>
+            private const int MaxPropsPerMaterial = 64;
+
             private const int MaxLights = 10;
 
             private static bool _scene;
@@ -2376,7 +3018,12 @@ internal static partial class HauntFigures
             {
                 if (model.Length == 0 || Rends.Count == 0)
                     return;
-                if (!Dumped.Add(model + "|" + (phase[0] == 'B' ? "B" : "A")))
+                // KEYED BY ROOM AS WELL AS BY CREATURE, and that was a real hole: the ModBuild 150
+                // session showed the same Living Bones in the wood (k = 0.048) and at the cellar
+                // window (k = 0.015), and because the latch was per creature the CELLAR instance —
+                // the one in the photograph — never dumped at all. One dump per creature per room per
+                // phase is still bounded and now covers every framing the user can photograph.
+                if (!Dumped.Add(model + "|" + _wantStyle + "|" + (phase[0] == 'B' ? "B" : "A")))
                     return;
 
                 try
@@ -2417,6 +3064,23 @@ internal static partial class HauntFigures
                     if (_donated > 0)
                         sb.Append($"    {_donated} material(s) were moved onto a sibling shader to gain a "
                                   + "lever at all — see Donate() for what that costs.\n");
+
+                    // ---- THE EMISSION CENSUS, which is what ModBuild 151 exists to answer ----------
+                    sb.Append("  PER-MATERIAL EMISSION — every emission-like property this shader "
+                              + "declares, with its LIVE value and what was done with it. THIS IS THE "
+                              + "SECOND LINE THAT WAS MISSING: an albedo multiply cannot darken a term "
+                              + "that is ADDED after lighting, and on the treeline watcher that term "
+                              + "(_UseEmissiveMap = 1, _EmissiveMapBoost = 2.0) was 190 pixels of face, "
+                              + "eyes and pendant at up to luminance 0.892 over a body at 0.00015. "
+                              + "Switches go to a hard 0 because the Amplify graphs are not readable "
+                              + $"and a scaled switch is undefined; strengths ride k x {EmissiveShare:F2} "
+                              + "so an emissive texel lands at the brightness of a mid-grey albedo texel "
+                              + "in the same room. IF A CREATURE IS STILL TOO BRIGHT AFTER THIS BUILD "
+                              + "AND ITS LINES BELOW ALL SAY 'NO emission-like property', THEN EMISSION "
+                              + "IS NOT THE CAUSE FOR IT AND THE LIGHT LEVEL IS.\n");
+                    for (int i = 0; i < EmissiveVerdicts.Count
+                                    && i < MaxRenderers * MaxMaterialsPerRenderer; i++)
+                        sb.Append($"    {i}: {EmissiveVerdicts[i]}\n");
 
                     int shown = 0;
                     for (int i = 0; i < Rends.Count && shown < MaxRenderers; i++)
@@ -2459,39 +3123,50 @@ internal static partial class HauntFigures
                     return;
                 }
 
+                // TWO PASSES, AND THE ORDER IS LOAD-BEARING. The NAMED list goes out first regardless
+                // of the shader's own property order, so the cap can never again truncate away the one
+                // property the round is about (see MaxPropsPerMaterial). The second pass then adds
+                // everything that merely SMELLS interesting and was not already printed.
                 int n = 0;
                 int count = sh.GetPropertyCount();
-                for (int p = 0; p < count && n < MaxPropsPerMaterial; p++)
+                for (int pass = 0; pass < 2 && n < MaxPropsPerMaterial; pass++)
                 {
-                    string name = sh.GetPropertyName(p);
-                    if (!Interesting(name))
-                        continue;
-                    n++;
-                    switch (sh.GetPropertyType(p))
+                    for (int p = 0; p < count && n < MaxPropsPerMaterial; p++)
                     {
-                        case ShaderPropertyType.Color:
-                            Color c = m.GetColor(name);
-                            sb.Append($"{name}=({c.r:F3},{c.g:F3},{c.b:F3},{c.a:F3}) ");
-                            break;
-                        case ShaderPropertyType.Vector:
-                            sb.Append($"{name}={m.GetVector(name):F3} ");
-                            break;
-                        case ShaderPropertyType.Float:
-                        case ShaderPropertyType.Range:
-                            sb.Append($"{name}={m.GetFloat(name):F4} ");
-                            break;
-                        case ShaderPropertyType.Texture:
-                            Texture? t = m.GetTexture(name);
-                            sb.Append($"{name}={(t != null ? t.name : "<none>")} ");
-                            break;
-                        default:
-                            sb.Append($"{name}=? ");
-                            break;
+                        string name = sh.GetPropertyName(p);
+                        bool named = IsNamed(name);
+                        if (pass == 0 ? !named : named || !Smelly(name))
+                            continue;
+                        n++;
+                        switch (sh.GetPropertyType(p))
+                        {
+                            case ShaderPropertyType.Color:
+                                Color c = m.GetColor(name);
+                                sb.Append($"{name}=({c.r:F3},{c.g:F3},{c.b:F3},{c.a:F3}) ");
+                                break;
+                            case ShaderPropertyType.Vector:
+                                sb.Append($"{name}={m.GetVector(name):F3} ");
+                                break;
+                            case ShaderPropertyType.Float:
+                            case ShaderPropertyType.Range:
+                                sb.Append($"{name}={m.GetFloat(name):F4} ");
+                                break;
+                            case ShaderPropertyType.Texture:
+                                Texture? t = m.GetTexture(name);
+                                sb.Append($"{name}={(t != null ? t.name : "<none>")} ");
+                                break;
+                            default:
+                                sb.Append($"{name}=? ");
+                                break;
+                        }
                     }
                 }
                 if (n == 0)
                     sb.Append("<no visibility-ish property on this shader at all — the dissolve fallback "
                               + "in Shade() is what drives this renderer>");
+                else if (n >= MaxPropsPerMaterial)
+                    sb.Append($"... [TRUNCATED at {MaxPropsPerMaterial}; the NAMED list was printed "
+                              + "first, so nothing this round depends on was lost]");
                 sb.Append('\n');
             }
 
@@ -2521,11 +3196,16 @@ internal static partial class HauntFigures
                 }
             }
 
-            private static bool Interesting(string name)
+            private static bool IsNamed(string name)
             {
                 for (int i = 0; i < Named.Length; i++)
                     if (Named[i] == name)
                         return true;
+                return false;
+            }
+
+            private static bool Smelly(string name)
+            {
                 for (int i = 0; i < Smells.Length; i++)
                     if (name.IndexOf(Smells[i], System.StringComparison.OrdinalIgnoreCase) >= 0)
                         return true;
