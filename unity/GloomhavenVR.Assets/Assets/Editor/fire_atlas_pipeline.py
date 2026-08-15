@@ -94,10 +94,78 @@ THE OUTPUT is a 512x512 RGBA PNG laid out as EnvFlame.shader's 2x2 atlas:
 
 Cell c is at (c % 2, c // 2) with row 0 the BOTTOM half of the texture (the
 shader computes cel = float2(fmod(ci,2), floor(ci/2)) and samples
-(a + cel) * 0.5, and Unity's v = 0 is the bottom row). RGB IS WHITE
-THROUGHOUT: all colour comes from GhvrFireRamp's three stops measured up the
-whole fire, so one bed sprite is white-blue at the seat of a big fire and
-orange at the seat of a small one out of one texture. Alpha carries the shape.
+(a + cel) * 0.5, and Unity's v = 0 is the bottom row). ALPHA CARRIES THE
+SHAPE and nothing else; all colour comes from GhvrFireRamp's three stops
+measured up the whole fire, so one bed sprite is white-blue at the seat of a
+big fire and orange at the seat of a small one out of one texture.
+
+============================================================================
+ModBuild 148 — RGB IS NO LONGER WHITE. IT IS THE EROSION FIELD.
+
+USER VERDICT, hardware, ModBuild 147, verbatim: "Es flackert überhaupt nicht
+natürlich... Bitte höre auf es selber machen zu wollen und nutze feuer fx die
+ich dir zur Verfügung gestellt habe."
+
+The ModBuild 147 round of this file already found the answer and then wrote
+down, in the paragraph immediately below, why it could not take it:
+
+    "This is also the one place where their SHADER's technique (erosion by a
+     noise texture) is borrowed — BAKED AS A SINGLE STATIC INSTANCE, because
+     our fragment shader has no second sampler and EnvFlame.shader is another
+     lane's file this round."
+
+That is the whole of the fault he is reporting. Vefects' 18 prefabs have
+startSpeed 0, no flipbook and no velocity module: NOTHING IN THEIR FIRE MOVES.
+Every bit of the life in it is a noise field scrolling upward through the
+alpha in their fragment shader. Bake that field ONCE and you get their
+silhouette with none of their motion, which is exactly what shipped — torn
+shapes that stretch and sway as rigid stencils. It is why "es flackert
+überhaupt nicht natürlich" and it is why no amount of work on the four
+turbulence BANDS fixed it: those bands move geometry, and a fire's life is not
+in its geometry, it is in its mask dissolving.
+
+So this round the field ships, animated. The constraint that blocked it (no
+second sampler in a fragment that is already the heaviest overdraw in the
+room) is answered by PUTTING THE NOISE IN THE THREE CHANNELS THAT WERE BEING
+WASTED ON THE CONSTANT 1.0:
+
+    R  the erosion field, ONE tile over the whole 512 image (period 512 px)
+    G  the same field at FOUR tiles (period 128 px) — an octave-and-two above
+       R, and because a scroll of dv in UV moves a 4x field through four times
+       as many of its own periods, G also BOILS FOUR TIMES FASTER off the same
+       scroll. Two octaves of a turbulence cascade, in time as well as in
+       space, out of ONE extra tex2D.
+    B  1.0. Deliberately left legible rather than packed with a third octave:
+       a channel that is visibly constant is how a reader of the PNG can tell
+       at a glance that RG are data and not art.
+
+Both are made EXACTLY tileable (R is the source, which was measured seamless —
+see the gate; G is a 4x4 tiling of an integer downsample, so its wrap is the
+source's own) because EnvFlame samples them with a free-running scrolled UV
+that wraps over the whole atlas, with the texture's wrapU/wrapV = Repeat.
+
+RANK-EQUALISED to uniform [0,1], then INVERTED. T_VFX_Noise_07 as delivered
+has mean 0.314 and std 0.198 — a dark-biased, long-tailed distribution — and
+`saturate(a * W - n * E)` with such an n eats the mask in a few dense patches
+and leaves the rest untouched. Under a uniform n the surviving coverage is
+linear in the threshold, which is what makes _ErodeParams' numbers mean
+something a tuner can reason about. The inversion is in erosion_field() and
+is load-bearing rather than cosmetic; read the comment there.
+
+IMPORTED AS DATA, not as colour: fire_atlas_alb.png.meta carries
+sRGBTexture: 0 and alphaIsTransparency: 0 for this file's sake. Both are part
+of the output; see the note where the RGB is written.
+
+============================================================================
+AND THE STATIC HOLES ARE GONE. `bed *= 0.62 + 0.38 * n` and
+`t *= 0.70 + 0.30 * nn` carved the same field into the mask at bake time. With
+the shader now carving it every frame, keeping them would be the field applied
+twice — once frozen and once moving — and the frozen copy is the one that
+makes a card legible as a card: a hole that never changes is a landmark, and a
+landmark is how an eye finds an individual quad in a stack of thirty. The mask
+ships FULLER than it was and the shader takes the difference back out; the
+energy bookkeeping for that is the ARTE block at the bottom, which is computed
+from the shipped erosion parameters rather than guessed.
 
 WHY EACH STEP EXISTS
   * NORMALISE on the source's own peak. Two of the four sources top out below
@@ -129,10 +197,9 @@ WHY EACH STEP EXISTS
     unlikely at the top one.
   * HOLES, from Vefects' own noise map rather than from a new fBm. Two
     overlapping cards with solid interiors show two outlines; two cards with
-    holes merge into one mass. This is also the one place where their
-    SHADER's technique (erosion by a noise texture) is borrowed — baked as a
-    single static instance, because our fragment shader has no second
-    sampler and EnvFlame.shader is another lane's file this round.
+    holes merge into one mass. This is their SHADER's technique (erosion by a
+    noise texture) and as of ModBuild 148 it is borrowed the way they use it —
+    ANIMATED, out of the RGB channels of this same image. See the block above.
 
 Run:  python3 fire_atlas_pipeline.py <dir with the two .unitypackage files> <out.png>
 Needs: python3, numpy, Pillow.
@@ -147,6 +214,43 @@ from PIL import Image
 
 TILE = 256                      # per cell; 512x512 atlas, as MakeFireAtlas was
 BORDER = 0.035                  # hard-zero margin, in cell fractions
+
+# ---------------------------------------------------------------------------
+# THE SHIPPED EROSION CONSTANTS. These are EnvFlame's _ErodeParams as
+# EnvRoomBuilder.BuildFireCards writes them, restated here because this file
+# has to SIMULATE the erosion in order to report what it does to each cell's
+# drawn energy — and a simulation against different numbers would be a lie
+# dressed as a measurement. If BuildFireCards changes them, change them here
+# and re-run: the ARTE line this script prints is the one that goes into
+# EnvRoomBuilder's ArtE table.
+#
+#   ERODE_W  the pre-boost. The mask is multiplied by this BEFORE the field is
+#            subtracted. IT HAS TO STAY NEAR 1: at the 1.72 the first cut of
+#            this used, saturate(mask * W) was 1.0 over the whole body of every
+#            cell, so `1 - field` was drawn LITERALLY — the card became a
+#            picture of the noise with a mask-shaped hole punched round it, the
+#            silhouette stopped moving at all, and the only thing that lived
+#            was a fine web. Keeping the product a GRADIENT is what lets the
+#            field carve the OUTLINE, which is the part of a flame that has to
+#            tear. Measured over six scroll offsets, the outline's frame-to-
+#            frame change went from nil to visible at 1.08.
+#   ERODE_E  how deep the field cuts, at the TIP of a card.
+#   ERODE_B  ...and at its FOOT, as a fraction of ERODE_E. A flame is anchored
+#            where it is fed: the base of a tongue and the seat of a bed do not
+#            dissolve, they are the fuel. 0.25 is "a quarter as much down
+#            there", and it is what stops the erosion sawing every card off at
+#            the ankles once per second.
+#   ERODE_G  the fine octave's share of the field (channel G against R).
+#   ERODE_UV the field's tiling across ONE CARD, (u, v). 1.35 across and 1.00
+#            up: a card sees a little over one period of the coarse octave and
+#            five of the fine one, which puts the coarse structure at the size
+#            of the whole tongue and the fine at 6-8 cm on a 35 cm card — the
+#            3.6 cm / 8 Hz end of EnvFire.cginc's own frequency table.
+ERODE_W = 1.08
+ERODE_E = 0.88
+ERODE_B = 0.22
+ERODE_G = 0.26
+ERODE_UV = (0.85, 0.72)
 
 PKG_VEFECTS = "Free Fire VFX - HDRP.unitypackage"
 PKG_N2 = "Fire 001.unitypackage"
@@ -255,6 +359,108 @@ def feather(a, e0, e1):
     return a * (1.0 - ss(e0, e1, np.abs(u - 0.5)))
 
 
+def rank_uniform(a):
+    """Rank-transform a field to exactly uniform [0,1], shape preserved.
+
+    See the EROSION block in the module docstring for why: `saturate(mask * W
+    - field * E)` only has a tunable meaning if the field's distribution is
+    known, and T_VFX_Noise_07 as delivered is mean 0.314 / std 0.198 with a
+    long dark tail. Under a uniform field the surviving coverage is linear in
+    the threshold, so ERODE_W and ERODE_E above are numbers a tuner can reason
+    about instead of two knobs that interact through a histogram.
+    """
+    flat = a.ravel()
+    order = np.argsort(flat, kind="stable")
+    out = np.empty(flat.shape, np.float32)
+    out[order] = np.linspace(0.0, 1.0, flat.size, dtype=np.float32)
+    return out.reshape(a.shape)
+
+
+def erosion_field(noise):
+    """The two octaves EnvFlame subtracts from the mask, as R and G.
+
+    R is the source at one tile over the whole 512 image; G is an integer 4x4
+    tiling of a 4x downsample, i.e. the same field an octave-and-two above it.
+    BOTH ARE EXACTLY SEAMLESS at the image wrap — R because the source is (the
+    gate at the bottom of this file measures it), G because a 4x4 tiling of
+    anything is periodic by construction — which is load-bearing: EnvFlame
+    samples this with a free-running scrolled UV that wraps over the whole
+    atlas, and a seam would draw a moving straight line across every card in
+    both rooms.
+    """
+    W = TILE * 2
+    # INVERTED — 1 - rank, and this is not a sign convention, it is the whole
+    # difference between two looks. EnvFlame computes mask*W - field*E, so the
+    # field's DARK parts survive as bright. T_VFX_Noise_07 is a cellular field:
+    # broad soft cells divided by THIN dark ridges. Taken as delivered those
+    # ridges came through as a web of thin BRIGHT lines across every card —
+    # scratches, in an effect whose entire complaint this round is "mehrere
+    # sichtbare Striche". Inverted, the same ridges are thin DARK rifts
+    # dividing bright sheets, which is what the inside of a flame looks like
+    # and is also what splits one card's mass into separate tongues.
+    r = 1.0 - rank_uniform(resize(noise, W, W))
+    # The fine octave is built from a 4x DOWNSAMPLE tiled 4x4, so it is exactly
+    # seamless (any 4x4 tiling is) and inherently soft. It is then boxed once
+    # more: rank-equalising a cellular field sharpens its ridges into cracks,
+    # and at four times the frequency those read as crazed glass rather than
+    # as turbulence. One 3-tap box in each axis is enough to turn them back
+    # into mottling and costs nothing at bake time.
+    #
+    # THE RANK TRANSFORM GOES BEFORE THE TILING, and the order is worth stating
+    # because the obvious alternative is subtly wrong rather than obviously so.
+    # Ranking the TILED array asks rank_uniform to order sixteen pixels that are
+    # exact copies of one another; it breaks those ties by raster index and so
+    # assigns them sixteen different values. They come out 6e-5 apart on a
+    # 512x512 image — MEASURED, and small enough that the two orderings are
+    # visually identical here — but that is an accident of the array size, not a
+    # property of the method, and the tie spread grows with the tile count.
+    # Ranking the tile and then copying it is exact at any size.
+    fine = 1.0 - rank_uniform(resize(noise, W // 4, W // 4))
+    g = np.tile(fine, (4, 4))
+    for ax in (0, 1):
+        g = (np.roll(g, 1, ax) + 2.0 * g + np.roll(g, -1, ax)) * 0.25
+    return r, g
+
+
+def simulate_erosion(cell, r, g):
+    """What EnvFlame's fragment does to this cell, over a full scroll cycle.
+
+    Returns the cell's mean alpha AFTER erosion, averaged over 16 evenly
+    spaced scroll offsets — i.e. the drawn energy the fire will actually have,
+    which is the number EnvRoomBuilder.ArtE has to be derived from. Doing this
+    by measuring the MASK and hoping is how a sprite swap silently re-weights
+    six rounds of tuning; that mistake is written up in EnvRoomBuilder's own
+    ART COMPENSATION block and this function exists so it cannot repeat.
+
+    The card's uv.y is the cell's v, and the erosion is height-weighted by
+    (ERODE_B + (1 - ERODE_B) * v) exactly as the shader weights it.
+
+    R AND G ARE ROLLED BY THE SAME NUMBER OF PIXELS, and that is not an
+    oversight to be tidied: the shader takes ONE tap at one uv, so a scroll of
+    dv shifts both channels by the same distance in uv. G's four-times-finer
+    pattern simply travels four times as far in its OWN periods for it, which
+    is the whole reason a single tap gives a cascade in time as well as in
+    space.
+    """
+    W = r.shape[0]
+    v, u = vgrid(), ugrid()
+    hw = ERODE_B + (1.0 - ERODE_B) * v
+    boosted = np.clip(cell * ERODE_W, 0.0, 1.0)
+    # the field is sampled at the card's own uv times the shipped tiling, and
+    # wraps — index arithmetic rather than a crop, so the tiling in this
+    # measurement is the tiling that ships
+    iu = np.rint(u * ERODE_UV[0] * W).astype(np.int32)
+    iv = np.rint(v * ERODE_UV[1] * W).astype(np.int32)
+    tot = 0.0
+    for k in range(16):
+        sh = int(round(k * W / 16.0))
+        rr = r[(iv + sh) % W, iu % W]
+        gg = g[(iv + sh) % W, iu % W]
+        field = (1.0 - ERODE_G) * rr + ERODE_G * gg
+        tot += float(np.clip(boosted - field * ERODE_E * hw, 0.0, 1.0).mean())
+    return tot / 16.0
+
+
 def border(a):
     """Zero margin: nothing in a cell may be reachable from a neighbour's tap
     at ANY mip level."""
@@ -290,9 +496,22 @@ def build(src):
     band = int(TILE * 0.58)
     bed[TILE - band:, :] = resize(
         ground[int(512 * 0.36):, int(512 * 0.13):int(512 * 0.87)], TILE, band)
-    bed *= ss(0.0, 0.040, v)                       # sits INTO what it burns
+    # ...and it is fed over the bottom TWELFTH rather than the bottom
+    # twenty-fifth. ModBuild 148: at 0.040 the mask went from nothing to its
+    # brightest in three texels, so the bottom of every bed card was a bright
+    # horizontal bar one pixel high running the full width of a quad up to
+    # 2.6x as wide as it is tall — a straight line, in an effect whose whole
+    # complaint is straight lines ("es sind mehrere sichtbare Striche auf den
+    # assets drauf"). It is visible as such in the shipped atlas. The bed still
+    # sits INTO what it burns; it now arrives there over 8 cm of a 35 cm card
+    # instead of over 1 cm, and the erosion's base weight (ERODE_B) is what
+    # keeps that band alive rather than a hard edge keeping it bright.
+    bed *= ss(0.0, 0.085, v)                       # sits INTO what it burns
     bed *= 1.0 - ss(0.16, 0.34 + 0.14 * n, v)      # ragged top, no cut
-    bed *= 0.62 + 0.38 * n                         # holes
+    # NO STATIC HOLES ANY MORE — see the EROSION block in the docstring. The
+    # shader carves this same field every frame now, and a hole that is baked
+    # as well is a hole that never moves, i.e. a landmark by which the eye
+    # finds one card in a stack of thirty.
     # ...and it goes out sideways before its own quad edge does. The widest
     # fade of the four: a bed card's quad is up to 2.6x as wide as it is tall,
     # so its vertical sides are the longest straight lines in the whole effect.
@@ -300,18 +519,23 @@ def build(src):
     bed = knee(norm(bed), 0.95, 0.62)
 
     # ---- cells 1 and 2: THE TONGUES ----------------------------------
-    def tongue(t, shift):
+    def tongue(t):
         t = t * ss(0.0, 0.10, v)                   # fed at the base, not cut
         t = t * np.clip(1.0 - 0.80 * ss(0.42, 1.0, v), 0, 1)   # the tip dies
-        nn = np.roll(np.roll(n, shift, 0), shift * 3, 1)
-        t = t * (0.70 + 0.30 * nn)
+        # ...and NO STATIC HOLES: `t * (0.70 + 0.30 * nn)` used to freeze this
+        # very field into the mask, and its `shift` argument (which existed
+        # only to give the two tongue cells different frozen holes) went with
+        # it. The field is the shader's now, and moving; what still separates
+        # the two cells is that they are two different source masks at two
+        # different widths, which is a difference in SILHOUETTE and survives
+        # being eroded. See the EROSION block.
         # narrower than the bed's, because both masks already taper toward
         # their sides — this only has to kill the last few per cent that would
         # otherwise be cut off square at the cell wall
         t = feather(t, 0.30, 0.49)
         return knee(norm(t), 0.92, 0.70)
 
-    t1 = tongue(resize(ground, TILE, TILE), 0)
+    t1 = tongue(resize(ground, TILE, TILE))
     # The second tongue is the OTHER mask, mirrored (a different lean) and
     # pulled in to 0.80 of the cell width: the two masks as delivered are
     # within 3 % of the same width, and two tongues of the same width are one
@@ -321,7 +545,7 @@ def build(src):
     nar = int(TILE * 0.80)
     x0 = (TILE - nar) // 2
     t2[:, x0:x0 + nar] = resize(flame, nar, TILE)[:, ::-1]
-    t2 = tongue(t2, 97)
+    t2 = tongue(t2)
 
     # ---- cell 3: THE PUFF --------------------------------------------
     # N2Studio's sheet, top-right frame: a turbulent mass with a bright core
@@ -366,6 +590,27 @@ def main(src_dir, out_path):
 
     cells = build(src)
     names = ("bed", "tongueA", "tongueB", "puff")
+    ef_r, ef_g = erosion_field(src["noise"])
+
+    # ---- THE SEAM GATE ---------------------------------------------------
+    # EnvFlame samples RG with a free-running scrolled uv that wraps over the
+    # whole atlas, so a discontinuity at the image wrap would draw a moving
+    # STRAIGHT LINE across every card in both rooms once per scroll period —
+    # which is the exact fault class this whole round is about. Measured
+    # against the field's own internal neighbour difference, not against a
+    # typed tolerance: a seamless field's wrap edge is statistically an
+    # interior edge.
+    for nm, f in (("R", ef_r), ("G", ef_g)):
+        for ax in (0, 1):
+            wrap = float(np.abs(np.take(f, 0, ax) - np.take(f, -1, ax)).mean())
+            inner = float(np.abs(np.take(f, 10, ax) - np.take(f, 11, ax)).mean())
+            if wrap > inner * 2.0 + 1e-4:
+                raise SystemExit(
+                    f"erosion field {nm} is not seamless on axis {ax}: wrap "
+                    f"difference {wrap:.5f} against an interior difference of "
+                    f"{inner:.5f}. EnvFlame scrolls this field over the wrap, so "
+                    "the seam would be a straight bright line travelling up every "
+                    "card in both rooms. Re-derive it from a tileable source.")
 
     for nm, c in zip(names, cells):
         sat = float((c > 0.97).mean())
@@ -393,9 +638,36 @@ def main(src_dir, out_path):
                 "slab artefact this pipeline's feather() exists to prevent. Widen the "
                 "feather.")
         w, h = extent(c)
+        eroded = simulate_erosion(c, ef_r, ef_g)
         print(f"  {nm:8s} max={c.max():.3f} mean={c.mean():.4f} "
               f"cover>2%={100 * (c > 0.02).mean():5.1f}%  edge ring={edge:.4f}  "
-              f"drawn mass {w:.3f} x {h:.3f}")
+              f"drawn mass {w:.3f} x {h:.3f}  eroded mean={eroded:.4f} "
+              f"({eroded / max(c.mean(), 1e-6):.3f}x)")
+
+    # ---- WHAT ENVROOMBUILDER'S ArtE HAS TO BE ---------------------------
+    # Drawn ENERGY per card is (mean alpha) x (quad area), and both halves of
+    # that have now moved: the mask ships without its baked holes and the
+    # shader takes a moving field back out of it. ArtE exists to hold the
+    # PRODUCT constant against exactly this kind of change (read its block in
+    # EnvRoomBuilder.FireMesh — it was written for the last sprite swap), so
+    # the factor each kind needs is the ratio of the energy the round being
+    # replaced drew to the energy this one draws.
+    #
+    # The reference row is the SHIPPED ModBuild 147 atlas, whose per-cell mean
+    # alphas are printed in EnvRoomBuilder's own table and restated here so
+    # this script needs no second input to close the loop:
+    ref = {"bed": 0.1238, "tongueA": 0.2402, "tongueB": 0.1940, "puff": 0.1512}
+    ref_e = {"bed": 1.41, "tongue": 0.62, "puff": 1.15}      # what ships today
+    now = {nm: simulate_erosion(c, ef_r, ef_g) for nm, c in zip(names, cells)}
+    tongue_ref = 0.5 * (ref["tongueA"] + ref["tongueB"])
+    tongue_now = 0.5 * (now["tongueA"] + now["tongueB"])
+    arte = (ref_e["bed"] * ref["bed"] / max(now["bed"], 1e-6),
+            ref_e["tongue"] * tongue_ref / max(tongue_now, 1e-6),
+            ref_e["puff"] * ref["puff"] / max(now["puff"], 1e-6))
+    print(f"  ArtE (bed, tongue, puff) = {arte[0]:.3f}, {arte[1]:.3f}, {arte[2]:.3f} "
+          f"— copy into EnvRoomBuilder.FireMesh's ArtE table; it holds the drawn "
+          f"energy of every fire in both rooms at the ModBuild 147 level through "
+          f"the erosion swap.")
 
     cells = [border(c) for c in cells]
 
@@ -406,9 +678,46 @@ def main(src_dir, out_path):
         y0 = W - (cy + 1) * TILE      # cell row 0 is the BOTTOM of the PNG
         alpha[y0:y0 + TILE, cx * TILE:(cx + 1) * TILE] = c
 
-    rgb = np.full((W, W, 3), 255, np.uint8)
+    # RGB IS THE EROSION FIELD. B is a legible constant 1. NOT border()ed and
+    # NOT cell-aligned: this is one continuous tiling field over the whole
+    # image, which is what lets the shader scroll it forever with a single
+    # Repeat-wrapped tap.
+    #
+    # THREE IMPORTER SETTINGS ARE PART OF THIS FILE'S OUTPUT and are set in
+    # fire_atlas_alb.png.meta; any one wrong and the field is silently corrupt
+    # rather than absent, which is the worst kind of regression:
+    #   textureCompression: 0   UNCOMPRESSED, and this one cost a render. The
+    #                       field is rank-equalised, i.e. it has FULL-RANGE
+    #                       contrast at every scale by construction — which is
+    #                       exactly the signal BC1/BC3 colour compression cannot
+    #                       carry: four interpolated colours per 4x4 block. The
+    #                       first bake with the field in RGB and the shipped
+    #                       "Normal Quality" compression rendered the forest's
+    #                       burning log as a staircase of hard 4x4 blocks with a
+    #                       two-level dither in them, because the shader
+    #                       subtracts this field from the mask and therefore
+    #                       draws the compressor's error directly. 512x512 RGBA32
+    #                       is 1.0 MB against 0.25 MB, in a 66 MB bundle, for the
+    #                       one texture in it that is data rather than art.
+    #   sRGBTexture: 0      the field is DATA. With it at 1 (which is what it
+    #                       shipped as, when RGB was a constant white and the
+    #                       setting could not matter) a linear-colour-space
+    #                       project applies sRGB->linear on the way in and the
+    #                       shader receives the field's 2.2-power — the
+    #                       erosion would be ~40 % too weak through the
+    #                       midtones and every constant above meaningless.
+    #   alphaIsTransparency: 0
+    #                       with it at 1 Unity DILATES rgb outward from the
+    #                       opaque texels into the transparent ones, to stop
+    #                       bilinear halos on a sprite. That is correct for a
+    #                       sprite and catastrophic here: three quarters of
+    #                       this image is transparent, and the dilation would
+    #                       overwrite the field with smeared copies of itself
+    #                       everywhere the mask happens to be zero.
+    rgb = np.dstack([ef_r, ef_g, np.ones_like(ef_r)])
+    rgb8 = (np.clip(rgb, 0, 1) * 255.0 + 0.5).astype(np.uint8)
     a8 = (np.clip(alpha, 0, 1) * 255.0 + 0.5).astype(np.uint8)
-    Image.fromarray(np.dstack([rgb, a8]), "RGBA").save(out_path)
+    Image.fromarray(np.dstack([rgb8, a8]), "RGBA").save(out_path)
     print("wrote", out_path)
 
 

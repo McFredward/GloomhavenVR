@@ -251,14 +251,40 @@ The loose hanging strands (`Textures/Env_Strand.png`) are still generated —
   makes **tongue A**; the flame mask is mirrored and narrowed to 0.80 width for
   **tongue B**; one frame of N2Studio's turbulence sheet, radially feathered,
   makes the **puff**. Each is then normalised on its own peak, given a
-  base/tip feed profile, holed by the Vefects noise map, feathered sideways to
-  zero well inside its cell, soft-knee compressed to a ceiling of 0.90–0.95 so
-  no region can saturate in the additive pass, given a hard-zero 3.5 % border,
-  and packed into this project's own 2×2 cell layout with RGB forced to white
-  (all colour comes from `EnvFire.cginc`'s three-stop temperature ramp).
+  base/tip feed profile, feathered sideways to zero well inside its cell,
+  soft-knee compressed to a ceiling of 0.90–0.95 so no region can saturate in
+  the additive pass, given a hard-zero 3.5 % border, and packed into this
+  project's own 2×2 cell layout.
   **The result is a re-authored composite: no source image survives in the
   shipped file as delivered, at its delivered size, or in its delivered
   framing.**
+- **ModBuild 148 — the RGB channels now carry a DERIVED EROSION FIELD**, and
+  this changes what is taken from `T_VFX_Noise_07.tga` rather than what is
+  taken from the other three. Up to ModBuild 147 that map was used once, at
+  bake time, to punch static holes in the four masks, and RGB was forced to
+  white. It is now the source of a two-octave field packed into R and G (R one
+  tile over the 512² image, G a 4×4 tiling of a 4× downsample), which
+  `EnvFlame.shader` scrolls through the alpha every frame — the animated
+  erosion that is the whole of how the supplied pack's own fire moves, and the
+  reason the user's ModBuild 147 verdict was "es flackert überhaupt nicht
+  natürlich". The static holes are gone; the field replaced them.
+  **The derivation is not a copy**: the 256² source is resized, rank-transformed
+  to a uniform \[0,1] distribution (destroying its histogram), inverted, tiled,
+  and — for G — box-filtered. The shipped R and G are a monotone re-mapping of a
+  re-sampled tiling of the source; the source's own tonal identity does not
+  survive it. Same grant, same clause (2.2.1 (b), incorporated and embedded),
+  same non-transferability. `B` is a constant 1.0 and carries nothing.
+- **Nothing new was licensed for ModBuild 148, and the search is recorded here
+  because the project has rejected packs on licence grounds before.** The
+  question asked was whether a CC0 flame or noise source would improve on what
+  is already imported. It would not: the deficiency the user reported is
+  *temporal* (a mask that does not dissolve) and *geometric* (cards that hang
+  off the props and read as strokes), and neither is a property of the art —
+  the same four masks, eroded, are what the supplied pack itself ships. A new
+  texture would have added a second sampler to the heaviest-overdraw fragment
+  in the room to buy nothing. So: no download, no new source, no new licence
+  obligation, and the two `.unitypackage` files in the gitignored drop
+  directory remain the only third-party fire input this bundle has ever had.
 - **Not used, and pruned deliberately**: everything else in both packages —
   all HDRP/URP shaders, the Nova Shader library and its editor scripts, the
   demo scenes, the 18 prefabs, all materials, the three fire WAVs, and the 14

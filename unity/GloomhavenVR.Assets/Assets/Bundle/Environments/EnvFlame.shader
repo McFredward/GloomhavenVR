@@ -1,11 +1,16 @@
 // GloomhavenVR — candle/lantern flame shader (shader-animated, script-free).
 //
-// Drawn on small static CROSS-QUAD meshes (two quads at 90°), NOT camera-facing
-// billboards — the permanent VR rule forbids sprites that can visibly re-orient
-// with the head (BuildEnvironments.cs header). A cross-quad flame is world-
-// anchored geometry; _Time drives a gentle sway + UV wobble + brightness
-// flicker matched to the EnvRoom light flicker (same sine family, so the flame
-// and the light it casts breathe together). Additive, no depth write.
+// Drawn on small static CROSS-QUAD meshes, NOT camera-facing billboards — the
+// permanent VR rule forbids sprites that can visibly re-orient with the head
+// (BuildEnvironments.cs header). A cross-quad flame is world-anchored geometry;
+// _Time drives a gentle sway + UV wobble + brightness flicker matched to the
+// EnvRoom light flicker (same sine family, so the flame and the light it casts
+// breathe together). Additive, no depth write.
+//
+// A CANDLE is two quads at 90°. A BONFIRE is THREE at 60° whose energy fades
+// as the view approaches their plane — see the STRICHE block below, which is
+// where the tension between "no billboards, ever" and "no visible quads,
+// ever" is resolved and costed. Neither kind of card can turn.
 //
 // ============================ REAL FIRE — USER VERDICT, ModBuild 142 =========
 // "Das Feuer im Keller ist eher ein rötlicher Schein - ich möchte lieber das
@@ -172,6 +177,128 @@
 // Nothing here changes a rate, a bake constant, or one instruction of the
 // CANDLE path: every edit is inside `if (_Bonfire > 0.5)`.
 // ============================================================================
+//
+// ============ THE STRICHE, AND THE RULING — USER VERDICT, ModBuild 147 ======
+// "a) Es sitzt nicht direkt auf den assets, schwebt daneben oder darüber.
+//  b) Es sind mehrere sichtbare 'Striche' auf den assets drauf.
+//  c) Es flackert überhaupt nicht natürlich."
+//
+// (b) is this shader's, and feuer1.jpg names the fault exactly: the flames are
+// visible as X SHAPES — two crossed quads per card, each seen so nearly EDGE-ON
+// that its projection is a narrow bright spindle. Sixty centimetres of torn
+// flame sprite squeezed into a two-centimetre-wide stroke is a stroke, whatever
+// is painted on it, and once the eye has found one it finds all of them.
+//
+// ---------------------------------------------------------------------------
+// THE TENSION, STATED, BECAUSE IT IS THE REASON THIS WAS NEVER FIXED.
+//
+// STANDING USER RULING: nothing may re-orient with head movement — "ich will
+// zB keine Nebeleffekte die sich mit dem Kopf mitbewegen wenn man ihn
+// schüttelt". That is why this fire is world-anchored cross-quads and not
+// camera-facing billboards; and a world-anchored quad seen along its own plane
+// IS a stroke. Every stock fire package solves this by billboarding, including
+// the Vefects one the art comes from, which is precisely why theirs has no
+// Striche and ours does. The two constraints are in direct conflict and one of
+// them has to give.
+//
+// WHAT WAS CHOSEN, and it gives up neither: THE GEOMETRY NEVER MOVES; A CARD'S
+// OPACITY FALLS TO ZERO AS THE VIEW APPROACHES ITS PLANE.
+//
+//     face = |dot(cardNormal, viewDir)|            (a card's own normal is
+//                                                   horizontal and fixed)
+//     energy *= smoothstep(_FaceFade.x, _FaceFade.y, face)
+//
+// _FaceFade is (cos 75 deg, cos 38 deg) = (0.259, 0.788): a card facing within
+// 38 degrees of you is at full strength, one past 75 is gone, and in between it
+// is a smooth ramp. Nothing rotates, nothing translates, the fire's silhouette,
+// position and extent are identical from every direction — only WHICH cards
+// carry it changes, and it changes continuously.
+//
+// WHY THAT IS NOT THE THING THE RULING FORBIDS. What he objected to is an
+// object that visibly TURNS as you turn: a shape that keeps its face to you is
+// a shape that is following you, and the eye reads that as the world moving.
+// A card whose opacity is a function of angle has no orientation to give away —
+// it does not turn, it dims, and it dims over a 37-degree band, so a head shake
+// of a few degrees changes it by a few per cent. The one experiment this
+// project has that speaks to it is the parked wall-fade stereo rivalry, and the
+// difference is the same difference: that was a DITHERED DISSOLVE with a hard
+// per-pixel threshold, and a hard threshold at slightly different angles in two
+// eyes is two different pictures. This is a continuous alpha over a wide band.
+// At a 63 mm IPD and one metre the two eyes differ by 3.6 degrees of view
+// angle, which across a 37-degree ramp is at most 10 % of alpha on the steepest
+// part of the smoothstep and under 4 % over most of it — well below the
+// threshold at which the two eyes disagree about anything.
+//
+// AND THE ROSETTE, which is the half that makes it work. With two quads at 90
+// degrees, an azimuth exists (45 deg to both) at which BOTH are 45 degrees off
+// face — both survive the fade, both are 71 % wide, and you are looking at an X
+// again. So the mesh now builds THREE quads at 60 degrees per card, each two
+// thirds as wide (EnvRoomBuilder.FireMesh, QuadYaws). Then:
+//   * whatever the azimuth, at least one quad is within 30 degrees of facing
+//     you and is at FULL strength;
+//   * the worst-placed quad is within 30 degrees of edge-on and is DARK;
+//   * the sum of (fade x projected width) over the three varies by 12 % over a
+//     full turn, against 41 % for the two-quad cross with no fade — i.e. the
+//     fire does not pulse as the player walks round it, which is the failure
+//     mode a fade alone would have introduced;
+//   * three quads at two thirds the width paint the same screen area as two at
+//     full width (mean of |cos| over the rosette: 1.86 x 0.667 = 1.24 against
+//     1.27), so the fill budget is unchanged and only the vertex count moves.
+// Every quad that is visible at all is now seen at 30-49 degrees off face-on.
+// There is no viewing direction from which a spindle exists.
+//
+// REJECTED: yaw-only billboarding (a flame that spins about its own axis as you
+// turn your head is the ruling's own example, in the one direction the eye is
+// most sensitive to rotation); and simply adding more, smaller cross-quads,
+// which raises the fill budget by exactly the factor it lowers the legibility.
+// ============================================================================
+//
+// ============ IT DOES NOT FLICKER — USER VERDICT, ModBuild 147 ==============
+// "c) Es flackert überhaupt nicht natürlich."
+//
+// Two rounds have now worked on the MOTION and he says the same thing, and the
+// reason is that both rounds moved GEOMETRY. A fire's life is not in where its
+// tongues are, it is in its mask dissolving: Vefects' eighteen prefabs — the
+// pack he supplied — have startSpeed 0, no velocity module and no flipbook, so
+// NOTHING IN THEIR FIRE MOVES AT ALL, and all of it is a noise field scrolling
+// through the alpha in their fragment shader. Our atlas took their art and
+// baked that field in as one frozen instant, which gives their silhouette with
+// none of their life. Every card was a rigid stencil being stretched.
+//
+// So the field is animated now, out of the RGB CHANNELS OF THE SAME ATLAS
+// (fire_atlas_pipeline.py packs it there: R one tile over the image, G four,
+// both seamless, both rank-uniform, both inverted so the noise's thin ridges
+// are dark rifts and not bright scratches). One extra tex2D, no second
+// sampler, no second texture, and two octaves — coarse and fine, and because a
+// scroll in uv moves the 4x octave through four times as many of its own
+// periods, the fine one boils four times faster as well.
+//
+//     c.a = saturate(saturate(c.a * boost) - field * amount * heightWeight)
+//
+// The height weight is (0.22 + 0.78 * uv.y): a flame is anchored where it is
+// fed and its seat may not dissolve. The boost stays NEAR 1 on purpose — at
+// 1.72 the mask saturates over its whole body, the card becomes a picture of
+// the noise, and the outline stops moving; the whole value of the technique is
+// that the SILHOUETTE tears. Measured over a scroll cycle the outline's
+// frame-to-frame change goes from nil to plainly visible, and the drawn energy
+// per cell is held at the ModBuild 147 level by the ArtE table, which
+// fire_atlas_pipeline.py now computes from a simulation of this exact
+// expression rather than from the mask alone.
+//
+// WHAT IT REPLACES: the ModBuild 145 `rip` UV wobble and the candle-family
+// `wob`, both of which were the previous round's attempt at the same idea with
+// no texture to do it with. They displaced the whole sprite by a couple of
+// centimetres; this dissolves it. Both are gone from the bonfire path (the
+// candles keep `wob`, which is theirs and is correct for a 2 cm teardrop), so
+// the fragment is one tap heavier and four transcendentals lighter.
+//
+// AND THE PER-CARD TEMPERATURE TIER. COLOR.b is how far out of the seat a card
+// stands, and it now enters the ramp's `cool` argument: a tongue at the rim of
+// the fire is entered further along the three-stop ramp than one in the middle,
+// so the fire is white-hot at its core and dark red at its edges IN PLAN as
+// well as in height. One MAD, and it is most of what stops thirty cards at the
+// same height reading as one flat orange sheet.
+// ============================================================================
 Shader "GloomhavenVR/EnvFlame"
 {
     Properties
@@ -231,6 +358,31 @@ Shader "GloomhavenVR/EnvFlame"
         _SmokeCol ("Fire+Light: moonlit smoke", Color) = (0.60,0.66,0.78,1)
         _SteamCol ("Fire+Ice: steam", Color) = (0.66,0.74,0.86,1)
 
+        // ---- THE STRICHE FIX (see the block above) --------------------------
+        // (cos of the angle at which a card is fully GONE, cos of the angle at
+        // which it is at FULL strength). The default is (-1, 0) and NOT (0, 0):
+        // it has to be a pair that makes smoothstep return exactly 1 for every
+        // face in [0,1], so a material that sets no fade is the shipped shader
+        // — and smoothstep(0,0,x) is (x-0)/(0-0), i.e. a NaN, not a 1. That is
+        // the whole reason this default is a strange-looking number.
+        _FaceFade ("Bonfire: card face fade (cos out, cos in)", Vector) = (-1,0,0,0)
+        // ...and how much a card's DISTANCE OUT OF THE SEAT (COLOR.b) cools it.
+        // 0 = the shipped ramp, which was a function of height alone.
+        _Tier ("Bonfire: outer tongues are cooler", Range(0,1)) = 0
+
+        // ---- THE ANIMATED EROSION (see the block above) ---------------------
+        // The field lives in _MainTex's own RGB — R the coarse octave, G the
+        // fine one — so there is no second sampler and no second texture.
+        // (tile across a card, tile up a card, field periods per FIRE cycle,
+        //  the pre-boost). All zero is a hard off: with .w at 0 the mask is
+        // multiplied by nothing and the branch below is skipped outright.
+        _ErodeParams ("Bonfire: erosion (tileU, tileV, scroll/cycle, boost)", Vector) = (0,0,0,0)
+        // (how deep it cuts at the tip, its share at the FOOT, the fine
+        //  octave's share, unused). See fire_atlas_pipeline.py, whose
+        //  ERODE_* constants are these four and which derives the energy
+        //  compensation from a simulation of exactly this expression.
+        _ErodeMix ("Bonfire: erosion (amount, base share, fine share, -)", Vector) = (0,0,0,0)
+
         // ---- SHELF RIDERS (EnvShelfTip.cginc owns all five; see the block
         // above for what a flame does with them that a rigid body does not).
         // All zero = "this flame is not standing on the bookshelf", which is
@@ -278,8 +430,8 @@ Shader "GloomhavenVR/EnvFlame"
             fixed4 _Tint, _BaseCol, _CoreCol, _TipCol, _SmokeCol, _SteamCol;
             float _Sway, _Flicker, _Phase, _Rate, _Gust, _AirGust;
             float _Bonfire, _FireGate, _Lick, _Flare;
-            float _FireHz, _PuffHz, _FireH;
-            float4 _GustDir;
+            float _FireHz, _PuffHz, _FireH, _Tier;
+            float4 _GustDir, _FaceFade, _ErodeParams, _ErodeMix;
             float _GhvrTimeOfs;   // preview-only clock offset (see EnvRoom.shader)
 
             // ATLAS GEOMETRY. 2x2 cells; mirrored in BuildEnvironments
@@ -300,13 +452,29 @@ Shader "GloomhavenVR/EnvFlame"
                 float2 uv : TEXCOORD0;   // 0..1 up and across THIS card, always
                 float4 fp : TEXCOORD1;   // bonfire: cell, kind, puff rise, puff cycle
                 fixed4 color : COLOR;
+                // THE CARD'S OWN PLANE NORMAL, and it is load-bearing rather
+                // than decorative: the face fade multiplies a card's energy by
+                // |dot(N, view)|, so a normal that pointed the wrong way would
+                // hide exactly the cards that face the player and keep exactly
+                // the spindles this round exists to remove. EnvRoomBuilder
+                // writes it explicitly (never RecalculateNormals) and asserts
+                // it — see FireMesh's WINDING AND NORMAL GATE. Read only inside
+                // `_Bonfire > 0.5`; the candle meshes' own normals are ignored.
+                float3 normal : NORMAL;
             };
             struct v2f
             {
                 float4 pos : SV_POSITION;
                 float2 uv : TEXCOORD0;
                 fixed fl : TEXCOORD1;
-                fixed fire : TEXCOORD2;
+                // x = the Fire channel (the candle path's whitening),
+                // y = bonfire: COLOR.b, how far out of the seat this card
+                //     stands — the per-card temperature tier,
+                // z = bonfire: this card's own OFFSET INTO THE EROSION FIELD
+                //     across u, so two cards at the same height do not
+                //     dissolve in step. A float3 in a register that was
+                //     carrying one fixed.
+                float3 fire : TEXCOORD2;
                 // bonfire: x = height in the FIRE's frame (0 at the seat),
                 //          y = a detached puff's age 0..1, z = its cell index,
                 //          w = its alpha
@@ -317,9 +485,11 @@ Shader "GloomhavenVR/EnvFlame"
                 // z = smoulder (Fire+Earth). All exactly 0 unless both of the
                 // pair's elements are up. See the PAIRINGS block.
                 //
-                // ...and w = THIS CARD'S PLACE IN THE FAST BAND, 0..1, which the
-                // fragment needs to ripple the texture on the fire's own w.z
-                // (ModBuild 145; see the ZAPPELT block). Three things about it:
+                // ...and w = THIS CARD'S PLACE IN THE EROSION SCROLL, 0..1 —
+                // ModBuild 148. It was the fast band's phase, for the `rip` UV
+                // wobble that the erosion replaces; it is the same quantity in
+                // the same register doing the same job one scale down, and
+                // every word of the note below still applies to it:
                 //   * it is FRAC'D in the vertex shader. A raw clock through an
                 //     interpolator grows without bound and a mobile GPU is free
                 //     to carry a varying at half precision, where t = 500 s
@@ -356,7 +526,8 @@ Shader "GloomhavenVR/EnvFlame"
                     if (gate <= 0.0)
                     {
                         o.pos = float4(0, 0, 0, 1);
-                        o.uv = float2(0, 0); o.fl = 0; o.fire = 0;
+                        o.uv = float2(0, 0); o.fl = 0;
+                        o.fire = float3(0, 0, 0);
                         o.fx = float4(0, 0, 0, 0);
                         o.pr = float4(0, 0, 0, 0);
                         return o;
@@ -431,7 +602,9 @@ Shader "GloomhavenVR/EnvFlame"
                                          - 0.10 * pair.light, 0.0);
                     }
                 }
-                o.fire = e.fire;
+                // .y and .z are filled in the bonfire branch below; the candle
+                // path reads neither.
+                o.fire = float3(e.fire, 0, 0);
 
                 // sway grows with height (uv.y=0 at flame base) — the tip dances
                 float h = v.uv.y;
@@ -504,17 +677,23 @@ Shader "GloomhavenVR/EnvFlame"
                     // stretching as a whole is being fed harder and glows; a tip
                     // that flutters is not burning any harder for it.
                     lickE = max(1.0 + _Lick * v.color.g * slow, 0.10);
-                    // THE FAST BAND'S PHASE, handed to the fragment so that the
-                    // 8 Hz life the geometry just gave up comes back on the scale
-                    // it belongs to — a ripple in the TEXTURE, i.e. in holes and
-                    // torn edges a few centimetres across (see the ZAPPELT block
-                    // and the note on v2f.pr.w for why it is frac'd here rather
-                    // than reconstructed there). It is bt's w.z band with its own
-                    // offsets, so it rides GhvrFireHz and speeds up under
-                    // Fire+Air with everything else, and it is decorrelated from
-                    // the geometric w.z so the wrinkle and the ripple are two
-                    // eddies rather than one drawn twice.
-                    texPh = frac(bt * 1.73 + tp * 2.3 + 0.19);
+                    // THE EROSION SCROLL, handed to the fragment so that the
+                    // 8 Hz life the geometry gave up in ModBuild 145 comes back
+                    // on the scale it belongs to — the dissolving of the mask
+                    // itself (see the FLICKER block and the note on v2f.pr.w for
+                    // why it is frac'd here rather than reconstructed there).
+                    // It is in FIRE CYCLES, so it rides GhvrFireHz and a
+                    // windblown fire boils faster along with everything else —
+                    // the same one number reaching the flame, the wash and now
+                    // the dissolve.
+                    texPh = frac(bt * _ErodeParams.z + tp * 0.61);
+                    // ...and the card's own place ACROSS the field. Without it
+                    // every card at the same height dissolves in step, which is
+                    // thirty cards sharing one animation and is the loudest way
+                    // to make a stack of quads legible as a stack of quads.
+                    o.fire.z = frac(tp * 7.31 + 0.17);
+                    // ...and how far out of the seat it stands, for the ramp.
+                    o.fire.y = v.color.b;
                     // a tongue standing at the RIM of the fire is torn outward and
                     // dies sooner; COLOR.b is how far out it stands. Without this
                     // the tongues all point straight up and the fire reads as a
@@ -745,9 +924,72 @@ Shader "GloomhavenVR/EnvFlame"
                     // and carries no more information — and "more uncorrelated
                     // noise" is a fair paraphrase of "zappelt". Now a tongue
                     // brightens as it rises, which is also what a tongue does.
+                    // ---- THE FACE FADE, and it is the answer to the Striche.
+                    // The card does not move; its ENERGY falls to zero as the
+                    // view approaches its plane. Read the STRICHE block at the
+                    // top for the ruling this resolves and the arithmetic of
+                    // the three-quad rosette that makes it view-independent.
+                    //
+                    // The normal is taken AS AUTHORED, not from the deformed
+                    // position: a tongue that has surged, leaned and torn is
+                    // still the same sheet of gas and the sheet's own plane is
+                    // what a viewer is or is not looking along. Deriving it
+                    // from `p` would also have cost a cross product per vertex
+                    // for a quantity that changes by a few degrees.
+                    //
+                    // Per VERTEX and not per fragment. Across a 35 cm card at
+                    // two metres the view direction turns by about 10 degrees,
+                    // so the fade varies smoothly over the quad instead of
+                    // being flat — which is if anything the more correct
+                    // picture and is certainly the cheaper one; and it is
+                    // interpolated, so there is no edge in it anywhere.
+                    //
+                    // It multiplies o.fl ONLY. Putting it in cardA as well
+                    // would have squared it (the fragment premultiplies c.a
+                    // into c.rgb and the blend then applies c.a again), which
+                    // would turn a 37-degree ramp into an 18-degree one and
+                    // bring back a hard-edged version of the same problem.
+                    float3 nW = UnityObjectToWorldNormal(v.normal);
+                    float3 pW = mul(unity_ObjectToWorld, float4(p.xyz, 1.0)).xyz;
+                    float3 vD = _WorldSpaceCameraPos - pW;
+                    float face = abs(dot(normalize(nW), normalize(vD)));
+                    // The default (-1, 0) makes this exactly 1 for every face
+                    // in [0,1], so a material that sets no fade is the shipped
+                    // shader; see the property for why it is not (0, 0).
+                    face = smoothstep(_FaceFade.x, _FaceFade.y, face);
+                    // ...AND THE LAST FEW PER CENT COME OUT OF THE ALPHA, which
+                    // is a second application of the same number and is here for
+                    // a reason the energy argument above does not cover.
+                    //
+                    // A card at 70-89 degrees off face-on is not merely dim, it
+                    // is ALIASED: its whole width lands in one or two pixels, the
+                    // sprite lookup and the erosion lookup both take a step of
+                    // most of a cell per pixel, and the hardware's mip and
+                    // anisotropic filtering produce vertical smears with
+                    // staircase edges. The first render of this round shows one
+                    // over the forest's misty gap — a dark red column with hard
+                    // steps in it, four times the height of the fire. That is not
+                    // a brightness fault and dimming it to 3 % does not remove
+                    // it, because the thing that draws the eye is the STRUCTURE,
+                    // not the level.
+                    //
+                    // So the residue is taken out of the alpha as well, and only
+                    // the residue: smoothstep(0, 0.28, face) is exactly 1 for
+                    // every card the fade leaves above 28 %, so the whole of the
+                    // band the energy arithmetic above is about is untouched, and
+                    // only the last stretch — 68 to 75 degrees, where a card is
+                    // three pixels wide and aliasing — is driven to nothing.
+                    // Two multiplications compose there (fl and alpha, and the
+                    // premultiply squares the alpha again), which is what makes
+                    // it a hard cut-off at the very end of a soft ramp rather
+                    // than a hard ramp.
+                    cardA *= smoothstep(0.0, 0.28, face);
+                    o.fx.w = cardA;
+
                     o.fl = GhvrFireFlicker(t, GhvrFireHz(pair, _FireHz),
                                            v.color.r,
                                            GhvrFireDepth(pair, _Flicker))
+                         * face
                          * bright
                          // per-card share of the fire's energy, and the surge
                          // shows in the light as well as in the shape — a tongue
@@ -780,55 +1022,10 @@ Shader "GloomhavenVR/EnvFlame"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                // wick-anchored UV wobble: zero at base, grows toward the tip
-                float t = (_Time.y + _GhvrTimeOfs) * _Rate;
-                float wob = (sin(t * 13.1 + i.uv.y * 9.0 + _Phase)
-                           + sin(t * 7.3 + 2.1 + _Phase)) * 0.012 * i.uv.y;
-                float2 uv = i.uv + float2(wob, 0);
+                float2 uv = i.uv;
                 fixed4 c;
                 if (_Bonfire > 0.5)
                 {
-                    // ---- ModBuild 145: WHERE THE FAST BAND WENT ---------------
-                    // "Das Feuer zappelt viel zu schnell" was answered in the
-                    // vertex shader by taking the 8 Hz band off the tongue, which
-                    // is a 40 cm object that has no business moving at the rate
-                    // of a 3.6 cm one. It is not answered by DELETING 8 Hz: a
-                    // fire really does have structure turning over that fast —
-                    // just not structure that size. This is the term that has the
-                    // right size. The atlas cells are torn silhouettes with holes
-                    // two to five centimetres across on a 30 cm card, so
-                    // f = 1.5/sqrt(0.035) = 8.0 Hz is exactly the band they want,
-                    // and the displacement is under two centimetres of texture:
-                    // small, fast and near, which is what the eye reads as fire
-                    // being alive, as against large, fast and far, which is what
-                    // it reads as a twitch.
-                    //
-                    // It TRAVELS UP THE CARD (the -i.uv.y terms), because that is
-                    // the one direction the gas is going, and it is zero at the
-                    // base for the same reason the wander is: the sheet is
-                    // anchored where it is fed. The vertical half is deliberately
-                    // the smaller: `a` below is a saturate()d lookup, so a
-                    // vertical offset clamps rather than wraps, and 1.1 % is
-                    // inside the fade every atlas cell already has over its
-                    // bottom 10-12 % (MakeFireAtlas) — nothing that reaches the
-                    // clamp has any alpha left to smear.
-                    //
-                    // The pre-frac'd per-card phase arrives in i.pr.w; see v2f.
-                    //
-                    // GhvrWave4's arithmetic on TWO lanes instead of four, and
-                    // written out rather than called with two zeros. This is a
-                    // fragment on a stack of large additive cards — the one place
-                    // in the room with heavy overdraw — and on the tile GPUs this
-                    // ships to a float4 of which half is discarded is half of the
-                    // work discarded, per pixel, per layer. It is the same
-                    // function to the last bit (see EnvGrowth.cginc): a triangle
-                    // wave of period 1 put through 3v^2-2v^3 and mapped to
-                    // [-1,1]. If that ever changes there, this changes with it.
-                    float2 rv = abs(frac(float2(i.pr.w - i.uv.y * 0.62,
-                                                i.pr.w + 0.41 - i.uv.y * 0.28)
-                                         + 0.5) * 2.0 - 1.0);
-                    float2 rip = (rv * rv * (3.0 - 2.0 * rv) - 0.5) * 2.0;
-                    uv += float2(rip.x * 0.018, rip.y * 0.011) * i.uv.y;
                     // THE ATLAS. ROUND FIRST — `cell` is a small integer that has
                     // been through a perspective-correct interpolator and that is
                     // not exact; floor(1.9999998) is 1 and the card would be drawn
@@ -839,11 +1036,70 @@ Shader "GloomhavenVR/EnvFlame"
                     float2 cel = float2(fmod(ci, GHVR_FIRE_COLS), floor(ci / GHVR_FIRE_COLS));
                     float2 a = saturate(uv) * (1.0 - 2.0 * GHVR_FIRE_INSET) + GHVR_FIRE_INSET;
                     c = tex2D(_MainTex, (a + cel) * GHVR_FIRE_CELL);
+                    // RGB IS NOT THE SPRITE. It is the erosion field, and this
+                    // card's colour comes entirely from GhvrFireRamp below, so
+                    // the tap's rgb is thrown away here rather than being
+                    // multiplied through _Tint and the ramp as a noise pattern.
+                    c.rgb = fixed3(1, 1, 1);
                     c.a *= i.fx.w;      // a detached puff is born and dies
+
+                    // ---- THE ANIMATED EROSION -----------------------------
+                    // The technique Vefects' whole pack is built on, and the
+                    // one thing this fire has never had. Read the FLICKER block
+                    // at the top of the file; in three lines:
+                    //
+                    //   ONE EXTRA TAP, on the atlas itself. R is the coarse
+                    //   octave (one tile over the 512 image), G the fine one
+                    //   (four tiles) — so a single fetch is two octaves, and
+                    //   because the scroll is in UV the fine one also boils
+                    //   four times faster. There is no second sampler and no
+                    //   second texture in the bundle.
+                    //
+                    //   THE V OFFSET IS PRE-FRAC'D IN THE VERTEX SHADER
+                    //   (i.pr.w) and the card's own U offset with it
+                    //   (i.fire.z), for the reasons in the v2f comment: a
+                    //   free-running clock through a half-precision varying
+                    //   quantises, and both of these are constant over a card
+                    //   so the wrap can never fall inside a triangle.
+                    //
+                    //   IT IS SAMPLED ON THE RAW CARD UV, deliberately NOT on
+                    //   the cell-inset `a`: the field tiles across the whole
+                    //   atlas with wrapU/wrapV Repeat (see the .meta), so
+                    //   confining it to a cell is exactly the wrong thing —
+                    //   the confinement is what would put a seam in it.
+                    float2 ev = float2(i.uv.x * _ErodeParams.x + i.fire.z,
+                                       i.pr.w - i.uv.y * _ErodeParams.y);
+                    fixed2 fld = tex2D(_MainTex, ev).rg;
+                    // ...and the two octaves, mixed by _ErodeMix.z.
+                    float er = lerp(fld.r, fld.g, _ErodeMix.z);
+                    // A FLAME IS ANCHORED WHERE IT IS FED. The bottom of a
+                    // tongue and the seat of a bed are the fuel and may not
+                    // dissolve; the tip is gas that has left it and may vanish
+                    // entirely. _ErodeMix.y is the base's share (0.22), so the
+                    // weight runs 0.22 at the foot to 1.0 at the tip.
+                    er *= _ErodeMix.x * (_ErodeMix.y
+                                         + (1.0 - _ErodeMix.y) * i.uv.y);
+                    // The pre-boost is inside its own saturate so the two
+                    // clamps compose the way fire_atlas_pipeline.py's
+                    // simulate_erosion() composes them — that function is what
+                    // the ArtE energy compensation is derived from, and if
+                    // these two expressions ever stop matching, the fire
+                    // silently changes brightness in both rooms.
+                    c.a = saturate(saturate(c.a * _ErodeParams.w) - er);
                 }
                 else
                 {
-                    c = tex2D(_MainTex, uv);
+                    // wick-anchored UV wobble: zero at base, grows toward the
+                    // tip. CANDLES ONLY as of ModBuild 148 — on a bonfire it ran
+                    // at 2.1 and 1.16 Hz (the frequencies of a 1-2 m structure)
+                    // to displace a 2 cm feature, which the ModBuild 145 block
+                    // already called out as inverted, and the erosion above is
+                    // the term that does that job at the right scale. On a 2 cm
+                    // teardrop it is correct and is untouched.
+                    float t = (_Time.y + _GhvrTimeOfs) * _Rate;
+                    float wob = (sin(t * 13.1 + i.uv.y * 9.0 + _Phase)
+                               + sin(t * 7.3 + 2.1 + _Phase)) * 0.012 * i.uv.y;
+                    c = tex2D(_MainTex, uv + float2(wob, 0));
                 }
                 c *= _Tint;
                 // ELEMENT ART: under Fire the core burns toward white while the
@@ -852,7 +1108,7 @@ Shader "GloomhavenVR/EnvFlame"
                 // whitening is strongest at the base where a real flame is
                 // hottest. Exactly 0 when Fire is 0.
                 c.rgb = lerp(c.rgb, c.rgb * float3(1.16, 1.06, 0.82),
-                             saturate(i.fire * (1.0 - i.uv.y * 0.6)));
+                             saturate(i.fire.x * (1.0 - i.uv.y * 0.6)));
                 // FIRE REAL — the vertical temperature ramp, THREE stops and
                 // measured up the whole FIRE rather than up this card (see
                 // _FireH). A candle flame is one colour because it is 2 cm tall;
@@ -873,7 +1129,23 @@ Shader "GloomhavenVR/EnvFlame"
                     // existing parameter rather than a second colour path.
                     // FIRE+ICE does a little of the same, and for the same
                     // physical reason: something is taking heat out of the flame.
-                    float cool = i.fx.y + 0.42 * i.pr.z + 0.18 * i.pr.y;
+                    //
+                    // ...AND THE PER-CARD TEMPERATURE TIER — ModBuild 148, and
+                    // the previous round named it and could not reach it from
+                    // its own files. COLOR.b is how far out of the seat this
+                    // card stands (FireMesh's `outw`), and it enters the ramp's
+                    // cooling argument exactly as `age` does: a tongue standing
+                    // at the rim of a fire is fed by less and is cooler than one
+                    // in the middle of it, so the fire is white-hot at its core
+                    // and dark red at its edges IN PLAN as well as in height.
+                    // Without it, thirty cards at one height are thirty cards of
+                    // one colour, which is a sheet; with it the same thirty are
+                    // a hot centre with cool tongues coming off it, which is a
+                    // fire. One MAD, and `age` is already the parameter — so
+                    // this is a modulation of an existing term and not a second
+                    // colour path, the same rule the pairings above follow.
+                    float cool = i.fx.y + 0.42 * i.pr.z + 0.18 * i.pr.y
+                               + _Tier * i.fire.y;
                     float3 fc = GhvrFireRamp(_BaseCol.rgb, _CoreCol.rgb, _TipCol.rgb,
                                              i.fx.x, cool);
                     // ...and WHAT a detached piece is made of. Both of these are

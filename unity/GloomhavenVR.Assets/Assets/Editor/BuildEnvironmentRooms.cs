@@ -180,6 +180,14 @@ namespace GloomhavenVR
         /// vanishing-detail bug it exists to prevent.</summary>
         private const float FungusCutoff = 0.35f;
 
+        /// <summary>Imported textures whose channels are DATA and not a picture,
+        /// and which therefore take the opposite of this project's usual import
+        /// settings. See the branch in EnforceImports for what each setting does
+        /// to them and why every one of the three fails silently rather than
+        /// loudly.</summary>
+        private static readonly HashSet<string> DataTextures =
+            new HashSet<string> { "fire_atlas" };
+
         public static void EnforceImports()
         {
             if (!Directory.Exists(ImpTex) || !Directory.Exists(ImpModels))
@@ -205,6 +213,48 @@ namespace GloomhavenVR
                     Set(ti.maxTextureSize, sz, () => ti.maxTextureSize = sz);
                     Set(ti.textureCompression, TextureImporterCompression.Compressed,
                         () => ti.textureCompression = TextureImporterCompression.Compressed);
+                }
+                else if (DataTextures.Contains(baseName))
+                {
+                    // ================ A TEXTURE THAT IS DATA, NOT ART =========
+                    // ModBuild 148. Since the erosion round, `fire_atlas_alb`'s
+                    // RGB is not a picture: R and G carry the two octaves of the
+                    // field EnvFlame subtracts from the mask every frame
+                    // (fire_atlas_pipeline.py's EROSION block). Three of the
+                    // settings this method enforces on every other imported
+                    // texture are wrong for it, and each one CORRUPTS THE FIELD
+                    // SILENTLY rather than losing it — which is the worst failure
+                    // mode there is, and is why this is a branch here rather than
+                    // a hand-edited .meta. It was tried as a hand-edited .meta
+                    // first: this loop reverted all three on the next bake and
+                    // the render was identical, which cost a preview round.
+                    //
+                    //   sRGB           the field is linear DATA. Decoding it as
+                    //                  colour hands the shader the field's
+                    //                  2.2-power and makes the erosion ~40 %
+                    //                  too weak through the midtones.
+                    //   alphaIsTransparency
+                    //                  DILATES rgb outward from the opaque texels
+                    //                  into the transparent ones to stop sprite
+                    //                  halos. Three quarters of this image is
+                    //                  transparent; the dilation would overwrite
+                    //                  the field with smeared copies of itself.
+                    //   COMPRESSION    the field is rank-equalised, i.e. it has
+                    //                  full-range contrast at every scale by
+                    //                  construction — exactly the signal BC1/BC3
+                    //                  cannot carry (four interpolated colours per
+                    //                  4x4 block). The shader draws the
+                    //                  compressor's error directly.
+                    // 512x512 RGBA32 is 1.0 MB against 0.25 MB compressed, in a
+                    // 66 MB bundle, for the one texture in it that is not a
+                    // picture.
+                    Set(ti.textureType, TextureImporterType.Default, () => ti.textureType = TextureImporterType.Default);
+                    Set(ti.sRGBTexture, false, () => ti.sRGBTexture = false);
+                    Set(ti.alphaIsTransparency, false, () => ti.alphaIsTransparency = false);
+                    int sz = AlbSize.TryGetValue(baseName, out var s) ? s : 512;
+                    Set(ti.maxTextureSize, sz, () => ti.maxTextureSize = sz);
+                    Set(ti.textureCompression, TextureImporterCompression.Uncompressed,
+                        () => ti.textureCompression = TextureImporterCompression.Uncompressed);
                 }
                 else
                 {
@@ -310,6 +360,12 @@ namespace GloomhavenVR
             // The wash's colour, and its flicker DEPTH in the alpha. One colour
             // per room for the same reason the ambient is one colour per room.
             public Color fireWash = new Color(0f, 0f, 0f, 0f);
+            // THE GLUT (user, ModBuild 147: "zB muss ja auch eine Glut beim Holz
+            // sein wo es brennt damit es immersiv wirkt etc.") has NO field
+            // here, deliberately: its colour is _FireCol's own, pushed toward
+            // carbon, and its reach is the seat's range — see EnvFire.cginc's
+            // "ModBuild 148 ADDS NO CHANNEL" block for why, and for why that is
+            // better than two more numbers to keep in step rather than worse.
             // ...and the rate, in Hz, which is the SAME number every bonfire
             // material's _FireHz carries. See FireHz.
             public float fireHz = FireHz;
@@ -322,8 +378,92 @@ namespace GloomhavenVR
             public Vector3 pos;      // world/room space; ApplyRig pulls it into each material's
             public float range;      // metres to full darkness
             public bool ridesShelf;  // 1 = it is standing on the tipping bookshelf
-            public FireSeat(string n, Vector3 p, float r, bool ride)
-            { name = n; pos = p; range = r; ridesShelf = ride; }
+            // THE FIRE'S OWN SIZE at this seat, in metres — ModBuild 148, and it
+            // is the one number that makes the wash fall off like firelight and
+            // the coals lie where the fire is. TWO consumers, both in
+            // EnvFire.cginc and both described there:
+            //   * the inverse-square CORE of the wash. A 1.16 m burning spill
+            //     and a 0.48 m bung fire had identical falloff shapes before
+            //     this existed; now the big one keeps its pool and the small one
+            //     picks out its own cask.
+            //   * the reach of the GLUT, at 1.45x this. Coals lie where the fire
+            //     has been, which is a little wider than where it is.
+            // It is DERIVED from the fires really built at the seat (their radii
+            // and their spread), never typed — see the two rooms' calls.
+            public float core;
+            public FireSeat(string n, Vector3 p, float r, bool ride, float coreR)
+            { name = n; pos = p; range = r; ridesShelf = ride; core = coreR; }
+        }
+
+        /// <summary>The core radius of a SITE, from the fires that really stand
+        /// on it: half the distance across the group plus the biggest fire's own
+        /// radius. A site is a place that is on fire, and how big it is is a
+        /// measurement of the fires there rather than an opinion — which is what
+        /// stops the wash and the coals drifting away from the flames the next
+        /// time a fire is moved or resized.</summary>
+        private static float FireCoreOf(params (Vector3 at, float r)[] fires)
+        {
+            if (fires.Length == 0) return 0.5f;
+            var lo = fires[0].at; var hi = lo;
+            float big = 0f;
+            foreach (var (at, r) in fires)
+            {
+                lo = Vector3.Min(lo, at); hi = Vector3.Max(hi, at);
+                big = Mathf.Max(big, r);
+            }
+            // IN ALL THREE AXES, and the first bake is why: the burning snag's
+            // two fires are stacked 1.75 m up the same trunk, so measured in XZ
+            // alone the "site" was 0.50 m across and the gate below failed a
+            // range that was perfectly reasonable for a two-metre column of
+            // flame. A fire's luminous core is a volume.
+            return Mathf.Max(0.5f * (hi - lo).magnitude + big, 0.12f);
+        }
+
+        /// EnvFire.cginc's GHVR_FIRE_CORE_K, mirrored. The shader takes a seat's
+        /// core radius to be range * this; the gate below is what stops that
+        /// stopping being true.
+        private const float FireCoreK = 0.26f;
+
+        /// <summary>The check that keeps the derivation honest — ModBuild 148.
+        ///
+        /// <para>The wash's inverse-square core and the coals' reach are both
+        /// `range * GHVR_FIRE_CORE_K` because there is no channel to send the
+        /// fire's real size down (see ApplyRig). That is only defensible while
+        /// the two agree, so every bake MEASURES the fires actually built at each
+        /// site and fails if the derived core is out by more than a factor of
+        /// two. A round that halves a fire and leaves its range alone, or that
+        /// pulls a range in without touching the fires, now stops the build
+        /// instead of quietly lighting the room wrong.</para></summary>
+        private static void AssertFireSeatCores(string room, FireSeat[] seats,
+                                                System.Text.StringBuilder log)
+        {
+            foreach (var f in seats)
+            {
+                float derived = f.range * FireCoreK;
+                float measured = f.core;
+                float ratio = derived / Mathf.Max(measured, 1e-4f);
+                log.Append($"    core:   {f.name,-7} range {f.range:F2} m x {FireCoreK:F2} = "
+                           + $"{derived:F2} m against a measured fire spread of {measured:F2} m "
+                           + $"({ratio:F2}x) — the inverse-square core of the wash and the reach "
+                           + $"of the coals (x1.45 = {derived * 1.45f:F2} m)\n");
+                // A FACTOR OF THREE, not of two, and the band is deliberately
+                // generous: this gate is here to catch a fire that has been
+                // halved or a range that has been pulled in without the other
+                // moving — a GROSS mismatch between the light and the thing
+                // making it — and not to tune either. Every seat in both rooms
+                // currently sits between 0.53x and 1.05x, i.e. well inside it,
+                // and the log line above prints the number so a drift is visible
+                // long before the gate fires.
+                if (ratio > 3f || ratio < 1f / 3f)
+                    throw new Exception(
+                        $"{room} fire seat '{f.name}': its range implies a core radius of "
+                        + $"{derived:F2} m (range {f.range:F2} x {FireCoreK:F2}) but the fires "
+                        + $"really built there span {measured:F2} m. EnvFire.cginc derives BOTH "
+                        + "the wash's inverse-square falloff and the coals' reach from the range, "
+                        + "because there is no material channel left to send the size down "
+                        + "(see ApplyRig). A factor of two apart means the light no longer "
+                        + "describes the fire: either move the range or resize the fires.");
+            }
         }
 
         // FIRE REAL — THE ONE RATE. A flame and the light it casts must share a
@@ -543,6 +683,15 @@ namespace GloomhavenVR
             // comes out in object units exactly as _L*Pos.w does.
             if (m.HasProperty("_FirePos0"))
             {
+                // ModBuild 148 ADDS NO CHANNEL HERE, and it wanted to. The
+                // inverse-square core of the wash and the reach of the coals both
+                // want the fire's own SIZE at each seat; both take it from
+                // `range` instead (EnvFire.cginc's GHVR_FIRE_CORE_K), because a
+                // Unity material can only carry a uniform declared in its
+                // shader's Properties block and the readers here are
+                // EnvRoom.shader and EnvGround.shader, which are other lanes'
+                // files this round. AssertFireSeatCores below is the check that
+                // keeps the derivation honest.
                 for (int i = 0; i < 3; i++)
                 {
                     string pn = "_FirePos" + i;
@@ -7169,12 +7318,146 @@ namespace GloomhavenVR
         // order EnvFire.cginc defines them in.
         private static readonly float[] ArtW = { 1.10f, 0.80f, 1.30f };
         private static readonly float[] ArtH = { 1.00f, 1.00f, 1.30f };
-        private static readonly float[] ArtE = { 1.41f, 0.62f, 1.15f };
+        // ---- ModBuild 148, AND THIS TABLE IS NOW COMPUTED RATHER THAN TUNED.
+        // The mask lost its baked holes and the shader gained a moving field
+        // that carves them (fire_atlas_pipeline.py's EROSION block, and
+        // EnvFlame's), so drawn energy per cell moved by up to 44 %. The
+        // pipeline SIMULATES the shipped erosion expression over a full scroll
+        // cycle and prints the three factors that hold the product
+        // (mean alpha x quad area) at exactly the ModBuild 147 level:
+        //
+        //   cell      mask mean   eroded mean   ratio
+        //   bed         0.1310      0.1045      0.797
+        //   tongueA     0.2682      0.1875      0.699
+        //   tongueB     0.2167      0.1499      0.692
+        //   puff        0.1512      0.0850      0.562
+        //   ArtE (bed, tongue, puff) = 1.671, 0.798, 2.046
+        //
+        // The DRAWN EXTENTS are unchanged to three decimals (0.404 x 0.138
+        // against 0.404 x 0.139, and so on down the four), so ArtW and ArtH
+        // above are still the numbers the ModBuild 147 measurement produced and
+        // are deliberately untouched: only the energy moved.
+        //
+        // RE-DERIVE, NEVER NUDGE. `python3 Assets/Editor/fire_atlas_pipeline.py
+        // <dir with the two .unitypackage files> <out.png>` prints the line to
+        // copy. If EnvFlame's _ErodeParams/_ErodeMix are changed without
+        // re-running it, this table is stale and every fire in both rooms is
+        // silently the wrong brightness.
+        private static readonly float[] ArtE = { 1.671f, 0.798f, 2.046f };
+
+        // ==================================================== THE ROSETTE ========
+        // USER VERDICT, hardware, ModBuild 147: "Es sind mehrere sichtbare
+        // 'Striche' auf den assets drauf."
+        //
+        // feuer1.jpg shows what they are: each card is two quads at 90 degrees,
+        // and from a low near-grazing view one of the two is seen so nearly
+        // edge-on that it projects as a narrow bright spindle. The full argument,
+        // the standing no-billboards ruling it has to live inside, and the
+        // measurement that says three quads at 60 degrees is the answer are in
+        // EnvFlame.shader's STRICHE block — that is where the fade lives and this
+        // is only the geometry half.
+        //
+        // WHY THREE AND WHY 60. The shader kills a card's energy as the view
+        // approaches its plane, so the mesh has to guarantee that SOMETHING is
+        // always facing the player. With planes at 0/60/120 degrees, whatever the
+        // azimuth the best-placed quad is within 30 degrees of facing (full
+        // strength) and the worst is within 30 degrees of edge-on (dark). Summed
+        // over the three, (fade x projected width) varies by 12 % over a whole
+        // turn — against 41 % for two quads at 90 with no fade, and a ruinous
+        // 94 % for two quads at 90 WITH one.
+        //
+        // ...AND WHY EACH IS TWO THIRDS AS WIDE. Screen area painted is
+        // sum(|cos| x width), which is 1.27 x w for the old 2-at-90 and 1.86 x w
+        // for 3-at-60. At 2/3 the width that is 1.24 x w — the same fill budget
+        // to within 3 %, which is the constraint that matters on a MultiPass
+        // 11.1 ms frame where every one of these quads is drawn twice. What goes
+        // up is the vertex count (x1.5), which is not where a fire costs.
+        private static readonly float[] QuadYaws = { 0f, 60f, 120f };
+        private const float QuadWidthK = 2f / 3f;
+        /// Set once per editor session by the first FireMesh of a bake; see
+        /// FireCardNormalGateSelfTest.
+        private static bool FireGateProven;
+
+        /// <summary>The FOOTPRINT a fire's cards are scattered over — ModBuild
+        /// 148, and it exists because "a" of the user's three faults is a
+        /// geometry fault: "Es sitzt nicht direkt auf den assets, schwebt daneben
+        /// oder darüber."
+        ///
+        /// <para>Every fire until now was a DISC of `radius` centred on its seat,
+        /// which is right for a crate top and wrong for the two things he
+        /// photographed. A deadfall log is 30 cm across and 3 m long: a 68 cm
+        /// disc on it hangs a fifth of a metre off each side into thin air, which
+        /// is the flame standing beside the log in feuer1.jpg. A standing trunk
+        /// is a cylinder: a disc centred on its AXIS puts half of every card
+        /// inside the wood and the other half in front of the bark, which is the
+        /// fire plastered diagonally across the trunk in feuer2.jpg — the card is
+        /// a plane through the axis and the front half of it passes the depth
+        /// test.</para>
+        ///
+        /// <para>So a fire says what shape of thing it is standing on:
+        /// <list type="bullet">
+        /// <item>ALONG / ACROSS — an ellipse. A burning log is long and narrow
+        /// and its fire has to be too.</item>
+        /// <item>FACE / SECTOR — a fraction of the circle about a bearing. Fire
+        /// climbing a trunk is on ONE side of it, the side it caught on.</item>
+        /// <item>LIFT — every card pushed radially outward by this much, so the
+        /// footprint is an annulus rather than a disc. This is what takes the
+        /// cards off the axis of a trunk and puts them on its surface, and what
+        /// makes a root-flare fire a ring of burning litter round a tree instead
+        /// of a bonfire with a tree growing out of it.</item>
+        /// </list>
+        /// Default is the shipped disc exactly: along +X, across 1, sector 1,
+        /// lift 0.</para></summary>
+        private struct FireFoot
+        {
+            public Vector2 along;    // unit XZ, the long axis
+            public float across;     // across/along radius ratio; 1 = a disc
+            public Vector2 face;     // unit XZ, the bearing a sector opens toward
+            public float sector;     // 1 = the whole circle, 0.5 = a half of it
+            public float lift;       // metres every card is pushed out radially
+
+            public static FireFoot Disc => new FireFoot
+            {
+                along = Vector2.right, across = 1f,
+                face = Vector2.right, sector = 1f, lift = 0f,
+            };
+            /// <summary>A long thin thing — a deadfall, a fallen beam.</summary>
+            public static FireFoot Along(Vector2 axis, float acrossRatio)
+            {
+                var f = Disc;
+                f.along = axis.sqrMagnitude > 1e-8f ? axis.normalized : Vector2.right;
+                f.across = Mathf.Max(acrossRatio, 0.02f);
+                return f;
+            }
+            /// <summary>One side of something round — a trunk, a cask.</summary>
+            public static FireFoot Face(Vector2 bearing, float sectorFrac, float outward)
+            {
+                var f = Disc;
+                f.face = bearing.sqrMagnitude > 1e-8f ? bearing.normalized : Vector2.right;
+                f.sector = Mathf.Clamp01(sectorFrac);
+                f.lift = Mathf.Max(outward, 0f);
+                return f;
+            }
+            /// <summary>A ring round the base of something — burning litter.</summary>
+            public static FireFoot Ring(float outward)
+            {
+                var f = Disc;
+                f.lift = Mathf.Max(outward, 0f);
+                return f;
+            }
+        }
 
         private static Mesh FireMesh(string name, float radius, float height, int cards, int seed,
-                                     float bedFrac = 0.38f)
+                                     float bedFrac = 0.38f, FireFoot? foot = null)
         {
+            if (!FireGateProven) { FireCardNormalGateSelfTest(); FireGateProven = true; }
+            var fp = foot ?? FireFoot.Disc;
+            // the ellipse frame: `along` and the XZ vector perpendicular to it
+            var axA = new Vector3(fp.along.x, 0f, fp.along.y);
+            var axB = new Vector3(-fp.along.y, 0f, fp.along.x);
+            float faceAng = Mathf.Atan2(fp.face.y, fp.face.x);
             var V = new List<Vector3>();
+            var N = new List<Vector3>();
             var UV0 = new List<Vector2>();
             var UV1 = new List<Vector4>();
             var C = new List<Color>();
@@ -7202,8 +7485,15 @@ namespace GloomhavenVR
                 // seat. The very first draft of this looked like a ring of flames.
                 float rr = radius * Mathf.Sqrt(h0)
                            * (isBed ? 0.85f : (isPuff ? 0.55f : 0.95f));
-                float ang = h1 * Mathf.PI * 2f;
-                var at = new Vector3(Mathf.Cos(ang) * rr, 0f, Mathf.Sin(ang) * rr);
+                // ...inside the FOOTPRINT, which is a disc only when the thing
+                // that is burning is round. See FireFoot for the two renders
+                // that forced it. `ang` opens about the footprint's bearing and
+                // spans `sector` of the circle; the radius is then stretched
+                // into the ellipse frame and pushed out by `lift`.
+                float ang = faceAng + (h1 * 2f - 1f) * Mathf.PI * fp.sector;
+                float ca = Mathf.Cos(ang), sa = Mathf.Sin(ang);
+                var at = axA * (ca * (rr + fp.lift))
+                       + axB * (sa * (rr * fp.across + fp.lift));
                 float outw = radius > 1e-4f ? Mathf.Clamp01(rr / radius) : 0f;
 
                 float y0, th, tw, cell, kind, rise, cyc;
@@ -7301,22 +7591,32 @@ namespace GloomhavenVR
                 th *= ArtH[akind];
                 col.a *= ArtE[akind];
 
-                // every card's cross is turned by its own angle: two quads at a
-                // fixed 90 deg, repeated a dozen times, is a visible lattice from
-                // the two axes that look down it.
+                // every card's rosette is turned by its own angle: three quads at
+                // a fixed 60 deg, repeated a dozen times, is a visible lattice
+                // from the three azimuths that look down it.
                 float yaw = h5 * Mathf.PI;
                 var extra = new Vector4(cell, kind, rise, cyc);
-                for (int q = 0; q < 2; q++)
+                foreach (float qy in QuadYaws)
                 {
-                    float qa = yaw + q * Mathf.PI * 0.5f;
-                    var right = new Vector3(Mathf.Cos(qa), 0f, Mathf.Sin(qa)) * (tw * 0.5f);
+                    float qa = yaw + qy * Mathf.Deg2Rad;
+                    var dir = new Vector3(Mathf.Cos(qa), 0f, Mathf.Sin(qa));
+                    var right = dir * (tw * QuadWidthK * 0.5f);
+                    // THE CARD'S OWN PLANE NORMAL, written and not derived.
+                    // EnvFlame multiplies this quad's energy by |dot(N, view)|,
+                    // so this vector is the difference between "the quads facing
+                    // you carry the fire" and "the quads facing you are the ones
+                    // that vanish". It is horizontal (the card is a vertical
+                    // sheet), unit, and perpendicular to `right` by construction:
+                    // rotating `dir` a quarter turn in XZ. The gate below proves
+                    // all three of those for every quad in every fire.
+                    var nrm = new Vector3(-dir.z, 0f, dir.x);
                     var lo = at + Vector3.up * y0;
                     int b = V.Count;
                     V.Add(lo - right); UV0.Add(new Vector2(0, 0));
                     V.Add(lo + right); UV0.Add(new Vector2(1, 0));
                     V.Add(lo + right + Vector3.up * th); UV0.Add(new Vector2(1, 1));
                     V.Add(lo - right + Vector3.up * th); UV0.Add(new Vector2(0, 1));
-                    for (int k = 0; k < 4; k++) { UV1.Add(extra); C.Add(col); }
+                    for (int k = 0; k < 4; k++) { UV1.Add(extra); C.Add(col); N.Add(nrm); }
                     T.AddRange(new[] { b, b + 2, b + 1, b, b + 3, b + 2 });
                 }
             }
@@ -7326,10 +7626,169 @@ namespace GloomhavenVR
             m.SetUVs(0, UV0);
             m.SetUVs(1, UV1);
             m.SetColors(C);
+            // NORMALS ARE AUTHORED, NEVER RecalculateNormals(). That call
+            // averages the face normals of the triangles that share a vertex,
+            // and although each quad here has four vertices of its own, the
+            // averaging is not the point: what a shader is entitled to assume
+            // about a mesh's normals is whatever the mesh's builder says it may
+            // assume, and "the plane of the card, unit, horizontal" is a much
+            // stronger contract than "whatever the winding produced". It is also
+            // what makes the gate below possible at all.
+            m.SetNormals(N);
             m.SetTriangles(T, 0);
-            m.RecalculateNormals();
             m.RecalculateBounds();
+            AssertFireCardNormals(m, name);
             return m;
+        }
+
+        // ============================ THE WINDING AND NORMAL GATE ===============
+        // FIVE MESHES IN THIS PROJECT HAVE SHIPPED WOUND AGAINST THEIR OWN
+        // VIEWER (the puddle was invisible for ten builds), and this round adds a
+        // sixth way to get the same class of fault wrong: a fire card is now
+        // FADED BY ITS OWN NORMAL, so a normal that points along the card instead
+        // of across it, or that is not unit, or that is tilted out of horizontal,
+        // does not make the fire look slightly wrong — it inverts the fade and
+        // keeps exactly the grazing spindles this round exists to delete, while
+        // hiding exactly the cards that face the player.
+        //
+        // The card itself is drawn Cull Off, so its WINDING genuinely does not
+        // matter and claiming otherwise would be theatre. What matters is the
+        // relationship between the normal and the quad, and that is what is
+        // checked, per quad, on every mesh, every bake:
+        //   1. the four vertices of a quad share one normal;
+        //   2. it is unit;
+        //   3. it is horizontal (the sheet is vertical, so `up` is in its plane);
+        //   4. it is PERPENDICULAR to the quad's own width edge and to its height
+        //      edge — i.e. it really is the plane's normal and not some other
+        //      horizontal vector that happens to be unit.
+        // (4) is the one that catches a sign error or a swapped component, which
+        // is the mistake that would actually be made.
+        //
+        // PROVEN TO FIRE: FireMesh runs FireCardNormalGateSelfTest() before it
+        // builds the first card of a bake, which builds a card with `right` used
+        // as the normal (the exact plausible slip) and requires this method to
+        // throw on it. A gate that has never been seen to fail is a comment.
+        // It hangs off FireMesh and not off BuildAll only because BuildAll lives
+        // in BuildEnvironments.cs, which is another lane's file this round; the
+        // once-flag makes the two arrangements identical in effect.
+        private static void AssertFireCardNormals(Mesh m, string name)
+        {
+            var V = m.vertices; var N = m.normals;
+            if (N.Length != V.Length)
+                throw new Exception($"Fire mesh '{name}': {V.Length} vertices but {N.Length} "
+                                    + "normals. EnvFlame fades every card by its own normal; a "
+                                    + "missing one is a card that is either always on or always "
+                                    + "off, not a card that is slightly wrong.");
+            for (int q = 0; q * 4 + 3 < V.Length; q++)
+            {
+                int b = q * 4;
+                var n = N[b];
+                for (int k = 1; k < 4; k++)
+                    if ((N[b + k] - n).sqrMagnitude > 1e-8f)
+                        throw new Exception($"Fire mesh '{name}': quad {q} has two different "
+                                            + "normals across its four corners. The face fade "
+                                            + "would then vary across a single quad and draw its "
+                                            + "own diagonal.");
+                if (Mathf.Abs(n.magnitude - 1f) > 1e-3f)
+                    throw new Exception($"Fire mesh '{name}': quad {q}'s normal is {n.magnitude:F4} "
+                                        + "long. |dot(N, view)| is a cosine only if N is unit; at "
+                                        + "any other length the whole fade is scaled by it.");
+                if (Mathf.Abs(n.y) > 1e-4f)
+                    throw new Exception($"Fire mesh '{name}': quad {q}'s normal has y = {n.y:F5}. A "
+                                        + "flame card is a VERTICAL sheet, so its normal is "
+                                        + "horizontal — a tilted one would fade the fire in and out "
+                                        + "as the player crouched, which is the head-motion "
+                                        + "coupling the standing ruling forbids outright.");
+                var wide = V[b + 1] - V[b];      // the width edge, uv (0,0)->(1,0)
+                var tall = V[b + 3] - V[b];      // the height edge, uv (0,0)->(0,1)
+                if (Mathf.Abs(Vector3.Dot(n, wide.normalized)) > 1e-3f
+                    || Mathf.Abs(Vector3.Dot(n, tall.normalized)) > 1e-3f)
+                    throw new Exception($"Fire mesh '{name}': quad {q}'s normal is not "
+                                        + "perpendicular to the quad. It lies "
+                                        + $"{Vector3.Dot(n, wide.normalized):F4} along the width "
+                                        + $"edge and {Vector3.Dot(n, tall.normalized):F4} along the "
+                                        + "height edge. EnvFlame would then hide the cards that "
+                                        + "face the player and keep the ones seen edge-on — the "
+                                        + "exact fault (\"sichtbare Striche\") the fade exists to "
+                                        + "remove, inverted.");
+            }
+        }
+
+        /// <summary>Proof that the gate above fires. Builds one quad whose normal
+        /// is its own width direction — a swapped component, which is the slip a
+        /// human would actually make — and requires AssertFireCardNormals to
+        /// throw on it. Called once from BuildAll, before either room.</summary>
+        private static void FireCardNormalGateSelfTest()
+        {
+            var bad = new Mesh { name = "Env_FireCardGateSelfTest" };
+            var dir = new Vector3(0.6f, 0f, 0.8f);          // an arbitrary yaw
+            var right = dir * 0.15f;
+            var v = new[]
+            {
+                -right, right, right + Vector3.up * 0.3f, -right + Vector3.up * 0.3f,
+            };
+            bad.SetVertices(v.ToList());
+            // THE SLIP: `dir` instead of the quarter-turn of it. Unit, horizontal,
+            // consistent across the quad — it passes checks 1 to 3 and is caught
+            // only by the perpendicularity check, which is the point of having it.
+            bad.SetNormals(Enumerable.Repeat(dir, 4).ToList());
+            bad.SetTriangles(new[] { 0, 2, 1, 0, 3, 2 }, 0);
+            bool threw = false;
+            try { AssertFireCardNormals(bad, bad.name); }
+            catch (Exception) { threw = true; }
+            UnityEngine.Object.DestroyImmediate(bad);
+            if (!threw)
+                throw new Exception("The fire-card normal gate did not fire on a mesh built with "
+                                    + "the wrong normal. Five meshes in this project have shipped "
+                                    + "wound against their own viewer; a gate that cannot be seen "
+                                    + "to fail is a comment, not a gate.");
+            Debug.Log("[GloomhavenVR][Env] fire-card normal gate: self-test PASSED — a quad whose "
+                      + "normal is its own width direction (unit, horizontal, consistent across "
+                      + "the quad, and wrong) is rejected. Every fire card in both rooms is then "
+                      + "checked against the same four conditions as it is built.");
+        }
+
+        /// <summary>A fire's seat, DERIVED FROM THE PROP IT BURNS ON — ModBuild
+        /// 148, and the reason it exists is a plain bug the user found:
+        ///
+        /// <para>"Weiterhin ist ein Teil des Feuers im Keller fliegend in der
+        /// Gegend wo vor deiner Änderung das Regal war. Da hast du wohl etwas
+        /// vergessen mit zu verschieben."</para>
+        ///
+        /// <para>He is exactly right and it is one line: the round that slid the
+        /// bookshelf 3.85 m south wrote "everything that stands on the shelf is
+        /// placed relative to CellarShelfAt, so the candle, its light slot, the
+        /// fire and the halos all came with it" — and TWO of them did not,
+        /// because they were typed as absolute positions rather than derived
+        /// (Fire ShelfMid at (4.60, 1.34, 0.70) and the shelf's wall wash at
+        /// z = 0.70, both the shelf's OLD z). A fire hung in mid-air over an
+        /// empty corner for four builds.</para>
+        ///
+        /// <para>The durable fix is not to correct two numbers. It is that a fire
+        /// seat may no longer BE a number: this takes the prop, an offset in the
+        /// prop's own placement frame, and returns a point ON THE PROP'S REAL
+        /// SURFACE, measured. Move the prop and its fire moves; delete the prop
+        /// and the bake fails instead of leaving a fire behind. `raise` lifts the
+        /// seat off the surface it found (a fire coming out of the side of a
+        /// bookshelf sits above the board it is standing on, not on the lid).
+        /// `floor` says the fire is on the ground BESIDE the prop rather than on
+        /// it, which is the litter at a crate's foot and the spill beside a
+        /// toppled cask — those still derive their XZ from the prop, so they move
+        /// with it, and take their Y from the flagstones.</para></summary>
+        private static Vector3 FireSeatOn(Transform root, string propName, Vector2 off,
+                                          float raise = 0f, bool floor = false)
+        {
+            var go = root.Find(propName)
+                     ?? throw new Exception($"Fire seat: prop '{propName}' is missing, so the fire "
+                                            + "that burns on it has nothing to stand on. Every seat "
+                                            + "is derived from its prop since ModBuild 148 — see "
+                                            + "FireSeatOn — precisely so that a prop that moves or "
+                                            + "goes cannot leave its fire hanging in the air, which "
+                                            + "is the bug the user found in the cellar.");
+            var p = go.transform.localPosition;
+            float x = p.x + off.x, z = p.z + off.y;
+            float y = floor ? CellarFloorY(x, z) : SurfaceYAt(go.gameObject, x, z);
+            return new Vector3(x, y + raise, z);
         }
 
         /// <summary>How hard the draught works a flame standing at `at`, as
@@ -7367,12 +7826,96 @@ namespace GloomhavenVR
         /// than an argument, so it cannot be passed differently in two calls.
         /// That is the standing "a flame and the light it casts share a rate"
         /// rule, made unbreakable.</para></summary>
+        // ================================ THE EROSION, AS SHIPPED ===============
+        // These five are fire_atlas_pipeline.py's ERODE_* constants, and the two
+        // files have to agree because the pipeline SIMULATES this exact
+        // expression to compute the ArtE energy compensation above. Change one,
+        // change the other, and re-run the pipeline to get the new ArtE line.
+        // What each one means is written out there, next to the render that
+        // settled it; the short version:
+        //   TILE U/V   the field's tiling across and up one card. Under one
+        //              period of the coarse octave across a card and five of the
+        //              fine one, i.e. structure at the size of the whole tongue
+        //              and structure at 6-8 cm — the two ends of EnvFire.cginc's
+        //              frequency table, from a single tap.
+        //   SCROLL     field periods per FIRE CYCLE, not per second: the
+        //              dissolve rides GhvrFireHz with everything else, so a fire
+        //              in a draught boils faster (his own "noch mehr Glut").
+        //              0.42 x 4.6 Hz = 1.93 periods/s, i.e. a feature climbs the
+        //              0.72 of a period a card spans in 0.37 s — about 1 m/s on
+        //              a 40 cm tongue, which is a flame's own rise speed.
+        //   BOOST      the mask's pre-multiply. It stays NEAR 1 on purpose; see
+        //              the pipeline for the render that proves why.
+        //   AMOUNT     how deep the field cuts at the TIP.
+        //   BASE       ...and its share at the FOOT. A flame is anchored where
+        //              it is fed and its seat may not dissolve.
+        //   FINE       the fine octave's share of the field.
+        private const float ErodeTileU = 0.85f, ErodeTileV = 0.72f;
+        private const float ErodeScroll = 0.42f, ErodeBoost = 1.08f;
+        private const float ErodeAmount = 0.88f, ErodeBase = 0.22f, ErodeFine = 0.26f;
+
+        // ================================ THE FACE FADE, AS SHIPPED =============
+        // (cos of the angle at which a card is GONE, cos of the angle at which it
+        // is at FULL strength) = (cos 75, cos 38). EnvFlame's STRICHE block is
+        // the argument; this is the pair of numbers. The band is deliberately 37
+        // degrees WIDE: the two eyes of a headset differ by 3.6 degrees of view
+        // angle at a metre, and a fade that is gradual over ten times that
+        // cannot become a stereo disagreement.
+        private static readonly Vector4 FireFaceFade =
+            new Vector4(Mathf.Cos(75f * Mathf.Deg2Rad), Mathf.Cos(38f * Mathf.Deg2Rad), 0f, 0f);
+
+        // How much a card's distance out of the seat cools it (EnvFlame/_Tier).
+        // 0.30 puts the outermost tongue a third of the way further along the
+        // three-stop ramp than one standing in the middle, which is the
+        // difference between "orange" and "dark red" at the rim.
+        private const float FireTier = 0.30f;
+
+        /// <summary>Painted area, in square metres of quad, accumulated across a
+        /// room by BuildFireCards. It is the fill-rate budget for the whole
+        /// feature and the number every round has to report: MultiPass draws
+        /// every one of these twice and a fire is pure overdraw.</summary>
+        private static float FirePaintedM2;
+        private static int FireQuads;
+
+        /// <summary>The fill budget, stated so the next round can compare like
+        /// with like — ModBuild 148.
+        ///
+        /// <para>THE HEADLINE IS THAT IT DID NOT MOVE, and that is arithmetic
+        /// rather than luck. Screen area painted is sum over quads of
+        /// (projected width x height), and the mean of |cos| over a full turn is
+        /// 2/pi for ANY single vertical quad whatever its yaw. So the mean
+        /// projected width of a card is (number of quads) x (width each) x 2/pi,
+        /// and 3 x (2/3 w) is exactly 2 x w — the rosette and the cross it
+        /// replaces cost the SAME mean screen area, to the last digit, and the
+        /// width factor 2/3 was chosen for precisely this reason.</para>
+        ///
+        /// <para>What does move is the SPREAD. Summed over a cross, the
+        /// projected width runs 1.000 to 1.414 widths as the player walks round
+        /// (+-17 %); over the rosette at 2/3 width it runs 1.155 to 1.333
+        /// (+-7 %). So the fire is also STEADIER in cost and in brightness from
+        /// azimuth to azimuth than it was, which matters because a fire that
+        /// brightens as you walk round it is the failure mode the face fade
+        /// would otherwise have introduced.</para>
+        ///
+        /// <para>The raw quad area below is the mesh's own, measured off the
+        /// built vertices rather than derived from the authored numbers.</para>
+        /// </summary>
+        private static string FirePaintLine() =>
+            $"    quads: {FireQuads} quads, {FirePaintedM2:F2} m^2 of quad, "
+            + $"{FirePaintedM2 * 2f / Mathf.PI:F2} m^2 mean PROJECTED (the number MultiPass "
+            + "doubles). Three quads per card at 60 deg and 2/3 the width: 3 x 2/3 = 2, so the "
+            + "mean projected area is identical to the 2-at-90 cross this replaces and only its "
+            + "azimuthal spread changes (+-17 % -> +-7 %). What rises is the vertex count, x1.5, "
+            + "which is not where a fire costs. And no quad is readable from any azimuth — see "
+            + "EnvFlame's STRICHE block.\n";
+
         private static GameObject BuildFireCards(Transform root, string room, string n,
             Vector3 seat, float radius, float height, int cards, int seed,
-            float gust, float phaseOfs, float airGust, Vector3 wind, float bedFrac = 0.38f)
+            float gust, float phaseOfs, float airGust, Vector3 wind, float bedFrac = 0.38f,
+            FireFoot? foot = null)
         {
             var mesh = SaveMesh($"Env_{room}_Fire{n}.asset",
-                FireMesh($"Env_{room}_Fire{n}", radius, height, cards, seed, bedFrac),
+                FireMesh($"Env_{room}_Fire{n}", radius, height, cards, seed, bedFrac, foot),
                 // The shader stretches a tongue and throws detached puffs most of
                 // a fire-height above the seat, so the authored bounds would
                 // frustum-cull the top of the fire the moment it surged past a
@@ -7433,6 +7976,29 @@ namespace GloomhavenVR
             // rest of the room rather than leaving it a self-contained animation.
             m.SetVector("_GustDir", wind);
             m.SetFloat("_AirGust", airGust);
+            // ---- ModBuild 148: the three fixes that live on the material -----
+            // (b) the Striche — no card may be readable as a card
+            m.SetVector("_FaceFade", FireFaceFade);
+            // (c) it does not flicker naturally — the mask dissolves now
+            m.SetVector("_ErodeParams",
+                new Vector4(ErodeTileU, ErodeTileV, ErodeScroll, ErodeBoost));
+            m.SetVector("_ErodeMix", new Vector4(ErodeAmount, ErodeBase, ErodeFine, 0f));
+            // ...and the per-card temperature tier the previous round named and
+            // could not reach from its own files.
+            m.SetFloat("_Tier", FireTier);
+
+            // THE FILL BUDGET, accumulated as it is built rather than estimated
+            // afterwards. Quad area is the mesh's own: the rosette's three quads
+            // are each QuadWidthK of the authored width, so the product is
+            // 3 x (2/3) = 2 widths per card, i.e. exactly what two full-width
+            // quads cost — which is the whole reason the width factor is 2/3.
+            var mv = mesh.vertices;
+            for (int q = 0; q * 4 + 3 < mv.Length; q++)
+            {
+                int b = q * 4;
+                FirePaintedM2 += (mv[b + 1] - mv[b]).magnitude * (mv[b + 3] - mv[b]).magnitude;
+                FireQuads++;
+            }
             return Place(root, $"Fire{n}", mesh, seat, Vector3.zero, Vector3.one, m);
         }
 
@@ -7452,15 +8018,18 @@ namespace GloomhavenVR
                 : throw new Exception("Cellar fire: prop 'Barrel1' is missing — the cask cannot burn.");
 
             int tris = 0, fires = 0, particles = 0, emitters = 0;
+            FirePaintedM2 = 0f; FireQuads = 0;   // the fill budget, per room
 
             // Every fire's seat, so the log has one list to read.
             var seats = new List<(string n, Vector3 at, float r, float h, int cards)>();
 
             void Fire(string n, Vector3 seat, float radius, float height, int cards,
-                      float phaseOfs, int seed, float gust, bool onShelf = false)
+                      float phaseOfs, int seed, float gust, bool onShelf = false,
+                      FireFoot? foot = null)
             {
                 var go = BuildFireCards(root, "C", n, seat, radius, height, cards, seed,
-                                        gust, phaseOfs, AirGustAt(seat), DraftDir);
+                                        gust, phaseOfs, AirGustAt(seat), DraftDir,
+                                        foot: foot);
                 if (onShelf)
                 {
                     // SHELF RIDERS — "Die Kerzen UND DAS FEUER, die auf dem
@@ -7603,9 +8172,15 @@ namespace GloomhavenVR
             // "something is standing here burning".
 
             // ---- 1. the crate stack, lit by the candle standing on it --------
-            var crateSeat = new Vector3(-1.55f, crateTop, -3.95f);
+            // ModBuild 148: EVERY SEAT BELOW IS NOW DERIVED FROM ITS PROP (see
+            // FireSeatOn). The three that were already measured are unchanged to
+            // the centimetre; what changes is that they can no longer be left
+            // behind when a prop moves, which is the bug the user found.
+            var crateSeat = FireSeatOn(root, "Crate2", Vector2.zero);
             Fire("CrateTop", crateSeat, 0.32f, 0.58f, 30, 0f, 7401, 0.050f);
-            var litter = new Vector3(-0.95f, CellarFloorY(-0.95f, -3.75f), -3.75f);
+            // the litter burning at its foot: on the FLAGSTONES, but its place on
+            // them belongs to the crate stack and follows it.
+            var litter = FireSeatOn(root, "Crate0", new Vector2(0.60f, 0.20f), floor: true);
             Fire("CrateFoot", litter, 0.38f, 0.30f, 36, 1.7f, 7402, 0.040f);
             // The wall halo is pushed hard against the masonry (0.22 m off it)
             // and held to 1.15 m: AssertPlaySpaceClear counts a glow sphere like
@@ -7630,7 +8205,9 @@ namespace GloomhavenVR
             // shape says what is on fire — and at 1.16 m across it is now the
             // widest thing alight in the cellar, which is what a pool of burning
             // spirits on flagstones is.
-            var spill = new Vector3(-3.25f, CellarFloorY(-3.25f, -3.35f), -3.35f);
+            // ...and it belongs to Barrel2, the cask lying on its side: a pool of
+            // burning spirits is spilled FROM something, so it follows it.
+            var spill = FireSeatOn(root, "Barrel2", new Vector2(-0.40f, 0.60f), floor: true);
             Fire("Spill", spill, 0.58f, 0.32f, 52, 4.9f, 7404, 0.035f);
             Halo("Barrel", bung + new Vector3(0f, 0.26f, 0f), 0.58f, 0.14f,
                  new Vector3(-hw + 0.55f, 1.35f, -2.6f), 1.35f, 0.026f, 3.1f);
@@ -7647,11 +8224,32 @@ namespace GloomhavenVR
             Fire("ShelfTop", shelfSeat, 0.30f, 0.52f, 28, 0f, 7405, 0.045f, onShelf: true);
             // out of the shelf itself, below the top boards — a bookshelf burns
             // from the inside out, and a fire that only sits on the lid of a
-            // thing does not read as the thing being alight
-            var shelfMid = new Vector3(4.60f, 1.34f, 0.70f);
+            // thing does not read as the thing being alight.
+            //
+            // ================== THE FLYING FIRE, AND IT WAS THIS LINE ==========
+            // USER, hardware, ModBuild 147: "Weiterhin ist ein Teil des Feuers im
+            // Keller fliegend in der Gegend wo vor deiner Änderung das Regal war.
+            // Da hast du wohl etwas vergessen mit zu verschieben."
+            //
+            // It read `new Vector3(4.60f, 1.34f, 0.70f)` — a typed absolute at
+            // the shelf's OLD z of +0.70, left behind when the shelf slid 3.85 m
+            // south to CellarShelfAt. Two lines away, ShelfTop went through
+            // OnShelf() and moved correctly, which is exactly how the miss
+            // survived a review: the site LOOKED derived. The height is measured
+            // off the shelf's own top board rather than typed as well, so a
+            // re-scanned or re-scaled bookshelf keeps its fire at the same place
+            // in its own carcass.
+            var shelfMid = new Vector3(OnShelf(-0.26f, 0f).x, shelfTop - 0.60f,
+                                       OnShelf(-0.26f, 0f).z);
             Fire("ShelfMid", shelfMid, 0.24f, 0.38f, 22, 2.3f, 7406, 0.045f, onShelf: true);
+            // ...and the WALL WASH behind it had the same z = 0.70 for the same
+            // reason and is derived now too. It deliberately does not RIDE the
+            // shelf (the wall does not fall over); riding and being derived are
+            // different questions and this one was only ever wrong about the
+            // second.
             Halo("Shelf", shelfSeat + new Vector3(-0.05f, 0.28f, 0f), 0.62f, 0.14f,
-                 new Vector3(hw - 0.50f, 1.85f, 0.70f), 1.40f, 0.026f, 0f, onShelf: true);
+                 new Vector3(hw - 0.50f, 1.85f, CellarShelfAt.z), 1.40f, 0.026f, 0f,
+                 onShelf: true);
             Sparks("Shelf", shelfSeat + new Vector3(0f, 0.30f, 0f), 0.24f, 16, 7.5f);
 
             // ================= THE LIGHT THE FIRE THROWS =======================
@@ -7678,17 +8276,30 @@ namespace GloomhavenVR
             // wash deliberately does not take _PtHard (see EnvFire.cginc), so
             // these reach across their own end of the room and die before the
             // other one.
+            // ...and each seat's POSITION is the mean of the fires that make it,
+            // not a fourth typed point beside three derived ones: the same
+            // discipline as FireSeatOn, applied to the light. Its `core` is the
+            // measured spread of those fires (FireCoreOf) and is what
+            // AssertFireSeatCores checks the range against.
+            Vector3 Mid(params Vector3[] ps)
+            {
+                var s = Vector3.zero;
+                foreach (var q in ps) s += q;
+                return s / Mathf.Max(ps.Length, 1);
+            }
             rig.fires = new[]
             {
                 // the crate stack: between the two fires, a little above the top one
-                new FireSeat("Crates", new Vector3(-1.32f, crateTop + 0.22f, -3.86f), 2.6f, false),
+                new FireSeat("Crates", Mid(crateSeat, litter) + new Vector3(0f, 0.22f, 0f),
+                             2.6f, false, FireCoreOf((crateSeat, 0.32f), (litter, 0.38f))),
                 // the casks: between the bung and the spill
-                new FireSeat("Casks", new Vector3(-3.74f, barrelTop * 0.55f + 0.18f, -2.72f),
-                             2.8f, false),
+                new FireSeat("Casks", Mid(bung, spill) + new Vector3(0f, 0.18f, 0f),
+                             3.1f, false, FireCoreOf((bung, 0.28f), (spill, 0.58f))),
                 // the bookshelf, and this one MOVES: it is standing on the shelf
                 // that topples, so its seat takes the same rigid transform the
                 // flames on it take (EnvFire.cginc's _FireRide).
-                new FireSeat("Shelf", new Vector3(OnShelf(-0.24f, 0f).x, shelfTop - 0.28f, OnShelf(-0.24f, 0f).z), 2.5f, true),
+                new FireSeat("Shelf", Mid(shelfSeat, shelfMid), 2.5f, true,
+                             FireCoreOf((shelfSeat, 0.30f), (shelfMid, 0.24f))),
             };
             // THE WASH. Warm, and strong enough that the flagstones a fire stands
             // on and the wall a metre behind it are plainly lit by it — the term
@@ -7706,7 +8317,17 @@ namespace GloomhavenVR
             // what it stands on; it does not light the room. What is here now
             // leaves the two corners furthest from anything burning as dark as
             // they are with the fire down.
-            rig.fireWash = new Color(0.80f, 0.32f, 0.10f, 0.45f);
+            //
+            // ...AND ModBuild 148 GAVE IT A REAL FALLOFF, so the strength moves
+            // with it. The window is now an inverse-square core inside the same
+            // window (EnvFire.cginc's THE FALLOFF block): at a tenth of the range
+            // the surface a fire STANDS ON keeps about 90 % of what it had, and
+            // at half the range the flat mid-field wash is down by three
+            // quarters. 1.05 -> 1.22 restores the first number exactly and
+            // deliberately does not restore the second — a fire lights what it
+            // stands on, it does not light the room, and the whole complaint
+            // about the wood was a wash that did the second.
+            rig.fireWash = new Color(0.98f, 0.39f, 0.12f, 0.45f);
             rig.fireHz = FireHz;
 
             float playR = CellarPlaySpaceDia * 0.5f;
@@ -7725,6 +8346,12 @@ namespace GloomhavenVR
                 log.Append($"    lights: {f.name,-7} seat ({f.pos.x,6:F2},{f.pos.y,5:F2},"
                            + $"{f.pos.z,6:F2})  range {f.range:F2} m"
                            + (f.ridesShelf ? "  RIDES THE TIPPING SHELF" : "") + "\n");
+            AssertFireSeatCores("Cellar", rig.fires, log);
+            log.Append(FirePaintLine());
+            log.Append($"    glut: coals on every burning surface, at {FireCoreK * 1.45f:F2} x each "
+                       + "seat's range, on a biased slow breath (rise 0.19 s, fall 0.43 s) — the "
+                       + "user's own \"eine Glut beim Holz\". No new draw call, no new material and "
+                       + "no new channel: it rides the three distances the wash already computes.\n");
             log.Append($"    wash: rgb ({rig.fireWash.r:F2},{rig.fireWash.g:F2},"
                        + $"{rig.fireWash.b:F2}) at +-{rig.fireWash.a * 100f:F0} % flicker, "
                        + $"{rig.fireHz:F1} Hz — THE SAME Hz every flame above burns at "
@@ -7777,13 +8404,15 @@ namespace GloomhavenVR
         {
             var glowMesh = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_GlowSphere.asset");
             int tris = 0, fires = 0, particles = 0, emitters = 0;
+            FirePaintedM2 = 0f; FireQuads = 0;   // the fill budget, per room
             var seats = new List<(string n, Vector3 at, float r, float h, int cards)>();
 
             void Fire(string n, Vector3 seat, float radius, float height, int cards,
-                      float phaseOfs, int seed, float gust, float bedFrac = 0.38f)
+                      float phaseOfs, int seed, float gust, float bedFrac = 0.38f,
+                      FireFoot? foot = null)
             {
                 BuildFireCards(root, "S", n, seat, radius, height, cards, seed,
-                               gust, phaseOfs, 2.2f, ForestWind, bedFrac);
+                               gust, phaseOfs, 2.2f, ForestWind, bedFrac, foot);
                 tris += cards * 4; fires++;
                 seats.Add((n, seat, radius, height, cards));
             }
@@ -7870,14 +8499,40 @@ namespace GloomhavenVR
             var foot = TrunkAt(snag, 0.10f);
             var mid = TrunkAt(snag, 1.85f);
             float rFoot = HauntTrunkRadius(snag, 0.10f), rMid = HauntTrunkRadius(snag, 1.85f);
-            // the root flare is burning widest — that is where the litter is
-            Fire("Snag0", foot, rFoot * 2.1f, 1.05f, 42, 0f, 7501, 0.050f);
+            // ...and the direction the CLEARING is in, which is where a fire on
+            // this trunk has to stand: the player watches it from in there.
+            var toClear2 = new Vector2(-foot.x, -foot.z).normalized;
+            // the root flare is burning widest — that is where the litter is, and
+            // it is a RING round the trunk rather than a disc through it (see
+            // FireFoot). At `lift` = the trunk's own radius the innermost card
+            // stands against the bark instead of inside the wood, which is what
+            // stops the shipped build's flames crossing the trunk diagonally.
+            Fire("Snag0", foot, rFoot * 1.5f, 1.05f, 42, 0f, 7501, 0.050f,
+                 foot: FireFoot.Ring(rFoot * 0.90f));
             // ...and it is climbing the bark, narrower, taller, and with NO BED:
             // see FireMesh's bedFrac. A bed is the part of a fire that lies on
             // something; two metres up a trunk there is nothing to lie on, and
             // the first bake's bed cards there read as a white slab nailed across
             // the tree.
-            Fire("Snag1", mid, rMid * 1.5f, 0.95f, 24, 2.6f, 7502, 0.055f, bedFrac: 0f);
+            //
+            // ============== "SIE SITZT NICHT DIREKT AUF DEN ASSETS" ============
+            // feuer2.jpg is this fire, and the fault is geometric and total: the
+            // cards were scattered on a DISC CENTRED ON THE TRUNK'S AXIS, so
+            // every one of them was a plane through the wood — the back half
+            // depth-rejected against the bark and the FRONT half painted over it.
+            // That is the fire plastered diagonally across the trunk, and no
+            // amount of shader work could have touched it.
+            //
+            // A fire licking up a standing trunk is on ONE SIDE of it, on the
+            // surface, on the side that caught. So: a 150-degree sector opening
+            // toward the clearing (the side the player is on and the side away
+            // from the moon, which is why this snag was chosen at all), pushed
+            // out by the trunk's own measured radius at that height plus a
+            // handspan, on a footprint two thirds as wide as it was. Not one card
+            // is inside the wood now, and the fire hugs the bark instead of
+            // crossing it.
+            Fire("Snag1", mid, rMid * 1.0f, 0.95f, 24, 2.6f, 7502, 0.055f, bedFrac: 0f,
+                 foot: FireFoot.Face(toClear2, 150f / 360f, rMid + 0.06f));
             Halo("Snag", foot + new Vector3(0f, 0.75f, 0f), 1.35f, 0.16f, 0f);
             Sparks("Snag", mid + new Vector3(0f, 0.45f, 0f), 0.28f, 22, 9.0f);
 
@@ -7888,6 +8543,7 @@ namespace GloomhavenVR
             // silhouette from a cone of it, and it is the shape that says "this
             // long thing is what is alight".
             Vector3 logSeat;
+            float logHalfW = 0f, logHalf = 0f;
             var logGo = root.Find("Log1");
             if (logGo == null)
                 throw new Exception("Forest fire: prop 'Log1' is missing — the deadfall cannot burn.");
@@ -7914,10 +8570,17 @@ namespace GloomhavenVR
                 }
                 float th = 0.5f * Mathf.Atan2(2f * sxz, sxx - szz);
                 var la = new Vector3(Mathf.Cos(th), 0f, Mathf.Sin(th));
-                float half = 0f;
+                var lp = new Vector3(-la.z, 0f, la.x);          // across the log
+                float half = 0f, halfW = 0f;
                 foreach (var p in pts)
-                    half = Mathf.Max(half, Mathf.Abs(Vector3.Dot(
-                        new Vector3(p.x - mean.x, 0f, p.z - mean.y), la)));
+                {
+                    var d = new Vector3(p.x - mean.x, 0f, p.z - mean.y);
+                    half = Mathf.Max(half, Mathf.Abs(Vector3.Dot(d, la)));
+                    // ...AND ITS HALF-WIDTH, which nothing measured before and
+                    // which is the whole of the log half of "es sitzt nicht
+                    // direkt auf den assets". See the seat below.
+                    halfW = Mathf.Max(halfW, Mathf.Abs(Vector3.Dot(d, lp)));
+                }
                 var (lw, lt) = WorldMesh(logGo.gameObject);
                 var logMid = new Vector3(mean.x, 0f, mean.y);
                 for (int i = 0; i < 3; i++)
@@ -7941,13 +8604,36 @@ namespace GloomhavenVR
                                             + $"Log{i} — the deadfall's measured axis "
                                             + $"({la.x:F2},{la.z:F2}) does not lie on the prop.");
                     at.y = y;
-                    Fire($"Log{i}", at, 0.34f - 0.04f * Mathf.Abs(i - 1), 0.42f, 22,
-                         1.3f * i, 7510 + i, 0.045f);
+                    // ============ "SCHWEBT DANEBEN" — THE LOG FIRE ============
+                    // feuer1.jpg, and this is the other half of fault (a). The
+                    // deadfall's bark is 0.28-0.34 m across; the fire on it was a
+                    // 0.68 m DISC, so a third of every fire hung in the air off
+                    // each flank of the log, and the widest bed cards reached a
+                    // further 0.2 m past that. It is plainly visible in the
+                    // screenshot: flame sheets lying on the forest floor beside
+                    // the log rather than on it.
+                    //
+                    // A burning log's fire is LONG AND NARROW, which is both the
+                    // fix and the truth. The footprint is an ellipse on the log's
+                    // own measured axis, and its ACROSS radius is derived from
+                    // the log's measured half-width minus what a card sticks out
+                    // by (a bed card is up to `radius * 1.30 * 1.10` wide, so its
+                    // half-width is 0.72 x radius) — i.e. the fire, cards and
+                    // all, is inside the bark it is standing on.
+                    //
+                    // The ALONG radius is up, not merely kept: what the fire
+                    // loses across the log it gains down it, so the burning
+                    // stretch is the same area of fire and a much better shape.
+                    float rAlong = 0.44f - 0.05f * Mathf.Abs(i - 1);
+                    float acrossR = Mathf.Max(halfW - 0.72f * rAlong, 0.05f) / rAlong;
+                    Fire($"Log{i}", at, rAlong, 0.42f, 22, 1.3f * i, 7510 + i, 0.045f,
+                         foot: FireFoot.Along(new Vector2(la.x, la.z), acrossR));
                     if (i == 1) Sparks("Log", at + new Vector3(0f, 0.24f, 0f), 0.30f, 16, 6.5f);
                 }
                 logMid.y = 0.42f;
                 Halo("Log", logMid, 1.10f, 0.14f, 1.9f);
                 logSeat = logMid;
+                logHalfW = halfW; logHalf = half;
             }
 
             // ---- 3. THE BRUSHWOOD in the understorey -------------------------
@@ -7987,11 +8673,37 @@ namespace GloomhavenVR
             // a fire licking up a trunk actually stands.
             var snagSeat = foot + new Vector3(0f, 0.55f, 0f)
                            + toClearing * (rFoot + 0.55f);
+            // ---- ModBuild 148: THE RANGES COME IN, AND WHY THIS IS THE ROOM --
+            // USER, on feuer1.jpg: the fire "sitzt nicht direkt auf den assets",
+            // and the wash is the second half of that. Several square metres of
+            // forest floor are evenly reddened out to the edge of the frame at a
+            // brightness that hardly changes across the pool — a coloured
+            // ambient, not firelight. Two things fix it and both are here:
+            //   * the falloff SHAPE (EnvFire.cginc's inverse-square core inside
+            //     the window), which is the big one and applies to both rooms;
+            //   * these three numbers. 6.0/5.2/5.0 -> 4.2/3.8/3.6 m. At the old
+            //     ranges the snag's pool reached 6 m of floor and the three
+            //     seats reached each other across a 9 m clearing; at these they
+            //     light their own patch and the wood between them stays the
+            //     black that "hinter den Bäumen ... soll es so dunkel sein das
+            //     man sich nicht traut" was tuned for.
+            // The cores that come out of them (range x 0.26) are 1.09/0.99/0.94
+            // m against sites measured at 1.4/1.3/1.2 m across — inside the
+            // factor of two AssertFireSeatCores allows, and on the tight side of
+            // it deliberately, because a fire's luminous core is smaller than the
+            // patch of ground it stands on.
             rig.fires = new[]
             {
-                new FireSeat("Snag", snagSeat, 6.0f, false),
-                new FireSeat("Log", logSeat + new Vector3(0f, -0.07f, 0f), 5.2f, false),
-                new FireSeat("Brush", brush + new Vector3(0f, 0.22f, 0f), 5.0f, false),
+                new FireSeat("Snag", snagSeat, 4.2f, false,
+                             FireCoreOf((foot, rFoot * 1.5f), (mid, rMid))),
+                new FireSeat("Log", logSeat + new Vector3(0f, -0.07f, 0f), 3.8f, false,
+                             // the burning stretch of the deadfall, measured: the
+                             // three seats span 1.24 x its half-length, and the
+                             // fire on each is 0.44 m long and `halfW` wide.
+                             FireCoreOf((logSeat - new Vector3(logHalf * 0.62f, 0f, 0f), 0.44f),
+                                        (logSeat + new Vector3(logHalf * 0.62f, 0f, 0f), 0.44f))),
+                new FireSeat("Brush", brush + new Vector3(0f, 0.22f, 0f), 3.6f, false,
+                             FireCoreOf((brush, 0.62f))),
             };
             // DIMMER THAN THE CELLAR'S, and that is the room's whole recipe
             // rather than a taste: the wood is tuned so that "hinter den Bäumen
@@ -8004,7 +8716,12 @@ namespace GloomhavenVR
             // lamp. 0.55 flicker depth, deeper than the cellar's 0.45: out here
             // the fire is the only thing moving the light, so the swing is the
             // whole signal.
-            rig.fireWash = new Color(0.92f, 0.35f, 0.11f, 0.55f);
+            //
+            // ...and the strength moves with the falloff shape, exactly as the
+            // cellar's does: 0.92 -> 1.12 restores what the surface a fire STANDS
+            // ON had under the old window, and deliberately does not restore the
+            // flat metre-wide wash the user photographed.
+            rig.fireWash = new Color(1.12f, 0.43f, 0.13f, 0.55f);
             rig.fireHz = FireHz;
 
             float playR = ForestPlaySpaceDia * 0.5f;
@@ -8026,6 +8743,18 @@ namespace GloomhavenVR
             foreach (var f in rig.fires)
                 log.Append($"    lights: {f.name,-6} seat ({f.pos.x,6:F2},{f.pos.y,5:F2},"
                            + $"{f.pos.z,6:F2})  range {f.range:F2} m\n");
+            AssertFireSeatCores("Forest", rig.fires, log);
+            log.Append(FirePaintLine());
+            log.Append($"    seats: the SNAG's mid fire is a {150f:F0} deg sector on the bark, "
+                       + $"pushed out by the trunk's own {rMid:F2} m radius (it used to be a disc "
+                       + $"through the axis, i.e. half of every card inside the wood — feuer2.jpg); "
+                       + $"the LOG's three are ellipses on the deadfall's measured axis, "
+                       + $"{logHalfW * 2f:F2} m of bark wide, so no card hangs off its flank "
+                       + "(feuer1.jpg).\n");
+            log.Append($"    glut: coals on every burning surface, at {FireCoreK * 1.45f:F2} x each "
+                       + "seat's range, on a biased slow breath — the user's own \"eine Glut beim "
+                       + "Holz\". It is the term that makes the deadfall look CONSUMED rather "
+                       + "than lit.\n");
             log.Append($"    wash: rgb ({rig.fireWash.r:F2},{rig.fireWash.g:F2},"
                        + $"{rig.fireWash.b:F2}) at +-{rig.fireWash.a * 100f:F0} % flicker, "
                        + $"{rig.fireHz:F1} Hz — the same Hz the flames burn at. Deliberately below "

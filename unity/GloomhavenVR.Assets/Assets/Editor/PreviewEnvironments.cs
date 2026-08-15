@@ -326,6 +326,54 @@ namespace GloomhavenVR
             // the frame the "peripheral, never over the board" rule is judged in,
             // with two of the three burning things in it at once.
             ("FireWood", Eye, new Vector3(0, 250, 0), false, 78f),
+            // ================= THE GRAZING SET — ModBuild 148 ==================
+            // USER VERDICT, ModBuild 147: "Es sitzt nicht direkt auf den assets,
+            // schwebt daneben oder darüber" and "Es sind mehrere sichtbare
+            // 'Striche' auf den assets drauf" — with two screenshots,
+            // .planning/debug/feuer1.jpg and feuer2.jpg.
+            //
+            // NEITHER FAULT IS VISIBLE IN ANY FRAME THIS HARNESS HAD, and that
+            // is the reason both survived a whole round of previews. Every fire
+            // view above looks DOWN at its fire from 1.05-1.85 m — the FireXLow
+            // pair are the low ones and they are still 0.45-1.15 m up and pitched
+            // down. From above:
+            //   * a card seen at 30-60 degrees of elevation projects to most of
+            //     its width, so no quad is a stroke and the Striche cannot
+            //     appear;
+            //   * a fire that hangs off the flank of a log or crosses a trunk
+            //     hides behind the thing it is standing on, because you are
+            //     looking at the TOP of that thing.
+            // Both are only visible from a head that is at or below the height of
+            // the fire, which is where the two screenshots were taken from and
+            // where a seated VR player's head actually is relative to a fire on
+            // the forest floor.
+            //
+            // So these are the user's own two framings, reconstructed from the
+            // seats the bake log prints: low, near, and looking ALONG the burning
+            // thing rather than down onto it. They are the frames the "no
+            // individual quad may be identifiable" claim has to be made in, and
+            // they are in the fire PHASE series as well (ForestFireViews below),
+            // because a still cannot show a dissolve.
+            //
+            // Log0/1/2 are at (6.00,0.14,3.96), (6.75,0.14,4.88), (7.50,0.16,5.80)
+            // — a deadfall running 39 degrees east of north. The eye is 0.55 m up,
+            // i.e. below the top of the flames, and 2.6 m out.
+            ("FireLogGraze", new Vector3(4.60f, 0.55f, 3.40f), new Vector3(9, 56, 0), false, 45f),
+            // ...and from the far side, so a card that is edge-on in one of these
+            // is broadside in the other and the pair covers the rosette.
+            ("FireLogGrazeB", new Vector3(8.90f, 0.60f, 3.05f), new Vector3(10, 312, 0), false, 45f),
+            // The SNAG, from inside the clearing and looking UP the trunk: this is
+            // feuer2.jpg's framing, and it is the one that showed the fire
+            // plastered diagonally across the bark. The mid fire is at
+            // (-7.11,1.80,-0.64) and its cards now stand on a 150-degree sector of
+            // the bark facing exactly this way.
+            ("FireSnagGraze", new Vector3(-4.05f, 1.05f, -0.25f), new Vector3(-11, 267, 0), false, 56f),
+            // ...and its foot, from a head that is lower than the flames are tall.
+            ("FireSnagGrazeLow", new Vector3(-5.30f, 0.38f, -1.70f), new Vector3(6, 298, 0), false, 40f),
+            // The CELLAR gets one too. The complaint was about the wood, but the
+            // burning spill is the widest, flattest fire in either room and is the
+            // one that would show a stroke first if the fade were wrong.
+            ("FireSpillGraze", new Vector3(-1.55f, 0.34f, -2.55f), new Vector3(2, 226, 0), false, 42f),
         };
 
         // ================================================================ HAUNT
@@ -525,10 +573,11 @@ namespace GloomhavenVR
         private static readonly string[] CellarElementViews =
         { "Corner", "DarkCornerSW", "Puddle", "Window", "S", "IceClose", "IceTop", "BeamSide",
           "FireCrate", "FireCrateLow", "FireSpill", "FireSpillLow", "FireShelf", "FireShelfLow",
-          "FireRoom" };
+          "FireRoom", "FireSpillGraze" };
         private static readonly string[] ForestElementViews =
         { "TreeLine", "FloorToMoon", "Fireflies", "SkyBand", "N", "ShaftMoon",
-          "FireSnag", "FireSnagWide", "FireLog", "FireBrush", "FireWood" };
+          "FireSnag", "FireSnagWide", "FireLog", "FireBrush", "FireWood",
+          "FireLogGraze", "FireLogGrazeB", "FireSnagGraze", "FireSnagGrazeLow" };
 
         // The animated things only exist in motion, so the review set below is
         // ALSO rendered at these offsets of the shared shader clock
@@ -601,10 +650,16 @@ namespace GloomhavenVR
         // room shot cannot settle anything about a fire). Sixteen offsets over
         // seven views is 112 PNGs; the whole fire view list at both series would
         // have been 176 that nobody reads.
+        // ...plus the ModBuild 148 GRAZING set (see the block where they are
+        // defined). They are in the phase series and not only in the plain one
+        // because two of the three faults being fixed are temporal: a card that
+        // fades as the view crosses its plane and a mask that dissolves are both
+        // claims about a sequence, and a still cannot carry either.
         private static readonly string[] CellarFireViews =
-        { "FireCrate", "FireCrateLow", "FireSpill", "FireShelf" };
+        { "FireCrate", "FireCrateLow", "FireSpill", "FireShelf", "FireSpillGraze" };
         private static readonly string[] ForestFireViews =
-        { "FireSnag", "FireLog", "FireBrush" };
+        { "FireSnag", "FireLog", "FireBrush",
+          "FireLogGraze", "FireLogGrazeB", "FireSnagGraze", "FireSnagGrazeLow" };
 
         // ...and the WIND, which is the user's own second question this round
         // ("Kann es dann trotzdem mit dem wind reagieren?"). Fire+Air is a pair

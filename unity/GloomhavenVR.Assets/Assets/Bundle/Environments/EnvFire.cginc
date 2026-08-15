@@ -161,6 +161,51 @@ float _FireRate;                          // Hz — the SAME Hz the flames burn 
 float4 _FireRide;                         // xyz: 1 = this seat stands on the shelf
 
 // ============================================================================
+// ModBuild 148 ADDS NO CHANNEL, AND THAT IS A CONSTRAINT RATHER THAN A VIRTUE.
+//
+// The two new quantities this round's light needs — the fire's own SIZE at a
+// seat (for the inverse-square core of the wash) and the colour and strength
+// of its COALS — would naturally be two more uniforms written by ApplyRig
+// beside _FirePos0..2. They are not, because a Unity material can only carry a
+// uniform its shader DECLARES IN ITS PROPERTIES BLOCK, the readers of this
+// header are EnvRoom.shader and EnvGround.shader, and both of those belong to
+// other lanes this round. Adding a property to a file this lane does not own,
+// in a round whose entire subject is a fix that was left half-applied across
+// two files, is the wrong trade at any price.
+//
+// So both are DERIVED from channels that already exist, here, once:
+//
+//   THE CORE RADIUS  = range * GHVR_FIRE_CORE_K. A seat's range is already a
+//     per-seat number that the bake sizes from the fire standing there, so the
+//     two were never independent; making the dependence explicit costs a
+//     constant and removes a channel that could have gone stale. The bake
+//     CHECKS it (EnvRoomBuilder measures the real spread of the fires at each
+//     site and fails the build if range * K disagrees with it by more than a
+//     factor of two), so the constant cannot quietly stop describing the fires.
+//
+//   THE COAL COLOUR  = _FireCol.rgb * GHVR_GLUT_TINT. Coals are the same fire
+//     seen without its flame: the same emitter, redder and dimmer, because what
+//     you are looking at is 1000 K carbon rather than 1300 K gas. Deriving it
+//     means a room cannot end up with orange flames and yellow embers, which is
+//     a mistake two independent colours would eventually make.
+// ============================================================================
+// 0.26: on the cellar's 2.5-2.8 m seats that is a 0.65-0.73 m core against
+// sites 0.7 m across, and on the wood's 3.6-4.2 m seats 0.94-1.09 m against
+// sites 1.2-1.4 m across. See the RANGE/CORE line in each room's bake log.
+#define GHVR_FIRE_CORE_K 0.26
+// ...and the coals: redder than the flame and well under it in green and blue.
+// (1.15, 0.55, 0.22) on the cellar's (0.80,0.32,0.10) wash is (0.92,0.18,0.02),
+// which is the colour of carbon at about 1000 K and is deliberately nowhere
+// near the (1.78,1.32,0.86) the seat of the FLAME is: coals under a fire have
+// to be visibly cooler than the fire, or they read as a second fire lying down.
+#define GHVR_GLUT_TINT float3(1.15, 0.55, 0.22)
+// how bright they are, against the wash. 0.85 puts the burnt patch under a fire
+// at about the brightness the flagstones a foot away get from the wash — i.e.
+// clearly lit rather than glowing white, which is what a coal bed looks like
+// next to the flame it is feeding.
+#define GHVR_GLUT_K 0.85
+
+// ============================================================================
 // THE FIVE PAIRINGS THAT INVOLVE FIRE.
 //
 // USER REQUEST: "Schau dir auch jede mögliche Kombination der Elemente an und
@@ -313,6 +358,53 @@ float GhvrFireFlicker (float t, float hz, float phase, float depth)
     return 1.0 + depth * f;
 }
 
+/// THE GLUT — how bright the coals are at time t, in [0,1].
+///
+/// USER, hardware, ModBuild 147, and it is his own word and the best idea in
+/// the message: "zB muss ja auch eine Glut beim Holz sein wo es brennt damit
+/// es immersiv wirkt etc."
+///
+/// He is right, and the omission is the reason the ModBuild 147 fire reads as
+/// stuck ON the log rather than as consuming it: in feuer1.jpg the deadfall is
+/// the same cold blue-grey UNDER the flames as it is a metre away. Wood that is
+/// alight has incandescent coals — a dull orange-red glow in the surface
+/// itself, brightest where the flames stand, breathing slowly, and STILL THERE
+/// for a while after a tongue has moved on. That is a surface term, not a
+/// particle system, and it costs one more windowed distance per seat in a
+/// fragment that is already computing three of them.
+///
+/// TWO THINGS SEPARATE THIS WAVEFORM FROM THE FLAME'S, and both are physics:
+///
+///  1. IT IS SLOW. A coal is a lump of carbon with thermal mass; it cannot
+///     follow a 4.6 Hz eddy in the gas above it and it does not try to. The
+///     weights below put 74 % of the power on the 1.08 Hz swell and the 2.81 Hz
+///     puffing band and nothing at all on the 7.96 Hz one. Mean frequency
+///     1.62 Hz against the flame's 3.13.
+///  2. IT LINGERS. "REMAINING briefly where fire has passed" is the whole point
+///     and a fragment shader has no state to remember with — so the memory is
+///     put in the CURVE instead of in a variable. `pow(x, 0.45)` on a [0,1]
+///     envelope is a monotone bias toward the top: the coals reach their peak
+///     with the flame and then come down slowly, spending 66 % of every cycle
+///     above their own mean where a symmetric wave would spend 50 %. Rise time
+///     0.19 s, fall time 0.43 s, measured over 200 s at 4 kHz. That asymmetry
+///     IS the thermal lag, exactly, and it costs one pow instead of a texture
+///     of history.
+///
+/// The clock, the Hz and the phase are the fire's own (the standing rule), so
+/// the coals cannot drift out of step with the flames standing in them.
+float GhvrGlutBreath (float t, float hz, float phase)
+{
+    float4 w = GhvrFireBands(t * hz, phase);
+    // 0.44 swell + 0.30 puffing + 0.26 base, nothing above 5 Hz. Sums to 1,
+    // so x lands in [0,1] exactly and the pow below is well defined.
+    float f = 0.44 * w.w + 0.30 * w.y + 0.26 * w.x;
+    float x = 0.5 + 0.5 * f;
+    // the thermal lag, as a curve. 0.45 and not 0.5: at 0.5 the bias is a
+    // sqrt and the coals never fall far enough to make the breathing visible;
+    // below about 0.35 they stop breathing at all and read as painted-on.
+    return pow(max(x, 1e-4), 0.45);
+}
+
 /// THE TEMPERATURE RAMP, three stops. `h` is the height up the card, 0 at the
 /// seat; `age` is how far a detached puff is through its life (0 for anything
 /// still attached), which reddens it further because a piece of fire that has
@@ -347,14 +439,105 @@ float3 GhvrFireRamp (float3 baseCol, float3 bodyCol, float3 tipCol, float h, flo
 /// ships inside the shaders that include it, so nothing about the bundle
 /// changes; what changes is that there is one set of numbers.
 ///
-/// The window is (1 - (d/r)^2)^2, the same one PointLight uses, deliberately
-/// WITHOUT its near-field _PtHard divisor: that divisor exists to shrink a
-/// candle's pool to its own table (user ruling, ModBuild 134) and would shrink
-/// a bonfire to the size of a candle with it.
+/// ============================================================================
+/// THE FALLOFF, AND WHY IT CHANGED — ModBuild 148.
+///
+/// USER, hardware, verbatim about feuer1.jpg: the fire "sitzt nicht direkt auf
+/// den assets", and the picture shows why the LIGHT says the same thing as the
+/// geometry: several square metres of forest floor are evenly reddened out to
+/// the edge of the frame, at a brightness that barely changes across the whole
+/// pool. That is what a coloured AMBIENT looks like. Firelight does not look
+/// like that; it picks out what is close to it and leaves everything else
+/// alone, and the difference is entirely in the shape of the falloff.
+///
+/// The shipped window was (1 - (d/r)^2)^2 — PointLight's, and a good window,
+/// but a window is not a falloff. It is 0.98 at a tenth of the range and 0.56
+/// at half of it: nearly FLAT over the inner half and then a soft shoulder. A
+/// real source falls as 1/d^2 from the moment you leave it.
+///
+/// So the term is now an inverse-square CORE inside the same window:
+///
+///     att = 1 / (1 + (d/c)^2)  x  (1 - (d/r)^2)^2
+///
+/// with c the fire's own radius (_FireCore, written per seat from the fire that
+/// really stands there — a 1.16 m burning spill has a bigger core than a 0.48 m
+/// bung fire, and now says so). The window still takes it to exactly zero at r,
+/// which is what keeps a fire from lighting the far wall at all; the core is
+/// what makes it fall off where a fire falls off. Against the old shape, at the
+/// forest's c/r of about 0.3:
+///
+///     d/r      0.10   0.25   0.50   0.75
+///     old      0.980  0.879  0.563  0.191
+///     new      0.887  0.469  0.146  0.028
+///
+/// i.e. the surface a fire is STANDING ON keeps ~90 % of what it had and the
+/// metre-wide flat wash is down by three quarters. The bake's gain compensates
+/// the first number and deliberately does not compensate the rest.
+///
+/// Still deliberately WITHOUT PointLight's near-field _PtHard divisor: that
+/// divisor exists to shrink a candle's pool to its own table (user ruling,
+/// ModBuild 134) and would shrink a bonfire to the size of a candle with it.
+/// The core radius above is the honest version of the same idea — it is a
+/// measurement of the fire rather than a constant.
 ///
 /// The three seats flicker at hz, 0.83*hz and 1.19*hz, so two fires in one room
 /// never pulse as a pair — the same three incommensurate factors the three
 /// candle slots use, for the same reason.
+///
+/// ============================================================================
+/// ...AND THE GLUT RIDES IN THE SAME THREE DISTANCES. See GhvrGlutBreath for
+/// what it is and why its waveform is not the flame's. What it is HERE is the
+/// cheapest possible spelling of it: the coals are a second, much tighter
+/// window on distances this function has already computed, with
+///
+///   * NO Lambert term, but a WIDE WRAP. A coal is not a reflector, it emits —
+///     so a surface facing away from the seat is not black, it is dim. The wrap
+///     is (N.L + 0.55) / 1.55, the standard subsurface wrap, and it is the
+///     right shape for embers bedded IN wood: the log glows on top where they
+///     lie, and its flank still carries a little because the wood between is
+///     hot through. A hard N.L here put a crisp terminator across a burning log
+///     in the first preview, which is a thing lit by a lamp, not a thing on
+///     fire.
+///   * A RANGE THAT IS THE FIRE'S OWN SIZE, times 1.45. Coals lie where the
+///     fire has been, which is a little wider than where it is; beyond that
+///     there is nothing burning and nothing may glow. On the deadfall that is
+///     ~50 cm of glowing bark under a 34 cm fire, and the wood a metre along
+///     the log is cold — which is the contrast that says something is being
+///     CONSUMED rather than lit.
+///   * NO albedo dependence and NO pairing terms except the two that are about
+///     heat. Fire+Earth (it smoulders) makes the coals the MAIN event — more
+///     glut, less flame, which is the pairing's whole content — and Fire+Ice
+///     puts them out a little. Fire+Air fans them.
+/// ONE SEAT: its share of the wash (returned) and its share of the coals
+/// (accumulated into `glut`). `core` is 1/coreRadius in object units, `hzm` the
+/// seat's incommensurate rate factor, `ph` its phase.
+float GhvrFireSeatOne (float3 seat, float invRange,
+                       float3 opos, float3 N, float t, float hz, float hzm,
+                       float ph, float dep, float reach, inout float glut)
+{
+    float3 lv = seat - opos;
+    float d2 = max(dot(lv, lv), 1e-8);
+    float3 L = lv * rsqrt(d2);
+    float rw = invRange * reach;
+    float x = saturate(1.0 - d2 * rw * rw);          // the window, to zero at r
+    // 1/coreRadius, in the same object units invRange is already in — which is
+    // the whole reason the core is derived from the range rather than carried
+    // separately: ApplyRig's per-material scale is baked into `invRange` and a
+    // second channel would have needed the same conversion applied by hand.
+    float ic = invRange / GHVR_FIRE_CORE_K;
+    float c2 = ic * ic;
+    float wash = x * x * saturate(dot(N, L)) / (1.0 + d2 * c2)
+               * GhvrFireFlicker(t, hz * hzm, ph, dep);
+    // THE COALS. A far tighter window (1.45 core radii, cubed for a hard rim —
+    // coals do not have a soft edge, the burnt patch simply ends), a wrapped
+    // Lambert instead of a clamped one, and the slow biased breath.
+    float gq = saturate(1.0 - d2 * c2 * (1.0 / (1.45 * 1.45)));
+    glut += gq * gq * gq
+            * saturate((dot(N, L) + 0.55) * (1.0 / 1.55))
+            * GhvrGlutBreath(t, hz * hzm, ph);
+    return wash;
+}
+
 float3 GhvrFireSeats (float3 opos, float3 N, float t, GhvrTip tip, GhvrElem e)
 {
     GhvrFirePair p = GhvrFirePairs(e);
@@ -390,33 +573,30 @@ float3 GhvrFireSeats (float3 opos, float3 N, float t, GhvrTip tip, GhvrElem e)
         if (_FireRide.y > 0.5) s1 = GhvrTipRot(s1, tip.pivot, tip.axis, tip.ang);
         if (_FireRide.z > 0.5) s2 = GhvrTipRot(s2, tip.pivot, tip.axis, tip.ang);
     }
-    float3 w;
-    {
-        float3 lv = s0 - opos; float rw = _FirePos0.w * reach;
-        float q = dot(lv, lv) * rw * rw;
-        float x = saturate(1.0 - q);
-        w.x = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-    }
-    {
-        float3 lv = s1 - opos; float rw = _FirePos1.w * reach;
-        float q = dot(lv, lv) * rw * rw;
-        float x = saturate(1.0 - q);
-        w.y = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-    }
-    {
-        float3 lv = s2 - opos; float rw = _FirePos2.w * reach;
-        float q = dot(lv, lv) * rw * rw;
-        float x = saturate(1.0 - q);
-        w.z = x * x * saturate(dot(N, lv * rsqrt(max(dot(lv, lv), 1e-8))));
-    }
+    // ---- THE GLUT's colour, and the two pairings that are about heat -------
+    // Fire+Earth: a smouldering fire puts its energy into the bed rather than
+    // into the flame, so the coals get BRIGHTER while (in EnvFlame) the tongues
+    // get shorter — one parameter each, both already owned, no new layer.
+    // Fire+Ice: something is quenching them.
+    // Fire+Air: a draught over a coal bed is a bellows, and this is the
+    // cheapest half of his own "noch mehr Glut".
+    float3 glutCol = _FireCol.rgb * GHVR_GLUT_TINT
+                     * (GHVR_GLUT_K * (1.0 + 0.85 * p.earth + 0.40 * p.air
+                                           - 0.45 * p.ice));
+    float glut = 0.0;
     // FIRE+AIR reaches the WASH and the FLAME through the same two functions,
     // so a windblown fire and the pool it throws cannot come apart.
     float hz = GhvrFireHz(p, _FireRate);
     float dep = GhvrFireDepth(p, _FireCol.a);
-    w.x *= GhvrFireFlicker(t, hz,        0.00, dep);
-    w.y *= GhvrFireFlicker(t, hz * 0.83, 0.37, dep);
-    w.z *= GhvrFireFlicker(t, hz * 1.19, 0.71, dep);
-    return col * ((w.x + w.y + w.z) * gain);
+    // The three seats went from three copies of four lines to three copies of
+    // twelve when the core and the coals arrived, which is three places to
+    // leave a fix behind — the exact accident this whole round is repairing on
+    // the C# side. One function, called three times.
+    float3 w;
+    w.x = GhvrFireSeatOne(s0, _FirePos0.w, opos, N, t, hz, 1.00, 0.00, dep, reach, glut);
+    w.y = GhvrFireSeatOne(s1, _FirePos1.w, opos, N, t, hz, 0.83, 0.37, dep, reach, glut);
+    w.z = GhvrFireSeatOne(s2, _FirePos2.w, opos, N, t, hz, 1.19, 0.71, dep, reach, glut);
+    return col * ((w.x + w.y + w.z) * gain) + glutCol * glut;
 }
 
 #endif // GHVR_ENV_FIRE_INCLUDED
