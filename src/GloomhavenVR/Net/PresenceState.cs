@@ -482,6 +482,30 @@ internal struct PresenceState
     /// <summary>Slot 1's persistently selected half, same encoding as <see cref="HalfSelect0"/>.</summary>
     public byte HalfSelect1;
 
+    /// <summary>Record 14 byte 2, bit 0 — the hover named by <see cref="HalfHoverSlot"/> /
+    /// <see cref="HalfHoverTop"/> is on that half's small STANDARD-ACTION chip, not on the big
+    /// action half. False for a sender that predates the byte (the record is then 2 bytes long and
+    /// the reader leaves this at its default), which is the legacy "it is the big half" meaning.
+    /// See <see cref="NetProtocol.HalfDefaultHoverBit"/>.</summary>
+    public bool HalfHoverDefault;
+
+    /// <summary>Record 14 byte 2, bit 1 — slot 0's selection (<see cref="HalfSelect0"/>) is that
+    /// half's STANDARD ACTION rather than the half itself.</summary>
+    public bool HalfSelect0Default;
+
+    /// <summary>Record 14 byte 2, bit 2 — slot 1's ditto.</summary>
+    public bool HalfSelect1Default;
+
+    /// <summary>True when this packet STATES the left/right order of the sender's two docked round
+    /// cards (extension record <see cref="NetProtocol.ExtIdSlotOrder"/>). False = the sender could
+    /// not answer this frame, or predates the record; the receiver then keeps its own derivation,
+    /// which is what every build before 2026-08-15 did unconditionally.</summary>
+    public bool HasSlotOrder;
+
+    /// <summary>The LEFT recess holds the round card that is NOT the character's
+    /// <c>InitiativeAbilityCard</c> (meaningful only when <see cref="HasSlotOrder"/>).</summary>
+    public bool SlotOrderSwapped;
+
     /// <summary>
     /// True when the half-hover record's byte 0 names a board keycap the sender has just PRESSED
     /// (<see cref="NetProtocol.CapPressCapMask"/> — bits 3..5 of a record that already rides).
@@ -842,6 +866,54 @@ internal struct PresenceState
     /// <summary>Valid length of <see cref="BoardTuningBytes"/> (the buffer may be longer — the
     /// sender keeps a persistent one). Meaningful only when <see cref="HasBoardTuning"/>.</summary>
     public int BoardTuningLength;
+
+    // ---- STORY WINDOW SYNC (extension record 19) ------------------------------------------
+    // Every field below is sampled and consumed in Net/RemoteStorySync.cs; nothing else reads
+    // them. Kept as one block so the record can be lifted out in one piece.
+
+    /// <summary>True when this packet carries the sender's STORY/DIALOG window state (extension
+    /// record <see cref="NetProtocol.ExtIdStorySync"/>). Written only while that sender's own story
+    /// box is really up, or in the single packet that announces it finished — so a session with no
+    /// narrative on screen emits the exact bytes the previous build emitted, and absence keeps the
+    /// pre-record behaviour: a purely local dialog nobody else can advance.</summary>
+    public bool HasStorySync;
+
+    /// <summary>Story-sync flags byte (<see cref="NetProtocol.StoryOpenBit"/> /
+    /// <see cref="NetProtocol.StoryPoseBit"/> / <see cref="NetProtocol.StoryFinishedBit"/>), masked
+    /// with <see cref="NetProtocol.StoryDefinedMask"/> on write AND on read.</summary>
+    public byte StoryFlags;
+
+    /// <summary>The ABSOLUTE 0-based page the sender is showing, or
+    /// <see cref="NetProtocol.StoryPageNone"/>. Absolute rather than an increment so that two
+    /// players clicking in the same frame cannot skip a page and a re-delivered packet is a
+    /// no-op.</summary>
+    public byte StoryPage;
+
+    /// <summary>How many pages the sender's dialog has (0 = unknown). Diagnostic only: the
+    /// receiver always clamps against its OWN page list, which is the only place the bound is
+    /// really known.</summary>
+    public byte StoryPageCount;
+
+    /// <summary>Content hash of the dialog the sender is reading (page count + every page's
+    /// localization KEY and speaker guid — never a translated string, so it matches across
+    /// languages). A receiver whose own dialog hashes differently ignores the record whole.</summary>
+    public uint StoryKey;
+
+    /// <summary>Wrapping counter the sender bumps once per COMPLETED local move/resize of the
+    /// window — the last-mover arbitration. Meaningful only with
+    /// <see cref="NetProtocol.StoryPoseBit"/>.</summary>
+    public byte StoryPoseStamp;
+
+    /// <summary>The sender's window size as the dimensionless grab factor in hundredths
+    /// (<see cref="NetProtocol.EncodeStorySize"/>). Not a pixel size: the fitted host rect is
+    /// per-client.</summary>
+    public byte StorySizeCode;
+
+    /// <summary>The window pose in the SEAT-ANCHOR frame: position is the offset from
+    /// <c>PanelLayout.TryGetAnchor</c> in REAL metres (divided by the sender's diorama
+    /// <c>WorldScale</c>), rotation is relative to that anchor's yaw. Never a world point — see
+    /// <see cref="NetProtocol.ExtIdStorySync"/> for the measured reason.</summary>
+    public RigPose StoryPose;
 }
 
 /// <summary>
@@ -1002,6 +1074,14 @@ internal struct PresenceState
 ///                        of the shared environment clock. Written only while the sender OWNS a
 ///                        standing override plus a short explicit-release burst; an ALL-ZERO payload
 ///                        is that release, see NetProtocol.ExtIdTestForce)
+///                        19 STORY WINDOW SYNC ([flags][page][pageCount][u32 storyKey LE] and, once
+///                        the sender's user has really moved the window, [poseStamp][sizeCode]
+///                        [pose 20] — which ABSOLUTE page of the scenario's narrative dialog this
+///                        player has read to, plus where and how big their story window stands.
+///                        Written only while a story box really stands here, or in the single
+///                        packet announcing it FINISHED — the statement that releases a session
+///                        whose peer walked away without clicking. The pose is seat-anchor-local
+///                        REAL metres, never a world point, see NetProtocol.ExtIdStorySync)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -1053,8 +1133,9 @@ internal static class PresenceSerializer
     /// + 13 (DECISION WIDGETS: 2 + flags 1 + damage 1 + count 1 + its 8-role cap)
     /// + 8 (ENV CLOCK: 2 + <c>NetProtocol.EnvClockRecordBytesWithFrequency</c> 6)
     /// + 10 (TEST FORCE: 2 + <c>NetProtocol.TestForceRecordBytes</c> 8)
+    /// + 31 (STORY SYNC: 2 + <c>NetProtocol.StoryRecordBytesWithPose</c> 29)
     /// + 257 (BOARD TUNING: 2 TLV + one PAGE, and a page is 255 by definition —
-    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1326.
+    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1357.
     ///
     /// <para>1289 → 1295 on 2026-08-11: the HELD-FIGURE STRETCH record (30) added its own worst
     /// case of 6 bytes — [id][len][u16][u16] — in its own commit, per the rule below.</para>
@@ -1064,6 +1145,11 @@ internal static class PresenceSerializer
     /// which is exactly the omission the rule below exists to prevent. Nothing on the wire moved —
     /// only this sum was wrong. The margin at <see cref="MaxSize"/> = 1600 is 274 bytes, still more
     /// than the largest single record.</para>
+    ///
+    /// <para>1326 → 1357 on 2026-08-18: the STORY WINDOW SYNC record (19) added its own worst case
+    /// of 31 bytes — [id][len] plus its 29-byte pose-carrying form — in its own commit, per the rule
+    /// below. The margin at <see cref="MaxSize"/> = 1600 is 243 bytes, still more than the largest
+    /// single record.</para>
     ///
     /// <para>THAT LAST TERM IS DERIVED FROM THE PAGE, NOT FROM A FIELD CENSUS, and it has to be:
     /// until the paging round it read "every one of its 66 fields at once — 15 vec3 × 7 + 15 length
@@ -1172,6 +1258,11 @@ internal static class PresenceSerializer
                           // Record 14 also rides for the EMPTY-FAN placard alone (byte 1 bit 4),
                           // so the tail gate is the same OR its writer uses.
                           || state.EmptyFanHint
+                          // Record 18 (the round-card slot ORDER) is written only while the sender
+                          // could really answer, so it must open the tail on its own — and only
+                          // then, which is what keeps a packet from a player with no cards in the
+                          // recesses byte-identical to the previous build's.
+                          || state.HasSlotOrder
                           // An all-default player writes NO tuning record, so it must not open the
                           // tail either — that is what keeps an untuned packet byte-identical to
                           // the previous build's, and it is the whole economic case for record 28.
@@ -1240,7 +1331,14 @@ internal static class PresenceSerializer
                           // is owned here or a release burst is running — that is what keeps every
                           // packet of every player who is not holding a debug latch byte-identical
                           // to the previous build's.
-                          || state.HasTestForce;
+                          || state.HasTestForce
+                          // STORY WINDOW SYNC (19): same rule as the test-force record — the
+                          // emptiness test lives in the SAMPLER (RemoteStorySync.Sample), which
+                          // sets this flag only while a story box is really up here or the single
+                          // "it is finished" packet is going out. That is what keeps every packet
+                          // of every session without a narrative on screen — nearly all of them —
+                          // byte-identical to the previous build's.
+                          || state.HasStorySync;
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -1548,7 +1646,7 @@ internal static class PresenceSerializer
                     }
                 }
                 if ((state.HasHalfHover || state.HasCapPress || state.EmptyFanHint)
-                    && i + 2 + NetProtocol.HalfHoverRecordBytes <= buffer.Length)
+                    && i + 2 + NetProtocol.HalfHoverRecordBytesWithDefault <= buffer.Length)
                 {
                     // HALF HOVER + SELECTION + CAP PRESS + EMPTY-FAN HINT (14):
                     // [byte0 hover|press][byte1 selection|placard]. Byte 0 is the transient pointer
@@ -1583,10 +1681,26 @@ internal static class PresenceSerializer
                     select &= NetProtocol.HalfSelectDefinedMask;
                     if (state.EmptyFanHint)
                         select |= NetProtocol.HalfEmptyFanHintBit;
+                    // BYTE 2, THE STANDARD-ACTION QUALIFIER (2026-08-15, item 6 — see
+                    // NetProtocol.HalfDefaultHoverBit). Appended ONLY when one of its bits is
+                    // really set, so a player who never touches a default "Attack 2"/"Move 2" chip
+                    // emits the same two-byte record every previous build emitted and an idle
+                    // packet stays byte-identical. The LENGTH is what tells a reader the two
+                    // shapes apart, exactly as record 4's cap-state byte and record 31's frequency
+                    // byte do.
+                    byte defaults = state.HasHalfHover
+                        ? NetProtocol.EncodeHalfDefaults(
+                            state.HalfHoverActive && state.HalfHoverDefault,
+                            state.HalfSelect0Default, state.HalfSelect1Default)
+                        : (byte)0;
                     buffer[i++] = NetProtocol.ExtIdHalfHover;
-                    buffer[i++] = (byte)NetProtocol.HalfHoverRecordBytes;
+                    buffer[i++] = (byte)(defaults != 0
+                        ? NetProtocol.HalfHoverRecordBytesWithDefault
+                        : NetProtocol.HalfHoverRecordBytes);
                     buffer[i++] = (byte)(half & NetProtocol.HalfHoverDefinedMask);
                     buffer[i++] = (byte)(select & NetProtocol.HalfSelectByteDefinedMask);
+                    if (defaults != 0)
+                        buffer[i++] = defaults;
                     records++;
                 }
                 if (state.HasPileCounts
@@ -1641,6 +1755,23 @@ internal static class PresenceSerializer
                             AvatarSerializer.WriteU32(buffer, ref i, state.WallFadesKeys[k]);
                         records++;
                     }
+                }
+                if (state.HasSlotOrder
+                    && i + 2 + NetProtocol.SlotOrderRecordBytes <= buffer.Length)
+                {
+                    // ROUND-CARD SLOT ORDER (18): one flags byte — [bit0 valid][bit1 swapped].
+                    // WHICH of the owner's two round cards lies in the LEFT recess, stated instead
+                    // of re-derived (see NetProtocol.ExtIdSlotOrder). Written only while the
+                    // sender could really answer, so a receiver that sees nothing keeps the
+                    // derivation it has always used — this record may replace a guess with a fact,
+                    // never with a second guess. An ORDER, never an identity.
+                    byte order = NetProtocol.SlotOrderValidBit;
+                    if (state.SlotOrderSwapped)
+                        order |= NetProtocol.SlotOrderSwappedBit;
+                    buffer[i++] = NetProtocol.ExtIdSlotOrder;
+                    buffer[i++] = (byte)NetProtocol.SlotOrderRecordBytes;
+                    buffer[i++] = (byte)(order & NetProtocol.SlotOrderDefinedMask);
+                    records++;
                 }
                 // CHARACTER FOCUS (22): [flags][int32 focusActorId LE]( [int32 attentionActorId] ).
                 // The trailing attention id rides ONLY when the character the game is waiting on is
@@ -1952,6 +2083,45 @@ internal static class PresenceSerializer
                     buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 8) & 0xFF);
                     buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 16) & 0xFF);
                     buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 24) & 0xFF);
+                    records++;
+                }
+                if (state.HasStorySync
+                    && i + 2 + NetProtocol.StoryRecordBytesWithPose <= buffer.Length)
+                {
+                    // STORY WINDOW SYNC (19): [flags][page][pageCount][u32 storyKey LE] and, only
+                    // when the sender's user has really moved the window, [poseStamp][sizeCode]
+                    // [pose 20]. The full contract — above all WHY the pose is seat-anchor-local
+                    // real metres and not a world point — is written once, at
+                    // NetProtocol.ExtIdStorySync. Nothing here is game state: the record says
+                    // which PAGE of a dialog this player has read to, and each receiver applies
+                    // that to its own UICharacterStoryBox through the game's own seam.
+                    //
+                    // NO EMPTINESS GATE, on purpose (the record-32 rule): a payload with the OPEN
+                    // bit clear and the FINISHED bit set is the whole point — it is the statement
+                    // that unlocks a peer who walked away. The sampler is what guarantees the
+                    // record is absent while no story box stands here.
+                    // Appended LAST, behind record 32, per the tail's append-order contract.
+                    byte storyFlags = (byte)(state.StoryFlags & NetProtocol.StoryDefinedMask);
+                    bool storyPose = (storyFlags & NetProtocol.StoryPoseBit) != 0;
+                    buffer[i++] = NetProtocol.ExtIdStorySync;
+                    buffer[i++] = (byte)(storyPose
+                        ? NetProtocol.StoryRecordBytesWithPose
+                        : NetProtocol.StoryMinRecordBytes);
+                    buffer[i++] = storyFlags;
+                    buffer[i++] = state.StoryPage > NetProtocol.StoryPageMax
+                        ? NetProtocol.StoryPageNone
+                        : state.StoryPage;
+                    buffer[i++] = state.StoryPageCount;
+                    AvatarSerializer.WriteU32(buffer, ref i, state.StoryKey);
+                    if (storyPose)
+                    {
+                        buffer[i++] = state.StoryPoseStamp;
+                        buffer[i++] = state.StorySizeCode < NetProtocol.StorySizeMinCode
+                                      || state.StorySizeCode > NetProtocol.StorySizeMaxCode
+                            ? NetProtocol.StorySizeDefaultCode
+                            : state.StorySizeCode;
+                        AvatarSerializer.WritePoseShared(buffer, ref i, in state.StoryPose);
+                    }
                     records++;
                 }
                 buffer[countAt] = records;
@@ -2661,6 +2831,40 @@ internal static class PresenceSerializer
                         // would have meant a placard-only record set a half-hover state nobody
                         // is in.
                         state.EmptyFanHint = (stateByte & NetProtocol.HalfEmptyFanHintBit) != 0;
+                        // BYTE 2, THE STANDARD-ACTION QUALIFIER — taken only when the record is
+                        // really that long. A 2-byte record is a sender that predates the byte (or
+                        // one with nothing to qualify), and its absence means "every region named
+                        // above is the BIG action half", which is precisely the picture those
+                        // senders' peers already drew. Masked like every other byte here, and
+                        // gated on the state it qualifies: a hover bit without a hover, or a slot
+                        // bit without that slot's selection, states nothing and is dropped.
+                        if (len >= NetProtocol.HalfHoverRecordBytesWithDefault)
+                        {
+                            byte defaults = (byte)(buffer[i + 2]
+                                                   & NetProtocol.HalfDefaultByteDefinedMask);
+                            state.HalfHoverDefault = hover
+                                && (defaults & NetProtocol.HalfDefaultHoverBit) != 0;
+                            state.HalfSelect0Default = sel0 != NetProtocol.HalfSelectNone
+                                && (defaults & NetProtocol.HalfDefaultSelect0Bit) != 0;
+                            state.HalfSelect1Default = sel1 != NetProtocol.HalfSelectNone
+                                && (defaults & NetProtocol.HalfDefaultSelect1Bit) != 0;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdSlotOrder
+                             && len >= NetProtocol.SlotOrderRecordBytes)
+                    {
+                        // ROUND-CARD SLOT ORDER: one masked flags byte. The VALID bit is what makes
+                        // the record speak — a byte without it (a corrupt tail, a future sender
+                        // writing the record for a reason this build does not know) leaves the
+                        // receiver on its own derivation rather than asserting an order nobody
+                        // stated. Never trust the wire.
+                        byte order = (byte)(buffer[i] & NetProtocol.SlotOrderDefinedMask);
+                        if ((order & NetProtocol.SlotOrderValidBit) != 0)
+                        {
+                            state.HasSlotOrder = true;
+                            state.SlotOrderSwapped =
+                                (order & NetProtocol.SlotOrderSwappedBit) != 0;
+                        }
                     }
                     else if (id == NetProtocol.ExtIdBoardTuning
                              && len >= NetProtocol.BoardTuneMinRecordBytes)
@@ -3117,6 +3321,81 @@ internal static class PresenceSerializer
                                                                  | (buffer[i + 5] << 8)
                                                                  | (buffer[i + 6] << 16)
                                                                  | (buffer[i + 7] << 24));
+                    }
+                    else if (id == NetProtocol.ExtIdStorySync
+                             && len >= NetProtocol.StoryMinRecordBytes)
+                    {
+                        // STORY WINDOW SYNC: [flags][page][pageCount][u32 key LE]
+                        // ( [poseStamp][sizeCode][pose 20] ).
+                        //
+                        // Sanitized FIELD BY FIELD (never trust the wire), never by dropping the
+                        // record whole — the record's most important statement is the FINISHED
+                        // bit, and silently dropping that is exactly the deadlock the feature
+                        // exists to remove:
+                        //   * undefined flag bits are masked off, so a future sender's extra bit
+                        //     can never light a meaning here.
+                        //   * a page at or past StoryPageNone becomes StoryPageNone ("no page"),
+                        //     which the consumer already treats as "nothing to apply". The
+                        //     receiver re-clamps against its OWN page list anyway — the only
+                        //     place the real bound is known.
+                        //   * the POSE block is optional and validated by the record's own
+                        //     length. A truncated one leaves the pose bit CLEAR, which reads as
+                        //     "this sender has not moved the window" — the receiver then keeps
+                        //     its own local placement, which is what a pre-record peer gives it.
+                        //   * a NaN/Inf position would ride 4 integer bytes per component and is
+                        //     rejected here rather than by the placer, because a window flung to
+                        //     infinity is unreachable and the local placement is always usable.
+                        // The story KEY is deliberately NOT validated: it is an opaque content
+                        // hash, and its whole job is to FAIL to match when the two clients hold
+                        // different dialogs. A garbage key can therefore only make the record a
+                        // no-op, never make it apply to the wrong text.
+                        byte sFlags = (byte)(buffer[i] & NetProtocol.StoryDefinedMask);
+                        byte sPage = buffer[i + 1];
+                        if (sPage > NetProtocol.StoryPageMax)
+                            sPage = NetProtocol.StoryPageNone;
+
+                        state.HasStorySync = true;
+                        state.StoryPage = sPage;
+                        state.StoryPageCount = buffer[i + 2];
+                        state.StoryKey = (uint)(buffer[i + 3]
+                                                | (buffer[i + 4] << 8)
+                                                | (buffer[i + 5] << 16)
+                                                | (buffer[i + 6] << 24));
+                        state.StorySizeCode = NetProtocol.StorySizeDefaultCode;
+
+                        if ((sFlags & NetProtocol.StoryPoseBit) != 0
+                            && len >= NetProtocol.StoryRecordBytesWithPose)
+                        {
+                            int j = i + NetProtocol.StoryMinRecordBytes;
+                            byte stamp = buffer[j++];
+                            byte size = buffer[j++];
+                            AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose sPose);
+                            Vector3 p = sPose.Position;
+                            if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsNaN(p.z)
+                                || float.IsInfinity(p.x) || float.IsInfinity(p.y)
+                                || float.IsInfinity(p.z))
+                            {
+                                sFlags &= unchecked((byte)~NetProtocol.StoryPoseBit);
+                            }
+                            else
+                            {
+                                state.StoryPoseStamp = stamp;
+                                state.StorySizeCode =
+                                    size < NetProtocol.StorySizeMinCode
+                                    || size > NetProtocol.StorySizeMaxCode
+                                        ? NetProtocol.StorySizeDefaultCode
+                                        : size;
+                                state.StoryPose = sPose;
+                            }
+                        }
+                        else
+                        {
+                            // Claimed a pose but the record is too short to hold one: keep every
+                            // other field and drop the CLAIM, so a truncating sender still gets
+                            // its page (and its FINISHED bit) delivered.
+                            sFlags &= unchecked((byte)~NetProtocol.StoryPoseBit);
+                        }
+                        state.StoryFlags = sFlags;
                     }
                     else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
                     {

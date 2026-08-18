@@ -1933,6 +1933,13 @@ internal static partial class WallSegmentFade
             foreach (Component dead in _deadKeys)
                 _segments.Remove(dead);
 
+            // STANDING PROPS (user report 2026-08-15, skelet.jpg): open a fresh verdict scope
+            // for this rescan. Deliberately HERE — after the room registry has its anchored
+            // floor planes (the rule measures a prop's foot against them) and before the first
+            // renderer is collected into any segment, so no path can claim a standing prop even
+            // once. See WallSegmentFade.Standing.cs.
+            BeginStandingPropScope();
+
             // Adopt new walls / refresh renderer lists, shader-variant info and bounds.
             _claimedRenderers.Clear();
             _censusWallsWithoutFade = 0;
@@ -2024,6 +2031,9 @@ internal static partial class WallSegmentFade
             // without a decision AABB — a boundless segment is one the coverage decision cannot
             // reach, and an unreachable segment can hold its pieces hidden forever.
             EnsureGateBounds();
+            // The standing-prop proof line, after every collection pass has run so its "claims
+            // refused" count is the rescan's total (WallSegmentFade.Standing.cs).
+            LogStandingPropCensus();
         }
 
         /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor
@@ -2452,7 +2462,9 @@ internal static partial class WallSegmentFade
             // whose fade makes it a view-blocking leftover.
             foreach (MeshRenderer r in all)
             {
-                if (r == null || !RendererUsesFoliage(r))
+                // Same standing-prop exclusion as the unsplit path: a floor-standing figure
+                // prop is never a wall's foliage dressing either (WallSegmentFade.Standing.cs).
+                if (r == null || !RendererUsesFoliage(r) || IsStandingFigureProp(r))
                     continue;
                 Segment? best = null;
                 float bestSq = float.PositiveInfinity;
@@ -3210,7 +3222,7 @@ internal static partial class WallSegmentFade
         private void LogWallPathAudit()
         {
             int walls = 0, nameN = 0, toggleN = 0, attach = 0, foliage = 0;
-            int ground = 0, figures = 0, gatedOff = 0, unclaimed = 0;
+            int ground = 0, figures = 0, standing = 0, gatedOff = 0, unclaimed = 0;
             var unNames = new System.Text.StringBuilder();
             foreach (KeyValuePair<Component, Segment> kv in _segments)
             {
@@ -3242,6 +3254,14 @@ internal static partial class WallSegmentFade
                     {
                         // not scenery / game-disabled — no path applies, not an alarm
                     }
+                    else if (IsStandingFigureProp(r))
+                    {
+                        // Own bucket on purpose (2026-08-15): "figure-guarded" used to mean
+                        // "an adoption sweep declined it" while the wall path could still be
+                        // fading it. Anything counted HERE is refused by the wall path too, so
+                        // the audit and the delivery can no longer disagree.
+                        standing++;
+                    }
                     else if (IsFigureOrActorRenderer(r))
                     {
                         figures++;
@@ -3272,8 +3292,10 @@ internal static partial class WallSegmentFade
                 $"WALL-PATH AUDIT scene='{SceneManager.GetActiveScene().name}': {walls} cache "
                 + $"wall(s) — renderers: {nameN} native-name + {toggleN} toggle-native (MPB "
                 + $"fade), {attach} attachment-claimed (body/stacked/mounted/corner), "
-                + $"{foliage} foliage, {ground} ground-band (solid by design), {figures} "
-                + $"figure-guarded, {gatedOff} gated-off (authored always-solid — honored), "
+                + $"{foliage} foliage, {ground} ground-band (solid by design), {standing} "
+                + $"standing-prop (floor-standing figure/actor prop — never wall geometry on "
+                + $"ANY path, WallSegmentFade.Standing.cs), {figures} figure-guarded, "
+                + $"{gatedOff} gated-off (authored always-solid — honored), "
                 + $"{unclaimed} UNCLAIMED"
                 + (unclaimed > 0
                     ? $" [ALARM — fell through every path: {unNames}]"
@@ -3544,8 +3566,10 @@ internal static partial class WallSegmentFade
                 {
                     // Not fade-capable — but a foliage dressing of this wall rides its fade
                     // (the "Gestrüpp-Wand" report). Ground-level tufts are dropped later by
-                    // StripGroundRenderers, exactly like ground geometry.
-                    if (RendererUsesFoliage(r))
+                    // StripGroundRenderers, exactly like ground geometry. A floor-standing
+                    // figure prop is excluded here too: the foliage list hides its renderers
+                    // outright, so a mossy statue would vanish whole instead of losing a head.
+                    if (RendererUsesFoliage(r) && !IsStandingFigureProp(r))
                         seg.Foliage.Add(r);
                     continue;
                 }
@@ -3668,6 +3692,28 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool CollectWallFadeInfo(MeshRenderer r, Segment seg)
         {
+            // STANDING PROPS ARE NEVER WALL GEOMETRY (user report 2026-08-15, skelet.jpg —
+            // the skeleton statue's skull faded with 'Wall 1' while its body stayed). This is
+            // the ONE choke point every wall-renderer collection path goes through — the cache
+            // refresh, the split-wall refresh, the shader-adoption sweep and the gate-column
+            // branch all add the renderer only when this returns true — so the guard lives here
+            // rather than four times over. Refusing BEFORE the material walk also keeps the
+            // prop out of ToggleNative counts, ShaderNames, the masonry template donor and the
+            // authored-cutoff pick: the segment must not learn its wall math from a statue.
+            // See WallSegmentFade.Standing.cs for the rule and why the plain figure guard is
+            // not it.
+            if (IsStandingFigureProp(r))
+            {
+                NoteStandingPropBlocked(r, seg);
+                // Restitution: if this renderer was in THIS segment's list before the rule
+                // existed (or before the prop moved into the ground band), it may be carrying
+                // our fade block right now. FinishRefresh only clears leavers while the
+                // segment HasBlock; clear it here unconditionally so a prop can never stay
+                // half-dissolved because its owner happened to be solid this frame.
+                if (seg.PrevRenderers.Contains(r))
+                    r.SetPropertyBlock(null);
+                return false;
+            }
             bool any = false;
             _matScratch.Clear();
             r.GetSharedMaterials(_matScratch);

@@ -479,6 +479,10 @@ internal sealed class RemoteBoardFurniture
 
     private readonly Transform _root;
 
+    /// <summary>The board's local see-through driver (user request 15) — null only if the board
+    /// root died between construction and now. Inert while the setting is Off.</summary>
+    private readonly PeerBoardFade? _fade;
+
     private readonly InertCap _confirm;
     private readonly InertCap _undo;
     private readonly InertCap _use;
@@ -778,6 +782,14 @@ internal sealed class RemoteBoardFurniture
 
         _root = new GameObject("Furniture").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
+
+        // PEER-BOARD SEE-THROUGH (user request 15, 2026-08: "dass die Boards transparent werden
+        // oder verschwinden wenn sie Teile des Spielfeldes verdecken aus der aktuellen View").
+        // Attached HERE because this constructor is the one per-board seam that is handed the
+        // board ROOT, and the driver needs exactly that: it measures the whole board's occluder
+        // box and drives the whole board's opacity. Idempotent, self-contained, and inert while
+        // the setting is Off (its first statement returns) — see PeerBoardFade.
+        _fade = PeerBoardFade.Attach(boardRoot);
 
         // ---- the OWNER's keycap geometry, ONCE, before anything is built ------------------------
         // Extension record 28 ids 81..98 + 228 (see the field block above for the debt this pays).
@@ -1218,6 +1230,8 @@ internal sealed class RemoteBoardFurniture
     {
         bool slot0 = (slotMask & 1) != 0;
         bool slot1 = (slotMask & 2) != 0;
+        // Diagnostic label only — the see-through driver decides everything else from geometry.
+        _fade?.Note(owner.PlayerId);
         // A language switch invalidates every cached label (the local board self-heals the same way).
         string lang = Loc.CurrentLanguage;
         if (lang != _langShown)
@@ -1995,8 +2009,43 @@ internal sealed class RemoteBoardFurniture
     /// the owner's dock scale. The seat above is solved for the line's BOTTOM edge (one DecisionGap
     /// over the mirrored row, exactly as the owner's own text hangs off their measured row top), and
     /// a centre-anchored label needs half of this to turn that edge into a position — so the number
-    /// lives here instead of twice inside <see cref="BuildDecisionPrompt"/>.</summary>
-    private const float PromptLineHeight = 0.075f;
+    /// lives here instead of twice inside <see cref="BuildDecisionPrompt"/>.
+    ///
+    /// <para><b>0.075 -> 0.0168, AND IT IS A FALLBACK NOW RATHER THAN THE ANSWER (user report,
+    /// 2026-08-15 three-player session, schadenstext_remote.jpg: "Der remote text vom Schadenstext
+    /// ist größer dargestellt als beim Spieler selber, womit auch die Position der buttons nicht
+    /// 1:1 richtig synchronisiert wird. Das Problem habe ich bereits einmal angesprochen.").</b>
+    /// The three logs of that session measure the same sentence on both sides, converted to one
+    /// unit through the board-root scale 14.66 that the two logged gaps agree on:</para>
+    /// <list type="bullet">
+    /// <item>OWNER: 394 mm world = <b>26.9 mm board-local</b>, ONE line, button row 55.9 mm below
+    /// the ceiling.</item>
+    /// <item>OBSERVER: <b>120 mm board-local reserved</b> (this constant at 0.075 times the 1.6 dock
+    /// scale), the glyphs auto-sized UP into that box and wrapping to roughly three lines, button
+    /// row 149 mm down. Text about 3.4x too tall, buttons about 93 mm too low.</item>
+    /// </list>
+    /// <para>So the box was 4.5x the height the owner's text occupies, and TMP's auto-sizing did
+    /// exactly what it was told: it grew the glyphs to fill it. 26.9 mm at dock scale 1.6 is
+    /// 0.0168 board-local, which is what this constant now holds.</para>
+    /// <para><b>WHY IT ONLY BOUNDS THE FALLBACK.</b> The previous attempt at this report (ModBuild
+    /// 105, e4ccf8c/33d56be, and a05cac7 re-measuring the row to 720x48) replaced the mod-drawn
+    /// plates with clones of the game's real buttons and re-measured the ROW — it never touched the
+    /// prompt TEXT, and `git log -S "0.17f * scale"` returns exactly one commit. It fixed the widget
+    /// BESIDE the defect, which is why it did not hold. A second authored constant would fail the
+    /// same way the first did, so the seat below no longer trusts this number at all: it measures
+    /// the label's rendered height and uses that. This value only sizes the rect the text is fitted
+    /// INTO, i.e. it caps how large auto-sizing may grow the glyphs, and stands in for one line
+    /// before the first measurement exists.</para></summary>
+    private const float PromptLineHeight = 0.0168f;
+
+    /// <summary>The prompt label's LAST MEASURED rendered height, board-local metres AFTER the dock
+    /// scale — <see cref="TextMeshPro.renderedHeight"/> off a forced mesh update, i.e. what the
+    /// glyphs actually occupy rather than what was authored for them. Zero until the first non-empty
+    /// prompt has been laid out; <see cref="ApplyDecisionSeat"/> falls back to the authored line
+    /// height then. This exists because the owner's own side has always measured (DamageTooltipSurface
+    /// solves its seat from the fitted rect and DecisionDockSurface hangs the buttons off the
+    /// measured text bottom), and the mirror was the only one of the two using a constant.</summary>
+    private float _promptMeasuredHeight;
 
     /// <summary>
     /// The mirrored PROMPT TEXT of the decision dock — the line the owner reads above their docked
@@ -2045,6 +2094,17 @@ internal sealed class RemoteBoardFurniture
             _decisionPrompt.text = text;
         if (_decisionPrompt.gameObject.activeSelf != show)
             _decisionPrompt.gameObject.SetActive(show);
+        // MEASURE, DO NOT ASSUME. The owner's side has always measured — DamageTooltipSurface solves
+        // its seat from the fitted rect and DecisionDockSurface hangs the buttons off the text's
+        // measured bottom — and the mirror was the only one of the two using an authored constant
+        // for a sentence whose length it cannot know. That is why the buttons sat 93 mm low. TMP
+        // lays out lazily, so the mesh has to be forced before renderedHeight means anything; the
+        // label must be active for that, which is why this sits after SetActive.
+        if (show)
+        {
+            _decisionPrompt.ForceMeshUpdate();
+            _promptMeasuredHeight = _decisionPrompt.renderedHeight;
+        }
         ApplyDecisionSeat(show);
         VRLog.Info("Net", show
             ? $"Remote decision prompt: line composed LOCALLY for prompt kind " +
@@ -2077,22 +2137,50 @@ internal sealed class RemoteBoardFurniture
             return;
         _decisionPromptShown = promptLineShown;
         float scale = _decisionTuning.DecisionScale;
+        // THE LINE HEIGHT IS MEASURED WHERE ONE EXISTS. `renderedHeight` is already in the label's
+        // own board-local metres AFTER the dock scale, so it is NOT multiplied by `scale` again —
+        // the authored fallback is, because it is stored pre-scale. Getting that wrong is how a
+        // two-line prompt would push the row twice as far as it should.
+        float lineH = _promptMeasuredHeight > 0f ? _promptMeasuredHeight : PromptLineHeight * scale;
         float y = promptLineShown
-            ? _decisionCeilingY - (PromptLineHeight + _decisionTuning.DecisionGap) * scale
+            ? _decisionCeilingY - lineH - _decisionTuning.DecisionGap * scale
             : _decisionCeilingY;
         if (_decision != null)
         {
             Vector3 p = _decision.localPosition;
             _decision.localPosition = new Vector3(p.x, y, p.z);
         }
+        // ...and the label itself is CENTRE-anchored, so it needs half of the same height to turn
+        // the ceiling into a position. It was seated once at build time from the authored constant;
+        // with a measured height that seat has to move with it or the text and the row it pushed
+        // would disagree about where the line ends.
+        if (_decisionPrompt != null)
+        {
+            Vector3 lp = _decisionPrompt.transform.localPosition;
+            _decisionPrompt.transform.localPosition =
+                new Vector3(lp.x, _decisionCeilingY - 0.5f * lineH, lp.z);
+        }
         _shownUseBarStructure = int.MinValue; // force the bars to re-derive from the moved row
         VRLog.Info("Net", $"Remote decision seat: the mirrored area's CEILING is board-local y " +
                           $"{_decisionCeilingY:F3} (the owner's drawer-zone top at their offset/scale, " +
                           "clamped at the grab bar) — the topmost element is " +
                           (promptLineShown
-                              ? $"the PROMPT LINE, so the button row drops to y {y:F3}: one authored line " +
-                                $"({PromptLineHeight * scale:F3} m) plus one DecisionGap " +
-                                $"({_decisionTuning.DecisionGap * scale:F3} m) below the ceiling"
+                              ? $"the PROMPT LINE, so the button row drops to y {y:F3}: " +
+                                (_promptMeasuredHeight > 0f
+                                    ? $"the line's MEASURED rendered height ({lineH:F4} m, " +
+                                      $"TMP renderedHeight after a forced mesh update — the authored " +
+                                      $"fallback would have said {PromptLineHeight * scale:F4} m)"
+                                    : $"one authored line ({lineH:F4} m — NOT MEASURED YET, which " +
+                                      "means the label had no text when this ran)") +
+                                $" plus one DecisionGap ({_decisionTuning.DecisionGap * scale:F3} m) " +
+                                "below the ceiling. THE OWNER'S OWN SIDE MEASURES TOO (DamageTooltip" +
+                                "Surface fits the real HelpBox and DecisionDockSurface hangs the row " +
+                                "off the measured text bottom), so these two numbers are now produced " +
+                                "the same way; the 2026-08-15 session measured 26.9 mm board-local on " +
+                                "the owner against 120 mm reserved here, and the buttons 55.9 mm " +
+                                "against 149 mm. A next log whose measured height is still several " +
+                                "times the owner's means the text is WRAPPING where the owner's does " +
+                                "not, and the lever is then the label's WIDTH, not this seat"
                               : $"the BUTTON ROW itself, seated at the ceiling (y {y:F3}) because the " +
                                 "owner's prompt draws no text line") +
                           ". The use-bar drawer measures down from that row, so the whole mirrored " +

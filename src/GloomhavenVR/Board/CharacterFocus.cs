@@ -950,6 +950,121 @@ internal static class CharacterFocus
                             (why == SecretWindowReason ? " " + SecretWindowDetail : ""));
     }
 
+    // ---------------------------------------------------------------------- AUTO-FOLLOW THE TURN --
+
+    /// <summary>
+    /// The id of the turn actor the auto-follow has already DECIDED about. Not "the last turn
+    /// actor": the whole point is that the decision is taken once per hand-off and then left alone.
+    /// Only ever written for a NON-NULL turn actor, so the null the game parks
+    /// <c>Choreographer.m_CurrentActor</c> at between turns (Choreographer.cs:3587/3711/9398 — the
+    /// enemy-information reveal among them) cannot make one turn look like two.
+    /// </summary>
+    private static int _followedTurnId;
+
+    /// <summary>
+    /// AUTOMATICALLY LOOK AT THE CHARACTER THAT IS NOW UP.
+    ///
+    /// <para>USER REPORT (3-player hardware session, verbatim): "Ich möchte, dass wenn ein Spieler
+    /// neu am Zug ist er automatisch zu dem Character wechselt der gerade dran ist. Dieses Verhalten
+    /// soll optional auch ausschaltbar sein in der VR Einstellungen."</para>
+    ///
+    /// <para>WHAT WAS MISSING. <see cref="_focused"/> is a STICKY local override, taken by a
+    /// portrait click and dropped by nothing except another click, the focus pin and teardown. So a
+    /// player who looked at a teammate's board during someone else's turn was still looking at it
+    /// when their OWN character came up — the red "wrong character" mark
+    /// (<see cref="FocusTurnMark.AtTurnWrong"/>) exists precisely to shout about that state, and
+    /// until now the only way out of it was a second click.</para>
+    ///
+    /// <para>WHY IT IS A <see cref="Clear"/> AND NOT A <c>TryFocus(turn)</c>. With no override the
+    /// board already presents the character the game is waiting on — that is what
+    /// <see cref="LookingAt"/> and <see cref="LocalMark"/> both say in as many words, and what the
+    /// card pipeline resolves (<c>DecidingHand() ?? ActiveHand()</c>). So "switch to the character
+    /// at turn" IS the no-override state, and restoring the default is strictly weaker than
+    /// installing a new override: it cannot be refused, it leaves no read-only view behind, and it
+    /// keeps following the game for the rest of that turn (a mid-turn hand-off to a summon included)
+    /// instead of pinning the view to one object.</para>
+    ///
+    /// <para>THE FOCUS-STEALING DECISION, and it is the whole design. This fires ONCE PER TURN
+    /// HAND-OFF — on the edge where the character at turn CHANGES — and never again until the next
+    /// one. If the player then deliberately looks at somebody else DURING their own turn, that
+    /// stands: the convenience has already had its say for this turn and does not get a second one.
+    /// A per-frame "put them back on the acting character" would be a switch the player cannot win
+    /// against, which is worse than no convenience at all and would re-open the 2026-08-08 ruling
+    /// ("Ich will nie wieder eine Blockierung haben, den Character zu wechseln") from the other
+    /// side — not by refusing a switch, but by undoing it.</para>
+    ///
+    /// <para>ONLY EVER ONE OF THIS PLAYER'S OWN. The gate is <see cref="LocalOwnsTurn"/>
+    /// (<c>CActor.IsUnderMyControl</c>, a strictly LOCAL flag — CActor.cs:751). During a teammate's
+    /// turn nothing is touched, so a spectator keeps whatever they were looking at.</para>
+    ///
+    /// <para>MULTIPLAYER: nothing new on the wire and nothing on the game. Every input is read from
+    /// this client's own state and the only write is <see cref="_focused"/> going null, exactly as a
+    /// portrait click's would. Record 22 keeps carrying <see cref="LookingAt"/> on its own cadence,
+    /// which after this simply names the character the peer's own replicated turn state already
+    /// names. Whose turn it is is not touched, asked or influenced.</para>
+    ///
+    /// <para>The setting is LOCAL and pure comfort: OFF is exactly the behaviour that shipped, which
+    /// is why it may be a setting at all.</para>
+    /// </summary>
+    internal static void FollowTurn()
+    {
+        if (!BoardConfig.AutoFocusOnTurn.Value)
+        {
+            // Forget the edge while the convenience is off, so switching it back ON mid-turn does
+            // not retro-fire on a hand-off the player never asked to be followed.
+            _followedTurnId = 0;
+            return;
+        }
+
+        CPlayerActor? turn = TurnActor;
+        if (turn == null)
+            return; // between turns — not an edge, and never recorded as one (see _followedTurnId)
+
+        int id = NetFigures.StableActorId(turn);
+        if (id == _followedTurnId)
+            return; // same turn as last time we decided — the player owns the view from here on
+        _followedTurnId = id;
+
+        if (FFSNetwork.IsOnline && !turn.IsUnderMyControl)
+        {
+            VRLog.Info("Board", $"[Focus] AUTO-FOLLOW suppressed — '{Describe(turn)}' is now at " +
+                                "turn but this client does not control it (CActor.IsUnderMyControl " +
+                                "is false here), so the view was left exactly where the player put " +
+                                $"it ('{Describe(LookingAt)}'). A teammate's hand-off never moves " +
+                                "anybody else's camera.");
+            return;
+        }
+
+        if (_focused == null)
+        {
+            VRLog.Info("Board", $"[Focus] AUTO-FOLLOW not needed — '{Describe(turn)}' is now at " +
+                                "turn and the board was already following the game (no override " +
+                                "live), which presents the character at turn by construction. " +
+                                "Nothing was written.");
+            return;
+        }
+
+        if (ReferenceEquals(_focused, turn))
+        {
+            VRLog.Info("Board", $"[Focus] AUTO-FOLLOW not needed — the player was already looking " +
+                                $"at '{Describe(turn)}', who is now at turn. The override is left " +
+                                "standing (dropping it would present the same character anyway).");
+            return;
+        }
+
+        CPlayerActor? from = _focused;
+        VRLog.Info("Board", $"[Focus] AUTO-FOLLOW applied — '{Describe(turn)}' is now at turn and " +
+                            $"the view was on '{Describe(from)}', so the override was dropped and " +
+                            "the board follows the game again (which presents the character at " +
+                            "turn). ONE decision per hand-off: if the player now deliberately looks " +
+                            "somewhere else during this turn, that stands until the NEXT character " +
+                            "comes up — a convenience that re-took the view every frame would be one " +
+                            "the player cannot win against. Local only: no rules call, no packet, " +
+                            "and whose turn it is was neither asked nor changed. Switch it off with " +
+                            "[Board] AutoFocusOnTurn.");
+        Clear($"AUTO-FOLLOW — '{Describe(turn)}' is now at turn");
+    }
+
     /// <summary>Drop the focus and follow the game again (turn hand-off, phase exit, teardown).</summary>
     internal static void Clear(string reason)
     {
@@ -1601,6 +1716,7 @@ internal static class CharacterFocus
         _lastRefusal = null;
         _lastRefusedActorId = 0;
         _lastRefusalTime = float.NegativeInfinity;
+        _followedTurnId = 0;   // the next scenario's first hand-off is a fresh edge
         Peers.Clear();
         LoggedPeerCues.Clear();
     }

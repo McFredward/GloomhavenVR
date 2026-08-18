@@ -142,12 +142,15 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     //       WHICH transform in the chain carries the zoom, so re-posing or rescaling the board (or
     //       anything else moving between the board and the mini) cannot desynchronise it.
     //
-    // MULTIPLAYER — the peer reproduces this latch, and it costs ZERO wire bytes. Position and
-    // rotation cross exactly as before (NetFigures.TrySampleHeldSlot / EaseSlot); the SIZE is
-    // rebuilt receive-side as homeLocalScale × (senderRigScaleNow / senderRigScaleAtHoldStart) ×
-    // stretch, because the sender's live rig scale already rides every rig packet as
-    // AvatarState.WorldScale — the SAME quantity as GrabAnchor.lossyScale here, since
-    // HandVisuals.NormalizeSocket compensates Socket_Grab against handRoot.parent.lossyScale.
+    // MULTIPLAYER — the peer does NOT reproduce this latch, and since ModBuild 157 it deliberately
+    // makes no attempt to. Position and rotation cross exactly as before
+    // (NetFigures.TrySampleHeldSlot / EaseSlot); the SIZE is MEASURED off this transform
+    // (HeldSizeFactorOf = lossyScale ÷ homeWorldScale), sent on NetProtocol.ExtIdHeldStretch, and
+    // multiplied into the peer's own copy of the figure's board-home scale — one transmitted number
+    // in, one size out. Builds through 156 rebuilt it receive-side as
+    // homeLocalScale × (senderRigScaleNow / senderRigScaleAtHoldStart) × stretch, and that
+    // reconstruction could not see the grab-time size CLAMP below, so peers rendered a
+    // deep-zoom grab up to 3.33× too large for the whole hold (three-log evidence, 2026-08-15).
     // NetFigures.RestoreHomeScale puts the home scale back on release: the game never writes a
     // figure's scale, so unlike position and rotation it does NOT heal itself. That half lives in
     // Net/ — see NetFigures.EaseSlot.
@@ -162,11 +165,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     //
     // WHY A SEPARATE FACTOR AND NOT A WRITE INTO _heldLocalScale: the latch is the BOARD size at
     // the grab instant and several consumers reason about it as exactly that (the [Size] log, the
-    // glide doc, the peer-side ratio reconstruction in Net/NetFigures). Folding the gesture into it
-    // would make "the size the mini entered the hand at" unrecoverable mid-hold, and the factor is
-    // ALSO precisely the ONE number that has to cross the wire for a peer to reproduce the picture
-    // (NetProtocol.ExtIdHeldStretch — a manual stretch is derivable from nothing already synced).
-    // Keeping it separate makes the wire sample a field read instead of a division.
+    // glide doc, TotalHeldSizeRatio and the capture ceiling it feeds). Folding the gesture into it
+    // would make "the size the mini entered the hand at" unrecoverable mid-hold, and the size
+    // BOUNDS are stated against that product, so it has to stay factorable. What crosses the wire
+    // is neither of the two halves but their rendered PRODUCT (HeldSizeFactorOf → record 30) — see
+    // the _latchTotalRatio note for the desync that taught us to send the result rather than a
+    // part of it.
     //
     // SCOPE — THIS HOLD ONLY, deliberately. The factor resets to 1 at every grab and is never
     // persisted: the user asked to change "die Größe der Figur in der Hand", not a standing
@@ -209,12 +213,17 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // design (the report above this one), and re-clamping a standing size is a pop. Likewise a
     // mid-hold dial change (Min/Max/StretchLimits) affects the next gesture frame and next grab only.
     //
-    // MULTIPLAYER: invisible on the wire by construction. Only _stretch is sampled (StretchOf); the
-    // latch clamp changes _heldLocalScale, which never leaves this machine — a peer reconstructs
-    // boardSize × (their observed zoom ratio) × factor unclamped by OUR local bounds, per the
-    // standing "bounds are a local presentation choice" ruling. So while OUR latch is clamped the
-    // peer's picture differs by exactly the clamp — the same accepted divergence class as a
-    // mid-hold zoom, and it heals on release.
+    // MULTIPLAYER — THIS WAS THE DESYNC (user, 3-player hardware session 2026-08-15: "Die Größen
+    // der Figuren synchronisieren nicht richtig … hier gab es oft einen Desync"). Until ModBuild
+    // 156 only _stretch was sampled for the wire, so the trim the clamp applies to _heldLocalScale
+    // never left this machine, and the peer's reconstruction differed from the holder's hand by
+    // EXACTLY the clamp for the whole hold. The old note here called that an "accepted divergence
+    // class"; the 1:1 ruling has since been restated as absolute, and the divergence was large —
+    // all three logs of that session carry the clamp line, worst case a grab implying 10× trimmed
+    // to 3×, i.e. peers 3.33× too large. FIXED BY MEASUREMENT: the wire now carries the rendered
+    // result (HeldSizeFactorOf), so the clamp is inside the transmitted number and no peer has to
+    // know this field exists. It is once again invisible on the wire — because it is already
+    // accounted for, not because it is being hidden.
     private float _latchTotalRatio = 1f;
 
     // Issue B — render-on-top state. The approach is REVERTED: ApplyRenderOnTop is a no-op today
@@ -233,6 +242,11 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // dropped with the material bookkeeping on release, so a rebuilt visual on the NEXT hold is
     // re-walked.
     private Renderer[]? _stretchBoundsRenderers;
+
+    // The stretch gesture's capture volume as last measured for THIS hold — diagnostic bookkeeping
+    // only, written by FigureStretch's per-frame capture test. See NoteCaptureVolume.
+    private float _captureBodyRadiusReal = float.NaN;
+    private float _captureCeilingReal = float.NaN;
 
     // TASK #2 (pre-grab highlight) — a subtle warm-gold EMISSIVE glow on the figure's OWN materials,
     // shown while a hand is in proximity reach of the figure it WOULD grab (the offset-anchor winner;
@@ -500,6 +514,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         _stretch = 1f; // the manual stretch is per-hold: every grab starts at the board size
         ApplyGrabTimeStretchClamp(anchor); // …then the TOTAL size bound may trim the latch itself
         _stretchBoundsRenderers = null; // per-hold too: the visual may differ between holds
+        _captureBodyRadiusReal = float.NaN; // "never measured" until a free hand runs the test
+        _captureCeilingReal = float.NaN;
         _uprightBase = CaptureUprightBase(anchor);
         _attached = true;
 
@@ -669,7 +685,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             + $"{ratio:0.###}× of the figure's default-zoom size, outside the total bound "
             + $"[{min:0.##} .. {max:0.##}] — latch trimmed so it enters the hand at exactly "
             + $"{clamped:0.###}× ([FigureGrab] StretchScaleMin/Max; StretchLimits=false disables "
-            + "this). Peers keep their own unclamped reconstruction — local presentation only.");
+            + "this). Peers now see the trimmed size too — record 30 carries the MEASURED held "
+            + "size, so the trim is inside the transmitted number (ModBuild 157; through 156 this "
+            + "line marked a real desync of exactly clamped/implied).");
     }
 
     /// <summary>
@@ -749,21 +767,99 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         return null;
     }
 
-    /// <summary>The stretch factor of the hold on <paramref name="actor"/>, or 1 when it is not in
-    /// a hand here (unknown, gliding, or remote). This is the SEND-side sample for
-    /// <c>NetProtocol.ExtIdHeldStretch</c>: a glide reads as neutral, so the wire eases the peer's
-    /// copy back toward board ratio over the same window the local glide plays.</summary>
-    internal static float StretchOf(ActorBehaviour actor)
+    /// <summary>
+    /// THE SEND-SIDE SAMPLE for <c>NetProtocol.ExtIdHeldStretch</c>: the size the hold on
+    /// <paramref name="actor"/> is rendered at, as a multiple of that figure's OWN board-home size.
+    /// 1 when it is not in a hand here (unknown, gliding, or remote) — a glide reads as "board
+    /// size", so the wire eases the peer's copy home over the same window the local glide plays.
+    ///
+    /// <para>IT IS MEASURED, NOT ASSEMBLED (user, 3-player hardware session 2026-08-15: "Die Größe
+    /// einer Figur MUSS zwingend immer 1:1 genau die sein die der Spieler auch in der Hand hat").
+    /// The number is read straight off the transform the holder is looking at — live world size ÷
+    /// board world size — so it carries the grab-time latch, the grab-time size CLAMP
+    /// (<see cref="ApplyGrabTimeStretchClamp"/>), the live diorama zoom and the manual stretch
+    /// TOGETHER, and it cannot fall out of step with any of them. Every previous version sent
+    /// <see cref="_stretch"/> alone and let the peer rebuild the rest; the clamp was invisible to
+    /// that rebuild, and all three logs of the 2026-08-15 session show it firing (a grab implying
+    /// 10× trimmed to 3× ⇒ peers 3.33× too large). Measuring is also the only shape that survives a
+    /// future size input nobody has thought of yet: it reports the RESULT.</para>
+    ///
+    /// <para>Uniform by construction — every writer on this path scales all three axes by the same
+    /// factor (<see cref="HeldLocalScale"/>, <see cref="ApplyGrabTimeStretchClamp"/>) — so X speaks
+    /// for the vector, exactly as <see cref="NoteClothScale"/> already assumes.</para>
+    /// </summary>
+    internal static float HeldSizeFactorOf(ActorBehaviour actor)
+    {
+        FigureGrabbable? g = AttachedTo(actor);
+        if (g == null)
+            return 1f;
+        GameObject? root = g.Root;
+        float home = g._homeWorldScale.x;
+        if (root == null || home <= 1e-6f)
+            return 1f; // degenerate: report "board size" rather than a division
+        float factor = root.transform.lossyScale.x / home;
+        return float.IsNaN(factor) || float.IsInfinity(factor) || factor <= 0f ? 1f : factor;
+    }
+
+    /// <summary>The grabbable currently ATTACHED to <paramref name="actor"/>'s hand, or null when
+    /// this figure is not in a local hand (unknown, gliding, or remote). Scans <see cref="Live"/>
+    /// (≤ 2 entries), the same walk <see cref="HeldBy"/> does from the other end.</summary>
+    internal static FigureGrabbable? AttachedTo(ActorBehaviour actor)
     {
         if (actor == null)
-            return 1f;
+            return null;
         foreach (FigureGrabbable g in Live)
         {
             if (g._attached && ReferenceEquals(g._actor, actor))
-                return g._stretch;
+                return g;
         }
-        return 1f;
+        return null;
     }
+
+    /// <summary>The zoom ratio this hold's size latch stands at, in default-zoom units, AFTER the
+    /// grab-time size clamp — see <see cref="_latchTotalRatio"/>. Diagnostic read: it is the half of
+    /// <see cref="TotalHeldSizeRatio"/> that the wire used to be blind to.</summary>
+    internal float LatchTotalRatio => _latchTotalRatio;
+
+    /// <summary>
+    /// This hold's TOTAL size in default-zoom units — <see cref="_latchTotalRatio"/> ×
+    /// <see cref="_stretch"/>, i.e. the very product <c>[FigureGrab] StretchScaleMin/Max</c> bound.
+    /// 1 for a hold at the default zoom with no stretch.
+    ///
+    /// <para>It is the ZOOM-INDEPENDENT size variable, which is why it — and not the board-relative
+    /// wire factor — is what <see cref="FigureStretch"/>'s capture test scales its sanity ceiling
+    /// by: that test works in REAL metres at the hand (world ÷ rig scale), and real size is
+    /// proportional to exactly this product.</para>
+    /// </summary>
+    internal float TotalHeldSizeRatio => _latchTotalRatio * _stretch;
+
+    /// <summary>
+    /// Record the stretch gesture's capture volume for this hold, as
+    /// <see cref="FigureStretch.CaptureDistanceReal"/> last computed it: the radius of the visible
+    /// body it trusted, and the sanity ceiling that decided what "trusted" meant — both in REAL
+    /// metres at the hand.
+    ///
+    /// <para>Bookkeeping only; nothing reads it to make a decision. It exists so the one
+    /// <c>[SizeSync]</c> diagnostic can print the volume the player is actually reaching into,
+    /// measured rather than re-derived, and so the failing state has a name in the log:
+    /// <paramref name="bodyRadiusRealMeters"/> is <see cref="float.PositiveInfinity"/> exactly when
+    /// EVERY renderer was excluded and the test fell back to the centre distance — the shape of the
+    /// 2026-08-15 report. Written by the free hand's per-frame capture test, so it is stale (and
+    /// starts <see cref="float.NaN"/> = "never measured") whenever no hand is free to gesture.</para>
+    /// </summary>
+    internal void NoteCaptureVolume(float bodyRadiusRealMeters, float ceilingRealMeters)
+    {
+        _captureBodyRadiusReal = bodyRadiusRealMeters;
+        _captureCeilingReal = ceilingRealMeters;
+    }
+
+    /// <summary>Radius of the visible body the capture test last trusted, real metres at the hand.
+    /// NaN = not measured this hold; +Inf = every renderer was excluded (centre fallback).</summary>
+    internal float CaptureBodyRadiusRealMeters => _captureBodyRadiusReal;
+
+    /// <summary>The sanity ceiling the capture test last applied, real metres — grows with
+    /// <see cref="TotalHeldSizeRatio"/>, see <see cref="FigureStretchMath"/>.</summary>
+    internal float CaptureCeilingRealMeters => _captureCeilingReal;
 
     /// <summary>
     /// Convert a WORLD scale into the scale a child of <paramref name="anchor"/> needs to render at

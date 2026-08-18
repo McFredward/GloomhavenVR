@@ -62,10 +62,27 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// paragraph). And the capture test is an ENTRY test only — once the trigger latches, the gesture
 /// runs until trigger-up regardless of distance (<see cref="TickActive"/> re-checks nothing but
 /// the hold and the trigger), so leaving the zone outward IS the growing half of the gesture.
-/// Safety: a renderer whose bounds imply a figure radius beyond
-/// <see cref="MaxFigureRadiusRealMeters"/> (broken skinned-mesh bounds, a stray particle system)
-/// is excluded from the test with a warning — a bounds bug must degrade to the old centre test,
-/// never capture the whole room.</para>
+/// Safety: a renderer whose bounds imply a figure radius beyond the sanity ceiling
+/// (<see cref="FigureStretchMath.CaptureCeilingRealMeters"/> — broken skinned-mesh bounds, a stray
+/// particle system) is excluded from the test with a warning: a bounds bug must degrade to the old
+/// centre test, never capture the whole room.</para>
+///
+/// <para>THE CEILING SCALES WITH THE FIGURE TOO (2026-08-15). USER REPORT, verbatim: "man kann
+/// vereinzelend Figuren die man größer gezogen hat nicht mehr so einfach Kleiner machen weil die
+/// Area zu interagieren nicht mit gewachsen ist. Das Problem bist du schon einmal angegangen,
+/// scheint aber noch nicht ganz behoben zu sein." The surface test of the previous paragraph IS the
+/// earlier attempt, and it is right — what did not scale was the FIXED 0.5 m sanity ceiling beside
+/// it. A mini stretched to the top of its own range has a legitimately large radius, so at exactly
+/// the sizes the report names the ceiling began throwing out the figure's REAL renderers; with all
+/// of them excluded <see cref="CaptureDistanceReal"/> falls back to the CENTRE distance, which is
+/// the pre-fix bug returning verbatim. MEASURED, not inferred — the three logs of that session name
+/// the excluded renderers and their radii: <c>MO_DeepTerror_Mesh</c> at 0.79 m real (host) and
+/// 0.82 m (peer), <c>WP_Berserker_Axe</c> at 0.52 / 0.53 m, on figures the player was mid-gesture
+/// on. The ceiling is now <c>0.5 m × max(1, this hold's total size ratio)</c>, hard-capped at 3 m;
+/// <see cref="FigureStretchMath"/> holds the arithmetic, the shrink-side floor that keeps the fix
+/// symmetric, and the bound. Growing it cannot steal a neighbour's grab: the zone belongs to the
+/// OTHER hand's HELD mini alone (<c>FigureGrabbable.HeldBy</c>), and a captured hand already elects
+/// NOBODY and vetoes every adopted board figure for that frame (the collision story below).</para>
 ///
 /// <para>CONTINUITY BY CONSTRUCTION, no pops anywhere: at trigger-down d == d0, so the first
 /// frame's target IS the current factor; every later frame moves through a light exponential
@@ -134,14 +151,6 @@ internal static class FigureStretch
     /// below it the ratio d/d0 is tracking noise, and a d0 of near zero would make the first
     /// centimetre of travel a ×10.</summary>
     private const float MinGestureDistanceRealMeters = 0.01f;
-
-    /// <summary>Sanity ceiling on the figure radius the capture bounds test may derive, in REAL
-    /// metres: centre-to-bounds-centre offset plus the bounds half-diagonal. StretchScaleMax on
-    /// the largest boss mini stays well under this; only broken renderer bounds (a skinned mesh
-    /// with an unbaked bounding box, a world-sized particle system) can exceed it. Such a
-    /// renderer is EXCLUDED from the test — with a warning, once per figure — so a bounds bug
-    /// degrades to the centre-distance fallback instead of capturing the entire room.</summary>
-    private const float MaxFigureRadiusRealMeters = 0.5f;
 
     /// <summary>The figure last warned about by the bounds sanity clamp — the once-per-figure
     /// throttle for <see cref="CaptureDistanceReal"/>'s warning (the test runs every frame).</summary>
@@ -349,15 +358,25 @@ internal static class FigureStretch
     /// (<c>Bounds.ClosestPoint</c>; zero when the pinch is inside a box, so the inside of the
     /// model always captures). Renderer bounds grow with the applied stretch, which is exactly
     /// what makes the zone scale with the figure. Renderers whose bounds imply a figure radius
-    /// beyond <see cref="MaxFigureRadiusRealMeters"/> are excluded (warned once per figure);
-    /// disabled renderers do not count as visible body. When no usable renderer remains, falls
-    /// back to the centre distance — the pre-fix behaviour, never a wider zone.
+    /// beyond the hold's sanity ceiling are excluded (warned once per figure); disabled renderers
+    /// do not count as visible body. When no usable renderer remains, falls back to the centre
+    /// distance — the pre-fix behaviour, never a wider zone.
+    ///
+    /// <para>THE CEILING IS A FUNCTION OF THE HOLD'S SIZE, not a constant — see the class doc's
+    /// "THE CEILING SCALES WITH THE FIGURE TOO" paragraph for the report and the log evidence. On
+    /// its way out it hands the surviving body's radius and the ceiling that produced it to the
+    /// grabbable (<c>FigureGrabbable.NoteCaptureVolume</c>), so the one <c>[SizeSync]</c> line can
+    /// report the interaction volume the player is really reaching into — including the case that
+    /// caused the report, "every renderer was excluded and this is the CENTRE fallback".</para>
     /// </summary>
     private static float CaptureDistanceReal(VRHand hand, FigureGrabbable target, Vector3 centerWorld)
     {
         Vector3 pinch = PinchPoint(hand);
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
         float best = float.PositiveInfinity;
+        float ceiling = FigureStretchMath.CaptureCeilingRealMeters(target.TotalHeldSizeRatio);
+        float widest = 0f;
+        bool any = false;
         Renderer[]? renderers = target.HeldRenderers();
         if (renderers != null)
         {
@@ -368,7 +387,7 @@ internal static class FigureStretch
                 Bounds b = r.bounds;
                 float impliedRadiusReal =
                     (Vector3.Distance(centerWorld, b.center) + b.extents.magnitude) / scale;
-                if (impliedRadiusReal > MaxFigureRadiusRealMeters)
+                if (impliedRadiusReal > ceiling)
                 {
                     if (!ReferenceEquals(_boundsWarnTarget, target))
                     {
@@ -376,17 +395,22 @@ internal static class FigureStretch
                         VRLog.Warn("FigureGrab",
                             $"STRETCH capture bounds clamped on {target.Label}: renderer "
                             + $"'{r.name}' implies a figure radius of {impliedRadiusReal:0.##} m "
-                            + $"real (> {MaxFigureRadiusRealMeters:0.##} m sanity ceiling) — "
-                            + "excluded from the capture test so it cannot swallow the room. "
-                            + "Likely broken skinned-mesh bounds or a stray particle system.");
+                            + $"real (> {ceiling:0.##} m sanity ceiling at this hold's total size "
+                            + $"{target.TotalHeldSizeRatio:0.###}×) — excluded from the capture "
+                            + "test so it cannot swallow the room. Likely broken skinned-mesh "
+                            + "bounds or a stray particle system.");
                     }
                     continue;
                 }
+                any = true;
+                if (impliedRadiusReal > widest)
+                    widest = impliedRadiusReal;
                 float d = Vector3.Distance(pinch, b.ClosestPoint(pinch)) / scale;
                 if (d < best)
                     best = d;
             }
         }
+        target.NoteCaptureVolume(any ? widest : float.PositiveInfinity, ceiling);
         return float.IsPositiveInfinity(best) ? Vector3.Distance(pinch, centerWorld) / scale : best;
     }
 

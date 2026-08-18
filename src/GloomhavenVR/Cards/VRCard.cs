@@ -444,7 +444,14 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         // motion. CardFaceRaycaster answers only the laser/poke pointers.
         canvasGo.AddComponent<CardFaceRaycaster>();
         _canvasRect = (RectTransform)canvasGo.transform;
-        SetCanvasSize(new Vector2(270f, 400f), w, h);
+        // The BEST KNOWN face size, not a frozen guess. This used to be a hard-coded 270x400 while
+        // the real ability face is 294x450, so a card built before its face was adopted wore a body
+        // 1.8 mm too wide; AttachGameCard then re-fit it and the width visibly stepped. It is also
+        // the size a BORROWED remote copy (Cards/CardBorrow.cs) is stuck with, because that copy
+        // never adopts a game widget at all — its face is a clone, and the clone is fitted to the
+        // real 294x450. CardFace.ObservedFacePixels IS 270x400 until this client has hosted an
+        // ability face, so nothing changes before the first card and everything agrees after it.
+        SetCanvasSize(CardFace.ObservedFacePixels, w, h);
         // Face plane sits a hair in front of the backing. Convention everywhere in
         // this module: layouts orient roots with +Z pointing AWAY from the HMD, so
         // the viewer is on the -Z side — exactly the side uGUI/TMP/Quad render to
@@ -462,10 +469,16 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <summary>
     /// Fraction of the fitted face rect the VISIBLE card art actually fills — the backing
     /// and grab collider are fit to this, not the full rect, so CardFace's border inset no
-    /// longer leaves a dark rectangular ring (test #25). Mirror of CardFace.BorderFraction
-    /// (0.06 → art at 94 %); keep the two in sync.
+    /// longer leaves a dark rectangular ring (test #25).
+    ///
+    /// <para>NO LONGER A HAND-COPIED 0.94. It used to be a local const with a comment asking the
+    /// next reader to keep it in sync with CardFace.BorderFraction by hand. That instruction was
+    /// followed here and missed one module over — Net/RemoteHandFan sized its ghost slabs to the
+    /// FULL nominal card and let the cloned face letterbox inside, which is user report 12 of
+    /// 2026-08-15 (the peer's card back showing as a rim around the print). It now reads the one
+    /// definition, and the fit itself is <see cref="CardFace.VisibleFaceRect"/>.</para>
     /// </summary>
-    private const float VisibleFaceFraction = 0.94f;
+    private static float VisibleFaceFraction => CardFace.VisibleFaceFraction;
 
     private void SetCanvasSize(Vector2 facePixels, float w, float h)
     {

@@ -180,6 +180,69 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// phase). The consequence, stated rather than hidden: for the slide's duration a peer sees it
 /// START from this client's arrangement, and END — like every other client — in the correct
 /// one.</para>
+///
+/// ─── ROUND 3 (MP hardware test 2026-08-15, HOST side): "Nach dem Abschluss einer Runde wurde die
+/// Animation der Initiativreihenfolge nicht fertig abgespielt sondern vorzeitig abgebrochen. Das
+/// Problem hattest du schonmal nach dem beenden eines Zuges behoben, auch nach dem Ende einer
+/// ganzen Runde soll es korrekt fertig abgespielt werden." ───────────────────────────────────────
+///
+/// <para>THE ROUND BOUNDARY TAKES A SECOND, UNGUARDED PATH INTO THE ROW, and everything above is
+/// built on the assumption that only the first one exists.</para>
+///
+/// <list type="number">
+/// <item><b>The path.</b> Everything the class watches — <c>isAnimating</c>,
+/// <c>animationDelayed</c>, <c>moveXAnimations</c> — belongs to <c>UpdateActors</c> /
+/// <c>AnimateInitiativeReorder</c>, which is re-entrancy-safe by construction (a second call while
+/// animating only sets <c>animationDelayed</c>). But <c>Choreographer.HandleMessage</c> also calls
+/// <c>InitiativeTrack.UpdateInitiativeTrack(GameState.InitiativeSortedActors, …)</c> DIRECTLY, with
+/// no guard of any kind, for a whole message family (Choreographer.cs:12534-12550):
+/// <c>StartTurn, ActionSelectionPhaseStart, ActorDead, PlacingSpawn, EndTurn, <b>EndRound</b>,
+/// <b>NextRound</b>, Spawn, Summon, ActivateProp</c>. That runs <c>NormalizeActorsPool</c>
+/// (InitiativeTrack.cs:544), which re-<c>SetSiblingIndex</c>es and <c>SetActive</c>s the pooled
+/// rows — i.e. it CHANGES THE ROW'S MEMBERSHIP, instantly, mid-slide, with no tween and no flag
+/// this class could have seen.</item>
+/// <item><b>Why the TURN boundary was already fine.</b> At a plain <c>EndTurn</c> the same instant
+/// rebuild fires, but the membership does not change (the same actors, re-sorted) and nothing is
+/// animating when it lands — so the previous rounds' fix, which only ever had to survive ONE
+/// reorder over ONE unchanging entry set, was complete for it. At the round boundary the enemy rows
+/// JOIN the track, so the set changes and a SECOND <c>UpdateActors</c> reorder follows on the new
+/// set while the first slide is still in flight.</item>
+/// <item><b>What that did to the plan, measured.</b> <see cref="Begin"/> superseded its own running
+/// slide and re-planned from <see cref="_rest"/> — a latch describing the SIX-row row that no
+/// longer existed — plus one LIVE sample for the seventh, newly pooled entry. Two coordinate
+/// systems, one plan. The host log shows it exactly: two "SLIDE start" lines with no "done" between
+/// them (6 portraits, travel max 290 px), an "Initiative row layout changed (entry set)" line in
+/// the gap, then "7 portrait(s) … travel max 1391 px / total 3652 px". The whole fitted row is
+/// 1056 px wide at a 145 px slot pitch, so the widest travel a 7-slot permutation can possibly
+/// contain is 6 × 145 = 870 px. <b>1391 px is not a slot.</b> The portraits jumped back to the old
+/// plan's start, flew to positions that are not in the row, and the layout group put them right at
+/// the end — "vorzeitig abgebrochen", from the eye's point of view.</item>
+/// </list>
+///
+/// THE ROUND-3 FIX — the entry set becomes a first-class trigger, and the destinations stop being
+/// re-derived when the latch cannot describe the row:
+/// <list type="bullet">
+/// <item><b>A SET CHANGE VOIDS THE PLAN.</b> Every frame of a running slide the row's active
+///   children are compared against the latch. A change with no new reorder behind it aborts the
+///   slide (the row it was animating is gone); a change WITH one falls through to
+///   <see cref="Begin"/>, which now knows about it.</item>
+/// <item><b>DESTINATIONS COME FROM THE ROW'S OWN LAYOUT, not from a re-derivation.</b> On the
+///   changed-set path <see cref="SettleRowIntoLayout"/> hands the row back to the game's
+///   <c>HorizontalLayoutGroup</c> for ONE immediate rebuild inside this LateUpdate, reads the
+///   settled local pose of every entry, and re-latches it. Because vanilla has already run
+///   <c>UpdateSortingOrder(updateDisplay: true)</c> by the time a tween batch exists, sibling order
+///   IS the sorted order, so that rebuild puts every entry in its FINAL slot — the destination,
+///   exact, for the NEW row, with no assumption about slot pitch, uniform portrait widths or
+///   <c>reverseArrangement</c>. The writers go back off in the same tick, so the settled pose is
+///   never a rendered frame.</item>
+/// <item><b>THE SLIDE CHAINS INSTEAD OF RESTARTING.</b> An entry the superseded slide was driving
+///   starts from the x THIS CLASS LAST WROTE for it, so the portraits continue from where the eye
+///   last saw them instead of snapping back to the previous plan's origin. That is still not a live
+///   transform: it is this class's own last output, which is exactly as trustworthy as the latch and
+///   fresher. An entry with neither (the enemy row that just joined) starts AT its destination — a
+///   row that has just appeared has no travel to show, and flying it in from a pooled pose is the
+///   defect, not the animation.</item>
+/// </list>
 /// </summary>
 internal sealed class InitiativeReorderSlide
 {
@@ -251,6 +314,25 @@ internal sealed class InitiativeReorderSlide
 
     /// <summary>The row's settled pose per entry transform — see <see cref="LatchRest"/>.</summary>
     private readonly Dictionary<Transform, Rest> _rest = new(16);
+
+    /// <summary>How many ROW ENTRIES (<see cref="RowCount"/>) the latch was taken over. Latched
+    /// alongside the poses so a membership change is one integer compare (round 3).</summary>
+    private int _latchedRowCount;
+
+    /// <summary>
+    /// The latch as it stood BEFORE <see cref="SettleRowIntoLayout"/> replaced it (round 3), so a
+    /// chained slide can still start an entry from the pose the OLD row left it at when this class
+    /// was not driving it. Reused; never read outside <see cref="Begin"/>.
+    /// </summary>
+    private readonly Dictionary<Transform, Rest> _prevRest = new(16);
+
+    /// <summary>
+    /// The x this class last WROTE per entry of the slide being superseded (round 3). It is this
+    /// class's own output, not a live transform, so it is as trustworthy as the latch and fresher —
+    /// which is what lets a new plan CONTINUE the travel the eye is watching instead of restarting
+    /// it. Reused; never read outside <see cref="Begin"/>.
+    /// </summary>
+    private readonly Dictionary<Transform, float> _carry = new(16);
 
     /// <summary>Active direct children of the holder this frame (reused; no per-frame allocation).</summary>
     private readonly List<Transform> _rowScratch = new(16);
@@ -331,7 +413,7 @@ internal sealed class InitiativeReorderSlide
             // interpolation, not a rest pose, and the latch from before the running slide is still
             // the row's last layout-owned truth.
             if (!Active)
-                LatchRest(holder);
+                LatchRest(track, holder);
         }
         _sawAnimating = animating;
 
@@ -359,13 +441,114 @@ internal sealed class InitiativeReorderSlide
 
         if (Active)
         {
+            // ROUND 3 — THE ROW'S MEMBERSHIP IS PART OF THE PLAN. Choreographer.HandleMessage calls
+            // UpdateInitiativeTrack -> NormalizeActorsPool directly, with no guard, on EndRound /
+            // NextRound / Spawn / ActorDead / … (Choreographer.cs:12534-12550): it re-parents,
+            // re-sibling-indexes and SetActives the pooled rows instantly, touching none of the
+            // three flags this class watches. A slide whose entry set has been rewritten under it is
+            // animating a row that no longer exists, and it can no longer end anywhere the layout
+            // group agrees with. If a new reorder came WITH the change, the Begin above has already
+            // taken it (and knows the set changed); reaching here means it did not.
+            if (!LegsDescribeRow(track, holder))
+            {
+                Abort("the row's entry set changed mid-slide (Choreographer.HandleMessage drives " +
+                      "UpdateInitiativeTrack -> NormalizeActorsPool instantly on EndRound / " +
+                      "NextRound / Spawn / ActorDead …, Choreographer.cs:12534) and no new reorder " +
+                      "followed it — the plan describes a row that is gone");
+                return;
+            }
             Advance(track);
             return;
         }
 
         // Idle: the layout group owns the row again. Repair anything a world-space write left off
         // the row's axis, then re-latch the settled truth for the next reorder.
-        GuardRowAxis(holder, animating);
+        GuardRowAxis(track, holder, animating);
+    }
+
+    // ---------------------------------------------------------------------------- row membership --
+
+    /// <summary>
+    /// THE ROW'S MEMBERSHIP, counted the way the reorder itself counts it (round 3): the entries of
+    /// the game's own <c>actorsUI</c> that are ACTIVE and parented to this holder — exactly the set
+    /// <see cref="Begin"/> plans over and vanilla's coroutine tweens.
+    ///
+    /// <para>Deliberately NOT "the holder's active children". The holder also parents the two
+    /// controller-tip hotkeys, which <c>ShowSeparatorActorsByType</c> toggles and re-siblings
+    /// (InitiativeTrack.cs:416-442) whenever a gamepad is in use — including from the tail of
+    /// <c>AnimateInitiativeReorder</c> itself (:291), i.e. INSIDE a running slide. Counting those as
+    /// a membership change would abort a perfectly healthy slide on every gamepad machine, which is
+    /// precisely the regression this round exists to avoid.</para>
+    /// </summary>
+    private static int RowCount(InitiativeTrack track, Transform holder)
+    {
+        List<InitiativeTrackActorBehaviour>? actors = track.actorsUI;
+        if (actors == null)
+            return 0;
+        int n = 0;
+        for (int i = 0; i < actors.Count; i++)
+        {
+            InitiativeTrackActorBehaviour beh = actors[i];
+            if (beh != null && beh.gameObject.activeSelf && beh.transform.parent == holder)
+                n++;
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// Does <see cref="_rest"/> still describe THIS row? Both halves matter: an entry that JOINED
+    /// has no latched slot at all (the round boundary's enemy rows), and an entry that LEFT changes
+    /// the layout group's pitch and centring for everybody else — so the surviving entries' latched
+    /// x are no longer this row's slots either.
+    /// </summary>
+    private bool LatchDescribesRow(InitiativeTrack track, Transform holder)
+    {
+        List<InitiativeTrackActorBehaviour>? actors = track.actorsUI;
+        if (actors == null)
+            return _latchedRowCount == 0;
+        int n = 0;
+        for (int i = 0; i < actors.Count; i++)
+        {
+            InitiativeTrackActorBehaviour beh = actors[i];
+            if (beh == null || !beh.gameObject.activeSelf || beh.transform.parent != holder)
+                continue;
+            n++;
+            if (!_rest.ContainsKey(beh.transform))
+                return false;
+        }
+        return n == _latchedRowCount;
+    }
+
+    /// <summary>
+    /// Do the legs in flight still describe the row that exists? The mid-slide form of
+    /// <see cref="LatchDescribesRow"/>, asked against the plan rather than the latch — the plan is
+    /// what would be wrong, and it is what has to be given up.
+    /// </summary>
+    private bool LegsDescribeRow(InitiativeTrack track, Transform holder)
+    {
+        List<InitiativeTrackActorBehaviour>? actors = track.actorsUI;
+        if (actors == null)
+            return false;
+        int n = 0;
+        for (int i = 0; i < actors.Count; i++)
+        {
+            InitiativeTrackActorBehaviour beh = actors[i];
+            if (beh == null || !beh.gameObject.activeSelf || beh.transform.parent != holder)
+                continue;
+            n++;
+            bool known = false;
+            for (int j = 0; j < _legs.Count; j++)
+            {
+                if (ReferenceEquals(_legs[j].Entry, beh.transform))
+                {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known)
+                return false;
+        }
+        return n == _legs.Count;
     }
 
     // ---------------------------------------------------------------- rest pose + row-axis guard --
@@ -377,7 +560,7 @@ internal sealed class InitiativeReorderSlide
     /// and on idle frames after <see cref="GuardRowAxis"/> has had its say. Rebuilt wholesale so a
     /// destroyed or re-pooled entry can never leave a stale key behind.
     /// </summary>
-    private void LatchRest(Transform holder)
+    private void LatchRest(InitiativeTrack? track, Transform holder)
     {
         _rest.Clear();
         for (int i = 0; i < holder.childCount; i++)
@@ -388,6 +571,11 @@ internal sealed class InitiativeReorderSlide
             Vector3 lp = child.localPosition;
             _rest[child] = new Rest { X = lp.x, Y = lp.y, Z = lp.z };
         }
+        // ...and, alongside the poses, the row's MEMBERSHIP as the reorder counts it (round 3), so
+        // "does this latch still describe the row" is answerable without a second walk of the
+        // holder — and without the controller tips, which live under the holder too. See
+        // <see cref="RowCount"/>.
+        _latchedRowCount = track != null ? RowCount(track, holder) : 0;
     }
 
     /// <summary>
@@ -406,7 +594,7 @@ internal sealed class InitiativeReorderSlide
     ///   genuine re-layout is imminent) and inside the post-slide settle window.</item>
     /// </list>
     /// </summary>
-    private void GuardRowAxis(Transform holder, bool animating)
+    private void GuardRowAxis(InitiativeTrack? track, Transform holder, bool animating)
     {
         // Collect the row as it stands, and decide whether the latch still describes THIS set.
         _rowScratch.Clear();
@@ -428,7 +616,7 @@ internal sealed class InitiativeReorderSlide
             // Nothing to compare against (first frames after a conversion, or the row just changed
             // shape). The layout group is in charge here; take its output as the new truth.
             if (!animating)
-                LatchRest(holder);
+                LatchRest(track, holder);
             return;
         }
 
@@ -470,7 +658,7 @@ internal sealed class InitiativeReorderSlide
         {
             // Clean row — this is the settled truth the next reorder will be planned from.
             if (!animating)
-                LatchRest(holder);
+                LatchRest(track, holder);
             return;
         }
 
@@ -524,6 +712,18 @@ internal sealed class InitiativeReorderSlide
     /// </summary>
     private void Begin(InitiativeTrack track, Transform holder)
     {
+        // ROUND 3 — carry the superseded slide's OWN last output over before it is discarded. This
+        // is not a live transform: it is the x this class wrote on its previous frame, so a chained
+        // plan can continue the travel the eye is watching instead of snapping back to the old
+        // plan's origin. Captured BEFORE _legs is cleared, for obvious reasons.
+        _carry.Clear();
+        for (int i = 0; i < _legs.Count; i++)
+        {
+            Leg prior = _legs[i];
+            if (prior.Entry != null)
+                _carry[prior.Entry] = prior.LastX;
+        }
+
         RestoreLayoutWriters(); // a slide already running is superseded by this one
         _legs.Clear();
         _slots.Clear();
@@ -549,6 +749,24 @@ internal sealed class InitiativeReorderSlide
         if (actors == null || actors.Count == 0)
         {
             Skipped("the track has no entries", holder);
+            return;
+        }
+
+        // ROUND 3 — WHOSE ROW IS THE LATCH ABOUT? When the membership has changed under a running
+        // slide (the round boundary: Choreographer.HandleMessage -> UpdateInitiativeTrack ->
+        // NormalizeActorsPool, Choreographer.cs:12534), the latch describes a row that is gone. Its
+        // x values are not slots of THIS row, and mixing them with one live sample for the entry
+        // that just joined is what produced the impossible 1391 px travel in a 1056 px row. That
+        // path re-derives nothing; it asks the layout group.
+        // The `_rest.Count > 0` clause is not defensive noise: with NOTHING latched (a panel
+        // converted mid-animation, so the isAnimating rising edge that latches was never seen) the
+        // membership test has nothing to compare against and would divert every such reorder into
+        // the changed-row path, where every entry reads as new and the slide is correctly but
+        // uselessly skipped. An empty latch is "we do not know", not "the row changed", and the
+        // pre-existing path — which falls back to the live pose per entry — stays in charge of it.
+        if (_rest.Count > 0 && !LatchDescribesRow(track, holder))
+        {
+            BeginOnChangedRow(track, holder);
             return;
         }
 
@@ -629,6 +847,164 @@ internal sealed class InitiativeReorderSlide
             "entr(y/ies) sampled while the layout group last owned the row), never from the live " +
             "transforms — at least one vanilla world-x step always lands before this LateUpdate can " +
             "cancel, and the first slide frame REPAIRS it instead of adopting it.");
+    }
+
+    /// <summary>
+    /// THE ROUND-BOUNDARY PLAN (round 3): the row's MEMBERSHIP changed, so the latch is not about
+    /// this row and the destination assignment may not be re-derived from it.
+    ///
+    /// <para>WHERE THE DESTINATIONS COME FROM INSTEAD. By the time this runs, vanilla has already
+    /// executed <c>UpdateSortingOrder(updateDisplay: true)</c> (InitiativeTrack.cs:270 — it happens
+    /// before a single tween is created, and this class fires on the frame the batch exists), so
+    /// the holder's SIBLING ORDER is already the sorted order. A <c>HorizontalLayoutGroup</c> lays
+    /// its children out in sibling order — therefore ONE immediate rebuild puts every entry in
+    /// exactly the slot the reorder is supposed to end in. That is read back as the destination:
+    /// exact, for the row that actually exists, with no assumption about slot pitch, equal portrait
+    /// widths or <c>reverseArrangement</c>, and no chance of producing a travel the row cannot
+    /// contain.</para>
+    ///
+    /// <para>WHERE THE ORIGINS COME FROM, in descending order of trust, and NEVER from a live
+    /// transform (the round-2 rule stands):</para>
+    /// <list type="number">
+    /// <item><see cref="_carry"/> — the x THIS CLASS wrote last frame for an entry whose slide is
+    ///   being superseded. It is our own output, so the new slide continues the motion the eye is
+    ///   watching rather than restarting it.</item>
+    /// <item><see cref="_prevRest"/> — the previous latch, for an entry that was in the old row but
+    ///   was not being driven (a slide that had already ended, or one that skipped).</item>
+    /// <item>its own destination — for an entry that is NEW to the row (the enemy rows joining at
+    ///   the round boundary). A row that has just appeared has no travel to show, and its pooled
+    ///   transform holds a pose from whenever it was last used; starting it anywhere else is
+    ///   inventing motion out of stale data, which is the defect and not the animation.</item>
+    /// </list>
+    ///
+    /// <para>The forced rebuild is never a rendered frame: the writers go back off and every leg is
+    /// written to its ORIGIN before this method returns, all inside the same LateUpdate.</para>
+    /// </summary>
+    private void BeginOnChangedRow(InitiativeTrack track, Transform holder)
+    {
+        // Keep the old latch: it is the only honest origin for an entry that was in the old row but
+        // was not being driven by the superseded slide.
+        _prevRest.Clear();
+        foreach (KeyValuePair<Transform, Rest> kv in _rest)
+            _prevRest[kv.Key] = kv.Value;
+
+        int wasLatched = _latchedRowCount;
+
+        _layoutGroup = track.layoutGroup;
+        _fitter = track.contentSizeFitter;
+        SettleRowIntoLayout(track, holder);  // -> _rest is now the NEW row's settled (== final) pose
+        HoldLayoutWriters(count: false); // ...and the writers are off again before anything renders
+
+        List<InitiativeTrackActorBehaviour>? actors = track.actorsUI;
+        int fresh = 0;
+        int chained = 0;
+        for (int i = 0; actors != null && i < actors.Count; i++)
+        {
+            InitiativeTrackActorBehaviour beh = actors[i];
+            if (beh == null || !beh.gameObject.activeSelf || beh.transform.parent != holder)
+                continue;
+            Transform entry = beh.transform;
+            if (!_rest.TryGetValue(entry, out Rest settled))
+                continue; // not a direct child of the holder at latch time — nothing to place it by
+
+            float from;
+            if (_carry.TryGetValue(entry, out float lastWritten))
+            {
+                from = lastWritten;
+                chained++;
+            }
+            else if (_prevRest.TryGetValue(entry, out Rest old))
+            {
+                from = old.X;
+            }
+            else
+            {
+                from = settled.X; // new to the row — it appears in place
+                fresh++;
+            }
+
+            _legs.Add(new Leg
+            {
+                Entry = entry, FromX = from, ToX = settled.X, LastX = from,
+                RestY = settled.Y, RestZ = settled.Z,
+            });
+        }
+
+        float maxTravel = 0f;
+        float totalTravel = 0f;
+        for (int i = 0; i < _legs.Count; i++)
+        {
+            float travel = Mathf.Abs(_legs[i].ToX - _legs[i].FromX);
+            totalTravel += travel;
+            if (travel > maxTravel)
+                maxTravel = travel;
+        }
+
+        if (_legs.Count < 2 || maxTravel < TravelEpsilon)
+        {
+            int entries = _legs.Count;
+            _legs.Clear();
+            Skipped($"the row's entry set changed and the re-laid row leaves all {entries} " +
+                    "portrait(s) where they already are", holder);
+            return;
+        }
+
+        // The forced rebuild left the row at its DESTINATIONS. Put every leg at its origin now, in
+        // this same LateUpdate, so that pose is never a frame the player sees.
+        for (int i = 0; i < _legs.Count; i++)
+        {
+            Leg leg = _legs[i];
+            leg.Entry.localPosition = new Vector3(leg.FromX, leg.RestY, leg.RestZ);
+        }
+
+        _duration = Mathf.Clamp(track.trackReorderDuration, MinDuration, MaxDuration);
+
+        VRLog.Info("WorldUI",
+            $"INITIATIVE REORDER SLIDE start [CHANGED ROW]: {_legs.Count} portrait(s) re-order, travel " +
+            $"max {maxTravel:F0} px / total {totalTravel:F0} px along the ROW's local x, over " +
+            $"{_duration:F2} s (game trackReorderDuration {track.trackReorderDuration:F2} s, " +
+            $"easeOutQuad) on UNSCALED time. Cancelled {_cancelled} world-x LeanTween(s). " +
+            $"THE ROW'S MEMBERSHIP CHANGED under the previous plan ({wasLatched} entr(y/ies) were " +
+            $"latched, {_latchedRowCount} are in the row now) — Choreographer.HandleMessage drives " +
+            "UpdateInitiativeTrack -> NormalizeActorsPool INSTANTLY on EndRound / NextRound / Spawn " +
+            "/ ActorDead / … (Choreographer.cs:12534-12550), with no coroutine, no tween and none of " +
+            "the three flags this class watches, so the round boundary is the one place two reorders " +
+            "land back to back over two DIFFERENT rows. The old latch is therefore not a slot list " +
+            "for this row and was NOT re-derived from: the destinations were read back from the " +
+            "game's own HorizontalLayoutGroup after one immediate rebuild (sibling order is already " +
+            "the sorted order at this point, so that rebuild IS the final arrangement), which is why " +
+            "the travel can no longer exceed what the row physically contains. Origins: " +
+            $"{chained} portrait(s) CHAINED from the x this slide last wrote (they continue instead " +
+            $"of jumping back to the superseded plan's start), {fresh} new to the row start at their " +
+            "own slot (a row that just appeared has no travel to show), the rest from the previous " +
+            "latch. No live transform was read for any of them.");
+    }
+
+    /// <summary>
+    /// Hand the row to the game's own <c>HorizontalLayoutGroup</c> for ONE immediate rebuild and
+    /// latch the result. The only place this class ever asks the layout a question instead of
+    /// remembering its answer — and it is legitimate precisely because the layout group IS the
+    /// authority on where the row's slots are, and because the caller puts the writers straight back
+    /// off and repositions every entry before the frame is rendered.
+    /// </summary>
+    private void SettleRowIntoLayout(InitiativeTrack track, Transform holder)
+    {
+        if (_layoutGroup != null)
+            _layoutGroup.enabled = true;
+        if (_fitter != null)
+            _fitter.enabled = true;
+
+        // Rebuild against the layout GROUP's own rect, exactly as vanilla's
+        // RebuildLayoutGroupImmediately does (InitiativeTrack.cs:252-256); the holder is the
+        // fallback for a track whose group reference has gone.
+        RectTransform? target = _layoutGroup != null
+            ? _layoutGroup.transform as RectTransform
+            : holder as RectTransform;
+        target ??= holder as RectTransform;
+        if (target != null)
+            LayoutRebuilder.ForceRebuildLayoutImmediate(target);
+
+        LatchRest(track, holder);
     }
 
     /// <summary>
@@ -802,6 +1178,7 @@ internal sealed class InitiativeReorderSlide
         if (_legs.Count == 0 && _layoutGroup == null && _fitter == null)
         {
             _rest.Clear(); // the next conversion latches the row's rest pose from scratch
+            _latchedRowCount = 0;
             return;
         }
         int entries = _legs.Count;
@@ -823,6 +1200,7 @@ internal sealed class InitiativeReorderSlide
         MarkRowForRebuild(_holderRect);
         _holderRect = null;
         _rest.Clear();
+        _latchedRowCount = 0;
         _guardSettleUntil = Time.unscaledTime + GuardSettleSeconds;
         if (entries > 0)
         {

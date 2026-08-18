@@ -21,6 +21,7 @@ internal static partial class Defaults
     internal const bool HoverHaptics = true;         // => [Board] HoverHaptics
     internal const float AoeFlickThreshold = 0.6f;   // => [Board] AoeFlickThreshold
     internal const float AoeRepeatInterval = 0.35f;  // => [Board] AoeRepeatInterval
+    internal const bool AutoFocusOnTurn = true;      // => [Board] AutoFocusOnTurn
 
     // ---- Board/FigureGrab/FigureGrabConfig.cs --------------------------------------
     internal const bool GrabFigures = true;                 // => [FigureGrab] GrabFigures

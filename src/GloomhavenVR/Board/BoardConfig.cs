@@ -27,6 +27,15 @@ internal static class BoardConfig
     /// <summary>Haptic tick when the pick lands on a new valid interactable.</summary>
     public static ConfigEntry<bool> HoverHaptics = null!;
 
+    /// <summary>
+    /// Automatically look at the character that is now up, once per turn hand-off — see
+    /// <see cref="CharacterFocus.FollowTurn"/> for the edge and the focus-stealing rule. Pure
+    /// LOCAL comfort: OFF is byte for byte the behaviour that shipped (the view stays wherever the
+    /// player last put it and the red "wrong character" mark asks them to click back), so nothing
+    /// in the flow depends on it being on.
+    /// </summary>
+    public static ConfigEntry<bool> AutoFocusOnTurn = null!;
+
     /// <summary>Thumbstick |x| needed to rotate the AoE pattern one 60° step.</summary>
     public static ConfigEntry<float> AoeFlickThreshold = null!;
 
@@ -64,6 +73,14 @@ internal static class BoardConfig
         HoverHaptics = config.Bind(
             "Board", "HoverHaptics", Defaults.HoverHaptics,
             "Haptic tick on the picking hand when the pick moves onto a new valid board target.");
+        AutoFocusOnTurn = config.Bind(
+            "Board", "AutoFocusOnTurn", Defaults.AutoFocusOnTurn,
+            "When one of YOUR characters comes up, switch the view to it automatically instead of " +
+            "leaving it on whoever you were last looking at. Fires once per turn hand-off: if you " +
+            "then deliberately look at somebody else during that turn, that stands until the next " +
+            "character comes up. Never touches another player's view and never changes whose turn " +
+            "it is. Off = the view stays where you put it and the red 'wrong character' ring asks " +
+            "you to click back yourself.");
         AoeFlickThreshold = config.Bind(
             "Board", "AoeFlickThreshold", Defaults.AoeFlickThreshold,
             "Thumbstick horizontal deflection (0.2-0.95) that rotates an active AoE pattern " +

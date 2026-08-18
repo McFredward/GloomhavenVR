@@ -56,6 +56,15 @@ namespace GloomhavenVR.Rig;
 /// dedicated flight message would be a SECOND source of truth for one position and could only ever
 /// disagree with the first.</para>
 ///
+/// <para>VERTICAL LIFT RIDES THE *TURN* STICK, and it is the one part of this class that reads a
+/// controller this class does not otherwise own (user request 2026-08-15: "Ich will es auch
+/// Optional einstelbar machen, dass in der Hand mit der man dreht auch beim Joystick hoch und
+/// runter entsprechend nach oben und unten fährt mit der Fluggeschwindigkeit."). It is off by
+/// default (<c>[Comfort] TurnStickVertical</c>), it uses THIS class's speed dial and THIS class's
+/// step guards rather than a second vertical-motion path with its own numbers, and it can never
+/// take a degree of turning away — see <see cref="TickVerticalLift"/> for the axis-separation rule
+/// and <see cref="LiftAllowed"/> for who outranks it.</para>
+///
 /// <para>WHAT IT DELIBERATELY LEAVES ALONE. The rig ROOT moves; no game object is ever touched
 /// (the house rule for every comfort feature). The board keeps its own contract: in FOLGEN it comes
 /// along because the player moved, in FIXIERT it stays exactly where it was pinned — flight never
@@ -91,6 +100,12 @@ internal sealed class Flight : MonoBehaviour
     /// <summary>Apparent metres flown this frame (magnitude, any direction). Zero when idle.</summary>
     internal float LastStepMeters { get; private set; }
 
+    /// <summary>True on any frame the TURN stick's vertical axis lifted the rig (gizmos / diagnostics).</summary>
+    internal bool IsLifting { get; private set; }
+
+    /// <summary>Signed apparent metres/second of vertical lift this frame (+up). Zero when idle.</summary>
+    internal float LastLiftSpeed { get; private set; }
+
     private bool _loggedNoDirection;
 
     private void Awake() => Instance = this;
@@ -105,12 +120,20 @@ internal sealed class Flight : MonoBehaviour
     {
         IsFlying = false;
         LastStepMeters = 0f;
+        IsLifting = false;
+        LastLiftSpeed = 0f;
 
         Transform? rig = RigTarget.Current;
         if (rig == null || !ComfortSettings.IsBound)
+        {
+            ReleaseLift();
             return;
+        }
         if (!ComfortSettings.FlightEnabled.Value)
+        {
+            ReleaseLift();
             return;
+        }
 
         // MODE GATING. Menu2D has no scene to fly through. ModalUI is deliberately NOT excluded —
         // the player must keep full movement while a dialog floats, the same call turning makes.
@@ -128,7 +151,18 @@ internal sealed class Flight : MonoBehaviour
         // the turning contest).
         VRMode mode = VRModeStateMachine.CurrentMode;
         if (mode == VRMode.Menu2D && !RigTarget.IsDevProxy)
+        {
+            ReleaseLift();
             return;
+        }
+
+        // VERTICAL LIFT FIRST, and on a DIFFERENT STICK — it reads [Comfort] TurnHand, the
+        // forward/strafe block below reads [Comfort] FlightHand. It runs before the block's own
+        // early-outs (no hand, world grab, menu scroll on the FLIGHT hand) because none of those
+        // say anything about the turn hand: a player scrolling with the flight hand must still be
+        // able to lift with the other one. It has its own copies of exactly those gates, asked of
+        // its own hand.
+        TickVerticalLift(rig);
 
         VRHand? hand = ResolveFlightHand();
         if (hand == null || !hand.HasPose)
@@ -198,6 +232,26 @@ internal sealed class Flight : MonoBehaviour
         // cannot reposition while a dialog is up would read that as flight being broken.
         float meters = response * ComfortSettings.FlightMaxSpeed.Value * Time.unscaledDeltaTime;
 
+        ApplyStep(rig, heading, meters, "stick flight");
+    }
+
+    /// <summary>
+    /// Translate the rig by <paramref name="meters"/> APPARENT metres along a unit
+    /// <paramref name="heading"/>, and tell everyone who has to know that the player moved.
+    ///
+    /// <para>THE ONE PLACE A FLIGHT STEP IS WRITTEN. Both the forward/strafe push and the turn
+    /// stick's vertical lift come through here, so there is exactly one scale conversion, one
+    /// minimum-step guard, one NaN guard and one pair of locomotion notifications for the whole
+    /// feature. The lift was specified as "mit der Fluggeschwindigkeit" — with the flight speed —
+    /// and sharing the tail is how that stays literally true instead of true-until-someone-edits-
+    /// one-of-two-copies.</para>
+    ///
+    /// <para><paramref name="meters"/> is UNSIGNED distance for the readouts; the sign lives in
+    /// <paramref name="heading"/>, which is why <see cref="LastStepMeters"/> accumulates a
+    /// magnitude and can hold both contributions of one frame.</para>
+    /// </summary>
+    private bool ApplyStep(Transform rig, Vector3 heading, float meters, string what)
+    {
         // Apparent metres -> world units through the LIVE rig scale (see the class doc). lossyScale
         // because the rig may sit under a scaled parent; guarded because a degenerate scale would
         // otherwise silently freeze or explode the step.
@@ -207,20 +261,207 @@ internal sealed class Flight : MonoBehaviour
 
         Vector3 step = heading * (meters * scale);
         if (step.sqrMagnitude < MinStepWorld * MinStepWorld)
-            return;
+            return false;
         if (float.IsNaN(step.x) || float.IsNaN(step.y) || float.IsNaN(step.z))
-            return; // a NaN here would fling the rig out of the world and never come back
+            return false; // a NaN here would fling the rig out of the world and never come back
 
         rig.position += step;
         IsFlying = true;
-        LastStepMeters = meters;
+        LastStepMeters += Mathf.Abs(meters);
 
         // Tutorial camera step: flying is camera familiarization exactly like a stick turn is, and
         // the bridge measures it in metres (cold path = two static reads outside scripted levels).
         Compat.TutorialVR.NotifyLocomotion(Mathf.Abs(meters), 0f, 0f);
         // Spawn ring: the player moving THEMSELVES closes the join-placement window, so a late
         // multiplayer seat correction can never yank a flying player back to the ring.
-        VRRigDriver.NotifyPlayerLocomotion("stick flight");
+        VRRigDriver.NotifyPlayerLocomotion(what);
+        return true;
+    }
+
+    // ==== VERTICAL LIFT ON THE TURN STICK ===============================================
+    //
+    // USER REQUEST 2026-08-15, verbatim: "Ich will es auch Optional einstelbar machen, dass in der
+    // Hand mit der man dreht auch beim Joystick hoch und runter entsprechend nach oben und unten
+    // fährt mit der Fluggeschwindigkeit."
+    //
+    // THE DESIGN IS THE AXIS SEPARATION, and it lives in Rig/LiftWedge.cs — one pure function and
+    // the four numbers it is made of, written free of Unity beyond Mathf so it can be driven vector
+    // by vector on the test harness (tests/GloomhavenVR.WireTests/LiftWedgeVectors.cs). Read that
+    // file's doc for the rule itself, what it does at 45 degrees, why it is a RATIO rather than a
+    // per-axis threshold, why the hysteresis is there and why Snap and Smooth need no separate
+    // handling. None of it is restated here. What IS here is the arbitration (LiftAllowed), the
+    // response curve, and the diagnostics.
+    //
+    // TURNING IS UNTOUCHED BY ALL OF IT. SnapTurn does not call LiftWedge, does not know it exists,
+    // and reads its axis exactly as it did before this feature. The wedge can only ever decide when
+    // the LIFT stands down — that is the only shape a feature on this stick may take (TURN NEVER,
+    // user ruling ModBuild 138).
+
+    /// <summary>True while the wedge is satisfied and the lift is running (hysteresis state).</summary>
+    private bool _lifting;
+
+    /// <summary>Last logged stand-down verdict, so the diagnostic is edge-only (this file's contract).
+    /// Null = nothing logged yet, so the first verdict of a session is always written.</summary>
+    private bool? _liftBlocked;
+
+    /// <summary>Throttle for the axis-decision attribution line (unscaled seconds).</summary>
+    private const float LiftDiagSeconds = 5f;
+    private float _lastLiftDiagAt = float.NegativeInfinity;
+
+    /// <summary>
+    /// Drop the lift latch. Called from every path that leaves <see cref="Update"/> before the lift
+    /// is evaluated, so a held stick can never resume a climb across a mode change or a config flip
+    /// without passing the (stricter) engage test again.
+    /// </summary>
+    private void ReleaseLift() => _lifting = false;
+
+    /// <summary>
+    /// The TURN hand's forward axis, as world-vertical travel at the flight speed.
+    ///
+    /// <para>The axis-separation rule, the two turn modes and why the deadzone is larger than
+    /// turning's are all argued in <see cref="LiftWedge"/> — read that first; this method only
+    /// executes it.</para>
+    ///
+    /// <para>WORLD UP, never the head's up: nothing in this mod may re-orient with head movement,
+    /// and "up" is the one direction a player is never confused about. It also means this path
+    /// needs no direction vector at all, so unlike forward flight it keeps working on a frame where
+    /// the head camera or the aim hand is missing.</para>
+    /// </summary>
+    private void TickVerticalLift(Transform rig)
+    {
+        if (!ComfortSettings.TurnStickVertical.Value)
+        {
+            ReleaseLift();
+            return;
+        }
+
+        VRHand? hand = VRHands.Get(LocalTurnControl.Resolve(ComfortSettings.TurnHand.Value));
+        if (hand == null || !hand.HasPose)
+        {
+            ReleaseLift();
+            return;
+        }
+        if (!LiftAllowed(hand))
+        {
+            ReleaseLift();
+            return;
+        }
+
+        Vector2 stick = hand.Thumbstick;
+        float ax = Mathf.Abs(stick.x);
+        float ay = Mathf.Abs(stick.y);
+
+        bool inWedge = LiftWedge.Evaluate(stick.x, stick.y, _lifting);
+
+        // WHICH AXIS WON, once per interval and only while the thumb is actually somewhere — the
+        // diagnostic the report asks for. Throttled rather than edge-only because the interesting
+        // reading is the NUMBERS (the stick vector against the wedge), which an edge line taken at
+        // the moment of the flip would only ever show at the boundary.
+        if (ay >= LiftWedge.SustainDeflection && Time.unscaledTime - _lastLiftDiagAt >= LiftDiagSeconds)
+        {
+            _lastLiftDiagAt = Time.unscaledTime;
+            float ratio = ax > 1e-4f ? ay / ax : float.PositiveInfinity;
+            VRLog.Info("Comfort", $"stick lift: {hand.Side} turn stick ({stick.x:F2}, {stick.y:F2}) — "
+                                  + $"|y|/|x| = {(float.IsInfinity(ratio) ? "inf" : ratio.ToString("F2"))}, "
+                                  + $"wedge needs {LiftWedge.Ratio(_lifting):F2} at "
+                                  + $"|y| >= {LiftWedge.Deflection(_lifting):F2} -> "
+                                  + (inWedge ? "VERTICAL wins" : "TURN axis wins, no lift")
+                                  + ". Turning reads x regardless and is never suppressed by this feature; "
+                                  + "at 45 degrees the turn axis always wins by design.");
+        }
+
+        if (!inWedge)
+        {
+            _lifting = false;
+            return;
+        }
+        _lifting = true;
+
+        // THE SAME RESPONSE SHAPE AND THE SAME DIAL as forward flight — deadzone-compensated then
+        // squared, so a full push is exactly FlightMaxSpeed and small pushes creep. Measured from
+        // the SUSTAIN deadzone rather than the engage one so the curve is continuous while held:
+        // the first lifting frame starts at ((0.50-0.35)/0.65)² ≈ 5 % of full speed instead of
+        // stepping straight to 23 %.
+        float response = (ay - LiftWedge.SustainDeflection) / (1f - LiftWedge.SustainDeflection);
+        response = Mathf.Clamp01(response);
+        response *= response;
+
+        // UNSCALED time, like every other step in this class: the game pauses behind dialogs and a
+        // player who cannot reposition there would read that as the feature being broken.
+        float speed = response * ComfortSettings.FlightMaxSpeed.Value;
+        float meters = speed * Time.unscaledDeltaTime;
+        float sign = Mathf.Sign(stick.y);
+
+        if (!ApplyStep(rig, Vector3.up * sign, meters, "stick vertical lift"))
+            return;
+
+        IsLifting = true;
+        LastLiftSpeed = speed * sign;
+    }
+
+    /// <summary>
+    /// May the turn stick's forward axis be read as vertical lift this tick?
+    ///
+    /// <para>Three claimants outrank it, and all three are asked of the TURN hand specifically:</para>
+    /// <list type="number">
+    /// <item><b>FORWARD FLIGHT</b>, when <c>[Comfort] FlightHand</c> and <c>TurnHand</c> resolve to
+    /// the same physical controller. Then one forward axis has two claimants and there is no signal
+    /// left to tell them apart — pitch, hand, mode, nothing differs — so it must be arbitrated, and
+    /// it goes the same way <see cref="StrafeAllowed"/> goes: THE OLDER, LOAD-BEARING CONTROL KEEPS
+    /// THE AXIS. Losing forward flight to gain vertical is a strictly worse trade (there is only one
+    /// flight hand, so the player would have no way left to fly at all), and the fix is one dropdown
+    /// away. NOTE THAT THIS IS THE SHIPPED DEFAULT CONFIGURATION — both dials read Right — so the
+    /// log line below is the first thing a player who switches this feature on will need, and it
+    /// names the remedy rather than only the verdict.</item>
+    /// <item><b>MENU SCROLLING</b>, which reads this very axis: a scroll push IS a forward push, so
+    /// unlike the sideways contest there is nothing to arbitrate and scrolling simply wins, exactly
+    /// as it does for forward flight (<see cref="ScrollAllowed"/>). Deliberately NOT
+    /// <see cref="ScrollTurnGate"/>: that gate's escape hatch is a deliberate SIDEWAYS flick, which
+    /// says nothing about whether the player meant to climb.</item>
+    /// <item><b>THE WORLD GRAB</b> on that same hand, which is already moving the player with the
+    /// drag — the same rule forward flight and turning both apply.</item>
+    /// </list>
+    ///
+    /// <para>Logged on every CHANGE of the verdict, never per frame — this file's standing contract
+    /// — and the suppression line names its suppressor, which is the lesson the 2026-08-04
+    /// sentinel-latch hunt cost three hardware rounds to learn.</para>
+    /// </summary>
+    private bool LiftAllowed(VRHand hand)
+    {
+        bool flightOwnsForward = ComfortSettings.FlightEnabled.Value
+                                 && SameHand(ComfortSettings.FlightHand.Value,
+                                             ComfortSettings.TurnHand.Value);
+        bool scrolling = UiScrollFocus.IsScrolling(hand);
+        bool grabbing = WorldGrab.Instance != null && WorldGrab.Instance.IsHandGrabbing(hand);
+        bool allowed = !flightOwnsForward && !scrolling && !grabbing;
+
+        if (_liftBlocked != !allowed)
+        {
+            _liftBlocked = !allowed;
+            if (allowed)
+            {
+                VRLog.Info("Comfort", $"stick vertical lift: ACTIVE on the {hand.Side} turn stick — "
+                                      + "push it forward to rise, back to sink, at "
+                                      + $"[Comfort] FlightMaxSpeed ({ComfortSettings.FlightMaxSpeed.Value:F2} "
+                                      + "apparent m/s at full deflection). Turning is unaffected.");
+            }
+            else
+            {
+                string why = flightOwnsForward
+                    ? "forward/backward FLIGHT already owns this stick's forward axis — [Comfort] "
+                      + $"FlightHand ({ComfortSettings.FlightHand.Value}) and TurnHand "
+                      + $"({ComfortSettings.TurnHand.Value}) resolve to the same controller. Put them "
+                      + "on different hands (the arrangement this mod is built around is turn right / "
+                      + "fly left), or switch [Comfort] FlightEnabled off, and the lift is yours"
+                    : scrolling
+                        ? $"menu scrolling owns it — [{UiScrollFocus.Describe(hand)}]. It comes back "
+                          + "by itself the moment the beam leaves the list"
+                        : "this hand is dragging the world, which is already moving the player";
+                VRLog.Info("Comfort", $"stick vertical lift: STANDING DOWN on the {hand.Side} turn "
+                                      + $"stick — {why}. Turning is untouched either way.");
+            }
+        }
+        return allowed;
     }
 
     /// <summary>

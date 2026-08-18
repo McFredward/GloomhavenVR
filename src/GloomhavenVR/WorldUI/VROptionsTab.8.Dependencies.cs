@@ -83,6 +83,10 @@ internal static partial class VROptionsTab
         ["Comfort/FlightDirection"] = new("Comfort", "FlightEnabled", On),
         ["Comfort/FlightMaxSpeed"] = new("Comfort", "FlightEnabled", On),
         ["Comfort/FlightHand"] = new("Comfort", "FlightEnabled", On),
+        // The vertical lift is flight on a second stick and shares its speed dial, so it is inert
+        // for the same reason the three rows above are: Flight.Update returns before the lift is
+        // evaluated when FlightEnabled is off.
+        ["Comfort/TurnStickVertical"] = new("Comfort", "FlightEnabled", On),
 
         // ---- Komfort ▸ Welt greifen: every gesture dial rides the grab, the two clamps ride the
         //      pinch ("Two-grip pinch scales the table") — ScaleMin/Max chain through ScaleEnabled

@@ -77,6 +77,16 @@ internal sealed class ComfortGizmos : MonoBehaviour
             _sb.Append("  (SUPPRESSED: menu scrolling owns the stick — release the stick sideways, "
                        + "or flick it hard sideways, to turn)");
 
+        // The vertical lift shares the turn stick, so it belongs on the turn line rather than in a
+        // line of its own: the question the overlay has to answer is what THAT stick is doing.
+        if (ComfortSettings.TurnStickVertical.Value)
+        {
+            Flight? flight = Flight.Instance;
+            _sb.Append(flight != null && flight.IsLifting
+                ? $"  |  lift {flight.LastLiftSpeed:F2} m/s"
+                : "  |  lift armed");
+        }
+
         _sb.Append("\nclamp ").Append(RigClamp.LastClampActive ? "ACTIVE (head lifted)" : "ok");
         if (comfort != null && comfort.ChordProgress > 0f)
             _sb.Append("  |  recenter chord ").Append((comfort.ChordProgress * 100f).ToString("F0")).Append('%');

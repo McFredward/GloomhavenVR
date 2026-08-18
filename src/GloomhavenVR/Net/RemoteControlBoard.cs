@@ -585,7 +585,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             int selWire = s == 0 ? _owner.HalfSelect0 : _owner.HalfSelect1;
             int sel = selWire == NetProtocol.HalfSelectTop ? 1
                 : selWire == NetProtocol.HalfSelectBottom ? 0 : -1;
-            _cards[s]?.SetHalfStates(hover, sel);
+            // WHICH REGION of that half (record 14 byte 2 — item 6): the big action half, or the
+            // small standard-action chip inside it. The slot's renderer drives the game's own
+            // highlight for whichever one the owner named, which is the entire fix: the chip has
+            // its own CardActionHighlight on the very same widget.
+            bool hoverDef = hover >= 0 && _owner.HalfHoverDefault;
+            bool selDef = sel >= 0 && (s == 0 ? _owner.HalfSelect0Default : _owner.HalfSelect1Default);
+            _cards[s]?.SetHalfStates(hover, sel, hoverDef, selDef);
         }
         LogHalfHoverIfChanged();
 
@@ -863,22 +869,34 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         int hoverKey = _owner.HalfHoverSlot >= 0
             ? _owner.HalfHoverSlot | (_owner.HalfHoverTop ? 1 << 8 : 0)
             : -1;
-        int now = (hoverKey + 2) | (_owner.HalfSelect0 << 16) | (_owner.HalfSelect1 << 20);
+        int now = (hoverKey + 2) | (_owner.HalfSelect0 << 16) | (_owner.HalfSelect1 << 20)
+                  | (_owner.HalfHoverDefault ? 1 << 24 : 0)
+                  | (_owner.HalfSelect0Default ? 1 << 25 : 0)
+                  | (_owner.HalfSelect1Default ? 1 << 26 : 0);
         if (now == _loggedHalfHover)
             return;
         _loggedHalfHover = now;
-        string Sel(int v) => v == NetProtocol.HalfSelectTop ? "TOP"
-            : v == NetProtocol.HalfSelectBottom ? "BOTTOM" : "none";
+        // REGION WORDING IS THE SENDER'S, VERBATIM ("TOP half" / "TOP standard-action field"), so
+        // the owner's "Half hover SENT" / "Half selection SENT" lines and this one can be compared
+        // side by side without converting anything — that comparison is what item 6 needed and did
+        // not have (the observer could only ever print "half").
+        string Sel(int v, bool def) => v == NetProtocol.HalfSelectTop
+            ? (def ? "TOP standard-action field" : "TOP half")
+            : v == NetProtocol.HalfSelectBottom
+                ? (def ? "BOTTOM standard-action field" : "BOTTOM half")
+                : "none";
         VRLog.Info("Net", $"Remote board half-hover [{_owner.PlayerId}]: " +
                           (hoverKey >= 0
                               ? $"slot {_owner.HalfHoverSlot + 1} " +
-                                $"{(_owner.HalfHoverTop ? "TOP" : "BOTTOM")} half pulses"
+                                $"{(_owner.HalfHoverTop ? "TOP" : "BOTTOM")} " +
+                                $"{(_owner.HalfHoverDefault ? "standard-action field" : "half")} pulses"
                               : "no hover") +
-                          $"; clicked: slot 1 = {Sel(_owner.HalfSelect0)}, " +
-                          $"slot 2 = {Sel(_owner.HalfSelect1)} (steady) — extension record 14: " +
-                          "slot positions and halves only, no card identity; pulse = the owner's " +
-                          "pointer, steady = their committed click (cleared by their undo), the " +
-                          "same two-state split their own card shows.");
+                          $"; clicked: slot 1 = {Sel(_owner.HalfSelect0, _owner.HalfSelect0Default)}, " +
+                          $"slot 2 = {Sel(_owner.HalfSelect1, _owner.HalfSelect1Default)} (steady) — " +
+                          "extension record 14: slot positions, halves and which of each half's two " +
+                          "regions, no card identity; pulse = the owner's pointer, steady = their " +
+                          "committed click (cleared by their undo), the same two-state split their " +
+                          "own card shows.");
     }
 
     /// <summary>
@@ -1158,9 +1176,30 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         }
     }
 
-    /// <summary>Mirror the local board's ordering: <c>InitiativeAbilityCard</c> first, then the
-    /// remaining round card(s). Falls back to list order when the initiative card is not yet set
-    /// (e.g. mid-selection) — exactly like <c>PlayTray.SyncFromGameState</c>.</summary>
+    /// <summary>
+    /// Which round card belongs in which recess. TAKEN FROM THE OWNER when they state it
+    /// (record 18, <see cref="RemoteAvatar.SlotOrderKnown"/>), derived only when they cannot.
+    ///
+    /// <para>WHY THE OWNER HAS TO STATE IT (user report 2026-08-15, item 8: "Die Position der
+    /// Karten (linke Karte/rechte Karte) war in einem Test verdreht wenn ich einen Character
+    /// anklicke die einem anderen Spieler gehört. Die Reihenfolge MUSS zwingend identisch sein wie
+    /// es der jenige Spieler auch sieht."). This method's old rule —
+    /// <c>InitiativeAbilityCard</c> first, then the rest of <c>RoundAbilityCards</c> — is only ONE
+    /// of three rules the mod uses for the same two cards, and it is not the one the owner's own
+    /// ACTION-phase dock uses: that dock takes the iteration order of the owner's
+    /// <c>CardsHandUI.cardsUI</c> list (<c>CardsDriver.CollectRoundCards</c> →
+    /// <c>HalfSelection.SetCards</c>). The two rules agree only when the printed-initiative sort
+    /// happens to put the initiative card first. Session evidence, one session on three machines:
+    /// the owner of 'Hilde Die 2Te' had UnbridledPower LEFT during selection
+    /// (<c>remote2/LogOutput.log:46564</c>) and FatalFury LEFT once his cards docked
+    /// (<c>:46580</c>) — while this method kept UnbridledPower on the left on both watchers.</para>
+    ///
+    /// <para>The wire fact is one BIT against a reference every client resolves identically, so
+    /// nothing here changed about how the cards themselves are resolved (still the replicated
+    /// model, still gated by <see cref="RevealGate"/>) — only which recess each one goes in. When
+    /// the record is absent (the owner could not answer, or a peer predating it) the legacy
+    /// derivation below runs unchanged, so this can only ever replace a guess with the truth.</para>
+    /// </summary>
     private void OrderRoundCards(CPlayerActor actor)
     {
         _ordered[0] = _ordered[1] = null;
@@ -1178,6 +1217,42 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 continue;
             _ordered[idx++] = c;
         }
+
+        // THE OWNER'S OWN ANSWER, applied last: the pair above is now (initiative, other), which
+        // is exactly the arrangement the swap bit is defined against. Only a full pair can be
+        // swapped — a single card has no order, and the seating loop puts it in the first occupied
+        // recess either way.
+        if (_owner.SlotOrderKnown && _owner.SlotOrderSwapped
+            && _ordered[0] != null && _ordered[1] != null)
+        {
+            (_ordered[0], _ordered[1]) = (_ordered[1], _ordered[0]);
+        }
+        LogSlotOrderIfChanged();
+    }
+
+    /// <summary>Last stated slot-order key (-1 derived, 0 stated unswapped, 1 stated swapped;
+    /// int.MinValue never) — the change gate for the line below.</summary>
+    private int _loggedSlotOrder = int.MinValue;
+
+    /// <summary>Change-gated evidence that the owner's OWN left/right order reached this board's
+    /// seating (grep: "Remote board slot order"). Printed in the same words the sender's "Slot
+    /// order SENT" line uses, so the two logs compare without arithmetic.</summary>
+    private void LogSlotOrderIfChanged()
+    {
+        int now = _owner.SlotOrderKnown ? (_owner.SlotOrderSwapped ? 1 : 0) : -1;
+        if (now == _loggedSlotOrder)
+            return;
+        _loggedSlotOrder = now;
+        VRLog.Info("Net", _owner.SlotOrderKnown
+            ? $"Remote board slot order [{_owner.PlayerId}]: LEFT recess (slot 1) holds the " +
+              $"{(_owner.SlotOrderSwapped ? "NON-INITIATIVE" : "INITIATIVE")} round card — STATED " +
+              "by the owner (extension record 18), not derived here. This board now seats the pair " +
+              "the way its owner physically placed it; the cards themselves are still resolved " +
+              "from the replicated model through the reveal gate, so no identity came off the wire."
+            : $"Remote board slot order [{_owner.PlayerId}]: not stated — falling back to this " +
+              "client's own InitiativeAbilityCard-first derivation (a sender that could not answer, " +
+              "or one predating record 18). The pair may sit reversed against the owner's screen; " +
+              "that is the pre-2026-08-15 behaviour, kept rather than replaced by a second guess.");
     }
 
     private void EnsureBuilt()

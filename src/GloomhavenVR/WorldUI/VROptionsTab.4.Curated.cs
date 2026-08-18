@@ -152,6 +152,12 @@ internal static partial class VROptionsTab
                         new("Comfort", "FlightDirection", "vr_o_flightdir"),
                         new("Comfort", "FlightMaxSpeed", "vr_o_flightspeed"),
                         new("Comfort", "FlightHand", "vr_o_flighthand"),
+                        // EMPTY CAPTION KEY ON PURPOSE, and it is the documented degradation rather
+                        // than an omission: Caption(item, "") falls through to item.Display, i.e.
+                        // Loc.ConfigNames' "Hoch/Runter am Drehstick", and HintKey "h_" misses so
+                        // the tooltip falls through to the bound description. Both fallbacks are
+                        // the ones VROptionsTab.2.Rows already relies on for every uncurated row.
+                        new("Comfort", "TurnStickVertical", ""),
                         new("Comfort", "FreeMovement", "free_movement"),
                     },
                 },

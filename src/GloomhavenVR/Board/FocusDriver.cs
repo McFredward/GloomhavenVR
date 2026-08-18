@@ -190,6 +190,16 @@ internal sealed class FocusDriver : MonoBehaviour
         // steady state, and it early-returns outright while no focus override is live.
         CharacterFocus.EnforcePin();
 
+        // AUTO-FOLLOW THE TURN (user, 3-player hardware session: "wenn ein Spieler neu am Zug ist
+        // [soll er] automatisch zu dem Character wechseln der gerade dran ist"). Placed AFTER the
+        // pin for the same reason the pin is placed first: while the board is waiting for this
+        // player's hex pick the pin already owns which character is presented, and the two must
+        // never argue on the same frame. Edge-triggered inside — one decision per turn hand-off,
+        // never a per-frame correction — and a no-op the moment [Board] AutoFocusOnTurn is off.
+        // Sampled BEFORE the three fields below so the ring, the board stroke and the wire all
+        // describe the character the follow just settled on, on the very frame it settles.
+        CharacterFocus.FollowTurn();
+
         _tickFocused = CharacterFocus.LookingAt;
         // THE CHARACTER THE GAME IS WAITING ON — the actor at turn, or (nobody at turn: the whole
         // of an enemy's action) the one that owes an OPEN DECISION. Reading only the turn is what

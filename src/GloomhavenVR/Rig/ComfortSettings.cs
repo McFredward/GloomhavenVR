@@ -203,6 +203,10 @@ internal static class ComfortSettings
     /// <summary>Which hand's stick flies (Dominant follows <c>[Hands] PrimaryHand</c>).</summary>
     public static ComfortSetting<TurnHandChoice> FlightHand { get; private set; } = null!;
 
+    /// <summary>The TURN stick's forward axis as world up/down travel at <see cref="FlightMaxSpeed"/>.
+    /// Off by default; the axis rule and the arbitration live in <see cref="Flight"/>.</summary>
+    public static ComfortSetting<bool> TurnStickVertical { get; private set; } = null!;
+
     // TableHeightOffset ("Tischhöhe") lived here. REMOVED — user ruling 2026-08, see the
     // preset comment above: free locomotion replaced it. Do not re-add a height dial; the
     // answer to "the table sits wrong for me" is stick flight and the stick-click world grab,
@@ -363,6 +367,17 @@ internal static class ComfortSettings
             new AcceptableValueRange<float>(0.2f, 3f));
         FlightHand = Bind("FlightHand", Defaults.FlightHand,
             "Which thumbstick flies. Dominant follows [Hands] PrimaryHand.");
+        // OFF BY DEFAULT, and that is the request itself rather than caution added on top: the user
+        // asked to be able to SET it ("Ich will es auch Optional einstelbar machen"). Its off state
+        // is exactly today's behaviour, so nothing about the flow depends on it, and uncommanded
+        // vertical motion is the one nausea risk in this feature.
+        TurnStickVertical = Bind("TurnStickVertical", Defaults.TurnStickVertical,
+            "Push the TURN stick forward to rise and back to sink, straight up and down, at the " +
+            "same speed as FlightMaxSpeed. Turning keeps the sideways axis and is never blocked by " +
+            "this: a push has to be clearly more vertical than sideways (about 56 degrees) before " +
+            "it lifts at all, so a diagonal push at 45 degrees is a pure turn. Needs the turn hand " +
+            "and the flight hand to be DIFFERENT hands - with both on one controller, forward and " +
+            "backward flight already owns that axis and keeps it, and this does nothing.");
         // "TableHeightOffset" was bound here. REMOVED (user ruling 2026-08). BepInEx keeps the
         // orphaned line in an existing comfort.cfg until the file is rewritten; it binds to
         // nothing and does nothing, which is the intended outcome — no migration is needed for
@@ -442,6 +457,7 @@ internal static class ComfortSettings
         FlightDirection.Detach();
         FlightMaxSpeed.Detach();
         FlightHand.Detach();
+        TurnStickVertical.Detach();
         RecenterHoldSeconds.Detach();
         SavedScaleMultiplier.Detach();
         DebugGizmos.Detach();

@@ -88,6 +88,19 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Rig\ScrollTurnGate.cs" Link="rig\ScrollTurnGate.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file either, and here for the ScrollTurnGate reason exactly: it arbitrates the
+       SAME thumbstick, between turning and the vertical lift added on the user's request of
+       2026-08-15, and its verdict is only ever observed by FEEL. One comparison too loose and the
+       world yaws every time the player tries to rise; one too tight and the control silently
+       refuses for anyone whose thumb is not perfectly vertical, which is indistinguishable from a
+       broken button. Its "45 degrees is always a pure turn" and "a snap flick can never also lift"
+       properties are claims the German menu caption makes to the player, and neither is reachable
+       from anywhere else in this repo. LiftWedge.cs was written free of Unity (beyond Mathf), of
+       config and of the hand model precisely so it could be linked in here. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Rig\LiftWedge.cs" Link="rig\LiftWedge.cs" />
+  </ItemGroup>
+
   <!-- Not a wire file either, and the sharpest case on this list. It schedules the bursts inside
        two synthesized one-shots, and its failure mode is not a wrong sound but NO FRAME AT ALL:
        ModBuild 145 drove the creak from a `while` whose geometric step summed SHORT of the window
@@ -114,15 +127,37 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\HauntFigures.Math.cs" Link="core\HauntFigures.Math.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, and here for the ConfigSteps/ScrollTurnGate reason: it decides the
+       interaction volume of the two-handed resize gesture, and that verdict is observed ONLY by
+       feel, from inside a headset. Its predecessor was a FIXED 0.5 m ceiling that stopped growing
+       while the figure did, so past a certain stretch it excluded the mini's own renderers and the
+       capture test silently fell back to the centre distance — a player who could enlarge a figure
+       and then not reach it again (user report 2026-08-15, and the second time that report was
+       filed). Nothing threw, nothing warned, and the mod could not have noticed. The arithmetic was
+       kept out of FigureStretch.cs (VRHand, Renderer bounds, the config, the grabbable) into a file
+       free of everything but Mathf precisely so it could be linked in here and driven size by size. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Board\FigureGrab\FigureStretchMath.cs" Link="board\FigureStretchMath.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
     <Compile Include="GoldenVectors.cs" />
+    <Compile Include="StoryVectors.cs" />
     <Compile Include="RelaunchVectors.cs" />
     <Compile Include="ConfigStepVectors.cs" />
     <Compile Include="ScrollTurnGateVectors.cs" />
+    <Compile Include="LiftWedgeVectors.cs" />
     <Compile Include="EnvSoundScheduleVectors.cs" />
     <Compile Include="HauntFigureVectors.cs" />
+    <Compile Include="HeldSizeVectors.cs" />
+    <!-- Peer-board see-through (user request 15): a stepper pin for four dials whose defaults do
+         not ride src/GloomhavenVR/Defaults/ (so the sweep cannot see them), plus a SOURCE LINT
+         that no per-eye / screen-space term ever enters that fade — the parked wall-fade rivalry
+         is a source property the compiled form cannot show. See the file header. -->
+    <Compile Include="PeerBoardFadeVectors.cs" />
+    <Compile Include="BoardSlotVectors.cs" />
     <!-- A SOURCE LINT rather than a vector, and it earns its place on this list for the reason the
          header of BundledShaderVectors.cs sets out: `Shader.Find` on a bundled shader returns null
          with the bundle open and nothing thrown, and that has silently cost two shipped builds
@@ -130,6 +165,15 @@
          links no mod source at all — it reads src/ and unity/ as TEXT, because the property being
          checked is a property of the text and the compiled form cannot show it. -->
     <Compile Include="BundledShaderVectors.cs" />
+    <!-- A SOURCE LINT plus a millimetre vector, on this list for the same reason: how far a card's
+         printed face reaches across its body is observed ONLY by eye, from inside a headset, and
+         a face a few millimetres too small reads as "looks a bit off" rather than as a failure.
+         The ghost hand fan carried a 4.73 mm rim of card back around every peer's print from the
+         day it was written until user report 12 (2026-08-15) — because the fit arithmetic existed
+         twice, with a hand-copied constant and a comment asking the reader to keep the two in
+         sync. This file states the millimetres and lints that there is now one definition. It
+         links no mod source: it reads src/ as TEXT and recomputes the formula. -->
+    <Compile Include="CardFaceRectVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

@@ -556,6 +556,27 @@ internal sealed class RemoteAvatar
     /// <summary>Slot 1's persistently clicked half, same contract as <see cref="HalfSelect0"/>.</summary>
     public int HalfSelect1 { get; private set; } = NetProtocol.HalfSelectNone;
 
+    /// <summary>Record 14 byte 2 bit 0 — the hover named by <see cref="HalfHoverSlot"/> /
+    /// <see cref="HalfHoverTop"/> is on that half's small STANDARD-ACTION chip, not on the big
+    /// action half. False for a sender that predates the byte, which is the legacy meaning
+    /// (2026-08-15 item 6 — see <see cref="NetProtocol.HalfDefaultHoverBit"/>).</summary>
+    public bool HalfHoverDefault { get; private set; }
+
+    /// <summary>Record 14 byte 2 bit 1 — slot 0's clicked region is its STANDARD action.</summary>
+    public bool HalfSelect0Default { get; private set; }
+
+    /// <summary>Record 14 byte 2 bit 2 — slot 1's ditto.</summary>
+    public bool HalfSelect1Default { get; private set; }
+
+    /// <summary>True when the sender has STATED the left/right order of its two docked round cards
+    /// (record 18). False ⇒ this client keeps its own derivation, exactly as before the record
+    /// existed. See <see cref="NetProtocol.ExtIdSlotOrder"/>.</summary>
+    public bool SlotOrderKnown { get; private set; }
+
+    /// <summary>The sender's LEFT recess holds the round card that is NOT its character's
+    /// <c>InitiativeAbilityCard</c> (meaningful only with <see cref="SlotOrderKnown"/>).</summary>
+    public bool SlotOrderSwapped { get; private set; }
+
     /// <summary>Stable <c>CActor.ID</c> of the initiative-track entry the sender is hovering, or
     /// 0 (none / pre-record-16 sender — both render an un-hovered track). Consumed by
     /// <see cref="RemoteInitiativeTrack"/>, which lifts the matching entry on ITS copy of the
@@ -1248,6 +1269,18 @@ internal sealed class RemoteAvatar
         HalfHoverTop = p.HasHalfHover && p.HalfHoverActive && p.HalfHoverTop;
         HalfSelect0 = p.HasHalfHover ? p.HalfSelect0 : NetProtocol.HalfSelectNone;
         HalfSelect1 = p.HasHalfHover ? p.HalfSelect1 : NetProtocol.HalfSelectNone;
+        // BYTE 2 — is each named region the half's STANDARD-ACTION chip rather than the big half
+        // (2026-08-15 item 6)? Absent byte ⇒ false ⇒ the big half, the only thing every earlier
+        // build could mean.
+        HalfHoverDefault = p.HasHalfHover && p.HalfHoverActive && p.HalfHoverDefault;
+        HalfSelect0Default = p.HasHalfHover && p.HalfSelect0Default;
+        HalfSelect1Default = p.HasHalfHover && p.HalfSelect1Default;
+
+        // ROUND-CARD SLOT ORDER (record 18): which of the two round cards the sender physically
+        // has in its LEFT recess. Absent ⇒ not known ⇒ this client keeps ordering by
+        // InitiativeAbilityCard, exactly as before (2026-08-15 item 8).
+        SlotOrderKnown = p.HasSlotOrder;
+        SlotOrderSwapped = p.HasSlotOrder && p.SlotOrderSwapped;
 
         // TRACK HOVER (extension record 16): the initiative-track entry the sender is hovering,
         // by stable actor id. Absent ⇒ 0 ⇒ un-hovered track — never a stale lift.

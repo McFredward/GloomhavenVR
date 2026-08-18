@@ -116,6 +116,12 @@ internal sealed class NetModule : IVRModule
         if (_config != null)
             return;
         _config = ModuleConfig.Create("net");
+        // PEER-BOARD SEE-THROUGH lives in its own module file and binds itself, but it binds LAZILY
+        // on the first peer board built — which means its rows do not exist in the settings browser
+        // until someone else joins, i.e. exactly when the player wants to find them. Bound here so
+        // the dials are present from startup. It is a separate ConfigFile, so this is a call and not
+        // a dependency; PeerBoardFadeTuning.Bind is idempotent.
+        PeerBoardFadeTuning.Bind();
         Enabled = _config.Bind("Net", "Enabled", Defaults.Net_Enabled,
             "Multiplayer VR embodiment sync: broadcast your head + hands over the game's own " +
             "netcode so other VR players see you (Demeo style), and render remote VR players. " +

@@ -181,6 +181,15 @@ internal static class BoardVisual
             Material? m = r.sharedMaterial;
             if (m == null || m.renderQueue <= 2500)
                 continue; // depth-writing opaque/cutout: correct against depthless plates already
+            // A surface that is transparent only because the board is currently FADING (user
+            // request 15 — PeerBoardFade installs private alpha-capable clones of the opaque
+            // BoardLit slab/keycaps for the duration) is NOT board furniture. Adopting it would
+            // lift the slab into the cluster band, i.e. OVER the board's own content — and would
+            // leave a cluster registration and a written sortingOrder behind on a renderer that
+            // is opaque again the moment the fade releases. Skipped by the clone's name marker,
+            // which is the only thing that distinguishes the two states.
+            if (m.name.EndsWith(PeerBoardFade.CloneMarker, System.StringComparison.Ordinal))
+                continue;
             if (IsUnder(r.transform, excludedSubtree, boardRoot))
                 continue;
             sweep.Adopt(TierOn(boardRoot, r.transform), anchor, r, null);

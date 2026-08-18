@@ -131,6 +131,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // int.MinValue = never sent.
     private int _lastSentHalfSelect = int.MinValue;
 
+    // ROUND-CARD SLOT ORDER (record 18): the last broadcast order (-1 not knowable, 0 the
+    // initiative card is in the LEFT recess, 1 swapped). A card landing in a recess is one
+    // discrete, human-paced event, so an order CHANGE pre-empts the 5 Hz gate OUTRIGHT — the
+    // pile-counts rule — and no peer's mirrored pair sits reversed for a visible moment.
+    // int.MinValue = never sent.
+    private int _lastSentSlotOrder = int.MinValue;
+
     // EMPTY-FAN PLACARD (record 14, byte 1 bit 4): whether our own "Keine Handkarten" plate was
     // up in the last packet. A placard is a discrete, human-paced EDGE (a palm gate opening), so
     // it pre-empts the 5 Hz gate OUTRIGHT — the pile-counts rule — and the plate lands on every
@@ -595,6 +602,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentPileCounts = int.MinValue;   // and re-states the pile counts…
         _lastSentHalfHover = int.MinValue;    // …the half hover…
         _lastSentHalfSelect = int.MinValue;   // …the clicked halves…
+        _lastSentSlotOrder = int.MinValue;    // …the round-card slot order (record 18)…
         _lastSentEmptyFanHint = false;        // …the empty-fan placard (record 14 bit 4)…
         _tuningPager.Reset();                 // …and our own board tuning (record 28)…
         _lastSentTrackHoverActor = int.MinValue; // …and the track hover from scratch
@@ -613,6 +621,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentSkipLabel = null;
         _lastSentUndoLabel = null;
         _lastSentItemUseLabel = null;
+        RemoteStorySync.Reset();       // …and never carries a story page/pose into a new session
         _lastSentCapPress = -1;        // …and never replays a stale keycap press into a new session
         Cards.BoardCapPress.Clear();   // …including the latch it is diffed against
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
@@ -710,6 +719,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 _peerEnv.Clear();
                 Core.Haunt.ClearHostFrequency("flat-net mode: no peer's environment applies here");
                 RemoteTestTriggers.Reset();
+                // …and the story table, for the same reason. Leaving nothing standing here also
+                // means a flat-net client never drives its own story box from a peer it has
+                // stopped believing: it clicks through its own narrative, exactly as before the
+                // record existed.
+                RemoteStorySync.Reset();
                 VRLog.Info("Net", "FLAT-NET MODE ACTIVE: remote avatars/boards torn down; mod "
                                   + "send + receive gated for the rest of the session.");
             }
@@ -1091,9 +1105,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // half, never a card. Same capped pre-emption as the card highlight: the beam can flick
         // between halves several times a second.
         bool halfHover = HalfSelection.TrySampleLocalHover(out int halfSlot, out bool halfTop);
-        int halfHoverNow = halfHover ? (halfSlot | (halfTop ? 1 << 8 : 0)) : -1;
-        bool halfHoverChanged = halfHoverNow != _lastSentHalfHover;
-        bool halfHoverDue = halfHoverChanged && _extrasAccumulator >= fastInterval;
 
         // HALF SELECTION (record 14 byte 1, follow-up defect "Ich will auch sehen, welche Hälfte
         // der Mitspieler GEKLICKT hat"): the persistently selected half of each docked round
@@ -1102,8 +1113,39 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // Unlike the hover this pre-empts the gate OUTRIGHT: a click/undo is discrete and
         // human-paced (the pile-counts rule), and the steady highlight must land WITH the click.
         HalfSelection.SampleLocalSelection(out int halfSel0, out int halfSel1);
-        int halfSelNow = halfSel0 | (halfSel1 << 2);
+
+        // STANDARD-ACTION QUALIFIER (record 14 byte 2 — user defect 2026-08-15 item 6: "Wenn
+        // jemand die standart Aktion ausgewählt hat oder drüber hovered wird trotzdem der große
+        // untere bzw obere Bereich der Karte bei den remote boards angezeigt/gehighlighted").
+        // The two samplers above cannot answer this: the hover tap sits on the card's NON-default
+        // funnel (which the geometric laser resolve fires for a chip too, because the chip lies
+        // inside the half's zone rect) and the selection sampler ORs the two game latches into one
+        // value. LocalBoardSlots splits both apart off the owner's own recesses; see its doc for
+        // why the recesses are read from the scene and for the agreement guard.
+        LocalBoardSlots.SampleDefaults(trayNow, halfHover, halfSlot, halfTop, halfSel0, halfSel1,
+                                       out bool halfHoverDef,
+                                       out bool halfSel0Def, out bool halfSel1Def);
+        int halfSelNow = halfSel0 | (halfSel1 << 2)
+                         | (halfSel0Def ? 1 << 4 : 0) | (halfSel1Def ? 1 << 5 : 0);
         bool halfSelChanged = halfSelNow != _lastSentHalfSelect;
+        // The qualifier rides byte 0's own change gate too: moving the beam from a half onto that
+        // half's chip changes NOTHING in byte 0 (same slot, same half) but changes the picture
+        // completely, so the hover key has to carry it or the edge would be invisible.
+        int halfHoverNow = halfHover
+            ? (halfSlot | (halfTop ? 1 << 8 : 0) | (halfHoverDef ? 1 << 9 : 0))
+            : -1;
+        bool halfHoverChanged = halfHoverNow != _lastSentHalfHover;
+        bool halfHoverDue = halfHoverChanged && _extrasAccumulator >= fastInterval;
+
+        // ROUND-CARD SLOT ORDER (record 18 — user defect 2026-08-15 item 8: "Die Position der
+        // Karten (linke Karte/rechte Karte) war in einem Test verdreht … Die Reihenfolge MUSS
+        // zwingend identisch sein wie es der jenige Spieler auch sieht"). WHICH of our two round
+        // cards is physically in the LEFT recess, so no peer has to guess it. A SELECTION-phase
+        // read as well as an action-phase one: the recesses are the same two transforms in both.
+        bool slotOrder = LocalBoardSlots.TrySampleSlotOrder(
+            trayNow, CardsGameApi.ActiveHand(), out bool slotOrderSwapped);
+        int slotOrderNow = slotOrder ? (slotOrderSwapped ? 1 : 0) : -1;
+        bool slotOrderChanged = slotOrderNow != _lastSentSlotOrder;
 
         // CAP PRESS (record 14 byte 0 bits 3..7 — the one keycap ANIMATION that is not derivable
         // from already-synced state; see Cards.BoardCapPress for why). WHICH cap the owner has just
@@ -1469,7 +1511,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
             && !stretchDue
             && !tooltipChanged && !slotCardSizeChanged
-            && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !trackHoverDue
+            && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !slotOrderChanged
+            && !trackHoverDue
             && !wallFadesDue
             && !decisionChanged && !decisionStateChanged && !decisionWidgetChanged
             && !useBarsChanged
@@ -1525,6 +1568,14 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // client owns a standing override or is stating its explicit release, so every packet of
         // every session in which nobody opened the debug page is byte-identical to build 149's.
         RemoteTestTriggers.Sample(ref extras);
+
+        // STORY WINDOW SYNC (extension record 19). USER REQUEST, verbatim: "Das Geschichte Fenster
+        // und damit der ganze Dialog sollen synchron sein … Wenn durch den Dialog geklickt wurde,
+        // wurde folglich fuer ALLE entsprechend durchgeklickt und es gibt keinen Lock mehr."
+        // Writes nothing at all unless a story box really stands here or has just finished, so
+        // every packet of every session without a narrative on screen is byte-identical to build
+        // 156's. Full contract in RemoteStorySync / NetProtocol.ExtIdStorySync.
+        RemoteStorySync.Sample(ref extras);
 
         if (board != null)
         {
@@ -2110,6 +2161,33 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HalfHoverTop = halfHover && halfTop;
             extras.HalfSelect0 = (byte)halfSel0;
             extras.HalfSelect1 = (byte)halfSel1;
+            // BYTE 2 (item 6): is each of those regions the half's STANDARD-ACTION chip? All three
+            // false ⇒ the writer omits the byte entirely and the record stays two bytes long.
+            extras.HalfHoverDefault = halfHoverDef;
+            extras.HalfSelect0Default = halfSel0Def;
+            extras.HalfSelect1Default = halfSel1Def;
+        }
+        // ROUND-CARD SLOT ORDER (extension record 18): written on every extras packet while we can
+        // really answer, omitted otherwise — a peer that hears nothing keeps its own derivation.
+        if (slotOrder)
+        {
+            extras.HasSlotOrder = true;
+            extras.SlotOrderSwapped = slotOrderSwapped;
+        }
+        if (slotOrderChanged)
+        {
+            _lastSentSlotOrder = slotOrderNow;
+            VRLog.Info("Net", slotOrder
+                ? $"Slot order SENT: LEFT recess (slot 1) holds the " +
+                  $"{(slotOrderSwapped ? "NON-INITIATIVE" : "INITIATIVE")} round card, RIGHT " +
+                  $"recess (slot 2) the other — extension record 18, one bit against " +
+                  "CCharacterClass.InitiativeAbilityCard (a replicated reference every client " +
+                  "resolves to the same card, so this is an ORDER and not an identity). Peers stop " +
+                  "re-deriving the pair's left/right from their own CardsHandUI.cardsUI sort, which " +
+                  "is what put the two cards the wrong way round on somebody else's screen."
+                : "Slot order SENT: none — record omitted (fewer than two resolvable round cards " +
+                  "in our recesses, or neither is the initiative card). Peers keep their own " +
+                  "initiative-first derivation, exactly as before this record existed.");
         }
         // EMPTY-FAN PLACARD (record 14 byte 1 bit 4): the same record, one bit. Setting it also
         // OPENS record 14 when nothing is hovered or selected — that is the write gate's third
@@ -2177,22 +2255,34 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         if (halfHoverChanged)
         {
             _lastSentHalfHover = halfHoverNow;
+            // REGION, not just half (item 6): "TOP half" and "TOP standard-action field" are two
+            // different rectangles on the same card, and the whole defect was that the wire could
+            // only say the first. Both sides of the session now print the SAME two words, so the
+            // owner's line and the observer's "Remote board half-hover" line compare without any
+            // arithmetic.
             VRLog.Info("Net", halfHover
-                ? $"Half hover SENT: slot {halfSlot + 1}, {(halfTop ? "TOP" : "BOTTOM")} half — " +
-                  "extension record 14 byte 0 (a slot POSITION and a half, no card identity); " +
-                  "peers pulse the same half of the same docked round card."
+                ? $"Half hover SENT: slot {halfSlot + 1}, {(halfTop ? "TOP" : "BOTTOM")} " +
+                  $"{(halfHoverDef ? "STANDARD-ACTION field" : "half")} — extension record 14 " +
+                  $"byte 0{(halfHoverDef ? " + byte 2 bit 0" : string.Empty)} (a slot POSITION, a " +
+                  "half and which of that half's two regions — no card identity); peers pulse the " +
+                  "same region of the same docked round card."
                 : "Half hover SENT: none (byte 0 sentinel / record omitted — peers clear the pulse).");
         }
         if (halfSelChanged)
         {
             _lastSentHalfSelect = halfSelNow;
-            string Sel(int v) => v == NetProtocol.HalfSelectTop ? "TOP"
-                : v == NetProtocol.HalfSelectBottom ? "BOTTOM" : "none";
-            VRLog.Info("Net", $"Half selection SENT: slot 1 = {Sel(halfSel0)}, " +
-                              $"slot 2 = {Sel(halfSel1)} — extension record 14 byte 1 (the game's " +
-                              "own per-half click latch, undo included; positions only). The edge " +
-                              "PRE-EMPTED the extras gate, so the steady highlight lands with the " +
-                              "click on every peer's board.");
+            string Sel(int v, bool def) => v == NetProtocol.HalfSelectTop
+                ? (def ? "TOP standard-action field" : "TOP half")
+                : v == NetProtocol.HalfSelectBottom
+                    ? (def ? "BOTTOM standard-action field" : "BOTTOM half")
+                    : "none";
+            VRLog.Info("Net", $"Half selection SENT: slot 1 = {Sel(halfSel0, halfSel0Def)}, " +
+                              $"slot 2 = {Sel(halfSel1, halfSel1Def)} — extension record 14 byte 1 " +
+                              "(the game's own per-half click latch, undo included) + byte 2 bits " +
+                              "1..2 (which of the half's two regions that latch is on: isSelected " +
+                              "= the big half, isSelectedDefaultAction = the chip). Positions " +
+                              "only. The edge PRE-EMPTED the extras gate, so the steady highlight " +
+                              "lands with the click on every peer's board.");
         }
 
         // TRACK HOVER (extension record 16): written only while an entry really is hovered.
@@ -2474,8 +2564,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     + $"{stretchPrimaryCode / 1000f:0.###} / {stretchSecondaryCode / 1000f:0.###} "
                     + "(primary/secondary slot) — extension record 30 (4 B: two u16 milli-factors). "
                     + $"While a factor changes the extras packet rides at {NetProtocol.SendRateHz:0} Hz; "
-                    + "peers multiply it into the zoom ratio they already apply and ease it like the "
-                    + "pose. Logged once per stretch episode.");
+                    + "peers multiply it into their own copy of the figure's board scale and ease it "
+                    + "like the pose. Logged once per episode, so this is the FIRST value only — the "
+                    + "SIZE SYNC OWNER line carries the whole curve.");
             }
         }
         else if (_loggedStretch)
@@ -2717,6 +2808,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     // the record forgets the peer's entry, which is what every player who is not
                     // holding a debug latch transmits.
                     RemoteTestTriggers.ApplyPeer(kv.Key, in p);
+
+                    // STORY WINDOW SYNC (record 19). Kept in a static table for the same reason:
+                    // its consumer is the LOCAL game's own story box, not a property of this peer's
+                    // body. A packet WITHOUT the record forgets the peer's entry, which is what
+                    // every player with no narrative on screen — and every pre-record build —
+                    // transmits, and "forgotten" is exactly "has no story to sync".
+                    RemoteStorySync.Observe(kv.Key, in p);
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
@@ -2725,6 +2823,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         ResolveEnvClock();
         RemoteTestTriggers.Resolve(_transport != null ? _transport.LocalPlayerId : 0);
+        // The story advance is resolved once per frame, not once per packet: two peers publishing
+        // page 3 in the same frame must drive the local box once.
+        RemoteStorySync.Resolve();
     }
 
     /// <summary>A peer's last environment-clock reading (extension record 31) and when it

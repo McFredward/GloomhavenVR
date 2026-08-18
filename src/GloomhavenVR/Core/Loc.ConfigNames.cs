@@ -109,6 +109,12 @@ internal static partial class Loc
             ["Comfort/DebugGizmos"] = Pair("Comfort debug overlay", "Komfort-Debug-Overlay"),
             ["Comfort/KeepPlaceOnReorigin"] = Pair("Keep place on re-don", "Platz nach Absetzen"),
             ["Comfort/TableScaleDefault25Applied"] = Pair("Internal marker", "Interne Marke"),
+            // The turn stick's forward axis as world up/down (user request 2026-08-15). Named after
+            // the STICK rather than after "flight", because that is the thing the player is looking
+            // for on the row: which controller grows a new function. The [Comfort] Flight* family
+            // deliberately has no line in this table — those four rows carry hand-written curated
+            // captions instead — so this one does not disturb a convention by having one.
+            ["Comfort/TurnStickVertical"] = Pair("Up/down on turn stick", "Hoch/Runter am Drehstick"),
 
             // ---- [Hands] — hand models, seat & laser ----------------------------------------
             ["Hands/PrimaryHand"] = Pair("Dominant hand", "Dominante Hand"),
@@ -159,6 +165,8 @@ internal static partial class Loc
             ["Board/TouchRange"] = Pair("Fingertip pick range (m)", "Fingerreichweite (m)"),
             ["Board/SnapToHexCenter"] = Pair("Snap to hex centre", "Auf Hexmitte einrasten"),
             ["Board/HoverHaptics"] = Pair("Haptics on new target", "Vibration bei Wechsel"),
+            ["Board/AutoFocusOnTurn"] =
+                Pair("Follow the character at turn", "Automatisch zum Character am Zug"),
             ["Board/AoeFlickThreshold"] = Pair("AoE turn: stick min", "AoE-Drehen: Schwelle"),
             ["Board/AoeRepeatInterval"] = Pair("AoE turn: repeat (s)", "AoE-Drehen: Takt (s)"),
             ["HexHighlight/SwapStableShader"] = Pair("Stable hex shader", "Stabiler Hex-Shader"),
@@ -367,6 +375,14 @@ internal static partial class Loc
             ["WallFade/StackedShellFade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
             // 2026-08 naming pass: "Fades" is jargon; the name now says what the toggle does.
             ["WallFade/SyncPeerFades"] = Pair("Walls: sync with teammates", "Wände: mit Mitspielern synchron"),
+
+            // ---- [PeerBoardFade] — a peer's board yields when it hides the play field --------
+            ["PeerBoardFade/Mode"] = Pair("Boards blocking the view", "Boards vor dem Spielfeld"),
+            ["PeerBoardFade/OccludedAlpha"] = Pair("Faded opacity (0-1)", "Rest-Deckkraft (0-1)"),
+            ["PeerBoardFade/OnFraction"] = Pair("Fade at coverage", "Ausblenden ab Deckung"),
+            ["PeerBoardFade/OffFraction"] = Pair("Unfade below coverage", "Einblenden unter Wert"),
+            ["PeerBoardFade/ExitDwellMovedSeconds"] = Pair("Unfade dwell, moved (s)", "Einblende-Wartezeit (s)"),
+            ["PeerBoardFade/ExitDwellStationarySeconds"] = Pair("Unfade dwell, still (s)", "Wartezeit, ruhig (s)"),
 
             // ---- [Perf] / [Optimize] — measurement & optimizations --------------------------
             ["Perf/Enabled"] = Pair("Enable measurement", "Messung aktivieren"),

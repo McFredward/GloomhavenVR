@@ -138,6 +138,14 @@ internal sealed class BoardModule : IVRModule
         // MP bug #7: world-space name tag over every hex ping (own + received, flat or VR) —
         // the game's own screen-space ping tooltip is unreadable from a VR head pose.
         VRSession.Harmony?.PatchAll(typeof(Patches.PingNameTag_Patch));
+        // USER REPORT (3-player hardware): "Wenn es keine Gegnerinfos gibt weil aktuell sichtbar
+        // gar keine Gegner existieren, soll die Phase übersprungen werden in dem der host nochmal
+        // mit 'Fortfahren' bestätigen muss." The game HAS that skip (Choreographer.cs:3705) but
+        // guards it on ClientMonsterObjects, which concatenates m_ClientObjects — chests and props
+        // make the count non-zero while the screen stays blank. Count the rows the reveal will
+        // actually draw and press the host's own ReadyButton for them. Host-only, no new wire.
+        VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeTrack_ShowMonsterClasses_ArmSkip));
+        VRSession.Harmony?.PatchAll(typeof(Patches.InitiativeTrack_Update_TickSkip));
         // TEMPORARY test-#14 item-5 evidence (hero placement) — remove once confirmed.
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_Hover_Diagnostics));
         VRSession.Harmony?.PatchAll(typeof(Patches.Placement_UpdateGate_Diagnostics));
@@ -191,6 +199,7 @@ internal sealed class BoardModule : IVRModule
             HexHighlightFix.Reset();
             SelectionOwnershipFallback.Reset();
             Patches.PingNameTag.Reset();
+            Patches.EnemyInfoPhaseSkip.Reset();
         }
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }

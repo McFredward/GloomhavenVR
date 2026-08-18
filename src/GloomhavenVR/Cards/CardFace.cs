@@ -43,6 +43,97 @@ internal sealed class CardFace
     /// </summary>
     private const float BorderFraction = 0.06f;
 
+    // ------------------------------------------------- the VISIBLE FACE RECT (shared) --
+    //
+    // WHAT THIS IS AND WHY IT IS PUBLISHED. A card SLAB is nominally 63.5 × 88 mm (poker,
+    // CardsConfig.CardWidth/CardHeight). The card FACE is a uGUI rect of a completely different
+    // aspect — the game's FullAbilityCard measures 294 × 450 px, aspect 0.6533 against the slab's
+    // 0.7216 — and it is fitted into the slab with Mathf.Min (letterbox, never crop) and then inset
+    // by BorderFraction. So the rectangle the face actually PAINTS is strictly smaller than the
+    // nominal slab, and by a different amount on each axis.
+    //
+    // The LOCAL card has always closed that gap by shrinking the BODY to the painted rect rather
+    // than by growing the face: VRCard.SetCanvasSize scales the backing mesh to
+    // facePixels × fit × VisibleFaceFraction, so slab and face are the same rectangle and only the
+    // physical rim shows. That arithmetic lived inline in VRCard with a hand-copied 0.94 constant
+    // and a comment asking the next reader to keep the two files in sync.
+    //
+    // It was not kept in sync — because the second consumer was in another module and nobody knew
+    // it existed. Net/RemoteHandFan built its ghost slabs at the FULL nominal 63.5 × 88 and let
+    // RemoteCardArt letterbox the cloned face inside them, so a peer's card showed its own card
+    // BACK as a rim all the way around the printed face (user report 12, 2026-08-15: "Die remote
+    // Handkarten Vorderseiten werden etwas zu klein angezeigt, so dass sie nicht perfekt auf dem
+    // mesh liegen und der Hintergrund am rand durchscheint", .planning/debug/remote_faecher.jpg).
+    // The same numbers also made a peer's card 17.5 % WIDER than the owner's own — a 1:1 defect
+    // that no screenshot of a single machine could show.
+    //
+    // So the rect is computed HERE, once, from the same BorderFraction the face is drawn with, and
+    // both consumers ask for it. A future third surface asks the same question and cannot drift.
+
+    /// <summary>The face pixel size assumed before any real face has been adopted — VRCard's
+    /// build-time placeholder, kept identical so a card never resizes for the wrong reason.</summary>
+    internal static readonly Vector2 DefaultFacePixels = new(270f, 400f);
+
+    /// <summary>Fraction of the fitted face rect the visible art fills (1 − <see cref="BorderFraction"/>).
+    /// Bodies and grab colliders are fit to THIS, not to the full nominal card rect.</summary>
+    internal static float VisibleFaceFraction => 1f - BorderFraction;
+
+    /// <summary>
+    /// The pixel size of the LAST ability face this client actually hosted (294 × 450 on the
+    /// shipped widget), seeded to <see cref="DefaultFacePixels"/> until one has been. It is a
+    /// LOCAL observation of this client's own card widget — the same prefab every player's cards
+    /// are built from — so a remote surface can size its slab to the face it is about to clone
+    /// WITHOUT asking anything about the peer, and in particular without a wire field.
+    /// </summary>
+    internal static Vector2 ObservedFacePixels { get; private set; } = DefaultFacePixels;
+
+    /// <summary>Bumped whenever <see cref="ObservedFacePixels"/> actually changes, so a consumer
+    /// that BAKED the rect into a mesh scale can notice and rebuild without comparing floats.</summary>
+    internal static int FacePixelsRevision { get; private set; }
+
+    /// <summary>
+    /// The world-space rectangle a fitted card face actually paints inside a nominal
+    /// <paramref name="slabWidth"/> × <paramref name="slabHeight"/> card — i.e. the rectangle a
+    /// card BODY has to be, if no background is to show around the printed face.
+    /// <c>facePixels × Min(w/px.x, h/px.y) × VisibleFaceFraction</c>, term for term what
+    /// <c>VRCard.SetCanvasSize</c> fits the local backing to.
+    /// </summary>
+    internal static Vector2 VisibleFaceRect(float slabWidth, float slabHeight, Vector2 facePixels)
+    {
+        if (facePixels.x <= 1f || facePixels.y <= 1f)
+            facePixels = DefaultFacePixels;
+        if (slabWidth <= 0f || slabHeight <= 0f)
+            return facePixels;
+        float fit = Mathf.Min(slabWidth / facePixels.x, slabHeight / facePixels.y);
+        float k = VisibleFaceFraction;
+        return new Vector2(facePixels.x * fit * k, facePixels.y * fit * k);
+    }
+
+    /// <summary>The same rect against <see cref="ObservedFacePixels"/> — the overload a surface
+    /// that does not hold a face of its own (a remote ghost slab) asks.</summary>
+    internal static Vector2 VisibleFaceRect(float slabWidth, float slabHeight) =>
+        VisibleFaceRect(slabWidth, slabHeight, ObservedFacePixels);
+
+    /// <summary>Record the real face pixel size the first time (and any time) it changes. Called
+    /// from <see cref="Adopt"/>, the one place this client learns it from the game.</summary>
+    private static void NoteFacePixels(Vector2 size)
+    {
+        if (size.x <= 1f || size.y <= 1f)
+            return;
+        if (Mathf.Approximately(size.x, ObservedFacePixels.x) && Mathf.Approximately(size.y, ObservedFacePixels.y))
+            return;
+        Vector2 was = ObservedFacePixels;
+        ObservedFacePixels = size;
+        FacePixelsRevision++;
+        Vector2 vis = VisibleFaceRect(CardsConfig.CardWidth.Value, CardsConfig.CardHeight, size);
+        VRLog.Info("Cards", $"CARD FACE RECT: the hosted ability face measures {size.x:F0}x{size.y:F0} px "
+            + $"(was {was.x:F0}x{was.y:F0}). Letterboxed into a "
+            + $"{CardsConfig.CardWidth.Value * 1000f:F1}x{CardsConfig.CardHeight * 1000f:F1} mm card and inset by "
+            + $"{BorderFraction * 100f:F0} %, the face PAINTS {vis.x * 1000f:F2}x{vis.y * 1000f:F2} mm — which is "
+            + "the size every card BODY (local backing and remote ghost slab alike) is scaled to, so no "
+            + "background can show around the print.");
+    }
+
     private AbilityCardUI? _owner;
     private RectTransform? _face;
     private RectTransform? _host;
@@ -113,6 +204,9 @@ internal sealed class CardFace
         Vector2 size = face.rect.size;
         if (size.x > 1f && size.y > 1f)
             FaceSize = size;
+        // …and publish it: this is the ONE place the mod learns the real face pixel size from the
+        // game, and the remote ghost slabs need it to size their bodies to the face they clone.
+        NoteFacePixels(size);
         RefreshFitScale();
 
         ApplyHostPose();

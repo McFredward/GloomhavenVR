@@ -1363,6 +1363,55 @@ internal sealed partial class CardsDriver
                 _loggedFlightRefusal.Remove(widget);
             }
         }
+
+        OrderRoundPairByInitiative(hand, into);
+    }
+
+    /// <summary>
+    /// Put the round pair in the order the OWNER sees, by seating the class's
+    /// <c>InitiativeAbilityCard</c> first — user report 8, 2026-08-15 three-player session:
+    /// <i>"Die Position der Karten (linke Karte/rechte Karte) war in einem Test verdreht wenn ich
+    /// einen Character anklicke die einem anderen Spieler gehört. Die Reihenfolge MUSS zwingend
+    /// identisch sein wie es der jenige Spieler auch sieht."</i>
+    ///
+    /// <para><b>THE ORDER WAS NEVER A FACT — it was three derivations that agreed by accident.</b>
+    /// The owner's tray seats the initiative card in recess 0; the mirrored peer board derived
+    /// initiative-first as well; and this dock took the iteration order of <em>this client's own</em>
+    /// <c>CardsHandUI.cardsUI</c>, a list whose order depends on whenever that client last ran the
+    /// unstable <c>SortCards()</c>. The three logs of that session catch it: the owner's own tray had
+    /// UnbridledPower on the left while his own docked pair and both watchers had FatalFury there —
+    /// and an earlier round in the same session has all three agreeing, which is exactly the
+    /// "in EINEM Test verdreht" signature.</para>
+    ///
+    /// <para><b>Why initiative-first is the right fact rather than a fourth guess:</b>
+    /// <c>CCharacterClass.InitiativeAbilityCard</c> is a replicated reference every client resolves
+    /// identically, and the game's own <c>SwapInitiative()</c> moves which card holds it. So this is
+    /// the one ordering input that cannot differ per machine, and it is the rule the owner's tray
+    /// already follows. No card identity goes anywhere near the wire: both cards were already
+    /// resolved locally from the replicated model, and only WHICH SLOT each takes changes.</para>
+    ///
+    /// <para><b>The limit, stated:</b> the MIRRORED board takes the owner's transmitted slot-order
+    /// bit (extension record 18), which is authoritative even if the owner's physical recesses ever
+    /// disagree with initiative-first. This dock has no actor-to-player map to look that bit up
+    /// with, so it uses the replicated derivation. If a hardware log ever shows the mirrored board
+    /// and the focus dock disagreeing for the same character, that map is the missing piece — and
+    /// the disagreement is then between "the owner's recesses" and "the initiative card", not
+    /// between two clients.</para>
+    /// </summary>
+    private static void OrderRoundPairByInitiative(CardsHandUI hand, List<VRCard> into)
+    {
+        if (into.Count != 2)
+            return;
+        ScenarioRuleLibrary.CAbilityCard? initiative = CardsGameApi.InitiativeCard(hand);
+        if (initiative == null)
+            return;
+        // Only a swap, never a sort: with exactly two cards the question is which one leads, and
+        // moving the second to the front is the whole operation.
+        if (ReferenceEquals(into[1].GameCard?.AbilityCard, initiative)
+            && !ReferenceEquals(into[0].GameCard?.AbilityCard, initiative))
+        {
+            (into[0], into[1]) = (into[1], into[0]);
+        }
     }
 
     // ---------------------------------------------------------------- fly-to-pile (issue 5) --

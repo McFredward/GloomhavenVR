@@ -305,6 +305,13 @@ internal sealed class RemoteBoardCard
     /// <summary>Currently shown SELECTED half (-1 none, 0 bottom, 1 top) — change gate.</summary>
     private int _shownHalfSelected = -1;
 
+    /// <summary>The shown HOVER is on that half's standard-action chip rather than the big half
+    /// (record 14 byte 2 bit 0) — part of the change gate and of the evidence line.</summary>
+    private bool _shownHoverDefault;
+
+    /// <summary>The shown SELECTION is on that half's standard-action chip.</summary>
+    private bool _shownSelectedDefault;
+
     /// <summary>
     /// Drive the two-state half highlight (extras extension record 14 — "worüber hovert mein
     /// Mitspieler" + the follow-up "welche Hälfte hat er GEKLICKT"). Called every frame by the
@@ -341,12 +348,30 @@ internal sealed class RemoteBoardCard
     /// "the owner is pointing at the top half of this slot" stays visible rather than silently
     /// disappearing. <see cref="HighlightPath"/> reports which of the two is live, per slot.
     ///
+    /// ─── WHICH REGION OF THE HALF (user report 2026-08-15, item 6) ────────────────────────────
+    /// "Wenn jemand die standart Aktion ausgewählt hat oder drüber hovered wird trotzdem der große
+    /// untere bzw obere Bereich der Karte bei den remote boards angezeigt/gehighlighted, also nicht
+    /// richtig synchronisiert. Eventuell wurden die kleinen Standartaktionsfelder hier vergessen zu
+    /// implementieren? Auch die sind wichtig."
+    ///
+    /// A half is TWO clickable regions, not one: the big action half, and the small standard-action
+    /// chip ("Attack 2" / "Move 2") inside it. The game frames them with TWO
+    /// <c>CardActionHighlight</c>s on the SAME <c>FullAbilityCardAction</c> — <c>highlightAction</c>
+    /// and <c>highlightDefaultAction</c> — and <c>RefreshHighlight</c> shows exactly one. This
+    /// mirror only ever drove the first, so a peer's standard action lit the whole half. The wire
+    /// now names the region (<see cref="NetProtocol.HalfDefaultHoverBit"/>) and
+    /// <paramref name="hoverDefault"/> / <paramref name="selectedDefault"/> pick the matching
+    /// highlight object — the same widget, the same shader, the correct rectangle.
+    ///
     /// POSITIONS only — no card data is read, and the clone is never told which card it is.
     /// </summary>
-    public void SetHalfStates(int hoverHalf, int selectedHalf)
+    public void SetHalfStates(int hoverHalf, int selectedHalf,
+                              bool hoverDefault = false, bool selectedDefault = false)
     {
         _shownHalfHover = hoverHalf;
         _shownHalfSelected = selectedHalf;
+        _shownHoverDefault = hoverHalf >= 0 && hoverDefault;
+        _shownSelectedDefault = selectedHalf >= 0 && selectedDefault;
 
         if (TryDriveGameHighlight(hoverHalf, selectedHalf))
         {
@@ -381,18 +406,24 @@ internal sealed class RemoteBoardCard
     /// </summary>
     private void LogHighlightPathIfChanged()
     {
-        string now = $"{HighlightPath}|{_shownHalfHover}|{_shownHalfSelected}|{Path}";
+        string now = $"{HighlightPath}|{_shownHalfHover}|{_shownHalfSelected}|" +
+                     $"{_shownHoverDefault}|{_shownSelectedDefault}|{Path}";
         if (now == _loggedHighlight)
             return;
         _loggedHighlight = now;
         if (HighlightPath == "none")
             return; // "nothing is lit" is the resting state, not news
-        string half(int v) => v == 1 ? "TOP" : v == 0 ? "BOTTOM" : "none";
+        string half(int v, bool def) => v == 1 ? (def ? "TOP standard-action field" : "TOP half")
+            : v == 0 ? (def ? "BOTTOM standard-action field" : "BOTTOM half")
+            : "none";
         VRLog.Info("Net", $"Remote board card highlight: path={HighlightPath} " +
-                          $"(hover {half(_shownHalfHover)}, clicked {half(_shownHalfSelected)}) " +
+                          $"(hover {half(_shownHalfHover, _shownHoverDefault)}, " +
+                          $"clicked {half(_shownHalfSelected, _shownSelectedDefault)}) " +
                           $"on a slot whose face={Path} — 'game' means the owner's own " +
-                          "CardActionHighlight on the mirrored widget (record 14); 'mod-quad' is " +
-                          "the back/fallback stand-in and is only correct while face=None.");
+                          "CardActionHighlight on the mirrored widget (record 14; the chip's " +
+                          "highlightDefaultAction when the region is a standard-action field, the " +
+                          "half's highlightAction otherwise); 'mod-quad' is the back/fallback " +
+                          "stand-in and is only correct while face=None.");
     }
 
     // ------------------------------------------------ the game's own action highlight --
@@ -414,16 +445,22 @@ internal sealed class RemoteBoardCard
     /// <summary>Last frame the clone was searched for — one probe per frame, at most.</summary>
     private int _faceProbeFrame = -1;
 
-    /// <summary>Highlight materials we minted for the clone (index 0 = bottom, 1 = top), so the
-    /// game's own shine-width write can never reach a SHARED material. See
-    /// <see cref="IsolateHighlightMaterials"/>.</summary>
-    private readonly Material?[] _highlightMats = new Material?[2];
+    /// <summary>Highlight materials we minted for the clone. Index 0/1 = bottom/top BIG-half
+    /// highlight, index 2/3 = bottom/top STANDARD-ACTION chip highlight — the chip's own
+    /// <c>CardActionHighlight</c> writes the same shared shine-width property, so it needs the same
+    /// isolation. See <see cref="IsolateHighlightMaterials"/>.</summary>
+    private readonly Material?[] _highlightMats = new Material?[4];
 
     /// <summary>Last state pushed per half (index 0 = bottom, 1 = top): -1 nothing, 0 hover,
     /// 1 selected. Re-asserted whenever it disagrees with the highlight object's ACTUAL active
     /// flag, which is what makes this self-healing against the clone's own
     /// <c>FullAbilityCardAction.OnEnable → Show() → highlight.Hide()</c>.</summary>
     private readonly int[] _appliedHighlight = { -1, -1 };
+
+    /// <summary>Which REGION of each half the last push lit (index 0 = bottom, 1 = top): true =
+    /// the standard-action chip's highlight, false = the big half's. Part of the write gate — the
+    /// state can stay "selected" while the region flips, and that flip is the whole of item 6.</summary>
+    private readonly bool[] _appliedDefault = { false, false };
 
     /// <summary>
     /// Drive the clone's own <c>CardActionHighlight</c> pair. Returns false when this slot has no
@@ -461,6 +498,7 @@ internal sealed class RemoteBoardCard
                     ReleaseHighlightMaterials();
                     IsolateHighlightMaterials(_faceCard);
                     _appliedHighlight[0] = _appliedHighlight[1] = -1; // a fresh clone starts dark
+                    _appliedDefault[0] = _appliedDefault[1] = false;
                 }
             }
 
@@ -495,24 +533,60 @@ internal sealed class RemoteBoardCard
     /// </summary>
     private bool ApplyHalf(FullAbilityCardAction? action, int half, int hoverHalf, int selectedHalf)
     {
-        CardActionHighlight? hl = action != null ? action.highlightAction : null;
-        if (hl == null)
+        CardActionHighlight? big = action != null ? action.highlightAction : null;
+        CardActionHighlight? chip = action != null ? action.highlightDefaultAction : null;
+        if (big == null && chip == null)
             return false;
 
         int want = selectedHalf == half ? 1 : hoverHalf == half ? 0 : -1;
-        bool wantOn = want >= 0;
-        bool isOn = hl.gameObject.activeSelf;
-        if (want == _appliedHighlight[half] && wantOn == isOn)
-            return true;
+        // WHICH of this half's two regions the owner named. The selection wins on a doubly-lit
+        // half, exactly as the game's own RefreshHighlight parks the selected look over the
+        // hover's — so the region question follows the same winner.
+        bool wantDefault = want == 1 ? _shownSelectedDefault
+            : want == 0 && _shownHoverDefault;
+        // A card prefab without the chip's highlight cannot show a chip glow. Falling back to the
+        // BIG half's highlight there would re-create the exact defect this fixes (a whole half lit
+        // for a standard action), so it falls back to NOTHING instead: less than the owner sees,
+        // never something different from what the owner sees.
+        CardActionHighlight? target = want < 0 ? null : wantDefault ? chip : big;
 
-        _appliedHighlight[half] = want;
-        if (want == 1)
-            hl.ShowSelected();     // steady, selectedShineWidth — the owner's committed half
-        else if (want == 0)
-            hl.ShowHover();        // the game's own 1↔0.3 LeanTween loop, hoverShineWidth
-        else
-            hl.Hide();
+        // The region can flip while the STATE holds (the beam slides off the half onto its chip:
+        // still "hover", different rectangle), so the gate is on BOTH. `isOn` is read from the
+        // object we are about to write, which is what keeps the self-heal against the clone's own
+        // FullAbilityCardAction.OnEnable → Show() → highlight.Hide().
+        bool wantOn = target != null;
+        bool isOn = target != null && target.gameObject.activeSelf;
+        bool gated = want == _appliedHighlight[half]
+                     && wantDefault == _appliedDefault[half]
+                     && wantOn == isOn;
+
+        if (!gated)
+        {
+            _appliedHighlight[half] = want;
+            _appliedDefault[half] = wantDefault;
+            if (target != null)
+            {
+                if (want == 1)
+                    target.ShowSelected(); // steady, selectedShineWidth — the committed region
+                else
+                    target.ShowHover();    // the game's own 1↔0.3 LeanTween loop, hoverShineWidth
+            }
+        }
+
+        // NEVER BOTH AT ONCE, and never a leftover: the same exclusivity
+        // FullAbilityCardAction.RefreshHighlight keeps between its two highlights on the owner's
+        // own card. Run unconditionally (not only on a change) because the object that has to go
+        // dark is the one the gate above is NOT watching — a region flip and a hover ending are
+        // both cases where the previously lit highlight would otherwise stay up.
+        Park(want < 0 || !ReferenceEquals(big, target) ? big : null);
+        Park(want < 0 || !ReferenceEquals(chip, target) ? chip : null);
         return true;
+
+        static void Park(CardActionHighlight? hl)
+        {
+            if (hl != null && hl.gameObject.activeSelf)
+                hl.Hide();
+        }
     }
 
     /// <summary>
@@ -528,12 +602,18 @@ internal sealed class RemoteBoardCard
     /// </summary>
     private void IsolateHighlightMaterials(FullAbilityCard card)
     {
-        _highlightMats[0] = IsolateOne(card.bottomActionButton);
-        _highlightMats[1] = IsolateOne(card.topActionButton);
+        _highlightMats[0] = IsolateOne(card.bottomActionButton, chip: false);
+        _highlightMats[1] = IsolateOne(card.topActionButton, chip: false);
+        // The STANDARD-ACTION chip's highlight (item 6) writes the same shared shine-width
+        // property from the same ShowHover/ShowSelected, so it needs the same isolation — driving
+        // it un-isolated would restyle the local player's own chips.
+        _highlightMats[2] = IsolateOne(card.bottomActionButton, chip: true);
+        _highlightMats[3] = IsolateOne(card.topActionButton, chip: true);
 
-        static Material? IsolateOne(FullAbilityCardAction? action)
+        static Material? IsolateOne(FullAbilityCardAction? action, bool chip)
         {
-            CardActionHighlight? hl = action != null ? action.highlightAction : null;
+            CardActionHighlight? hl = action == null ? null
+                : chip ? action.highlightDefaultAction : action.highlightAction;
             UnityEngine.UI.Image? img = hl != null ? hl.imageHighlight : null;
             Material? shared = img != null ? img.material : null;
             if (img == null || shared == null)
@@ -565,6 +645,7 @@ internal sealed class RemoteBoardCard
         _faceCard = null;
         _faceCardKey = 0;
         _appliedHighlight[0] = _appliedHighlight[1] = -1;
+        _appliedDefault[0] = _appliedDefault[1] = false;
         HighlightPath = "none";
     }
 

@@ -42,6 +42,9 @@ internal static partial class VROptionsTab
 
         /// <summary>The TEST TRIGGER page — buttons, not settings. See VROptionsTab.9.TestTriggers.cs.</summary>
         AdvancedTriggers,
+
+        /// <summary>The CHEATS page. See VROptionsTab.Cheats.cs.</summary>
+        AdvancedCheats,   // CHEATS (temporary) — removal step 2, see VROptionsTab.Cheats.cs
     }
 
     private static View _view = View.Curated;
@@ -104,6 +107,7 @@ internal static partial class VROptionsTab
             View.AdvancedIndex => BuildAdvancedIndex(),
             View.AdvancedTopic => BuildTopic(_category),
             View.AdvancedTriggers => BuildTestTriggers(),
+            View.AdvancedCheats => BuildCheatsPage(),   // CHEATS (temporary) — removal step 3
             _ => BuildCurated(),
         };
 
@@ -203,6 +207,8 @@ internal static partial class VROptionsTab
             TickGuard.Run("VROptionsTab.Triggers", Rebuild, "WorldUI");
         });
         rows++;
+
+        rows += BuildCheatsIndexLink();   // CHEATS (temporary) — removal step 4
 
         return rows;
     }

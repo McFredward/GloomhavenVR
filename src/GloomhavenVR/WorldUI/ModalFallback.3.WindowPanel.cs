@@ -170,4 +170,52 @@ internal static partial class ModalFallback
         /// <summary>Next unscaled time a fruitless scroll-target search may retry (1 s throttle).</summary>
         public float NextResultsScrollSearch;
     }
+
+    // ---- STORY WINDOW SYNC (wire record 19) seam ---------------------------------------------
+
+    /// <summary>
+    /// The floated STORY window's grab frame, if the scenario's narrative box
+    /// (<c>StoryController.window</c>) is converted right now.
+    ///
+    /// <para>WHY THIS LIVES HERE. <see cref="Net.RemoteStorySync"/> has to read and write the pose
+    /// and size the user gave that ONE window, and the only handle on those is the mod-owned
+    /// <see cref="GrabbableModal"/> the conversion built for it — which is reachable only through
+    /// the private <c>Converted</c> list. This is a pure LOOKUP: it never converts, never places
+    /// and never releases anything, so the sync cannot change which windows float or when.</para>
+    ///
+    /// <para>Instance compare against the live singleton, exactly as
+    /// <c>IsPollWindow</c> / the convert-time story-box sanity check do — the story window's
+    /// <c>UIWindowID</c> is scene-serialized and the enum has no Story member, so the singleton IS
+    /// the identity (decompiled StoryController.cs:65-66).</para>
+    /// </summary>
+    /// <returns>false when no story window is open, not converted (it fell back to the flat
+    /// screen), or still behind the reveal gate — every one of which means "this client has no
+    /// grabbable story window", NOT "this client cannot advance the story". The advance path never
+    /// consults this.</returns>
+    internal static bool TryGetStoryGrab(out GrabbableModal? grab)
+    {
+        grab = null;
+        if (!Singleton<StoryController>.IsInitialized)
+            return false;
+        StoryController sc = Singleton<StoryController>.Instance;
+        if (sc == null || sc.window == null)
+            return false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Grab == null || !ReferenceEquals(wp.Window, sc.window))
+                continue;
+            grab = wp.Grab;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The log name the mod already uses for the story float —
+    /// <c>'GloomhavenVR.Panel_Modal_Story Window'</c> in every MODAL DIAG / MODAL REVEAL line — so
+    /// the sync's own diagnostics name the window the same way the rest of the log does and the two
+    /// can be grepped together.
+    /// </summary>
+    internal const string StoryWindowLogName = "GloomhavenVR.Panel_Modal_Story Window";
 }

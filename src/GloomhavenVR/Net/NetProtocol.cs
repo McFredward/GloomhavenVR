@@ -416,7 +416,163 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 156;
+    public const ushort ModBuild = 157;
+    // Build 157: THE THREE-PLAYER SESSION. Twelve reports, and the through-line is that FOUR of them
+    // were the same defect wearing different clothes: A FACT THAT WAS RE-DERIVED ON THE RECEIVING
+    // SIDE INSTEAD OF BEING TRANSMITTED. Three logs of one session — host plus both peers — is what
+    // made every one of them a measurement rather than a theory, and it is the strongest evidence
+    // this project has ever had.
+    //
+    // WIRE: record 30 CHANGES MEANING (same id, same 4 bytes), record 14 grows a third byte, and
+    // record 18 and 19 are new. Format stays v3: both new records are additive TLVs old readers skip
+    // by length, and record 14's byte 2 is written only when non-zero and read only when len >= 3.
+    // A 156 client and a 157 client WILL disagree about held-figure size — that is what the
+    // version-mismatch dialog exists for.
+    //
+    // (1) FIGURE SIZES: THE PEER RE-DERIVED THE SIZE AND THE CLAMP NEVER CROSSED THE WIRE. Record 30
+    // carried the gesture stretch only, while the holder ALSO applied `[FigureGrab] StretchScaleMin/
+    // Max` when the diorama zoom would put an absurd mini in the hand — and the old code said so out
+    // loud ("Peers keep their own unclamped reconstruction"). The divergence is exactly implied over
+    // clamped: 10x wanted against 3x shipped = 3.33x too large, measured on all three machines
+    // (host 14 clamp events, remote1 12, remote2 2 — "oft einen Desync" is literally that frequency).
+    // Two more causes rode along: the zoom reference was sampled ON THE RECEIVER from a possibly
+    // stale packet and pinned at 1 for the whole hold if that peer had no avatar yet, and the hold
+    // and size facts ride DIFFERENT packets in no fixed order, so a size arriving first was dropped.
+    // Record 30 now carries the MEASURED whole held size (lossyScale / homeWorldScale) read off the
+    // transform the holder is looking at; the peer multiplies by its own board-home scale and does
+    // nothing else. AND THE NEW VECTORS FOUND A SECOND BUG: the encoder rounded BEFORE clamping, so
+    // a large finite factor overflowed int, saturated to int.MinValue and clamped to the FLOOR — a
+    // runaway size SHRANK the mini on every peer.
+    //
+    // (2) THE GRAB VOLUME'S CEILING WAS A CONSTANT IN A WORLD THAT SCALES. ModBuild 137 correctly
+    // replaced the centre-distance test with a SURFACE test, and that part stands. Beside it sat
+    // `MaxFigureRadiusRealMeters = 0.5`, fixed — so a stretched mini's own renderers began failing
+    // the sanity check, and when they ALL failed the test fell back to centre distance, i.e. the
+    // pre-137 bug, at exactly the sizes reported. Measured by renderer name: MO_DeepTerror_Mesh at
+    // 0.79 m (host) and 0.82 m (remote1), the Berserker axe at 0.53 m. The ceiling is now
+    // 0.5 m x max(1, totalHeldRatio), capped at 3 m; the max(1, ...) floor is the symmetry, so a
+    // SHRUNK figure keeps the full unit ceiling and is never excluded for being small.
+    //
+    // (3) THE STORY WINDOW LOCKED THE SESSION, AND THE LOGS PUT NUMBERS ON IT: the same dialog stood
+    // 1.4 s on the host, 1085.5 s on peer 1 and 1463.9 s on peer 2. While it stands, StoryController
+    // holds ActionProcessor.LockProcessingAction on THAT client and its GameLoadedAndClientReady is
+    // sent only after the last page. New record 19 carries the page index, a dialog-identity hash
+    // (over localisation KEYS and speaker guids, never translated text, so it matches across
+    // languages) and a FINISHED bit. The finished bit is the whole fix: every client drives its OWN
+    // box past its OWN last page through UICharacterStoryBox.ShowLine — the absolute seam the click
+    // path itself calls, idempotent, and immune to skipButton.interactable being false mid-animation
+    // — which runs the game's own Hide -> onFinish chain locally, so the idle peer's machine emits
+    // its own handshake through the game's own code. No ScenarioRuleLibrary, no Bolt, no synthetic
+    // click. THE POSE IS SEAT-ANCHOR-LOCAL IN REAL METRES, forced by measurement: the same window
+    // stood at world (15.55, 6.59, -2.65) scale 0.008 on the host and (1.44, 2.37, -0.34) scale
+    // 0.001 on peer 1, because players sit at different points of the shared world AND at different
+    // diorama zooms. Ownership is LAST MOVER, and the pose applies on a path separate from the
+    // advance so it can never re-introduce the lock.
+    //
+    // (6) THE STANDARD-ACTION FIELDS WERE MIRRORED AND COLLAPSED ONTO THE HALF. Both feeds did it,
+    // for different reasons: the chip lies geometrically INSIDE the half's zone rect so the hover tap
+    // sat on the card's non-default funnel, and the selection read `isSelected || isSelected
+    // DefaultAction` into one value. Record 14 grew a QUALIFIER byte rather than taking the reserved
+    // id 18, because a standalone record could arrive in a packet with no record 14 and would then
+    // describe a hover that does not exist. The renderer now drives `highlightDefaultAction` — the
+    // game's own clone, the correct rectangle.
+    //
+    // (8) THE CARD ORDER WAS NEVER A FACT — THREE DERIVATIONS THAT AGREED BY ACCIDENT. The owner's
+    // tray seats InitiativeAbilityCard in recess 0; the mirrored board derived initiative-first; and
+    // the action/focus dock took the iteration order of THAT CLIENT'S OWN cardsUI, a list ordered by
+    // whenever it last ran the unstable SortCards(). The logs catch all three: the owner's tray had
+    // UnbridledPower left while his own dock and both watchers had FatalFury there — and an earlier
+    // round has them agreeing, which is the "in EINEM Test verdreht" signature exactly. New record 18
+    // transmits the owner's PHYSICAL recess order as one bit; the focus dock, which has no
+    // actor-to-player map, now uses the replicated InitiativeAbilityCard instead of a local list.
+    // No card identity on the wire: only WHICH SLOT each already-resolved card takes.
+    //
+    // (9) THE MIRRORED DAMAGE PROMPT WAS THE ONLY SIDE NOT MEASURING. Owner: 26.9 mm board-local,
+    // ONE line, buttons 55.9 mm down. Observer: 120 mm RESERVED (0.075 x the 1.6 dock scale), glyphs
+    // auto-sized UP into that box, wrapping, buttons 149 mm down. The box was 4.5x the text and TMP
+    // did what it was told. The previous attempt at this same report (ModBuild 105) re-measured the
+    // BUTTON ROW and never touched the text — it fixed the widget BESIDE the defect, which is why it
+    // did not hold. Now the seat is taken from TMP's own renderedHeight after a forced mesh update,
+    // and the authored constant is only a pre-measurement fallback.
+    //
+    // (12) THE REMOTE CARD FACE WAS FITTED TO A BODY THAT WAS NEVER RESIZED. Face 294x450 px at a
+    // height-limited fit of 0.195556 mm/px prints 54.04 x 82.72 mm, while the ghost slab stayed at
+    // the nominal 63.50 x 88.00 — 4.73 mm of rim at the sides, 2.64 mm at the ends, and an
+    // unreported 17.5% width mismatch against the owner's own card. The local card had always
+    // scaled its body to the printed rect; the ghost fan skipped that step. Margin now 0.00 x 0.00.
+    //
+    // (7) FOREIGN HAND CARDS CAN BE BORROWED, AND NOTHING NEW GOES ON THE WIRE. The remote fan
+    // already shows fronts with no identity transmitted — the wire carries a COUNT, the content is
+    // read locally off this client's own replicated hand, and only when the game's own RevealGate
+    // permits. A borrow is a second consumer of exactly that: a throwaway clone, ownerless, never
+    // registered with the card factory, so play/reorder/slot-targeting are UNREACHABLE rather than
+    // refused. The gate is re-asked every frame, so a phase turning secret mid-hold dissolves it.
+    //
+    // (4) THE GAME ALREADY HAS THE EMPTY-PHASE SKIP AND GUARDS IT ON THE WRONG LIST.
+    // Choreographer:3705 passes when ClientMonsterObjects is empty, but that list concatenates
+    // chests, obstacles and activatable props, while what is DRAWN is filtered to distinct
+    // CMonsterClass with a non-null RoundAbilityCard. An object-only room therefore produces a
+    // non-empty guard list and a blank screen with a live "Fortfahren". The predicate is now the
+    // game's own drawn set, the seam is ReadyButton.OnClickInternal, and it is host-gated.
+    //
+    // (10) THE INITIATIVE SLIDE: A SECOND PATH THAT TOUCHES NONE OF THE THREE FLAGS. The end-of-turn
+    // fix watches isAnimating / animationDelayed / moveXAnimations, but Choreographer.HandleMessage
+    // calls UpdateInitiativeTrack -> NormalizeActorsPool DIRECTLY and unguarded for EndRound/
+    // NextRound/Spawn. At end of turn the membership does not change, so one reorder was enough; at
+    // the round boundary the enemy rows join mid-flight. Measured: two SLIDE starts with no done
+    // between them, then a plan claiming 1391 px of travel on a row whose widest possible slot
+    // permutation is 6 x 145 = 870 px — NOT A SLOT, i.e. a stale 6-row latch mixed with one live
+    // sample. Membership is now a first-class trigger and destinations are read back from the game's
+    // own layout after a rebuild instead of from a dead latch.
+    //
+    // (14) AUTO-FOLLOW fires ONCE PER TURN HAND-OFF, not per frame: a correction the player cannot
+    // win against would re-open the 2026-08-08 focus ruling from the other side. It is a Clear() of
+    // the override rather than a focus command, so it is unrefusable and keeps following the game for
+    // the rest of the turn. Local only, nothing on the wire, gated on IsUnderMyControl.
+    //
+    // (11) THE MIRRORING FLOOR IS THE GAME'S OWN WATER TERRAIN, and the log names it: 17 hexes of
+    // TERRAIN_Water_Plane on VFX/Water_Shd_Trans over a Crypt_Water basin. The reflection hypotheses
+    // are DISPROVEN rather than untested — across 81 MB of Player.log there are ZERO occurrences of
+    // ReflectionProbe, cubemap, GrabPass or any planar RT. The flat game sees this pool only from one
+    // fixed steep top-down pitch; across a VR table every view-dependent term saturates at grazing
+    // angles. The shader ships compiled inside the game's own bundle, so it is unreachable from mod
+    // code. THIS IS A FALLBACK AND IS LABELLED ONE: the water film is hidden, the authored basin and
+    // rim underneath remain, and a new WATER SURFACE census prints every property, the reflection
+    // environment and which camera feeds any screen-space input — because RFX4_DistortionAndBloom
+    // republishes global _GrabTexture/_CameraDepthTexture every LateUpdate from the PARKED camera,
+    // and if the next log shows it alive beside a depth/grab property the fix becomes "feed it the
+    // head camera" instead of "hide it".
+    //
+    // (13) THE SKULL WAS EATEN BY THE WALL BECAUSE ONE COLLECTOR NEVER ASKED THE FIGURE GUARD.
+    // CR_OS_Skeleton_Statue is four sibling MeshRenderers, Apparance-parented inside the wall
+    // subtree, and one of its material slots is the masonry family's (_WallFade_On=1). Every other
+    // sweep calls IsFigureOrActorRenderer; CollectWallFadeInfo did not — so the skull became a WALL
+    // renderer while the body stayed a near-miss. AND THE OBVIOUS CLASS RULE WAS WRONG, measured:
+    // CR_ST_WallShelf_Stone_Bone has an Animator ancestor and fades correctly WITH its masonry, so a
+    // blanket figure guard would leave wall shelves floating. The rule shipped is narrower: a
+    // figure/actor prop whose unit AABB reaches the room's ground band is never wall geometry, and
+    // the verdict is computed for the PROP UNIT so it can never be split again.
+    //
+    // (5) VERTICAL LIFT ON THE TURN STICK, opt-in, sharing forward flight's speed and curve. The
+    // wedge is |y| >= 0.50 and |y| >= 1.50|x| to engage: AT 45 DEGREES IT IS ALWAYS A PURE TURN, in
+    // both directions of travel, and a snap flick can never also lift because snap needs |x| >= 0.70
+    // which would demand |y| >= 1.05 beside it — arithmetic, not a rule. Turning is never gated.
+    //
+    // (16) PEER CONTROL BOARDS FADE WHEN THEY OCCLUDE THE PLAY AREA, local only, wall-fade logic
+    // reused (EMA tau 0.15 s, Schmitt 0.12/0.05, dwell 0.20 s out / 2.5-7 s back). Two deliberate
+    // departures: the occluder proxy is the board's ORIENTED box, not a world AABB, so an edge-on
+    // board scores ~0; and the denominator is the IN-VIEW sample count, because a board belongs to no
+    // room. It cannot reproduce the parked one-eyed wall fade — every decision is a CPU scalar from
+    // the MONO head camera and delivery is a uniform alpha or a whole-renderer cull, both bit-
+    // identical in each stereo pass, with a SOURCE LINT that fails if any per-eye term ever enters
+    // that file. Honest limit: GloomhavenVR/BoardLit cannot blend, so unblendable renderers get a
+    // material clone on an unlit blended shader and lose bevel shading while yielding.
+    //
+    // (17) A TEMPORARY CHEATS PAGE under Erweitert. Both buttons REFUSE in a multiplayer session and
+    // say so in their caption: doors have no synchronisation path at all (FFSNet.GameActionType has
+    // no room/door action) and the game itself detects the divergence. Two presses to fire, and the
+    // party file is backed up before the unlock writes. Removal is one file plus three marked lines.
+    //
     // Build 156: CLEANUP — dead code removed and comments consolidated after 155 rounds, and the
     // point of this note is the EVIDENCE, because "I tidied up and nothing broke" is a claim and
     // not a measurement. User: "toter Code entfernt werden, kommetare konsolidiert etc."
@@ -3307,13 +3463,42 @@ internal static class NetProtocol
     /// <para>WHY IT EXISTS (user request 2026-08-11, verbatim: "Ich möchte, dass die Größe der
     /// Figur in der Hand änderbar ist. Dabei stelle ich mir vor, dass ich mit der anderen Hand zu
     /// der Figur gehe und dann Trigger gedrückt halte und nach innen oder außen schiebe (nach außen
-    /// heißt größer, nach innen kleiner) und somit die Größe der Figur skaliert."). The receive side
-    /// already reconstructs a held mini's size as boardSize × the holder's zoom ratio with ZERO wire
-    /// bytes (<c>NetFigures.EaseSlot</c> — both numbers arrive anyway). A MANUAL stretch gesture has
-    /// no such luck: the factor exists only in the holder's hand motion, is derivable from nothing
-    /// already on the wire, and the 1:1 ruling (§3) forbids the two machines disagreeing about the
-    /// size for the whole hold. So the factor itself travels, and nothing else does — the receiver
-    /// multiplies it into the ratio it already applies.</para>
+    /// heißt größer, nach innen kleiner) und somit die Größe der Figur skaliert."). The factor
+    /// exists only in the holder's hand motion and is derivable from nothing else on the wire, so
+    /// it has to travel.</para>
+    ///
+    /// <para>WHAT THE NUMBER IS, since ModBuild 157: the WHOLE held size, not the gesture alone —
+    /// the figure's rendered size as a multiple of its OWN board-home size, MEASURED off the
+    /// transform the holder is actually looking at
+    /// (<c>Board.FigureGrab.FigureGrabbable.HeldSizeFactorOf</c> = <c>lossyScale ÷ homeWorldScale</c>).
+    /// The receiver's size is therefore <c>homeLocalScale × thisNumber</c> and NOTHING else — a pure
+    /// function of one transmitted value.</para>
+    ///
+    /// <para>WHY THE MEANING CHANGED — user report, 3-player hardware session 2026-08-15 (verbatim):
+    /// "Die Größen der Figuren synchronisieren nicht richtig. Die Größe einer Figur MUSS zwingend
+    /// immer 1:1 genau die sein die der Spieler auch in der Hand hat - hier gab es oft einen
+    /// Desync." Until 156 the record carried the GESTURE factor only and the peer rebuilt the rest
+    /// locally as <c>boardSize × (holderRigNow ÷ holderRigAtGrab) × factor</c>. Three things that
+    /// reconstruction could not see, each of them a permanent multiplicative error for the whole
+    /// hold:</para>
+    /// <list type="bullet">
+    ///   <item>THE GRAB-TIME SIZE CLAMP (<c>FigureGrabbable.ApplyGrabTimeStretchClamp</c>). A mini
+    ///   grabbed at a deep zoom enters the hand trimmed to <c>[FigureGrab] StretchScaleMin/Max</c>,
+    ///   and the trim never rode any wire — the old doc called that "local presentation only". It is
+    ///   MEASURED, not inferred: all three logs of the 2026-08-15 session carry the trim line, worst
+    ///   case a grab implying 10× trimmed to 3×, i.e. peers rendering that mini 3.33× the size its
+    ///   holder had in hand.</item>
+    ///   <item>THE ZOOM-RATIO BASE. <c>holderRigAtGrab</c> was sampled on the RECEIVER, from the
+    ///   peer's last-received avatar scale, on the frame the hold record first arrived — up to one
+    ///   packet late, and 0 (⇒ ratio pinned at 1 for the whole hold) when that peer had no avatar
+    ///   yet.</item>
+    ///   <item>ORDERING. A stretch record that arrived before the hold record was dropped, and a
+    ///   re-spawned figure inherited the previous actor's size.</item>
+    /// </list>
+    /// <para>Measuring the rendered result instead of re-deriving it removes all three at once, and
+    /// it costs zero extra bytes: the same 4-byte record, the same cadence, the same neutral gate.
+    /// The receiver keeps ONE local input, the figure's own board-home scale, which is authoritative
+    /// game state and therefore identical on every machine by construction.</para>
     ///
     /// <para>WHY ONE RECORD FOR BOTH SLOTS: the gesture needs a free hand, so at most ONE figure can
     /// be stretched at a time — but its factor persists for the REST of the hold (the gesture can be
@@ -3323,23 +3508,23 @@ internal static class NetProtocol
     /// 4-byte record keeps the golden vectors hand-checkable.</para>
     ///
     /// <para>Written ONLY while at least one factor differs from <see cref="HeldStretchCodeNeutral"/>
-    /// after quantization, so an unstretched hold — and every idle player — emits the exact bytes
-    /// previous builds emitted. Absence means BOTH factors are 1.0: an old sender reads as neutral
-    /// on a new peer, an old peer steps over the record by its length and keeps rendering
-    /// boardSize × zoom ratio (the pre-record picture), and a new receiver resets to neutral the
-    /// moment the record stops arriving. While the factor is CHANGING (the holder is mid-gesture)
-    /// the sender promotes the extras packet to the rig rate, exactly like a carried second figure —
-    /// same cadence, same receive-side easing, so the peer watches the stretch as motion, not as
-    /// steps.</para>
+    /// after quantization, so a mini held at exactly its board size — and every idle player — emits
+    /// the exact bytes previous builds emitted. Absence means BOTH factors are 1.0, i.e. "held at
+    /// board size": an old sender reads as neutral on a new peer, an old peer steps over the record
+    /// by its length, and a new receiver returns to board size the moment the record stops arriving.
+    /// While the factor is CHANGING (the holder is mid-gesture OR mid-zoom) the sender promotes the
+    /// extras packet to the rig rate, exactly like a carried second figure — same cadence, same
+    /// receive-side easing, so the peer watches the size change as motion, not as steps.</para>
     ///
     /// <para>VALIDATION IS FAIL-CLOSED TO NEUTRAL: a code outside
     /// [<see cref="HeldStretchCodeMin"/>, <see cref="HeldStretchCodeMax"/>] decodes to 1.0, never to
-    /// a clamped extreme — a garbage byte must render the pre-record picture, not a figure at 6.5×
+    /// a clamped extreme — a garbage byte must render the mini at BOARD size, not a figure at 65×
     /// or an invisible one at 0. (A legitimate sender clamps BEFORE quantizing, so nothing real is
-    /// ever in that range.) The config dials bounding the local gesture
-    /// (<c>[FigureGrab] StretchScaleMin/Max</c>) are deliberately INSIDE this wire envelope, and the
-    /// receiver applies the SENDER's factor unclamped-by-local-config: it is the holder's hand and
-    /// the holder's board, so their bounds govern (the 1:1 ruling again).</para>
+    /// ever in that range.) The envelope ENCLOSES every size the local dials can produce — the
+    /// gesture bound <c>[FigureGrab] StretchScaleMin/Max</c> times the zoom span a grab can latch —
+    /// so no legitimately tuned sender is ever rejected, and the receiver applies the SENDER's
+    /// number unclamped-by-local-config: it is the holder's hand and the holder's board, so their
+    /// bounds govern (the 1:1 ruling again).</para>
     /// </summary>
     public const byte ExtIdHeldStretch = 30;
 
@@ -3614,32 +3799,54 @@ internal static class NetProtocol
     /// same record survives, because a poisoned field must not cost a sound one its meaning.</summary>
     public const byte TestForceMaxHauntCode = 6;
 
-    /// <summary>The neutral held-stretch milli-factor: 1000 = 1.0× = "no manual stretch". The
+    /// <summary>The neutral held-size milli-factor: 1000 = 1.0× = "held at exactly board size". The
     /// writer omits the record when both slots quantize to this, so absence and neutrality are the
     /// same statement.</summary>
     public const int HeldStretchCodeNeutral = 1000;
 
-    /// <summary>Smallest sane held-stretch milli-factor a peer will believe (0.10×). Below it the
-    /// code reads as garbage and decodes to neutral — never to a near-invisible figure.</summary>
-    public const int HeldStretchCodeMin = 100;
+    /// <summary>
+    /// Smallest held-size milli-factor a peer will believe (0.02× of board size). Below it the code
+    /// reads as garbage and decodes to neutral — never to a near-invisible figure. Zero, the
+    /// signature of a zeroed or truncated buffer, is the case this bound exists for.
+    ///
+    /// <para>The envelope had to widen when record 30 started carrying the WHOLE held size instead
+    /// of the gesture factor alone (ModBuild 157). The size a holder can legitimately show is
+    /// <c>[FigureGrab] StretchScaleMin/Max</c> (0.5..3 by default, in default-zoom units) times the
+    /// zoom the holder stands at NOW — and the 2026-08-15 session logged diorama zooms spanning
+    /// 0.152×..10× of the default, a 66:1 range, on all three machines. 0.02..60 encloses
+    /// 0.5×0.1 .. 3×6.6 with room to spare, so no legitimately tuned sender is rejected; a rejected
+    /// code renders the mini at its board size, which is exactly what a peer predating the record
+    /// renders.</para>
+    /// </summary>
+    public const int HeldStretchCodeMin = 20;
 
-    /// <summary>Largest sane held-stretch milli-factor a peer will believe (8.0×). Above it the
-    /// code reads as garbage and decodes to neutral. Both bounds deliberately ENCLOSE the config
-    /// dials' own ranges, so no legitimately tuned sender can ever be rejected.</summary>
-    public const int HeldStretchCodeMax = 8000;
+    /// <summary>Largest held-size milli-factor a peer will believe (60× of board size). Above it the
+    /// code reads as garbage and decodes to neutral. See <see cref="HeldStretchCodeMin"/> for why
+    /// the envelope is this wide and why it must ENCLOSE the config dials' own ranges.</summary>
+    public const int HeldStretchCodeMax = 60000;
 
-    /// <summary>Quantize a held-stretch factor to its wire milli-code, clamped to the sane
-    /// envelope. NaN/non-finite degrade to neutral (never trust a float either).</summary>
+    /// <summary>Quantize a held-size factor to its wire milli-code, clamped to the sane envelope.
+    /// NaN/non-finite degrade to neutral (never trust a float either). Quantization is ABSOLUTE
+    /// 0.001 of board size — 0.1% at 1×, 0.002% at 60× — which is far below the ~1% size difference
+    /// a player can see at arm's length, so the wire is not the source of any visible disagreement.
+    /// </summary>
     public static ushort EncodeHeldStretch(float factor)
     {
         if (float.IsNaN(factor) || float.IsInfinity(factor))
             return (ushort)HeldStretchCodeNeutral;
-        int code = UnityEngine.Mathf.RoundToInt(factor * 1000f);
-        return (ushort)UnityEngine.Mathf.Clamp(code, HeldStretchCodeMin, HeldStretchCodeMax);
+        // CLAMP IN FLOAT, THEN ROUND — not the other way round. `factor * 1000f` for a large finite
+        // factor overflows int, and Mathf.RoundToInt saturates to int.MinValue, so an
+        // integer-domain clamp turned "absurdly LARGE" into the envelope FLOOR: a corrupt or
+        // runaway size would have shrunk the mini on every peer instead of pinning it at the
+        // ceiling. Latent since the record shipped; found by the round-trip vectors added with
+        // ModBuild 157 (HeldSizeVectors, "no u16 wrap"), never by a packet.
+        float milli = UnityEngine.Mathf.Clamp(factor * 1000f, HeldStretchCodeMin, HeldStretchCodeMax);
+        return (ushort)UnityEngine.Mathf.RoundToInt(milli);
     }
 
-    /// <summary>Decode a held-stretch milli-code. Out-of-envelope codes (including 0) FAIL CLOSED
-    /// to 1.0 — the pre-record picture — rather than clamping to an extreme.</summary>
+    /// <summary>Decode a held-size milli-code. Out-of-envelope codes (including 0) FAIL CLOSED
+    /// to 1.0 — the mini at board size, the pre-record picture — rather than clamping to an
+    /// extreme.</summary>
     public static float DecodeHeldStretch(int code)
         => code < HeldStretchCodeMin || code > HeldStretchCodeMax ? 1f : code / 1000f;
 
@@ -4038,6 +4245,171 @@ internal static class NetProtocol
     /// none/top/bottom (including the invalid 3) degrades to none.</summary>
     public static byte EncodeHalfSelect(int value) =>
         value == HalfSelectTop || value == HalfSelectBottom ? (byte)value : HalfSelectNone;
+
+    /// <summary>
+    /// Record 14, BYTE 2 (appended 2026-08-15) — THE STANDARD-ACTION QUALIFIER. For each region
+    /// bytes 0 and 1 already name, one bit says whether the region is the half's small
+    /// STANDARD-ACTION field (the default "Attack 2" / "Move 2" chip) rather than the big action
+    /// half:
+    ///   bit 0 <see cref="HalfDefaultHoverBit"/>      — the HOVER named in byte 0 is on the chip.
+    ///   bit 1 <see cref="HalfDefaultSelect0Bit"/>    — slot 0's SELECTION (byte 1 bits 0..1) is
+    ///                                                  its standard action.
+    ///   bit 2 <see cref="HalfDefaultSelect1Bit"/>    — slot 1's ditto.
+    ///   bits 3..7 reserved (written 0, masked on read).
+    ///
+    /// <para>THE DEFECT IT FIXES (hardware MP test 2026-08-15, item 6: "Wenn jemand die standart
+    /// Aktion ausgewählt hat oder drüber hovered wird trotzdem der große untere bzw obere Bereich
+    /// der Karte bei den remote boards angezeigt/gehighlighted, also nicht richtig
+    /// synchronisiert."). The standard actions WERE mirrored — they COLLAPSED. Both feeds fold
+    /// the chip onto its enclosing half:
+    ///   HOVER: the chip lies geometrically INSIDE the half's zone rect, so the mod's geometric
+    ///          laser resolve (<c>Cards.HalfSelection.UpdateLaserHighlight</c>) calls the card's
+    ///          NON-default funnel <c>FullAbilityCard.OnPointerEnter(top)</c> for it, and the wire
+    ///          tap sits on that funnel. The game's own separate chip funnel
+    ///          (<c>OnDefaultPointerEnter</c>) was never read.
+    ///   SELECTION: <c>HalfSelection.SelectedHalfOf</c> reads
+    ///          <c>isSelected || isSelectedDefaultAction</c> into ONE value, so a committed
+    ///          standard action is indistinguishable from a committed half.
+    /// Session proof (one session, three machines): on the owner's log the laser clicked the chip
+    /// — <c>remote2/LogOutput.log:47996</c> "uGUI click: 'Default action button' (laser-R)" — and
+    /// five lines later <c>:48001</c> sent "Half selection SENT: slot 1 = BOTTOM"; both observers
+    /// then drew the whole bottom half, <c>LogOutput.log:50531</c> and
+    /// <c>remote1/LogOutput.log:51828</c> "clicked: slot 1 = BOTTOM (steady)". The hover half is
+    /// the same story: while the pointer sat on the chip (owner <c>:47826</c> enter …
+    /// <c>:48266</c> exit) the sender kept emitting "Half hover SENT: slot 1, BOTTOM half"
+    /// (<c>:48159</c>, <c>:48216</c>, <c>:48232</c>, <c>:48253</c>).
+    ///
+    /// <para>WHY A THIRD BYTE ON RECORD 14 AND NOT A RECORD OF ITS OWN (record id 18 was reserved
+    /// for this lane and is deliberately NOT spent). Every bit here is a QUALIFIER of a field
+    /// bytes 0/1 already carry: "the hover you were just told about" and "slot i's selection you
+    /// were just told about". Alone it says nothing — a separate record could arrive in a packet
+    /// that carries no record 14 at all and would then describe a hover and two selections that
+    /// do not exist, which is a state the reader would have to invent a rule for. Appending keeps
+    /// the qualifier and the thing it qualifies atomic in one TLV, costs 1 byte instead of 4, and
+    /// is exactly the additive growth the wire's v3 length prefix exists for: an old reader takes
+    /// the record's LENGTH and skips the extra byte, decoding precisely the picture it drew
+    /// before. It is the third time this record has grown that way (the cap-press field into byte
+    /// 0's spare bits, the placard into byte 1's), and the same discipline record 4 and record 31
+    /// used to append their own trailing bytes.</para>
+    ///
+    /// <para>PRESENCE: the byte is written only when at least one of its bits is set, so a player
+    /// who never touches a standard-action chip emits the SAME two-byte record every previous
+    /// build emitted — an idle packet stays byte-identical. A reader that sees only 2 bytes reads
+    /// the byte as zero, i.e. "every named region is the big half", which is the legacy meaning.
+    /// </para>
+    ///
+    /// <para>NO CARD IDENTITY, unchanged: a chip is a REGION of a slot the peer already draws, in
+    /// the same two positions bytes 0 and 1 already name. What crosses is which of two rectangles
+    /// on a card the peer is already rendering the owner is pointing at.</para>
+    /// </summary>
+    public const byte HalfDefaultHoverBit = 1 << 0;
+
+    /// <summary>Record 14 byte 2, bit 1 — slot 0's SELECTED region is its standard-action chip.
+    /// Meaningless (and written 0) while byte 1's slot-0 field is <see cref="HalfSelectNone"/>.</summary>
+    public const byte HalfDefaultSelect0Bit = 1 << 1;
+
+    /// <summary>Record 14 byte 2, bit 2 — slot 1's SELECTED region is its standard-action chip.</summary>
+    public const byte HalfDefaultSelect1Bit = 1 << 2;
+
+    /// <summary>Bit position of slot 0's standard-action selection bit; slot i lives at
+    /// <c>HalfDefaultSelectShift + i</c>, so the field widens with
+    /// <see cref="BoardUiSlotCount"/> exactly like <see cref="HalfSelectDefinedMask"/> does.</summary>
+    public const int HalfDefaultSelectShift = 1;
+
+    /// <summary>Every DEFINED bit of record 14's byte 2 (hover qualifier + one selection qualifier
+    /// per board slot). Writer and reader both mask with it, so bits 3..7 stay genuinely reserved
+    /// and a future sender's extra bits can never light a meaning here.</summary>
+    public const byte HalfDefaultByteDefinedMask =
+        (byte)(HalfDefaultHoverBit
+               | (((1 << BoardUiSlotCount) - 1) << HalfDefaultSelectShift));
+
+    /// <summary>Payload length of <see cref="ExtIdHalfHover"/> WITH the standard-action qualifier
+    /// byte. The LENGTH is what tells the two apart — a reader takes byte 2 only when the record
+    /// is at least this long, and a shorter record decodes as "every named region is the big
+    /// half", which is what every build before 2026-08-15 meant.</summary>
+    public const int HalfHoverRecordBytesWithDefault = HalfHoverRecordBytes + 1;
+
+    /// <summary>Pack the standard-action qualifier byte from the three facts the sender holds.
+    /// The per-slot bits are cleared unless that slot really has a selection to qualify, so
+    /// "no selection" can never ride a stale chip bit.</summary>
+    public static byte EncodeHalfDefaults(bool hoverIsDefault, bool sel0IsDefault, bool sel1IsDefault)
+    {
+        byte b = 0;
+        if (hoverIsDefault) b |= HalfDefaultHoverBit;
+        if (sel0IsDefault) b |= HalfDefaultSelect0Bit;
+        if (sel1IsDefault) b |= HalfDefaultSelect1Bit;
+        return (byte)(b & HalfDefaultByteDefinedMask);
+    }
+
+    /// <summary>
+    /// Extension record id: THE ORDER OF THE OWNER'S TWO DOCKED ROUND CARDS — 1 byte,
+    /// <c>[bit 0 valid][bit 1 swapped][bits 2..7 reserved]</c>.
+    ///
+    ///   bit 0 <see cref="SlotOrderValidBit"/>   — the sender read BOTH of its round-card recesses
+    ///                                             this packet and one of the two cards is its
+    ///                                             character's <c>InitiativeAbilityCard</c>. Clear
+    ///                                             = say nothing (the record is then not written
+    ///                                             at all; the bit exists so a corrupt byte cannot
+    ///                                             assert an order either).
+    ///   bit 1 <see cref="SlotOrderSwappedBit"/> — the LEFT recess (slot 0) holds the round card
+    ///                                             that is NOT the initiative card. Clear = slot 0
+    ///                                             holds the initiative card, which is the order
+    ///                                             every receiver assumed before this record
+    ///                                             existed, so a pre-record sender's absent byte
+    ///                                             decodes to the behaviour it already produced.
+    ///
+    /// <para>THE DEFECT IT FIXES (hardware MP test 2026-08-15, item 8: "Die Position der Karten
+    /// (linke Karte/rechte Karte) war in einem Test verdreht wenn ich einen Character anklicke die
+    /// einem anderen Spieler gehört. Die Reihenfolge MUSS zwingend identisch sein wie es der
+    /// jenige Spieler auch sieht."). The order was never a fact — it was re-derived, by THREE
+    /// different rules that agree only by accident. The evidence, per machine, is on
+    /// <see cref="LocalBoardSlots"/>; the short form is that the owner of 'Hilde Die 2Te' held
+    /// UnbridledPower LEFT on his tray (<c>remote2/LogOutput.log:46564</c>) and FatalFury LEFT in
+    /// his action dock (<c>:46580</c>) in the same round, while the reporter's machine held
+    /// FatalFury LEFT in its focus dock (<c>LogOutput.log:50056</c>) and UnbridledPower LEFT on
+    /// its mirrored copy of the same board — four answers to one question.</para>
+    ///
+    /// <para>WHY ONE BIT AND NOT AN INDEX, AND WHY THIS IS NOT CARD IDENTITY. The reference is
+    /// <c>CCharacterClass.InitiativeAbilityCard</c>: a single replicated REFERENCE that every
+    /// client already resolves to the same card and already reads on this exact path
+    /// (<c>RemoteControlBoard.OrderRoundCards</c> has ordered by it since the record-4 round).
+    /// The bit therefore adds no knowledge about WHICH cards are docked — the receiver was already
+    /// resolving both from the replicated model, gated by <see cref="RevealGate"/> — it states
+    /// only which of two arrangements of cards the receiver already holds the owner physically
+    /// made. An INDEX into <c>RoundAbilityCards</c> was rejected for the opposite reason: a list's
+    /// ORDER is a per-client property of exactly the kind that caused this defect, so a fix keyed
+    /// on it could inherit the bug it is fixing.</para>
+    ///
+    /// <para>WHY A RECORD OF ITS OWN and not more bits in record 14 (whose byte 0 already names a
+    /// "board SLOT"): record 14 rides ONLY while a half is hovered, selected, pressed or a placard
+    /// is up. The order has to be known whenever the board is DRAWN, which is most of the time and
+    /// almost never coincides with a hover. A qualifier that is absent whenever the thing it
+    /// qualifies is present is not a qualifier.</para>
+    ///
+    /// <para>PRESENCE CONTRACT (the "only when knowable" one): written on every extras packet
+    /// while both recesses hold a resolvable card and one of them is the initiative card, and
+    /// omitted otherwise — a receiver that sees no record keeps its own derivation exactly as
+    /// before, which is why this can only ever replace a guess with the owner's truth. An order
+    /// CHANGE pre-empts the extras gate outright (a card lands in a recess as one discrete,
+    /// human-paced event — the pile-counts rule), so the mirrored pair never sits reversed for a
+    /// visible moment after a swap.</para>
+    /// </summary>
+    public const byte ExtIdSlotOrder = 18;
+
+    /// <summary>Payload length of <see cref="ExtIdSlotOrder"/>: the one flags byte. A reader
+    /// requires at least this much before it trusts the record.</summary>
+    public const int SlotOrderRecordBytes = 1;
+
+    /// <summary>Slot-order bit 0 — the sender really resolved both recesses (see
+    /// <see cref="ExtIdSlotOrder"/>). A byte without it states nothing.</summary>
+    public const byte SlotOrderValidBit = 1 << 0;
+
+    /// <summary>Slot-order bit 1 — the LEFT recess holds the NON-initiative round card.</summary>
+    public const byte SlotOrderSwappedBit = 1 << 1;
+
+    /// <summary>Every DEFINED bit of the slot-order byte. Writer and reader both mask with it, so
+    /// bits 2..7 stay genuinely reserved.</summary>
+    public const byte SlotOrderDefinedMask = (byte)(SlotOrderValidBit | SlotOrderSwappedBit);
 
     /// <summary>
     /// Extension record id: the sender's displayed PILE COUNTS — 3 bytes,
@@ -6085,6 +6457,201 @@ internal static class NetProtocol
     /// read. Four labels + mask + lengths stay far under the 255-byte TLV ceiling
     /// (1 + 4 × (1 + 48) = 197).</summary>
     public const int CapLabelMaxBytes = 48;
+
+    // ---- STORY WINDOW SYNC (record 19) ---------------------------------------------------
+    // Appended as ONE block near the end of the extension-record region; nothing above or below
+    // it is touched. Everything the record needs lives here and in Net/RemoteStorySync.cs.
+
+    /// <summary>
+    /// STORY / DIALOG WINDOW SYNC — the scenario-start narrative box
+    /// (<c>StoryController</c> + <c>UICharacterStoryBox</c>, the game's <c>'UI Story Box'</c> on
+    /// <c>'Story Canvas'</c>).
+    ///
+    /// <para>WHY IT EXISTS (user report, 3-player hardware session 2026-08-15): "In unserem
+    /// Fenster hatte ein Mitspieler vergessen die Geschichte/Dialog am Anfang weiterzuklicken was
+    /// zu einem lock geführt hat … Das Geschichte Fenster und damit der ganze Dialog sollen
+    /// synchron sein". The lock is NOT a mod defect and it is not cosmetic: while the box is up,
+    /// <c>StoryController.TryBlockedUpdate</c> (StoryController.cs:211-219) holds
+    /// <c>ActionProcessor.LockProcessingAction()</c> + <c>Choreographer.AddUpdateBlocker()</c> on
+    /// THAT client, and the client's <c>GameLoadedAndClientReady</c> side action is sent only from
+    /// <c>ShowNext()</c> (StoryController.cs:130-141) — i.e. only after the last page is clicked
+    /// through. One idle player therefore stalls the whole session. MEASURED in the three logs of
+    /// that session: the host dismissed its box after 1.4 s, peer 1 held it 1085.5 s and peer 2
+    /// 1463.9 s (`MODAL DIAG 'GloomhavenVR.Panel_Modal_Story Window' (age …)`).</para>
+    ///
+    /// <para>WIRE LAYOUT — <c>[flags][page][pageCount][u32 storyKey LE]</c> then, only when
+    /// <see cref="StoryPoseBit"/> is set, <c>[poseStamp][sizeCode][pose 20 B]</c>:
+    /// <list type="bullet">
+    /// <item>flags — see <see cref="StoryOpenBit"/> / <see cref="StoryPoseBit"/> /
+    /// <see cref="StoryFinishedBit"/>; masked with <see cref="StoryDefinedMask"/> on write AND on
+    /// read, the board-UI overlay discipline.</item>
+    /// <item>page — the ABSOLUTE 0-based page the sender is showing
+    /// (<c>UICharacterStoryBox.currentDialogIndex</c>), or <see cref="StoryPageNone"/>. Absolute,
+    /// never an increment: two players clicking in the same frame both publish page N+1, so the
+    /// pair can never skip a page, and re-applying the same value is a no-op.</item>
+    /// <item>pageCount — how many pages the sender's dialog has
+    /// (<c>UICharacterStoryBox.dialogs.Count</c>); 0 = unknown. Diagnostic only — the receiver
+    /// always clamps against its OWN list.</item>
+    /// <item>storyKey — a content hash of the dialog itself (page count + every page's
+    /// LOCALIZATION KEY and speaker guid, never a translated string), so two clients holding the
+    /// same message compute the same value in different languages. A receiver whose own key
+    /// differs IGNORES the record whole: advancing a dialog that is not the one the sender is
+    /// reading would skip somebody's text.</item>
+    /// <item>poseStamp — a wrapping counter the sender bumps once per COMPLETED local
+    /// move/resize. It is the last-mover arbitration, not a clock: a receiver adopts the pose of
+    /// whichever peer's stamp changed most recently. Ties cannot deadlock — a stamp that never
+    /// changes simply never wins.</item>
+    /// <item>sizeCode — the user's grab factor in hundredths
+    /// (<see cref="EncodeStorySize"/>), the SAME dimensionless 0.15–2.00 factor
+    /// <c>PanelGrabHandle</c> clamps to. Deliberately not a pixel size: the fitted host rect is
+    /// per-client (1096×233 on the host vs 1316×233 on peer 1 in the session above).</item>
+    /// <item>pose — 20 B via <c>AvatarSerializer.WritePoseShared</c> (3 × float32 position +
+    /// quantized quaternion), the same encoding every other pose on this wire uses. The position
+    /// is NOT a world point: it is the offset from the reader's own seat anchor
+    /// (<c>PanelLayout.TryGetAnchor</c>) in REAL metres, i.e. divided by that client's diorama
+    /// <c>WorldScale</c>. MEASURED reason: in the session above the same story box stood at world
+    /// (15.55, 6.59, −2.65) scale 0.008 on the host and (1.44, 2.37, −0.34) scale 0.001 on peer 1
+    /// — the players sit at different points of the shared world AND at different zooms, so a raw
+    /// world pose would have parked the window kilometres of apparent distance away for somebody.
+    /// Anchor-local real metres is the only frame in which "same position and size" is true in
+    /// every headset.</item>
+    /// </list></para>
+    ///
+    /// <para>Written ONLY while the sender's own story box is really up (or in the one packet that
+    /// announces it finished), so an idle packet stays byte-identical to the previous build's and
+    /// absence keeps the pre-record behaviour: a purely local dialog. ADDITIVE TLV.</para>
+    /// </summary>
+    public const byte ExtIdStorySync = 19;
+
+    /// <summary>Smallest payload <see cref="ExtIdStorySync"/> can have: flags + page + pageCount +
+    /// the 4-byte story key. A shorter record is not trusted (never trust the wire).</summary>
+    public const int StoryMinRecordBytes = 7;
+
+    /// <summary>Payload of <see cref="ExtIdStorySync"/> WITH its pose block: the 7-byte head plus
+    /// the pose stamp, the size code and the 20-byte shared pose.</summary>
+    public const int StoryRecordBytesWithPose = StoryMinRecordBytes + 2 + 20;
+
+    /// <summary>Story-sync flags bit 0: the sender's story box is OPEN right now. Clear means the
+    /// sender is announcing a state it no longer displays (see <see cref="StoryFinishedBit"/>).</summary>
+    public const byte StoryOpenBit = 1 << 0;
+
+    /// <summary>Story-sync flags bit 1: a POSE block follows the 7-byte head. Set only once the
+    /// sender's user has actually moved or resized the window — an untouched window publishes no
+    /// pose, so nobody's gaze-spawned placement is overwritten by a placement no human chose.</summary>
+    public const byte StoryPoseBit = 1 << 1;
+
+    /// <summary>
+    /// Story-sync flags bit 2: the sender has clicked THROUGH the last page — the dialog is done.
+    ///
+    /// <para>This is the bit that removes the lock. A receiver that still has the same dialog open
+    /// drives its OWN box past its last page, which runs the game's own
+    /// <c>Hide → onFinish → StoryController.OnFinishShow → ShowNext</c> chain locally, and that
+    /// chain is what calls <c>TryUnblockedUpdate()</c> and sends that client's
+    /// <c>GameLoadedAndClientReady</c>. No side action of ours, no rules-library patch: the idle
+    /// peer's own client emits its own handshake.</para>
+    /// </summary>
+    public const byte StoryFinishedBit = 1 << 2;
+
+    /// <summary>Every bit <see cref="ExtIdStorySync"/>'s flags byte defines today. Writer and
+    /// reader both mask with it, so a future sender's extra bits can never light a meaning here.</summary>
+    public const byte StoryDefinedMask = StoryOpenBit | StoryPoseBit | StoryFinishedBit;
+
+    /// <summary>Story-sync page byte: "no page" — the sender has no dialog, or its box has not
+    /// shown its first line yet (<c>currentDialogIndex</c> is still −1 until the open animation
+    /// finishes). Also what a receiver assumes when the record is absent.</summary>
+    public const byte StoryPageNone = 0xFF;
+
+    /// <summary>Highest page index <see cref="ExtIdStorySync"/> can name; one below
+    /// <see cref="StoryPageNone"/>, which the byte spends on "none". A dialog longer than this
+    /// does not exist (the scenario-start message runs to a handful of pages), and a receiver
+    /// clamps against its own list anyway.</summary>
+    public const byte StoryPageMax = 0xFE;
+
+    /// <summary>Story-sync size code standing for the authored 1.00x window — the value assumed
+    /// when no pose block is present.</summary>
+    public const byte StorySizeDefaultCode = 100;
+
+    /// <summary>Lowest size code the record can carry: <c>PanelGrabHandle.MinScale</c> = 0.15x in
+    /// hundredths. A code below it is a sender this build cannot mean and is clamped, not dropped
+    /// — the pose it rides with is still usable.</summary>
+    public const byte StorySizeMinCode = 15;
+
+    /// <summary>Highest size code the record can carry: <c>PanelGrabHandle.MaxScale</c> = 2.00x in
+    /// hundredths.</summary>
+    public const byte StorySizeMaxCode = 200;
+
+    /// <summary>
+    /// Quantize the user's window grab factor to hundredths, clamped to the SAME
+    /// [<c>PanelGrabHandle.MinScale</c>, <c>PanelGrabHandle.MaxScale</c>] window the local handle
+    /// enforces, so a value that survives the wire is always one the receiver's own clamp would
+    /// have produced. NaN/Inf degrade to the authored size rather than to a window of nothing.
+    /// </summary>
+    public static byte EncodeStorySize(float factor)
+    {
+        if (float.IsNaN(factor) || float.IsInfinity(factor))
+            return StorySizeDefaultCode;
+        return (byte)UnityEngine.Mathf.Clamp(UnityEngine.Mathf.RoundToInt(factor * 100f),
+                                             StorySizeMinCode, StorySizeMaxCode);
+    }
+
+    /// <summary>Decode a story size code. Anything outside the handle's own range degrades to the
+    /// authored 1.00x — a readable window — rather than to a speck or a wall.</summary>
+    public static float DecodeStorySize(byte code) =>
+        code < StorySizeMinCode || code > StorySizeMaxCode
+            ? StorySizeDefaultCode / 100f
+            : code / 100f;
+
+    /// <summary>Clamp a local page index onto the wire byte: a negative/absent index and anything
+    /// at or past <see cref="StoryPageNone"/> both become <see cref="StoryPageNone"/>, so a
+    /// garbage index can never drag a peer's dialog to a page nobody is reading. (Same shape as
+    /// <see cref="EncodeHighlightIndex"/> — one wire byte, one reserved "none" value.)</summary>
+    public static byte EncodeStoryPage(int page) =>
+        page >= 0 && page <= StoryPageMax ? (byte)page : StoryPageNone;
+
+    /// <summary>
+    /// THE ARBITRATION, as a pure function of four integers so it can be pinned by wire tests
+    /// without a Unity scene: given what THIS client's story box is showing and the furthest state
+    /// any peer has published for the SAME dialog, which page should this client move to?
+    ///
+    /// <para>Returns <c>-1</c> for "do nothing", which is the answer in every case that matters
+    /// for correctness:
+    /// <list type="bullet">
+    /// <item>IDEMPOTENCE — applying the same state twice equals applying it once. The second call
+    /// passes the already-applied page as <paramref name="localPage"/> and gets −1.</item>
+    /// <item>ORDERING — an OLDER state is ignored. The comparison is
+    /// <c>target &gt; localPage</c>, so a reordered packet from the unreliable side-channel, or a
+    /// peer that is simply behind, can never drag anyone backwards through text they have already
+    /// read.</item>
+    /// <item>NO SKIPPING — the wire carries an ABSOLUTE page, so two players clicking in the same
+    /// frame both publish N+1 and this returns N+1 once. An increment-based protocol would have
+    /// returned N+2 and eaten a page.</item>
+    /// </list></para>
+    ///
+    /// <para><paramref name="remoteFinished"/> outranks <paramref name="remotePage"/>: a peer that
+    /// has clicked THROUGH the dialog is stating a terminal fact, and the answer is this client's
+    /// OWN page count — the index one past its last page, which is what drives the game's own
+    /// close chain. The count is always the LOCAL one; a peer's count is diagnostic only, because
+    /// only this client knows how many pages its own box really holds.</para>
+    /// </summary>
+    /// <param name="localPage">This client's <c>UICharacterStoryBox.currentDialogIndex</c>, or −1
+    /// when its box has not shown its first line yet.</param>
+    /// <param name="localPageCount">This client's own <c>dialogs.Count</c>. Zero or less means
+    /// there is no dialog here and the answer is always −1.</param>
+    /// <param name="remotePage">The furthest page any peer holding the SAME dialog has published,
+    /// or −1 when no peer has published one.</param>
+    /// <param name="remoteFinished">Any peer holding the same dialog has clicked through its end.</param>
+    public static int ResolveStoryPage(int localPage, int localPageCount, int remotePage,
+                                       bool remoteFinished)
+    {
+        if (localPageCount <= 0)
+            return -1;
+        int target = remoteFinished ? localPageCount : remotePage;
+        if (target < 0)
+            return -1;
+        if (target > localPageCount)
+            target = localPageCount;
+        return target > localPage ? target : -1;
+    }
 
     /// <summary>Card-highlight record: "no card highlighted in this fan". Also what a receiver
     /// assumes when the record is absent, so absence and this value render identically.</summary>

@@ -78,7 +78,7 @@ namespace GloomhavenVR.Net;
 /// fan's whole geometry is DERIVED on the receiver from the synced hand + head, so curvature,
 /// toe-in, bow and fan-out timing cost nothing; the KNOWN GAPS above are the fields deliberately
 /// not bought. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
-internal sealed class RemoteHandFan
+internal sealed class RemoteHandFan : IBorrowedCardSource
 {
     // ---- fan geometry (real meters / degrees, seeded to CardsConfig Fan* defaults) -----------
 
@@ -104,6 +104,38 @@ internal sealed class RemoteHandFan
     private float _cardWidth = DefaultCardWidth;
     private float _cardHeight = DefaultCardHeight;
     private float _palmOffset = Defaults.FanPalmOffset;
+
+    // ---- THE PRINTED FACE RECT (report 12, 2026-08-15) ---------------------------------------
+    //
+    // "Die remote Handkarten Vorderseiten werden etwas zu klein angezeigt, so dass sie nicht
+    // perfekt auf dem mesh liegen und der Hintergrund am rand durchscheint." (screenshot
+    // .planning/debug/remote_faecher.jpg — a rim of the slab's own gold card-back braid visible
+    // all the way around every printed face.)
+    //
+    // MEASURED, not eyeballed. The face is the game's FullAbilityCard, 294 x 450 px (host log:
+    // "CARD SILHOUETTE (Ability): first face offered ('Full', rect 294x450 px)"), aspect 0.6533.
+    // A nominal card slab is 63.5 x 88.0 mm, aspect 0.7216. RemoteCardArt.FitClone letterboxes the
+    // clone with Mathf.Min and insets it by CardFace's 6 %:
+    //     fit = min(63.5/294, 88/450) = min(0.2160, 0.19556) = 0.19556 mm/px   (HEIGHT-limited)
+    //     printed = 294 x 0.19556 x 0.94  =  54.04 mm
+    //               450 x 0.19556 x 0.94  =  82.72 mm
+    // against a BODY of 63.5 x 88.0 mm. Margin = (63.5-54.04)/2 = 4.73 mm per side left and right,
+    // (88.0-82.72)/2 = 2.64 mm per side top and bottom. That is the rim, and its measured shape
+    // matches the screenshot: WIDER at the sides than at the ends.
+    //
+    // THE LOCAL CARD NEVER HAD IT, because it solves the same letterbox the other way round —
+    // VRCard.SetCanvasSize scales the BACKING MESH to the printed rect (facePixels x fit x
+    // VisibleFaceFraction) instead of leaving it at the nominal card. So the fix is not a fudge
+    // factor on the face; it is the step this fan was missing. The rect is computed by the one
+    // shared definition, CardFace.VisibleFaceRect, from the face size this client OBSERVES on its
+    // own hosted card widget — a local read of the shared card prefab, so no wire field and no
+    // question asked about the peer.
+    //
+    // Consequence worth stating: a peer's card also STOPS being 63.5 mm wide while the owner's own
+    // is 54.04 mm. The rim and a 17.5 % width mismatch were the same defect.
+    private Vector2 _visibleFace = CardFace.VisibleFaceRect(DefaultCardWidth, DefaultCardHeight);
+    private int _faceRevision = -1;
+    private bool _loggedFaceRect;
 
     /// <summary>
     /// Where a peer's hand fan actually floats: one palm standoff up the PALM normal of
@@ -528,6 +560,86 @@ internal sealed class RemoteHandFan
     /// log exactly once on each backs↔fronts transition (never per frame, never card identities).</summary>
     private bool _frontsShown;
 
+    // ---- BORROWING A CARD OFF THIS FAN (report 7, 2026-08-15) ---------------------------------
+    //
+    // "Ich will auch in der Lage sein, dass man die fremden Handkarten jederzeit auch in der Hand
+    // nehmen kann (inklusive Hand wechsel etc) damit man sie näher betrachten kann. Nur
+    // interagieren oder umsortieren etc soll man nicht können. Es geht hier rein um die Info."
+    //
+    // NOTHING NEW CROSSES THE WIRE FOR THIS, and nothing could: the whole feature is a second
+    // consumer of the mechanism this fan's FRONTS already run on. The count is the only thing this
+    // fan is told; the card CONTENT is read locally off the host-replicated CPlayerActor hand and
+    // rendered as a throwaway CLONE (RemoteCardArt) strictly under RevealGate.ShowRoundCardFronts.
+    // A borrow re-asks that same gate, per slot, on the grab AND on every frame of the hold — see
+    // BorrowAllowed, which is literally the predicate UpdateFaces already computed this frame.
+    //
+    // WHICH PHASES: exactly the ones this fan already shows fronts in. During the secret
+    // card-selection window the gate is false, the slabs are BACKS, BorrowAllowed is false, and the
+    // slab is not even a sweep candidate — so the affordance itself disappears rather than
+    // promising a look it may not give. Cards/CardBorrow.cs states the full list.
+    //
+    // The GEOMETRY of the affordance lives here because the slabs do: Rebuild puts a BorrowTarget
+    // and a strip-sized trigger collider on each slab (the same tiling-collider trick the local fan
+    // uses so a sweep picks one card at a time — FanSweep's class doc explains why full-width
+    // colliders on overlapping cards make a sweep skip cards).
+
+    /// <summary>Whether the fronts gate was OPEN on the last <see cref="UpdateFaces"/> pass — the
+    /// borrow's permission, kept as a field so it is the SAME verdict the faces were drawn under
+    /// rather than a second, separately-derived one (the ModBuild 84 mismatch, one surface over).</summary>
+    private bool _borrowGateOpen;
+
+    /// <summary>The cloned face of a borrowed copy (null = nothing borrowed off this fan). Its own
+    /// overlay, never one of <see cref="_faces"/>: the owner's slab keeps its face for the whole
+    /// hold, so the fan a peer is looking at never changes because someone borrowed from it.</summary>
+    private RemoteCardArt? _borrowArt;
+
+    /// <summary>The transform <see cref="_borrowArt"/> was built against, so a second borrow on a
+    /// fresh copy rebuilds rather than re-using an overlay parented to a destroyed card.</summary>
+    private Transform? _borrowHost;
+
+    string IBorrowedCardSource.BorrowOwnerLabel => $"player {_owner.PlayerId}";
+
+    Color IBorrowedCardSource.BorrowTint => _owner.Tint;
+
+    string IBorrowedCardSource.BorrowGateLabel =>
+        "RevealGate.ShowRoundCardFronts(the owner's displayed character) — the game's own rule, "
+        + "false in the secret SelectAbilityCardsOrLongRest window for a character not under my control";
+
+    /// <summary>The per-slot permission: the fronts gate this frame AND a resolved hand widget with
+    /// a real full card behind that slot. Both halves are exactly what <see cref="UpdateFaces"/>
+    /// requires before it draws a front, so a card can never be borrowed that is not already
+    /// legally visible on the slab.</summary>
+    bool IBorrowedCardSource.BorrowAllowed(int slot) =>
+        _borrowGateOpen && slot >= 0 && slot < _handBuffer.Count
+        && _handBuffer[slot] != null && _handBuffer[slot].fullAbilityCard != null;
+
+    /// <summary>Build or refresh the borrowed copy's cloned face. Same class, same clone, same
+    /// non-interactive neutralisation and same mip-bake upkeep the fan's own faces get — the copy
+    /// is not a second rendering path, it is one more instance of the existing one.</summary>
+    bool IBorrowedCardSource.ShowBorrowedFace(int slot, Transform host, float cardWidth, float cardHeight)
+    {
+        if (!((IBorrowedCardSource)this).BorrowAllowed(slot))
+            return false;
+        FullAbilityCard? full = _handBuffer[slot].fullAbilityCard;
+        if (full == null)
+            return false;
+        if (_borrowArt != null && !ReferenceEquals(_borrowHost, host))
+            ((IBorrowedCardSource)this).ReleaseBorrowedFace();
+        if (_borrowArt == null)
+        {
+            _borrowArt = new RemoteCardArt(host, cardWidth, cardHeight);
+            _borrowHost = host;
+        }
+        return _borrowArt.ShowFront(full);
+    }
+
+    void IBorrowedCardSource.ReleaseBorrowedFace()
+    {
+        _borrowArt?.Destroy();
+        _borrowArt = null;
+        _borrowHost = null;
+    }
+
     /// <summary>Reused scratch buffer for the remote actor's HAND-pile card widgets (no per-frame alloc).</summary>
     private readonly List<AbilityCardUI> _handBuffer = new(MaxCards);
 
@@ -556,7 +668,15 @@ internal sealed class RemoteHandFan
 
     public void Tick(float dt)
     {
+        // THE BORROW GESTURE (report 7). Driven from here because this lane owns no module-level
+        // ticker and the borrowable slabs are this class's own; CardBorrow.Tick is frame-guarded,
+        // so every peer's fan may call it and only the first one in a frame does the work. It is
+        // FIRST, before every early return below, so a hand already on a peer's card keeps its
+        // hover and its trigger claim even on a frame this particular fan bails out of.
+        CardBorrow.Tick();
+
         SyncTuning();
+        SyncFaceRect(); // AFTER SyncTuning: the printed rect is derived from the card size it resolves
 
         // Which hand does the fan hang off? owner.NonDominantHandHolder already resolves to the
         // LEFT holder when DominantRight is true (the sensible default), else RIGHT; fall back to
@@ -778,6 +898,15 @@ internal sealed class RemoteHandFan
             _handBuffer.Clear();
             VRLog.Warn("Net", $"RemoteHandFan front gate errored ({ex.Message}) — showing backs.");
         }
+
+        // THE BORROW PERMISSION IS THIS VERY VERDICT (report 7), latched here rather than
+        // re-derived on demand: a borrow that asked its own copy of the rule could answer
+        // differently from the slab it is looking at, which is the ModBuild 84 defect one surface
+        // over. Closing the gate also EMPTIES the widget buffer, so a stale entry from the last
+        // open frame can never be borrowed after the phase turned secret.
+        _borrowGateOpen = showFronts;
+        if (!showFronts)
+            _handBuffer.Clear();
 
         for (int i = 0; i < _faces.Count; i++)
         {
@@ -1415,6 +1544,49 @@ internal sealed class RemoteHandFan
 
         if (sizeChanged)
             _builtCount = -1;
+        _faceRevision = -1; // the printed rect is a function of the card size — re-resolve it
+    }
+
+    /// <summary>
+    /// Re-resolve the PRINTED face rectangle the slab bodies are scaled to (see
+    /// <see cref="_visibleFace"/>) whenever this client learns a new face pixel size — i.e. the
+    /// first time it hosts an ability card of its own, and never again in a normal session. A
+    /// change invalidates <see cref="_builtCount"/> so the slabs are rebuilt at the corrected size
+    /// on the same frame.
+    ///
+    /// <para>Revision-gated rather than value-compared for the same reason <see cref="SyncTuning"/>
+    /// is: this runs once per fan per frame and the answer changes at most once per session.</para>
+    /// </summary>
+    private void SyncFaceRect()
+    {
+        if (_faceRevision == CardFace.FacePixelsRevision)
+            return;
+        _faceRevision = CardFace.FacePixelsRevision;
+        Vector2 vis = CardFace.VisibleFaceRect(DefaultCardWidth, DefaultCardHeight);
+        if (Mathf.Approximately(vis.x, _visibleFace.x) && Mathf.Approximately(vis.y, _visibleFace.y)
+            && _loggedFaceRect)
+            return;
+        _visibleFace = vis;
+        _builtCount = -1;
+
+        // THE MEASUREMENT LINE (report 12). Grep: "Remote hand fan face rect". It states the two
+        // rectangles and the margin between them in millimetres, so the next hardware round CHECKS
+        // the fix rather than eyeballing the screenshot. A log whose margin is not 0.00 x 0.00 mm
+        // disproves the claim; a log whose printed size is not the owner's own printed size
+        // (VRCard's backing fit, the "CARD FACE RECT" line from Cards) disproves the 1:1 half.
+        _loggedFaceRect = true;
+        float ratio = _cardWidth / DefaultCardWidth;
+        VRLog.Info("Net", $"Remote hand fan face rect [player {_owner.PlayerId}]: face "
+            + $"{CardFace.ObservedFacePixels.x:F0}x{CardFace.ObservedFacePixels.y:F0} px letterboxed into the "
+            + $"{DefaultCardWidth * 1000f:F1}x{DefaultCardHeight * 1000f:F1} mm nominal card PRINTS "
+            + $"{vis.x * 1000f:F2}x{vis.y * 1000f:F2} mm; the slab BODY is now scaled to exactly that "
+            + $"(x{vis.x / DefaultCardWidth:F4}, x{vis.y / DefaultCardHeight:F4}), so the margin of card-back "
+            + "showing around the print is 0.00x0.00 mm. Before this build the body stayed at the nominal "
+            + $"card and that margin measured {(DefaultCardWidth - vis.x) * 500f:F2} mm per side at the "
+            + $"SIDES and {(DefaultCardHeight - vis.y) * 500f:F2} mm per side at the ENDS. "
+            + $"Owner scale x{ratio:F3}. Same rect the LOCAL card's backing "
+            + "is fit to (VRCard.SetCanvasSize) — no wire field, the face size is read off this client's "
+            + "own hosted card widget.");
     }
 
     /// <summary>Destroy and recreate exactly <paramref name="count"/> back-on-both-faces slabs, each
@@ -1422,11 +1594,26 @@ internal sealed class RemoteHandFan
     /// (cheap). Re-applies the mod layer so the owned head camera renders the new slabs.</summary>
     private void Rebuild(int count)
     {
+        // A BORROWED COPY MUST NEVER OUTLIVE THE SLABS IT WAS READ FROM (report 7). The hand it
+        // came from is being replaced — a card was played, burnt, drawn, or the owner switched
+        // character — so the slot index it names stops meaning what it meant. It glides back and
+        // dies here rather than becoming a card of unknown provenance in someone's hand.
+        CardBorrow.EndIfFrom(this, "the owner's fan was rebuilt");
+
         // Tear down existing front overlays first (each owns cloned game widgets — no leaks), then the
         // slabs they hang off.
         for (int i = _faces.Count - 1; i >= 0; i--)
             _faces[i].Destroy();
         _faces.Clear();
+
+        for (int i = _cards.Count - 1; i >= 0; i--)
+        {
+            if (_cards[i] == null)
+                continue;
+            // Drop the slab's borrow registration BEFORE the deferred Destroy, so the sweep never
+            // considers a slab that is on its way out this frame.
+            _cards[i].GetComponent<BorrowTarget>()?.Retire();
+        }
 
         for (int i = _cards.Count - 1; i >= 0; i--)
         {
@@ -1441,28 +1628,65 @@ internal sealed class RemoteHandFan
         // 1:1 rule applies to the card's SHAPE as much as to its content.
         Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability); // shared: back texture on a Standard material
 
+        // THE BODY IS SIZED TO THE FACE IT WILL WEAR (report 12, 2026-08-15) — see _visibleFace.
+        Vector2 vis = _visibleFace;
+
+        // The arc pitch this hand is laid out on — LayoutCards' own `step`, needed here so the
+        // borrow collider can be shrunk to the visible strip between neighbouring cards.
+        float stepDegrees = count > 1
+            ? Mathf.Min(_perCardStepDegrees, _arcSweepDegrees / (count - 1))
+            : 0f;
+
         for (int i = 0; i < count; i++)
         {
             var card = new GameObject($"Card{i}");
             card.transform.SetParent(_root!.transform, worldPositionStays: false);
-            // The body MESH is the shared default-sized one; the owner's own CardWidth arrives as
-            // a uniform scale (record 28), so their ghost cards read the size they see.
+            // The SLAB ROOT stays UNIFORM: RemoteCardArt hangs its world-space face canvas off this
+            // transform, and a non-uniform scale here would stretch the printed art. The owner's own
+            // CardWidth arrives as that uniform scale (record 28), so their ghost cards read the size
+            // they see.
             card.transform.localScale = Vector3.one * (_cardWidth / DefaultCardWidth);
-            var mf = card.AddComponent<MeshFilter>();
+
+            // …and the BODY, one level down, carries the non-uniform squash onto the face rect. This
+            // is VRCard.SetCanvasSize's backing fit, term for term: the local card scales its backing
+            // mesh to facePixels × fit × VisibleFaceFraction so that slab and print are the SAME
+            // rectangle. This fan used to skip that step and leave the slab at the full nominal
+            // 63.5 × 88 mm, which is exactly the reported rim of card-back braid around a peer's
+            // print — and, unreported, made a peer's card 17.5 % wider than the owner's own.
+            var body = new GameObject("Body");
+            body.transform.SetParent(card.transform, worldPositionStays: false);
+            body.transform.localScale = new Vector3(vis.x / DefaultCardWidth, vis.y / DefaultCardHeight, 1f);
+            var mf = body.AddComponent<MeshFilter>();
             // Round 17 (1:1 board rule): the ghost card adopts the owner's PUNCHED-OUT body via
             // CardMesh.AttachBody — the shared materials lost their alpha cutout, so a hand-built
             // rectangle here would read as the pre-silhouette full rectangle. AttachBody registers
             // the filter and upgrades it in place the moment the Ability contour is learned.
             CardMesh.AttachBody(mf, CardBodyKind.Ability, DefaultCardWidth, DefaultCardHeight);
-            var mr = card.AddComponent<MeshRenderer>();
+            var mr = body.AddComponent<MeshRenderer>();
             // The body mesh carries TWO submeshes (front+rim | back). This fan deliberately shows
             // the BACK texture on both faces — hidden information — so the shared back material
             // wears both slots instead of the owner's [edge, back] pair.
             mr.sharedMaterials = new[] { back, back };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
+
+            // BORROW AFFORDANCE (report 7): a trigger collider on the slab ROOT plus the reach
+            // surface the shared sweep elects over. It is sized to the slab's VISIBLE STRIP, not
+            // to the whole card — the peer's slabs overlap by 40-60 % exactly like the local fan's,
+            // and FanSweep's class doc records what full-width colliders on overlapping cards do to
+            // a sweep (several cards measure 0.0 cm at once, ties never switch the incumbent, cards
+            // are skipped). The collider is a trigger and is used only for ClosestPoint, so it
+            // never touches game physics and the slab stays a purely cosmetic ghost.
+            var borrow = card.AddComponent<BorrowTarget>();
+            borrow.Configure(this, i, vis.x, vis.y,
+                FanSweep.StripWidth(count, _radius, stepDegrees, vis.x, _cardWidth / DefaultCardWidth));
+
             _cards.Add(card);
-            _faces.Add(new RemoteCardArt(card.transform, _cardWidth, _cardHeight));
+            // NOMINAL size, not the owner's tuned one: the slab root ALREADY carries
+            // _cardWidth/DefaultCardWidth, so handing the tuned width here fitted the face a second
+            // time and squared the ratio — invisible at the shipped default (ratio 1), a real
+            // mismatch for any peer who had moved [Cards] CardWidth.
+            _faces.Add(new RemoteCardArt(card.transform, DefaultCardWidth, DefaultCardHeight));
         }
 
         _builtCount = count;
@@ -1470,10 +1694,36 @@ internal sealed class RemoteHandFan
         // Owned head camera renders the mod layer only; put the whole fan subtree on it (no-op
         // when VR is not running, exactly like the local fan/hands).
         VRLayers.Apply(_root!);
+
+        // …and then take the BORROW COLLIDERS back off it, onto Unity's built-in Ignore Raycast
+        // layer (2). This is not tidiness, it is the one way this feature could have broken
+        // something unrelated: RayInteractor's world pick is a real Physics.Raycast against
+        // Physics.DefaultRaycastLayers with triggers enabled (RayInteractor.cs:590), and the mod
+        // layer is an ordinary layer inside that mask. A trigger box floating around every peer's
+        // hand would therefore have become a laser hit — stealing hex, figure and furniture picks
+        // whenever a teammate's fan crossed the beam. Layer 2 is excluded from
+        // DefaultRaycastLayers by Unity itself, and Collider.ClosestPoint (the only thing the borrow
+        // sweep uses) does not consult layers at all, so the affordance keeps working with zero
+        // exposure to the world ray. Only the slab ROOT moves — it carries no renderer, so nothing
+        // leaves the owned head camera's cull mask; the Body and FrontArt children keep the mod
+        // layer VRLayers just gave them.
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            if (_cards[i] != null)
+                _cards[i].layer = IgnoreRaycastLayer;
+        }
     }
+
+    /// <summary>Unity's built-in "Ignore Raycast" layer — the one layer
+    /// <c>Physics.DefaultRaycastLayers</c> excludes. See the note at the end of <see cref="Rebuild"/>.</summary>
+    private const int IgnoreRaycastLayer = 2;
 
     private void Hide()
     {
+        // A hidden fan has no slabs on screen to have borrowed from, so a copy in the air would be
+        // orphaned the moment the owner lowered their hand (report 7's "must not survive").
+        CardBorrow.EndIfFrom(this, "the owner's fan was hidden");
+
         // Drop any cloned fronts so a hidden hand keeps no game-widget clones alive.
         for (int i = 0; i < _faces.Count; i++)
             _faces[i].HideFront();
@@ -1501,6 +1751,12 @@ internal sealed class RemoteHandFan
 
     public void Destroy()
     {
+        // THE PEER LEFT (or the scenario tore down). A borrowed copy of their card dies with them
+        // — report 7's second lifetime rule, and the only one a hardware session can hit by
+        // accident (a disconnect mid-look).
+        CardBorrow.EndIfFrom(this, "the owner's avatar was destroyed (peer left / teardown)");
+        ((IBorrowedCardSource)this).ReleaseBorrowedFace();
+
         EndSwap(); // any outgoing wave dies with the fan — no orphaned slabs, no leaked clones
         _shownActorId = 0;
         _shownActor = null;
