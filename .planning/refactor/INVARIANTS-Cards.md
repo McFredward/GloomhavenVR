@@ -519,24 +519,33 @@
 - **Breaks if:** Moving the call after the reach test, or into the `lost` branch.
 - **Confidence:** high
 
-### The pinned board is anchored in the PLAYER'S frame, and no code computes where it goes
-- **Where:** `TrayPinFrame` (`LateUpdate`, `[DefaultExecutionOrder(20000)]`), `PlayTray.ApplyFollowMode` (attaches it), `PlayTray.SyncPinHolder` (reduced to one `Seat()` call plus the rig-acquired/lost/replaced edges)
-- **Rule:** The holder copies the rig's world **position, rotation and lossy scale** every frame in `LateUpdate`; the board's pose *under* it is constant. Nothing per-frame derives the board's place or size.
-- **Why:** Two hardware defects came out of the old law, both measured in the ModBuild 159 log. (1) A one-frame lag, proven by identity: the Update-phase re-assert read a rig scale `WorldGrab.Update` had not yet written, so `parent chain ×64.79 ÷ rig ×68.50` — 64.79 being the previous line's rig scale. The anchor ratio wandered 0.89…1.11 and the board breathed ±10 % through every pinch. (2) Angular size = size ÷ distance, and only the numerator was frozen: 146 log lines hold the board at world `(24.50, 7.83, 16.39)` while the rig swept ×19.01 → ×83.53, so the board grew 4.4× in the eye while the diagnostic reported its size unchanged. Anchoring in the rig frame makes both terms scale together, and the ratio is 1.000 because both sides are the same float read in the same frame.
-- **Established by:** ModBuild 160, on the user ruling of 2026-08-18 — *"Fixiert heißt in jeglicher hinsicht fixiert und fix, EGAL wie man zoomed oder sich bewegt auch wenn man es in einer Hand festhält."* Supersedes `f6d9725`'s "written ONCE and never re-asserted" and `fb2e6e3`'s world-space pin. The 2026-08-07 ruling (*"bewegt sich in KEINSTER Weise"*) is satisfied by the same change — it was only ever true in the player's frame of reference.
-- **Breaks if:** Re-introducing per-frame arithmetic in `PlayTray` (that is defect 1); moving `Seat()` back into the Update phase; making the holder a real child of `VRRigDriver.RigRoot` (`TearDownRig` destroys the subtree and the board with it — that is why it is a *shadow*); preserving the payload's **world** pose on any seat after the first (that is how a recentre used to strand it).
+### The pinned board is carried ONLY on a rig SCALE change
+- **Where:** `Cards/BoardZoomCarry.cs` (the arithmetic, Mathf-only and wire-tested), `Cards/BoardZoomCarryDriver.cs` (`LateUpdate`, `[DefaultExecutionOrder(20000)]`)
+- **Rule:** On a frame where the rig's lossy scale changed by more than a **relative** epsilon — compared against the last **carried** scale, so sub-epsilon creep accumulates instead of escaping — the pinned board is re-derived from its rig-local pose. On every other frame nothing is written. The write goes to the **holder**, solved so the tray's parent-local transform is bit-identical.
+- **Why:** `Rig/WorldGrab.cs:400` pivots the zoom on the glued **hand midpoint**, not the head, so a scale change moves the head through the world and a world-fixed object's angular size necessarily rides the zoom. Holding the rig-local pose makes the board invisible to the zoom; holding the world pose keeps it in the room. **Neither pure anchor is correct** — ModBuild 158 was world-static ("das controllboard mitgezoomed"), ModBuild 160 was rig-local ("geht immer mit"), and four builds moved back and forth between them. The scale gate is what separates the two behaviours.
+- **Established by:** ModBuild 161, on the user's instruction of 2026-08-18 to revert the board to the ModBuild 158 state and fix from there.
+- **Breaks if:** Carrying unconditionally (that is ModBuild 160 and report 3); sampling the rig in the Update phase (that is ModBuild 159's ±10 % breathing — `parent chain ×64.79 ÷ rig ×68.50`, the previous frame's scale, in 82 of 158 moving-zoom samples); writing the tray instead of the holder (`CardsDriver.TickBoardPoseWatch` then logs at frame rate); using an absolute epsilon (the rig scale spans ×19–×137); failing to advance the carried-scale baseline after a carry (the holder compounds to infinity in about a second — caught by mutation testing, not by the green suite).
 - **Confidence:** high
 
-### The pin carry costs nothing, because there is nothing to carry
-- **Where:** `TrayPinFrame.Seat` (the `ReferenceEquals(rig, _rig)` edge)
-- **Rule:** A rig rebuild or recentre hands us a different rig transform; we copy that one and the board keeps its **rig-local** pose. No version number is consulted and no pose is recomputed.
-- **Why:** `RigPoseVersion` was the old signal because the pin lived in world space and had to be re-derived on exactly the two events that moved the rig without moving the world. Under a rig-local pin every rig-driven change — rebuild, recentre, snap turn, world grab, zoom, flight — is invisible to the player by construction, so the carry is what *not acting* looks like. The transform identity is still tracked so the log can report the carry happened.
-- **Established by:** ModBuild 160. Replaces `fb2e6e3`'s `_pinPoseVersion` / `_rigLocalPin*` cache.
-- **Breaks if:** Re-adding a version-keyed carry (it would now fight the follower), or preserving the world pose across the adopt.
+### The pin holder scale is written ONCE and never re-asserted
+- **Where:** `PlayTray.SyncPinHolder` (the explanatory comment block with **no code under it**), `PlayTray.ApplyFollowMode` (the single writer)
+- **Rule:** `_pinRoot.localScale` is set at pin time and never touched per frame.
+- **Why:** A per-frame re-assert from the live rig scale was added on the theory that a world-grab zoom would drift the pinned board. That theory was wrong twice over. It cannot drift: the holder sits at the world **origin** with identity rotation and is not parented under the rig, so rescaling the rig cannot move or resize anything underneath it. And the rescale *was* the reported bug — with the holder tracking the rig, the board's world **size** grows with the zoom while its world **position** is held, so it swells on screen exactly as the rest of the world shrinks.
+- **Established by:** `f6d9725` fix(board): a pinned control board is no longer resized by world zoom (regression from `fb2e6e3`)
+- **Breaks if:** Someone "fixes the obvious scale drift" by re-asserting the holder scale inside the tick. **The comment block with no code under it IS the invariant** — do not delete it as a dead comment.
+- **AMENDED BY ModBuild 161** — and the amendment is exactly one word wide. The *unconditional* re-assert this entry forbids is still forbidden: ModBuild 159 shipped it and produced the "zoomed immer noch mit" report, because a holder tracking the rig while the world position is held makes the board swell as the world shrinks. But the reason given above ("it cannot drift") is **wrong**, and the log says so: the zoom pivots on the hand midpoint (`Rig/WorldGrab.cs:400`), not the head, so the player's eye moves through the world with every scale change and a world-static board's angular size rides it. The holder is now re-asserted on **scale-change frames only** — see *The pinned board is carried ONLY on a rig SCALE change*. On every other frame this entry still holds verbatim.
+- **Confidence:** high
+
+### Pin carry keys on `RigPoseVersion` and nothing else
+- **Where:** `PlayTray.SyncPinHolder` (`_pinPoseVersion`, `_rigLocalPinValid`, `_rigLocalPinPos`/`_rigLocalPinRot`)
+- **Rule:** The pinned board is carried by its cached **rig-relative** pose exactly when `VRRigDriver.RigPoseVersion` changes; the rig-local cache is refreshed every frame while the origin is stable; the FOLLOW/no-pin early return still stamps the version first.
+- **Why:** `RigPoseVersion` bumps on exactly two events — a rig (re)build and a deliberate recentre — and on nothing else: snap turns and world-grab deliberately do **not** bump it. It is therefore the only stable signal. The per-frame cache refresh exists so the next origin change carries the board from where the user last dragged it, not from where it was pinned. The early-return stamp prevents a stale version triggering a bogus carry the first frame after switching to PINNED.
+- **Established by:** `fb2e6e3`
+- **Breaks if:** Keying on "did the rig transform change since last frame" (carries on every snap turn), caching the rig-local pose only at pin time, or hoisting the early return above the stamp.
 - **Confidence:** high
 
 ### Watchdog state is reset in `Destroy`
-- **Where:** `PlayTray.Destroy` (`_lostSince`, `_pinHousekeepingMove`; the `_pinPoseVersion`/`_rigLocalPin*` cache went with the world-space pin in ModBuild 160)
+- **Where:** `PlayTray.Destroy` (`_lostSince`, `_pinPoseVersion`, `_rigLocalPinValid`, `_pinHousekeepingMove`)
 - **Rule:** All watchdog/pin bookkeeping is cleared on teardown.
 - **Why:** The `PlayTray` **instance outlives its root** (board switch, rebuild), so a stale dwell timer could recover a board that was never lost.
 - **Established by:** `fb2e6e3`
@@ -2102,7 +2111,6 @@ who greps the log and finds only the first commit will draw the wrong conclusion
 | `4ef1d76` reverts the first attempt at `9e78031` | Card + held-figure render-on-top via ZTest Always | Destroyed card text and depth-correct figures. The shipped fix raises the render **queue** while keeping ZTest LEqual. |
 | `b9e48b5` corrects `aa63e87` | Nulling the hosted card's `cardEffects` to kill the green fog | It threw the whole on-card "verbraucht" look away with it. The shipped fix clamps only `fx_Smoke`. |
 | `f6d9725` corrects `fb2e6e3` | Re-asserting the pin holder's scale from the live rig each frame | The drift it guarded against is structurally impossible, and the re-assert *was* the reported "world zoom resizes the pinned board" bug. |
-| ModBuild 160 supersedes `f6d9725`, `fb2e6e3` and ModBuild 159 | Four rounds of arithmetic that each moved *where* the same world-space pin was re-derived | The pin itself was the fault. A board nailed to game-world coordinates cannot be zoom-invariant to a player the zoom rescales, whatever the arithmetic does — 159 froze the size and left the distance, which the eye divides by. Anchoring the pin in the rig frame removes the arithmetic instead of relocating it. |
 | `5e79abe` supersedes `9e2b53d` | A moving bow apex, re-normalised by the longer side | Produced a felt threshold at the fan centre and pushed mid-hand cards further back than the neutral shape. Replaced by multiplicative relief on a fixed resting bow. |
 | `6b5c38c` supersedes `d7ec01c` supersedes `bb3502c` | Three earlier reveal-gate measures | Each degenerated at a hand pose the previous one had not been tested in. |
 | `239acb5` supersedes `c78ce61` | Poke dwell on CONFIRM/UNDO/SET | Removed by user directive; the accident window was kept. |

@@ -111,7 +111,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `TilesOcclusionVolume_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:260</sub> | `TilesOcclusionVolume.Start()` *(private)* | postfix | `SceneRegistry`:108 |
 | `UnityGameEditorDoorProp_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:272</sub> | `UnityGameEditorDoorProp.Start()` *(private)* | postfix | `SceneRegistry`:123 |
 | `ProceduralTileObserver_OnEnable_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:288</sub> | `ProceduralTileObserver.OnEnable()` *(private)* | postfix | `SceneRegistry`:138 |
-| `ProceduralBase_NotifyContentPlacementComplete_WaterPatch`<br/><sub>src/GloomhavenVR/Core/WaterTerrainVR.cs:2093</sub> | `ProceduralBase.NotifyContentPlacementComplete()` | postfix | `WaterTerrainVR`:296 |
+| `ProceduralBase_NotifyContentPlacementComplete_WaterPatch`<br/><sub>src/GloomhavenVR/Core/WaterTerrainVR.cs:2805</sub> | `ProceduralBase.NotifyContentPlacementComplete()` | postfix | `WaterTerrainVR`:380 |
 
 ## Rig
 

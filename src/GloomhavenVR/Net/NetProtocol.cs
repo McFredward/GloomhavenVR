@@ -416,7 +416,118 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 160;
+    public const ushort ModBuild = 161;
+    // Build 161: THE ZOOM PIVOTS ON THE HANDS, AND THE WHITE IS THE EDGE BAND. Nothing on the wire;
+    // every packet is byte-identical to build 160's. The bundle is unchanged.
+    //
+    // ── 1. THE BOARD: BUILD 160'S HALF IS REVERTED, AND THE GEOMETRY IS WRITTEN DOWN ───────────
+    // User, 2026-08-18, on build 160: "Massive Regression bei der zoom-tematik: 'Fixiert'
+    // funktioniert nun garnicht mehr — egal was man dort einstellt, das board zoomed nun immer mit
+    // und geht immer mit. Bitte mache es zu dem Stand rückgängig BEVOR ich das erste mal in der
+    // session nach einem fix gefragt hab. Gehe wieder von diesem funktionierenden stand aus und fix
+    // es da."
+    //
+    // DONE LITERALLY: every file under Cards/ was restored byte-identical to ModBuild 158
+    // (`611eb88`). `BoardSizeFrame.cs` and `TrayPinFrame.cs` are deleted, the German and English
+    // descriptions and the Cards invariant catalogue are back on their 158 wording, and the new
+    // work is built on that base. The water and hover work from 159/160 is untouched.
+    //
+    // WHY FOUR ROUNDS FAILED, and it is one line of somebody else's file. `Rig/WorldGrab.cs:400`:
+    //
+    //     rig.position = _midAnchorWorld - rot * (mid * s);
+    //
+    // THE ZOOM PIVOTS ON THE GLUED HAND MIDPOINT, NOT ON THE HEAD. Every round of this defect was
+    // reasoned about as though the player's eye were the pivot, in which case a world-static object
+    // keeps its angular size and there is nothing to fix. It is not the pivot: a scale change moves
+    // the head through the world too, so a world-fixed object's angular size necessarily rides the
+    // zoom. That is correct for game geometry — it is what zooming IS — and wrong for the player's
+    // own instrument. Perceived position of a world point P is the rig-local one,
+    // rot⁻¹·(P − rigPos)/s, so:
+    //   * holding the board's RIG-LOCAL pose constant makes it invisible to the zoom — and makes it
+    //     travel with the player, which is build 160 and the "geht immer mit" report;
+    //   * holding its WORLD pose constant keeps it in the room — and makes it ride the zoom, which
+    //     is build 158 and the "mitgezoomed" report.
+    // NEITHER PURE ANCHOR IS CORRECT. Four builds moved back and forth between them.
+    //
+    // THE RULE (`Cards/BoardZoomCarry.cs` + `BoardZoomCarryDriver.cs`): on any frame where the rig's
+    // lossy SCALE changed by more than a RELATIVE epsilon — compared against the last CARRIED scale,
+    // so sub-epsilon creep accumulates instead of escaping — the pinned board is re-derived from its
+    // rig-local pose. On every other frame nothing is written at all.
+    //   * ZOOM → rig-local pose held → nothing changes in the eye.
+    //   * WALK, STICK, TELEPORT, FLIGHT, SNAP TURN, WORLD-GRAB DRAG → scale unchanged → the gate is
+    //     shut → the world pose is untouched and the board stays in the room.
+    //   * HELD IN ONE HAND + ZOOM → `PanelGrabHandle` writes root.position in WORLD space and never
+    //     reparents (`WorldUI/PanelGrab.cs:453/490`), so the hand carried the board at a distance
+    //     that scaled with the rig while its world size stayed frozen. That is report 1 exactly.
+    //     The holder now tracks the rig through the zoom, so the perceived size is constant.
+    //   * THE CARRY WRITES THE HOLDER, NOT THE TRAY, solving for a bit-identical tray local
+    //     transform. Writing the tray would move its PARENT-LOCAL pose ~1 m across his ×19→×137
+    //     sweep and `CardsDriver.TickBoardPoseWatch` would have logged a board-pose line every
+    //     frame of every pinch.
+    //   * A COMBINED ROTATE+ZOOM CARRIES THE YAW. Decomposing "only the scale-caused part" is not
+    //     possible: the line above makes a pure zoom TRANSLATE the rig as a direct function of s,
+    //     so scale and pose are not separable. Full rig-local carry is the only formulation that
+    //     holds the eye still, and a world grab is the player re-orienting themselves anyway.
+    //   * THE PHASE IS THE MECHANISM. Build 159 re-asserted from the live rig in
+    //     `CardsDriver.Update`, which runs BEFORE `WorldGrab.Update` writes the new scale: the log
+    //     printed the identity `parent chain ×64.79 ÷ rig ×68.50` where 64.79 was the previous
+    //     frame's rig scale, in 82 of 158 moving-zoom samples — a ±10 % breathing through every
+    //     pinch. The carry runs in `LateUpdate` at `[DefaultExecutionOrder(20000)]`, after every
+    //     Update-phase rig writer and after `VRRigDriver.LateUpdate`'s tilt heal, and a SOURCE LINT
+    //     pins the phase because no vector can express it.
+    //   * THE DIAGNOSTIC THAT AGREED WITH FOUR BROKEN BUILDS is replaced, not extended. It reported
+    //     "apparent size" = world size ÷ rig scale, which is constant for a world-static board under
+    //     a zoom BECAUSE BOTH TERMS SCALE BY 1/s. The eye judges size ÷ DISTANCE. `BOARD SIZE` now
+    //     prints the apparent width, the distance in player metres, the subtended angle, the delta
+    //     of each since the previous line, and the parent÷rig ratio the min/max limits ride on.
+    //   * MULTIPLAYER NEEDS NOTHING. `NetAvatarDriver.TickExtrasSend` samples the board's raw world
+    //     pose through an identity `WorldAnchor` and `RemoteControlBoard` writes it to an unparented
+    //     root; nothing multiplies by any rig scale. The board now moves in the shared world during
+    //     a zoom and only then — which is what actually happened, and what its owner sees too.
+    //   * THE SECOND HALF OF THE SIZE REPORT IS DELIBERATELY NOT FIXED THIS ROUND, and the reason is
+    //     written at `PlayTray.3.Pose.cs`'s re-seat: `TrayScale` is clamped to 0.5–2, narrower than
+    //     the band the gesture allows, so a large release ratchets the overflow into
+    //     `BoardScale_{board}` — which is what the settings window measures its own range against
+    //     (0.54 → 1.00 → 1.13 in one of his sessions). But the releases that could reach outside the
+    //     band were only reachable because `GrabScaleLimits` drifted with the zoom, and that drift
+    //     is gone. Widening the band on the same build would make the next log unable to say which
+    //     change did it. The re-seat now WARNS instead of informing: if the line appears, the
+    //     ratchet has an independent trigger; if it does not, the window was the whole of it.
+    //
+    // ── 2. THE WATER: WE HAVE BEEN TUNING A TERM HE NEVER SAW ──────────────────────────────────
+    // User, same round: "Keinen Unterschied bei der Reflektion." Fourth round.
+    //
+    // THE PHOTOGRAPH SETTLES IT, and nobody had opened it. `.planning/debug/spiegeltiles.jpg` shows
+    // ~9 hexes as a flat, pale, milky NEAR-WHITE sheet. The film's authored `_Color_Tint` is
+    // RGBA(0.195, 0.311, 0.131, 0.737) — DARK GREEN. No alpha on a dark green body renders as a pale
+    // sheet. The near-white in that material is `_Edge_Colour` RGBA(0.887, 0.887, 0.887, 0.867),
+    // with `_EdgeColour_Toggle=1` and a depth fade reading a `_CameraDepthTexture` the head camera
+    // never writes — pinned at the extreme that paints the WHOLE quad as shoreline. Three rounds
+    // capped `_Color_Tint.a` and `_Smoothness`: he was never looking at either. "No difference" was
+    // an accurate report, not an under-tuning.
+    //   * BUILD 160 DID PROVE ONE THING RETROACTIVELY: `instancing=True` on both materials. In the
+    //     built-in pipeline a batched instanced draw takes non-instanced properties from the
+    //     MATERIAL, so build 159's property block never reached the shader at all.
+    //   * THE BAND IS NOW COLLAPSED BY NUMBER, not by keyword: `_Edge_Distance`,
+    //     `_Edge_Colour_Distance` and `_WaterBorderWidth` → 0, `_Edge_Colour` and `_WaterBorderCol`
+    //     → the body hue at alpha 0. `_WaterBorderWidth`/`_WaterBorderCol` are a SECOND border
+    //     mechanism with NO toggle keyword, which build 160's `DisableKeyword` could never have
+    //     reached and which nothing had touched in four rounds.
+    //   * `[Water] DebugPaint` (default off) is the round's most valuable line of code. It swaps our
+    //     own material instance's shader to a bundled unlit one (through `BundleShaders` — a bare
+    //     `Shader.Find` returns null for a bundled shader nothing has loaded, which has cost this
+    //     project two builds) and paints the film MAGENTA and the basin CYAN. One toggle in the
+    //     headset then answers what four rounds of logs could not: magenta = we own the renderer and
+    //     only the property is open; cyan = it was always the basin bed; STILL WHITE = we have been
+    //     tuning objects that are not the ones being looked at, which would explain every "no
+    //     difference" at once. It swaps the SHADER rather than tinting, because a paint pushed
+    //     through the suspect shader would share the failure mode it is measuring.
+    //   * `[Water] BodyOnly` and `[Water] DepthFade` are the follow-ups, and the log names the exact
+    //     order to toggle them in. `BAND READ-BACK` reads every band value back OFF THE LIVE
+    //     MATERIAL INSTANCE after the writes, beside the authored value, plus the instance's live
+    //     keyword list — the direct answer to build 160's `UNDONE: 0 re-asserts`, which proved only
+    //     that our write was still attached and read as confirmation for a whole round.
+    //
     // Build 160: THE PIN WAS THE FAULT, AND A PROPERTY BLOCK CANNOT SET A KEYWORD. Nothing on the
     // wire; every packet is byte-identical to build 159's. The bundle is unchanged.
     //

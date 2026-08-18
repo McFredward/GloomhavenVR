@@ -126,8 +126,31 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 161** (bundle unchanged, 67,164,721 bytes) — **the board half of 160 is REVERTED on the
+  user's instruction, and both defects turned out to be a term nobody had looked at.**
+  * **The zoom pivots on the HANDS, not the head** — `Rig/WorldGrab.cs:400`,
+    `rig.position = _midAnchorWorld - rot * (mid * s)`. Four rounds reasoned as though the eye were
+    the pivot, in which case a world-static board keeps its angular size and there is nothing to fix.
+    It is not the pivot, so a scale change moves the head through the world and a world-fixed object
+    necessarily rides the zoom. **Neither pure anchor is correct**: rig-local is zoom-invariant but
+    travels with the player (160, "geht immer mit"); world-static stays in the room but rides the
+    zoom (158, "mitgezoomed"). Four builds moved back and forth between them.
+  * **The rule that separates them:** the pinned board is re-derived from its rig-local pose ONLY on
+    frames where the rig's lossy scale changed. Zoom → invisible; walk/teleport/flight/snap-turn →
+    the gate is shut and the board stays in the room. **The gate is the entire difference from 160.**
+  * **The water: the visible pixels were never the ones being tuned.** The photograph shows a pale
+    near-WHITE sheet; the authored body tint is dark green (0.195, 0.311, 0.131) and only
+    `_Edge_Colour` is near-white (0.887). Three rounds capped the body of a surface whose visible
+    pixels come from the edge band. "No difference" was an accurate report each time.
+    **Open a user's screenshot before the fourth round, not after.**
+  * **`instancing=True`** on both water materials, logged retroactively: in the built-in pipeline a
+    batched instanced draw takes non-instanced properties from the MATERIAL, so 159's property block
+    never reached the shader at all.
+
 - **ModBuild 160** (bundle unchanged, 67,164,721 bytes) — two reports, and **both were a
-  measurement that agreed with the wrong thing.**
+  measurement that agreed with the wrong thing.** *(The board half was REVERTED in 161 — it made
+  FIXIERT travel with the player. The diagnosis below about the missing distance term was right; the
+  cure was not.)*
   * **The pinned board: four rounds moved *where* a world-space pin was re-derived; the pin itself
     was the fault.** Angular size = size ÷ distance. ModBuild 159 froze the numerator (world size ÷
     rig scale) and left the board at fixed WORLD coordinates while the zoom rescales the PLAYER —

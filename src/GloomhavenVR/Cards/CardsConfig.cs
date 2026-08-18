@@ -703,25 +703,15 @@ internal static class CardsConfig
             "Control board yaw relative to the head's flat forward at placement time, degrees. " +
             "Written automatically when you grip-move the tray by its handle bar; edit only to reset.");
         TrayScale = _file.Bind("Cards", "TrayScale", Defaults.TrayScale,
-            "Control board size multiplier. Written automatically by the two-handed tray grab " +
-            "(grip the handle bar with both hands and spread/pinch); edit only to reset. The value " +
-            "is held, at the READ, inside the board's absolute size band — BoardMinWidthMeters to " +
-            "BoardMaxWidthMeters of APPARENT width, divided by this board's BoardScale seed — so " +
-            "whatever is written here the board stays a size you can see and reach. It used to be " +
-            "clamped to a fixed 0.5-2, which was narrower than the band and therefore forced the " +
-            "grab to write the overflow into BoardScale_<board> instead, moving the player's own " +
-            "min/max every time (user report, ModBuild 158).");
+            "Control board size multiplier (0.5–2). Written automatically by the two-handed " +
+            "tray grab (grip the handle bar with both hands and spread/pinch); edit only to reset.");
         TrayFollow = _file.Bind("Cards", "TrayFollow", Defaults.TrayFollow,
             "Tray anchor mode (test #15, toggled by the pin button on the tray frame). " +
             "true = the tray is rig-anchored: it moves with you (world grab, snap turn, " +
             "recenter) and re-places itself at the TrayForward/Down/Right offsets on mode " +
-            "entry. false = the tray is PINNED where you left it — anchored in the PLAYER'S OWN " +
-            "space, not in game-world coordinates (user ruling 2026-08-18: \"Fixiert heißt in " +
-            "jeglicher hinsicht fixiert und fix, EGAL wie man zoomed oder sich bewegt\"). A zoom, " +
-            "a snap turn, a world grab, flight and a recentre leave it completely untouched IN THE " +
-            "PLAYER'S EYE — only a grab or the two-hand resize may change it. Walking physically " +
-            "does change what you see of it: you are moving inside the space it is nailed to. " +
-            "Switching back to follow re-anchors it at the configured offsets.");
+            "entry. false = the tray is PINNED where you left it, world-anchored — it " +
+            "stays put while you move around and never re-places itself. Switching back " +
+            "to follow re-anchors it at the configured offsets.");
         BoardMoveMode = _file.Bind("Cards", "BoardMoveMode", Defaults.BoardMoveMode,
             "Item 12: how the handle-bar grab may MOVE the control board. Limited (default) = " +
             "today's behavior: position + yaw only, the board is kept level for you (under the " +
@@ -1142,10 +1132,7 @@ internal static class CardsConfig
             _boardYaw[i] = _file.Bind("Cards", $"BoardYaw_{board}", Defaults.BoardYaw_ByBoard[i],
                 $"[{board}] extra board yaw ADDED on top of the grab-written TrayYaw, degrees. Seeded 0 (Oak).");
             _boardScale[i] = _file.Bind("Cards", $"BoardScale_{board}", Defaults.BoardScale_ByBoard[i],
-                $"[{board}] board size SEED, multiplied with the grab-written TrayScale. " +
-                "Nothing but you writes it: the two-handed grab used to absorb sizes TrayScale " +
-                "could not express into this key, which moved the board's own min/max every time " +
-                "it fired — TrayScale now covers the whole legal band by itself. " +
+                $"[{board}] board size MULTIPLIER applied on top of the grab-written TrayScale. " +
                 "Default 0.5: the board is rig-anchored, so its apparent size does not shrink with " +
                 "the table — the ~0.4 table-ratio default felt a touch small on first spawn, so the " +
                 "board opens slightly larger (0.5). Resize any time with the two-handed grab gesture " +
@@ -1651,36 +1638,8 @@ internal static class CardsConfig
                 new AcceptableValueRange<float>(1f, 30f)));
     }
 
-    /// <summary>
-    /// Tray size multiplier, read-clamped into the board's ABSOLUTE size band — the same band
-    /// <c>PlayTray.ComputeBoardScale</c> holds the product in and <c>GrabScaleLimits</c> bounds the
-    /// gesture with (<see cref="BoardSizeFrame.Bounds"/> over <c>[Cards] BoardMinWidthMeters</c> /
-    /// <c>BoardMaxWidthMeters</c>).
-    ///
-    /// <para>IT USED TO BE A FIXED 0.5–2, and that pair is what made <c>BoardScale_{board}</c> a
-    /// ratchet: a released board bigger than <c>2 × BoardScale</c> could not be expressed, so
-    /// <c>PersistPoseToConfig</c> absorbed the overflow into the per-board factor — which is also
-    /// the factor the settings window is measured against, so the player's min/max moved every
-    /// time (user, ModBuild 158: "weiterhin hat sich damit auch das maximum und minimum wieder
-    /// verschoben"; his log ratcheted BoardScale_Steel 0.54 → 1.00 → 1.13 in one session). Widening
-    /// the read-clamp to the band the size is ALREADY bounded by removes the overflow entirely
-    /// without loosening a single limit: the band is the same 18…140 cm it always was, it is simply
-    /// expressible now. BoardScale goes back to being a per-board seed nothing but the player
-    /// writes. The clamp is still a clamp — a hand-edited 0 or 50 is pulled into the band, at the
-    /// READ, so no cfg file can put the control board at a size the player cannot recover from.</para>
-    /// </summary>
-    internal static float ClampedTrayScale
-    {
-        get
-        {
-            float min = BoardMinWidthMeters != null ? BoardMinWidthMeters.Value : Defaults.BoardMinWidthMeters;
-            float max = BoardMaxWidthMeters != null ? BoardMaxWidthMeters.Value : Defaults.BoardMaxWidthMeters;
-            float boardScale = Mathf.Max(0.05f, BoardScale(CurrentBoard).Value);
-            BoardSizeFrame.Bounds(min, max, out float lo, out float hi);
-            // The band is on the PRODUCT; this clamp guards the factor, hence the division.
-            return Mathf.Clamp(TrayScale.Value, lo / boardScale, hi / boardScale);
-        }
-    }
+    /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>
+    internal static float ClampedTrayScale => Mathf.Clamp(TrayScale.Value, 0.5f, 2f);
 
     /// <summary>
     /// Item 12: the CURRENT board's normalized grab-pitch window (min ≤ max guaranteed, whatever

@@ -22,14 +22,48 @@ namespace GloomhavenVR.Core;
 /// this driver never writes <c>Renderer.enabled</c> and carries no hide dial at all. The water
 /// renders; what changes is HOW.</para>
 ///
-/// <para>"IDENTICAL" IS THE MEASUREMENT THAT DROVE THIS BUILD, and it is a strong one. ModBuild
+/// <para>ROUND FOUR, AND WHAT THE PHOTOGRAPH FINALLY SETTLED. ModBuild 160's writes all landed —
+/// the hardware log proves it property by property (<c>_Smoothness 0.754 -> 0.08</c>,
+/// <c>_Color_Tint.a</c> capped at 0.45, <c>_Edge_Colour</c> repainted in the body colour,
+/// <c>_EDGECOLOUR_TOGGLE_ON</c> cleared, a local flat-cubemap probe built and REACHING the water)
+/// — and the user's verdict was <i>"Keinen Unterschied bei der Reflektion."</i> Not "a bit
+/// better": none. <c>.planning/debug/spiegeltiles.jpg</c> is the evidence nobody had put beside
+/// those numbers. The affected hexes are a flat, pale, milky near-WHITE sheet, LIGHTER than the
+/// stone around them, with the hex grid showing through. <b>The authored body colour is
+/// <c>_Color_Tint</c> = RGBA(0.195, 0.311, 0.131, 0.737) — dark green — and a dark green body
+/// cannot produce a near-white sheet under any tuning of its alpha.</b> So the visible pixels were
+/// never the body term; they are the EDGE / FOAM / BORDER term, whose <c>_Edge_Colour</c> is
+/// RGBA(0.887, 0.887, 0.887, 0.867) and whose second, independent mechanism
+/// <c>_WaterBorderCol</c> = RGBA(0.670, 0.617, 0.528, 0.561) has no toggle keyword at all and had
+/// never been touched by anything this module shipped. Three rounds were spent tuning the body of
+/// a surface whose visible pixels come from its shoreline.</para>
+///
+/// <para>WHAT ROUND FOUR ADDS, and why in this order. (a) <c>[Water] DebugPaint</c> — the
+/// instrument, and the most valuable thing here. Three hardware rounds died on an ambiguity no log
+/// line could resolve: whether the renderers this driver adopts are the renderers the user is
+/// pointing at. One toggle now paints every tracked film flat MAGENTA and every tracked basin flat
+/// CYAN, on an unlit shader with the game's shading bypassed entirely, and the answer is visible in
+/// one second: magenta means we own the film and the only remaining question is WHICH property;
+/// cyan means the basin bed is what he has been pointing at; unchanged pale white means we have
+/// been tuning objects that are not what he is looking at, and the <c>FLOOR CENSUS</c> in the same
+/// log names what actually is. (b) The band is now collapsed NUMERICALLY, not through a keyword —
+/// every width to zero and every band colour to the body hue at alpha zero, <c>_WaterBorderWidth</c>
+/// and <c>_WaterBorderCol</c> included — because a <c>DisableKeyword</c> is invisible in the log's
+/// own terms and cannot reach a mechanism that has no keyword. See <see cref="WaterEdgeBand"/>.
+/// (c) <c>[Water] BodyOnly</c> — the last resort the user can reach without a rebuild: the film
+/// forced to its authored green at the capped alpha with every edge, foam and border term at zero
+/// and every reflection scalar at zero, ripple normals intact. If the white survives THAT while
+/// DebugPaint proves we own the renderer, the white is a texture or a constant inside the compiled
+/// shader, no property can reach it, and the only remaining move is the mod's own water shader.
+/// The census says exactly that, in those words, rather than shipping another guess.</para>
+///
+/// <para>THE MEASUREMENT THAT DROVE ModBuild 160, kept because its answer is now known. ModBuild
 /// 159 dropped <c>_Color_Tint</c>'s alpha from 0.737 to 0.45 through a
-/// <see cref="MaterialPropertyBlock"/>. A third of the tint's opacity coming off is not a subtle
-/// change; had it reached the shader the pool could not have looked the same. So the report is
-/// evidence about the MECHANISM, not about the tuning, and this build answers it three ways at
-/// once instead of re-fitting numbers against a lever that may never have been connected — the
-/// DARKENING LEVER lesson of ModBuild 152, where four constants were refitted four times against
-/// photographs in which the write did nothing.</para>
+/// <see cref="MaterialPropertyBlock"/> and the user reported the look IDENTICAL. The hardware
+/// census answered why: <c>instancing=True</c> on both materials, and in the built-in pipeline a
+/// batched instanced draw takes non-instanced properties from the MATERIAL, so that property block
+/// never reached the shader. H1 is confirmed and dead; the material instances below are what
+/// killed it, and nothing in round four re-opens it.</para>
 ///
 /// <list type="number">
 ///   <item><b>THE WRITE ITSELF IS NO LONGER A PROPERTY BLOCK.</b> Every tuned renderer now
@@ -112,9 +146,20 @@ namespace GloomhavenVR.Core;
 /// and the near-white foam colour pinned ON across a whole hex is what spiegeltiles.jpg actually
 /// shows: pale, chalky hexes that are LIGHTER than the stone around them, which a dark green
 /// tint of RGBA(0.195,0.311,0.131) could never produce. <c>Camera.main='ScenarioCamera'</c> is
-/// PARKED under VR, so nothing else is writing a usable depth texture either. Both halves of the
-/// neutralisation — the colour AND the keyword — now land, where before only the colour could
-/// have.</para>
+/// PARKED under VR, so nothing else is writing a usable depth texture either.</para>
+///
+/// <para>AND ROUND THREE PROVED THAT NEUTRALISING THAT BAND BY COLOUR AND KEYWORD WAS NOT ENOUGH.
+/// ModBuild 160 landed both halves — <c>_Edge_Colour</c> repainted in the body colour AND
+/// <c>_EDGECOLOUR_TOGGLE_ON</c> cleared — and the sheet is still white in the user's own words. Two
+/// things follow, and both are acted on. First, a keyword clear is invisible in the log's own
+/// terms: we can report that <c>DisableKeyword</c> was CALLED, never that the compiled variant
+/// branches the way we assumed. Second, and decisively, <c>_WaterBorderWidth</c> /
+/// <c>_WaterBorderCol</c> is a SECOND border mechanism with no toggle keyword whatsoever, so the
+/// keyword clear could not have reached it and nothing this module ever shipped had. The band is
+/// therefore attacked by NUMBER now — every width to zero, every band colour to the body hue at
+/// alpha zero, which draws nothing at EITHER extreme of a pinned depth fade and so does not depend
+/// on a sign nobody here can read. <see cref="WaterEdgeBand"/> owns that arithmetic and its
+/// never-raise invariant, and <c>WaterEdgeVectors</c> pins it.</para>
 ///
 /// <para>AND THE FOAM CAN COME BACK, MEASURED. <c>[Water] ShoreFoam</c> (default OFF) makes this
 /// driver REQUEST <see cref="DepthTextureMode.Depth"/> on the head camera — but only while water
@@ -252,6 +297,45 @@ internal static class WaterTerrainVR
     private static readonly int ColorTintId = Shader.PropertyToID("_Color_Tint");
     private static readonly int EdgeColourId = Shader.PropertyToID("_Edge_Colour");
     private static readonly int EdgeToggleId = Shader.PropertyToID("_EdgeColour_Toggle");
+    private static readonly int InvertDepthFadeId =
+        Shader.PropertyToID(WaterEdgeBand.InvertDepthFadeProperty);
+
+    /// <summary>Ids for <see cref="WaterEdgeBand.BandWidthProperties"/> and
+    /// <see cref="WaterEdgeBand.BandColourProperties"/>, resolved once at type load and held
+    /// parallel to the name arrays so the log can print the NAME of a property the live shader
+    /// turns out not to declare. That loud line is the point: ModBuild 160 wrote by name into a
+    /// shader nobody has read, and a name that silently does not exist is indistinguishable from a
+    /// write that landed and did nothing.</summary>
+    private static readonly int[] BandWidthIds = ToIds(WaterEdgeBand.BandWidthProperties);
+    private static readonly int[] BandColourIds = ToIds(WaterEdgeBand.BandColourProperties);
+
+    private static int[] ToIds(string[] names)
+    {
+        var ids = new int[names.Length];
+        for (int i = 0; i < names.Length; i++)
+            ids[i] = Shader.PropertyToID(names[i]);
+        return ids;
+    }
+
+    /// <summary>The two flat colours <c>[Water] DebugPaint</c> writes. Chosen to be impossible to
+    /// confuse with anything the tileset can produce — there is no magenta and no cyan anywhere in
+    /// <c>spiegeltiles.jpg</c> — and to be distinguishable from each other at a glance across a VR
+    /// table, which is the whole job.</summary>
+    private static readonly Color FilmPaint = new(1f, 0f, 1f, 1f);
+
+    /// <inheritdoc cref="FilmPaint"/>
+    private static readonly Color BasinPaint = new(0f, 1f, 1f, 1f);
+
+    /// <summary>Unlit shaders <c>[Water] DebugPaint</c> may borrow, best first. Both ship inside
+    /// the mod's own bundle, so both are reachable through <see cref="BundleShaders"/> even though
+    /// nothing else in a water room references them — the SHADER.FIND lesson, which has cost this
+    /// project two builds. <c>GloomhavenVR/HeadUnlit</c> is the better instrument: it is fully
+    /// unlit (albedo × tint, no lighting, no environment), two-sided (<c>Cull Off</c>, so a quad
+    /// wound away from the viewer still paints — the WINDING lesson), and its <c>_MainTex</c>
+    /// declares a <c>"white"</c> default, so clearing the texture leaves the tint alone on
+    /// screen.</summary>
+    private static readonly string[] PaintShaderCandidates =
+        { "GloomhavenVR/HeadUnlit", "GloomhavenVR/Overlay" };
 
     /// <summary>The keyword the water material ships ENABLED (<c>keywords=[_EDGECOLOUR_TOGGLE_ON]</c>,
     /// hardware census). An Amplify <c>[Toggle(…)]</c> property compiles to a
@@ -299,15 +383,19 @@ internal static class WaterTerrainVR
             + "'TERRAIN_Water_Plane' on shader family 'Water_Sh*' AND the basin bed/rim inside "
             + "its own footprint) all KEEP RENDERING (user ruling 2026-08-18: hiding is not an "
             + "option) and are retuned for a "
-            + "free camera. ModBuild 160 changes the MECHANISM, not the numbers, because the "
-            + "third report said the look was IDENTICAL after a tint-alpha cut of a third: the "
-            + "retune is now written onto a per-renderer MATERIAL INSTANCE instead of a "
-            + "MaterialPropertyBlock (so neither GPU instancing nor a keyword-driven toggle can "
-            + "swallow it), the reflection properties are DISCOVERED from each shader's own "
-            + "property table instead of being one hard-coded name, the basin's metallic "
-            + "surfaces are in scope for the first time, and a local flat-cubemap reflection "
-            + "probe removes the head-swimming by construction whichever of those was the cause. "
-            + "See the WATER SURFACE census lines for what each write actually found.");
+            + "free camera. ROUND FOUR changes WHICH PART of the surface is being tuned. "
+            + "ModBuild 160's writes all landed and the user still saw no difference; "
+            + "spiegeltiles.jpg shows why — the affected hexes are a near-WHITE sheet, and the "
+            + "authored body colour is dark green RGBA(0.195,0.311,0.131), so the visible pixels "
+            + "were never the body. They are the edge/foam/border band, which is now collapsed by "
+            + "NUMBER rather than by keyword: every width to 0 and every band colour to the body "
+            + "hue at alpha 0, including _WaterBorderWidth/_WaterBorderCol — a second border "
+            + "mechanism with no keyword at all, which nothing this mod shipped had ever touched. "
+            + "Two dials come with it: [Water] DebugPaint paints the film flat MAGENTA and the "
+            + "basin flat CYAN so one look settles whether these are the renderers being looked "
+            + "at, and [Water] BodyOnly forces the film to nothing but its authored green. See "
+            + "the WATER SURFACE STATE line's DEBUG PAINT and BAND READ-BACK blocks — both report "
+            + "what is on the material, not what was called.");
     }
 
     /// <summary>Drop the driver, restoring every material we replaced and destroying everything
@@ -394,6 +482,19 @@ internal static class WaterTerrainVR
         /// <summary>Multiplier on the local probe's brightness.</summary>
         internal static ConfigEntry<float>? ProbeBrightness;
 
+        /// <summary>THE INSTRUMENT. Paint every tracked renderer a flat unlit colour — film
+        /// magenta, basin cyan — so one look answers whether we own what the user is pointing
+        /// at.</summary>
+        internal static ConfigEntry<bool>? DebugPaint;
+
+        /// <summary>The last resort a user can reach without a rebuild: body tint only, every
+        /// edge / foam / border term and every reflection scalar at zero.</summary>
+        internal static ConfigEntry<bool>? BodyOnly;
+
+        /// <summary>Which way <c>_InvertDepthFade</c> points. See
+        /// <see cref="WaterDepthFadeMode"/> — a dial, never a silent choice.</summary>
+        internal static ConfigEntry<WaterDepthFadeMode>? DepthFade;
+
         internal static void Bind()
         {
             if (_file != null)
@@ -437,7 +538,10 @@ internal static class WaterTerrainVR
                 + "is tracked (the built-in forward path has no G-buffer, so Unity builds the "
                 + "depth texture by re-rendering every opaque object) — the same cost as "
                 + "[Optimize] HeadDepthPrepass, which this ORs with rather than overriding. Off by "
-                + "default: the water is built to look right without it. Water rooms only.");
+                + "default because of that cost, NOT because the water looks right without it: it "
+                + "does not, and this is the one switch that lets you see whether a real depth "
+                + "texture is what the shoreline was missing all along. [Water] BodyOnly overrides "
+                + "it. Water rooms only.");
             Reflectivity = config.Bind("Water", "Reflectivity", 0f,
                 new ConfigDescription(
                     "Ceiling for every METALLIC and explicit reflection-strength property on a "
@@ -476,6 +580,43 @@ internal static class WaterTerrainVR
                     + "Lower if the pool looks washed out, higher if it looks dead. Only has an "
                     + "effect while LocalProbe is on.",
                     new AcceptableValueRange<float>(0f, 2f)));
+            DebugPaint = config.Bind("Water", "DebugPaint", false,
+                "DIAGNOSTIC — paints every water renderer this mod has taken over in a flat, "
+                + "unmistakable colour, with the game's own shading switched off entirely: the "
+                + "water FILM becomes solid MAGENTA, the basin bed and rim become solid CYAN. It "
+                + "does NOT hide anything; the water still renders, just in one flat colour. Turn "
+                + "it on for one second and look at the pale hexes: MAGENTA means the mod has hold "
+                + "of the water film and the only open question is which of its properties makes "
+                + "it pale; CYAN means the basin floor under the water is what you have been "
+                + "looking at; STILL PALE AND WHITE means the mod is tuning objects that are not "
+                + "what you see, and the log's FLOOR CENSUS names what actually is. Three rounds "
+                + "of tuning have died on exactly that ambiguity. Turn it back off afterwards — "
+                + "the mod restores the authored materials immediately.");
+            BodyOnly = config.Bind("Water", "BodyOnly", false,
+                "LAST RESORT — forces the water film to nothing but its own authored colour (dark "
+                + "green) at the capped opacity, with every shoreline, foam and border term at "
+                + "zero and every gloss and metal value at zero, keeping only the ripple normals. "
+                + "The photograph (spiegeltiles.jpg) shows a near-WHITE sheet where the game "
+                + "authors a dark green tint, so the visible pixels are the shoreline band and not "
+                + "the water body; this switch removes every band this shader exposes at once, "
+                + "regardless of ShoreFoam. If the surface is STILL white with this on while "
+                + "DebugPaint has proved the mod owns the renderer, then the white comes from a "
+                + "texture or from a constant compiled into the shader, no setting can reach it, "
+                + "and the only remaining fix is a water shader of the mod's own — the log says so "
+                + "in those words rather than offering another guess.");
+            // No AcceptableValueList here: it constrains T : IEquatable<T>, which an enum is not.
+            // BepInEx already enumerates an enum entry itself, and so does the VR options menu.
+            DepthFade = config.Bind("Water", "DepthFade", WaterDepthFadeMode.Authored,
+                    "Which way the shader's depth fade points (_InvertDepthFade, authored 0). The "
+                    + "VR head camera writes no depth texture, so this term is CONSTANT across the "
+                    + "whole surface and this setting only chooses which extreme the entire "
+                    + "surface sits at — shoreline everywhere, or open water everywhere. Authored "
+                    + "(default) leaves the game's own value alone and is the honest setting: "
+                    + "nobody has read this shader's source, so which extreme is which cannot be "
+                    + "derived, only seen. NotInverted and Inverted force it. Inverted is the only "
+                    + "setting in this whole section that raises a value above what the game "
+                    + "authored, which is why it is never a default. Try it only if the surface is "
+                    + "still wrong with BodyOnly on.");
             AnnounceRetiredHideKey(config);
         }
 
@@ -628,6 +769,20 @@ internal static class WaterTerrainVR
         private float _appliedOpacity = float.NaN;
         private float _appliedReflectivity = float.NaN;
         private bool _appliedBasin = true;
+        private bool _appliedBodyOnly;
+        private WaterDepthFadeMode _appliedDepthFade = WaterDepthFadeMode.Authored;
+
+        /// <summary>Whether the tracked set currently carries the diagnostic paint. A change here
+        /// is NOT a re-apply: the paint replaces the SHADER on our instance, and the only exact
+        /// way back is a fresh instance off the authored shared material — so the flip releases
+        /// everything and lets the next tick re-adopt.</summary>
+        private bool _appliedDebugPaint;
+
+        /// <summary>The unlit shader the paint borrowed, resolved once, and how. Null while
+        /// nothing has asked for it, or when no bundled unlit shader could be reached at all —
+        /// which is a stated fallback, not a silent one.</summary>
+        private Shader? _paintShader;
+        private string _paintHow = "no unlit shader resolved yet";
 
         /// <summary>How many times a tracked renderer was found NOT carrying the material
         /// instance we handed it, and had to be re-adopted. This is the number that says whether
@@ -727,6 +882,9 @@ internal static class WaterTerrainVR
         private void Awake()
         {
             _appliedTune = Want;
+            _appliedDebugPaint = WantDebugPaint;
+            _appliedBodyOnly = WantBodyOnly;
+            _appliedDepthFade = WantedDepthFade;
             _tick = Tick;
         }
 
@@ -758,6 +916,25 @@ internal static class WaterTerrainVR
 
         private static float WantedProbeBrightness =>
             WaterConfig.ProbeBrightness != null ? WaterConfig.ProbeBrightness.Value : 1f;
+
+        private static bool WantDebugPaint =>
+            WaterConfig.DebugPaint != null && WaterConfig.DebugPaint.Value;
+
+        private static bool WantBodyOnly =>
+            WaterConfig.BodyOnly != null && WaterConfig.BodyOnly.Value;
+
+        private static WaterDepthFadeMode WantedDepthFade =>
+            WaterConfig.DepthFade != null ? WaterConfig.DepthFade.Value : WaterDepthFadeMode.Authored;
+
+        /// <summary>The sharpness ceiling actually in force. <c>[Water] BodyOnly</c> drives it to
+        /// zero outright: the whole point of that switch is that NOTHING but the authored body
+        /// colour can be contributing when it is on, so that a surface still white under it is
+        /// proof about the shader rather than about our tuning. Zero is a LOWERING of the dial,
+        /// so the never-raise invariant of <see cref="WaterReflectionCaps"/> is untouched.</summary>
+        private static float EffectiveSmoothnessCap => WantBodyOnly ? 0f : WantedSmoothness;
+
+        /// <inheritdoc cref="EffectiveSmoothnessCap"/>
+        private static float EffectiveReflectivityCap => WantBodyOnly ? 0f : WantedReflectivity;
 
         /// <summary>LateUpdate, not Update: this is the LAST word before the frame is submitted,
         /// so anything the game does to these renderers during its own Update is already done when
@@ -793,6 +970,8 @@ internal static class WaterTerrainVR
                 return;
             _next = Time.unscaledTime + TickInterval;
 
+            // Before ReassertAll, because the flip below repaints from it in the same tick.
+            MaintainPaintShader();
             Discover();
             ReassertAll();
             MaintainProbes();
@@ -1116,18 +1295,60 @@ internal static class WaterTerrainVR
         /// </summary>
         private void ReassertAll()
         {
+            // THE PAINT FLIP IS A RELEASE, NOT A RE-APPLY. [Water] DebugPaint replaces the SHADER
+            // on our material instance, and Material.shader= is not an operation with an exact
+            // inverse: property values that the flat shader does not declare are gone, and the
+            // ones it shares have been overwritten. The only restoration this module is willing to
+            // claim is the one it can prove — hand every renderer its AUTHORED shared material
+            // back, destroy the instances, and take fresh ones on the next tick. One frame of the
+            // game's own water is the whole cost, and it is the same path RestoreAll already
+            // guarantees on uninstall.
+            bool paint = WantDebugPaint;
+            if (paint != _appliedDebugPaint)
+            {
+                _appliedDebugPaint = paint;
+                if (paint)
+                    MaintainPaintShader();
+                int had = _tracked.Count;
+                RestoreAll();
+                _next = 0f;
+                _nextCensus = 0f;
+                VRLog.Info(Name,
+                    "WATER SURFACE: [Water] DebugPaint went " + (paint ? "ON" : "OFF") + " — "
+                    + had + " tracked renderer(s) were handed their AUTHORED shared material back "
+                    + "and every material instance we owned was destroyed; the next frame re-adopts "
+                    + "them from scratch and "
+                    + (paint
+                        ? "paints the film flat MAGENTA and the basin flat CYAN. Look at the pale "
+                          + "hexes now: MAGENTA means this driver owns the water film and the "
+                          + "remaining question is purely WHICH property makes it pale; CYAN means "
+                          + "the basin bed is the surface in the photograph; STILL PALE means "
+                          + "neither of these renderers is what is being looked at and the FLOOR "
+                          + "CENSUS names what is."
+                        : "writes the ordinary retune. The DEBUG PAINT block of the next WATER "
+                          + "SURFACE STATE line reports what is actually on the renderers, not "
+                          + "what was intended."));
+                return;
+            }
+
             Camera? head = Rig.VRRigDriver.HeadCamera;
             bool granted = head != null && (head.depthTextureMode & DepthTextureMode.Depth) != 0;
             float smoothness = WantedSmoothness;
             float opacity = WantedOpacity;
             float reflectivity = WantedReflectivity;
             bool basin = WantBasin;
+            bool bodyOnly = WantBodyOnly;
+            WaterDepthFadeMode depthFade = WantedDepthFade;
             bool changed = granted != _depthGranted
                 || !Mathf.Approximately(smoothness, _appliedSmoothness)
                 || !Mathf.Approximately(opacity, _appliedOpacity)
                 || !Mathf.Approximately(reflectivity, _appliedReflectivity)
-                || basin != _appliedBasin;
+                || basin != _appliedBasin
+                || bodyOnly != _appliedBodyOnly
+                || depthFade != _appliedDepthFade;
             _depthGranted = granted;
+            _appliedBodyOnly = bodyOnly;
+            _appliedDepthFade = depthFade;
             _appliedSmoothness = smoothness;
             _appliedOpacity = opacity;
             _appliedReflectivity = reflectivity;
@@ -1166,6 +1387,7 @@ internal static class WaterTerrainVR
         /// </summary>
         private void Apply(Renderer r, Owned o)
         {
+            bool paint = WantDebugPaint;
             for (int i = 0; i < o.Instances.Length; i++)
             {
                 Material inst = o.Instances[i];
@@ -1179,10 +1401,141 @@ internal static class WaterTerrainVR
                 // prime suspect for why ModBuild 159's property block never landed.
                 inst.enableInstancing = false;
 
+                if (paint)
+                {
+                    PaintOne(shared, inst, o.IsFilm);
+                    continue;
+                }
+
                 CapReflectionProperties(shared, inst, null);
                 if (o.IsFilm)
-                    ApplyWaterFilm(shared, inst);
+                    ApplyWaterFilm(shared, inst, null);
             }
+        }
+
+        // ---- THE INSTRUMENT: [Water] DebugPaint ------------------------------------------------
+
+        /// <summary>
+        /// Paint ONE material instance a flat unlit colour, bypassing the game's shading entirely.
+        ///
+        /// <para>WHY THIS IS THE MOST VALUABLE THING IN ROUND FOUR. Three hardware rounds have now
+        /// ended with a log full of writes that landed and a user who saw no change, and every one
+        /// of them left the same question open: are the renderers this driver adopts the renderers
+        /// he is pointing at? No log line can settle that — the FLOOR CENSUS can say a quad exists
+        /// at a position, it cannot say that quad is the pale sheet in the photograph. A flat
+        /// colour can, in one second, and it distinguishes the two candidates from each other at
+        /// the same time.</para>
+        ///
+        /// <para>WHY IT SWAPS THE SHADER RATHER THAN TINTING. The whole hypothesis under test is
+        /// that some term of the game's shader we have not reached is painting these pixels. A
+        /// paint written into that same shader's colour properties would be filtered through
+        /// exactly the term in question, so a null result would prove nothing — the instrument
+        /// would share the failure mode of the thing it is measuring. Replacing the shader on OUR
+        /// instance removes every one of the game's terms at once. The shared material is still
+        /// never touched, and the renderer is never disabled: the water goes on rendering, in one
+        /// flat colour (user ruling 2026-08-18).</para>
+        ///
+        /// <para>The instance keeps the AUTHORED render queue, so the paint draws exactly where
+        /// the water drew — a magenta quad that sorted differently from the water it replaced
+        /// would answer a different question than the one being asked.</para>
+        /// </summary>
+        private void PaintOne(Material shared, Material inst, bool isFilm)
+        {
+            Color paint = isFilm ? FilmPaint : BasinPaint;
+            Shader? flat = _paintShader;
+            try
+            {
+                inst.shaderKeywords = Array.Empty<string>();
+                if (flat != null)
+                {
+                    inst.shader = flat;
+                    if (inst.HasProperty("_Color"))
+                        inst.SetColor("_Color", paint);
+                    // Null leaves the shader's own declared default bound, which is "white" on
+                    // both candidates — so the tint above is what reaches the screen.
+                    if (inst.HasProperty("_MainTex"))
+                        inst.SetTexture("_MainTex", null);
+                    if (inst.HasProperty("_Cull"))
+                        inst.SetFloat("_Cull", 0f);   // two-sided: winding must not hide the answer
+                    if (inst.HasProperty("_ZWrite"))
+                        inst.SetFloat("_ZWrite", 1f);
+                    if (inst.HasProperty("_ZTest"))
+                        inst.SetFloat("_ZTest", (float)CompareFunction.LessEqual);
+                    if (inst.HasProperty("_SrcBlend"))
+                        inst.SetFloat("_SrcBlend", (float)BlendMode.One);
+                    if (inst.HasProperty("_DstBlend"))
+                        inst.SetFloat("_DstBlend", (float)BlendMode.Zero);
+                    inst.renderQueue = shared.renderQueue;
+                    return;
+                }
+
+                // NO UNLIT SHADER REACHED. This is a WEAKER instrument and the census says so
+                // rather than letting a half-answer read as a whole one: the paint now goes
+                // through the game's own shader, so a term that ignores the colour properties —
+                // which is precisely what is suspected — will still show through. Every colour the
+                // shader declares is written, so whichever one is on screen carries the paint.
+                Shader sh = shared.shader;
+                int n = sh.GetPropertyCount();
+                for (int i = 0; i < n; i++)
+                {
+                    if (sh.GetPropertyType(i) != ShaderPropertyType.Color)
+                        continue;
+                    inst.SetColor(sh.GetPropertyName(i), paint);
+                }
+            }
+            catch (Exception e)
+            {
+                VRLog.Info(Name,
+                    "WATER SURFACE: DebugPaint could not paint an instance of '" + shared.name
+                    + "' (" + e.GetType().Name + ") — that renderer keeps the ordinary retune, so "
+                    + "an unpainted surface in the headset may be this failure rather than an "
+                    + "answer. The DEBUG PAINT count in the WATER SURFACE STATE line is what to "
+                    + "read: it counts instances that ACTUALLY carry the flat shader.");
+            }
+        }
+
+        /// <summary>
+        /// The unlit shader the paint borrows, resolved through <see cref="BundleShaders"/>.
+        ///
+        /// <para><see cref="Shader.Find"/> alone would not do: a bundled shader referenced only
+        /// from runtime C# is never loaded, <c>Shader.Find</c> returns null with the bundle open
+        /// and nothing is thrown — the failure that has silently cost this project two shipped
+        /// builds. <see cref="BundleShaders.Resolve"/> also tries the bundle asset path and a sweep
+        /// of loaded shader objects, and prints an inventory when all three miss.</para>
+        ///
+        /// <para>Called from the SLOW tick and from the config flip, never from the per-renderer
+        /// paint: a miss is deliberately not cached by <see cref="BundleShaders"/> (a bundle can
+        /// load later than the first lookup), so calling it per renderer would put a
+        /// <c>Shader.Find</c> and a walk of every loaded AssetBundle into the frame once per water
+        /// quad. Four attempts a second is enough to pick a bundle up the moment it arrives.</para>
+        /// </summary>
+        private Shader? MaintainPaintShader()
+        {
+            if (_paintShader != null)
+                return _paintShader;
+            if (!WantDebugPaint)
+                return null;
+            for (int i = 0; i < PaintShaderCandidates.Length; i++)
+            {
+                string name = PaintShaderCandidates[i];
+                Shader? sh = BundleShaders.Resolve(
+                    name, Name,
+                    "[Water] DebugPaint can now paint the tracked water renderers a flat unlit "
+                    + "colour, which is what answers whether this driver owns the surfaces in "
+                    + "spiegeltiles.jpg at all.",
+                    "[Water] DebugPaint falls back to writing the paint colour into the GAME "
+                    + "shader's own colour properties, which is a weaker instrument — a shader "
+                    + "term that ignores those colours is exactly what is under suspicion, so a "
+                    + "surface that stays pale under the fallback proves nothing.");
+                if (sh == null)
+                    continue;
+                _paintShader = sh;
+                _paintHow = name;
+                return sh;
+            }
+            _paintHow = "NO BUNDLED UNLIT SHADER REACHED — painting through the game's own shader "
+                        + "colour properties instead, which cannot answer the question on its own";
+            return null;
         }
 
         /// <summary>
@@ -1200,8 +1553,8 @@ internal static class WaterTerrainVR
             CapProp[]? plan = GetCapPlan(shared.shader);
             if (plan == null)
                 return;
-            float smoothnessCap = WantedSmoothness;
-            float reflectivityCap = WantedReflectivity;
+            float smoothnessCap = EffectiveSmoothnessCap;
+            float reflectivityCap = EffectiveReflectivityCap;
 
             int written = 0, refused = 0;
             for (int i = 0; i < plan.Length; i++)
@@ -1302,52 +1655,173 @@ internal static class WaterTerrainVR
         }
 
         /// <summary>
-        /// The water FILM's own two treatments — the tint alpha, and the shore foam that has no
-        /// depth texture to read. Both are per-property writes onto our instance, and the foam
-        /// one clears a shader KEYWORD, which is the thing a property block could never do.
+        /// The water FILM's own treatments: the tint alpha, the depth-fade dial, and the
+        /// EDGE / FOAM / BORDER BAND — which is where round four says the visible pixels actually
+        /// come from.
+        ///
+        /// <para>THE READING THAT CHANGED THIS METHOD. <c>spiegeltiles.jpg</c> shows a near-WHITE
+        /// sheet; <c>_Color_Tint</c> is dark green RGBA(0.195, 0.311, 0.131). No alpha on a dark
+        /// green body makes a pale sheet, so the body is not what is on screen and every round that
+        /// tuned it was tuning something the user was not looking at. What IS pale on this material
+        /// is <c>_Edge_Colour</c> (0.887, 0.887, 0.887, 0.867) and <c>_WaterBorderCol</c>
+        /// (0.670, 0.617, 0.528, 0.561), and with the head camera writing no
+        /// <c>_CameraDepthTexture</c> the depth term that would normally confine them to a
+        /// shoreline is a constant across the whole quad.</para>
+        ///
+        /// <para>SO THE BAND IS COLLAPSED BY NUMBER, NOT BY KEYWORD. ModBuild 160 cleared
+        /// <c>_EDGECOLOUR_TOGGLE_ON</c> and repainted <c>_Edge_Colour</c>, and the sheet stayed
+        /// white. A keyword clear cannot be verified from a log — only the call can be reported —
+        /// and, decisively, <c>_WaterBorderWidth</c>/<c>_WaterBorderCol</c> is a SECOND border
+        /// mechanism with no keyword at all, which that clear could never have reached. Every band
+        /// WIDTH now goes to zero and every band COLOUR to the body hue at alpha zero
+        /// (<see cref="WaterEdgeBand"/>, which also holds the invariant that neither write can ever
+        /// raise what the tileset authored). A band of width zero covers no pixels at EITHER
+        /// extreme of a pinned depth fade, so this does not depend on a sign nobody here can
+        /// read.</para>
         /// </summary>
-        private void ApplyWaterFilm(Material shared, Material inst)
+        /// <param name="report">When non-null, every band property is appended with its authored
+        /// value and what was written — or a loud line naming it as ABSENT from this shader.</param>
+        private void ApplyWaterFilm(
+            Material shared, Material inst, System.Text.StringBuilder? report)
         {
+            bool bodyOnly = WantBodyOnly;
+
             Color tint = shared.HasProperty(ColorTintId) ? shared.GetColor(ColorTintId) : Color.white;
             // Hue as authored, alpha capped so the tiles read through.
             tint.a = Mathf.Min(tint.a, WantedOpacity);
             if (shared.HasProperty(ColorTintId))
                 inst.SetColor(ColorTintId, tint);
 
-            if (!shared.HasProperty(EdgeColourId) && !shared.HasProperty(EdgeToggleId))
-                return;
+            ApplyDepthFadeDial(shared, inst, report);
 
-            if (_depthGranted)
+            // ShoreFoam asks for the depth texture so the AUTHORED band can work per eye. BodyOnly
+            // overrides it: its entire purpose is that nothing but the body can be contributing.
+            if (_depthGranted && !bodyOnly)
             {
-                // The depth texture is actually there — hand the authored foam back, keyword and
+                // The depth texture is actually there — hand the authored band back, keyword and
                 // all. Read from the shared material so this is exact.
-                if (shared.HasProperty(EdgeColourId))
-                    inst.SetColor(EdgeColourId, shared.GetColor(EdgeColourId));
-                if (shared.HasProperty(EdgeToggleId))
-                    inst.SetFloat(EdgeToggleId, shared.GetFloat(EdgeToggleId));
-                if (shared.IsKeywordEnabled(EdgeColourKeyword))
-                    inst.EnableKeyword(EdgeColourKeyword);
-                else
-                    inst.DisableKeyword(EdgeColourKeyword);
+                RestoreAuthoredBand(shared, inst, report);
                 return;
             }
 
-            // No _CameraDepthTexture: the shader's edge band is pinned at one extreme for the
-            // whole quad, and the authored edge colour is near-white RGBA(0.887,0.887,0.887) —
-            // which is what spiegeltiles.jpg shows, hexes PALER than the stone around them.
-            // Two independent neutralisations, because either one alone might be the inert half:
-            //   (1) paint the edge in the BODY colour, so whichever extreme the unfed fade lands
-            //       on there is nothing to draw with. Sign-independent, and it does not depend on
-            //       knowing which way _InvertDepthFade points inside a shader we cannot open.
-            //   (2) clear the keyword. The material ships with _EDGECOLOUR_TOGGLE_ON live, and an
-            //       Amplify [Toggle(...)] property is compiled into a shader_feature branch that
-            //       never reads the float — so (2) is very probably the write that matters and it
-            //       was UNREACHABLE from ModBuild 159's property block.
-            if (shared.HasProperty(EdgeColourId))
-                inst.SetColor(EdgeColourId, tint);
+            CollapseBand(shared, inst, tint, report);
+        }
+
+        /// <summary>Hand the whole authored band back, every property this driver can collapse.
+        /// Reached only while a real <c>_CameraDepthTexture</c> exists, i.e. while the band would
+        /// actually be confined to a shoreline instead of covering the quad.</summary>
+        private void RestoreAuthoredBand(
+            Material shared, Material inst, System.Text.StringBuilder? report)
+        {
+            report?.Append("depth texture GRANTED, so the AUTHORED band is handed back: ");
+            for (int i = 0; i < BandWidthIds.Length; i++)
+            {
+                if (!shared.HasProperty(BandWidthIds[i]))
+                    continue;
+                inst.SetFloat(BandWidthIds[i], shared.GetFloat(BandWidthIds[i]));
+                report?.Append(WaterEdgeBand.BandWidthProperties[i]).Append(" restored to ")
+                       .Append(shared.GetFloat(BandWidthIds[i]).ToString("0.###")).Append("; ");
+            }
+            for (int i = 0; i < BandColourIds.Length; i++)
+            {
+                if (!shared.HasProperty(BandColourIds[i]))
+                    continue;
+                inst.SetColor(BandColourIds[i], shared.GetColor(BandColourIds[i]));
+                report?.Append(WaterEdgeBand.BandColourProperties[i]).Append(" restored; ");
+            }
             if (shared.HasProperty(EdgeToggleId))
-                inst.SetFloat(EdgeToggleId, 0f);
+                inst.SetFloat(EdgeToggleId, shared.GetFloat(EdgeToggleId));
+            if (shared.IsKeywordEnabled(EdgeColourKeyword))
+                inst.EnableKeyword(EdgeColourKeyword);
+            else
+                inst.DisableKeyword(EdgeColourKeyword);
+            report?.Append("keyword ").Append(EdgeColourKeyword).Append(" set to the authored ")
+                   .Append(shared.IsKeywordEnabled(EdgeColourKeyword) ? "ON" : "OFF");
+        }
+
+        /// <summary>
+        /// Collapse every shoreline, foam and border term this shader declares. See
+        /// <see cref="ApplyWaterFilm"/> for why by number rather than by keyword, and
+        /// <see cref="WaterEdgeBand"/> for the arithmetic and the never-raise invariant.
+        /// </summary>
+        /// <param name="body">The film's own tint, already capped — the hue every band colour is
+        /// repainted in, so a band that still draws draws water rather than shoreline.</param>
+        private void CollapseBand(
+            Material shared, Material inst, Color body, System.Text.StringBuilder? report)
+        {
+            for (int i = 0; i < BandWidthIds.Length; i++)
+            {
+                string name = WaterEdgeBand.BandWidthProperties[i];
+                if (!shared.HasProperty(BandWidthIds[i]))
+                {
+                    report?.Append(name).Append(" ABSENT FROM THIS SHADER — nothing was written "
+                                                + "and no band of that name exists to collapse; ");
+                    continue;
+                }
+                float authored = shared.GetFloat(BandWidthIds[i]);
+                if (WaterEdgeBand.TryCollapseWidth(authored, out float v, out string why))
+                    inst.SetFloat(BandWidthIds[i], v);
+                report?.Append(name).Append(' ').Append(why).Append("; ");
+            }
+
+            for (int i = 0; i < BandColourIds.Length; i++)
+            {
+                string name = WaterEdgeBand.BandColourProperties[i];
+                if (!shared.HasProperty(BandColourIds[i]))
+                {
+                    report?.Append(name).Append(" ABSENT FROM THIS SHADER — nothing was written; ");
+                    continue;
+                }
+                Color authored = shared.GetColor(BandColourIds[i]);
+                if (WaterEdgeBand.TryCollapseColour(authored, body, out Color v, out string why))
+                    inst.SetColor(BandColourIds[i], v);
+                report?.Append(name).Append(' ').Append(why).Append("; ");
+            }
+
+            // The keyword half is KEPT, but it is no longer the load-bearing write: the material
+            // ships _EDGECOLOUR_TOGGLE_ON live, an Amplify [Toggle] with no explicit keyword name
+            // compiles to exactly that shader_feature, and clearing it costs nothing. What round
+            // three proved is only that it is not SUFFICIENT — which is why the numbers above
+            // exist and why the census reads the instance back rather than reporting these calls.
+            if (shared.HasProperty(EdgeToggleId))
+            {
+                float authoredToggle = shared.GetFloat(EdgeToggleId);
+                inst.SetFloat(EdgeToggleId, Mathf.Min(authoredToggle, 0f));
+                report?.Append(WaterEdgeBand.EdgeToggleProperty).Append(' ')
+                       .Append(authoredToggle.ToString("0.###")).Append(" -> ")
+                       .Append(Mathf.Min(authoredToggle, 0f).ToString("0.###")).Append("; ");
+            }
+            else
+            {
+                report?.Append(WaterEdgeBand.EdgeToggleProperty)
+                       .Append(" ABSENT FROM THIS SHADER; ");
+            }
             inst.DisableKeyword(EdgeColourKeyword);
+            report?.Append("keyword ").Append(EdgeColourKeyword)
+                   .Append(" DisableKeyword called (verify it in the read-back below, not here)");
+        }
+
+        /// <summary>Write <c>_InvertDepthFade</c> per <c>[Water] DepthFade</c>. Always written,
+        /// including in <see cref="WaterDepthFadeMode.Authored"/>, so winding the dial back
+        /// restores the surface exactly instead of leaving the last setting standing.</summary>
+        private void ApplyDepthFadeDial(
+            Material shared, Material inst, System.Text.StringBuilder? report)
+        {
+            if (!shared.HasProperty(InvertDepthFadeId))
+            {
+                report?.Append(WaterEdgeBand.InvertDepthFadeProperty)
+                       .Append(" ABSENT FROM THIS SHADER — [Water] DepthFade has nothing to write "
+                               + "to here; ");
+                return;
+            }
+            float authored = shared.GetFloat(InvertDepthFadeId);
+            if (WaterEdgeBand.TryResolveDepthFade(
+                    WantedDepthFade, authored, out float v, out string why))
+            {
+                inst.SetFloat(InvertDepthFadeId, v);
+            }
+            report?.Append(WaterEdgeBand.InvertDepthFadeProperty).Append(' ').Append(why)
+                   .Append("; ");
         }
 
         // ---- OWNERSHIP -----------------------------------------------------------------------
@@ -1426,6 +1900,9 @@ internal static class WaterTerrainVR
             _pendingOverflow = false;
             _lastTileCount = -1;
             _cursor = 0;
+            // The read-back sample is an index into a set that no longer exists. Dropping it here
+            // rather than letting FilmSample() notice keeps "no film tracked" meaning exactly that.
+            _censusSample = null;
             DestroyProbes();
             _probeSig = int.MinValue;
         }
@@ -1756,23 +2233,39 @@ internal static class WaterTerrainVR
                       + "with includeInactive:true so a quad placed while its room is still in "
                       + "Preview is tuned before ShowContent switches it on.");
 
+            // The EFFECTIVE ceilings, not the dial positions: [Water] BodyOnly drives both to zero
+            // and a line that printed the dial would misreport what the shader was actually given.
+            float smoothnessInForce = EffectiveSmoothnessCap;
             sb.Append(" | RETUNE: sharpness ceiling ")
-              .Append(_appliedSmoothness.ToString("0.###"))
-              .Append(" (the film authors _Smoothness 0.754; a roughness property is floored at ")
-              .Append((1f - _appliedSmoothness).ToString("0.###"))
+              .Append(smoothnessInForce.ToString("0.###"))
+              .Append(" (dial ").Append(_appliedSmoothness.ToString("0.###"))
+              .Append("; the film authors _Smoothness 0.754; a roughness property is floored at ")
+              .Append((1f - smoothnessInForce).ToString("0.###"))
               .Append(" instead), metal/reflection ceiling ")
-              .Append(_appliedReflectivity.ToString("0.###"))
+              .Append(EffectiveReflectivityCap.ToString("0.###"))
+              .Append(" (dial ").Append(_appliedReflectivity.ToString("0.###")).Append(')')
               .Append(", _Color_Tint.a capped at ").Append(_appliedOpacity.ToString("0.###"))
               .Append(" (authored 0.737), basin surfaces ")
               .Append(_appliedBasin ? "IN SCOPE" : "released ([Water] BasinSurfaces OFF)")
-              .Append(", shore foam ")
-              .Append(_depthGranted
+              .Append(", [Water] BodyOnly ")
+              .Append(_appliedBodyOnly
+                  ? "ON (every band term AND every gloss/metal scalar forced to zero — if the "
+                    + "surface is still pale under this while DebugPaint proves we own the "
+                    + "renderer, no property can reach the pale pixels)"
+                  : "off")
+              .Append(", edge/foam/border band ")
+              .Append(_depthGranted && !_appliedBodyOnly
                   ? "AUTHORED (depth granted)"
-                  : "neutralised — edge colour set to the body colour AND the "
-                    + "_EDGECOLOUR_TOGGLE_ON keyword cleared, which a property block could never "
-                    + "have done")
+                  : "COLLAPSED BY NUMBER — every width to 0 and every band colour to the body hue "
+                    + "at alpha 0, _WaterBorderWidth/_WaterBorderCol included (a SECOND border "
+                    + "mechanism with no keyword, which ModBuild 160's DisableKeyword could never "
+                    + "have reached)")
+              .Append(", [Water] DepthFade=").Append(_appliedDepthFade)
               .Append(", probe usage forced Off->BlendProbes on ").Append(_probeUsageForced)
               .Append(" renderer(s).");
+
+            AppendDebugPaint(sb);
+            AppendReadBack(sb);
 
             // The head camera's ACTUAL depth mode after our request — read, never assumed.
             sb.Append(" | DEPTH: [Water] ShoreFoam=")
@@ -1853,25 +2346,220 @@ internal static class WaterTerrainVR
                 sb.Append(" | REFLECTION unreadable: ").Append(e.GetType().Name);
             }
 
-            sb.Append(" WHAT WOULD DISPROVE THIS, mechanism by mechanism, so the next round is "
-                      + "decidable from this line alone: (H1 the write never landed) it is dead "
-                      + "by construction — there is no property block left; if the look changed "
-                      + "at all this build, H1 was the story and the per-material 'instancing=' "
-                      + "flag on the WATER SURFACE line above names why. (H2 the wrong property) "
-                      + "read the per-shader cap list on that same line: if it says '0 capped' "
-                      + "for a surface that still mirrors, no NAMED scalar governs its "
-                      + "reflection and only the probe can. (H3 the mirror is the basin, not the "
-                      + "film) toggle [Water] BasinSurfaces in the headset — if the pool changes "
-                      + "with it, the metallic bed was the 'Tiles' the report meant; if a basin "
-                      + "count of 0 appears above while the pool still mirrors, the geometric "
-                      + "adoption test is too tight and the FLOOR CENSUS names what it missed. "
-                      + "(H4 the environment) toggle [Water] LocalProbe — a mirror that stops "
-                      + "SWIMMING but stays bright means the environment was the swim and a "
-                      + "material cap is what is left to do; a mirror unchanged by a probe that "
-                      + "REACHES above means the reflection is not coming through "
-                      + "unity_SpecCube0 at all and the next move is the mod's own water shader.");
+            sb.Append(" WHAT IS ALREADY SETTLED, AND THE ORDER TO TOGGLE IN, so the next round is "
+                      + "decidable from this line alone. SETTLED: (H1 the write never landed) dead "
+                      + "— there is no property block left, and 'instancing=True' on the WATER "
+                      + "SURFACE line above is the retroactive reason ModBuild 159's block never "
+                      + "reached the shader. (The body tuning) dead as an EXPLANATION: the "
+                      + "authored _Color_Tint is dark green RGBA(0.195,0.311,0.131) and "
+                      + "spiegeltiles.jpg is a near-WHITE sheet, so no alpha on that body could "
+                      + "have produced what is on screen and three rounds of tuning it were "
+                      + "answering a question the user was not asking. STILL OPEN, in the order "
+                      + "that resolves them fastest: (1) [Water] DebugPaint ON — do this FIRST, it "
+                      + "costs one second and it is the only reading that says whether these are "
+                      + "the renderers being looked at; magenta = the film is ours, cyan = the "
+                      + "basin is what he means, unchanged pale = neither, and the FLOOR CENSUS "
+                      + "names the real one. (2) [Water] BodyOnly ON with DebugPaint back off — "
+                      + "every band term and every gloss/metal scalar at zero; if the sheet goes "
+                      + "dark green, the band WAS the white and the BAND READ-BACK above names the "
+                      + "property that carried it; if it stays pale, no property can reach the "
+                      + "pale pixels and the only remaining move is the mod's own water shader out "
+                      + "of the bundle. (3) [Water] DepthFade=Inverted — only worth trying if (2) "
+                      + "left it pale AND (1) said the renderer is ours; it flips which extreme "
+                      + "the pinned depth term sits at, which is the one lever that reaches a fade "
+                      + "term whose property name we never learned. (4) [Water] BasinSurfaces and "
+                      + "[Water] LocalProbe remain the A/Bs for the SWIMMING half of the report, "
+                      + "which is a different complaint from the paleness and must not be tested "
+                      + "in the same toggle.");
 
             VRLog.Info(Name, sb.ToString());
+        }
+
+        /// <summary>
+        /// What the diagnostic paint ACTUALLY reached, counted off the live instances.
+        ///
+        /// <para>This line is written the way it is because of a specific failure: ModBuild 160's
+        /// census reported <c>UNDONE: 0 re-asserts</c>, which says only that our write was still
+        /// attached to the renderer, and that read as confirmation for a whole round while the
+        /// surface was unchanged. So nothing here reports an intention. The counts below come from
+        /// comparing each instance's CURRENT shader against the flat shader we resolved — a
+        /// renderer that failed to paint is counted as unpainted, and the difference between
+        /// "tracked" and "painted" is visible in the same line.</para>
+        /// </summary>
+        private void AppendDebugPaint(System.Text.StringBuilder sb)
+        {
+            sb.Append(" | DEBUG PAINT: [Water] DebugPaint=").Append(_appliedDebugPaint);
+            if (!_appliedDebugPaint)
+            {
+                sb.Append(" — the surfaces carry the ordinary retune. TURN IT ON FOR ONE SECOND if "
+                          + "the pool still looks wrong: it is the only reading that says whether "
+                          + "this driver owns the renderers in spiegeltiles.jpg at all, and three "
+                          + "hardware rounds have now ended without that answer.");
+                return;
+            }
+
+            int filmTracked = 0, basinTracked = 0, filmPainted = 0, basinPainted = 0;
+            for (int i = 0; i < _tracked.Count; i++)
+            {
+                Renderer r = _tracked[i];
+                if (r == null || !_owned.TryGetValue(r, out Owned o))
+                    continue;
+                if (o.IsFilm)
+                    filmTracked++;
+                else
+                    basinTracked++;
+                Material? inst = o.Instances.Length > 0 ? o.Instances[0] : null;
+                bool painted = inst != null && _paintShader != null
+                               && ReferenceEquals(inst.shader, _paintShader);
+                if (!painted)
+                    continue;
+                if (o.IsFilm)
+                    filmPainted++;
+                else
+                    basinPainted++;
+            }
+
+            sb.Append(" — FILM painted flat MAGENTA on ").Append(filmPainted).Append(" of ")
+              .Append(filmTracked).Append(" film renderer(s); BASIN painted flat CYAN on ")
+              .Append(basinPainted).Append(" of ").Append(basinTracked)
+              .Append(" basin renderer(s); shader borrowed = ").Append(_paintHow)
+              .Append(". WHAT THE HEADSET ANSWERS IN ONE SECOND, and it is the reading three "
+                      + "rounds have lacked: the pale hexes turn MAGENTA => this driver owns the "
+                      + "water FILM and the only open question is which of its properties paints "
+                      + "them pale; they turn CYAN => the basin bed is the surface in "
+                      + "spiegeltiles.jpg and the film was never the subject; they stay PALE AND "
+                      + "WHITE => we have been tuning objects that are not what is being looked "
+                      + "at, and the FLOOR CENSUS in this same log names what actually is. A count "
+                      + "of 0 painted against a non-zero tracked count means the paint itself "
+                      + "failed and NONE of those three readings applies.");
+        }
+
+        /// <summary>
+        /// Read the band back OFF THE LIVE MATERIAL INSTANCE the renderer draws with, beside the
+        /// authored value on the shared material.
+        ///
+        /// <para>This is the answer to the <c>UNDONE: 0 re-asserts</c> failure mode. A line that
+        /// says what we called is worth nothing — ModBuild 160 called <c>DisableKeyword</c> and
+        /// repainted <c>_Edge_Colour</c>, both lines appeared, and the sheet stayed white. What is
+        /// worth something is the value the shader will actually sample, read out of the instance
+        /// after every write in the frame has run, plus the instance's live keyword list. A
+        /// property this shader does not declare is named LOUDLY rather than omitted, because a
+        /// name that silently does not exist is otherwise indistinguishable from a write that
+        /// landed and did nothing — which is exactly the trap of writing into a compiled shader
+        /// nobody in this project has read.</para>
+        /// </summary>
+        private void AppendReadBack(System.Text.StringBuilder sb)
+        {
+            sb.Append(" | BAND READ-BACK (off the live material instance, after the writes — not "
+                      + "what we called, what the shader will sample): ");
+            Renderer? sample = FilmSample();
+            if (sample == null || !_owned.TryGetValue(sample, out Owned o))
+            {
+                sb.Append("no film renderer is currently tracked, so there is nothing to read "
+                          + "back — check the tracked count at the head of this line.");
+                return;
+            }
+            Material? shared = o.Shared.Length > 0 ? o.Shared[0] : null;
+            Material? inst = o.Instances.Length > 0 ? o.Instances[0] : null;
+            if (shared == null || inst == null)
+            {
+                sb.Append("the film sample has no material pair to compare.");
+                return;
+            }
+            if (_appliedDebugPaint)
+            {
+                sb.Append("suppressed — [Water] DebugPaint has replaced the shader on this "
+                          + "instance, so the band properties are not what it draws with.");
+                return;
+            }
+
+            try
+            {
+                sb.Append('\'').Append(sample.name).Append("': ");
+                AppendColourReadBack(sb, shared, inst, "_Color_Tint", ColorTintId);
+                for (int i = 0; i < BandWidthIds.Length; i++)
+                {
+                    AppendFloatReadBack(
+                        sb, shared, inst, WaterEdgeBand.BandWidthProperties[i], BandWidthIds[i]);
+                }
+                for (int i = 0; i < BandColourIds.Length; i++)
+                {
+                    AppendColourReadBack(
+                        sb, shared, inst, WaterEdgeBand.BandColourProperties[i], BandColourIds[i]);
+                }
+                AppendFloatReadBack(
+                    sb, shared, inst, WaterEdgeBand.EdgeToggleProperty, EdgeToggleId);
+                AppendFloatReadBack(
+                    sb, shared, inst, WaterEdgeBand.InvertDepthFadeProperty, InvertDepthFadeId);
+                sb.Append("keyword ").Append(EdgeColourKeyword).Append(" authored ")
+                  .Append(shared.IsKeywordEnabled(EdgeColourKeyword) ? "ON" : "OFF")
+                  .Append(" -> instance ")
+                  .Append(inst.IsKeywordEnabled(EdgeColourKeyword) ? "STILL ON" : "OFF")
+                  .Append("; instance keywords=[").Append(string.Join(",", inst.shaderKeywords))
+                  .Append("]. THE READING THAT MATTERS: the authored body is dark green "
+                          + "RGBA(0.195,0.311,0.131) and spiegeltiles.jpg shows a near-WHITE "
+                          + "sheet, so if every band value above is 0 and the surface is STILL "
+                          + "pale, the pale pixels come from a texture or from a constant compiled "
+                          + "into VFX/Water_Shd_Trans, no shader property can reach them, and the "
+                          + "only remaining move is a water shader of the mod's own out of the "
+                          + "bundle. Turn [Water] BodyOnly on to make that conclusion clean, and "
+                          + "[Water] DebugPaint on to confirm the renderer is ours before drawing "
+                          + "it.");
+            }
+            catch (Exception e)
+            {
+                sb.Append("unreadable: ").Append(e.GetType().Name);
+            }
+        }
+
+        /// <summary>
+        /// A live, tracked FILM renderer to read the band back off, self-healing.
+        ///
+        /// <para><see cref="_censusSample"/> is set once and these quads are destroyed and
+        /// re-instantiated constantly (Apparance: 109 placements in one logged session), so a
+        /// sample that is merely REMEMBERED goes stale and the read-back would report "nothing to
+        /// read" for the rest of a session while 17 films were tracked. That failure would look
+        /// exactly like the driver having stopped, which is the confusion this whole round exists
+        /// to end. So a dead or un-owned sample is replaced from the tracked set instead.</para>
+        /// </summary>
+        private Renderer? FilmSample()
+        {
+            Renderer? cached = _censusSample;
+            if (cached != null && _owned.TryGetValue(cached, out Owned held) && held.IsFilm)
+                return cached;
+            for (int i = 0; i < _tracked.Count; i++)
+            {
+                Renderer r = _tracked[i];
+                if (r == null || !_owned.TryGetValue(r, out Owned o) || !o.IsFilm)
+                    continue;
+                _censusSample = r;
+                return r;
+            }
+            return null;
+        }
+
+        private static void AppendFloatReadBack(
+            System.Text.StringBuilder sb, Material shared, Material inst, string name, int id)
+        {
+            if (!shared.HasProperty(id))
+            {
+                sb.Append(name).Append(" ABSENT FROM THIS SHADER; ");
+                return;
+            }
+            sb.Append(name).Append(' ').Append(shared.GetFloat(id).ToString("0.###"))
+              .Append(" -> ").Append(inst.GetFloat(id).ToString("0.###")).Append("; ");
+        }
+
+        private static void AppendColourReadBack(
+            System.Text.StringBuilder sb, Material shared, Material inst, string name, int id)
+        {
+            if (!shared.HasProperty(id))
+            {
+                sb.Append(name).Append(" ABSENT FROM THIS SHADER; ");
+                return;
+            }
+            sb.Append(name).Append(' ').Append(shared.GetColor(id)).Append(" -> ")
+              .Append(inst.GetColor(id)).Append("; ");
         }
 
         /// <summary>
@@ -1920,6 +2608,30 @@ internal static class WaterTerrainVR
             catch (Exception e)
             {
                 sb.Append("unreadable: ").Append(e.GetType().Name);
+            }
+
+            // --- the EDGE / FOAM / BORDER band, authored -> written, property by property -------
+            // This is the block round four exists for. spiegeltiles.jpg shows a near-WHITE sheet
+            // where _Color_Tint is dark green, so the visible pixels are this band and not the
+            // body; and _WaterBorderWidth/_WaterBorderCol is a second border mechanism with no
+            // keyword, which nothing before this build had ever touched.
+            if (o.IsFilm)
+            {
+                sb.Append(" | EDGE BAND WRITES: ");
+                try
+                {
+                    Material? inst = o.Instances.Length > 0 ? o.Instances[0] : null;
+                    if (mat == null || inst == null)
+                        sb.Append("<no material>");
+                    else if (WantDebugPaint)
+                        sb.Append("suppressed — [Water] DebugPaint owns this instance's shader");
+                    else
+                        ApplyWaterFilm(mat, inst, sb);
+                }
+                catch (Exception e)
+                {
+                    sb.Append("unreadable: ").Append(e.GetType().Name);
+                }
             }
 
             // --- every property with its CURRENT value, its type and its ATTRIBUTES ------------

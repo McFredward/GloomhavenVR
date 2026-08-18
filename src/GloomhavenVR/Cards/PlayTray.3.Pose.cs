@@ -416,7 +416,7 @@ internal sealed partial class PlayTray
         flatForward.Normalize();
         ControlBoard board = CardsConfig.CurrentBoard;
         _root.rotation = ComputeBoardRotation(flatForward, board); // KEEP position (pinned)
-        _root.localScale = Vector3.one * LocalScaleForConfiguredSize(board);
+        _root.localScale = Vector3.one * ComputeBoardScale(board);
         // Freeze-sentinel announcement: this path only runs from the settings/debug-menu
         // orientation tuning (CardsDriver._applyOrientation) — an EXPLICIT user action, which
         // the FIXIERT ruling allows.
@@ -661,53 +661,45 @@ internal sealed partial class PlayTray
         // had pinched to 1.94 persisted as TrayScale 2 (clamped) and snapped to 0.80 the next time
         // anything re-derived the pose. That was the "es hat seine Größe geändert" half of the
         // 2026-08-03 report; the recall was only what triggered the re-derivation.
-        // WHAT THAT FIX THEN COST, and this is the 2026-08-15 report's third sentence ("weiterhin
-        // hat sich damit auch das maximum und minimum wieder verschoben"). Absorbing the overflow
-        // into the per-board multiplier makes it a RATCHET: BoardScale is also the thing the
-        // settings window is expressed against (0.5–2 × BoardScale), so every absorption MOVES the
-        // range the player can dial. His ModBuild 158 log has it twice in one session —
-        // "BoardScale_Steel re-seated to 1.00" (window 0.27–1.09 → 0.50–2.00) and then "re-seated
-        // to 1.13" (→ 0.57–2.25) — each triggered by a released size the two factors could not
-        // express between them.
-        //
-        // THE RATCHET IS GONE, and neither half of the old bargain was needed:
-        //   * the size is persisted in SIZE UNITS (BoardSizeFrame — apparent width over the
-        //     board's own width), which is zoom-free, so the same physical board persists as the
-        //     same number whatever the table zoom is doing. The raw localScale is not that number
-        //     while an anchor is stale, and it was the raw localScale that used to be stored;
-        //   * that value is already inside the absolute size band (ComputeBoardScale clamps the
-        //     product, GrabScaleLimits bounds the gesture), and TrayScale's read-clamp is now the
-        //     same band rather than a narrower 0.5–2 window — so TrayScale can express the whole
-        //     legal range on its own and BoardScale_{board} goes back to being what its name says:
-        //     a per-board SEED the player sets, never a place the gesture writes to.
-        // The re-seat below therefore has no reachable trigger left; it stays as a fail-safe, and
-        // it now WARNS, because a line from it means the two factors have drifted apart again.
-        float boardScale = Mathf.Max(0.05f, CardsConfig.BoardScale(board).Value);
+        // So: keep TrayScale's documented 0.5–2 grab semantics, and absorb whatever does not fit
+        // into the per-board multiplier (a free float, hand-edit/debug-menu territory) so the
+        // PRODUCT is bit-exact what the player is looking at.
+        float boardScale = Mathf.Max(0.01f, CardsConfig.BoardScale(board).Value);
         float live = Mathf.Max(1e-4f, _root.localScale.x);
-        float units = BoardSizeFrame.ClampUnits(
-            TryGetSizeUnits(out float measured) ? measured : live, MinWidthMeters, MaxWidthMeters);
-        CardsConfig.TrayScale.Value = units / boardScale;
-        float reproduced = CardsConfig.ClampedTrayScale * boardScale;
-        if (Mathf.Abs(reproduced - units) > 1e-4f * Mathf.Max(1f, units))
+        float trayScale = Mathf.Clamp(live / boardScale, 0.5f, 2f);
+        CardsConfig.TrayScale.Value = trayScale;
+        float reproduced = trayScale * boardScale;
+        if (Mathf.Abs(reproduced - live) > 1e-4f * Mathf.Max(1f, live))
         {
-            float adjusted = units / Mathf.Max(1e-4f, CardsConfig.ClampedTrayScale);
+            float adjusted = live / trayScale;
             CardsConfig.BoardScale(board).Value = adjusted;
-            VRLog.Warn("Cards", $"Board size {units:F2} units ({BoardSizeFrame.WidthOf(units) * 100f:F1} cm " +
-                                $"apparent) could not be expressed as TrayScale × BoardScale " +
-                                $"{boardScale:F2} — it reproduced as {reproduced:F2}. BoardScale_{board} " +
-                                $"re-seated to {adjusted:F2} so the size the player set survives every " +
-                                "future re-place. This line should be unreachable (TrayScale's clamp is " +
-                                "the same band the size is clamped into); report it with the surrounding " +
-                                "log, because it means the min/max the settings can express just moved.");
+            // WARN, not Info, and this line is the SECOND half of the user's 2026-08-15 report
+            // ("weiterhin hat sich damit auch das maximum und minimum wieder verschoben"). The
+            // re-seat is a RATCHET: BoardScale_{board} is also what the settings window measures
+            // its own range against (0.5–2 × BoardScale), so every absorption MOVES the range the
+            // player can dial. His ModBuild 158 log fired it twice in one session — Steel re-seated
+            // to 1.00 (window 0.27–1.09 → 0.50–2.00) and then to 1.13 (→ 0.57–2.25).
+            //
+            // IT IS DELIBERATELY NOT "FIXED" IN ModBuild 161, because its TRIGGER may already be
+            // gone. The releases that fired it were sizes the two factors could not express
+            // between them, and the player could only reach those because GrabScaleLimits drifted
+            // with the zoom (apparent width per scale unit = parent chain ÷ rig scale, with a pin
+            // holder frozen at pin time). BoardZoomCarry keeps that ratio constant now, so the
+            // gesture window no longer wanders — and widening the persistence band on the same
+            // build would make the next hardware log unable to say which change did it. If this
+            // line appears in a ModBuild 161 log, the ratchet has an independent trigger and the
+            // band is what to widen; if it does not appear, the window was the whole of it.
+            VRLog.Warn("Cards", $"Board size {live:F2}× is outside what TrayScale alone can express " +
+                                $"(0.5–2 × BoardScale {boardScale:F2} = {0.5f * boardScale:F2}–" +
+                                $"{2f * boardScale:F2}): BoardScale_{board} re-seated to {adjusted:F2} " +
+                                "so the size the player set survives every future re-place. THIS MOVES " +
+                                "THE SETTINGS WINDOW'S OWN MIN/MAX — report this line, it is the second " +
+                                "half of the 2026-08-15 size report and ModBuild 161 deliberately left " +
+                                "its trigger in place to find out whether the zoom-drift fix removed it.");
         }
         VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
                             $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, pitch {CardsConfig.TrayPitch.Value:F0}° " +
-                            $"({CardsConfig.BoardMoveMode.Value}), scale {CardsConfig.TrayScale.Value:F2}× " +
-                            $"= {BoardSizeFrame.WidthOf(units) * 100f:F1} cm apparent.");
-        // The release edge of the held-size freeze: print the full size picture at the one moment
-        // the player has just decided what the board should be. Two of these lines from either
-        // side of a zoom must agree on the apparent size and on the bounds (see the diagnostic).
-        LogBoardSizeDiagnostics("grab released");
+                            $"({CardsConfig.BoardMoveMode.Value}), scale {CardsConfig.TrayScale.Value:F2}×.");
     }
 }

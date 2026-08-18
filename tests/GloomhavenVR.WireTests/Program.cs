@@ -40,16 +40,16 @@ internal static class Program
             // failure that kept [Rig] Experimental3DMap unimplemented — and it is decidable from
             // four numbers without a headset.
             MapRoomSeatVectors.Run(t);
-            // How big the control board is allowed to be, and how big it looks — the arithmetic
-            // behind three user reports, driven at the rig scales his own log recorded.
-            BoardSizeVectors.Run(t, repoRoot);
-            BoardPinFrameVectors.Run(t, repoRoot);
+            // Whether the player's own instrument rides the world zoom — four user reports that must
+            // all be true at once, plus a SOURCE LINT on the frame phase, which no vector can express.
+            BoardZoomCarryVectors.Run(t, repoRoot);
             // Which shader property is the mirror, and which way it points. ModBuild 160 writes
             // onto shaders whose property names nobody here has ever read (they ship compiled in
             // the game's bundles), so the one thing holding that up is the invariant that no cap
             // can ever make a surface SHINIER than authored — which is only observable by eye,
             // from inside a headset, and has now cost three hardware rounds.
             WaterReflectionVectors.Run(t);
+            WaterEdgeVectors.Run(t);
         }
         catch (Exception e)
         {

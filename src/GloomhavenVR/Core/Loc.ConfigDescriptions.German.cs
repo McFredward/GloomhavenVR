@@ -906,23 +906,16 @@ internal static partial class Loc
                 + "Platzierung, in Grad. Wird automatisch geschrieben, wenn du das Brett mit dem Griff an "
                 + "seiner Haltestange bewegst; von Hand nur zum Zurücksetzen ändern.",
             ["Cards/TrayScale"] =
-                "Größenfaktor des Kontrollbretts. Wird automatisch vom beidhändigen Brett-Griff "
+                "Größenfaktor des Kontrollbretts (0.5–2). Wird automatisch vom beidhändigen Brett-Griff "
                 + "geschrieben (Haltestange mit beiden Händen greifen und auseinanderziehen/zusammenschieben); "
-                + "von Hand nur zum Zurücksetzen ändern. Deckt seit ModBuild 159 den GANZEN erlaubten "
-                + "Bereich allein ab — vorher war er auf 0.5–2 begrenzt, sodass ein Griff am Anschlag den "
-                + "Überschuss in BoardScale_<Brett> abgeschoben hat und die Grenzen von Sitzung zu Sitzung "
-                + "wanderten.",
+                + "von Hand nur zum Zurücksetzen ändern.",
             ["Cards/TrayFollow"] =
                 "Verankerung des Kontrollbretts (Test #15, umgeschaltet mit dem Pin-Knopf am Brettrahmen). "
                 + "true = das Brett hängt am Rig: es bewegt sich mit dir (Welt greifen, stufenweises Drehen, "
                 + "neu zentrieren) und platziert sich beim Moduseintritt neu an den Versätzen "
-                + "TrayForward/Down/Right. false = das Brett ist FIXIERT, wo du es gelassen hast — in DEINEM "
-                + "Raum verankert, nicht in der Spielwelt (Nutzer-Entscheid 2026-08-18: \"Fixiert heißt in "
-                + "jeglicher hinsicht fixiert und fix, EGAL wie man zoomed oder sich bewegt\"). Zoomen, "
-                + "stufenweises Drehen, Welt greifen, Fliegen und Neuzentrieren lassen es aus deiner Sicht "
-                + "völlig unberührt; nur ein Griff oder die Zwei-Hand-Geste verändern es. Gehst du körperlich "
-                + "umher, verändert sich sein Anblick sehr wohl — du bewegst dich dann in dem Raum, an dem es "
-                + "festgenagelt ist. Zurück auf FOLGEN verankert es wieder an den eingestellten Versätzen.",
+                + "TrayForward/Down/Right. false = das Brett ist FIXIERT, wo du es gelassen hast, in der Welt "
+                + "verankert — es bleibt liegen, während du dich bewegst, und platziert sich nie neu. Zurück "
+                + "auf FOLGEN verankert es wieder an den eingestellten Versätzen.",
             ["Cards/BoardMoveMode"] =
                 "Punkt 12: was der Griff an der Haltestange mit dem Kontrollbrett tun darf. Limited "
                 + "(Standard, \"Begrenzt\") = das bisherige Verhalten: nur Position + Drehung, das Brett "
@@ -1168,12 +1161,12 @@ internal static partial class Loc
                 "Zusätzliche Board-Drehung (Gieren), die auf den durch Greifen geschriebenen TrayYaw ADDIERT "
                 + "wird, Grad. Startwert 0 (Oak).",
             ["Cards/BoardScale_*"] =
-                "Startgröße pro Brett-Ausführung, als Multiplikator auf den durch Greifen geschriebenen "
-                + "TrayScale. Die Größe lässt sich jederzeit mit der beidhändigen Greifgeste ändern (die "
-                + "schreibt TrayScale); dies hier ist nur der Anfangswert. Seit ModBuild 159 schreibt die "
-                + "Geste NICHT mehr hierher zurück: vorher lief der Überschuss eines Griffs am Anschlag in "
-                + "diesen Wert, und weil die Grenzen des Einstellfensters an ihm gemessen werden, "
-                + "verschoben sie sich mit jeder Sitzung (gemessen: 0.54 → 1.00 → 1.13 in einer einzigen).",
+                "Größen-MULTIPLIKATOR des Boards, angewendet zusätzlich zum durch Greifen geschriebenen "
+                + "TrayScale. Standard 0.5: das Board hängt am Rig, seine scheinbare Größe schrumpft also nicht "
+                + "mit dem Tisch — der Standard von ~0.4 (Tischverhältnis) wirkte beim ersten Erscheinen etwas "
+                + "klein, deshalb öffnet das Board leicht größer (0.5). Die Größe lässt sich jederzeit mit der "
+                + "beidhändigen Greifgeste ändern (schreibt TrayScale); dies ist der Startwert pro Board "
+                + "obendrauf.",
             ["Cards/BoardPosOffset_*"] =
                 "Positions-Versatz des Boards, der auf den kopfrelativen Versatz des Trays ADDIERT wird, "
                 + "echte Meter im Kopf-Bezugssystem (X = rechts, Y = hoch, Z = vorne). Startwert 0 (Oak).",
@@ -2421,8 +2414,44 @@ internal static partial class Loc
                 + "UNDURCHSICHTIGEN OBJEKTE PRO AUGE, solange Wasser erfasst ist (der eingebaute "
                 + "Forward-Pfad hat keinen G-Buffer, Unity baut die Tiefentextur also durch erneutes "
                 + "Zeichnen). Dieselben Kosten wie [Optimize] HeadDepthPrepass, mit dem dieser Schalter "
-                + "verodert und den er nicht überstimmt. Standardmäßig aus: das Wasser ist so gebaut, dass "
-                + "es auch ohne gut aussieht. Gilt nur in Räumen mit Wasser.",
+                + "verodert und den er nicht überstimmt. Standardmäßig aus wegen dieser Kosten — NICHT, "
+                + "weil das Wasser ohne sie richtig aussähe: das tut es nicht, und dies ist der einzige "
+                + "Schalter, mit dem du prüfen kannst, ob dem Ufersaum die ganze Zeit nur eine echte "
+                + "Tiefentextur gefehlt hat. BodyOnly übersteuert ihn. Gilt nur in Räumen mit Wasser.",
+            ["Water/DebugPaint"] =
+                "DIAGNOSE — färbt jeden Wasser-Renderer, den der Mod übernommen hat, in einer flachen, "
+                + "unverwechselbaren Farbe ein und schaltet die Beleuchtung des Spiels dafür komplett ab: "
+                + "der Wasserfilm wird MAGENTA, das Beckenbett und der Rand werden TÜRKIS. Es wird nichts "
+                + "ausgeblendet — das Wasser wird weiterhin dargestellt, nur eben einfarbig. Schalte es "
+                + "für eine Sekunde an und sieh auf die blassen Felder: MAGENTA heißt, der Mod hat den "
+                + "Wasserfilm im Griff und offen ist nur noch, WELCHE seiner Eigenschaften ihn blass "
+                + "macht; TÜRKIS heißt, du siehst den Beckenboden unter dem Wasser; BLASS UND WEISS heißt, "
+                + "der Mod regelt Objekte nach, die du gar nicht siehst — dann nennt die FLOOR CENSUS im "
+                + "Log, was du wirklich vor dir hast. Genau an dieser Unklarheit sind drei Runden "
+                + "gescheitert. Danach wieder ausschalten, der Mod stellt die Materialien sofort her.",
+            ["Water/BodyOnly"] =
+                "LETZTES MITTEL — zwingt den Wasserfilm auf nichts als seine eigene gestaltete Farbe "
+                + "(dunkelgrün) bei gedeckelter Deckkraft, mit jedem Ufer-, Schaum- und Randanteil auf "
+                + "null und jedem Glanz- und Metallwert auf null; nur die Wellen-Normalen bleiben. Das "
+                + "Foto (spiegeltiles.jpg) zeigt eine fast WEISSE Fläche dort, wo das Spiel ein "
+                + "dunkelgrünes Wasser gestaltet — die sichtbaren Pixel sind also der Ufersaum und nicht "
+                + "der Wasserkörper. Dieser Schalter entfernt jeden Saum, den der Shader anbietet, auf "
+                + "einmal und unabhängig von ShoreFoam. Ist die Fläche damit IMMER NOCH weiß, während "
+                + "DebugPaint belegt hat, dass der Mod den Renderer besitzt, dann kommt das Weiß aus einer "
+                + "Textur oder aus einer fest einkompilierten Konstante des Shaders, keine Einstellung "
+                + "erreicht es, und es hilft nur noch ein eigener Wasser-Shader des Mods — das Log sagt "
+                + "das dann genau so, statt eine weitere Vermutung anzubieten.",
+            ["Water/DepthFade"] =
+                "In welche Richtung die Tiefenblende des Shaders zeigt (_InvertDepthFade, gestaltet 0). "
+                + "Die VR-Kopfkamera schreibt keine Tiefentextur, dieser Anteil ist also über die ganze "
+                + "Fläche KONSTANT — die Einstellung wählt somit nur, an welchem der beiden Extreme die "
+                + "GANZE Fläche liegt: überall Ufer oder überall offenes Wasser. Authored (Standard) "
+                + "lässt den Wert des Spiels unangetastet und ist die ehrliche Einstellung: niemand hier "
+                + "hat den Quelltext dieses Shaders gelesen, welches Extrem welches ist, lässt sich also "
+                + "nicht herleiten, nur sehen. NotInverted und Inverted erzwingen ihn. Inverted ist die "
+                + "einzige Einstellung im ganzen Abschnitt, die einen Wert ÜBER den vom Spiel gestalteten "
+                + "hebt — deshalb nie Standard. Nur ausprobieren, wenn die Fläche auch mit BodyOnly noch "
+                + "falsch aussieht.",
             // ---- [HexHighlight] ----
             ["HexHighlight/SwapStableShader"] =
                 "Ersetzt den OmniDecal_Shd der Feld-Hervorhebung durch den stereostabilen "

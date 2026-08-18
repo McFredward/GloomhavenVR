@@ -151,19 +151,6 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\MapRoom\MapRoomSeat.cs" Link="worldui\MapRoomSeat.cs" />
   </ItemGroup>
 
-  <!-- Not a wire file, and here for the FigureStretchMath reason at its sharpest: it decides how
-       big the control board is allowed to be and how big it currently LOOKS, and both are observed
-       only from inside a headset, one zoom sweep at a time. The bound was a function of the live
-       rig scale through four shipped builds (ModBuild 35/39/57/73) because the tray's parent chain
-       was assumed to carry the player's scale and, while FIXIERT, did not — nothing threw, nothing
-       logged, and the tester reported the same defect three times ("das Minimum und Maximum des
-       boards ist immer noch abhängig von der Größe meiner Maske"). BoardSizeFrame.cs was written
-       free of everything but Mathf precisely so it could be linked in here and driven at his own
-       recorded rig scales. -->
-  <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\BoardSizeFrame.cs" Link="cards\BoardSizeFrame.cs" />
-  </ItemGroup>
-
   <!-- Not a wire file, and the sharpest case of the FigureStretchMath reason yet: it decides
        WHICH shader property is the mirror and WHICH WAY that property points, on shaders whose
        property names nobody in this project has ever read — the game's shaders ship compiled
@@ -178,6 +165,21 @@
        precisely so they could be linked in here and swept property by property. -->
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WaterReflectionCaps.cs" Link="core\WaterReflectionCaps.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WaterEdgeBand.cs" Link="core\WaterEdgeBand.cs" />
+  </ItemGroup>
+
+  <!-- Not a wire file, and here for the FigureStretchMath reason at its sharpest: it decides whether
+       the player's own instrument rides the world zoom, and that is observable ONLY by eye, from
+       inside a headset, one pinch at a time. Four shipped builds each moved WHERE the pinned board's
+       pose was re-derived and each came back as the same report ("das controllboard mitgezoomed" /
+       "zoomed immer noch mit" / "zoomed nun immer mit und geht immer mit"), because the number the mod
+       printed about it — apparent size, world size / rig scale — AGREED WITH ALL FOUR: what the eye
+       judges is angular size, size / distance, and a world-static board under a zoom has both terms
+       scale by 1/s. The arithmetic was kept out of PlayTray (Transform, the config, the grab handle,
+       the whole tray) in a file free of everything but Mathf precisely so it could be linked in here
+       and driven at the rig scales his own logs recorded, x19.01 ... x137.05. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\BoardZoomCarry.cs" Link="cards\BoardZoomCarry.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -215,9 +217,9 @@
          links no mod source: it reads src/ as TEXT and recomputes the formula. -->
     <Compile Include="CardFaceRectVectors.cs" />
     <Compile Include="MapRoomSeatVectors.cs" />
-    <Compile Include="BoardSizeVectors.cs" />
-    <Compile Include="BoardPinFrameVectors.cs" />
+    <Compile Include="BoardZoomCarryVectors.cs" />
     <Compile Include="WaterReflectionVectors.cs" />
+    <Compile Include="WaterEdgeVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 
