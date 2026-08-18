@@ -56,6 +56,11 @@ internal static class BundleShaders
     /// <item><c>HexDecalStable</c> — NO, runtime C# only.</item>
     /// <item><c>HeadUnlit</c> — only via the head-avatar mask MATERIALS, which exist only while a
     ///   head avatar is up; that is a subsystem, not a guarantee (ModBuild 153).</item>
+    /// <item><c>WaterVR</c> — NO, runtime C# only, and it is the entry with the most to lose by it:
+    ///   nothing in the bundle's own prefabs references it (it is put on the GAME's water quads),
+    ///   so step 1 can never succeed for it and step 2 is the only mechanism that will ever
+    ///   resolve it. A bare <c>Shader.Find</c> here would leave every water film on the fallback
+    ///   flat sheet with nothing in the log to say why.</item>
     /// </list>
     /// </summary>
     private static readonly Dictionary<string, string> Paths = new()
@@ -65,6 +70,7 @@ internal static class BundleShaders
         { "GloomhavenVR/MapUnlit",       "Assets/Bundle/Table/MapUnlit.shader" },
         { "GloomhavenVR/HexDecalStable", "Assets/Bundle/Table/HexDecalStable.shader" },
         { "GloomhavenVR/HeadUnlit",      "Assets/Bundle/Head/HeadUnlit.shader" },
+        { "GloomhavenVR/WaterVR",        "Assets/Bundle/Environments/WaterVR.shader" },
     };
 
     /// <summary>Shaders that have resolved. Only SUCCESSES are cached — a miss must be retried,

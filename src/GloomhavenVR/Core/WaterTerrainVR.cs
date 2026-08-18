@@ -194,17 +194,35 @@ namespace GloomhavenVR.Core;
 /// and nothing addressed by property name reaches either.</para>
 ///
 /// <para>SO THE FILM'S WHOLE MATERIAL IS REPLACED — <c>[Water] OwnSurface</c>, default ON
-/// (<see cref="WaterOwnSurface"/>): a mod-owned material on <c>GloomhavenVR/Overlay</c> out of the
-/// mod's own bundle, carrying the tileset's OWN authored <c>_Color_Tint</c> hue at the
-/// <c>[Water] Opacity</c> alpha, at the authored render queue. That deletes the game's shader from
-/// the surface and everything compiled inside it. It also satisfies the requirement his second
-/// sentence makes hard rather than preferable: Overlay's fragment is
-/// <c>tex2D(_MainTex,uv) * _Color * i.color</c> and its source contains no <c>unity_SpecCube</c>,
-/// no <c>reflect()</c>, no <c>samplerCUBE</c> and no cubemap input at all, so it HAS no
-/// view-dependent term and cannot produce a head-bound reflection. The price is stated rather than
-/// hidden: this film does not ripple. Only the FILM is re-based; the basin
+/// (<see cref="WaterOwnSurface"/>): a mod-owned material out of the mod's own bundle, carrying the
+/// tileset's OWN authored values, at the authored render queue. That deletes the game's shader from
+/// the surface and everything compiled inside it. Only the FILM is re-based; the basin
 /// (<c>Amp_Basic_N_MRAO</c>) is opaque ground, not a film, and keeps the property retune
 /// below.</para>
+///
+/// <para>ModBuild 162 SHIPPED THAT ON <c>GloomhavenVR/Overlay</c> AND IT WORKED — <i>"Beide
+/// Probleme gelöst, top!"</i> — AND THE CURE COST TOO MUCH LOOK: <i>"Allerdings: Das Wasser sieht
+/// jetzt sehr viel schlechter aus. Das echte Wasser hatte ANimation und co. das will ich auch
+/// wieder. Ich will es so nah wie möglich an dem 'echten' Wasser haben - aber eben so dass es in VR
+/// funktioniert."</i> Overlay is a flat unlit sheet; it was chosen because it was the only bundled
+/// shader that provably sampled no environment, which was the right emergency move and is not the
+/// answer. The film now draws on <c>GloomhavenVR/WaterVR</c>, a shader authored into this mod's own
+/// bundle for this one job: two scrolling normal layers at the tileset's own two tilings and two
+/// speeds — which the census proves is the whole of the game water's motion — shaded against a
+/// FIXED light direction so the highlights travel with the waves instead of with the head. Overlay
+/// remains the fallback when the bundle cannot yield <c>WaterVR</c>, and the OWN SURFACE census
+/// block names which of the two is live rather than which was wanted.</para>
+///
+/// <para>THE HARD REQUIREMENT SURVIVES THE UPGRADE, and it is why the new shader has no specular in
+/// the usual sense: <b>nothing in it may depend on the view direction.</b> No
+/// <c>unity_SpecCube</c>, no <c>reflect()</c>, no cube sample, no <c>worldRefl</c>, no Fresnel and
+/// no Blinn-Phong half vector — a half-vector highlight slides across the surface with the head,
+/// which is the reported defect re-created out of the mod's own shader. It is also the strongest
+/// stereo guarantee available: under MultiPass each eye renders its own pass, so a view-dependent
+/// term is a different image per eye, and this project has already parked one feature permanently
+/// over that (<c>.planning/wall-fade-stereo-rivalry.md</c>).
+/// <c>WaterOwnSurfaceVectors</c> sweeps both shaders' source and fails the build gate on a
+/// hit.</para>
 ///
 /// <para>THE FLICKER OF ModBuild 158, AND ITS ACTUAL CAUSE — found, not guessed. That build set
 /// <c>Renderer.enabled = false</c> and re-surveyed on a slow round-robin, and the user saw the
@@ -326,6 +344,25 @@ internal static class WaterTerrainVR
     private static readonly int InvertDepthFadeId =
         Shader.PropertyToID(WaterEdgeBand.InvertDepthFadeProperty);
 
+    // --- the ANIMATION values, read off the GAME's shared material and handed to
+    //     GloomhavenVR/WaterVR. Every one of these names was printed by the hardware WATER SURFACE
+    //     census of TERRAIN_GEN_WaterPlane_Crypt_Mat, so none is guessed from a shader nobody can
+    //     open. What is read is what the tileset authored; what is written is derived from it and
+    //     from nothing else (WaterOwnSurface.ScrollRate / NormalStrength), and the OWN SURFACE
+    //     block prints the derivation so a reader of the log can check it against these numbers.
+    private static readonly int NormalMapId =
+        Shader.PropertyToID(WaterOwnSurface.NormalMapProperty);
+    private static readonly int NormalTilingsId =
+        Shader.PropertyToID(WaterOwnSurface.NormalTilingsProperty);
+    private static readonly int SpeedAId = Shader.PropertyToID(WaterOwnSurface.ScrollAProperty);
+    private static readonly int SpeedBId = Shader.PropertyToID(WaterOwnSurface.ScrollBProperty);
+    private static readonly int NoiseSpeedId =
+        Shader.PropertyToID(WaterOwnSurface.GameNoiseSpeedProperty);
+    private static readonly int NormalStrengthId =
+        Shader.PropertyToID(WaterOwnSurface.GameNormalStrengthProperty);
+    private static readonly int SmoothnessId =
+        Shader.PropertyToID(WaterOwnSurface.SmoothnessProperty);
+
     /// <summary>Ids for <see cref="WaterEdgeBand.BandWidthProperties"/> and
     /// <see cref="WaterEdgeBand.BandColourProperties"/>, resolved once at type load and held
     /// parallel to the name arrays so the log can print the NAME of a property the live shader
@@ -420,13 +457,20 @@ internal static class WaterTerrainVR
             + "nicht deaktivieren'. Owned renderer plus every reachable property neutral plus the "
             + "defect unchanged leaves one explanation: a texture or a constant compiled INSIDE "
             + "VFX/Water_Shd_Trans. So [Water] OwnSurface (default ON) gives the FILM a material "
-            + "of the mod's own on '" + WaterOwnSurface.FilmShaderName + "' — the tileset's own "
-            + "green at the [Water] Opacity alpha, at the authored render queue, with no "
-            + "shoreline, no foam, no depth read and NO ENVIRONMENT SAMPLE AT ALL, which is why it "
-            + "cannot have a head-bound reflection. It does not ripple; that is the stated price. "
-            + "The basin keeps the property retune. Read the OWN SURFACE block of the WATER "
-            + "SURFACE STATE line: it counts renderers that ACTUALLY carry our shader, not "
-            + "renderers we tried to swap.");
+            + "of the mod's own on '" + WaterOwnSurface.FilmShaderName + "' — ANIMATED: the "
+            + "tileset's own _Normal_Map scrolled twice at its own two _NormalTilings and two "
+            + "_WaterUVAnimSpeed rates, in the tileset's own green at the [Water] Opacity alpha, at "
+            + "the authored render queue, with no shoreline, no foam, no depth read and NO VIEW "
+            + "DIRECTION ANYWHERE IN IT — no cube sample, no reflect(), no Fresnel and no "
+            + "half-vector specular, because a half-vector highlight slides with the head exactly "
+            + "as the report describes. The glints come from the moving NORMALS against a fixed "
+            + "light direction, so they travel with the waves and are identical in both MultiPass "
+            + "eyes by construction. ModBuild 162's flat sheet on '"
+            + WaterOwnSurface.FallbackFilmShaderName + "' is now only the FALLBACK for a bundle "
+            + "that does not yield the water shader ('Das Wasser sieht jetzt sehr viel schlechter "
+            + "aus'). The basin keeps the property retune. Read the OWN SURFACE block of the WATER "
+            + "SURFACE STATE line: it names which of the two shaders is actually on the renderers "
+            + "and counts them, rather than which one was wanted.");
     }
 
     /// <summary>Drop the driver, restoring every material we replaced and destroying everything
@@ -518,6 +562,17 @@ internal static class WaterTerrainVR
         /// game's. Default ON — see the class header for why there is nothing left to
         /// retune.</summary>
         internal static ConfigEntry<bool>? OwnSurface;
+
+        /// <summary>Multiplier on how fast the mod's own water film scrolls its two normal layers.
+        /// The rates come from the tileset's own <c>_WaterUVAnimSpeedA/B</c>; this is the dial that
+        /// exists because the game's shaders ship COMPILED and the exact convention behind those
+        /// numbers cannot be read offline (see
+        /// <see cref="WaterOwnSurface.ScrollRate"/>).</summary>
+        internal static ConfigEntry<float>? RippleSpeed;
+
+        /// <summary>How strong the moving glints on the mod's own water film are. Zero leaves the
+        /// wave shading and removes only the highlights.</summary>
+        internal static ConfigEntry<float>? Shimmer;
 
         /// <summary>THE INSTRUMENT. Paint every tracked renderer a flat unlit colour — film
         /// magenta, basin cyan — so one look answers whether we own what the user is pointing
@@ -619,26 +674,51 @@ internal static class WaterTerrainVR
                     new AcceptableValueRange<float>(0f, 2f)));
             OwnSurface = config.Bind("Water", "OwnSurface", true,
                 "Give the water FILM a material of the mod's own instead of retuning the game's. "
-                + "The water still renders, at the same place in the draw order and in the "
-                + "tileset's own colour — what changes is that the shader drawing it is "
-                + "GloomhavenVR/Overlay out of this mod's bundle rather than the game's "
-                + "VFX/Water_Shd_Trans. WHY THIS EXISTS: four rounds of property tuning are now "
+                + "The water still renders, at the same place in the draw order, in the tileset's "
+                + "own colour and with the tileset's own ripple — what changes is that the shader "
+                + "drawing it is GloomhavenVR/WaterVR out of this mod's bundle rather than the "
+                + "game's VFX/Water_Shd_Trans. WHY THIS EXISTS: four rounds of property tuning are "
                 + "read back off the live material and every one of them landed — every shoreline, "
                 + "foam and border width at 0, every band colour at alpha 0, the keyword list "
-                + "empty, every gloss and metal value at 0 — and the pool is still a pale, milky "
-                + "sheet LIGHTER than the stone around it, where the game authors a dark green. "
-                + "Only two explanations survive that, and this switch settles both at once: "
-                + "either the pale pixels come from a texture or a constant compiled INSIDE the "
-                + "game's shader, in which case replacing the whole shader removes them; or these "
-                + "are not the surfaces you are looking at, in which case NOTHING changes — and "
-                + "that is itself the answer, because a surface that is unaffected by having its "
-                + "entire material replaced cannot be one of the ones this mod holds. WHAT YOU "
-                + "GIVE UP: the mod's film does not ripple. It is a flat, still, translucent sheet "
-                + "of the game's own water colour at [Water] Opacity, because the mod's overlay "
-                + "shader has nowhere to put the game's ripple normal map. The basin bed and rim "
-                + "under the water are NOT replaced — they are opaque ground, not a film, and keep "
-                + "the ordinary retune. OFF puts the game's own water shader back immediately and "
-                + "hands [Water] BodyOnly, ShoreFoam and DepthFade back their meaning.");
+                + "empty, every gloss and metal value at 0 — and the pool was still a pale, milky "
+                + "sheet with a reflection that swung with your head, which no dial could switch "
+                + "off. That can only come from a texture or a constant compiled INSIDE the game's "
+                + "shader, and replacing the whole shader removes it. WHAT THE MOD'S OWN WATER IS: "
+                + "the game's own normal map, scrolled as TWO layers at the game's own two tilings "
+                + "and two speeds, which is the whole of the animation the real water had. The "
+                + "glints come from those moving ripples lit by a FIXED light direction — never "
+                + "from the view direction, which is the one thing this shader may not contain, "
+                + "because a highlight computed from where your eye is slides across the water as "
+                + "you turn your head (that is the original defect) and is a different image in "
+                + "each eye. Tune it with [Water] RippleSpeed and [Water] Shimmer. The basin bed "
+                + "and rim under the water are NOT replaced — they are opaque ground, not a film, "
+                + "and keep the ordinary retune. OFF puts the game's own water shader back "
+                + "immediately and hands [Water] BodyOnly, ShoreFoam and DepthFade back their "
+                + "meaning.");
+            RippleSpeed = config.Bind("Water", "RippleSpeed", 1f,
+                new ConfigDescription(
+                    "How fast the mod's own water film scrolls, as a multiple of what the tileset "
+                    + "authored. 1.0 is the authored rate and is the default: the two scroll rates "
+                    + "come from the water material's own _WaterUVAnimSpeedA/B, read at runtime. "
+                    + "WHY IT IS A DIAL AT ALL — everything else about this surface can be checked "
+                    + "against the game's material offline, but not this: the game's shaders ship "
+                    + "COMPILED inside the game's own bundles and there is no install on the build "
+                    + "machine to open them with, so how those numbers turn into a speed is "
+                    + "inferred rather than read. If the water looks like a conveyor belt, lower "
+                    + "it; if it looks like a photograph, raise it. 0 freezes the surface without "
+                    + "otherwise changing how it looks.",
+                    new AcceptableValueRange<float>(0f, 3f)));
+            Shimmer = config.Bind("Water", "Shimmer", 0.35f,
+                new ConfigDescription(
+                    "How strong the moving glints on the mod's own water film are. They are made "
+                    + "by the scrolling ripples turning toward a fixed light, so they are born on "
+                    + "a crest, travel with it and break up where the two ripple layers slide past "
+                    + "each other — and they do NOT move when you move your head, which is the "
+                    + "difference between this and the reflection the original report was about. 0 "
+                    + "removes the highlights and keeps the wave shading, which is the closest "
+                    + "this surface gets to ModBuild 162's flat sheet. Raise it if the pool looks "
+                    + "dead; lower it if the sparkle is busy or crawls.",
+                    new AcceptableValueRange<float>(0f, 2f)));
             DebugPaint = config.Bind("Water", "DebugPaint", false,
                 "DIAGNOSTIC — paints every water renderer this mod has taken over in a flat, "
                 + "unmistakable colour, with the game's own shading switched off entirely: the "
@@ -832,6 +912,8 @@ internal static class WaterTerrainVR
         private float _appliedSmoothness = float.NaN;
         private float _appliedOpacity = float.NaN;
         private float _appliedReflectivity = float.NaN;
+        private float _appliedRippleSpeed = float.NaN;
+        private float _appliedShimmer = float.NaN;
         private bool _appliedBasin = true;
         private bool _appliedBodyOnly;
         private WaterDepthFadeMode _appliedDepthFade = WaterDepthFadeMode.Authored;
@@ -854,17 +936,66 @@ internal static class WaterTerrainVR
         /// and lets the next tick re-adopt off the authored shared material.</summary>
         private bool _appliedOwnSurface;
 
-        /// <summary>The mod's own film shader (<see cref="WaterOwnSurface.FilmShaderName"/>),
+        /// <summary>The mod's own film shader — <see cref="WaterOwnSurface.FilmShaderName"/> when
+        /// the bundle yields it, else <see cref="WaterOwnSurface.FallbackFilmShaderName"/> —
         /// resolved once through <see cref="BundleShaders"/>. Null while nothing has asked for it,
-        /// or when the bundle could not be reached at all — in which case every film KEEPS the
-        /// game's material and the census says so loudly, because a silent fallback here would
-        /// look exactly like a fifth round that changed nothing.</summary>
+        /// or when NEITHER could be reached, in which case every film KEEPS the game's material and
+        /// the census says so loudly, because a silent fallback here would look exactly like a
+        /// round that changed nothing.</summary>
         private Shader? _ownShader;
+
+        /// <summary>Which of the two the resolved shader IS. True is the animated water; false is
+        /// ModBuild 162's flat sheet, which is a strictly worse look and which the census names
+        /// rather than glossing — "the water stopped moving again" and "the shader never loaded"
+        /// are the same photograph otherwise.</summary>
+        private bool _ownIsWater;
+
+        /// <summary>The resolved shader's declared name, so every log line reports what is on the
+        /// renderers rather than what was asked for.</summary>
+        private string _ownShaderName = WaterOwnSurface.FilmShaderName;
 
         /// <summary>The derivation of the last film colour written, verbatim from
         /// <see cref="WaterOwnSurface.TryBuildFilmColour"/> — printed in the OWN SURFACE block so a
         /// reader of the log can check it against the authored numbers on the same line.</summary>
         private string _ownNote = "not attempted yet";
+
+        /// <summary>What the last film's ANIMATION was derived from: which authored values were
+        /// read off the game material, which had to fall back to the measured constants, and what
+        /// they resolved to. Printed in the OWN SURFACE block for the same reason
+        /// <see cref="_ownNote"/> is — a scroll rate nobody can check is a scroll rate nobody can
+        /// argue about.</summary>
+        private string _animNote = "not attempted yet";
+
+        /// <summary>Where the glints are lit from and which source won, verbatim from
+        /// <see cref="WaterOwnSurface.TryBuildLightDirection"/>.</summary>
+        private string _lightNote = "not attempted yet";
+
+        /// <summary>The value written into <c>_LightDir</c> — surface-local, see
+        /// <see cref="WaterOwnSurface.TryBuildLightDirection"/>. Initialised to the fixed constant
+        /// rather than to zero: a zero light direction is a black, still film, and a field that is
+        /// only correct after the first successful resolve would make a one-tick window in which
+        /// the water looked like the bug.</summary>
+        private Vector4 _lightLocal = new(
+            WaterOwnSurface.DefaultLightLocal.x,
+            WaterOwnSurface.DefaultLightLocal.y,
+            WaterOwnSurface.DefaultLightLocal.z, 0f);
+
+        /// <summary>The scene light the glints are currently lit by, cached so the slow tick does
+        /// not walk the scene for it. Null means the fixed constant is in use.</summary>
+        private Light? _sun;
+
+        /// <summary>Set when <see cref="_lightLocal"/> actually moved, so
+        /// <see cref="ReassertAll"/> re-writes the live instances exactly once instead of every
+        /// tick.</summary>
+        private bool _lightDirty = true;
+
+        /// <summary>When the next scan for a directional light may run. <see cref="RenderSettings.sun"/>
+        /// is a free property and is tried every tick; the SCAN behind it is not, so it is rate
+        /// limited. A scenario's lights arrive with the scene, so a few seconds of the fixed
+        /// constant at load is invisible — an unbounded per-tick scan would not be.</summary>
+        private float _nextLightScan;
+
+        private const float LightScanInterval = 5f;
 
         /// <summary>How many times a tracked renderer was found NOT carrying the material
         /// instance we handed it, and had to be re-adopted. This is the number that says whether
@@ -1008,6 +1139,12 @@ internal static class WaterTerrainVR
         private static bool WantOwnSurface =>
             WaterConfig.OwnSurface == null || WaterConfig.OwnSurface.Value;
 
+        private static float WantedRippleSpeed =>
+            WaterConfig.RippleSpeed != null ? WaterConfig.RippleSpeed.Value : 1f;
+
+        private static float WantedShimmer =>
+            WaterConfig.Shimmer != null ? WaterConfig.Shimmer.Value : 0.35f;
+
         /// <summary>Is the film actually drawing on the mod's own shader right now? The dial ANDed
         /// with the shader having been reached — never the dial alone. Four rounds have ended with
         /// a log full of intentions, so nothing in this file may report a wish as an outcome, and
@@ -1074,6 +1211,7 @@ internal static class WaterTerrainVR
             // once they have succeeded.
             MaintainOwnShader();
             MaintainPaintShader();
+            MaintainLightDirection();
             Discover();
             ReassertAll();
             MaintainProbes();
@@ -1453,12 +1591,14 @@ internal static class WaterTerrainVR
                     + "back and every material instance we owned was destroyed; the next frame "
                     + "re-adopts them and "
                     + (own
-                        ? "draws the water FILM on '" + WaterOwnSurface.FilmShaderName
+                        ? "draws the water FILM on '" + _ownShaderName
                           + "' out of the mod's own bundle, in the tileset's own green at the "
-                          + "[Water] Opacity alpha, with no shoreline, no foam and no environment "
-                          + "sample. The basin keeps the property retune. Read the OWN SURFACE "
-                          + "block of the next WATER SURFACE STATE line: it counts renderers that "
-                          + "ACTUALLY carry our shader, not renderers we tried to swap."
+                          + "[Water] Opacity alpha, rippling on the tileset's own normal map at "
+                          + "its own two tilings and speeds, with no shoreline, no foam and no "
+                          + "view-dependent term of any kind. The basin keeps the property retune. "
+                          + "Read the OWN SURFACE block of the next WATER SURFACE STATE line: it "
+                          + "names which of the two mod shaders is ACTUALLY on the renderers and "
+                          + "counts them, not the ones we tried to swap."
                         : "puts the game's own VFX/Water_Shd_Trans back on the film, which also "
                           + "gives [Water] BodyOnly, ShoreFoam and DepthFade their meaning again."));
                 return;
@@ -1472,13 +1612,25 @@ internal static class WaterTerrainVR
             bool basin = WantBasin;
             bool bodyOnly = WantBodyOnly;
             WaterDepthFadeMode depthFade = WantedDepthFade;
+            float rippleSpeed = WantedRippleSpeed;
+            float shimmer = WantedShimmer;
             bool changed = granted != _depthGranted
                 || !Mathf.Approximately(smoothness, _appliedSmoothness)
                 || !Mathf.Approximately(opacity, _appliedOpacity)
                 || !Mathf.Approximately(reflectivity, _appliedReflectivity)
+                || !Mathf.Approximately(rippleSpeed, _appliedRippleSpeed)
+                || !Mathf.Approximately(shimmer, _appliedShimmer)
                 || basin != _appliedBasin
                 || bodyOnly != _appliedBodyOnly
-                || depthFade != _appliedDepthFade;
+                || depthFade != _appliedDepthFade
+                // The scene's light can arrive after the water does (a scenario loads its lights
+                // with the rest of the room), so this is an EVENT and not a config compare: without
+                // it the first room's film would keep the fixed constant for as long as it lived
+                // and the census would report a light nothing on screen was using.
+                || _lightDirty;
+            _lightDirty = false;
+            _appliedRippleSpeed = rippleSpeed;
+            _appliedShimmer = shimmer;
             _depthGranted = granted;
             _appliedBodyOnly = bodyOnly;
             _appliedDepthFade = depthFade;
@@ -1702,24 +1854,34 @@ internal static class WaterTerrainVR
         /// compiled into <c>VFX/Water_Shd_Trans</c>. Nothing addressed by name can reach either.
         /// Replacing the shader removes the whole of it, including whatever that is.</para>
         ///
-        /// <para>WHY <c>GloomhavenVR/Overlay</c> AND NOT A PRETTIER ONE — the hard requirement is
-        /// now "samples no environment", because a head-bound reflection is precisely the thing
-        /// that cannot survive this build. Overlay's fragment is
-        /// <c>tex2D(_MainTex, uv) * _Color * i.color</c> and its source contains no
-        /// <c>unity_SpecCube</c>, no <c>reflect()</c>, no <c>samplerCUBE</c> and no cubemap input
-        /// at all — verified by sweeping the .shader file, which returned zero matches. It cannot
-        /// produce a view-dependent reflection because there is no view-dependent term in it.
-        /// <c>GloomhavenVR/EnvPuddle</c> was the first candidate and is DISQUALIFIED on exactly
-        /// this: it computes <c>float3 R = reflect(-V, N)</c> and builds its moon and candle mirror
-        /// images out of it, perturbed by the ripple normal — a head-bound reflection by
-        /// construction. See <see cref="WaterOwnSurface"/> for the second, independent reason it
-        /// could not be used here.</para>
+        /// <para>WHY <c>GloomhavenVR/WaterVR</c> AND WHAT IT DOES. ModBuild 162 put the film on
+        /// <c>GloomhavenVR/Overlay</c>, a flat unlit sheet, and the user's verdict was that the
+        /// defect was gone and the look with it: <i>"Das Wasser sieht jetzt sehr viel schlechter
+        /// aus. Das echte Wasser hatte ANimation und co. das will ich auch wieder."</i> The film now
+        /// draws on the mod's own water shader, which reproduces what the census measured as the
+        /// whole of the game water's motion — the tileset's own <c>_Normal_Map</c> sampled twice at
+        /// its own two <c>_NormalTilings</c>, scrolled at its own two <c>_WaterUVAnimSpeed</c>
+        /// rates — and shades it against a FIXED light direction. Every value below is read off the
+        /// game's SHARED material here and handed straight over; nothing is a look chosen in this
+        /// file.</para>
+        ///
+        /// <para>THE HARD REQUIREMENT IS UNCHANGED: no view-dependent term of any kind, because a
+        /// head-bound reflection is precisely the thing that cannot survive this build. Neither
+        /// shader contains <c>unity_SpecCube</c>, <c>reflect()</c>, a cube sample, <c>worldRefl</c>,
+        /// a Fresnel or a half-vector specular — verified by sweeping both .shader files in
+        /// <c>WaterOwnSurfaceVectors</c>, which fails the build gate on a hit rather than trusting
+        /// this paragraph. <c>GloomhavenVR/EnvPuddle</c> remains DISQUALIFIED on exactly that: it
+        /// computes <c>float3 R = reflect(-V, N)</c> and builds its moon and candle mirror images
+        /// out of it. See <see cref="WaterOwnSurface"/> for the second, independent reason it could
+        /// not be used here.</para>
         ///
         /// <para>The instance keeps the AUTHORED render queue, so the film draws exactly where the
-        /// water drew. No texture is bound: <c>_MainTex</c> declares a <c>"white"</c> default, so
-        /// clearing it leaves the tint alone on screen — and under the surviving hypothesis a
-        /// texture is the SUSPECT, so binding one would be the one move guaranteed to keep the
-        /// question open.</para>
+        /// water drew. No <c>_MainTex</c> is bound: it declares a <c>"white"</c> default, so
+        /// clearing it leaves the tint alone on screen — and a texture compiled into the game's
+        /// shader is the surviving suspect for the pale sheet, so binding one would be the one move
+        /// guaranteed to keep that question open. The RIPPLE normal map is a different thing
+        /// entirely and IS bound: it is the tileset's own, it is read off the game material, and it
+        /// carries no colour into the frame — only slope.</para>
         /// </summary>
         private void OwnFilmOne(Material shared, Material inst)
         {
@@ -1755,6 +1917,8 @@ internal static class WaterTerrainVR
                 inst.SetFloat(
                     WaterOwnSurface.DstBlendProperty, WaterOwnSurface.DstBlendOneMinusSrcAlpha);
                 inst.renderQueue = shared.renderQueue;
+                if (_ownIsWater)
+                    AnimateFilmOne(shared, inst);
             }
             catch (Exception e)
             {
@@ -1763,6 +1927,97 @@ internal static class WaterTerrainVR
                            + "below is what says how many actually carry our shader";
             }
         }
+
+        /// <summary>
+        /// Hand <c>GloomhavenVR/WaterVR</c> the tileset's own animation, read off the game's SHARED
+        /// material one property at a time.
+        ///
+        /// <para>EVERY READ FALLS BACK TO THE MEASURED CONSTANT AND SAYS SO. The hardware census of
+        /// <c>TERRAIN_GEN_WaterPlane_Crypt_Mat</c> read all of these off the live material, so the
+        /// constants in <see cref="WaterOwnSurface"/> are not defaults somebody liked — they are
+        /// what the report's own tileset authors. A tileset that spells one of them differently
+        /// gets the measured value for that one property and its own for the rest, and
+        /// <see cref="_animNote"/> names exactly which were READ and which were DEFAULTED. Without
+        /// that distinction a shader animating off the wrong numbers and a shader animating off the
+        /// right ones are the same photograph.</para>
+        ///
+        /// <para>AND IF THERE IS NO NORMAL MAP, THE SURFACE STILL MOVES. A material with no
+        /// <c>_Normal_Map</c> would leave the shader sampling its <c>"bump"</c> default, which is a
+        /// perfectly flat normal — i.e. exactly ModBuild 162's still sheet, arrived at silently.
+        /// <c>_ProcNormal</c> switches the shader to an analytic two-wave ripple instead, and the
+        /// census says which of the two is live.</para>
+        /// </summary>
+        private void AnimateFilmOne(Material shared, Material inst)
+        {
+            bool haveTex = shared.HasProperty(NormalMapId);
+            Texture? bump = haveTex ? shared.GetTexture(NormalMapId) : null;
+
+            bool haveTilings = shared.HasProperty(NormalTilingsId);
+            Vector4 tilings = haveTilings
+                ? shared.GetVector(NormalTilingsId)
+                : WaterOwnSurface.AuthoredTilings;
+
+            bool haveA = shared.HasProperty(SpeedAId);
+            bool haveB = shared.HasProperty(SpeedBId);
+            bool haveNoise = shared.HasProperty(NoiseSpeedId);
+            Vector4 speedA = haveA ? shared.GetVector(SpeedAId) : WaterOwnSurface.AuthoredSpeedA;
+            Vector4 speedB = haveB ? shared.GetVector(SpeedBId) : WaterOwnSurface.AuthoredSpeedB;
+            Vector4 noise = haveNoise
+                ? shared.GetVector(NoiseSpeedId)
+                : WaterOwnSurface.AuthoredNoiseSpeed;
+
+            bool haveStr = shared.HasProperty(NormalStrengthId);
+            Vector4 strVec = haveStr
+                ? shared.GetVector(NormalStrengthId)
+                : WaterOwnSurface.AuthoredNormalStrength;
+
+            bool haveSmooth = shared.HasProperty(SmoothnessId);
+            float smoothness = haveSmooth
+                ? shared.GetFloat(SmoothnessId)
+                : WaterOwnSurface.AuthoredSmoothness;
+
+            float dial = WantedRippleSpeed;
+            Vector4 rateA = WaterOwnSurface.ScrollRate(speedA, noise, dial);
+            Vector4 rateB = WaterOwnSurface.ScrollRate(speedB, noise, dial);
+            float strength = WaterOwnSurface.NormalStrength(strVec);
+
+            inst.SetTexture(WaterOwnSurface.NormalMapProperty, bump);
+            inst.SetVector(WaterOwnSurface.NormalTilingsProperty, tilings);
+            inst.SetVector(WaterOwnSurface.ScrollAProperty, rateA);
+            inst.SetVector(WaterOwnSurface.ScrollBProperty, rateB);
+            inst.SetFloat(WaterOwnSurface.NormalStrengthProperty, strength);
+            inst.SetFloat(WaterOwnSurface.ProcNormalProperty, bump != null ? 0f : 1f);
+            inst.SetFloat(WaterOwnSurface.SmoothnessProperty, Mathf.Clamp01(smoothness));
+            inst.SetFloat(WaterOwnSurface.ShimmerProperty, Mathf.Max(WantedShimmer, 0f));
+            inst.SetVector(WaterOwnSurface.LightDirProperty, _lightLocal);
+
+            _animNote =
+                "_Normal_Map " + (bump != null
+                    ? "READ ('" + bump.name + "' " + bump.width + "x" + bump.height + "')"
+                    : (haveTex
+                        ? "DECLARED BUT EMPTY"
+                        : "ABSENT FROM THIS SHADER")
+                      + " -> the ANALYTIC two-wave ripple is live instead (_ProcNormal=1), which "
+                      + "moves but is not the tileset's own pattern")
+                + "; _NormalTilings " + (haveTilings ? "READ " : "DEFAULTED ")
+                + Fmt(tilings)
+                + "; _WaterUVAnimSpeedA " + (haveA ? "READ " : "DEFAULTED ") + Fmt(speedA)
+                + " -> " + rateA.x.ToString("0.###") + "," + rateA.y.ToString("0.###") + " UV/s"
+                + "; _WaterUVAnimSpeedB " + (haveB ? "READ " : "DEFAULTED ") + Fmt(speedB)
+                + " -> " + rateB.x.ToString("0.###") + "," + rateB.y.ToString("0.###") + " UV/s"
+                + " (x _WaterNoiseSpeed.x " + (haveNoise ? "READ " : "DEFAULTED ")
+                + noise.x.ToString("0.###")
+                + " x [Water] RippleSpeed " + dial.ToString("0.###") + ")"
+                + "; _DetailOpacityBaseNormalStr " + (haveStr ? "READ " : "DEFAULTED ")
+                + Fmt(strVec) + " -> ripple strength " + strength.ToString("0.###")
+                + "; _Smoothness " + (haveSmooth ? "READ " : "DEFAULTED ")
+                + smoothness.ToString("0.###") + " -> glint tightness"
+                + "; [Water] Shimmer " + WantedShimmer.ToString("0.###");
+        }
+
+        private static string Fmt(Vector4 v) =>
+            "(" + v.x.ToString("0.###") + "," + v.y.ToString("0.###") + ","
+            + v.z.ToString("0.###") + "," + v.w.ToString("0.###") + ")";
 
         /// <summary>
         /// The mod's own film shader, resolved through <see cref="BundleShaders"/>.
@@ -1783,24 +2038,66 @@ internal static class WaterTerrainVR
         /// </summary>
         private Shader? MaintainOwnShader()
         {
-            if (_ownShader != null)
+            // ONLY THE ANIMATED WATER ENDS THE SEARCH. Sitting on the fallback is not a resolved
+            // state: Overlay can be reached by a mechanism the water shader cannot (another feature
+            // holding it alive), so "we have a shader" and "we have the right shader" are different
+            // facts and only the second may stop the retry.
+            if (_ownShader != null && _ownIsWater)
                 return _ownShader;
             if (!WantOwnSurface)
                 return null;
-            _ownShader = BundleShaders.Resolve(
+
+            // THE ANIMATED WATER FIRST. Nothing in the mod's own bundle prefabs references it — it
+            // goes on the GAME's quads — so Shader.Find can never resolve it on its own and
+            // BundleShaders' bundle-asset step is the mechanism that will.
+            Shader? water = BundleShaders.Resolve(
                 WaterOwnSurface.FilmShaderName, Name,
-                "[Water] OwnSurface can now replace the game's water film outright — the film "
-                + "renders on the mod's own transparent shader, in the tileset's own colour, with "
-                + "no shoreline term, no foam term and NO ENVIRONMENT SAMPLE of any kind. That "
-                + "last part is the requirement: the user reports the head-bound reflection cannot "
-                + "be switched off by any property dial, and a shader with no view-dependent term "
-                + "in it cannot produce one.",
-                "[Water] OwnSurface CANNOT RUN: every water film keeps the game's own "
-                + "VFX/Water_Shd_Trans material and this build is therefore a repeat of ModBuild "
-                + "161 with no new mechanism in it. Do NOT read an unchanged pool as a finding "
-                + "until this line is gone — the OWN SURFACE block counts how many renderers "
-                + "actually carry our shader, and that count is the only thing that makes the "
-                + "photograph mean anything.");
+                "[Water] OwnSurface can now replace the game's water film with the mod's own "
+                + "ANIMATED water: the tileset's own normal map scrolled as two layers at its own "
+                + "two tilings and two speeds, which the hardware census measured as the whole of "
+                + "the game water's motion, lit by a FIXED light direction. NO VIEW-DEPENDENT TERM "
+                + "OF ANY KIND — no cube sample, no reflect(), no Fresnel, not even a half-vector "
+                + "specular, whose highlight would slide with the head exactly as the report "
+                + "describes. That is the requirement rather than a preference: the user reports "
+                + "the head-bound reflection cannot be switched off by any property dial, and it is "
+                + "also what makes the surface per-eye identical under MultiPass by construction.",
+                "the ANIMATED water shader could not be reached; falling back to '"
+                + WaterOwnSurface.FallbackFilmShaderName + "', which is ModBuild 162's FLAT STILL "
+                + "SHEET. The defect stays fixed — that shader has no view-dependent term either — "
+                + "but the look the user asked to have back ('Das echte Wasser hatte ANimation und "
+                + "co. das will ich auch wieder') is NOT in this build, and a report of 'still no "
+                + "animation' would be this line and not the shader.");
+            if (water != null)
+            {
+                _ownShader = water;
+                _ownIsWater = true;
+                _ownShaderName = WaterOwnSurface.FilmShaderName;
+            }
+            else if (_ownShader == null)
+            {
+                _ownShader = BundleShaders.Resolve(
+                    WaterOwnSurface.FallbackFilmShaderName, Name,
+                    "[Water] OwnSurface runs on the FALLBACK film — a flat, still, translucent "
+                    + "sheet in the tileset's own colour. It removes the head-bound reflection and "
+                    + "the pale sheet, and it does not animate.",
+                    "[Water] OwnSurface CANNOT RUN AT ALL: neither the mod's water shader nor its "
+                    + "overlay fallback could be reached, every water film keeps the game's own "
+                    + "VFX/Water_Shd_Trans material, and this build therefore carries no new "
+                    + "mechanism. Do NOT read an unchanged pool as a finding until this line is "
+                    + "gone — the OWN SURFACE block counts how many renderers actually carry our "
+                    + "shader, and that count is the only thing that makes a photograph mean "
+                    + "anything.");
+                _ownIsWater = false;
+                if (_ownShader != null)
+                    _ownShaderName = WaterOwnSurface.FallbackFilmShaderName;
+            }
+            else
+            {
+                // Already on the fallback and the water shader is still out of reach. Keep the
+                // fallback rather than churning the tracked set, and try again next tick.
+                return _ownShader;
+            }
+
             // THE BUNDLE CAN ARRIVE LATE. A miss is not cached, so this retries four times a
             // second — and a film adopted while the lookup was still missing is sitting on the
             // game's material with no event that would ever bring it back here. Release the whole
@@ -1813,6 +2110,65 @@ internal static class WaterTerrainVR
                 _nextCensus = 0f;
             }
             return _ownShader;
+        }
+
+        /// <summary>
+        /// Where the water's glints are lit from — the ONLY direction anywhere in
+        /// <c>GloomhavenVR/WaterVR</c>, and a uniform rather than anything derived from the camera.
+        ///
+        /// <para>PREFERENCE ORDER, and it is the order the task's own instruction gives: the
+        /// scene's own main directional light if one exists, else the fixed constant, and the
+        /// census says WHICH — because a pool lit from the wrong place and a pool whose light
+        /// resolution silently failed look identical from inside the headset.</para>
+        ///
+        /// <para>COST. <see cref="RenderSettings.sun"/> is a free property read and is tried every
+        /// slow tick. The SCAN behind it is not free and is rate-limited to
+        /// <see cref="LightScanInterval"/>; it is a walk of the scene's <see cref="Light"/>
+        /// components, not of its renderers, which is what makes it affordable at all (the PERF S1
+        /// lesson was about 3000-renderer sweeps; a scenario has a few dozen lights).</para>
+        ///
+        /// <para>The brightest DIRECTIONAL light wins rather than the nearest of any type. A point
+        /// light has a position, and a position would make the glint direction depend on where on
+        /// the pool a fragment is — legitimate physics, and a per-fragment vector this shader
+        /// deliberately does not have, because every direction in it is a uniform.</para>
+        /// </summary>
+        private void MaintainLightDirection()
+        {
+            Light? sun = RenderSettings.sun;
+            if (sun == null || !sun.isActiveAndEnabled)
+                sun = _sun != null && _sun.isActiveAndEnabled ? _sun : null;
+            if (sun == null && Time.unscaledTime >= _nextLightScan)
+            {
+                _nextLightScan = Time.unscaledTime + LightScanInterval;
+                sun = BrightestDirectional();
+            }
+            _sun = sun;
+
+            bool have = sun != null;
+            Vector3 toward = have ? -sun!.transform.forward : Vector3.zero;
+            Vector4 before = _lightLocal;
+            WaterOwnSurface.TryBuildLightDirection(toward, have, out _lightLocal, out _lightNote);
+            if ((before - _lightLocal).sqrMagnitude > 1e-8f)
+                _lightDirty = true;
+        }
+
+        private static Light? BrightestDirectional()
+        {
+            Light[] all = FindObjectsOfType<Light>();
+            Light? best = null;
+            float bestI = 0f;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Light l = all[i];
+                if (l == null || l.type != LightType.Directional || !l.isActiveAndEnabled)
+                    continue;
+                if (best == null || l.intensity > bestI)
+                {
+                    best = l;
+                    bestI = l.intensity;
+                }
+            }
+            return best;
         }
 
         /// <summary>
@@ -2678,17 +3034,29 @@ internal static class WaterTerrainVR
                 return;
             }
 
-            sb.Append(" shader '").Append(WaterOwnSurface.FilmShaderName).Append("' ");
             if (_ownShader == null)
             {
-                sb.Append("NOT RESOLVED — the mod's bundle did not yield it, EVERY FILM IS STILL "
+                sb.Append(" shader '").Append(WaterOwnSurface.FilmShaderName)
+                  .Append("' NOT RESOLVED, and neither was the '")
+                  .Append(WaterOwnSurface.FallbackFilmShaderName)
+                  .Append("' fallback — the mod's bundle did not yield either, EVERY FILM IS STILL "
                           + "ON THE GAME'S MATERIAL, and this build carries no new mechanism at "
                           + "all. An unchanged pool proves NOTHING while this line reads NOT "
                           + "RESOLVED; the BUNDLED SHADER error line earlier in this log carries "
                           + "the inventory that says whether the bundle loaded.");
                 return;
             }
-            sb.Append("resolved via ").Append(BundleShaders.How(WaterOwnSurface.FilmShaderName));
+            sb.Append(" shader '").Append(_ownShaderName).Append("' resolved via ")
+              .Append(BundleShaders.How(_ownShaderName));
+            sb.Append(_ownIsWater
+                ? " — this is the ANIMATED water, which is what the user asked to have back ('Das "
+                  + "echte Wasser hatte ANimation und co. das will ich auch wieder')."
+                : " — THIS IS THE FALLBACK, NOT THE WATER. '" + WaterOwnSurface.FilmShaderName
+                  + "' could not be reached, so the film is ModBuild 162's FLAT STILL SHEET: the "
+                  + "head-bound reflection and the pale sheet are still gone, and the animation the "
+                  + "user asked for is NOT in what is on screen. A report of 'it still does not "
+                  + "move' is THIS LINE and not the water shader — read the BUNDLED SHADER error "
+                  + "above it for the inventory.");
 
             int filmTracked = 0, filmOwned = 0;
             for (int i = 0; i < _tracked.Count; i++)
@@ -2709,17 +3077,34 @@ internal static class WaterTerrainVR
                       + "property retune. DERIVED FROM THE TILESET'S OWN VALUES: ")
               .Append(_ownNote)
               .Append("; render queue kept at the authored value so the film draws exactly where "
-                      + "the water drew; no texture bound (_MainTex defaults to \"white\", and a "
-                      + "texture is the prime SUSPECT, so binding one would keep the question "
-                      + "open); blend SrcAlpha/OneMinusSrcAlpha, ZWrite off, two-sided. WHAT THIS "
-                      + "SHADER CANNOT DO, which is the point: GloomhavenVR/Overlay's fragment is "
-                      + "tex2D(_MainTex,uv) * _Color * vertexColour and its source contains no "
-                      + "unity_SpecCube, no reflect(), no samplerCUBE and no cubemap input — so it "
-                      + "has no view-dependent term and CANNOT produce a head-bound reflection, "
-                      + "which the user reports no property dial could switch off. It also has no "
-                      + "shoreline, no foam and no depth read, so no band can be pinned on by a "
-                      + "missing _CameraDepthTexture. The price is stated rather than hidden: this "
-                      + "film does not ripple.");
+                      + "the water drew; no _MainTex bound (it defaults to \"white\", and a texture "
+                      + "compiled into the game's shader is the prime SUSPECT for the pale sheet, "
+                      + "so binding one would keep the question open); blend "
+                      + "SrcAlpha/OneMinusSrcAlpha, ZWrite off, two-sided.");
+
+            if (_ownIsWater)
+            {
+                sb.Append(" THE ANIMATION, value by value, so it can be checked against the "
+                          + "tileset's own numbers on this line: ").Append(_animNote)
+                  .Append(". LIT FROM: ").Append(_lightNote)
+                  .Append(". No vertex is displaced by any of this — the tileset's own "
+                          + "_addSphericalWaves is 0, and Unity culls a renderer against its MESH's "
+                          + "authored bounds, so displaced geometry vanishes as you approach and, "
+                          + "under MultiPass, vanishes in ONE EYE FIRST. All the motion is in the "
+                          + "fragment's normal.");
+            }
+
+            sb.Append(" WHAT THIS SHADER CANNOT DO, which is the point: neither '")
+              .Append(WaterOwnSurface.FilmShaderName).Append("' nor '")
+              .Append(WaterOwnSurface.FallbackFilmShaderName)
+              .Append("' contains unity_SpecCube, reflect(), a cube sample, worldRefl, a Fresnel "
+                      + "or a half-vector specular — swept in their own source by the build gate, "
+                      + "not asserted here — so neither has a view-dependent term and neither can "
+                      + "produce a head-bound reflection, which the user reports no property dial "
+                      + "could switch off. The glints come from the moving NORMALS against a fixed "
+                      + "light direction, which is also why they are identical in both MultiPass "
+                      + "eyes by construction. Neither has a shoreline, a foam term or a depth "
+                      + "read, so no band can be pinned on by a missing _CameraDepthTexture.");
 
             sb.Append(" WHAT A STILL-PALE REPORT PROVES AFTER THIS BUILD, and read it in this "
                       + "order. The user has now run [Water] DebugPaint on hardware — 'Die debug "

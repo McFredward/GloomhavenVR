@@ -13,15 +13,35 @@
 //
 // Owned renderer + every reachable property neutral + the defect unchanged leaves one explanation:
 // the pale sheet and the head-bound reflection come from a TEXTURE or a CONSTANT compiled inside
-// VFX/Water_Shd_Trans. So the film's whole material is replaced with a mod-owned one. Three things
-// can silently undo that, and each has a check below:
+// VFX/Water_Shd_Trans. So the film's whole material is replaced with a mod-owned one.
 //
-//   1. THE REPLACEMENT SHADER ACQUIRING A REFLECTION. This is now a HARD requirement, not a
-//      preference: the symptom he cannot switch off IS a head-bound reflection, so a replacement
-//      that can compute one answers nothing. GloomhavenVR/Overlay has no view-dependent term today.
-//      Nothing stops a later edit adding one — it is a general-purpose overlay shader used by other
-//      features — and the only symptom would be a sixth photograph that looks the same. Check 2
-//      sweeps its source for every spelling of an environment sample.
+// ModBuild 162 SHIPPED THAT AND IT WORKED — "Beide Probleme gelöst, top!" — AND THE CURE COST TOO
+// MUCH LOOK: "Allerdings: Das Wasser sieht jetzt sehr viel schlechter aus. Das echte Wasser hatte
+// ANimation und co. das will ich auch wieder. Ich will es so nah wie möglich an dem 'echten' Wasser
+// haben - aber eben so dass es in VR funktioniert." ModBuild 162's film was GloomhavenVR/Overlay, a
+// flat unlit sheet, chosen because it was the only bundled shader that provably sampled no
+// environment. The film now draws on GloomhavenVR/WaterVR, written for this one job, with Overlay
+// left as the fallback — so BOTH shaders are swept by every source check here, because either can
+// end up on the water.
+//
+// Things that can silently undo all of it, and each has a check below:
+//
+//   1. A REPLACEMENT SHADER ACQUIRING A VIEW-DEPENDENT TERM. This is a HARD requirement, not a
+//      preference, and it is now the thing most at risk: WaterVR exists precisely to LOOK like
+//      reflective water, and the obvious way to make water sparkle is a specular built from the
+//      view vector. That is the defect. A half-vector highlight slides across the surface as the
+//      head turns — "bewegen sich schnell mit den Kopfbewegungen mit" — and under MULTIPASS any
+//      view-dependent term is a different image in each eye, which is what got the wall dissolve
+//      parked permanently (.planning/wall-fade-stereo-rivalry.md). Check 2 sweeps both shaders'
+//      source for every spelling of an environment sample AND of a view vector, so an edit that
+//      adds a Blinn-Phong lobe fails the build gate rather than a sixth photograph.
+//
+//   1b. VERTEX DISPLACEMENT COMING BACK. The tileset's own _addSphericalWaves is 0, so the water it
+//      authored does not displace; and Unity culls a renderer against its MESH's authored bounds,
+//      so displaced geometry vanishes as you approach and, under MultiPass, vanishes in ONE EYE
+//      FIRST. This project has already lost a build to that. Check 2b pins that WaterVR's vertex
+//      program hands v.vertex straight to UnityObjectToClipPos and that no displacement property
+//      exists for anyone to turn up.
 //
 //   2. THE BLEND GOING ADDITIVE. Overlay exposes its blend factors AS PROPERTIES, and the driver
 //      writes them. `Blend One One` is additive: it would lay the film's colour ON TOP of the stone
@@ -67,8 +87,10 @@ internal static class WaterOwnSurfaceVectors
         @"^\s*Shader\s+""([^""]+)""", RegexOptions.Compiled | RegexOptions.Multiline);
 
     /// <summary>Every spelling of "this fragment samples the environment" that the built-in
-    /// pipeline offers. A shader containing ANY of them can produce a reflection that swings with
-    /// the head, which is the one thing the replacement film may not do.</summary>
+    /// pipeline offers, AND every spelling of "this fragment knows where the camera is". A shader
+    /// containing ANY of them can produce a term that swings with the head — which is the one thing
+    /// the replacement film may not do, and which is also the one thing that makes a MultiPass
+    /// surface differ between the two eyes.</summary>
     private static readonly string[] ReflectionTerms =
     {
         "unity_SpecCube",
@@ -80,47 +102,77 @@ internal static class WaterOwnSurfaceVectors
         "worldRefl",
         "WorldReflectionVector",
         "ShadeSH9",          // not a reflection, but an environment sample all the same
+        // ---- the VIEW VECTOR, in every form the built-in pipeline hands one out. These are the
+        // additions that matter most now: WaterVR exists to look like reflective water, and the
+        // obvious way to make water sparkle is a specular lobe built from one of these. That IS
+        // the reported defect ("bewegen sich schnell mit den Kopfbewegungen mit"), it is also
+        // per-eye rivalrous under MultiPass, and nothing else in this repository would notice.
+        "ObjSpaceViewDir",
+        "WorldSpaceViewDir",
+        "_WorldSpaceCameraPos",
+        "UNITY_MATRIX_V",
+        "UNITY_MATRIX_I_V",
+        "viewDir",
+    };
+
+    /// <summary>Both shaders the water film can end up on. Every SOURCE check runs over both: the
+    /// fallback is what is on screen whenever the bundle does not yield the water shader, so a
+    /// view-dependent term added to Overlay by another feature would ship the defect just as
+    /// surely.</summary>
+    private static readonly string[] FilmShaders =
+    {
+        WaterOwnSurface.FilmShaderName,
+        WaterOwnSurface.FallbackFilmShaderName,
     };
 
     internal static void Run(Harness t, string repoRoot)
     {
         t.Case("water own surface");
 
-        string? shaderPath = FindShaderSource(repoRoot, WaterOwnSurface.FilmShaderName);
-        ShaderIsReachable(t, shaderPath);
-        ShaderHasNoEnvironmentSample(t, shaderPath);
-        ShaderDeclaresEveryPropertyWeWrite(t, shaderPath);
+        string? waterPath = FindShaderSource(repoRoot, WaterOwnSurface.FilmShaderName);
+        foreach (string name in FilmShaders)
+        {
+            string? path = FindShaderSource(repoRoot, name);
+            ShaderIsReachable(t, name, path);
+            ShaderHasNoEnvironmentSample(t, name, path);
+            ShaderDeclaresProperties(t, name, path, WaterOwnSurface.CommonProperties);
+        }
+        ShaderDeclaresProperties(
+            t, WaterOwnSurface.FilmShaderName, waterPath, WaterOwnSurface.WaterProperties);
+        WaterShaderDisplacesNoVertex(t, waterPath);
         RenderStateIsNotAdditive(t);
         FilmColourIsTheTilesets(t);
         NeverBrighterSweep(t);
+        ScrollRateIsTheTilesets(t);
+        NormalStrengthIsBounded(t);
+        LightDirectionIsSaneOrRefused(t);
         WaterNeverHidesARenderer(t, repoRoot);
     }
 
     // ---------------------------------------------------------------------------------------
     //  1. The shader exists, declares the name we file it under, and is a TABLE entry.
     // ---------------------------------------------------------------------------------------
-    private static void ShaderIsReachable(Harness t, string? shaderPath)
+    private static void ShaderIsReachable(Harness t, string name, string? shaderPath)
     {
         t.True(shaderPath != null,
-            $"the water film's replacement shader '{WaterOwnSurface.FilmShaderName}' must be a "
+            $"the water film's shader '{name}' must be a "
             + $".shader file under {BundleRelRoot} that DECLARES that exact name. No file declares "
             + "it, so BundleShaders.Resolve has nothing to load out of the bundle and every water "
             + "film would silently keep the game's own material — which is a build that looks "
-            + "identical to the four that came before it.");
+            + "identical to the five that came before it.");
 
         // The name is a plain string literal in non-comment src/ code, so BundledShaderVectors'
         // check 4 already requires it to be a key of BundleShaders.Paths. Stated here so a reader
         // of THIS file knows the bundled-shader trap is covered and does not add a second table.
-        t.True(WaterOwnSurface.FilmShaderName.StartsWith("GloomhavenVR/", StringComparison.Ordinal),
+        t.True(name.StartsWith("GloomhavenVR/", StringComparison.Ordinal),
             "the replacement film shader must be one of the MOD's shaders — a game shader would "
-            + "put us back to tuning something we cannot open. Got: "
-            + WaterOwnSurface.FilmShaderName);
+            + "put us back to tuning something we cannot open. Got: " + name);
     }
 
     // ---------------------------------------------------------------------------------------
-    //  2. THE HARD REQUIREMENT. No environment sample, verified in the shader's own source.
+    //  2. THE HARD REQUIREMENT. No environment sample, no view vector, in the shader's own source.
     // ---------------------------------------------------------------------------------------
-    private static void ShaderHasNoEnvironmentSample(Harness t, string? shaderPath)
+    private static void ShaderHasNoEnvironmentSample(Harness t, string name, string? shaderPath)
     {
         if (shaderPath == null)
             return;
@@ -144,37 +196,66 @@ internal static class WaterOwnSurfaceVectors
         }
 
         t.Equal(0, found.Count,
-            $"'{WaterOwnSurface.FilmShaderName}' is the shader the water film is re-based onto and "
-            + "it MUST NOT sample the environment, but its source now contains: "
-            + string.Join(", ", found) + ". The user's report is that the head-bound reflection "
-            + "cannot be switched off by any property dial — 'Ich konnte aber mit den anderen "
-            + "Einstellungen die kopf-gebundene Reflektion nicht deaktivieren, egal was ich "
-            + "eingestellt hab' — so a replacement that can compute a view-dependent reflection "
-            + "answers nothing and ships the same defect under a different name. GloomhavenVR/"
-            + "EnvPuddle was disqualified for exactly this (it builds its mirror images out of "
-            + "reflect(-V, N)). Either keep this shader free of environment samples, or point "
-            + "WaterOwnSurface.FilmShaderName at one that is.");
+            $"'{name}' is a shader the water film is re-based onto and "
+            + "it MUST NOT sample the environment or the view direction, but its source now "
+            + "contains: " + string.Join(", ", found) + ". The user's report is that the head-bound "
+            + "reflection cannot be switched off by any property dial — 'Ich konnte aber mit den "
+            + "anderen Einstellungen die kopf-gebundene Reflektion nicht deaktivieren, egal was ich "
+            + "eingestellt hab' — so a replacement that can compute a view-dependent term answers "
+            + "nothing and ships the same defect under a different name. That includes a plain "
+            + "specular: a half-vector highlight slides across the surface with the head, exactly "
+            + "as reported, and under MultiPass it is a DIFFERENT image in each eye — which is what "
+            + "got the wall dissolve parked permanently. GloomhavenVR/EnvPuddle was disqualified "
+            + "for the same reason (it builds its mirror images out of reflect(-V, N)). Get the "
+            + "sparkle from the scrolling NORMALS against a fixed light direction instead; that is "
+            + "what GloomhavenVR/WaterVR does and it is per-eye identical by construction.");
     }
 
     // ---------------------------------------------------------------------------------------
-    //  3a. Every property the driver writes is one the shader actually DECLARES.
+    //  2b. NO VERTEX DISPLACEMENT, and no dial that could add one.
     // ---------------------------------------------------------------------------------------
-    private static void ShaderDeclaresEveryPropertyWeWrite(Harness t, string? shaderPath)
+    private static void WaterShaderDisplacesNoVertex(Harness t, string? shaderPath)
     {
         if (shaderPath == null)
             return;
 
         string text = File.ReadAllText(shaderPath);
-        string[] written =
+
+        // The one call the vertex program is allowed to make with the incoming position, written
+        // out so that a displacement — `v.vertex.y += ...` before it, or a modified expression
+        // inside it — cannot pass.
+        t.True(Regex.IsMatch(text, @"UnityObjectToClipPos\(\s*v\.vertex\s*\)"),
+            $"'{WaterOwnSurface.FilmShaderName}' must hand v.vertex STRAIGHT to "
+            + "UnityObjectToClipPos. Unity culls a renderer against its MESH's authored bounds, so "
+            + "geometry a vertex program pushes outside them is still culled: a displaced water "
+            + "surface vanishes as you walk up to it and, under MultiPass, vanishes in ONE EYE "
+            + "FIRST because the two eye frustums differ. This project has already lost a build to "
+            + "exactly that.");
+
+        // And no dial anyone could turn up. The tileset's own _addSphericalWaves is 0, so the
+        // water it authored does not displace either — a displacement property here would be a
+        // look the tileset never had AND the culling trap above, in one.
+        foreach (string banned in new[] { "_VertexOffsetWaves", "_addSphericalWaves", "_WaveHeight" })
         {
-            WaterOwnSurface.TintProperty,
-            WaterOwnSurface.MainTexProperty,
-            WaterOwnSurface.CullProperty,
-            WaterOwnSurface.ZTestProperty,
-            WaterOwnSurface.ZWriteProperty,
-            WaterOwnSurface.SrcBlendProperty,
-            WaterOwnSurface.DstBlendProperty,
-        };
+            t.True(!Regex.IsMatch(
+                       text, @"(?m)^\s*(\[[^\]]*\]\s*)*" + Regex.Escape(banned) + @"\s*\("),
+                $"'{WaterOwnSurface.FilmShaderName}' declares a vertex-displacement property "
+                + $"'{banned}'. The tileset's own material authors _addSphericalWaves = 0, so its "
+                + "water does not displace and neither may this; and a displacement dial is the "
+                + "culling trap above waiting for somebody to raise it off zero.");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    //  3a. Every property the driver writes is one the shader actually DECLARES.
+    // ---------------------------------------------------------------------------------------
+    private static void ShaderDeclaresProperties(
+        Harness t, string name, string? shaderPath, string[] written)
+    {
+        if (shaderPath == null)
+            return;
+
+        string text = File.ReadAllText(shaderPath);
         foreach (string p in written)
         {
             // `_Name (` is how a Unity Properties block declares one. A property the shader does
@@ -183,7 +264,7 @@ internal static class WaterOwnSurfaceVectors
             // module was built out of.
             t.True(Regex.IsMatch(text, @"(?m)^\s*(\[[^\]]*\]\s*)*" + Regex.Escape(p) + @"\s*\("),
                 $"the driver writes '{p}' onto the replacement film material, but "
-                + $"'{WaterOwnSurface.FilmShaderName}' does not declare a property by that name. "
+                + $"'{name}' does not declare a property by that name. "
                 + "Material.SetFloat/SetColor on an undeclared property is a silent no-op, so the "
                 + "film would draw with the shader's authored defaults and nothing would say so.");
         }
@@ -303,6 +384,178 @@ internal static class WaterOwnSurfaceVectors
     }
 
     // ---------------------------------------------------------------------------------------
+    //  4c. THE ANIMATION comes from the tileset's own speeds, and the dial only scales it.
+    // ---------------------------------------------------------------------------------------
+    private static void ScrollRateIsTheTilesets(Harness t)
+    {
+        Vector4 noise = WaterOwnSurface.AuthoredNoiseSpeed;
+
+        // The measured pair, at the shipped dial. These are the numbers the hardware census read
+        // off TERRAIN_GEN_WaterPlane_Crypt_Mat, resolved by the one rule ScrollRate states.
+        Vector4 a = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise, 1f);
+        Vector4 b = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedB, noise, 1f);
+        t.True(Near(a.x, 0.60f) && Near(a.y, 0.60f),
+            $"layer A's authored (1.00, 1.00, 0.60, 0.00) must resolve to 0.60 UV/s on both axes, "
+            + $"got ({a.x:0.###},{a.y:0.###}). If this changed, the water is no longer moving at "
+            + "the rate the tileset authored and the only symptom is a pool that looks wrong.");
+        t.True(Near(b.x, 0.50f) && Near(b.y, 1.00f),
+            $"layer B's authored (0.50, 1.00, 1.00, 0.00) must resolve to (0.50, 1.00) UV/s, got "
+            + $"({b.x:0.###},{b.y:0.###})");
+
+        // THE TWO LAYERS MUST NOT AGREE. Two normal layers scrolling at the same rate over the
+        // same tiling are one layer: the interference that makes the crests break up and the
+        // glints travel is the DIFFERENCE between them, and a change that collapsed the two would
+        // read as "the water moves but looks like a sliding texture".
+        t.True(!(Near(a.x, b.x) && Near(a.y, b.y)),
+            $"the two ripple layers must scroll at DIFFERENT rates — got A ({a.x:0.###},"
+            + $"{a.y:0.###}) and B ({b.x:0.###},{b.y:0.###}). Two layers moving together are one "
+            + "layer, and the whole reason there are two is that their interference is what makes "
+            + "the surface read as water rather than as a scrolling texture.");
+
+        // THE DIAL IS A PURE SCALE. It may change how fast, never the direction or the ratio.
+        Vector4 half = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise, 0.5f);
+        t.True(Near(half.x, a.x * 0.5f) && Near(half.y, a.y * 0.5f),
+            "[Water] RippleSpeed must scale both axes equally — a dial that changed the RATIO "
+            + "would change the direction the water runs, which is not what it is for");
+
+        Vector4 stopped = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise, 0f);
+        t.True(Near(stopped.x, 0f) && Near(stopped.y, 0f),
+            "[Water] RippleSpeed at 0 must freeze the surface exactly, not merely slow it");
+
+        // The shared clock scale multiplies both layers.
+        Vector4 fast = WaterOwnSurface.ScrollRate(
+            WaterOwnSurface.AuthoredSpeedA, new Vector4(2f, 1f, 1f, 0f), 1f);
+        t.True(Near(fast.x, a.x * 2f) && Near(fast.y, a.y * 2f),
+            "_WaterNoiseSpeed.x is the tileset's own shared clock scale and must multiply the rate");
+
+        // REFUSALS, and every one of them keeps the water MOVING. A layer frozen by a component
+        // nobody can read, or by a garbage dial, would look exactly like this shader failing.
+        Vector4 zeroZ = WaterOwnSurface.ScrollRate(new Vector4(1f, 1f, 0f, 0f), noise, 1f);
+        t.True(Near(zeroZ.x, 1f) && Near(zeroZ.y, 1f),
+            "a .z of zero must be treated as 1 rather than freezing the layer — a tileset that "
+            + "meant 'no motion' would have authored .xy at zero, and a layer stopped by a "
+            + "component whose meaning cannot be read from a compiled shader is indistinguishable "
+            + "from a bug");
+        Vector4 nanDial = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise,
+                                                    float.NaN);
+        t.True(Near(nanDial.x, a.x) && Near(nanDial.y, a.y),
+            "a non-finite [Water] RippleSpeed must fall back to 1, not to NaN — a NaN scroll rate "
+            + "is a surface nobody can predict");
+        Vector4 negDial = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise, -3f);
+        t.True(Near(negDial.x, 0f) && Near(negDial.y, 0f),
+            "a negative [Water] RippleSpeed must clamp to 0, never run the water backwards at "
+            + "three times speed");
+
+        // The z/w channels are never written: the shader adds .xy to a UV and reads nothing else.
+        t.True(Near(a.z, 0f) && Near(a.w, 0f),
+            "the resolved scroll rate's z and w must be zero — the shader adds .xy to the tiled UV "
+            + "and reads nothing else, so a stray value there is a silent no-op waiting to be read "
+            + "as a setting");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    //  4d. THE RIPPLE STRENGTH is the tileset's, normalised, and bounded at both ends.
+    // ---------------------------------------------------------------------------------------
+    private static void NormalStrengthIsBounded(Harness t)
+    {
+        float authored = WaterOwnSurface.NormalStrength(WaterOwnSurface.AuthoredNormalStrength);
+        t.True(Near(authored, WaterOwnSurface.NominalRippleStrength),
+            $"the measured _DetailOpacityBaseNormalStr (5.00, 5.00, 0.00, 0.00) must map to the "
+            + $"nominal ripple strength {WaterOwnSurface.NominalRippleStrength:0.###}, got "
+            + $"{authored:0.###}. That mapping is what makes the authored number a RELATIVE "
+            + "statement — the receiving expression in the game's shader cannot be read, because "
+            + "the game's shaders ship compiled and there is no install to open them with.");
+
+        // A tileset authoring half of it gets half the ripple: the pass-through is proportional.
+        float half = WaterOwnSurface.NormalStrength(new Vector4(2.5f, 2.5f, 0f, 0f));
+        t.True(Near(half, WaterOwnSurface.NominalRippleStrength * 0.5f),
+            $"half the authored strength must give half the ripple, got {half:0.###}");
+
+        // AND IT IS CAPPED, which is a comfort limit as much as a look one: past the ceiling the
+        // blended normals tilt far enough that the glints become per-pixel noise, and per-pixel
+        // noise on a 90 Hz headset aliases into a crawling carpet.
+        float huge = WaterOwnSurface.NormalStrength(new Vector4(1000f, 0f, 0f, 0f));
+        t.True(huge <= WaterOwnSurface.MaxRippleStrength + 1e-6f,
+            $"the ripple strength must never exceed {WaterOwnSurface.MaxRippleStrength:0.###}, got "
+            + $"{huge:0.###} — beyond it the surface is more slope than water and the sparkle "
+            + "aliases into a crawling carpet, which is a discomfort report and not merely an ugly "
+            + "one");
+
+        // ...and a missing or garbage reading leaves the water RIPPLING rather than flattening it,
+        // because a flat sheet is precisely the outcome this build exists to end.
+        foreach (Vector4 bad in new[]
+                 {
+                     new Vector4(0f, 0f, 0f, 0f),
+                     new Vector4(float.NaN, 5f, 0f, 0f),
+                     new Vector4(-4f, 5f, 0f, 0f),
+                 })
+        {
+            float s = WaterOwnSurface.NormalStrength(bad);
+            t.True(s > 0f && s <= WaterOwnSurface.MaxRippleStrength + 1e-6f,
+                $"an unusable _DetailOpacityBaseNormalStr {bad} must still leave the water "
+                + $"rippling (got {s:0.###}) — a still sheet is the exact look ModBuild 162 was "
+                + "asked to stop being");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    //  4e. THE LIGHT DIRECTION — the only direction in the shader, and never a degenerate one.
+    // ---------------------------------------------------------------------------------------
+    private static void LightDirectionIsSaneOrRefused(Harness t)
+    {
+        // No scene light: the fixed constant, and it must be usable — a light lying in the water's
+        // own plane produces no glint anywhere.
+        bool used = WaterOwnSurface.TryBuildLightDirection(
+            Vector3.zero, false, out Vector4 none, out string why);
+        t.True(!used, "with no scene light the fixed constant must be reported as such: " + why);
+        t.True(none.z >= WaterOwnSurface.MinLightElevation,
+            $"the fixed light constant must stand above the water's own plane, got z {none.z:0.###}"
+            + $" against the {WaterOwnSurface.MinLightElevation:0.###} floor — a light at or below "
+            + "the surface leaves sparks on the steepest slopes and nothing else");
+        t.True(Near(new Vector3(none.x, none.y, none.z).magnitude, 1f, 1e-3f),
+            "the fixed light constant must be a unit vector");
+
+        // A light overhead: the swizzle puts world +Y on the surface normal.
+        used = WaterOwnSurface.TryBuildLightDirection(
+            new Vector3(0f, 1f, 0f), true, out Vector4 up, out why);
+        t.True(used, "a light straight overhead must be used: " + why);
+        t.True(Near(up.x, 0f) && Near(up.y, 0f) && Near(up.z, 1f),
+            $"world +Y must map to surface-local +Z, got ({up.x:0.##},{up.y:0.##},{up.z:0.##})");
+
+        // ...and the horizontal axes swap, because the frame is (U, V, surface normal) on a
+        // horizontal quad. A transposed swizzle would light the water from the wrong side of the
+        // room and nothing in the picture would say so.
+        used = WaterOwnSurface.TryBuildLightDirection(
+            new Vector3(0.6f, 0.5f, 0.6244998f).normalized, true, out Vector4 lean, out why);
+        t.True(used, "an ordinary elevated light must be used: " + why);
+        t.True(lean.z > 0f && Near(new Vector3(lean.x, lean.y, lean.z).magnitude, 1f, 1e-3f),
+            "the resolved light direction must be a unit vector standing above the surface");
+
+        // REFUSALS. Each one must fall back to the constant rather than to a degenerate vector: a
+        // zero _LightDir is a black, still film, i.e. worse than the bug.
+        foreach ((Vector3 dir, string what) in new[]
+                 {
+                     (new Vector3(1f, 0f, 0f), "a light lying in the water's own plane"),
+                     (new Vector3(0f, -1f, 0f), "a light UNDER the water"),
+                     (new Vector3(float.NaN, 1f, 0f), "a non-finite light direction"),
+                     (Vector3.zero, "a zero-length light direction"),
+                 })
+        {
+            bool ok = WaterOwnSurface.TryBuildLightDirection(
+                dir, true, out Vector4 v, out string reason);
+            t.True(!ok, $"{what} must be refused; it was used instead ({reason})");
+            t.True(Near(v.x, WaterOwnSurface.DefaultLightLocal.x)
+                   && Near(v.y, WaterOwnSurface.DefaultLightLocal.y)
+                   && Near(v.z, WaterOwnSurface.DefaultLightLocal.z),
+                $"{what} must fall back to the fixed constant, got ({v.x:0.##},{v.y:0.##},"
+                + $"{v.z:0.##}) — a degenerate light direction is a black, still film, which is "
+                + "worse than the defect this whole module is fixing");
+            t.True(!string.IsNullOrEmpty(reason),
+                $"{what} must carry a reason for the hardware log");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
     //  5. SOURCE LINT: the water is never hidden. User ruling 2026-08-18.
     // ---------------------------------------------------------------------------------------
     private static void WaterNeverHidesARenderer(Harness t, string repoRoot)
@@ -362,6 +615,8 @@ internal static class WaterOwnSurfaceVectors
         }
         return null;
     }
+
+    private static bool Near(float a, float b, float eps = 1e-5f) => Math.Abs(a - b) < eps;
 
     private static void Refuses(Harness t, string what, Color authored, float cap)
     {

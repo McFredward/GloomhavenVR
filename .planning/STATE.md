@@ -126,6 +126,23 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 163** (**BUNDLE CHANGED — 67,162,211 bytes, must be REINSTALLED**) — the water moves
+  again, on a shader of the mod's own.
+  * User confirmed 162 fixed both defects, then: *"Das Wasser sieht jetzt sehr viel schlechter aus.
+    Das echte Wasser hatte ANimation und co."* Overlay was a stopgap whose job was to prove the
+    mirror lives inside `VFX/Water_Shd_Trans`; it did, so it is replaced.
+  * **`GloomhavenVR/WaterVR` rebuilds the game's own motion instead of inventing one:** the
+    tileset's animation is two scrolling normal layers and nothing else, so the shader samples the
+    game's `_Normal_Map` twice at the authored tilings and speeds, all read off the game material at
+    runtime.
+  * **No term in the file depends on the view direction** — not even a specular. That is the
+    reported defect *and* MultiPass stereo safety in one rule, and a wire lint now bans every
+    spelling of a view vector across both film shaders.
+  * **The offscreen render found two defects reading could not have.** A UV-keyed ripple drew the
+    identical tile on all 17 quads (the game gives each UV 0..1); the ripple coordinate is now
+    `uv + object world origin XZ`. And the scroll offset needed `frac()` or a long session eats the
+    fractional bits. **Render the thing before shipping it.**
+
 - **ModBuild 162** (bundle unchanged, 67,164,721 bytes) — **five builds optimised the wrong
   invariant, and one second of headset time closed what three rounds of logs could not.**
   * **"Mitzoomen" never meant what five builds took it to mean.** ModBuild 161's log proves the

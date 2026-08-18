@@ -416,7 +416,76 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 162;
+    public const ushort ModBuild = 163;
+    // Build 163: THE WATER MOVES AGAIN, AND NOTHING IN IT DEPENDS ON WHERE YOU LOOK.
+    // ***** THE BUNDLE CHANGED — 67,162,211 bytes. IT MUST BE REINSTALLED, not just the DLL. *****
+    // Nothing on the wire; every packet is byte-identical to build 162's.
+    //
+    // User, 2026-08-18, after confirming 162 fixed both defects: "Das Wasser sieht jetzt sehr viel
+    // schlechter aus. Das echte Wasser hatte ANimation und co. das will ich auch wieder. Ich will es
+    // so nah wie möglich an dem 'echten' Wasser haben - aber eben so dass es in VR funktioniert."
+    //
+    // Build 162 swapped the film onto `GloomhavenVR/Overlay` — a flat, still sheet — because Overlay
+    // was the only BUNDLED shader that provably samples no environment reflection. That was a
+    // stopgap whose job was to prove the mirror lives inside `VFX/Water_Shd_Trans` where no property
+    // can reach it. It did. So it is replaced by a water shader of the mod's own.
+    //
+    // `GloomhavenVR/WaterVR` (new, `unity/**/Assets/Bundle/Environments/WaterVR.shader`) REBUILDS
+    // THE GAME'S OWN MOTION rather than inventing one. The tileset's animation is two scrolling
+    // normal layers and nothing else, so the shader samples the game's `_Normal_Map` TWICE — once at
+    // `_NormalTilings.xy`, once at `.zw` — scrolls each by its own resolved rate against
+    // `_Time.y + _GhvrTimeOfs`, blends the two in UDN form, and shades from the result: a body lerp
+    // that is symmetric about 1.0 (so the mean brightness is exactly the authored tint, no pedestal)
+    // plus a `pow(dot(N,L), lerp(4,96,_Smoothness))` glint. Every value is READ OFF THE GAME'S
+    // MATERIAL at runtime — normal map, tilings, smoothness, `_Color_Tint` hue verbatim with alpha
+    // capped at `[Water] Opacity` — and the census names which were READ and which DEFAULTED.
+    //
+    // NO TERM ANYWHERE IN THE FILE DEPENDS ON THE VIEW DIRECTION, and that is the whole point:
+    //   * it is the reported defect — "die kopf-gebundene Reflektion", "bewegen sich schnell mit den
+    //     Kopfbewegungen mit" — so no cube sample, no `reflect()`, no Fresnel, and deliberately NOT
+    //     even a half-vector specular, whose highlight would slide across the surface with the head;
+    //   * under MULTIPASS each eye renders its own pass, so any view-dependent term is a different
+    //     image per eye. This project has already parked a feature permanently over exactly that
+    //     (`.planning/wall-fade-stereo-rivalry.md`). View-independent is per-eye identical BY
+    //     CONSTRUCTION.
+    //   * the sparkle comes from the scrolling NORMALS against a light direction resolved from
+    //     `RenderSettings.sun` / the brightest directional light / a fixed constant, refused and
+    //     fallen back when degenerate or below the water plane.
+    //   * THE LINT IS THE GUARD: the wire tests now ban every spelling of a view vector
+    //     (`ObjSpaceViewDir`, `WorldSpaceViewDir`, `_WorldSpaceCameraPos`, `UNITY_MATRIX_V`,
+    //     `UNITY_MATRIX_I_V`, `viewDir`) plus the cube/reflect family, across BOTH film shaders, and
+    //     pin that the vertex program hands `v.vertex` straight to `UnityObjectToClipPos`.
+    //
+    // NO VERTEX DISPLACEMENT, and the property does not exist. The authored material has
+    // `_addSphericalWaves = 0`, and this project has lost a build to *culling cannot see a vertex
+    // program* — displaced geometry is culled against its UNDISPLACED bounds and vanishes as you
+    // approach, one eye first under MultiPass.
+    //
+    // TWO THINGS THE OFFSCREEN RENDER FOUND that no amount of reading would have:
+    //   * PER-QUAD REPETITION. The game places 17 separate quads each with UV 0..1, so a UV-keyed
+    //     ripple draws the identical tile on every hex — the first render showed 25 copies with
+    //     readable seams. The ripple coordinate is now `uv + object world origin XZ`, continuous
+    //     across the pool, same scale and speed.
+    //   * `frac()` ON THE SCROLL OFFSET, so a long session cannot eat the fractional bits that carry
+    //     the ripple.
+    // The renders are in `.planning/debug/watervr/` (gitignored): motion between t=0 and t=0.5, and
+    // two camera stations at the SAME clock showing an identical surface — which is the same
+    // difference the two eyes see. Stated plainly: the bump texture in those frames is a STAND-IN
+    // (`WaterBump` ships in the game's bundles and there is no install on the build machine), so the
+    // motion, tilings, speeds, tint and view-independence are the shipped ones and the ripple GRAIN
+    // is not.
+    //
+    //   * TWO GUESSES, both isolated behind a dial rather than buried: `_WaterUVAnimSpeedA/B.z` is
+    //     read as a per-layer multiplier (it changes layer A's rate by 40 % and B's not at all — how
+    //     fast, never what it looks like), and the authored `_DetailOpacityBaseNormalStr` 5.0 cannot
+    //     be passed through raw (5.0 in `normalize(float3(bump*s,1))` tilts up to 79°, a field of
+    //     shards), so it is treated as RELATIVE and maps to 1.2. `[Water] RippleSpeed` and
+    //     `[Water] Shimmer` exist to close both from inside the headset.
+    //   * OVERLAY IS KEPT AS A FALLBACK, not deleted: if the bundle does not yield `WaterVR` the film
+    //     still gets the flat sheet, the defect stays fixed, and the census says LOUDLY that the
+    //     animation is not in what is on screen — so "it still does not move" reads as that line
+    //     rather than as the shader. The resolver keeps retrying while it is on the fallback.
+    //
     // Build 162: FIX MEANS FIX, AND THE MIRROR IS INSIDE THE SHADER. Nothing on the wire; every
     // packet is byte-identical to build 161's. The bundle is unchanged.
     //
