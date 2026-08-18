@@ -2,20 +2,21 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
-using TMPro;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.WorldUI;
 
 // THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them to something
-// prettier. The csproj uses the SDK's default `**/*.cs` glob, so compile order is
-// the filename sort, and a partial class's members land in metadata in compile
-// order. `FlatScreen.Pointer.cs` would sort BEFORE `FlatScreen.cs` and silently
-// reorder the field initializers. Numbered, the six parts concatenate back into
-// the original member order — which is why splitting this file produced an EMPTY
-// compiled-form diff rather than a 2 400-line permutation.
+// prettier. This is the canonical statement of the rule; the other split families
+// (CanvasConversion, ModalFallback, FlatScreenStereo, VROptionsTab) point here.
+// The csproj uses the SDK's default `**/*.cs` glob, so compile order is the
+// filename sort (MSBuild sorts glob results OrdinalIgnoreCase), and a partial
+// class's members land in metadata in compile order — where FIELD INITIALIZERS
+// run. `FlatScreen.Pointer.cs` would sort BEFORE `FlatScreen.cs` and silently
+// reorder them. Numbered, the six parts concatenate back into the original member
+// order — which is why splitting this file produced an EMPTY compiled-form diff
+// rather than a 2 400-line permutation.
 
 /// <summary>
 /// Floating 2D screen (ROADMAP P3c #6): a world-space quad showing the flat game's

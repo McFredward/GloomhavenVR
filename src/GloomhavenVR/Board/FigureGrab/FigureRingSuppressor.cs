@@ -42,8 +42,8 @@ internal static class FigureRingSuppressor
     internal static void Tick()
     {
         // [Optimize] FigureScanCache (2026-07 perf pass): HeldFigures.All / NetHeldFigures.All are
-        // typed IEnumerable<ActorBehaviour> over a HashSet, so each foreach in Suppress BOXES the
-        // set's struct enumerator — two heap allocations EVERY LateUpdate, unconditionally, even
+        // typed IEnumerable<ActorBehaviour> over a List and a HashSet, so each foreach in Suppress
+        // BOXES the struct enumerator — two heap allocations EVERY LateUpdate, unconditionally, even
         // though the overwhelmingly common case is "nothing is held at all" and Suppress then
         // iterates zero elements. Checking the counts first makes the idle case allocation-free
         // and behaviour-identical (an empty set has nothing to suppress by definition).

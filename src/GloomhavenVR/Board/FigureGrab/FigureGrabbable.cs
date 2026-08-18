@@ -29,11 +29,9 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///
 /// TRIGGER-ONLY (hardware MP test 2026-08, requirement (b)): the marker
 /// <see cref="ITriggerOnlyGrabbable"/> additionally withholds the ProximityGrabber's
-/// "closing fist (grip) grabs the highlighted candidate" fallback for figures — a fist
-/// over a crowded board is the canonical accidental gesture (and the grip half of the
-/// fingertip-ping chord), so a figure hold can ONLY start on the trigger edge and ends
-/// on trigger-up, exactly the card semantics. The pre-grab hover highlight
-/// (<see cref="OnGrabHighlight"/>) is untouched.
+/// "closing fist (grip) grabs the highlighted candidate" fallback for figures — a fist over a
+/// crowded board is the canonical accidental gesture (see <c>ProximityGrabber.IsTriggerOnly</c>).
+/// The pre-grab hover highlight (<see cref="OnGrabHighlight"/>) is untouched.
 ///
 /// The held pose (offset / rotation / scale) is LIVE-TUNABLE: every currently-held
 /// grabbable registers in <see cref="Live"/> and re-applies its pose from
@@ -71,21 +69,18 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
     private VRHand? _holder;
 
-    // Item 3 — offset-anchor nearest selection. When the hand hovers over MULTIPLE figures in
-    // proximity reach, only the one nearest the OFFSET ANCHOR (where the held mini will appear)
-    // should be grabbable; the losers are suppressed for THAT hand so the ProximityGrabber (which
-    // otherwise picks nearest-to-palm) can only highlight/grab the offset-anchor winner. Set every
-    // frame per hand by FigureGrabDriver.SelectByOffsetAnchor; consumed by AllowsHand below.
-    // It carries the PICK VOLUME too (2026-08 accidental-grab report): a figure that no hand has
-    // actually reached — nothing within [FigureGrab] PickRadiusMillimeters of the pinch point — is
-    // suppressed for every hand, so "no winner" and "loser" are the same state here.
+    // Item 3 — offset-anchor nearest selection: only the figure nearest the OFFSET ANCHOR (where
+    // the held mini will appear) stays grabbable for a hand; every loser is suppressed so the
+    // ProximityGrabber (which otherwise picks nearest-to-palm) can only take the winner. It carries
+    // the PICK VOLUME too (2026-08 accidental-grab report), so a figure nobody has actually reached
+    // is a loser as well. Written per hand per frame by FigureGrabDriver.SelectByOffsetAnchor;
+    // consumed by AllowsHand below.
     //
-    // THE FLAG IS AN UNCONDITIONAL PER-FRAME VETO, not a hint about nearby figures. The driver
-    // writes it for EVERY adopted figure on every frame it ticks a hand, however far away that
-    // figure is, because the ProximityGrabber reads it one frame in arrears: a figure the driver
-    // declined to write was a figure the grabber was free to highlight on its own 13 cm palm reach.
-    // That is the whole of the "highlighting blitzt bei verschiedenen Figuren auf" defect — see
-    // FigureGrabDriver.ApplySuppression for the full account.
+    // THE FLAG IS AN UNCONDITIONAL PER-FRAME VETO, not a hint about nearby figures: the driver
+    // writes it for EVERY adopted figure on every frame it ticks a hand, however far away. A figure
+    // it declined to write is one the grabber (which reads the flags one frame in arrears) was free
+    // to highlight on its own 13 cm palm reach — the whole of the "highlighting blitzt bei
+    // verschiedenen Figuren auf" defect. See FigureGrabDriver.ApplySuppression for the full account.
     private bool _suppressLeft;
     private bool _suppressRight;
     private Transform? _origParent;
@@ -94,14 +89,11 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     private Vector3 _origLocalScale;
     private bool _attached;
 
-    // Live-pose bases captured at grab (so re-applying the config pose never compounds):
-    // the mini's anchor-local scale at board size, and the hand anchor it rides. NOTE: the
-    // held ROTATION is a FIXED CONSTANT local rotation relative to the anchor
-    // (FigureGrabConfig.HeldUprightRotation) — NOT derived from world up, the head, the figure's
-    // board rotation, or the grab-moment anchor orientation. So the mini sits the SAME way in the
-    // palm regardless of the grab approach angle AND rides the hand — turn the hand and the mini
-    // turns with it (user #3: "fixed relative to the hand, not the world"), while HOW it was
-    // grabbed never changes the resting hold and it never clips into a downward-pointing palm.
+    // Live-pose bases captured at grab (so re-applying the config pose never compounds): the mini's
+    // anchor-local scale at board size, and the hand anchor it rides. The held ROTATION is NOT one
+    // of these bases — it is a FIXED CONSTANT anchor-LOCAL rotation, never derived from world up,
+    // the head or the approach angle, so the mini rides the hand (user #3: "fixed relative to the
+    // hand, not the world"). See FigureGrabConfig.HeldUprightRotation.
     private Transform? _anchor;
 
     // The mini's WORLD (lossy) scale as it stood ON THE BOARD, sampled before the reparent into the
@@ -118,27 +110,25 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // der Hand sein - auch wenn man dabei zoomed."
     //
     // ROOT CAUSE. The diorama zoom is the RIG's own scale (Rig/WorldGrab writes
-    // rigRoot.localScale; VRRigDriver: "its lossyScale is the diorama scale"), and the hand anchor
-    // hangs under that rig — HandVisuals normalises Socket_Grab against handRoot.parent.lossyScale,
-    // so GrabAnchor.lossyScale IS the rig scale exactly, free of any per-style hand scale. The old
-    // hold re-derived the mini's anchor-LOCAL scale from a CONSTANT world size every frame
-    // (homeWorldScale / anchor.lossyScale), i.e. it pinned the mini's size in WORLD space. But the
-    // player's eyes are scaled by that same rig, so a world-constant object changes apparent size
-    // with every zoom: pinning the world size is exactly what makes the mini in the hand grow and
-    // shrink. Proven from the ModBuild 108 log rather than inferred — three grabs in one session
-    // printed `boardWorld=1 anchorScale=41.368`, `41.368` and `10.149`, so the same board-size mini
-    // was rendered at three anchor-local sizes a factor of ~4 apart purely because of the zoom.
+    // rigRoot.localScale), and the hand anchor hangs under that rig — HandVisuals normalises
+    // Socket_Grab against handRoot.parent.lossyScale, so GrabAnchor.lossyScale IS the rig scale
+    // exactly, free of any per-style hand scale. The old hold re-derived the mini's anchor-LOCAL
+    // scale from a CONSTANT world size every frame (homeWorldScale / anchor.lossyScale), i.e. it
+    // pinned the mini's size in WORLD space — but the player's eyes are scaled by that same rig, so
+    // a world-constant object changes apparent size with every zoom. Proven from the ModBuild 108
+    // log rather than inferred: three grabs in one session printed `boardWorld=1 anchorScale=41.368`,
+    // `41.368` and `10.149`, i.e. the same board-size mini rendered at three anchor-local sizes a
+    // factor of ~4 apart purely because of the zoom.
     //
     // WHAT THE OLD BEHAVIOUR WAS FOR (do not simply revert it): it was the fix for the earlier MP
     // defect "Die Figuren-Größen ändern sich wenn man sie in die Hand nimmt … so sehe ich beim
     // Remote-Spieler eine andere Größe der Figur in der Hand als er selbst" — the hold used to
     // multiply by the old [FigureGrab] HeldScale family (1.5x, bound per hand style) while the
     // wire carries POSE ONLY, so no two clients could agree. That multiplier stays gone (its
-    // config family has since been deleted — see the note in FigureGrabConfig). What
-    // this change touches is only the SECOND half of that fix — "pin the world size" — which is a
-    // stronger statement than "start from the board size" and is the half the user is reporting.
-    // At the instant of the grab the two are identical, so the mini still ENTERS the hand at
-    // exactly its board size; it simply stops chasing the zoom afterwards.
+    // config family has since been DELETED — see the note in FigureGrabConfig). Only the SECOND
+    // half of that fix — "pin the world size" — changed here; at the instant of the grab the two
+    // are identical, so the mini still ENTERS the hand at exactly its board size and simply stops
+    // chasing the zoom afterwards.
     //
     // REJECTED ALTERNATIVES.
     //   (a) Delete the per-frame re-assert (TickHeldScale) instead of changing what it asserts.
@@ -152,32 +142,15 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     //       WHICH transform in the chain carries the zoom, so re-posing or rescaling the board (or
     //       anything else moving between the board and the mini) cannot desynchronise it.
     //
-    // MULTIPLAYER — what a peer sees, and the one thing this change owes Net/. Nothing about the
-    // wire changes here (no scale has ever ridden it: NetFigures.TrySampleHeldSlot sends world
-    // position + rotation, NetFigures.EaseSlot writes exactly those two and never a localScale), and
-    // nothing in Net/ was touched. The consequence is precise and worth stating rather than
-    // smoothing over:
-    //   - Position and rotation still cross exactly as before, so WHERE the peer sees the mini is
-    //     unchanged. Only its SIZE is at issue.
-    //   - A peer renders the held mini at its own board size, and it renders the holder's HANDS at
-    //     the holder's live rig scale (RemoteAvatar applies state.WorldScale to the part holders).
-    //     So today, while a holder zooms, a peer ALREADY sees that holder's hand grow or shrink
-    //     around a board-size mini — the peer side has always shown the "unlatched" picture.
-    //   - After this change the holder's mini world size is boardSize × (rigScaleNow /
-    //     rigScaleAtGrab). The peer still draws boardSize. The two therefore differ by exactly the
-    //     zoom the holder applied SINCE grabbing — 1.0 unless they zoom mid-hold, and it resolves
-    //     itself on release, but it is a real divergence and it is new.
-    //   - The fix costs ZERO wire bytes and is entirely receive-side, because the receiver already
-    //     has both numbers: the sender's live rig scale arrives every rig packet as
-    //     AvatarState.WorldScale (LocalRigSampler.cs:50 samples rigRoot.lossyScale.x — the SAME
-    //     quantity as GrabAnchor.lossyScale here, since HandVisuals.NormalizeSocket compensates
-    //     Socket_Grab against handRoot.parent.lossyScale), and the receiver already knows the frame
-    //     a hold BEGINS (NetFigures.ApplyRemoteHeld's fresh-hold guard, the one that spawns the home
-    //     ghost). Latching the sender's WorldScale there and multiplying the figure's home local
-    //     scale by WorldScaleNow / WorldScaleAtHoldStart reproduces the holder's picture exactly.
-    //     The receiver MUST restore the home local scale when the slot is released — the game never
-    //     writes a figure's scale, so unlike position and rotation it will not heal itself. Exact
-    //     call sites are in this round's report; it is a Net/-owned change and was NOT made here.
+    // MULTIPLAYER — the peer reproduces this latch, and it costs ZERO wire bytes. Position and
+    // rotation cross exactly as before (NetFigures.TrySampleHeldSlot / EaseSlot); the SIZE is
+    // rebuilt receive-side as homeLocalScale × (senderRigScaleNow / senderRigScaleAtHoldStart) ×
+    // stretch, because the sender's live rig scale already rides every rig packet as
+    // AvatarState.WorldScale — the SAME quantity as GrabAnchor.lossyScale here, since
+    // HandVisuals.NormalizeSocket compensates Socket_Grab against handRoot.parent.lossyScale.
+    // NetFigures.RestoreHomeScale puts the home scale back on release: the game never writes a
+    // figure's scale, so unlike position and rotation it does NOT heal itself. That half lives in
+    // Net/ — see NetFigures.EaseSlot.
     private Vector3 _heldLocalScale = Vector3.one;
 
     // HELD-FIGURE STRETCH — the manual in-hand scale factor, multiplied ON TOP of the latch above.
@@ -198,8 +171,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // SCOPE — THIS HOLD ONLY, deliberately. The factor resets to 1 at every grab and is never
     // persisted: the user asked to change "die Größe der Figur in der Hand", not a standing
     // preference, and the one config family that ever meant "preferred held size"
-    // ([FigureGrab] HeldScale) is retired LEGACY with its own note explaining why a local-only
-    // multiplier was a multiplayer defect. Release is untouched by construction: both release
+    // ([FigureGrab] HeldScale) was DELETED, with a note in FigureGrabConfig explaining why a
+    // local-only multiplier was a multiplayer defect. Release is untouched by construction: both release
     // paths write _origLocalScale / glide toward it (board frame), so the stretch can never leak
     // onto the board — the glide simply starts from the stretched in-hand size (_glideFromScale is
     // read off the transform) and eases home like any other release.
@@ -229,34 +202,28 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // Mindest-/Maximalgröße of the FIGURE, not of the gesture, so the bound must catch a size
     // that arrived via zoom exactly as one dragged there.
     //
-    // TWO ENFORCEMENT POINTS, both pop-free by placement:
-    //   (1) the GRAB (ApplyGrabTimeStretchClamp, called from OnGrab between the latch and the
-    //       first ApplyHeldPose): a ratio outside Min/Max scales the latch so the mini ENTERS the
-    //       hand at exactly the bound — before the first held frame renders, so nothing on screen
-    //       ever jumps;
-    //   (2) the GESTURE (GetStretchFactorBounds): the total bounds converted to per-hold factor
-    //       bounds at latch time — Min/ratio .. Max/ratio — so a figure grabbed at 2× total with
-    //       Max 3 can only be stretched to factor 1.5, never to the 6× total the old
-    //       factor-in-isolation clamp allowed.
-    // A mid-hold ZOOM is deliberately NOT re-clamped: the latch is zoom-independent by design
-    // (the report above this one), and re-clamping a standing size is a pop. Likewise a mid-hold
-    // dial change (Min/Max/StretchLimits) affects the next gesture frame and the next grab only.
+    // TWO ENFORCEMENT POINTS, both pop-free by placement and each documented at its own method:
+    // the GRAB (ApplyGrabTimeStretchClamp — the latch enters the hand already trimmed to the bound)
+    // and the GESTURE (GetStretchFactorBounds — the total bounds rebased to this latch's factor
+    // envelope). A mid-hold ZOOM is deliberately NOT re-clamped: the latch is zoom-independent by
+    // design (the report above this one), and re-clamping a standing size is a pop. Likewise a
+    // mid-hold dial change (Min/Max/StretchLimits) affects the next gesture frame and next grab only.
     //
-    // MULTIPLAYER: invisible on the wire by construction. Only _stretch is sampled (StretchOf);
-    // the latch clamp changes _heldLocalScale, which never leaves this machine — a peer keeps
-    // reconstructing boardSize × (their observed zoom ratio) × factor, unclamped by OUR local
-    // bounds, per the standing "bounds are a local presentation choice" ruling. The one residue:
-    // while OUR latch was clamped, the peer's picture differs from ours by exactly the clamp —
-    // same class of accepted divergence as a mid-hold zoom itself, and it heals on release.
+    // MULTIPLAYER: invisible on the wire by construction. Only _stretch is sampled (StretchOf); the
+    // latch clamp changes _heldLocalScale, which never leaves this machine — a peer reconstructs
+    // boardSize × (their observed zoom ratio) × factor unclamped by OUR local bounds, per the
+    // standing "bounds are a local presentation choice" ruling. So while OUR latch is clamped the
+    // peer's picture differs by exactly the clamp — the same accepted divergence class as a
+    // mid-hold zoom, and it heals on release.
     private float _latchTotalRatio = 1f;
 
-    // Issue B — render-on-top state so a mini held in FRONT of the opaque control board (PlayTray)
-    // is not painted over by the board's on-top HUD widgets (queue 4000, ZTest Always, ZWrite off).
-    // On grab we snapshot each held renderer's ORIGINAL shared materials and swap in per-renderer
-    // INSTANCE materials whose renderQueue is pushed just past those widgets; the shader's own ZTest
-    // (LEqual) + ZWrite are left intact so the 3D mini still self-occludes correctly and is hidden
-    // naturally when moved BEHIND real world geometry. Restored verbatim on release. ONLY the held
-    // mini is affected — never the rest of the board's figures.
+    // Issue B — render-on-top state. The approach is REVERTED: ApplyRenderOnTop is a no-op today
+    // (the queue bump punched held minis through walls — the full record is at that method), so
+    // these two fields stay null in practice. Kept because RestoreRenderers still runs on both
+    // release paths and is idempotent, so grab/release symmetry survives a re-enable. What the
+    // approach did: snapshot each held renderer's ORIGINAL shared materials and swap in
+    // per-renderer INSTANCE materials whose renderQueue is pushed just past the control board's
+    // on-top HUD widgets (queue 4000, ZTest Always, ZWrite off), for the held mini only.
     private const int HeldRenderQueue = 4100;
     private Renderer[]? _heldRenderers;
     private Material[][]? _origSharedMats;
@@ -286,10 +253,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     private Quaternion _glideFromRot = Quaternion.identity;
     private Vector3 _glideFromScale = Vector3.one;
 
-    // R2 hardening: the actor's authoritative board cell at grab time. If the game moves the
-    // figure to a different cell while it is held (a remote player's or the server's networked
-    // action on its turn), the held mini would otherwise ride the hand at a now-stale board
-    // position and jump on release; we auto-release instead (polled by FigureGrabDriver).
+    // R2 hardening: the actor's authoritative board cell at grab time — see
+    // AuthoritativeCellChanged for what a mismatch means and who polls it.
     private Point _grabCell;
 
     /// <summary>
@@ -440,14 +405,14 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// WHERE THE HAND ACTUALLY WAS when this figure lit up — the two distances that tell an
     /// ELECTION apart from a LEAK, in the same real millimetres the dial is set in.
     ///
-    /// <para>Written because the ModBuild 106 log could not answer that question: it carried 137
-    /// "highlight ENGAGED" lines against 9 "pinch candidate" elections, which proved the two were
-    /// not the same event but not which distance the extra ones fired at. The pinch distance is the
-    /// one the driver's radius gates; the palm distance is the one the
-    /// <see cref="ProximityGrabber"/>'s own 13 cm reach gates. So on the next hardware run the line
-    /// is binary: a highlight whose pinch distance is inside the printed radius came from an
-    /// election and the radius is simply set too wide; one that engages FAR outside it, near the
-    /// palm reach instead, means something is highlighting past this driver's veto again.</para>
+    /// <para>Written because the ModBuild 106 log proved highlights and elections were not the same
+    /// event but not which distance the extra ones fired at (that census is in
+    /// <c>FigureGrabDriver.ApplySuppression</c>). The pinch distance is the one the driver's radius
+    /// gates; the palm distance is the one the <see cref="ProximityGrabber"/>'s own 13 cm reach
+    /// gates. So the line is binary: a highlight whose pinch distance is inside the printed radius
+    /// came from an election and the radius is simply set too wide; one that engages FAR outside
+    /// it, near the palm reach instead, means something is highlighting past the driver's veto
+    /// again.</para>
     ///
     /// <para>Costs two ClosestPoint calls on the highlight EDGE only — never per frame.</para>
     /// </summary>
@@ -521,9 +486,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         _grabCell = ca != null ? ca.ArrayIndex : default;
 
         // Ride the hand's grab anchor. worldPositionStays keeps the mini at its board world-scale as
-        // it enters the hand (no scale pop). The held ROTATION is NOT snapshotted from the board —
-        // it is a fixed constant anchor-local rotation (FigureGrabConfig.HeldUprightRotation), so
-        // the mini snaps to the same orientation in the palm regardless of the grab approach angle.
+        // it enters the hand (no scale pop); the rotation is re-written by ApplyHeldPose below.
         Transform anchor = hand.Rig.GrabAnchor;
         t.SetParent(anchor, worldPositionStays: true);
         _anchor = anchor;
@@ -541,7 +504,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         _attached = true;
 
         ApplyHeldPose();
-        ApplyRenderOnTop(); // Issue B — draw the held mini over the opaque control board
+        ApplyRenderOnTop(); // Issue B — REVERTED, a no-op today (see the method)
         Live.Add(this);
 
         // Dock the SAME stat window shown on laser mouse-over next to the held figure.
@@ -549,12 +512,11 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         StatPanelSurface.ShowHeldFigure(anchorGo.transform, Character, hand.Side);
 
         // Issue A — one-shot grab diagnostic: the FIXED anchor-LOCAL rotation chosen for the hold
-        // (grab-angle-independent; rides the hand). World rotation shown for reference only.
-        // The three angles and WHERE THEY PUT THE MINI'S OWN AXES, in the anchor's frame. Without
-        // this we were both describing sensations: "yaw feels like tilt" cannot be checked against
-        // a quaternion. up.y near +/-1 means the mini stands along the palm normal, so yaw is a
-        // clean spin about the vertical you see; the further up.y is from that, the more every one
-        // of the three angles reads as a tumble, which is exactly when two of them feel alike.
+        // (grab-angle-independent; rides the hand), plus WHERE THE THREE ANGLES PUT THE MINI'S OWN
+        // AXES in the anchor's frame — the numbers that let "yaw feels like tilt" be checked
+        // against a quaternion instead of against a sensation. up.y near +/-1 means the mini stands
+        // along the palm normal, so yaw is a clean spin about the vertical you see; the further
+        // up.y is from that, the more all three angles read as a tumble and feel alike.
         Quaternion lr = t.localRotation;
         Vector3 up = lr * Vector3.up, fwd = lr * Vector3.forward;
         VRLog.Info("FigureGrab",
@@ -568,15 +530,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             $"— anchor +Y is the palm normal, so up.y=+1 is 'standing straight out of the palm'. " +
             $"hand={Fmt(anchor.rotation)} worldHeld={Fmt(t.rotation)}.");
 
-        // SIZE probe (the line that PROVED this defect — three grabs in one ModBuild 108 session
-        // printed the same boardWorld=1 against anchorScale 41.368 / 41.368 / 10.149, i.e. the same
-        // mini at three in-hand sizes a factor of ~4 apart, purely from the zoom). anchorScale is
-        // the LIVE diorama scale; heldLocal is the frozen latch. From here on the two are allowed to
-        // disagree: heldLocal stays put while anchorScale follows every pinch-zoom, and that is the
-        // fix, not a drift. heldWorld is therefore boardWorld × (anchorScale / anchorScale-at-grab)
-        // — equal to boardWorld on this frame by construction, UNLESS the grab-time size clamp
-        // trimmed the latch (its own [Size] CLAMP line directly above says so when it did).
-        // latchRatio is the total held size in default-zoom units — the number the bounds govern.
+        // SIZE probe — the line that PROVED the zoom-follows-the-hand defect (see _heldLocalScale).
+        // anchorScale is the LIVE diorama scale; heldLocal is the frozen latch, and the two are
+        // ALLOWED to disagree from here on — that is the fix, not a drift. heldWorld equals
+        // boardWorld on this frame by construction, UNLESS the grab-time size clamp trimmed the
+        // latch (its own [Size] CLAMP line directly above says so when it did). latchRatio is the
+        // total held size in default-zoom units — the number the bounds govern.
         VRLog.Info("FigureGrab",
             $"[Size] {Describe()} boardWorld={_homeWorldScale.x:0.####} heldWorld={t.lossyScale.x:0.####} " +
             $"anchorScale={anchor.lossyScale.x:0.###} heldLocal={_heldLocalScale.x:0.######} " +
@@ -644,22 +603,17 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         // Issue A: a FIXED CONSTANT anchor-LOCAL rotation (grab-angle-independent) that rides the
         // hand — never a world rotation. Upright mode stands the mini out of the palm and faces it
-        // (mirror-correct); legacy mode lays it flat (tilt only, mirror-invariant).
-        // _uprightBase is identity unless the grab captured a world-upright start, so the tuned
-        // angles keep meaning exactly what they meant: offsets, applied on top of whatever the
-        // base is. With the option on they are offsets from "standing up"; with it off they are
-        // offsets from the hand, as before.
+        // (mirror-correct); legacy mode lays it flat (tilt only, mirror-invariant). _uprightBase is
+        // identity unless the grab captured a world-upright start, so the tuned angles stay OFFSETS
+        // either way — from "standing up" with the option on, from the hand with it off.
         t.localRotation = _uprightBase * (FigureGrabConfig.HeldUpright.Value
             ? FigureGrabConfig.HeldUprightRotation(side)
             : FigureGrabConfig.HeldPalmRotation());
 
         // SIZE — the value LATCHED at the grab (see _heldLocalScale for the report, the root cause
-        // and the rejected alternatives). Grabbing still never resizes a mini: the latch is taken
-        // from the board world size at the grab instant, so the figure enters the hand at exactly
-        // the size it stood on the board — the old [FigureGrab] ActiveHeldScale multiplier (1.5x,
-        // bound PER HAND STYLE, so two players could not even agree on the factor) stays gone and
-        // stays marked LEGACY (CHARTER §5). What changed is only that the size is no longer
-        // RE-DERIVED from the live anchor every frame, so a pinch-zoom mid-hold leaves it alone.
+        // and the rejected alternatives): the latch is the board world size at the grab instant, so
+        // the figure enters the hand at exactly the size it stood on the board, and it is never
+        // RE-DERIVED from the live anchor again, so a pinch-zoom mid-hold leaves it alone.
         // Assigned here as well as in ReassertHeldScale so the live-tune path (ReapplyAll) writes a
         // complete pose; both write the same frozen vector, so this is idempotent.
         t.localScale = HeldLocalScale();
@@ -830,14 +784,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// Re-assert every held mini's LATCHED grab-time size. Called once per frame from
     /// <see cref="FigureGrabDriver"/>.
     ///
-    /// <para>KEPT, with a new subject. It used to re-derive a constant WORLD size from the live
-    /// anchor, which is precisely the zoom-follows-the-hand defect (see
-    /// <see cref="_heldLocalScale"/>); it now re-writes the frozen latch, so it is idempotent and a
-    /// zoom moves nothing. Its REASON for existing is untouched and still needed: it sits above the
-    /// config gate because a mini still in the hand when GrabFigures is toggled off is released by
-    /// the gate's ReleaseAll on THIS frame, and it must not be rendered at a size some other writer
-    /// has touched for the frame in between. It is also the only thing that would reveal such a
-    /// writer at all — the game's own transform writers are prefix-skipped for held actors
+    /// <para>It re-writes the FROZEN latch (<see cref="_heldLocalScale"/>), so it is idempotent and
+    /// a zoom moves nothing. WHY IT STILL EXISTS: it sits above the config gate because a mini
+    /// still in the hand when GrabFigures is toggled off is released by the gate's ReleaseAll on
+    /// THIS frame, and it must not be rendered at a size some other writer has touched for the
+    /// frame in between. It is also the only thing that would reveal such a writer at all — the
+    /// game's own transform writers are prefix-skipped for held actors
     /// (<see cref="ActorBehaviour_HeldTransform_Patch"/>) and none of them writes scale, so today
     /// this is cheap insurance rather than a correction. One vector store per held figure (at most
     /// two).</para>
@@ -884,14 +836,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     }
 
     /// <summary>
-    /// Issue B — push the held mini's renderers just past the control board's on-top HUD widgets so
-    /// a mini held in FRONT of the opaque board is never occluded by it. Snapshots each renderer's
-    /// original SHARED materials, then swaps in per-renderer INSTANCE materials (so no shared bundle
-    /// material is mutated globally → the rest of that class's board minis are untouched) with the
-    /// renderQueue bumped to <see cref="HeldRenderQueue"/>. ZTest/ZWrite are deliberately left at
-    /// the shader's defaults (LEqual + on), so the mini still self-occludes correctly and is hidden
-    /// when moved BEHIND real world geometry — only the draw ORDER changes, letting the nearer mini
-    /// win over the board widgets (which draw ZWrite-off, so they never own the depth). Restored by
+    /// Issue B — NO-OP TODAY (reverted; the body says why, and that record must not be deleted).
+    /// It WOULD push the held mini's renderers just past the control board's on-top HUD widgets so
+    /// a mini held in FRONT of the opaque board is never occluded by it: snapshot each renderer's
+    /// original SHARED materials, swap in per-renderer INSTANCE materials (so no shared bundle
+    /// material is mutated globally) with the renderQueue bumped to <see cref="HeldRenderQueue"/>,
+    /// leaving ZTest/ZWrite at the shader's defaults so only the draw ORDER changes. Undone by
     /// <see cref="RestoreRenderers"/> on release.
     /// </summary>
     private void ApplyRenderOnTop()
@@ -974,17 +924,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 
         // HOLD GATE (user ruling 2026-08-11): a release forced because the game started depending
         // on this figure takes the SAME glide as a user release — "soll sie zurück aufs Feld
-        // gehen, aber auch mit der üblichen Animation als hätte der User sie losgelassen". This
-        // REPLACES the old instant-when-busy branch. Why the glide's 0.28 s of continued bar-hide
-        // is safe where the old comment feared it was not: the coroutine kill needs a
-        // DEACTIVATION EDGE, and the glide has none — the bar host has been inactive since the
-        // grab and stays inactive until the glide lands (SetActive(false) on an inactive host is
-        // a no-op), then is re-ACTIVATED, which kills nothing. A flow cannot be alive on the
-        // hidden host either (StartCoroutine refuses inactive hosts, so IsFlowActive cannot even
-        // latch — see the FigureBusy class doc, deadlock-safety §2). The only path that still
-        // restores instantly is the authoritative-cell release (the game already moved the figure
-        // elsewhere; gliding to the STALE home pose would be wrong) and the teardown/fallback
-        // paths below.
+        // gehen, aber auch mit der üblichen Animation als hätte der User sie losgelassen". The
+        // glide's 0.28 s of continued bar-hide is safe because a coroutine kill needs a
+        // DEACTIVATION EDGE and the glide has none (the host is already inactive and is only ever
+        // re-ACTIVATED at the landing) — see the FigureBusy class doc, deadlock-safety §2. The only
+        // paths that still restore instantly are the authoritative-cell release (the game already
+        // moved the figure elsewhere; gliding to the STALE home pose would be wrong) and the
+        // teardown/fallback paths below.
         bool forced = FigureBusy.HoldMustEnd(_actor, out string forcedWhy);
 
         // GLIDE-BACK: ease the mini from the hand back to its home pose (~0.28 s, ease-out).
@@ -1028,8 +974,6 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     ///   re-posed or rescaled during the hold. Latching a world size here instead would be the same
     ///   mistake this round removed from the hold.</item>
     /// </list>
-    /// <para>So the size eases home over the same 0.28 s as the position and rotation, on the same
-    /// ease-out curve, and the mini never changes size in a single frame.</para>
     /// </summary>
     private bool TryBeginGlide()
     {
@@ -1206,10 +1150,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// glide is impossible at all (dead root/parent, teardown mid-hold). Called by
     /// <c>FigureGrabDriver.AutoReleaseMovedFigures</c>; the ex-holder's ProximityGrabber notices
     /// the ended hold on its next tick (AllowsHand/heal) and its follow-up OnRelease is absorbed
-    /// by the glide guard there. MULTIPLAYER: nothing new on the wire — the glide keeps the actor
-    /// in <see cref="HeldFigures"/> until it lands, so peers stream the same glide and the
-    /// held-slot clears on arrival, exactly as for a user release (their receive side then runs
-    /// its normal release path, RestoreHomeScale included).
+    /// by the glide guard there. MULTIPLAYER: nothing new on the wire — peers stream the glide and
+    /// see the held slot clear on arrival, exactly as for a user release.
     /// </summary>
     internal void AutoReleaseToBoard(string why)
     {

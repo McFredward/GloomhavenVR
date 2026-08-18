@@ -113,7 +113,7 @@ internal sealed class WorldGrab : MonoBehaviour
         // there since P5, but there is no table to manipulate; grabbing air must not
         // drag the menu view. The dev proxy stays exempt so grab math is testable flat.
         // Test #13: ModalUI is deliberately NOT excluded anymore — the diorama stays
-        // fully manipulable while a dialog floats (see class doc, grip contention).
+        // fully manipulable while a dialog floats (see class doc, STICK CONTENTION).
         if (rig == null || !ComfortSettings.IsBound || !ComfortSettings.WorldGrabEnabled.Value
             || (mode == VRMode.Menu2D && !RigTarget.IsDevProxy))
         {
@@ -134,14 +134,11 @@ internal sealed class WorldGrab : MonoBehaviour
             // Leaving the two-hand gesture persists the reached scale multiplier.
             if (_state == GrabState.TwoHand)
                 ComfortSettings.PersistScaleMultiplier(rig.localScale.x / RigTarget.BaseScale);
-            // Grab press/release is deliberately NOT a masked re-aim event (round 7): at
-            // these instants the grab has not moved the world (yet/anymore), so nothing
-            // masks an instant re-aim — the old NotifyTiltAxisSnap here consumed the whole
-            // accumulated view error in one frame and visibly jumped the scene after
-            // room-scale movement. Any re-aim a gesture earns is consumed continuously,
-            // in proportion to the motion it actually applies (NotifyWorldGrabMotion in
-            // ApplyOneHand/ApplyTwoHand); leftover error stays frozen, exactly like
-            // head-only motion (see VRRigDriver.TickWorldTilt).
+            // Grab press/release is deliberately NOT a masked re-aim event (round 7): at these
+            // instants the grab has not moved the world, so nothing masks an instant re-aim and
+            // the old NotifyTiltAxisSnap here visibly jumped the scene. A gesture's re-aim is
+            // consumed in proportion to the motion it applies instead — NotifyWorldGrabMotion in
+            // ApplyOneHand/ApplyTwoHand; full argument in VRRigDriver.WorldTilt.cs.
             _state = desired;
             Anchor(rig);
         }
@@ -164,7 +161,7 @@ internal sealed class WorldGrab : MonoBehaviour
         }
     }
 
-    // ---- grip ownership ---------------------------------------------------------------
+    // ---- stick ownership --------------------------------------------------------------
 
     /// <summary>
     /// A stick-click becomes a WORLD grab at click-down and stays one until the stick is

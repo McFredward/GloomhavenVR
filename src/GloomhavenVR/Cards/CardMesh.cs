@@ -58,7 +58,7 @@ internal enum CardBodyKind
 /// BOUNDARY is the card outline — no shader variant can paint outside it. The
 /// full-envelope rounded slab (<see cref="Get"/>) remains the cold-start/refusal
 /// fallback and the Neutral legacy shape; nothing that measures a card (grab collider,
-/// fan layout, dock apron, <c>VRCard.WorldWidth</c>) changes either way, because the
+/// fan layout, dock apron, <c>VRCard.SweepFaceWidthWorld</c>) changes either way, because the
 /// shaped mesh's bounds stay pinned to the full card box. If no footprint is ever
 /// supplied (or it fails the sanity guard) cards keep the opaque rounded rect — degrade
 /// to the rectangle, never to a wrong shape. 17 rounds of material/texture clips
@@ -914,9 +914,10 @@ internal static class CardMesh
     /// <para>WARM UMBER, not near-black (border round 14; user ruling "Ich möchte gerne an den
     /// aktuellen Proportionen festhalten... nur eben ohne die schwarzen Ränder"): the rim is a
     /// design element whose COLOUR was the defect. (0.42, 0.33, 0.23), luma ≈ 0.35, lands the
-    /// visible edge in the same warm-wood family as the tray liner/keycaps
-    /// (<c>PlayTray.SlotLinerColor</c> (0.46,0.37,0.26), luma 0.38) — on the tray the ring
-    /// blends into the liner beneath it, in the hand it reads as a warm card edge. Reaches all
+    /// visible edge in the same warm-wood family as the board's keycaps — it was picked against
+    /// the recess seat liner's (0.46,0.37,0.26), luma 0.38, which has since been deleted with the
+    /// liner itself (see PlayTray.4.Slots' record of that deletion), so the number below is now
+    /// the only survivor of that pair — in the hand it reads as a warm card edge. Reaches all
     /// wearers by construction: the Ability/Item pairs and the Neutral legacy pair all take
     /// their colour from here.</para>
     /// </summary>

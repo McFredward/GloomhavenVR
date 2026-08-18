@@ -1,8 +1,4 @@
-using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands;
-using GloomhavenVR.Hands.Interact;
-using GloomhavenVR.Rig;
 using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
@@ -280,16 +276,15 @@ internal sealed partial class PlayTray
     /// the game is not acting on, and the CONFIRM keycap appeared on EVERY such view. It had to:
     /// its whole visibility test was <c>CardsGameApi.CanConfirm() || ReadyToggleAvailable()</c>,
     /// and <see cref="CardsGameApi.CanConfirm"/> reads the ONE global
-    /// <c>Choreographer.readyButton</c> (CardsGameApi.cs:1873/1896) — a single scenario-wide
+    /// <c>Choreographer.readyButton</c> (via <c>CardsGameApi.CanConfirm</c>/<c>ReadyButton</c>) — a single scenario-wide
     /// widget with no character in it at all. So the same "Fortfahren" was offered on four boards.</para>
     ///
     /// <para>THE OWNER, read from the dispatch rather than guessed. <paramref name="hand"/> is the
-    /// hand the GAME presents — <c>CardsDriver.CurrentHand()</c> (CardsDriver.2.Update.cs:884/705),
-    /// already ownership-gated by <c>CardsGameApi.IsLocalHand</c> and already resolved through the
+    /// hand the GAME presents — <c>CardsDriver.CurrentHand()</c>, already ownership-gated by
+    /// <c>CardsGameApi.IsLocalHand</c> and already resolved through the
     /// deciding-actor priority chain (TakeDamage → ActionSelection → ItemPick → LoseRewardPick →
     /// InitiativeAdjust → ActiveHand). It is NOT the focus-resolved hand: focus is applied in
-    /// <c>CardsDriver.Rebuild</c> (<c>CharacterFocus.ResolveHand</c>, CardsDriver.4.Rebuild.cs:241),
-    /// not on this path. And it is exactly the object every CONFIRM/UNDO press re-reads:
+    /// <c>CardsDriver.Rebuild</c> (<c>CharacterFocus.ResolveHand</c>), not on this path. And it is exactly the object every CONFIRM/UNDO press re-reads:
     /// <c>CardsDriver.OnConfirmRequested</c> resolves <c>CurrentHand()</c> for the pick-dialog
     /// commit, for <c>TryLockPickBatch</c> and for the <c>IsConfirmed</c>/<c>SetReady</c> branch,
     /// and its last branch fires the global <c>ReadyButton</c>, which the game only ever arms for
@@ -417,8 +412,8 @@ internal sealed partial class PlayTray
     /// never taken away in the first place.</para>
     ///
     /// <para>MULTIPLAYER (standing rule — a peer must see EXACTLY what the owner sees). The hide
-    /// runs through <c>BoardButton.SetVisible(false)</c>, which clears <c>_logicalVisible</c>
-    /// (PlayTray.7.Nested.cs:708) — and <c>PlayTray.ConfirmControlShown</c>/<c>UndoControlShown</c>
+    /// runs through <c>BoardButton.SetVisible(false)</c>, which clears <c>BoardButton._logicalVisible</c>
+    /// (PlayTray.7.Nested.cs) — and <c>PlayTray.ConfirmControlShown</c>/<c>UndoControlShown</c>
     /// are defined as that very flag (their native-dock alternative is permanently false:
     /// <c>TrayControlDockSurface.ContinueDocked/ContinueVisible/UndoDocked</c> all return
     /// <c>false</c>). <c>NetAvatarDriver</c> reads them for <c>BoardUiConfirmBit</c>/

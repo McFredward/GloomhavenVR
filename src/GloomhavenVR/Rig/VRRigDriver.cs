@@ -423,11 +423,9 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         Instance = this;
         VREvents.SceneLoaded += OnSceneLoaded;
 
-        // Build the guarded tick list once. The array IS the order; it is no longer "the original
-        // Update() tail exactly", as this comment used to claim — Rig.RenderQuality was added
-        // later and was never part of that inline tail, which is the same edit that left the step
-        // list below wrong (see the note under the marker).
-        // Cached delegates → zero per-frame allocation in the loop.
+        // Build the guarded tick list once. THE ARRAY IS THE ORDER — and it is NOT "the original
+        // Update() tail": Rig.RenderQuality was inserted later and was never part of that inline
+        // tail. Cached delegates → zero per-frame allocation in the loop.
         //
         // FRAME-ORDER VRRigDriver._tailSteps [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.DepthPrepass, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]
         //   MixedReality is LAST on purpose: it reads the camera state every earlier step wrote
@@ -436,11 +434,11 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         //   Cross-boundary invariant: the array lives in Rig/, the constraint belongs to
         //   Core.MixedReality; the marker is the only thing holding the two together.
         //
-        //   The prose that used to sit here listed FIVE steps for this SIX-step array —
-        //   Rig.RenderQuality was inserted and the comment was left alone, so the only guard on
-        //   the mod's most order-sensitive array had been wrong ever since. Naming the steps
-        //   twice (here and in FRAME-ORDER.lock) and checking both against the source is exactly
-        //   what stops that from recurring.
+        //   THE TRAP THIS GUARDS: that same RenderQuality insertion edited the code and not the
+        //   prose here, which then listed FIVE steps for a SIX-step array — the only guard on the
+        //   mod's most order-sensitive array was silently wrong. Naming the steps twice (here and
+        //   in .planning/refactor/FRAME-ORDER.lock) and checking both against the source is
+        //   exactly what stops that from recurring.
         _tailSteps = new (string, System.Action)[]
         {
             ("Rig.HeadCullingMask", TickHeadCullingMask),

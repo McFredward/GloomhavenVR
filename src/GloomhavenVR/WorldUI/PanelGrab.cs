@@ -161,7 +161,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private const float Smoothing = 18f;          // 1/s exponential
     // Item 4: two-hand resize floor. Lowered from 0.5 so grabbable panels (the VR options
     // panel + floated menu windows especially) can be pinched MUCH smaller — the user could
-    // not shrink them enough. internal so the panel owners (GrabbableModal, SettingsPanel)
+    // not shrink them enough. internal so the panel owners (GrabbableModal, Cards.PlayTray)
     // reuse the SAME range for their own per-frame factor clamps (single source of truth);
     // clamping to a higher per-panel min would silently re-cap what this handle just shrank.
     // Applies to every PanelGrabHandle user (tray, combat log, modals, settings) — the user
@@ -176,7 +176,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     /// past the window at the board/cards no longer starts a laser-carry of the window. The
     /// registered zone collider stays as-is for the near-hand palm grab
     /// (<see cref="ProximityGrabber"/> highlight/grip range), which is deliberately generous.
-    /// Null (tray / combat log / settings panel, which never set it) keeps the old behavior:
+    /// Null (tray / combat log, which never set it) keeps the old behavior:
     /// the laser tests the registered collider.
     /// </summary>
     internal Collider? BarCollider { get; private set; }
@@ -233,7 +233,8 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
     public bool CanGrab => _owner != null && _owner.GrabVisible && (_handA == null || _handB == null);
 
-    /// <summary>Boards/world panels are always grip-grabbed (test #27), ignoring [Cards] GrabButton.</summary>
+    /// <summary>Boards/world panels are always grip-grabbed (test #27) — the [Cards] GrabButton
+    /// dial that once switched this is retired.</summary>
     public bool GrabWithGrip => true;
 
     public void OnGrab(VRHand hand)

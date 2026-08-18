@@ -75,13 +75,12 @@ namespace GloomhavenVR.Board.Patches;
 //                       bottomInteractable=True" — perfectly healthy, because
 //                      DescribeActionGate does not model FullAbilityCard.cs:613.
 //
-// FIX: the All-Cards viewer has no VR representation at all, so in VR it is pure
-// downside — it cannot be seen, cannot be closed, and its side effect is an
-// unrecoverable deadlock. Refuse to OPEN it while canvas conversion is active.
-// Exact sibling of WorldUI.Patches.InitiativeHoverCardBlock, which already
-// no-ops the HOVER half of the same problem (CardsHandManager.Preview would
-// hoist an unscaled full-size card into the room). That patch closed the hover
-// seam and left the CLICK seam open; this closes the click seam.
+// FIX: the All-Cards viewer has no VR representation at all — it cannot be seen,
+// cannot be closed, and its side effect is an unrecoverable deadlock. Refuse to
+// OPEN it while canvas conversion is active. Exact sibling of
+// WorldUI.Patches.InitiativeHoverCardBlock, which already no-ops the HOVER half of
+// the same problem (CardsHandManager.Preview would hoist an unscaled full-size card
+// into the room); this closes the CLICK seam that patch left open.
 //
 // This is a RELEASE of stuck state, not a selection redesign: the select half of
 // the click is untouched, every existing ownership/action-phase guard keeps its

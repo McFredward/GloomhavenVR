@@ -134,15 +134,10 @@ float4 _GhvrElemB;
 // above — see that method for the full argument.
 //
 // WHY THE ROOMS HAVE TO BE TELLABLE APART AT ALL. The gains below are shared by
-// both rooms, and the user has ruled OPPOSITE things for the two of them. The
-// forest clearing is supposed to brighten under Light ("Licht und Dunkelheit
-// beeinflussen zwar den Mond aber nicht die Lichtverhältnisse in der Lichtung",
-// ModBuild 144). The cellar is not ("Der 'Hell'-Effekt im Keller ... es soll
-// wirklich den Mondschein heller machen statt den ganzen Raum", ModBuild 146):
-// indoors, Light must go into the moonlight coming through the window and leave
-// the room's own darkness — and its candles, which he ruled untouchable a round
-// earlier — exactly where they are. Without this float one of those two rulings
-// has to lose.
+// both rooms, and the user has ruled OPPOSITE things for the two of them — the
+// clearing's ambient follows its own sky, the cellar's may not move at all. Both
+// rulings are quoted in full in the header ("...AND INDOORS, LIGHT DOES NOT LIFT
+// THE ROOM AT ALL"); without this float one of the two has to lose.
 //
 // It is a PRESENTATION constant, never a wire value: every client derives it
 // from its own style dial, exactly as it derives which room to instantiate.
@@ -518,7 +513,7 @@ float GhvrDirGain (GhvrElem e)
 //  split at the gain LIGHT WOULD NOT HAVE CHANGED, and only the part above it is
 //  masked.
 //
-//  THAT SPLIT POINT WAS THE CONSTANT 1.0 UNTIL ModBuild 150, and 1.0 was only
+//  THE SPLIT POINT USED TO BE THE CONSTANT 1.0, and 1.0 was only
 //  ever right by accident: while nothing could push the gain above 1 except
 //  Light, "above 1" and "Light's doing" were the same set. Once Light lifts the
 //  eclipse (LIGHT AND DARK TOGETHER, term 2) they part company — the L+D gain is

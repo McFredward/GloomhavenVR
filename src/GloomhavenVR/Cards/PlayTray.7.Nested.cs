@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
@@ -898,16 +897,15 @@ internal sealed partial class PlayTray
         /// </summary>
         internal System.Func<float>? ActivationGuard;
 
-        /// <summary>This cap's live ENABLED state — the multiplayer cap-STATE read seam (board-UI
-        /// record byte 2). Reading the flag the renderer itself obeys is what makes the mirrored
-        /// cap's colour the owner's colour by construction, instead of a second derivation of the
-        /// game rules that can drift from it.</summary>
-        internal bool StateEnabled => _enabledState;
-
-        /// <summary>This cap's live ACCENT state — see <see cref="StateEnabled"/>.</summary>
+        /// <summary>This cap's live ACCENT state — the multiplayer cap-STATE read seam (board-UI
+        /// record byte 2, via <c>PlayTray.ConfirmCapAccent</c>). Reading the flag the renderer
+        /// itself obeys is what makes the mirrored cap's colour the owner's colour by construction,
+        /// instead of a second derivation of the game rules that can drift from it. The ENABLED
+        /// flag has no such reader: nothing on the wire carries it, so it is read only inside this
+        /// class.</summary>
         internal bool StateAccent => _accent;
 
-        /// <summary>This cap's live CONFIRMED (readied) state — see <see cref="StateEnabled"/>.</summary>
+        /// <summary>This cap's live CONFIRMED (readied) state — see <see cref="StateAccent"/>.</summary>
         internal bool StateConfirmed => _confirmed;
 
         /// <summary>

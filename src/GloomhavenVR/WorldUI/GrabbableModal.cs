@@ -1,7 +1,5 @@
-using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 

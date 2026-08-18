@@ -127,7 +127,7 @@ namespace GloomhavenVR.WorldUI;
 /// saturated keys are nowhere near the dark panel neutral, but the BLACK preset is close to
 /// it, so when the live key color comes within keying distance of the plate color the plate
 /// is lifted to a brighter warm gray instead. Re-checked every tick (the key is live-cycled
-/// from the settings panel).
+/// from the VR options tab).
 /// </summary>
 internal static class MrBacking
 {

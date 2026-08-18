@@ -44,13 +44,14 @@ namespace GloomhavenVR
         //   trunk band starts at 6.2 m, and the understory/deadfall ring is
         //   authored to stay outside 4.5 m. 9.0 m it is.
         //   Cellar — the free floor in the middle of a 10.5 x 9.0 m room. The
-        //   props line the walls; the closest (the stool) stands at 3.85 m — it
-        //   used to be 3.44 m, and it moved out when the stool was scaled to a
-        //   real 0.45 m seat (user, cellar 12: "als ob es ein Hocker für eine
-        //   Maus ist"), because a stool of the right size at the old spot has its
-        //   near edge inside the radius. NOT the room's own 9.0 m: that would put
-        //   the board's diorama scale on a circle that the table, stool and
-        //   crates all stand inside of.
+        //   props line the walls, and the nearest of them moved OUT when the
+        //   stool was scaled to a real 0.45 m seat (user, cellar 12: "als ob es
+        //   ein Hocker für eine Maus ist"), because a stool of the right size at
+        //   the old spot has its near edge inside the radius. NOT the room's own
+        //   9.0 m: that would put the board's diorama scale on a circle that the
+        //   table, stool and crates all stand inside of.
+        // Every object's LIVE clearance is printed per room by PlaySpaceCheck, so
+        // no measurement is copied into this block to go stale.
         public const float ForestPlaySpaceDia = 9.0f;
         public const float CellarPlaySpaceDia = 6.5f;
 
@@ -100,13 +101,13 @@ namespace GloomhavenVR
         // through the gap under it — plus a height ceiling.
         //
         // WHAT THIS CLAUSE ALLOWS, and the two things it does not.
-        //   * PlaySpaceCarpetY 0.45 m is the ceiling, against a 1.50 m board
-        //     plane in the wood: a margin of 3.3x, on a number that cannot drift
-        //     with zoom. An object is a CARPET only if its ENTIRE geometry is
-        //     under it — one vertex above and it gets the full play-radius rule,
-        //     so a barrel, a stool or a fern can never slip through by having a
-        //     low foot. The tallest thing this round builds inside the disc is a
-        //     0.442 m tussock at r 4.5 m.
+        //   * PlaySpaceCarpetY is the absolute ceiling, and PlaySpaceCheck takes
+        //     the smaller of it and HALF the board's own plane — 0.75 m in the
+        //     wood (board plane 1.50 m), 0.54 m in the cellar (1.08 m) — so the
+        //     margin is 2x on a number that cannot drift with zoom. An object is
+        //     a CARPET only if its ENTIRE geometry is under that ceiling: one
+        //     vertex above and it gets the full play-radius rule, so a barrel, a
+        //     stool or a fern can never slip through by having a low foot.
         //   * PlaySpaceCarpetR 1.70 m is the hard clearance. The board's own
         //     half-diagonal is at most 1.41 m (a 2.00 m square envelope), so the
         //     carpet stops 0.29 m outside the worst corner the board can have and
@@ -183,16 +184,15 @@ namespace GloomhavenVR
             // 0.20-1.70 m on walls he stands next to.
             ["fungus"] = 1024,
             // THE FIRE ATLAS (ModBuild 147). 512, which is exactly what the
-            // procedural atlas it replaces was (BuildEnvironments.FireTile 256
-            // x FireAtlasCols 2) — the swap is the ART, not the budget, and the
-            // bundle does not grow by a byte. 512 is also the honest ceiling
-            // here: the four sources are 512, 512, 256 and a 512 crop of a 1k
-            // sheet, so a 1k atlas would be upsampling three of them.
-            // NOT in HqAlbedo, deliberately, and for the reason MakeFireAtlas
-            // already wrote down: this is a single channel that varies smoothly,
-            // i.e. the BEST case for BC3's alpha block rather than the worst
-            // case its RGB blocks are. RGB is a constant 255 and compresses to
-            // nothing. ~170 KiB with mips.
+            // retired procedural atlas was (2x2 cells of 256 px) — the swap is
+            // the ART, not the budget, and the bundle does not grow by a byte.
+            // 512 is also the honest ceiling here: the four sources are 512,
+            // 512, 256 and a 512 crop of a 1k sheet, so a 1k atlas would be
+            // upsampling three of them.
+            // NOT in HqAlbedo, deliberately: this is a single channel that
+            // varies smoothly, i.e. the BEST case for BC3's alpha block rather
+            // than the worst case its RGB blocks are. RGB is a constant 255 and
+            // compresses to nothing. ~170 KiB with mips.
             ["fire_atlas"] = 512,
             // minor props
             ["wooden_stool_02"] = 512, ["wooden_bucket_01"] = 512,
@@ -1916,8 +1916,11 @@ namespace GloomhavenVR
             // world zero; a prop with its own transform gets that point pulled
             // back into its space here, which is why a barrel three metres out
             // frosts on its outward side and warms on the side that faces the
-            // table. Guarded by HasProperty: EnvGround and EnvRoomCutout go
-            // through this same flush and belong to other lanes this round.
+            // table. Guarded by HasProperty because the same flush also carries
+            // the materials whose shaders have no element frame at all — the
+            // flames, the halos, the rat and the drop (EnvFlame, EnvGlow,
+            // EnvCritter, EnvDrip, EnvHaunt); EnvRoom, EnvGround and
+            // EnvRoomCutout all declare it.
             float s = (xf.lossyScale.x + xf.lossyScale.y + xf.lossyScale.z) / 3f;
             if (m.HasProperty("_ElemCentre"))
             {
@@ -1956,15 +1959,15 @@ namespace GloomhavenVR
             // comes out in object units exactly as _L*Pos.w does.
             if (m.HasProperty("_FirePos0"))
             {
-                // ModBuild 148 ADDS NO CHANNEL HERE, and it wanted to. The
+                // THERE IS NO SIZE CHANNEL HERE, and ModBuild 148 wanted one. The
                 // inverse-square core of the wash and the reach of the coals both
                 // want the fire's own SIZE at each seat; both take it from
                 // `range` instead (EnvFire.cginc's GHVR_FIRE_CORE_K), because a
                 // Unity material can only carry a uniform declared in its
-                // shader's Properties block and the readers here are
-                // EnvRoom.shader and EnvGround.shader, which are other lanes'
-                // files this round. AssertFireSeatCores below is the check that
-                // keeps the derivation honest.
+                // shader's Properties block and adding a fourth _FirePos* lane to
+                // EnvRoom and EnvGround costs a channel in every lit material in
+                // both rooms. AssertFireSeatCores is the check that keeps the
+                // derivation honest.
                 for (int i = 0; i < 3; i++)
                 {
                     string pn = "_FirePos" + i;
@@ -2044,9 +2047,9 @@ namespace GloomhavenVR
         /// was actually wrong.</para>
         ///
         /// <para>THE EVIDENCE THAT THE ART WAS THE WRONG HALF. Put the two atlases
-        /// side by side. MakeFireAtlas's tongue cells are an ANALYTIC CONE with a
-        /// sharp apex, filled with a coarse four-octave fBm that reads as curdled
-        /// blobs; its bed is a rounded rectangle. A cone with a sharp point is the
+        /// side by side. The procedural atlas's tongue cells were an ANALYTIC CONE
+        /// with a sharp apex, filled with a coarse four-octave fBm that reads as
+        /// curdled blobs; its bed was a rounded rectangle. A cone with a point is the
         /// candle silhouette this feature has now been rejected for twice, and the
         /// file's own comments say so ("WIDE, and that is the lesson of both
         /// previous bakes: a tongue as narrow as a candle flame IS a candle
@@ -2061,16 +2064,10 @@ namespace GloomhavenVR
         /// so the fire keeps the SIZE six rounds of tuning settled on and changes
         /// only its SHAPE.</para>
         ///
-        /// <para>THE PROCEDURAL ATLAS COSTS THE BUNDLE NOTHING, and that was
-        /// checked rather than assumed. BuildEnvironments.MakeFireAtlas still
-        /// bakes Textures/Env_Fire.png, but nothing references it any more and
-        /// the bake's own sweep takes it straight back out — the log line reads
-        /// "pruned unreferenced Assets/Bundle/Environments/Textures/Env_Fire.png".
-        /// So the swap is bundle-neutral WITHOUT touching BuildEnvironments.cs,
-        /// which is another lane's file this round. Retiring the generator itself
-        /// (the WritePng call and MakeFireAtlas, ~100 lines) is a tidy-up for
-        /// whoever owns that file next; it is named in the report and deliberately
-        /// not reached into here.</para>
+        /// <para>THE SWAP COST THE BUNDLE NOTHING. The procedural generator kept
+        /// running for six builds after it was superseded, writing an Env_Fire.png
+        /// that nothing referenced and the bake's own sweep deleted again; it is
+        /// retired now (see THE RETIRED FIRE ATLAS in BuildEnvironments.cs).</para>
         ///
         /// <para>PROVENANCE AND LICENCE: see Bundle/Environments/License.md. The
         /// shipped PNG is a re-authored composite — four greyscale masks cropped,
@@ -2251,9 +2248,6 @@ namespace GloomhavenVR
         /// corners are empty air.</summary>
         private static float SupportUnder(GameObject support, GameObject prop, Foot f, out float cover)
         {
-            // the prop's CONTACT SET: the vertices that actually touch down.
-            // Probing the footprint's AABB corners instead would flag every
-            // rotated or round prop, whose corners are empty air.
             float lowest = TrueMinY(prop);
             var contact = WorldVerts(prop).Where(p => p.y < lowest + 0.06f)
                                           .Select(p => new Vector2(p.x, p.z)).ToList();
@@ -2342,7 +2336,8 @@ namespace GloomhavenVR
         // Contact shading. These rooms have NO shadows at all (baked-light
         // materials, no scene lights), and without a dark pool where a prop meets
         // the floor even a perfectly grounded barrel reads as hovering — half of
-        // "Gegenstände schweben herum" is missing contact, not missing contact.
+        // "Gegenstände schweben herum" is missing CONTACT SHADING, not missing
+        // grounding, and no amount of exact grounding answers that half.
         // Every ground-standing prop registers its footprint here and the floor
         // mesh's vertex colours are darkened underneath at the end of the room.
         private static readonly List<(Foot f, float strength)> Contacts
@@ -2407,11 +2402,10 @@ namespace GloomhavenVR
             // THE CEILING IS PER-ROOM, and it is half the board's own plane
             // rather than a constant: the proof only says "under the board", and
             // half of the way there is the margin this project is willing to
-            // build on. PlaySpaceCarpetY is the absolute cap on top of that, so
-            // the effective ceiling is 0.75 m in the wood (board plane 1.50) and
-            // 0.54 m in the cellar (1.08). Anything taller is not a carpet and
-            // gets the full play-radius rule — there is no state in which an
-            // object is "a carpet that is too tall".
+            // build on (see THE GROUND CARPET for the derivation and the two
+            // rooms' numbers). Anything taller is not a carpet and gets the full
+            // play-radius rule — there is no state in which an object is "a
+            // carpet that is too tall".
             float ceil = Mathf.Min(PlaySpaceCarpetY, plane * 0.5f);
             if (PlaySpaceCarpetR <= BoardCornerR(diameter))
                 throw new Exception($"{label}: the ground-carpet clearance is {PlaySpaceCarpetR:F2} m "
@@ -2793,7 +2787,7 @@ namespace GloomhavenVR
                 tri.AddRange(new[] { b, b + 1, b + 2, b, b + 2, b + 3 });
             }
             float x = w / 2f, z = d / 2f;
-            Face(new Vector3(-x, 0, -z), new Vector3(0, h, 0), new Vector3(w, 0, 0));   // front -Z? (normal -Z)
+            Face(new Vector3(-x, 0, -z), new Vector3(0, h, 0), new Vector3(w, 0, 0));   // front -Z
             Face(new Vector3(x, 0, z), new Vector3(0, h, 0), new Vector3(-w, 0, 0));    // back +Z
             Face(new Vector3(-x, 0, z), new Vector3(0, h, 0), new Vector3(0, 0, -d));   // left -X
             Face(new Vector3(x, 0, -z), new Vector3(0, h, 0), new Vector3(0, 0, d));    // right +X
@@ -3454,13 +3448,8 @@ namespace GloomhavenVR
             //
             // The `ElemSnow` emitter — 42 alive, a 5.3-8.0 m ring at 3.6 m, its
             // ring, its velocity, its curl and its fade — is DELETED, not
-            // disabled. FX_ElemSnow.mat is still AUTHORED by BuildEnvironments
-            // (which this lane does not own) but it is no longer referenced by
-            // anything, so PruneUnreferenced removes it from the bundle at the
-            // end of every bake — confirmed in the log. The dead LoadOrNewMat
-            // call is the only residue, and it belongs to whoever next opens that
-            // file. The same is true of FX_ElemDraught.mat and of Env_Wisp.png,
-            // which the two deleted streak emitters were the only users of.
+            // disabled, and so is its material: FX_ElemSnow.mat, FX_ElemDraught.mat
+            // and Env_Wisp.png are no longer authored at all (BuildEnvironments.cs).
             //
             // ICE IS A SURFACE ELEMENT IN BOTH ROOMS NOW, which is what makes the
             // deletion a simplification rather than a loss: the frost on the
@@ -5186,8 +5175,9 @@ namespace GloomhavenVR
                 {
                     var moteMat = NewRoomMat("FX_BeamMote.mat", "GloomhavenVR/EnvParticleAlpha");
                     // Env_Glow, the soft radially symmetric bokeh — NOT Env_Spark
-                    // (a hard bright core is what "Funken" named in 143) and NOT
-                    // Env_Wisp (a 4:1 filament is what "Linien" named in 147).
+                    // (a hard bright core is what "Funken" named in 143) and not
+                    // a long filament (a 4:1 wisp is what "Linien" named in 147,
+                    // and that sprite is retired).
                     moteMat.SetTexture("_MainTex",
                         AssetDatabase.LoadAssetAtPath<Texture2D>(Root + "/Textures/Env_Glow.png"));
                     moteMat.SetColor("_Tint", new Color(0.46f, 0.52f, 0.62f, 1f));
@@ -6583,8 +6573,9 @@ namespace GloomhavenVR
         /// them. So the claim is exact — each triangle's normal must point TOWARD
         /// the tunnel's own axis — and it is checked against the built mesh.
         ///
-        /// <para>This project has shipped FOUR meshes wound against the side they
-        /// are seen from, one of which (the puddle) was invisible for ten builds
+        /// <para>This project has shipped SIX meshes wound against the side they
+        /// are seen from (they are enumerated at THE BEAM MOTE'S MESH), one of
+        /// which (the puddle) was invisible for ten builds
         /// behind Cull Back. A rewrite of a mesh's topology — which the splay is
         /// — is exactly the moment that happens, so the rewrite comes with the
         /// gate. Verified by REVERSING the triangle order in RevealMesh and
@@ -9154,17 +9145,15 @@ namespace GloomhavenVR
             bool hasDecal = cards.Any(c => c.kind == HKindDecal);
             mat.SetColor("_Fill", hasDecal ? HandFillSRGB : fillLight);
             if (hasDecal) AssertHandWallMirror();
-            // 0.08, not 0.30. The rim is COMPENSATION for a room that has gone
-            // black (full Dark adds 0.55 on top), not a permanent outline: at 0.30
-            // every apparition wore a bright even line all the way round itself,
-            // which is the visual grammar of a sticker and was the loudest thing
-            // in the frame.
-            // 0.02, down from 0.08. The rim used to be measured against an atlas
-            // whose key channel peaked at 1.0; it is now measured against a baked
-            // key that peaks at 0.03-0.10, and at 0.08 the outline was BRIGHTER
-            // than the thing it outlined — which is the visual grammar of a
-            // sticker and is exactly what the 0.30 -> 0.08 pass was for the first
-            // time round.
+            // 0.02, and it has come down twice from 0.30. The rim is
+            // COMPENSATION for a room that has gone black (full Dark adds 0.55
+            // on top), not a permanent outline: at 0.30 every apparition wore a
+            // bright even line all the way round itself, which is the visual
+            // grammar of a sticker and was the loudest thing in the frame. The
+            // second cut is a change of units — the rim used to be measured
+            // against an atlas whose key channel peaked at 1.0 and is now
+            // measured against a baked key that peaks at 0.03-0.10, so at 0.08
+            // the outline was BRIGHTER than the thing it outlined.
             mat.SetFloat("_Rim", 0.02f);
             mat.SetColor("_RimCold", new Color(0.42f, 0.56f, 0.78f, 1f));
             mat.SetColor("_RimWarm", new Color(0.95f, 0.48f, 0.16f, 1f));
@@ -9932,8 +9921,8 @@ namespace GloomhavenVR
         /// WIDER THAN IT IS TALL, sitting ON the object. The previous version had
         /// bed cards but drew them with the candle sprite and clamped them to
         /// 2.8:1 to stop the teardrop smearing — so the bed was more teardrops.
-        /// These are drawn with an authored BED cell (a wide, holed, cloudy mass:
-        /// BuildEnvironments.MakeFireAtlas), they are crowded into the inner 85%
+        /// These are drawn with the atlas's own BED cell (a wide, holed, cloudy
+        /// mass — see FireAtlas()), they are crowded into the inner 85%
         /// of the seat where several always overlap, they carry over half of the
         /// fire's energy, and they neither surge nor wander — a bed of embers
         /// that slid about would read as a puddle of light. Additively they pile
@@ -10633,9 +10622,10 @@ namespace GloomhavenVR
         }
 
         // ============================ THE WINDING AND NORMAL GATE ===============
-        // FIVE MESHES IN THIS PROJECT HAVE SHIPPED WOUND AGAINST THEIR OWN
-        // VIEWER (the puddle was invisible for ten builds), and this round adds a
-        // sixth way to get the same class of fault wrong: a fire card is now
+        // SIX MESHES IN THIS PROJECT HAVE SHIPPED WOUND AGAINST THEIR OWN
+        // VIEWER (they are enumerated at THE BEAM MOTE'S MESH; the puddle was
+        // invisible for ten builds), and there is one more way to get the same
+        // class of fault wrong: a fire card is now
         // FADED BY ITS OWN NORMAL, so a normal that points along the card instead
         // of across it, or that is not unit, or that is tilted out of horizontal,
         // does not make the fire look slightly wrong — it inverts the fade and
@@ -10660,8 +10650,8 @@ namespace GloomhavenVR
         // as the normal (the exact plausible slip) and requires this method to
         // throw on it. A gate that has never been seen to fail is a comment.
         // It hangs off FireMesh and not off BuildAll only because BuildAll lives
-        // in BuildEnvironments.cs, which is another lane's file this round; the
-        // once-flag makes the two arrangements identical in effect.
+        // in BuildEnvironments.cs; the once-flag makes the two arrangements
+        // identical in effect.
         private static void AssertFireCardNormals(Mesh m, string name)
         {
             var V = m.vertices; var N = m.normals;
@@ -10708,7 +10698,8 @@ namespace GloomhavenVR
         /// <summary>Proof that the gate above fires. Builds one quad whose normal
         /// is its own width direction — a swapped component, which is the slip a
         /// human would actually make — and requires AssertFireCardNormals to
-        /// throw on it. Called once from BuildAll, before either room.</summary>
+        /// throw on it. Called once per session, from FireMesh, before the first
+        /// card of a bake is built (see PROVEN TO FIRE above).</summary>
         private static void FireCardNormalGateSelfTest()
         {
             var bad = new Mesh { name = "Env_FireCardGateSelfTest" };
@@ -10746,15 +10737,15 @@ namespace GloomhavenVR
         // was invisible for ten builds. So this one arrives with its answer
         // written down and with a gate that has been watched to fail.
         //
-        // WHICH SIDE MUST THIS MESH BE SEEN FROM? **BOTH SIDES OF BOTH QUADS, AND
-        // FROM EVERY DIRECTION.** A dust mote has no front. It is a flake
+        // WHICH SIDE MUST THIS MESH BE SEEN FROM? **BOTH SIDES OF ALL THREE
+        // QUADS, AND FROM EVERY DIRECTION.** A dust mote has no front. It is a flake
         // tumbling in air, and the player will walk round the shaft it lives in
         // and look at it from underneath. That claim has three parts and the gate
         // below checks all three rather than trusting the sentence:
         //   1. the material must draw both faces (EnvParticleAlpha/EnvParticleAdd
         //      are `Cull Off`, and no other shader may be put on this mesh);
-        //   2. the quads must be MUTUALLY PERPENDICULAR and all must pass
-        //      through the centre, so the cross has no viewing direction of zero
+        //   2. the quads must be MUTUALLY PERPENDICULAR, so the cross has no
+        //      viewing direction of near-zero
         //      projected area — the gate MEASURES the worst direction over a
         //      sphere rather than assuming it, and it earned its keep the first
         //      time it ran: the two-quad cross this mesh started as was rejected
@@ -10831,7 +10822,7 @@ namespace GloomhavenVR
             // (1) the material must draw both faces.
             string sh = mat == null || mat.shader == null ? "<none>" : mat.shader.name;
             if (sh != "GloomhavenVR/EnvParticleAlpha" && sh != "GloomhavenVR/EnvParticleAdd")
-                throw new Exception($"Mote mesh '{name}' is drawn with '{sh}'. This mesh is two flat "
+                throw new Exception($"Mote mesh '{name}' is drawn with '{sh}'. This mesh is three flat "
                                     + "quads with no volume and no front: it is only legal on a "
                                     + "shader that draws both faces (EnvParticleAlpha and "
                                     + "EnvParticleAdd are `Cull Off`). On a culled shader every mote "
@@ -10900,7 +10891,7 @@ namespace GloomhavenVR
                                         + "The mesh says one thing and its triangles say another.");
                 qn[q] = g0;
             }
-            // (2) mutually perpendicular, through the centre, and no blind angle.
+            // (2) mutually perpendicular, and no blind angle.
             for (int i = 0; i < quads; i++)
                 for (int j = i + 1; j < quads; j++)
                     if (Mathf.Abs(Vector3.Dot(qn[i], qn[j])) > 1e-3f)
@@ -10932,7 +10923,7 @@ namespace GloomhavenVR
         }
 
         /// <summary>Proof that the gate above fires. Takes the SHIPPED mote mesh,
-        /// reverses the winding of ONE of its four triangles — the slip a human
+        /// reverses the winding of ONE of its six triangles — the slip a human
         /// actually makes when copying a quad — and requires the check to throw.
         /// A gate that has never been seen to fail is a comment, not a gate.</summary>
         private static void MoteCrossGateSelfTest()
@@ -10954,7 +10945,7 @@ namespace GloomhavenVR
                                     + "wound against the side they are seen from; a gate that "
                                     + "cannot be watched to fail proves nothing.");
             Debug.Log("[GloomhavenVR][Env] mote-cross winding gate: SELF-TEST PASSED — the shipped "
-                      + "mesh passes, and the same mesh with ONE of its four triangles reversed is "
+                      + "mesh passes, and the same mesh with ONE of its six triangles reversed is "
                       + "rejected with \"wound against each other\". The gate is live.");
         }
 
@@ -11099,9 +11090,11 @@ namespace GloomhavenVR
         //   SCROLL     field periods per FIRE CYCLE, not per second: the
         //              dissolve rides GhvrFireHz with everything else, so a fire
         //              in a draught boils faster (his own "noch mehr Glut").
-        //              0.42 x 4.6 Hz = 1.93 periods/s, i.e. a feature climbs the
-        //              0.72 of a period a card spans in 0.37 s — about 1 m/s on
-        //              a 40 cm tongue, which is a flame's own rise speed.
+        //              The shipped 0.79 x 4.6 Hz is 3.6 periods/s, i.e. a
+        //              feature climbs the card in about a quarter of a second —
+        //              roughly a flame's own rise speed on a 40 cm tongue. It is
+        //              RE-DERIVED and not kept whenever TILE V moves; see the
+        //              re-derivation block below.
         //   BOOST      the mask's pre-multiply. It stays NEAR 1 on purpose; see
         //              the pipeline for the render that proves why.
         //   AMOUNT     how deep the field cuts at the TIP.
@@ -11288,7 +11281,8 @@ namespace GloomhavenVR
             // 142 verdict already made about the round before it. The base stop is
             // deliberately over 1 in every channel: this is an ADDITIVE pass and
             // the seat of a fire is the one thing in a cellar that clips.
-            // 1.52/1.30/1.06 and not the first bake's 1.70/1.52/1.34: the seat has
+            // Blue and green stay a clear step under red (the first bake's near
+            // neutral 1.70/1.52/1.34 is what this replaces): the seat has
             // to be the hottest thing in the frame, but pushed to a NEUTRAL white
             // it clipped all three channels together and the fire came out pale
             // instead of hot. Keeping blue and green a step under red leaves the
@@ -11704,7 +11698,8 @@ namespace GloomhavenVR
             // standing in front of every fire in both rooms -- see
             // env_swamp_FireSnagWide_efireS from the ModBuild 148 bake.
             //
-            // The NEAR halos go 0.15/0.14/0.12/0.14 -> 0.038/0.035/0.030/0.035.
+            // The NEAR halos were divided by about four, to the 0.030-0.038 the
+            // Halo() calls below pass.
             // The WALL WASHES (C_FireWash*, 0.026-0.028) are NOT touched: a wash
             // is already an order below the near halo and it is the term that
             // makes the masonry behind a fire look lit.
@@ -12172,24 +12167,23 @@ namespace GloomhavenVR
             // is what "unsteadily" means and is only possible because GhvrWave4 is
             // bounded.
             //
-            // 1.05 AND 2.8-3.1 m RANGES, down from the first bake's 1.55 and
-            // 3.3-3.7 m, and the render is the argument. At the first numbers the
-            // three seats reached each other and the whole cellar came up to an
-            // even orange — a lit room, which is the one thing six rounds of
-            // tuning this cellar have been spent on not having. A fire lights
-            // what it stands on; it does not light the room. What is here now
-            // leaves the two corners furthest from anything burning as dark as
-            // they are with the fire down.
+            // THE STRENGTH AND THE RANGES ARE BOTH DOWN from the first bake's
+            // 1.55 and 3.3-3.7 m, and the render is the argument. At the first
+            // numbers the three seats reached each other and the whole cellar
+            // came up to an even orange — a lit room, which is the one thing six
+            // rounds of tuning this cellar have been spent on not having. A fire
+            // lights what it stands on; it does not light the room. What is here
+            // now leaves the two corners furthest from anything burning as dark
+            // as they are with the fire down.
             //
-            // ...AND ModBuild 148 GAVE IT A REAL FALLOFF, so the strength moves
-            // with it. The window is now an inverse-square core inside the same
-            // window (EnvFire.cginc's THE FALLOFF block): at a tenth of the range
-            // the surface a fire STANDS ON keeps about 90 % of what it had, and
-            // at half the range the flat mid-field wash is down by three
-            // quarters. 1.05 -> 1.22 restores the first number exactly and
-            // deliberately does not restore the second — a fire lights what it
-            // stands on, it does not light the room, and the whole complaint
-            // about the wood was a wash that did the second.
+            // The wash also has a REAL FALLOFF now, so the strength moves with
+            // it: an inverse-square core inside the same window (EnvFire.cginc's
+            // THE FALLOFF block), so at a tenth of the range the surface a fire
+            // STANDS ON keeps about 90 % of what it had, and at half the range
+            // the flat mid-field wash is down by three quarters. The strength was
+            // raised to compensate at the seat and deliberately NOT raised enough
+            // to restore the mid-field — a fire lights what it stands on, and the
+            // whole complaint about the wood was a wash that did the other thing.
             rig.fireWash = new Color(0.98f, 0.39f, 0.12f, 0.45f);
             rig.fireHz = FireHz;
 
@@ -12357,8 +12351,9 @@ namespace GloomhavenVR
                 seats.Add((n, seat, radius, height, cards));
             }
 
-            // ModBuild 148: 0.16/0.14/0.15 -> 0.040/0.035/0.038. See the cellar
-            // Halo()'s block for the whole argument -- these alphas were authored
+            // The forest's halo alphas were divided by about four as well — the
+            // live values are the ones the Halo() calls below pass (0.026-0.028).
+            // See the cellar Halo()'s block for the whole argument -- these alphas were authored
             // against a halo that was never drawn, and the first bake that really
             // drew them put a 2.7 m cream ball round the burning snag. Divided by
             // four; a halo may not be brighter than the flame it belongs to, and
@@ -12715,13 +12710,13 @@ namespace GloomhavenVR
             // handspan, which is roughly where the luminous part of the flame
             // sheet really is.
             var toClearing = new Vector3(-foot.x, 0f, -foot.z).normalized;
-            // rFoot + 0.55 and not + 0.20: at a fifth of a metre the seat was
-            // barely in front of the bark it was meant to be lighting, so N.L on
-            // the trunk's own face was still near zero and the burning tree stayed
-            // blue-grey. Half a metre out is roughly where the luminous sheet of
+            // NOT rFoot + 0.20: at a fifth of a metre the seat was barely in
+            // front of the bark it was meant to be lighting, so N.L on the
+            // trunk's own face was still near zero and the burning tree stayed
+            // blue-grey. Roughly half a metre out is where the luminous sheet of
             // a fire licking up a trunk actually stands.
             //
-            // ---- ModBuild 149: 0.55 -> 0.40, AND THE REASON IS THE COALS -----
+            // ---- ...AND THEN 0.55 -> 0.40, THE REASON BEING THE COALS --------
             // This seat is the only handle the GLUT has on where it lands: the
             // coals are a window on the same distance the wash uses (EnvFire's
             // GhvrFireSeatOne) and there is no channel to give them a seat of
@@ -13114,21 +13109,9 @@ namespace GloomhavenVR
             // in it, so wind ripples here are physics rather than decoration —
             // and the moon's reflection breaking into travelling bands is the
             // cheapest legible statement in the room that the air is MOVING and
-            // which way. 0.10 against the drip's own _RingAmp of 0.55: a draught
-            // ruffles a puddle, it does not out-ring a falling drop.
-            //
-            // 0.18, and it is derived rather than eyeballed because THE PREVIEW
-            // CANNOT SETTLE THIS ONE. The only element-review frame that contains
-            // the puddle ('Puddle') also contains the moon pool, which is drawn
-            // additively ON TOP of it, so the multiply pass's contribution there
-            // is swamped: raising this number from 0.10 to 0.32 moved a measured
-            // maximum of 3/255 in that frame, i.e. the frame is blind to it, not
-            // the effect absent. So the value comes from the physics instead: the
-            // wave's spatial frequency is 7.3 rad/m and the normal path takes
-            // 0.30 of the amplitude, so 0.18 tilts the water by about 21 deg at
-            // the crests — what a draught does to standing water — and swings the
-            // wet darkening by ~13%. HARDWARE HAS TO JUDGE IT, from a pose where
-            // the puddle is not under the moon pool.
+            // which way — but a draught RUFFLES a puddle, it does not out-ring a
+            // falling drop, and the amplitude below is set against the drip's own
+            // _RingAmp to keep it that way round.
             pud.SetVector("_DraftDir", DraftDir);
             // 0.18 -> 0.018, and the old comment's own arithmetic is what
             // condemns it. It reasoned "the wave's spatial frequency is 7.3 rad/m
@@ -14534,7 +14517,9 @@ namespace GloomhavenVR
             return best;
         }
 
-        /// <summary>How far along the path (0 at the clearing, 1 where it fades).</summary>
+        /// <summary>How much of the path is left: 1 out to 9 m (the clearing and
+        /// the near wood), falling to 0 by 15 m where it fades into the trees.
+        /// Every caller uses it as a multiplier that dies with distance.</summary>
         private static float PathFade(float x, float z) =>
             Mathf.SmoothStep(1f, 0f, Mathf.InverseLerp(9f, 15f, new Vector2(x, z).magnitude));
 
@@ -15573,7 +15558,7 @@ namespace GloomhavenVR
                 // ---- and the mass map beside it (SHAFT MASS) ----
                 // R = nearest foliage depth, G = deepest, B/A = the coverage of
                 // the mass at each. Eight bits per channel is an 18 cm depth
-                // quantum, which is a fifth of this map's own 22 cm texel and a
+                // quantum, which is under this map's own 22 cm texel and a
                 // seventh of the shortest onset any receiver asks for — the
                 // precision argument that forces 16 bits on the trunk layer simply
                 // does not arise for a cloud.
@@ -15846,9 +15831,9 @@ namespace GloomhavenVR
                 litter *= 1f - 0.92f * onPath;
                 // Darkness: the clearing floor is the brightest thing down here,
                 // everything under the canopy falls away into black.
-                // ModBuild 134: the fall-off starts inside the tree ring (6.5 m,
-                // was 8) and bottoms out at 2% (was 9%) by 16 m (was 22) — walk
-                // past the first trunks and there is no ground left to see.
+                // The fall-off starts INSIDE the tree ring (5.2 m) and bottoms
+                // out at 1.5% by 11.5 m — walk past the first trunks and there
+                // is no ground left to see.
                 float fade = Mathf.SmoothStep(1f, 0.015f, Mathf.InverseLerp(5.2f, 11.5f, r));
                 float open = Mathf.Lerp(0.20f, 1f, Mathf.SmoothStep(1f, 0f,
                                         Mathf.InverseLerp(ClearR - 2.0f, ClearR + 2.5f, r)));
@@ -16170,7 +16155,8 @@ namespace GloomhavenVR
             //   switching on at a plane — the one thing that could have traded the
             //   comb's vertical teeth for horizontal ones.
             //
-            //   FLOOR, FolVis 0.86 — a seventh of the blades' response. The floor
+            //   FLOOR, FolVis 0.78 — a texel of solid needle mass takes 22% off
+            //   the floor's moon, against the blades' 38%. The floor
             //   was already refusing the crown wash on purpose (the bite ramp's
             //   whole reason for existing at 0.26 was to throw away the 0.1-0.25
             //   dusting from the roof 20-30 m up-light), and a hand-tuned floor may
@@ -16742,17 +16728,18 @@ namespace GloomhavenVR
                 // product, so the pass stays additive and order-independent and
                 // no other term is disturbed.
                 //
-                // beamLook, declared with the bake: a 7 m throw so the boughs the
-                // beam is actually passing through are found, a bite ramp so only
-                // the solid ones are drawn, and a 12% visibility floor so that
-                // when one does bite it is unmistakable and the beam still
-                // arrives. The penumbra is 0.22 m against the floor's 0.18
-                // because a blade's shadow edge hangs in mid-air, where there is
-                // no albedo detail to hide a hard one — a beam of lit mist that
-                // goes to nothing behind a bough looks CUT. And 12%, not 0: what
-                // is left over is the light the mist scatters sideways into the
-                // shadowed stretch, which is real. A shaft does not have a black
-                // bite taken out of it, it goes dim and comes back.
+                // beamLook, declared with the bake: a 5 m throw so the boughs the
+                // beam is actually passing through are found (7.0 was tried first
+                // and overshot — see the Look block), a bite ramp so only the
+                // solid ones are drawn, and a 14% visibility floor so that when
+                // one does bite it is unmistakable and the beam still arrives.
+                // The penumbra is 0.22 m against the floor's 0.18 because a
+                // blade's shadow edge hangs in mid-air, where there is no albedo
+                // detail to hide a hard one — a beam of lit mist that goes to
+                // nothing behind a bough looks CUT. And 14%, not 0: what is left
+                // over is the light the mist scatters sideways into the shadowed
+                // stretch, which is real. A shaft does not have a black bite
+                // taken out of it, it goes dim and comes back.
                 canopyShadow.Apply(shaftMat, beamLook);
                 var shMesh = SaveMesh("Env_S_Shafts.asset", sh.Build("Env_S_Shafts"));
                 Place(root, "MoonShafts", shMesh, Vector3.zero, Vector3.zero, Vector3.one, shaftMat);
@@ -17580,7 +17567,7 @@ namespace GloomhavenVR
                 }
                 // night grass is grey-green, not the meadow green of the daylight
                 // photoscan — the same correction the bark and the needles got
-                // 0.45/0.52/0.38 against the needles' 0.21/0.25/0.20: grass
+                // 0.36/0.42/0.30 against the needles' 0.21/0.25/0.20: grass
                 // catches the moon where a fir needle absorbs it, and this is
                 // the one new thing in the room that has to be FOUND rather than
                 // merely not look wrong.
@@ -17595,7 +17582,8 @@ namespace GloomhavenVR
                 var matM = GrowthMat("S_GrowthMoss.mat", "moss_01_alb",
                                      new Color(0.29f, 0.35f, 0.24f), 1.0f, 0.025f, span);
                 // ...and the CARPET's own two materials, which differ from the
-                // ring's in exactly one number: 3.5 cm of wind instead of 8.5.
+                // ring's in exactly one number each: 3.5 cm of wind instead of
+                // 8.5 on the grass, 1.5 cm instead of 2.5 on the moss.
                 // A tussock inside the clearing is a third the height of a tuft
                 // at the tree line and it is metres from the eye rather than
                 // eight; the ring's amplitude on it would be the one thing in
@@ -17720,7 +17708,7 @@ namespace GloomhavenVR
                     var at = new Vector3(x, ForestY(x, z), z);
                     float yaw = Hash3(i, 5, 0, 8801) * Mathf.PI;
                     var rect = GrassCards[(int)(Hash3(i, 6, 0, 8801) * GrassCards.Length) % GrassCards.Length];
-                    // 0.60 of the atlas rect's own aspect: a stem is a stem and
+                    // 0.50 of the atlas rect's own aspect: a stem is a stem and
                     // the rect is a pair of blade clusters. Not narrower — below
                     // about a sixth of the card's height the alpha survives the
                     // mip chain only where the blades happen to overlap, and a
@@ -17740,7 +17728,7 @@ namespace GloomhavenVR
                                         + "third silhouette (see THE TALL STEMS); a mask that refuses "
                                         + "most of it leaves the clearing with two shapes again.");
                 // The pair's own claim, checked on ONE stem rather than on the
-                // welded field: 84 stems at 84 random yaws are isotropic in
+                // welded field: sixty stems at sixty random yaws are isotropic in
                 // aggregate whatever each of them is, so the aggregate figure
                 // would prove nothing about the pair. 0.65 is under the 1/sqrt(2)
                 // the geometry gives and over anything a single card could.
@@ -18231,7 +18219,8 @@ namespace GloomhavenVR
         /// THE AMPLITUDE IS THE WHOLE DECISION, and it is settled against the
         /// canopy shadow map rather than by eye. That map is baked from the
         /// STATIC canopy at 5.5 x 4.4 cm per texel; the crowns reach the floor
-        /// through a 4x4-box-filtered coverage at a seventh strength (CsFol) and
+        /// through a 4x4-box-filtered coverage at a fifth of full strength (CsFol,
+        /// FolStrength 0.22 on the floor and 0.38 on the blades) and
         /// reach the moon shafts through a 0.22 m penumbra. EnvGrowth's wave is
         /// analytically bounded to +-1, so the tip displacement is exactly `amp`
         /// (x1.06 with the flutter): at 4.5 cm a bough tip moves under ONE texel
@@ -18780,7 +18769,7 @@ namespace GloomhavenVR
         /// wall-mounted card can be built so that nobody ever sees it.
         ///
         /// <para><b>G1 — the winding agrees with the normals.</b> This project has
-        /// shipped FOUR meshes wound against the side they are seen from; the
+        /// shipped SIX meshes wound against the side they are seen from; the
         /// puddle was invisible for ten builds behind Cull Back. EnvRoomCutout is
         /// Cull Off, so a reversed fungus card would not vanish — it would be LIT
         /// FROM BEHIND, which is the same fault wearing a different coat and is

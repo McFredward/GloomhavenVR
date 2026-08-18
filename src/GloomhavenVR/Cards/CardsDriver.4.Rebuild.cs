@@ -1,9 +1,6 @@
 using System.Collections.Generic;
-using GloomhavenVR.Cards.Patches;
 using GloomhavenVR.Core;
-using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
-using GloomhavenVR.Hands.Interact;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -1092,10 +1089,10 @@ internal sealed partial class CardsDriver
     /// <summary>
     /// Is any VR card of <paramref name="hand"/> still somewhere the player can see it — held,
     /// sitting in the hand fan, or still flying out of it? The gate on <see cref="DrainSwapExit"/>'s
-    /// face restore, which destroys exactly those cards. <paramref name="anyHeld"/> distinguishes
-    /// the hold from the other two because it calls for a different answer: a hold is the player's
-    /// business and is simply waited out, while the other two resolve on their own (a rebuild parks
-    /// a returned card, the wave lands a flying one). Every game deref is guarded —
+    /// face restore, which destroys exactly those cards. <paramref name="needsRebuild"/> separates
+    /// the three because they call for different answers: a hold is the player's business and a
+    /// flight lands on its own, so neither asks for anything, while a card still sitting in the fan
+    /// is stuck until a rebuild re-fills it and the park sweep pools it. Every game deref is guarded —
     /// this is a per-frame gate, and a half-torn hand must read as "nothing of mine is in play"
     /// rather than throw inside Update.
     /// </summary>
@@ -1768,7 +1765,7 @@ internal sealed partial class CardsDriver
     // frame). "Still en route" is therefore only ever true while an object is observably in that
     // state, so EVERY way a flight can end converges the count on the model on the very next frame:
     //   * it lands            → the completion callback parks the card → IsParked ⇒ arrived;
-    //   * it is cancelled     → VRCard.Park calls CancelFly (VRCard.cs:2094) ⇒ _flying false, and
+    //   * it is cancelled     → VRCard.Park calls VRCard.CancelFly ⇒ _flying false, and
     //                           the card is parked anyway ⇒ arrived;
     //   * the card is destroyed / recycled / the scenario is torn down → _factory.Find returns null
     //                           ⇒ arrived (no visual anywhere means it can only be in the pile);

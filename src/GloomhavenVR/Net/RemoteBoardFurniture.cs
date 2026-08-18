@@ -167,9 +167,9 @@ internal sealed class RemoteBoardFurniture
     private static readonly Vector3 ClusterMount = new(0.148f, -0.124f, -0.006f);
 
     /// <summary>Mirror of <c>PlayTray.ButtonClusterMountScale</c> — the fixed 0.7× dock shrink
-    /// every docked cluster button renders under (on TOP of the per-style
-    /// <see cref="ClusterScaleFor"/>). Dropping it is half of why the remote skip cap rendered
-    /// 43 % too big (task 3(b)).</summary>
+    /// every docked cluster button renders under (on TOP of the OWNER's own
+    /// <c>RemoteBoardTuning.ClusterScale</c>, extension record 28). Dropping it is half of why the
+    /// remote skip cap rendered 43 % too big (task 3(b)).</summary>
     private const float ClusterDockScale = 0.7f;
 
     /// <summary>Mirror of <c>ButtonCluster.ClusterProudOffset</c> — the depth-correct proud seat
@@ -179,7 +179,7 @@ internal sealed class RemoteBoardFurniture
     // THE [RoundButtons] GROUP OFFSET — the seat term ButtonCluster.AttachDocked adds to the column
     // anchor in tray-root-local metres (X/Y straight, Z along the outward normal). The shipped
     // values are NOT zero (build 34 rebased the tuned cfg into the defaults: x −0.045, y +0.26,
-    // z 0.025 — the skip cap lives UP-BOARD beside the card slots, not in the authored bottom-right
+    // z 0.005 — the skip cap lives UP-BOARD beside the card slots, not in the authored bottom-right
     // column), and dropping them was half of task 3(b)'s "wrongly positioned round button".
     //
     // THE "DELIBERATELY-NOT" NOTE THAT STOOD HERE IS GONE. It said these were the AUTHORED defaults
@@ -412,79 +412,15 @@ internal sealed class RemoteBoardFurniture
     /// label to.</summary>
     private const float ClusterDisabledLabelAlpha = 0.35f;
 
-    // ---------------------------------------------------------------- authored per-style seats --
-    // The SHIPPED per-board layout (Defaults.*_Oak/Steel/Bronze) keyed by the PEER's synced style.
-    // These are the numeric defaults every client ships with — the per-board DESIGN, not anyone's
-    // tuning — so applying them by wire style renders a Steel peer's confirm column where a Steel
-    // board actually wears it (x +0.462 off the anchor!) instead of at the Oak spot.
-
-    private static Vector3 ConfirmUndoOffsetFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.ConfirmUndoOffset_Steel,
-        Cards.ControlBoard.Bronze => Defaults.ConfirmUndoOffset_Bronze,
-        _ => Defaults.ConfirmUndoOffset_Oak,
-    };
-
-    private static float GenericSpacingFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.GenericButtonSpacing_Steel,
-        Cards.ControlBoard.Bronze => Defaults.GenericButtonSpacing_Bronze,
-        _ => Defaults.GenericButtonSpacing_Oak,
-    };
-
-    private static Vector3 RestOffsetFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.RestButtonOffset_Steel,
-        Cards.ControlBoard.Bronze => Defaults.RestButtonOffset_Bronze,
-        _ => Defaults.RestButtonOffset_Oak,
-    };
-
-    private static float RestSpacingFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.RestButtonSpacing_Steel,
-        Cards.ControlBoard.Bronze => Defaults.RestButtonSpacing_Bronze,
-        _ => Defaults.RestButtonSpacing_Oak,
-    };
-
-    private static float RestDiameterFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.RestButtonDiameter_Steel,
-        Cards.ControlBoard.Bronze => Defaults.RestButtonDiameter_Bronze,
-        _ => Defaults.RestButtonDiameter_Oak,
-    };
-
-    private static Vector3 PinOffsetFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.PinOffset_Steel,
-        Cards.ControlBoard.Bronze => Defaults.PinOffset_Bronze,
-        _ => Defaults.PinOffset_Oak,
-    };
-
-    private static Vector3 ItemUseOffsetFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.ItemUseSlotOffset_Steel,
-        Cards.ControlBoard.Bronze => Defaults.ItemUseSlotOffset_Bronze,
-        _ => Defaults.ItemUseSlotOffset_Oak,
-    };
-
-    /// <summary>Per-style ButtonCluster mount SCALE (<c>Defaults.ClusterScale_*</c>). Its POSITION
-    /// half (<c>ClusterOffset_*</c>) used to carry a note here saying it was deliberately NOT
-    /// applied, because the local rigid dock read the mount's rotation and scale only and the
-    /// position moved nothing. That stopped being true in ModBuild 97 — it was the user's "die
-    /// Offsets verändern nichts" bug, not a design — so the dial now rides record 28
-    /// (<c>NetProtocol.TuneClusterOffset</c>) and the skip cap's seat below adds it.</summary>
+    /// <summary>Per-style ButtonCluster mount SCALE (<c>Defaults.ClusterScale_*</c>) — the last
+    /// survivor of a family of per-dial switches over the SHIPPED per-board layout, the rest of
+    /// which the owner's own tuning record replaced (see the note below). Its POSITION half
+    /// (<c>ClusterOffset_*</c>) rides record 28 and is added at the skip cap's seat.</summary>
     private static float ClusterScaleFor(Cards.ControlBoard s) => s switch
     {
         Cards.ControlBoard.Steel => Defaults.ClusterScale_Steel,
         Cards.ControlBoard.Bronze => Defaults.ClusterScale_Bronze,
         _ => Defaults.ClusterScale_Oak,
-    };
-
-    private static Vector3 DecisionOffsetFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.DecisionOffset_Steel,
-        Cards.ControlBoard.Bronze => Defaults.DecisionOffset_Bronze,
-        _ => Defaults.DecisionOffset_Oak,
     };
 
     // ---------------------------------------------------------------- the owner's own seats --
@@ -3221,10 +3157,6 @@ internal sealed class RemoteBoardFurniture
         /// four state looks cannot drift apart from each other.</para>
         /// </summary>
         private Color _capTint = Color.white;
-
-        /// <summary>World position of the cap centre (build-time layout math — the USE cap centres
-        /// between Confirm and Undo across two different parent anchors).</summary>
-        public Vector3 WorldPosition => _go.transform.position;
 
         private InertCap(GameObject go, TextMeshPro label)
         {

@@ -35,7 +35,7 @@ internal sealed partial class VRRigDriver
     /// Reposition the rig so the player's CURRENT head pose ends up at the FIXED table-edge
     /// spot: eyes <see cref="ComfortSettings.EffectiveEyeHeightMeters"/> (real) above the orbit
     /// focus plane and <see cref="ComfortSettings.EffectiveEyeBackMeters"/> back — both the bare
-    /// STANDING preset (0.70 / 0.70), since there is no seated preset any more and, since the
+    /// STANDING preset (0.30 above / 0.70 back), since there is no seated preset any more and, since the
     /// 2026-08 ruling, no [Comfort] TableHeightOffset to add to the height either. Called
     /// automatically on the first tracked pose, and bound to the B+Y hold chord (see
     /// <see cref="Comfort"/>).
@@ -46,10 +46,9 @@ internal sealed partial class VRRigDriver
     /// <see cref="Flight"/>) and the world grab move them up, down and through the scene at will,
     /// which is precisely why the height dial was removed rather than kept alongside them.</para>
     ///
-    /// <para>UNCONDITIONAL BEHAVIOUR (round 2 of the spawn ring): this method no longer knows the
-    /// ring exists. The round-1 version took a <c>useSpawnRing</c> flag and branched inside, which
-    /// is how the ring's only failure mode came to hide inside a line that says "Recentered" — see
-    /// <see cref="SpawnRing"/> for the log-proven post-mortem.</para>
+    /// <para>UNCONDITIONAL BEHAVIOUR: this method no longer knows the ring exists — do not give it
+    /// a <c>useSpawnRing</c> flag back. Why that shape failed is recorded once, at
+    /// <see cref="TickSpawnRingSettle"/>.</para>
     /// </summary>
     internal void Recenter()
     {

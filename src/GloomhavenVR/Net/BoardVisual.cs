@@ -1,4 +1,3 @@
-using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.Net;

@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands.Interact;
 using UnityEngine;
 using UnityEngine.UI;
 

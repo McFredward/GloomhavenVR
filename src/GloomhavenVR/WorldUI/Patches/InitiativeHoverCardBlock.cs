@@ -1,4 +1,3 @@
-using System;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using ScenarioRuleLibrary;

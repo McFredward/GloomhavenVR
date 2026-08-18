@@ -16,7 +16,8 @@ namespace GloomhavenVR.Core;
 /// <item>the DOORWAY segment's own renderers (the door leaf + everything the 2026-08-02
 ///   recognition groups per door — unchanged), and</item>
 /// <item>the ARCH RECT (read from the ModBuild-66 data): the door prop's AABB expanded by
-///   <see cref="FadeDriver.ArchMarginXZ"/> (1.0 wu) in XZ, up to door-top +
+///   <see cref="FadeDriver.ArchMarginXZ"/> (0.25 wu — tightened from 1.0 in round 12, see the
+///   constant) in XZ, up to door-top +
 ///   <see cref="FadeDriver.ArchHeadroomWU"/> (1.3 wu — door top 2.2 → 3.5, covering the
 ///   authored frame trims 'TO_EXT_House_Door_trim' y[1.4..3.2] and the 'CV_DoorSign'
 ///   y[2.7..3.4] at gap ≤ 0.81), plus any '*Door*'-named asset whose center lies in the
@@ -35,24 +36,21 @@ namespace GloomhavenVR.Core;
 /// pieces ride its fade through the established enabled/ramp delivery. Approaching the
 /// gate face opens the wall around the arch; the arch stands.
 ///
-/// ROUND 10 (ModBuild-68 hardware log — the gate column reached fade 1.00 but drove ZERO
-/// renderers, every embedding piece "ARCH"-rejected): the seed/rect had been derived from
-/// the WHOLE door-prop subtree union — the prop parents the full 6-wu gatehouse wall
-/// piece, so the arch rect covered the entire face AND the stack band's origin top sat at
-/// 6.03 (all courses below it). Fixed: the arch derives from the '*Door*'-NAMED renderers
-/// of the subtree only (fallback: the lowest <see cref="FadeDriver.FallbackArchHeightWU"/>
-/// wu, logged as FALLBACK), membership is CONTAINMENT (≥60% XZ inside, or centered with
-/// ≤0.5 wu overhang — never mere intersection: a wall-wide course crossing the rect is
-/// embedding), and the change-triggered "GATE COLUMN … arch rect …" line plus containment
-/// fractions in the reject census let the next hardware log verify the rect is tight.
+/// THE ARCH RECT IS DERIVED FROM THE '*Door*'-NAMED RENDERERS of the prop subtree, never from
+/// the subtree union: the prop parents the full 6-wu gatehouse wall piece, so a union-derived
+/// rect covers the entire face and "ARCH"-rejects every embedding piece (the gate column then
+/// reaches fade 1.00 and drives ZERO renderers). Fallback when no door-named renderer exists:
+/// the lowest <see cref="FadeDriver.FallbackArchHeightWU"/> wu, logged as FALLBACK. Membership
+/// is CONTAINMENT, never mere intersection — see <see cref="FadeDriver.ArchContainmentMin"/>
+/// and <see cref="FadeDriver.ArchOverhangWU"/>.
 ///
-/// ROUND 14 — THE LATCH (user report: "Das Element über dem Rechteck des Torbogens ist nun
-/// dauerhaft ausgeblendet und kommt auch nicht wieder, obwohl es den Raum nicht verdeckt").
-/// The ModBuild-75 log shows the signature exactly: ONE <c>fade ON</c> for the gate column and
-/// no <c>fade OFF</c> in the whole session, while every regular wall flips both ways — and the
-/// gate stops appearing in the 2 Hz diag line although its remembered coverage (0.38) would
-/// have kept it in the top three. Both facts have ONE cause: the gate had no decision AABB.
-/// <c>LogDiagnostic</c> skips boundless segments, and the decision loop used to
+/// THE LATCH — the failure this file's four defenses exist for (user report: "Das Element über
+/// dem Rechteck des Torbogens ist nun dauerhaft ausgeblendet und kommt auch nicht wieder,
+/// obwohl es den Raum nicht verdeckt"). The signature in the log is ONE <c>fade ON</c> for the
+/// gate column and no <c>fade OFF</c> in the whole session, while every regular wall flips both
+/// ways — and the gate stops appearing in the 2 Hz diag line although its remembered coverage
+/// (0.38) would have kept it in the top three. Both facts have ONE cause: the gate had no
+/// decision AABB. <c>LogDiagnostic</c> skips boundless segments, and the decision loop used to
 /// <c>continue</c> on them — skipping the state machine, the fade ramp AND <c>Apply</c> — so
 /// its six adopted masonry pieces stayed <c>renderer.enabled = false</c> with nothing left
 /// that could ever restore them. A gate column is the one segment class that reaches that
@@ -77,11 +75,11 @@ namespace GloomhavenVR.Core;
 /// holding it. The arch itself (door leaf, frame trims, sign, arch torches) is untouched by
 /// all of this — it never fades.
 ///
-/// ROUND 15 — THE ANIMATION (user: "Die Mauer über dem Torbogen verschwindet jetzt und taucht
-/// wieder auf wie gewollt, allerdings OHNE Animation!"). Rounds 10–14 got the gate's six
-/// embedding courses to hide and return; they did it by popping. A gate column owns ZERO wall
-/// renderers, so <c>Apply</c>'s native MPB ramp (which writes <c>Segment.Renderers</c>) reaches
-/// nothing, and its pieces were delivered as <see cref="MountedProp"/>s through
+/// THE ANIMATION (user: "Die Mauer über dem Torbogen verschwindet jetzt und taucht wieder auf
+/// wie gewollt, allerdings OHNE Animation!"). Getting the gate's six embedding courses to hide
+/// and return at all made them POP. A gate column owns ZERO wall renderers, so <c>Apply</c>'s
+/// native MPB ramp (which writes <c>Segment.Renderers</c>) reaches nothing, and its pieces were
+/// delivered as <see cref="MountedProp"/>s through
 /// <c>DriveProp</c>'s foliage <c>_Cutoff</c> lerp — a clip value with no occlusion map and no
 /// fade gate, which the Amp masonry subgraph does not read as a dissolve. The round-11 material
 /// swap declined them for the very reason that made them pop: their materials DO carry a live

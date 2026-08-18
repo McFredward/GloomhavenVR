@@ -1,9 +1,5 @@
-using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands;
-using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
-using TMPro;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -74,9 +70,10 @@ internal sealed partial class PlayTray
     //
     // What remains (below): the NON-FINITE verdict — a NaN/Inf transform is not a position at all,
     // nothing parented to it renders, and it can never heal by itself — plus the pose-PRESERVING
-    // pin housekeeping. The user-facing recovery is the explicit one: VR settings → Komfort →
-    // "Board zurückholen" (CardsDriver's _recallBoard), which is a deliberate action and therefore
-    // always allowed.
+    // pin housekeeping. The user-facing recovery is meant to be the explicit one, "Board
+    // zurückholen" (CardsDriver.RequestBoardRecall → _recallBoard), which is a deliberate action
+    // and therefore always allowed — but note it has NO button wired to it yet, so today the
+    // non-finite verdict is in practice the only automatic recovery left.
     /// <summary><see cref="VRRigDriver.RigPoseVersion"/> the PINNED world pose was authored under.
     /// The version bumps ONLY on a rig (re)build or a deliberate recentre — i.e. exactly the
     /// tracking-origin changes that move the player without moving the world — so a mismatch means

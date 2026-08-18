@@ -1010,7 +1010,7 @@ internal sealed class ItemsPile
     ///     starts <c>ItemFanOpenStagger</c> later per place of distance from the fan centre — the
     ///     same centre-out ripple the hand fan reveals on (CardFan.OpenProgress), which is also why
     ///     it needs no new idiom to read as "ours".
-    ///   • a SIGNED unfold. <paramref name="i"/>'s side of the fan decides which way its chip rolls
+    ///   • a SIGNED unfold. A chip's side of the fan decides which way it rolls
     ///     out of the stack (<c>ItemFanOpenSpinDegrees</c>), so the fan opens like a hand of cards
     ///     rather than sliding apart. A roll changes the card's OUTLINE, and an outline change is
     ///     the one signal a cluttered background cannot supply by accident.
@@ -3953,10 +3953,6 @@ internal sealed class ItemsPile
     /// </summary>
     private List<CItem>? DemandItemsOverride() =>
         _demandActive && _demandLoseReward ? CardsGameApi.LoseRewardItems() : null;
-
-    /// <summary>True while an item consume/refresh demand is being served (gates the normal
-    /// action-turn use-slot logic in <see cref="Tick"/>).</summary>
-    internal bool DemandActive => _demandActive;
 
     /// <summary>
     /// EVENT ITEM-SURRENDER pump, one call per frame from the driver (independent of the

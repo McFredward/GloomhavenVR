@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net;
 using ScenarioRuleLibrary;
-using UnityEngine;
 
 namespace GloomhavenVR.Cards;
 

@@ -831,7 +831,7 @@ internal struct PresenceState
 
     /// <summary>ONE PAGE of the record — <c>[pageIndex][pageCount][sig][idLo][idHi][n][field…]</c>,
     /// already quantized and in ascending id order (see <see cref="BoardTunePages"/>). It is carried
-    /// PRE-ENCODED rather than as ~76 named fields for the same reason the text records carry
+    /// PRE-ENCODED rather than as ~105 named fields for the same reason the text records carry
     /// pre-encoded bytes: the values change on a config edit, not per packet, so the sender builds
     /// the field list once on a change edge and the 5 Hz write path is a pure copy. On the receive
     /// side it is the raw page bytes, handed to the per-peer <see cref="BoardTunePageAssembler"/>;
@@ -970,6 +970,7 @@ internal struct PresenceState
 ///                        track, by the stable ActorGuid hash, plus which of them they control;
 ///                        written only while online AND in the card-selection phase, the exact
 ///                        window vanilla's CompareTo sorts by IsUnderMyControl in, ≤6 ids, see
+///                        NetProtocol.ExtIdTrackOrder)
 ///                        29 DECISION WIDGETS ([flags][damage][n][n × role byte] — WHICH game widget
 ///                        each docked option IS, so a peer mirrors the REAL button (its art, its
 ///                        icons, its wording in the VIEWER's own language) instead of a mod-drawn
@@ -1032,7 +1033,7 @@ internal static class PresenceSerializer
     /// <summary>Upper bound on an encoded extras packet: header 7 + board 24 + count 1 +
     /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39 — plus the
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
-    /// (mod version, the largest record) + 5 (board UI: 2 + 3) + 14 (fan anchor) + 4 (card highlight)
+    /// (mod version) + 5 (board UI: 2 + 3) + 14 (fan anchor) + 4 (card highlight)
     /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
     /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20)
     /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
@@ -1049,12 +1050,20 @@ internal static class PresenceSerializer
     /// + 3 (ITEM-USE CLIP: 2 + its single index byte)
     /// + 28 (track order: 2 + count 1 + owned mask 1 + 4 × its 6-id cap)
     /// + 6 (HELD-FIGURE STRETCH: 2 + its two u16 milli-factors)
+    /// + 13 (DECISION WIDGETS: 2 + flags 1 + damage 1 + count 1 + its 8-role cap)
+    /// + 8 (ENV CLOCK: 2 + <c>NetProtocol.EnvClockRecordBytesWithFrequency</c> 6)
+    /// + 10 (TEST FORCE: 2 + <c>NetProtocol.TestForceRecordBytes</c> 8)
     /// + 257 (BOARD TUNING: 2 TLV + one PAGE, and a page is 255 by definition —
-    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1295.
+    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1326.
     ///
     /// <para>1289 → 1295 on 2026-08-11: the HELD-FIGURE STRETCH record (30) added its own worst
-    /// case of 6 bytes — [id][len][u16][u16] — in its own commit, per the rule below. The margin at
-    /// <see cref="MaxSize"/> = 1600 is 305 bytes, still more than the largest single record.</para>
+    /// case of 6 bytes — [id][len][u16][u16] — in its own commit, per the rule below.</para>
+    ///
+    /// <para>1295 → 1326 in the 2026-08-15 comment audit: records 29 (decision widgets, 13),
+    /// 31 (env clock, 8) and 32 (test force, 10) had been written without adding their term here,
+    /// which is exactly the omission the rule below exists to prevent. Nothing on the wire moved —
+    /// only this sum was wrong. The margin at <see cref="MaxSize"/> = 1600 is 274 bytes, still more
+    /// than the largest single record.</para>
     ///
     /// <para>THAT LAST TERM IS DERIVED FROM THE PAGE, NOT FROM A FIELD CENSUS, and it has to be:
     /// until the paging round it read "every one of its 66 fields at once — 15 vec3 × 7 + 15 length
@@ -1598,8 +1607,10 @@ internal static class PresenceSerializer
                     && i + 2 + NetProtocol.TrackHoverRecordBytes <= buffer.Length)
                 {
                     // TRACK HOVER (16): [flags][int32 actorId LE]. The hovered initiative-track
-                    // entry by stable CActor.ID (display order is per-client — see the record
-                    // doc); the flags byte is masked to the defined bits. Written only while an
+                    // entry by STABLE ACTOR ID (the ActorGuid hash, NetFigures.StableActorId — NOT
+                    // the per-class CActor.ID, which collides across enemy classes; display order
+                    // is per-client — see the record doc); the flags byte is masked to the defined
+                    // bits. Written only while an
                     // entry is hovered; actor id 0 is "none" everywhere and is never emitted.
                     byte thFlags = 0;
                     if (state.TrackHoverPopup)
@@ -1693,7 +1704,7 @@ internal static class PresenceSerializer
                 }
                 if (state.HasDecisionState)
                 {
-                    // DECISION STATE (23): [flags][n][n × option byte]. flags bits 0..2 name the
+                    // DECISION STATE (24): [flags][n][n × option byte]. flags bits 0..2 name the
                     // docked prompt, bits 3..5 the prompt-TEXT variant (a NUMBER — the receiver
                     // localizes the line itself; the composed string may never ride this wire, it
                     // can embed active-bonus card names), and each option byte says whether that
@@ -2052,9 +2063,6 @@ internal static class PresenceSerializer
     private static string? _encCachedText;
     private static byte[] _encCachedBytes = System.Array.Empty<byte>();
 
-    /// <summary>UTF8-encode a version display string, capped at
-    /// <see cref="NetProtocol.ModVersionTextMaxBytes"/> bytes (cap applied on whole chars via
-    /// truncation-retry so no split surrogate ships). Cached on the last input.</summary>
     // ---- pick-banner text (en/de)coding caches ------------------------------------------
     // Same one-entry cache discipline as the mod-version text above, and for the same reason:
     // the placard line is CONSTANT for many packets in a row (it only changes when the pick step
@@ -2286,6 +2294,9 @@ internal static class PresenceSerializer
     /// <see cref="NetProtocol.CapLabelMaxBytes"/> on a character boundary.</summary>
     internal static byte[] EncodeItemUseCapLabel(string text) => ItemUseLabelCodec.Encode(text);
 
+    /// <summary>UTF8-encode a version display string, capped at
+    /// <see cref="NetProtocol.ModVersionTextMaxBytes"/> bytes (cap applied on whole chars via
+    /// truncation-retry so no split surrogate ships). Cached on the last input.</summary>
     internal static byte[] EncodeModVersionText(string text)
     {
         if (ReferenceEquals(text, _encCachedText) || text == _encCachedText)
@@ -2614,10 +2625,6 @@ internal static class PresenceSerializer
                         // above CapPressMaxId cannot occur in three bits, but the bound is asserted
                         // anyway — never trust the wire, and the next cap id widening will need it.
 
-                        // BIT 4 IS READ INDEPENDENTLY of that drop: the record now also rides for
-                        // the "Keine Handkarten" placard ALONE, and that state decodes to no hover
-                        // and no selection by construction. Folding it into HasHalfHover would have
-                        // meant a placard-only record set a half-hover state nobody is in.
                         byte half = (byte)(buffer[i] & NetProtocol.HalfHoverDefinedMask);
                         int slot = half & NetProtocol.HalfHoverSlotMask;
                         bool hover = slot < NetProtocol.BoardUiSlotCount;
@@ -2650,7 +2657,9 @@ internal static class PresenceSerializer
                         // BIT 4 of byte 1 is read INDEPENDENTLY of both drops above, for the same
                         // reason the press is: the record legitimately rides for the "Keine
                         // Handkarten" placard ALONE, and that state decodes to no hover, no
-                        // selection and no press by construction.
+                        // selection and no press by construction. Folding it into HasHalfHover
+                        // would have meant a placard-only record set a half-hover state nobody
+                        // is in.
                         state.EmptyFanHint = (stateByte & NetProtocol.HalfEmptyFanHintBit) != 0;
                     }
                     else if (id == NetProtocol.ExtIdBoardTuning
@@ -2662,7 +2671,7 @@ internal static class PresenceSerializer
                         // is where every structural rule lives; each consumer then reads the field
                         // it needs out of the ASSEMBLED payload against its own shipped default
                         // (NetProtocol.BoardTuneVector and friends), which is what makes "field
-                        // absent" mean "the value you already have" rather than needing ~76 decoded
+                        // absent" mean "the value you already have" rather than needing ~105 decoded
                         // members here.
                         //
                         // A ZERO FIELD COUNT IS NO LONGER A DROP, and that reversal is load-bearing:

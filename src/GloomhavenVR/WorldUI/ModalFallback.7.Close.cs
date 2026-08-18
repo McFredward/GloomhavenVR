@@ -1,11 +1,8 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
-using Script.GUI.Popups;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
@@ -25,9 +22,8 @@ internal static partial class ModalFallback
     ///
     /// Chord arbitration: this consumer runs BEFORE <see cref="FlatScreen"/> in the
     /// driver order and CONSUMES the press — one press, one action. While a modal
-    /// floats the chord means "close it"; the flat-screen toggle (and the
-    /// settings-panel short hold) need a fresh press once no modal floats, so the
-    /// universal screen rescue stays reachable.
+    /// floats the chord means "close it"; the flat-screen toggle needs a fresh press
+    /// once no modal floats, so the universal screen rescue stays reachable.
     /// </summary>
     private static void TickEscapeChord()
     {

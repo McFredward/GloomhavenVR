@@ -6,14 +6,11 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-// THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them to something
-// prettier. Compile order is the filename sort of the SDK's default `**/*.cs`
-// glob, and a partial class's members land in metadata in compile order, so the
-// numbering is what makes the four parts concatenate back into the original
-// member order. It matters more here than elsewhere: the seven shared static
-// scratch buffers are declared beside the sweeps that use them, i.e. spread
-// across parts 1-4, and reordering their initializers is exactly the kind of
-// change the guard reports as MOVED rather than CHANGED.
+// THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them (rule and
+// reasoning: FlatScreen.1.Core.cs). It matters more here than elsewhere: the
+// seven shared static scratch buffers are declared beside the sweeps that use
+// them, i.e. spread across parts 1-4, and reordering their initializers is
+// exactly the kind of change the guard reports as MOVED rather than CHANGED.
 
 /// <summary>
 /// Generic, fully reversible canvas conversion framework (Phase 3c).

@@ -34,15 +34,14 @@ namespace GloomhavenVR.Hands.Interact;
 ///    knuckles-up flat hand, 90° = palm fully rolled toward the face, negative =
 ///    pronation (never opens the fan).
 ///
-/// MEASURED FRAME (v4): the VISUAL hand frame — <c>HandRig.Root</c> (+Z along the
-/// fingers, +Y out of the BACK of the hand, both hands; HandRig doc) — which hangs
-/// below the offset HandRoot and therefore INCLUDES the debug-menu seat offsets
-/// (the per-style [Hands] seat pose applied by
-/// <see cref="VRHand.SyncVisualOffset"/>). The user tunes those trims to make the
-/// visual hand sit right; the gate must agree with what they SEE, not with the raw
-/// device grip pose — which is what v3 read, and why v3 failed at hand poses the user
-/// had trimmed. (v3 selected that raw pose through a flag on this class; the flag was
-/// retired once nothing read it, so the name is deliberately not repeated here.)
+/// MEASURED FRAME (v4): +Z along the fingers, +Y out of the BACK of the hand, both hands
+/// (the <c>HandRig.Root</c> convention; HandRig doc) — but BUILT from the device rotation
+/// times the SHIPPED seat, never from the live, user-tuned hand transform. Reading
+/// <c>HandRig.Root</c> itself was tried and rejected: a cosmetic re-seat then silently
+/// re-tuned the gesture. Root cause and the exact construction: the frame block in
+/// <see cref="Tick"/> and <c>HandsConfig.ShippedSeatRotation</c>. (v3 selected a raw
+/// device pose through a flag on this class; the flag was retired once nothing read it,
+/// so the name is deliberately not repeated here.)
 ///
 /// Opens when the roll exceeds <see cref="EnterDegrees"/> (default 60° — a comfortable
 /// supination), closes below <see cref="ExitDegrees"/> (default 45°); the dead band

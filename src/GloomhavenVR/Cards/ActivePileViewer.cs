@@ -6,7 +6,7 @@ using UnityEngine;
 namespace GloomhavenVR.Cards;
 
 /// <summary>
-/// The ACTIVE CARDS display area (feature 6, [Cards] ActivePile): a permanently-visible
+/// The ACTIVE CARDS display area (feature 6): a permanently-visible
 /// compact column of the character's currently-active ability cards (round-long or
 /// persistent — <c>CardPileType.Active</c>), docked off the board's RIGHT edge just past
 /// the discard/burnt pile stacks (<see cref="PlayTray.ActiveMount"/>). Unlike the pile

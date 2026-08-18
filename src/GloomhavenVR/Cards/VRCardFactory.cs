@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands.Interact;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -149,12 +148,13 @@ internal sealed class VRCardFactory
     /// Load the control-board prefab for the selected <see cref="ControlBoard"/>. Tries the
     /// selected board's bundle path first; if it isn't in the bundle yet, falls back to the
     /// Oak (original) path; if that also fails, returns null so <c>PlayTray.EnsureBuilt</c>'s
-    /// procedural fallback board kicks in. NOTE (per-board tuning seam): SlotCardInset and
-    /// RoundButtonDiameter (CardsConfig) are documented as per-board but stay single global values
-    /// for now; a future per-board descriptor keyed by <see cref="ControlBoard"/> may override them
-    /// once the new boards' recess dimensions land. The card's fill factor already left this list —
-    /// it became the per-board <c>[Cards] SlotOverlayScale_{board}</c> on 2026-08-11, because the
-    /// recess it fills is board geometry and it now sizes the slot overlays with it.
+    /// procedural fallback board kicks in. NOTE (per-board tuning seam): <c>[Cards]
+    /// SlotCardInset</c> is still a single GLOBAL value; a future per-board descriptor keyed by
+    /// <see cref="ControlBoard"/> may override it once the new boards' recess dimensions land.
+    /// Two dials have already left this list: the card's fill factor became the per-board
+    /// <c>[Cards] SlotOverlayScale_{board}</c> (2026-08-11, because the recess it fills is board
+    /// geometry and it now sizes the slot overlays with it), and the round-button diameter became
+    /// <c>[Cards] RestButtonDiameter_{board}</c>.
     /// </summary>
     internal GameObject? GetTrayPrefab()
     {

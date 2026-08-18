@@ -416,7 +416,47 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 155;
+    public const ushort ModBuild = 156;
+    // Build 156: CLEANUP — dead code removed and comments consolidated after 155 rounds, and the
+    // point of this note is the EVIDENCE, because "I tidied up and nothing broke" is a claim and
+    // not a measurement. User: "toter Code entfernt werden, kommetare konsolidiert etc."
+    //   * THE COMPILED-FORM GUARD: 12 types changed, 0 added, 0 removed, 0 moved. Every one of the
+    //     twelve is the DELETION OF A MEMBER WITH NO READER - four unused `internal bool`
+    //     properties, a write-only `_donorIndex` field, `MixedReality.CycleKeyColor` (zero
+    //     references in the entire repository, including docs and configs), PlayTray's
+    //     `UnregisterLaserTarget`/`GenericClusterButtonSize`/`BoardTopEdgeWorld`, and
+    //     RemoteBoardFurniture's four `*For(ControlBoard)` local-fallback helpers. Nothing else in
+    //     the assembly differs, which is the strongest statement available that behaviour is
+    //     unchanged: comments do not survive into the snapshot at all, so the whole comment pass is
+    //     provably invisible to the compiled code.
+    //   * THE FOUR `*For(ControlBoard)` HELPERS ARE THE ONE THAT NEEDED THINKING ABOUT. They read
+    //     `Defaults.ConfirmUndoOffset_*` / `RestButtonOffset_*`, so deleting them looks like
+    //     orphaning a user's tuned setting. It is the opposite: they are the SUPERSEDED LOCAL
+    //     FALLBACK from before those dials went on the wire. The live path is `tuning.
+    //     ConfirmUndoOffset` (RemoteBoardFurniture:849), sampled into extension record 28 by
+    //     BoardTuning:146-149, so a peer's tuned value still reaches every other client.
+    //   * AND THE GUARD IS BLIND TO THREE THINGS, which CHARTER §3b states plainly and for which
+    //     TWO HAD NO CHECKER AT ALL. `scripts/check-surface.py` is new and censuses them from the
+    //     source text: config keys 332 -> 332, Harmony patch registrations 79 -> 79, log grep
+    //     tokens 723 -> 723. ZERO removed on all three. It only fails on REMOVALS - additions are
+    //     new work - and it strips comments first, so a log line QUOTED in a comment cannot count
+    //     as a live marker. Proven to fire by censusing the ModBuild 149 tree (141 tokens' worth of
+    //     difference, exit 1) rather than by being believed.
+    //   * `patch-inventory.sh check`: 62 classes, 89 methods, all registered exactly once - the
+    //     "a patch class nobody references compiles and ships INERT" failure has happened twice
+    //     here and did not happen again.
+    //   * THE BAKE: every generated .mat and .asset is byte-identical to ModBuild 154's.
+    //     Env_Swamp.prefab is NOT, and the reason is worth recording because it nearly produced a
+    //     false alarm: THE PREFAB BAKE IS NOT DETERMINISTIC - two runs from IDENTICAL sources
+    //     renumber its fileIDs, and a raw diff then aligns unrelated blocks and invents changes
+    //     ("value: 0.52 -> 3.1" was one of them). Under a normalisation that strips object ids and
+    //     hierarchy links only, run-A vs run-B is 0 lines and cleaned-source vs ModBuild 154 is
+    //     ALSO 0 lines. Measure the noise floor before reading the signal.
+    //   * The only shader change is the deletion of `GhvrElemsZero()` from EnvElement.cginc - one
+    //     hit repository-wide, its own definition; the `else` half it was written for no longer
+    //     exists. It returns all zeros, so it carries no frequency, no phase and no gradient.
+    // WIRE: nothing on it. Every packet is byte-identical to build 155's.
+    //
     // Build 155: DEFAULTS REBASE ONLY - no behaviour, no bundle, no wire change. The user's tuned
     // session from the ModBuild 154 hardware round, taken over VERBATIM by
     // `python3 scripts/rebase-defaults.py apply` (17 values; 27 seeded/legacy/pinned entries left

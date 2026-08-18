@@ -191,7 +191,7 @@ internal sealed class WorldUIModule : IVRModule
                 ("VirtualMouse", VirtualMouse.Tick),
                 ("InputModeGuard", InputModeGuard.Tick),
                 ("CameraInventory", CameraInventory.Tick),
-                ("NonDominantHold", NonDominantHold.Tick),  // before its consumers (settings panel, flat screen, options toggle)
+                ("NonDominantHold", NonDominantHold.Tick),  // before its consumers (modal escape chord, flat screen, options toggle)
                 // Compat feature ticked here like AvatarMirror (this driver is the mod's only
                 // per-frame seam): heals a scripted level message stuck invisible by the game's
                 // IsShown hide→show clobber (tutorial deadlock #2). BEFORE ModalFallback so the

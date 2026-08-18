@@ -4,7 +4,6 @@ using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using TMPro;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.WorldUI;
@@ -135,7 +134,7 @@ internal sealed partial class FlatScreen
 
     /// <summary>
     /// Manual screen chord (P6): fires AT the hold threshold while the non-dominant
-    /// A/X is still held (the settings-panel chord fires on release BELOW it — the
+    /// A/X is still held (the OPTIONS-window tap fires on release BELOW it — the
     /// shared <see cref="NonDominantHold"/> tracker arbitrates via Consumed). Active
     /// only while an actual scenario board exists: pre-scenario Menu2D auto-shows
     /// the screen anyway, and the latch resets on scenario exit.
@@ -176,7 +175,7 @@ internal sealed partial class FlatScreen
             return;
 
         _chordFired = true;
-        NonDominantHold.Consumed = true; // the release must not also toggle the settings panel
+        NonDominantHold.Consumed = true; // the release must not also toggle the OPTIONS window
         _manualShow = !_manualShow;
         NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
         VRLog.Info("WorldUI", $"MANUAL SCREEN CHORD: flat screen toggled {(_manualShow ? "ON" : "OFF")} " +

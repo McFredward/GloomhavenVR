@@ -81,12 +81,9 @@ internal static class PingNameTag_Patch
 /// PingManager.cs:29-30) — parented under a mod-owned WORLD-SPACE canvas at the marker, so
 /// the background sprite, font, material, colors, layout AND the platform-icon TMP sprite
 /// come from the game's own assets, pixel-identical by construction. Route chosen: CLONE
-/// (over pixel-for-pixel rebuild) per the <see cref="Net.RemoteWidgetMirror"/> precedent —
-/// its Neutralize pipeline (strip every non-presentation component while the clone is under
-/// an INACTIVE root, so no game script ever reaches Awake) is reused here in miniature, with
-/// one deliberate difference: layout components (LayoutGroup / ContentSizeFitter /
-/// LayoutElement) are KEPT, because nothing puppets this clone's rects — the game's own
-/// layout must size the backdrop to the name.
+/// (over a pixel-for-pixel rebuild) per the <see cref="Net.RemoteWidgetMirror"/> precedent —
+/// its Neutralize pipeline is reused here in miniature; see <see cref="Neutralize"/> for the
+/// one deliberate difference.
 ///
 /// The prefab is cloned PRISTINE (authored serialized state) rather than duplicating the
 /// LIVE screen-space instance: the live tooltip is cloned mid-show-animation (GUIAnimator
@@ -457,12 +454,11 @@ internal sealed class PingNameTag : MonoBehaviour
         _label.fontStyle = FontStyles.Bold;
         TmpFit.Fit(_label, FallbackWidth, FallbackHeight, wrap: false);
         // Free-floating over the room in MR (plate dies with the tag). fades: TRUE because this tag
-        // EXPIRES BY FADING its own colour alpha (see Tick's FadeTail) rather than by being switched
-        // off — and an MR plate is opaque by construction, so without the opt-in it stood at full
-        // opacity behind an already-invisible name for the whole 0.35 s tail and then vanished in
-        // one frame. Same residue class as the tooltip streak (user report 2026-08-09); see
-        // MrBacking's "THE PLATE MUST DIE WITH ITS CONTENT" for why the fade is opt-in and not read
-        // off every label's alpha automatically.
+        // expires by FADING its colour alpha (Tick's FadeTail), not by being switched off: an MR
+        // plate is opaque by construction, so without the opt-in it stood at full opacity behind an
+        // already-invisible name for the whole tail and then vanished in one frame (same residue
+        // class as the tooltip streak, user report 2026-08-09). MrBacking's "THE PLATE MUST DIE
+        // WITH ITS CONTENT" says why the fade is opt-in rather than read off every label's alpha.
         WorldUI.MrBacking.Label(_label, fades: true);
         // (The clone route needs no MR plate — the game tooltip brings its own backdrop.)
     }

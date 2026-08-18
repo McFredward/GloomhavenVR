@@ -22,7 +22,8 @@ namespace GloomhavenVR.Compat;
 /// "read from source at runtime" instead of "inferred".
 ///
 /// It also pins the LOCALIZATION KEYS of every tutorial hint (title + pages), which is
-/// what the VR hint-text override (<see cref="TutorialHintPatches"/>) keys on — after one
+/// what the VR hint-text override (<see cref="TutorialHints"/>, in Tutorial/TutorialHintPatches.cs)
+/// keys on — after one
 /// hardware run the pattern-matched keys can be promoted to exact entries.
 ///
 /// SAFETY: postfixes only, no game state touched, every body try/caught (a diagnostics

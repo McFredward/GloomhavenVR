@@ -59,18 +59,15 @@ internal sealed class CompatModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(InitialInputSkip));
 
         // ISSUE #4 — walls, round 3 (whole-wall redesign; hardware falsified the per-pixel
-        // approach — see WallFadeDisable / Core.WallSegmentFade headers):
+        // approach). Two halves, both VR-gated and reversible; the evidence and the rejected
+        // per-pixel route are in the WallFadeDisable / Core.WallSegmentFade headers:
         // 1. WallFadeDisable pins the GLOBAL shader gate int (ToggleWallFade) to 0
-        //    UNCONDITIONALLY via a Harmony postfix on Main.Update — the game's per-pixel
-        //    screen-space fade is never allowed to run wholesale in VR (its occlusion map is
-        //    generated for the parked game camera, and even a correct head-camera map pops
-        //    wall parts under fast head motion — hardware rounds 1+2).
+        //    UNCONDITIONALLY via a Harmony postfix on Main.Update, so the game's per-pixel
+        //    screen-space fade never runs wholesale in VR.
         // 2. WallSegmentFade (gated LIVE by [Compat] WallFade) fades whole ProceduralWall
-        //    segments instead: head-position occlusion decision with dwell hysteresis and a
-        //    damped fade, delivered per renderer through MaterialPropertyBlocks that re-open
-        //    the same shader gate with a substituted constant occlusion map (property
-        //    precedence MPB > material > global). OFF = every wall bit-for-bit solid.
-        // Both are VR-gated, reversible, live-togglable from the VR settings panel.
+        //    segments instead, per renderer through MaterialPropertyBlocks that re-open the same
+        //    shader gate with a substituted constant occlusion map (property precedence
+        //    MPB > material > global). OFF = every wall bit-for-bit solid.
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
         // The GAME's own card particles are authored for its full-size 2D card and spray across
         // the diorama when a card is swept to a pile — pinned off through the game's own low-spec

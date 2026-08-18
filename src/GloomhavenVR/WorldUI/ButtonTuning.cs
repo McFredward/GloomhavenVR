@@ -20,10 +20,12 @@ namespace GloomhavenVR.WorldUI;
 /// control board: cap width/height/depth and press travel. Consumed by
 /// <c>PlayTray.BuildButtons</c> ONLY.
 ///
-/// [BoardDashboard] — the settings gear ("Einstellungen") and the follow/pin toggle
-/// ("Fixiert") flat plates on the control board: per-button width (they are authored at
-/// different widths), shared height/depth and press travel. Consumed by
-/// <c>PlayTray.CreateDashboardButtons</c> ONLY.
+/// [BoardDashboard] — the follow/pin toggle ("Fixiert") plate on the control board: width,
+/// height, depth and press travel. Consumed by <c>PlayTray.CreateDashboardButtons</c> ONLY.
+/// The set is named in the plural and its bind descriptions still mention a settings gear
+/// because it used to drive that plate too; the gear went with the free-floating settings
+/// panel (the VR settings are an options-window tab now, <see cref="VROptionsTab"/>). The
+/// KEYS stay as they are — they are user data.
 ///
 /// [RestButtons] — the short/long rest keycaps in the tray's rest zone (2026-07 category
 /// completion, user: "set button form per category for ALL buttons"): cap width/height
@@ -36,7 +38,7 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// NO "Auto" SENTINEL any more (user: "give me a fixed numeric value everywhere"): every
 /// entry's DEFAULT is the exact authored value it replaced, so the shipped defaults
-/// reproduce the authored look bit-identically and every settings-panel stepper always
+/// reproduce the authored look bit-identically and every options-tab stepper always
 /// shows a real number. Legacy files ([TransientButtons] offsets/shape/cap size and the
 /// shared [SquareCaps] 0=Auto geometry that leaked across categories) are migrated once on
 /// <see cref="Bind"/>: nonzero values are copied into every category they used to affect
@@ -45,7 +47,7 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// Consumers re-read the clamped accessors and rebuild on <see cref="Version"/> change
 /// (PlayTray.TickStatus / ButtonCluster.Tick), so every entry is live — no restart. The
-/// settings panel binds steppers against the public entries + <see cref="Changed"/>.
+/// the VR options tab binds steppers against the public entries + <see cref="Changed"/>.
 /// All values are LOCAL visuals — nothing here syncs to multiplayer.
 /// </summary>
 internal static class ButtonTuning
@@ -111,7 +113,7 @@ internal static class ButtonTuning
     internal static ConfigEntry<float>? BoardDepth;
     internal static ConfigEntry<float>? BoardTravel;
 
-    // ---- [BoardDashboard] — gear + Fixiert plates (PlayTray.CreateDashboardButtons ONLY) --
+    // ---- [BoardDashboard] — the Fixiert plate (PlayTray.CreateDashboardButtons ONLY) -------
     internal static ConfigEntry<float>? DashPinWidth;
     internal static ConfigEntry<float>? DashHeight;
     internal static ConfigEntry<float>? DashDepth;
@@ -127,7 +129,7 @@ internal static class ButtonTuning
     // the TEXT COLORS and BUTTON COLORS as a debug option"). Defaults reproduce today's look
     // EXACTLY: the label binds seed the current bright-parchment fill / dark-umber outline, and
     // every cap-face tint seeds WHITE (1,1,1) = an identity multiply so caps are unchanged until
-    // the user edits. R/G/B floats (0..1) so the settings panel steppers them cleanly. ----------
+    // the user edits. R/G/B floats (0..1) so the options tab steppers them cleanly. -----------
     internal static ConfigEntry<float>? LabelR;
     internal static ConfigEntry<float>? LabelG;
     internal static ConfigEntry<float>? LabelB;
@@ -142,7 +144,7 @@ internal static class ButtonTuning
     internal static ConfigEntry<float>? ClusterCapTintR, ClusterCapTintG, ClusterCapTintB; // round-phase cluster
     internal static ConfigEntry<float>? RestCapTintR, RestCapTintG, RestCapTintB;         // short/long rest
 
-    /// <summary>Raised on every entry write (settings-panel steppers bind here).</summary>
+    /// <summary>Raised on every entry write (the options tab's steppers bind here).</summary>
     internal static event System.Action? Changed;
 
     /// <summary>Monotonic change counter — pull-based consumers rebuild when it moves.</summary>
@@ -519,13 +521,13 @@ internal static class ButtonTuning
     /// <summary>[BoardDashboard] follow/pin ('Fixiert') plate width (that toggle ONLY).</summary>
     internal static float DashboardPinWidth => Clamped(DashPinWidth, DefaultPinWidth, 0.02f, 0.20f);
 
-    /// <summary>[BoardDashboard] gear + follow/pin plate height.</summary>
+    /// <summary>[BoardDashboard] follow/pin plate height.</summary>
     internal static float DashboardHeight => Clamped(DashHeight, DefaultDashHeight, 0.015f, 0.20f);
 
-    /// <summary>[BoardDashboard] gear + follow/pin plate depth.</summary>
+    /// <summary>[BoardDashboard] follow/pin plate depth.</summary>
     internal static float DashboardDepth => Clamped(DashDepth, DefaultDashDepth, 0.006f, 0.08f);
 
-    /// <summary>[BoardDashboard] gear + follow/pin press travel.</summary>
+    /// <summary>[BoardDashboard] follow/pin press travel.</summary>
     internal static float DashboardTravel => Clamped(DashTravel, DefaultDashTravel, 0.002f, 0.02f);
 
     /// <summary>[RestButtons] Square-shape cap width (short/long rest keycaps ONLY).</summary>
@@ -584,7 +586,7 @@ internal static class ButtonTuning
         Tint3(BoardCapTintR, BoardCapTintG, BoardCapTintB,
               Defaults.BoardCapTintR, Defaults.BoardCapTintG, Defaults.BoardCapTintB);
 
-    /// <summary>Gear + Fixiert (follow/pin) plate FACE tint.</summary>
+    /// <summary>Fixiert (follow/pin) plate FACE tint.</summary>
     internal static Color DashCapTint =>
         Tint3(DashCapTintR, DashCapTintG, DashCapTintB,
               Defaults.DashCapTintR, Defaults.DashCapTintG, Defaults.DashCapTintB);

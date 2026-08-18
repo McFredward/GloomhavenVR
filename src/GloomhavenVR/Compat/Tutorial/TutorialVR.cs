@@ -45,9 +45,8 @@ namespace GloomhavenVR.Compat;
 /// GameState), so <c>ShouldEventCauseTrigger</c> treats it identically.
 ///
 /// SAFETY / SCOPE:
-/// - Zero game-data changes; one additive client event. UNCONDITIONAL since the 2026-08-13
-///   user ruling (the [Compat] TutorialVRAdapt kill-switch is gone: its OFF was the vanilla
-///   deadlock); scope is the runtime tutorial gate below, not a config flag.
+/// - Zero game-data changes; one additive client event. UNCONDITIONAL — the scope is the runtime
+///   tutorial gate below, not a config flag; see <see cref="Enabled"/> for the ruling behind that.
 /// - Zero wire traffic: <c>UIEventManager.OnEventLogged</c> has exactly ONE subscriber,
 ///   <c>LevelEventsController.UIEventLogged</c> (verified repo-wide grep) — UIEvents never
 ///   serialize to Photon/FFSNet.

@@ -24,22 +24,14 @@ namespace GloomhavenVR.Rig;
 /// that rule is NOT keyed on: an open menu. A floating dialog must never cost the player their
 /// movement — the same call the mode gate below makes, and the same one turning makes.</para>
 ///
-/// <para>THE SIDEWAYS AXIS IS SHARED WITH TURNING, and that is the other arbitration this class has
-/// to make. <see cref="SnapTurn"/> reads the stick's sideways axis (<c>Thumbstick.x</c>); strafe
-/// wants the same axis. With the shipped defaults there is no contest — <c>[Comfort] TurnHand</c>
-/// is Right and <c>FlightHand</c> is Left, so turning and flying sit on different controllers and
-/// both axes of the flight stick are free. When a player DOES put both on one stick, turning wins
-/// and strafe stands down (see <see cref="StrafeAllowed"/>); forward/backward flight is unaffected
-/// either way, because nothing else reads that axis.</para>
-///
-/// <para>…AND, SINCE MODBUILD 138, WITH AOE PATTERN ROTATION — on the SHIPPED defaults, because
-/// <c>AoeControl</c> now deliberately takes the hand <c>TurnHand</c> does not use (TURN NEVER: the
-/// user's ruling that turning may never be blocked, which is only satisfiable by un-sharing the
-/// axis rather than arbitrating it). Turn Right ⇒ rotation lands Left ⇒ the same stick this class
-/// flies with by default. That contest is real, brief and hand-accurate: strafe yields only while
-/// an AoE pattern would REALLY rotate on THIS hand, i.e. during a ranged AoE aim, and never for
-/// board state alone. Forward flight is never affected, so the player keeps flying while aiming.
-/// See <see cref="StrafeAllowed"/>.</para>
+/// <para>THE SIDEWAYS AXIS IS SHARED — with TURNING (<see cref="SnapTurn"/> reads
+/// <c>Thumbstick.x</c>) and, since ModBuild 138, with AOE PATTERN ROTATION, which deliberately
+/// takes the hand <c>[Comfort] TurnHand</c> does NOT use (TURN NEVER: the user's ruling that
+/// turning may never be blocked is only satisfiable by un-sharing the axis rather than arbitrating
+/// it — so with the shipped turn-Right default the rotation lands on the LEFT stick, which is also
+/// the default <c>FlightHand</c>). STRAFE is the one that yields, hand-accurately and only while a
+/// claim is real; forward/backward flight is never affected, because nothing else reads that axis.
+/// The arbitration and its reasons live at <see cref="StrafeAllowed"/>.</para>
 ///
 /// <para>SPEED IS IN APPARENT METRES, NOT WORLD UNITS, and that is the one non-obvious decision
 /// here. The rig root is SCALED (the diorama runs at ~12x, and the player re-scales it by pinching),
@@ -306,22 +298,17 @@ internal sealed class Flight : MonoBehaviour
         // AoE pattern rotation reads the sideways axis too (AoeControl — a horizontal flick rotates
         // the pattern one 60-degree step). It never touches the forward axis, which is why the mode
         // gate in Update does not refuse flight outright: the player keeps flying while aiming, they
-        // just cannot strafe with the same flick that turns the pattern. Same shape of ruling as the
-        // turning contest, same reason — the older, aimed control keeps the axis it was built on.
+        // just cannot strafe with the same flick that turns the pattern.
         //
-        // TWO THINGS THIS ASKS THAT IT USED TO GUESS (ModBuild 138):
-        //   1. WHETHER — the claim is taken from the consumer (AoeControl, via LocalTurnControl),
-        //      not from VRMode.BoardTargeting. That mode is true on every peer in the session AND
-        //      throughout movement/waypoint selection, where AoeControl.CanRotate rotates nothing;
-        //      strafe was being stood down for a consumer that had already declined it.
-        //   2. WHICH STICK — AoE rotation now lives on the hand [Comfort] TurnHand does NOT use, so
-        //      under the shipped defaults (turn Right) it lands on the LEFT stick, which is also the
-        //      default FlightHand. The contention that used to be imaginary here is now real, and a
-        //      hand-blind test would either miss it or punish the other hand for it. Asking about
-        //      THIS hand is both narrower and more accurate than the old mode test.
-        // Turning is deliberately NOT part of this arbitration any more (TURN NEVER); it keeps its
-        // own stick unconditionally, and `turningOnThisStick` above is the unrelated, older contest
-        // between flight and turning when the player points both dials at one controller.
+        // The claim is asked of the CONSUMER (AoeControl via LocalTurnControl) and scoped to THIS
+        // hand — both matter, and both were wrong before ModBuild 138: VRMode.BoardTargeting is true
+        // on every peer AND throughout movement/waypoint selection, where AoeControl rotates
+        // nothing, and since the hand split the rotation really does land on the default flight
+        // stick, so a hand-blind test would punish the wrong controller. Full argument and the
+        // rejected alternatives: LocalTurnControl's class doc.
+        // Turning is deliberately NOT part of this arbitration (TURN NEVER); it keeps its own stick
+        // unconditionally, and `turningOnThisStick` above is the unrelated, older contest between
+        // flight and turning when the player points both dials at one controller.
         bool aoeOwnsSideways = LocalTurnControl.AoeOwnsStick(hand.Side);
         bool allowed = !turningOnThisStick && !aoeOwnsSideways;
         if (_strafeAllowed != allowed)

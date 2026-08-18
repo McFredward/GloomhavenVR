@@ -125,8 +125,9 @@ internal static partial class CanvasConversion
     // panels are behind a given distance, the decision it holds is the same one it would take
     // afterwards. See Core.UnseenTileOrder's round-3 header for the full argument.
 
-    /// <summary>Sentinel from <see cref="OrderSeenThrough"/>: the ladder has nothing behind this
-    /// surface, so the caller must leave the surface's authored order alone.</summary>
+    /// <summary>Sentinel from <see cref="SeenThroughBounds"/> / <see cref="ResolveSeenThrough"/>:
+    /// the ladder has nothing behind this surface, so the caller must leave the surface's authored
+    /// order alone.</summary>
     internal const int NoSurfaceBehind = int.MinValue;
 
     /// <summary>
@@ -245,8 +246,8 @@ internal static partial class CanvasConversion
     /// or below <paramref name="frontFloor"/> (the lowest order among everything measurably
     /// nearer). <see cref="NoSurfaceBehind"/> / <see cref="int.MaxValue"/> mean "no such side".
     ///
-    /// <para>Callers that only want a number use <see cref="OrderSeenThrough"/>. Callers that keep
-    /// a STICKY decision want the constraints themselves, because the cheapest and least twitchy
+    /// <para>The bounds, not a single number, are what callers ask for: a caller keeping a STICKY
+    /// decision wants the constraints themselves, because the cheapest and least twitchy
     /// question a driver can ask is not "what would I choose now" but "is what I already chose
     /// still correct" — an order that still satisfies both bounds needs no write, and a ladder
     /// reshuffle entirely on one side of the surface therefore costs nothing and pops nothing.</para>
@@ -270,23 +271,6 @@ internal static partial class CanvasConversion
         int frontFrom = FirstRungNearerThan(rungs, n, eyeDistance - OrderSwapMarginMeters, strict: true);
         if (frontFrom < n)
             frontFloor = rungs[frontFrom].FrontBase;
-    }
-
-    /// <summary>
-    /// The sortingOrder a FOREIGN transparent surface (one the mod does not own and cannot
-    /// re-author — today: the game's undiscovered-room hex kit) must take so that it composites
-    /// correctly with the panel ladder and the board furniture band: above everything measurably
-    /// farther, below everything measurably nearer. See the header for the full argument.
-    /// </summary>
-    /// <param name="eyeDistance">Distance from the eye to the nearest point of the surface — the
-    /// same measure <see cref="PanelEyeDistance"/> answers for a panel.</param>
-    /// <param name="lift">Head-room above the farthest-behind slot for that slot's own order
-    /// followers. Must stay under <see cref="PanelOrderStep"/> (same contract as every follower).</param>
-    /// <returns><see cref="NoSurfaceBehind"/> when nothing on the ladder is behind the surface.</returns>
-    internal static int OrderSeenThrough(float eyeDistance, int lift)
-    {
-        SeenThroughBounds(eyeDistance, out int behindTop, out int frontFloor);
-        return ResolveSeenThrough(behindTop, frontFloor, lift);
     }
 
     /// <summary>

@@ -46,7 +46,7 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///        (never)  [AttackModifiers]: FinalizeFlow
 /// </code>
 ///
-/// <para>The mechanism: <c>WorldUI/ActorBars.cs:469</c> hides a figure's adopted worldspace panel
+/// <para>The mechanism: <c>WorldUI/ActorBars</c> hides a figure's adopted worldspace panel
 /// while its mini is in the hand (<c>panel.HostGo.SetActive(!hide)</c>, keyed on
 /// <see cref="HeldFigures.Owns"/>). The game's <c>AttackModBar</c> flow coroutines are started ON
 /// THAT PANEL'S <c>WorldspacePanelUIController</c> (WorldspacePanelUIController.cs:635, :655), and
@@ -96,12 +96,13 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <para>REJECTED — patching <c>Choreographer.WaitingForPlayerIdle</c> to add a timeout. It is the
 /// game's turn machine; the standing rule is UI seams only, and a mod-invented timeout would fire
 /// on legitimate slow flows and desync a multiplayer table.</para>
-/// <para>REJECTED — not hiding the bar of a held figure at all (<c>ActorBars.cs:469</c>). That is
-/// the one line that does the damage, and removing it WOULD fix this instance — but the hide is a
+/// <para>REJECTED — not hiding the bar of a held figure at all (<c>ActorBars</c>). That is the one
+/// line that does the damage, and removing it WOULD fix this instance — but the hide is a
 /// deliberate user-facing choice ("the bar clutters the hand"), it lives in another module, and it
 /// would leave the general shape ("a grab deactivates game objects mid-coroutine") open for the
-/// next thing that hides something. Reported to the integrator as the recommended companion
-/// change; this gate does not depend on it.</para>
+/// next thing that hides something. The companion change LANDED in the narrower form instead:
+/// ActorBars now skips the hide for a bar that reports <c>FlowControlActive()</c>, so the
+/// mechanism is covered there too. This gate does not depend on it.</para>
 /// <para>REJECTED — a watchdog ALONE. It repairs instead of preventing, and the user's words are
 /// "sowas darf unter keinen Umständen passieren". It is kept as a BACKSTOP only
 /// (<see cref="FigureStallWatchdog"/>).</para>

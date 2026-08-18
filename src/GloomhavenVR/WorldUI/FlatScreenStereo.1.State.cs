@@ -1,20 +1,16 @@
 using System.Collections.Generic;
-using System.Reflection;
 using System.Text;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Video;
-using UnityEngine.XR;
 
 namespace GloomhavenVR.WorldUI;
 
-// THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them to something
-// prettier. Compile order is the filename sort of the SDK's default `**/*.cs`
-// glob, and a partial class's members land in metadata in compile order, so the
-// numbering is what makes the four parts concatenate back into the original
-// member order.
+// THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them (rule and
+// reasoning: FlatScreen.1.Core.cs). The four parts concatenate back into the
+// original member order.
 //
 // THIS FILE IS THE MAP/COMPOSITOR SEPARATION AND NOTHING ELSE. The campaign-map
 // renderer is part 3, whole; the stereo compositor is parts 2 and 4. BindConfig

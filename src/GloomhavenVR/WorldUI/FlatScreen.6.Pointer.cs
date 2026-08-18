@@ -2,9 +2,7 @@ using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
-using TMPro;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.WorldUI;
@@ -58,10 +56,10 @@ internal sealed partial class FlatScreen
             return;
         }
 
-        // MENU-POPUP FLOAT arbitration ([WorldUI] MenuPopupFloat): while the dominant laser is
-        // on a WORLD-SPACE uGUI panel NEARER than the screen plane (the floated
-        // GlobalErrorMessage box spawns 1.2 m ahead, straight in front of the ~1.6 m screen;
-        // the in-VR settings panel likewise), that panel owns hover AND trigger via
+        // MENU-POPUP FLOAT arbitration (unconditional — the [WorldUI] MenuPopupFloat kill switch
+        // was removed by user ruling 2026-08-11): while the dominant laser is on a WORLD-SPACE
+        // uGUI panel NEARER than the screen plane (the floated GlobalErrorMessage box spawns
+        // 1.2 m ahead, straight in front of the ~1.6 m screen), that panel owns hover AND trigger via
         // RayUguiDriver. Without this yield the SAME trigger also warped+pressed the virtual
         // mouse at the screen pixel BEHIND the panel — answering the floated box would blindly
         // click whatever the menu shows behind it. HasHit may be one frame stale (driver tick

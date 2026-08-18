@@ -5,9 +5,9 @@ using UnityEngine;
 namespace GloomhavenVR.Board.Patches;
 
 // ---------------------------------------------------------------------------
-// Phase-3a picking patches. Both prefixes fall through to the ORIGINAL method
-// (return true) whenever BoardPick is inactive — no scenario, modal UI, VR pick
-// unavailable — so mouse + Phase-2 virtual mouse behavior stays 100% vanilla.
+// Phase-3a picking patches. All THREE prefixes below fall through to the ORIGINAL
+// method (return true) whenever BoardPick is inactive — no scenario, modal UI, VR
+// pick unavailable — so mouse + Phase-2 virtual mouse behavior stays 100% vanilla.
 // Applied by BoardModule when VR runs (or in dev mode), removed collectively via
 // Plugin.OnDestroy (Harmony.UnpatchSelf) for the hot-reload contract.
 // ---------------------------------------------------------------------------

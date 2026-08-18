@@ -697,7 +697,7 @@ internal sealed class PileBrowser
     ///  3. GRAZING RAYS. <c>denom &lt; 1e-5</c> only rejected an exactly parallel beam, so a ray
     ///     pointed somewhere else entirely still "crossed" each card's infinite plane metres away
     ///     and was reported as a near miss with a metre-scale pad (see
-    ///     <see cref="FanSweep.LaserMinFaceDot"/>).
+    ///     <see cref="FanSweep.LaserMinFaceDenominator"/>).
     /// </summary>
     internal bool TryRaycast(Vector3 origin, Vector3 direction, VRCard? sticky,
         out VRCard? card, out Vector3 point, out float distance,

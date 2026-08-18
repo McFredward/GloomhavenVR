@@ -1,8 +1,4 @@
-using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands;
-using GloomhavenVR.Hands.Interact;
-using GloomhavenVR.Rig;
 using TMPro;
 using UnityEngine;
 
@@ -67,7 +63,7 @@ internal sealed partial class PlayTray
     /// wanted-glow now read ONE per-board number, <c>[Cards] SlotOverlayScale_{board}</c>, seeded
     /// with SlotCardFill's 1.45 — the card is unchanged, the overlay grew to meet it, and turning
     /// the dial moves both. Both live in the slot frame and both scale the same authored card
-    /// metric (<see cref="VRCard.WorldWidth"/> is <c>CardWidth × lossyScale</c>, the quad is
+    /// metric (the sweep's face width is <c>CardWidth × lossyScale</c>, the quad is
     /// <c>CardWidth × factor</c>), so the two numbers are directly comparable — that is what makes
     /// "exactly fills" a single shared factor rather than a fitted constant.</para>
     /// </summary>

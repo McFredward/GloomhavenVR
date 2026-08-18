@@ -54,9 +54,9 @@ internal sealed partial class CardsDriver
             driver._expectedPoseChange = what;
     }
 
-    /// <summary>User escape hatch pending: the VR settings "Board zurückholen" button was pressed.
-    /// Per the P2 threading rule the UI handler only sets the flag; <see cref="Update"/> performs
-    /// the re-home on the main thread with a reliably valid head pose.</summary>
+    /// <summary>User escape hatch pending: a "Board zurückholen" request came in. Per the P2
+    /// threading rule the caller only sets the flag; <see cref="Update"/> performs the re-home on
+    /// the main thread with a reliably valid head pose.</summary>
     private bool _recallBoard;
 
     /// <summary>True once the "no hand anchor while in a scenario" state has been logged, so the
@@ -64,12 +64,19 @@ internal sealed partial class CardsDriver
     private bool _anchorLossLogged;
 
     /// <summary>
-    /// USER ESCAPE HATCH (settings → Komfort → "Board zurückholen"): bring the control board back
-    /// in front of the player NOW, whatever mode it is in and without waiting for the watchdog's
-    /// dwell timer. Deliberately a static request rather than a direct call — the settings panel
-    /// runs off a UI callback and the board pose may only be written from the driver's Update
-    /// (P2 threading rule), which also sanctions the move for the issue-C pose watchdog.
-    /// No-op with no live driver (no scenario / hands down).
+    /// USER ESCAPE HATCH "Board zurückholen": bring the control board back in front of the player
+    /// NOW, whatever mode it is in and without waiting for the watchdog's dwell timer.
+    /// Deliberately a static request rather than a direct call — a settings-panel action runs off a
+    /// UI callback and the board pose may only be written from the driver's Update (P2 threading
+    /// rule), which also sanctions the move for the issue-C pose watchdog. No-op with no live
+    /// driver (no scenario / hands down).
+    ///
+    /// <para>NOT WIRED TO A BUTTON YET (verified: this is the only mention of it in <c>src/</c>).
+    /// The options tab exposes config DIALS, not actions, so the "Komfort ▸ Neu zentrieren · Board
+    /// zurückholen" row of <c>.planning/refactor/MENU-STRUCTURE.md</c> is still a proposal. Kept
+    /// deliberately: it is the receiving half of an approved feature, and the watchdog notes in
+    /// <c>PlayTray.2.Watchdog.cs</c> name this as the user-facing recovery. Do not delete it as
+    /// dead code — wire it.</para>
     /// </summary>
     internal static void RequestBoardRecall()
     {
@@ -574,8 +581,8 @@ internal sealed partial class CardsDriver
             _tray.RecoverLostBoard(lostWhy);
         }
 
-        // User escape hatch (VR settings → Komfort → "Board zurückholen"): an explicit, always
-        // available "bring it back" that does not wait for the watchdog dwell timer.
+        // User escape hatch "Board zurückholen": an explicit, always available "bring it back"
+        // that does not wait for the watchdog dwell timer. No caller yet — see RequestBoardRecall.
         if (_recallBoard)
         {
             _recallBoard = false;

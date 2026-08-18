@@ -8,9 +8,8 @@ namespace GloomhavenVR.Hands;
 /// [Hands] curl/fist tunables AND (since the per-style rework) the PER-STYLE seat
 /// controls, in the module's OWN config file
 /// (<c>BepInEx/config/dev.gloomhavenvr.hands.cfg</c>, canonical
-/// <see cref="ModuleConfig.Create"/> pattern — the legacy shared seat/trim entries stay
-/// bound-but-unread in the main plugin cfg; their values were folded into the per-style
-/// seed, see the per-style section below).
+/// <see cref="ModuleConfig.Create"/> pattern — the legacy shared seat/trim entries are gone
+/// from Plugin entirely; the per-style tables below replaced them, see that section).
 ///
 /// Why these exist (on-device "mostly no fist" investigation): the runtime fist chain
 /// is  raw XR grip/trigger float → curl target → exponential smoothing → per-joint
@@ -129,13 +128,13 @@ internal static class HandsConfig
 
     // ---- ghost hand while the card fan is open ---------------------------------------------
     // User request: with the fan open on the palm, the HAND itself covers card details. The
-    // hand that carries the open fan may OPTIONALLY fade to a "Geisterhand" — still visible
-    // (you must be able to see where your fingers are to grab a card), just see-through. OFF by
-    // default: nothing about the hands changes until the player enables it in the debug menu.
-    // Applied reversibly on per-renderer material CLONES (see HandGhost) and mirrored onto the
-    // avatar mirror + the multiplayer avatar, so all three renderings of this player agree.
+    // hand that carries the open fan fades to a "Geisterhand" — still visible (you must be able
+    // to see where your fingers are to grab a card), just see-through. Both toggles SHIP ON
+    // (Defaults.Hands.cs; they shipped off when the feature was new). Applied reversibly on
+    // per-renderer material CLONES (see HandGhost) and mirrored onto the avatar mirror + the
+    // multiplayer avatar, so all three renderings of this player agree.
 
-    /// <summary>Fade the hand that carries the OPEN card fan ("ghost hand"). Default OFF.</summary>
+    /// <summary>Fade the hand that carries the OPEN card fan ("ghost hand").</summary>
     public static ConfigEntry<bool> GhostHandOnFan = null!;
 
     /// <summary>Also ghost a hand while it HOLDS a card (independent of the fan toggle).</summary>
@@ -168,14 +167,9 @@ internal static class HandsConfig
 
     /// <summary>
     /// Per-style ROLL (degrees) around the controller's forward axis — the twist that makes a hand
-    /// look rotated on the controller rather than sitting on it.
-    ///
-    /// <para>MIRRORED BETWEEN THE HANDS, which is the whole point of it being separate from pitch.
-    /// The two controllers report the same handedness of local axes, so one value applied to both
-    /// would twist them the same way in world terms — one hand rolling inward while the other rolls
-    /// outward. <see cref="VRHand.SyncVisualOffset"/> negates it for the left hand, so a positive
-    /// value turns BOTH palms the same way relative to their own body side and the pair stays
-    /// symmetric.</para>
+    /// look rotated on the controller rather than sitting on it. MIRRORED between the hands, which
+    /// is why it is separate from pitch; the reason it must be is stated at the mirroring itself,
+    /// in <see cref="VRHand.SyncVisualOffset"/>.
     /// </summary>
     public static ConfigEntry<float>[]? StyleSeatRoll;
 
@@ -188,13 +182,9 @@ internal static class HandsConfig
 
     /// <summary>
     /// Per-style SPREAD (meters): how far apart the two hands sit. MIRRORED — positive moves the
-    /// left hand left and the right hand right.
-    ///
-    /// <para>Separate from <see cref="StyleSeatLateral"/> and not a replacement for it: lateral is
-    /// UNMIRRORED and shifts both hands the same way in device space (they move together, which is
-    /// what you want when the whole pair sits off-centre on the controllers), while spread moves
-    /// them apart or together. One cannot express the other — with lateral alone there is no way
-    /// to widen the pair, which is exactly what was missing.</para>
+    /// left hand left and the right hand right. Separate from <see cref="StyleSeatLateral"/> and
+    /// not a replacement for it (lateral is UNMIRRORED, so no value of it can widen the pair) —
+    /// see <see cref="VRHand.SyncVisualOffset"/>, where both terms are applied.
     /// </summary>
     public static ConfigEntry<float>[]? StyleSeatSpread;
 
@@ -307,25 +297,22 @@ internal static class HandsConfig
     // "Offset" and all three fell through to the magnitude rule. That rule scales the step to the
     // DIAL, and X shipped the smallest default of the three (-0.003 for the glove against Y's
     // -0.053): 0.003/50 -> 0.00005, i.e. one press moved the HUD by a twentieth of a millimetre
-    // while Y moved by one. Exactly the defect ConfigSteps' own remarks already record for the
-    // per-board asset rotation, where the trailing "_Oak" hid the unit the same way and "the user
-    // pressed his way to -0.04° and correctly reported 'no effect'".
+    // while Y moved by one. ConfigSteps' own remarks record the same defect for the per-board
+    // asset rotation, where a trailing "_Oak" hid the unit word exactly this way.
     //
     // Naming the DIRECTION rather than the axis fixes the step (all three now end in "Offset", so
     // the unit rule gives them a centimetre, bounded below by their own scale — 1 cm for the
     // centred side offset, 5 mm for the other two) and fixes the caption at the same time: "X"
-    // meant the wrist ANCHOR's X, which is not a frame anyone can guess from a letter. The
-    // remaining hole is ConfigSteps' own — any OTHER key in the project ending in a bare axis
-    // letter still misses its unit word — and it is reported rather than fixed here, because
-    // TryUnit is shared with dials this round has no business re-stepping.
+    // meant the wrist ANCHOR's X, which is not a frame anyone can guess from a letter. STILL OPEN,
+    // reported rather than fixed here: any OTHER key in the project ending in a bare axis letter
+    // still misses its unit word, and TryUnit is shared with dials this round must not re-step.
 
     // ---- shipped per-style wrist-HUD pose, indexed by (int)HandStyle: Glove, Plate, Arcane ----
-    // The per-style ARRAYS stay (the three meshes really do have different bulk under the plate,
-    // and a player who trims one style must not have the other two move with it), but the palm
-    // turn-around reset all three to one pose: the base rotation IS the wanted orientation now,
-    // so every trim ships 0°, and the offset is a plate floating clear of the palm, which clears
-    // all three meshes by the same margin. Tuning them apart again is a hardware question — that
-    // is what the rows are for.
+    // The per-style ARRAYS earn their keep: the three meshes have different bulk under the plate,
+    // a player who trims one style must not move the other two — and the 2026-08-09 hardware pass
+    // did dial them apart. The glove wears the plate close (5 cm down the arm, 2 cm clear, no
+    // pitch); plate and arcane push it 13 cm down the forearm and 7.5 cm out and tilt it 32°. The
+    // values themselves, and the warning not to re-express them, live in Defaults.Hands.cs.
     private static readonly float[] DefaultWristPitch = { Defaults.GlovePalmPitch, Defaults.PlatePalmPitch, Defaults.ArcanePalmPitch };
     private static readonly float[] DefaultWristYaw = { Defaults.GlovePalmYaw, Defaults.PlatePalmYaw, Defaults.ArcanePalmYaw };
     private static readonly float[] DefaultWristRoll = { Defaults.GlovePalmRoll, Defaults.PlatePalmRoll, Defaults.ArcanePalmRoll };
@@ -384,7 +371,7 @@ internal static class HandsConfig
             "Live-tunable.");
 
         // Ghost hand (see the field docs above). Bound BEFORE the seat block so a fresh cfg
-        // file groups the two feature keys next to the other [Hands] visual toggles.
+        // file groups the three ghost keys next to the other [Hands] visual toggles.
         GhostHandOnFan = config.Bind(
             "Hands", "GhostHandOnFan", Defaults.GhostHandOnFan,
             "Make the hand that currently holds the OPEN card fan semi-transparent (\"ghost " +
@@ -457,11 +444,9 @@ internal static class HandsConfig
             "the '[Hands] squeeze released: peak grip=...' log line shows your peak never " +
             "reaches 1.0. Set 1.0 for the raw, unremapped input.");
 
-        // PER-STYLE seat controls: one absolute pitch/X/Y/Z quartet per hand style, defaulting to
-        // the values measured on hardware (DefaultSeat* above). The bind default USED to be
-        // computed from the old shared globals plus a per-style trim, which made a fresh install's
-        // hand seat depend on six entries that are now retired and hidden — nobody could see what
-        // was seating their hands, or change it there. The tables are the answer outright.
+        // PER-STYLE seat controls: one absolute pitch/roll/yaw/X/Y/Z/spread set per hand style,
+        // defaulting to the hardware-measured DefaultSeat* tables above (why those are literal
+        // tables rather than seeded from the retired shared globals: the block above them).
         string[] styleNames = { "Glove", "Plate", "Arcane" }; // index == (int)HandStyle
         StyleSeatPitch = new ConfigEntry<float>[HandStyles.Count];
         StyleSeatLateral = new ConfigEntry<float>[HandStyles.Count];

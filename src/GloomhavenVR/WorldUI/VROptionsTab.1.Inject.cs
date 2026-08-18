@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using AsmodeeNet.Foundation;
 using GLOOM.MainMenu;
 using GloomhavenVR.Core;
 using TMPro;
@@ -10,7 +9,8 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-// THE DIGITS IN THESE FILENAMES ARE THE SPLIT — see SettingsPanel.1.Core.cs for why.
+// THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them (rule and
+// reasoning: FlatScreen.1.Core.cs).
 
 /// <summary>
 /// "VR Optionen" as a REAL TAB of the game's own options window, alongside Sprache / Anzeige /
@@ -52,9 +52,6 @@ internal static partial class VROptionsTab
     /// <summary>Our cloned tab window — the panel that opens when the toggle is selected.</summary>
     private static UISubmenuGOWindow? _window;
 
-    /// <summary>The donor tab's index in <c>m_Tabs</c>, for the log line only.</summary>
-    private static int _donorIndex = -1;
-
     private static bool _probed;
     private static bool _degraded;
 
@@ -89,9 +86,6 @@ internal static partial class VROptionsTab
     /// buttons grazing the row backgrounds.
     /// </summary>
     private const float TabColumnGutter = 28f;
-
-    /// <summary>True once the tab is live in the game's options window.</summary>
-    internal static bool Injected => _host != null && _toggle != null;
 
     /// <summary>
     /// Idempotent, cheap after the first success. Called every frame from
@@ -155,8 +149,6 @@ internal static partial class VROptionsTab
                 Degrade("no usable donor tab (need one with both a toggle and a tab window)");
                 return;
             }
-
-            _donorIndex = donorIndex;
 
             UIMainMenuOption? toggle = CloneToggle(donor.OptionToggle);
             if (toggle == null)
@@ -649,7 +641,6 @@ internal static partial class VROptionsTab
         _window = null;
         ContentRoot = null;
         TabBarRoot = null;
-        _donorIndex = -1;
     }
 
     /// <summary>

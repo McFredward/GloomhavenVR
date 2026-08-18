@@ -3,8 +3,6 @@ using GloomhavenVR.Cards.Patches;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
-using GloomhavenVR.Hands.Interact;
-using ScenarioRuleLibrary;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -12,17 +10,22 @@ namespace GloomhavenVR.Cards;
 // CardsDriver is ONE class split across SIX files. This is part 1 — read it first: it holds the
 // class doc, every shared field, the lifecycle and the board-tuning subscription.
 //
-//   CardsDriver.1.Core.cs          header, shared fields, lifecycle, board tuning (Part F)
+//   CardsDriver.1.Core.cs          header, shared fields, character-swap exchange, lifecycle,
+//                                  board tuning (Part F)
 //   CardsDriver.2.Update.cs        board pose guard, handlers, Update, tick attribution guard,
 //                                  fan diagnostics, card audio
-//   CardsDriver.3.Laser.cs         fan laser, fan hover split, hand-contact arbitration,
-//                                  board/browse/active laser, modal input-block, slot snap preview
-//   CardsDriver.4.Rebuild.cs       hand fan reorder, Rebuild, fly-to-pile, MP card-FX anchors,
+//   CardsDriver.3.Laser.cs         fan laser, fan hover ownership + split, hand-contact
+//                                  arbitration, laser stand-down, board/browse/item-fan/active
+//                                  laser, modal input-block, slot snap preview
+//   CardsDriver.4.Rebuild.cs       hand fan reorder, Rebuild, focus slot-card diagnostics,
+//                                  fly-to-pile + pile arrival, MP card-FX anchors,
 //                                  BurnSlab, HookCard
-//   CardsDriver.5.Interactions.cs  interactions, pick flows, short rest
-//   CardsDriver.6.Flows.cs         overlay gate, wanted-slot hint, initiative to-do, long-rest
-//                                  tracing, take-damage selection, long-rest turn pump,
-//                                  pile browse, active cards, dev fake hand
+//   CardsDriver.5.Interactions.cs  interactions, hand-to-hand transfer, pick flows, short rest
+//   CardsDriver.6.Flows.cs         overlay gate, wanted-slot hint, pick progress + confirm
+//                                  routing, initiative to-do, long-rest tracing, fan interaction
+//                                  mode, take-damage selection + decision surface, long-rest turn
+//                                  pump, selection-follow hand switch, pile browse, active cards,
+//                                  dev fake hand
 //
 // THE FILENAMES ARE NOT DECORATION. The csproj uses the SDK's default `**/*.cs` glob, so compile
 // order follows the filename sort, and a partial class's members land in metadata in compile

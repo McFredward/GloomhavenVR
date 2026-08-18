@@ -30,11 +30,12 @@ namespace GloomhavenVR.WorldUI;
 /// but the only way out of the end-of-scenario window must remain its native continue/retry
 /// buttons (an X would strand the scenario-end flow).
 ///
-/// Item 2 (style): the plate is now SUBTLE and on-theme with the VR settings panel the user likes —
-/// a small, muted DARK plate (the settings panel's dark canvas bg, <c>Color(0.07,0.07,0.10)</c>)
-/// carrying a BRASS "X" (the settings panel's brass grab-bar colour, <c>Color(0.62,0.5,0.28)</c>)
-/// that brightens on hover — instead of the old loud bright-red box. The glyph is mathematically
-/// centred on the plate (both bars anchored + pivoted at the plate centre, zero offset).
+/// Item 2 (style): the plate is SUBTLE and on-theme — a small, muted DARK plate
+/// (<c>Color(0.07,0.07,0.10)</c>) carrying a BRASS "X" (<c>Color(0.62,0.5,0.28)</c>) that
+/// brightens on hover, instead of the old loud bright-red box. Both tones were sampled from
+/// the mod's own (since retired) free-floating settings panel, which the user liked. The glyph
+/// is mathematically centred on the plate (both bars anchored + pivoted at the plate centre,
+/// zero offset).
 /// </summary>
 internal static class ModalCloseButton
 {
@@ -99,9 +100,11 @@ internal static class ModalCloseButton
     /// </summary>
     private const int CloseButtonSortingOrder = 1100;
 
-    // On-theme palette (mirrors SettingsPanel): muted dark plate + brass glyph.
-    private static readonly Color PlateColor = new(0.09f, 0.09f, 0.12f, 0.82f);  // settings-panel dark, semi-transparent
-    private static readonly Color GlyphColor = new(0.62f, 0.5f, 0.28f, 0.95f);   // settings-panel brass grab-bar tone
+    // On-theme palette, sampled from the mod's own retired free-floating settings panel: muted
+    // dark plate + brass glyph. Kept as literals because that panel is gone (the VR settings are
+    // an options-window tab now, VROptionsTab) — there is no shared palette left to point at.
+    private static readonly Color PlateColor = new(0.09f, 0.09f, 0.12f, 0.82f);  // dark, semi-transparent
+    private static readonly Color GlyphColor = new(0.62f, 0.5f, 0.28f, 0.95f);   // brass grab-bar tone
 
     /// <summary>Build the X button on <paramref name="panel"/>'s host, closing <paramref name="window"/>.</summary>
     internal static void Attach(ConvertedPanel panel, UIWindow window)
@@ -249,7 +252,7 @@ internal static class ModalCloseButton
         rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y, 0f);
 
         var img = go.AddComponent<Image>();
-        img.color = GlyphColor; // brass "X" (matches the settings-panel grab bar)
+        img.color = GlyphColor; // brass "X"
         img.raycastTarget = false; // pokes/laser hit the plate, not the glyph
     }
 }

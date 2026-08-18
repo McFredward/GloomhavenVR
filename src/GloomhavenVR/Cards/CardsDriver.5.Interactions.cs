@@ -1,7 +1,5 @@
 using System.Collections.Generic;
-using GloomhavenVR.Cards.Patches;
 using GloomhavenVR.Core;
-using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using ScenarioRuleLibrary;
@@ -1211,7 +1209,7 @@ internal sealed partial class CardsDriver
     /// non-poke (the zone loop resolves the same, this makes the intent explicit and
     /// covers the frames between a poll-driven swap and the next Rebuild). The card's
     /// live face is re-claimed off the docked DialogPopup automatically by
-    /// <c>CardFace.Maintain</c> (CardFace.cs:210) — the popup's own buttons still
+    /// <c>CardFace.Maintain</c> — the popup's own buttons still
     /// commit the choice. Change-deduped Info line on present / redraw-swap.
     /// </summary>
     private void PresentShortRestCard(CardsHandUI hand, CAbilityCard lost)

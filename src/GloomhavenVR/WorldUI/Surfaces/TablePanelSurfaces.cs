@@ -726,9 +726,12 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     // ---- enemy-info popup coplanarity (user item 5) --------------------------------------
     /// <summary>
-    /// ROOT CAUSE of "Der Text auf der Gegnerinfo beim Hovern über das Bild in der
-    /// Initiativreihenfolge ist 3D schief aus der Karte rausgeragt" (user, MP hardware test) — and
-    /// of why it kept coming back after being "fixed" more than once.
+    /// THE ALLY BANNER ABOVE THE ENEMY-INFO POPUP, and the four independent occluders it took to
+    /// make it fully visible. Reports: "Der Text auf der Gegnerinfo beim Hovern über das Bild in
+    /// der Initiativreihenfolge ist 3D schief aus der Karte rausgeragt", then three rounds of "der
+    /// Text darüber wo 'Verbündeter' steht ist halb abgeschnitten" — the last one verbatim: "Es
+    /// scheint mir so also ob eine unsichtbare Leiste der iniativreihenfolge den Text halb
+    /// verdeckt und er einfach 'nur' in den Vordergrund muss."
     ///
     /// WHAT THE POPUP IS AND WHERE IT LIVES (read from source): hovering an enemy portrait opens
     /// that entry's <c>MonsterBaseUI</c>. It is NOT a child of the portrait: every
@@ -739,243 +742,98 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// is a SIBLING of <c>initiativeTrackHolder</c>, so <see cref="NormalizeDepth"/> — which walks
     /// the row holder — has never reached the popup at all. And even where it does reach, it only
     /// ever writes <c>localPosition.z</c>; the "schief" part is a local ROTATION, which no pass on
-    /// this surface touched.
+    /// this surface touched. <see cref="EnemyRevealSurface"/> converts the same holder with
+    /// <c>Flatten2D</c> during the reveal PHASE, but the HOVER path leaves it under this surface's
+    /// own target, where nothing was flattening it.
     ///
-    /// WHY THE EARLIER FIXES DID NOT COVER IT: they landed on OTHER surfaces.
-    /// <see cref="EnemyRevealSurface"/> adopts the very same <c>enemyCardsHolder</c> during the
-    /// reveal PHASE and converts it with <c>Flatten2D</c> — but the HOVER path leaves the holder
-    /// where it is, under this surface's own converted target, where nothing was flattening it.
+    /// The banner is <c>MonsterBaseUI</c>'s <c>roleGameObject</c>/<c>roleText</c>, activated ONLY
+    /// for <c>CActor.EType.Ally</c>, <c>Enemy2</c> and <c>Neutral</c> and force-hidden for plain
+    /// enemies (MonsterBaseUI.SetBaseStats, MonsterBaseUI.cs:162-180). It hangs ABOVE the card's
+    /// frame, so it is the only part of the popup that reaches up out of the card body — which is
+    /// why every occluder below showed on ALLY hovers and never on enemy ones.
     ///
-    /// WHY A ONE-SHOT FLATTEN CANNOT HOLD (all read from source): <c>MonsterRoundCardUI</c> writes
-    /// <c>transform.localRotation = Quaternion.Euler(0, -360·n + 90, 0)</c> and then
-    /// <c>LeanTween.rotateAround(rect, Vector3.up, …)</c> (MonsterRoundCardUI.cs:42-44) — a live
-    /// Y-axis card flip, which on a world-space canvas is literal geometry; <c>MonsterBaseUI</c>
-    /// respawns its round card from the pool with <c>resetLocalRotation: false</c>
-    /// (MonsterBaseUI.cs:140), so a recycled card arrives carrying a stale mid-flip rotation; and
-    /// every card generation destroys and re-instantiates <c>contentHolder</c>'s children
-    /// (MonsterBaseUI.cs:293/304), so the nodes themselves are new objects. Hence a per-frame late
-    /// pass, exactly like <c>CanvasConversion.FlattenSubtree</c> and with its epsilons.
-    ///
-    /// WHY NOT SIMPLY <c>Flatten2D =&gt; true</c> ON THIS SURFACE: that pass zeroes local z across
-    /// the WHOLE target subtree in LateUpdate — i.e. after <see cref="NormalizeDepth"/> — and would
-    /// destroy the row's deliberately kept portrait recession (user ruling #3). This is scoped to
-    /// <c>enemyCardsHolder</c> and never touches the row.
-    ///
-    /// REVERSIBILITY WITHOUT AN OWNERSHIP FIGHT: a node is recorded ONLY on the tick it is found
-    /// DEVIATING. A node that <see cref="EnemyRevealSurface"/>'s own flatten already holds at
-    /// identity is therefore never claimed here, so the two passes can never disagree about what
-    /// "the original" was. The stand-down is explicit as well: while the reveal surface has
-    /// reparented the holder off this target, <c>IsChildOf</c> fails and this pass does nothing.
-    ///
-    /// COVERAGE: driven from <see cref="LateTick"/> rather than from a hover hook, so it also
-    /// covers <c>FigureIntentPeek</c> opening the same popup via <c>SetHilighted(true)</c> when a
-    /// mini is picked up — and any future opener — for free.
-    ///
-    /// ─── ROUND 2 (hardware 2026-08-12): the ALLY banner is cut in half ─────────────────────────
-    ///
-    /// THE REPORT (user, verbatim): "Wenn man in der Initativreihenfolge über gegner mit dem laser
-    /// hovered kommt die jeweilige Gegnerinfo - das will ich weiterhin so. Doch wenn man über
-    /// Verbündete hovered kommt sie zwar auch, aber der Text darüber wo 'Verbündeter' steht ist
-    /// halb abgeschnitten, das soll auch voll sichtbar sein." Screenshot
-    /// (gegenerinfo_abgeschnitten.png): the hover card renders complete, but the "VERBÜNDETER"
-    /// label band ABOVE its frame loses its top half at a razor-straight line — exactly the bottom
-    /// edge of the dark band behind the initiative portraits.
-    ///
-    /// THE WIDGET (read from source): the band is <c>MonsterBaseUI</c>'s <c>roleGameObject</c> /
-    /// <c>roleText</c>, activated ONLY for <c>CActor.EType.Ally</c> ("GUI_ALLY"), <c>Enemy2</c>
-    /// ("GUI_ENEMY2") and <c>Neutral</c> ("GUI_NEUTRAL") and force-hidden for plain enemies
-    /// (MonsterBaseUI.SetBaseStats, decompiled MonsterBaseUI.cs:162-180). It hangs above the
-    /// card's frame, so it is the ONLY part of the popup that reaches up into the row band —
-    /// which is precisely why the ENEMY hover card ("das will ich weiterhin so") never showed
-    /// the defect: it has no banner, so nothing of it crosses that line.
-    ///
-    /// TWO occluders live on exactly that line, both mod-introduced, and the hardware log cannot
-    /// attribute the cut to one of them (both are geometry-identical to the observed edge), so —
-    /// per the standing test-confidence rule — BOTH are neutralized in this build:
-    ///
+    /// THE FOUR MECHANISMS, all still live; each closed a real occluder and would regress alone:
     /// <list type="number">
-    /// <item><b>MERGED-CANVAS DRAW ORDER.</b> The game paints this window from TWO canvases: the
-    ///   popups live on the ROOT <c>InitiativeModule</c> canvas (under the <c>EnemyCardsHolder</c>
-    ///   root branch — scrollbar-audit path
-    ///   <c>InitiativeModule/EnemyCardsHolder/Main Area/…</c>), while the row + its dark band live
-    ///   under a NESTED 'InitiativeTrack' canvas with <c>overrideSorting=true</c> whose order the
-    ///   game toggles 40↔0 (<c>InitiativeTrack.Awake → ToggleSortingOrder(true)</c>; dialogs drop
-    ///   it to 0). The conversion's nested-canvas adoption CLEARS that override by design
-    ///   (hardware log: "Adopted nested canvas 'InitiativeTrack' … overrideSorting True→false"),
-    ///   which merges both trees into ONE canvas where raw hierarchy order decides — and a band
-    ///   branch that follows the popup branch paints the band OVER the banner. Fix:
-    ///   <see cref="LiftEnemyInfoBranch"/> holds the popup's root branch as the LAST root sibling
-    ///   while converted (recorded once, sibling index restored on release), so the merged canvas
-    ///   says with hierarchy what the game said with sorting: the popup is a popup — it paints on
-    ///   top of the track. Laser picking cannot regress from the lift: portraits are picked by
-    ///   <see cref="IDepthPortraitPicker.TryPickPortrait"/> against their world rects, which
-    ///   bypasses graphic paint order entirely, and the popup subtree carries no pointer handlers.</item>
-    /// <item><b>THE MR BACKING PLATE's DEPTH REJECTION.</b> <c>MrBacking</c> backs this panel with
-    ///   an OPAQUE, depth-writing quad (<c>_ZWrite 1</c>, <c>_ZTest LEqual</c>, renderQueue 2998 —
-    ///   drawn BEFORE the UI at ~3000) sized to exactly the fitted host rect (1781x175 in the
-    ///   hardware log) — i.e. exactly the visible band. Any UI fragment whose depth lands BEHIND
-    ///   that quad is z-rejected: a hard cut at the plate edge, matching the screenshot. This pass
-    ///   held every node INSIDE the popup at local z 0, but the popup's ANCESTOR CHAIN — the
-    ///   ScrollRect content (<c>enemyCardsHolder</c>) up through 'Main Area' and 'EnemyCardsHolder'
-    ///   — was flattened by NOBODY (NormalizeDepth walks <c>initiativeTrackHolder</c>, a sibling
-    ///   branch), so any authored chain z pushes the whole popup plane behind the plate. Fix: the
-    ///   same flatten now walks the holder→target chain too, with the same epsilons and the same
-    ///   record-only-while-deviating + restore contract, so the popup plane provably sits ON the
-    ///   canvas plane — in front of the plate by its full 2 mm real gap.</item>
+    /// <item><b>PER-FRAME COPLANARITY (this pass).</b> A one-shot flatten cannot hold:
+    ///   <c>MonsterRoundCardUI</c> writes <c>transform.localRotation = Quaternion.Euler(0, -360·n
+    ///   + 90, 0)</c> and <c>LeanTween.rotateAround(rect, Vector3.up, …)</c>
+    ///   (MonsterRoundCardUI.cs:42-44) — a live Y-axis card flip, literal geometry on a
+    ///   world-space canvas; <c>MonsterBaseUI</c> respawns the round card from the pool with
+    ///   <c>resetLocalRotation: false</c> (MonsterBaseUI.cs:140), so a recycled card arrives
+    ///   mid-flip; and every generation destroys and re-instantiates <c>contentHolder</c>'s
+    ///   children (MonsterBaseUI.cs:293/304). The walk covers the popup AND its holder→target
+    ///   ancestor chain, which <see cref="NormalizeDepth"/> never reaches. NOT
+    ///   <c>Flatten2D =&gt; true</c> on this surface: that zeroes local z across the WHOLE target
+    ///   subtree in LateUpdate — after <see cref="NormalizeDepth"/> — and would destroy the row's
+    ///   deliberately kept portrait recession (user ruling #3).</item>
+    /// <item><b>DRAW-ORDER LIFT (<see cref="LiftEnemyInfoBranch"/>).</b> The game paints this
+    ///   window from TWO canvases: the popups live on the ROOT <c>InitiativeModule</c> canvas,
+    ///   while the row + its dark band live under a NESTED 'InitiativeTrack' canvas with
+    ///   <c>overrideSorting=true</c> whose order the game toggles 40↔0. The conversion's
+    ///   nested-canvas adoption CLEARS that override by design, which merges both trees into ONE
+    ///   canvas where raw hierarchy order decides — and a band branch that follows the popup
+    ///   branch paints the band OVER the banner. The lift holds the popup's root branch as the
+    ///   LAST root sibling while converted (sibling index restored on release), so the merged
+    ///   canvas says with hierarchy what the game said with sorting.</item>
+    /// <item><b>ZTest-ALWAYS MATERIAL CLONES (<see cref="OnTopUiGraphics"/>).</b> The remaining
+    ///   cut ran exactly along the CONTROL BOARD's raised wooden rail — the user's "unsichtbare
+    ///   Leiste". World-side occlusion: UI shaders depth-test (<c>unity_GUIZTestMode</c> LEqual),
+    ///   and opaque depth-writing furniture drawn in the opaque queue z-rejects UI fragments
+    ///   behind it. While a popup is SHOWN every Graphic in its subtree is swapped onto a
+    ///   ZTest-Always clone of its own material; see that class for the mechanism.</item>
+    /// <item><b>CLIP DETACH (<see cref="UnmaskedUiGraphics"/>).</b> With 1-3 provably running
+    ///   (the log shows the lift firing, "33 graphic(s) swapped onto ZTest-Always clones", and the
+    ///   coplanarity walk reporting "0 node(s) to local z 0") the cut was pixel-identical — which
+    ///   eliminates paint order, plane pose and the depth test together. The remaining occluder
+    ///   class must ignore sibling order, renderQueue, ZTest AND z, and UI CLIPPING is exactly
+    ///   that: <see cref="RectMask2D"/> clips per RENDERER (<c>CanvasRenderer.EnableRectClipping</c>
+    ///   feeds <c>_ClipRect</c> to the shader whichever material instance is bound — the round-3
+    ///   clone keeps the keyword — and CULLS renderers that leave the rect), and a stencil
+    ///   <see cref="Mask"/> wraps every maskable child's <c>materialForRendering</c>. A clipper is
+    ///   provably there: the popups hang under <c>enemyCardsHolder</c>, the CONTENT of the "Main
+    ///   Area" ScrollRect, and <c>EnsureScrollClipping</c> logged NOTHING for this panel — by its
+    ///   own code that silence means the viewport ALREADY HAD a working clipper. The fix is
+    ///   <c>maskable=false</c> + <c>RecalculateClipping()</c> per graphic, both calls load-bearing;
+    ///   graphics under the popup's OWN internal clippers are skipped (their clipping is design).
+    ///   One clip boundary explains every observation of all four rounds.</item>
     /// </list>
     ///
-    /// HONESTY NOTE (inference vs source): both mechanisms above are READ FROM SOURCE; which one
-    /// produced the pixels in the screenshot is INFERRED — the session log has no line that
-    /// measures the chain's authored z or the two branches' sibling order. That is exactly why
-    /// both are closed at once instead of shipping a hypothesis test.
-    ///
-    /// ─── ROUND 3 (hardware 2026-08-12, second test): the banner is STILL cut — it is DEPTH ─────
-    ///
-    /// THE REPORT (user, verbatim): "Das Problem mit dem Text über der Gegnerinfo ist noch nicht
-    /// behoben. Es scheint mir so also ob eine unsichtbare Leiste der iniativreihenfolge den Text
-    /// halb verdeckt und er einfach 'nur' in den Vordergrund muss."
-    ///
-    /// WHAT THE FRESH EVIDENCE SAYS (log + screenshot gegenerinfo_abgeschnitten2.jpg):
-    /// <list type="bullet">
-    /// <item>Round 2's occluder 1 (the draw-order lift) FIRED and WORKED: the log shows
-    ///   "Enemy-info draw-order lift: moved the track's 'EnemyCardsHolder' branch … from root
-    ///   sibling 2 to LAST (3)", and the screenshot shows the info CARD now complete and painting
-    ///   over everything — including the region where round 1's screenshot had it cut by the row
-    ///   band. Canvas paint order is settled.</item>
-    /// <item>Round 2's occluder 2 (ancestor-chain z behind the MR plate) turned out to have
-    ///   NOTHING TO FIX: the same log's coplanarity lines report the chain+popup walk at
-    ///   "0 node(s) to local z 0 (worst 0.0 px)" — the popup plane already sat exactly ON the
-    ///   canvas plane, which is 2 mm PROUD of the plate by construction (MrBacking's real gap).
-    ///   The plate is thereby eliminated as the cutter: nothing on the canvas plane can lose a
-    ///   depth test against a quad behind it.</item>
-    /// <item>The banner is STILL cut, at a hard line that in the screenshot runs exactly along
-    ///   the CONTROL BOARD's raised wooden rail — the 3D furniture ridge behind/around the docked
-    ///   row. That is the user's "unsichtbare Leiste".</item>
-    /// </list>
-    ///
-    /// THE DIAGNOSIS CHAIN ACROSS THE ROUNDS, in one line each: round 1/2 fixed CANVAS-side
-    /// occlusion (paint order within the merged canvas + the popup plane's z). What remains can
-    /// only be WORLD-side occlusion: the panel is a world-space canvas, its UI shaders depth-test
-    /// (ZTest LEqual via the <c>unity_GUIZTestMode</c> global), and any OPAQUE, DEPTH-WRITING
-    /// geometry drawn earlier (opaque queue vs the UI's ~3000) that pokes in front of the canvas
-    /// plane z-rejects the UI fragments behind it. The board's raised rail is exactly such
-    /// geometry, and the banner is the only popup part that reaches up over it — the card body
-    /// hangs over the board's deep recess and survives, which is why the popup was "fully
-    /// visible" except for the banner, on ALLY hovers only (enemies have no banner, round 2 doc).
-    /// The user's own instinct — "er einfach 'nur' in den Vordergrund muss" — is literally the
-    /// fix: the popup must stop LOSING the depth test while it is shown.
-    ///
-    /// THE FIX (round 3): while a popup is SHOWN, every Graphic in its subtree is swapped onto a
-    /// ZTest-Always clone of its own material — <see cref="OnTopUiGraphics"/>, the shared on-top
-    /// UI helper; see ITS doc for the full mechanism. Why THIS mechanism and not the others:
-    /// <list type="bullet">
-    /// <item><b>(a) on-top material clones — CHOSEN.</b> Render state is the exact thing that is
-    ///   wrong (the fragments lose a depth test); everything that is RIGHT — paint order inside
-    ///   the canvas (hierarchy + round 2's lift), panel-vs-panel occlusion (the sortingOrder
-    ///   ladder), the MR plate under the content (queue 2998), the game's on-top board widgets
-    ///   (4000/4003) and ray visuals (5000) over it — is carried by state the clones do NOT touch
-    ///   (renderQueue, ZWrite, sorting). Zero geometry moves, zero perceived-scale change, exact
-    ///   restore.</item>
-    /// <item><b>(b) physically lifting the popup off the panel plane — REJECTED.</b> The offset
-    ///   would have to exceed the rail's protrusion ALONG THE VIEW RAY, which no log measures
-    ///   (nothing in the session data gives the rail's height over the recessed panel plane), and
-    ///   which changes with the user-tunable board tilt and head position — so it would be a
-    ///   GUESSED constant, in centimetres (the rail is furniture, not millimetre trim), bought
-    ///   with real parallax/scale distortion of the popup and a re-tune obligation every time the
-    ///   board moves. A guessed geometric constant against a measured render-state fix loses.</item>
-    /// <item><b>(c) a dedicated overrideSorting canvas on the popup branch — REJECTED.</b>
-    ///   Sorting orders draws WITHIN the transparent pass; the rail is opaque geometry that wrote
-    ///   DEPTH in the opaque pass long before any canvas draws. A sub-canvas would still fail the
-    ///   same ZTest — it fixes nothing without the on-top material, at which point it is (a) plus
-    ///   an extra canvas, a re-based sorting ladder entry and a fight with round 2's merged-canvas
-    ///   lift design.</item>
-    /// </list>
+    /// REJECTED, both when the rail was the suspect: <b>lifting the popup off the panel plane</b> —
+    /// the offset would have to exceed the rail's protrusion ALONG THE VIEW RAY, which no log
+    /// measures and which moves with the board tilt and head position, i.e. a guessed constant in
+    /// centimetres bought with real parallax/scale distortion; and <b>a dedicated overrideSorting
+    /// canvas on the popup branch</b> — sorting orders draws WITHIN the transparent pass, while the
+    /// rail wrote DEPTH in the opaque pass long before any canvas draws, so it fixes nothing
+    /// without the on-top material and is then mechanism 3 plus an extra canvas.
     ///
     /// WHAT ZTest-Always COSTS, stated honestly: while (and only while) a popup is hovered, its
     /// pixels also draw over the player's HANDS and a HELD MINI if those are between the eye and
     /// the panel — a scoped, deliberate exception to the "perspective must hold" ruling (whose
-    /// enforcement reverted the held mini's own queue bump, FigureGrabbable.ApplyRenderOnTop):
-    /// the popup is a transient READING surface the user summoned to the foreground by pointing
-    /// at it, it is restored the moment it hides its hover, and the alternative is the reported
-    /// half-cut text. Queue ordering vs the q4000 layer was CHECKED and deliberately NOT changed:
-    /// the popup keeps the canvas's ~3000 queue, so the board HUD widgets (4000, ZTest Always)
-    /// and the laser's ray visuals (5000) still paint over it — the pointer the user is hovering
-    /// WITH can never vanish behind the popup it summoned.
+    /// enforcement reverted the held mini's own queue bump, FigureGrabbable.ApplyRenderOnTop): the
+    /// popup is a transient READING surface the user summoned to the foreground by pointing at it,
+    /// it is restored the moment the hover ends, and the alternative is the reported half-cut text.
+    /// The queue is deliberately NOT changed: the popup keeps the canvas's ~3000, so the board HUD
+    /// widgets (4000, ZTest Always) and the ray visuals (5000) still paint over it — the pointer
+    /// the user is hovering WITH can never vanish behind the popup it summoned.
     ///
-    /// REGRESSIONS RULED OUT: portrait picking is depth-based (<see cref="TryPickPortrait"/>
-    /// against world rects — materials are invisible to it) and the popup subtree carries no
-    /// pointer handlers; round 1/2's lift + flatten stay untouched (still needed for canvas
-    /// order and plane placement); the peer-board mirror (<c>Net.RemoteWidgetMirror</c>) shares
-    /// Image materials BY REFERENCE, so the mirrored popup goes on-top on the remote board too —
-    /// the right picture there for the same reason — and the helper's session-cached,
-    /// never-destroyed clones are what make that sharing safe across our restore (no mirror can
-    /// ever hold a destroyed material). Materials the game re-assigns while treated are ceded to
-    /// the game (reference-checked restore). The swap is applied per SHOWN popup from this same
-    /// late pass, so any opener (hover, FigureIntentPeek) is covered, and
-    /// <see cref="RestoreEnemyInfoFlatten"/> gives everything back under the same full-restore
-    /// contract as the pose records — including the stand-down when <see cref="EnemyRevealSurface"/>
-    /// adopts the holder (the reveal panel must not inherit hover-popup render state).
+    /// REVERSIBILITY WITHOUT AN OWNERSHIP FIGHT: a node is recorded ONLY on the tick it is found
+    /// DEVIATING, so a node <see cref="EnemyRevealSurface"/>'s own flatten already holds at
+    /// identity is never claimed here and the two passes can never disagree about "the original".
+    /// While the reveal surface has reparented the holder off this target, <c>IsChildOf</c> fails
+    /// and this pass does nothing. Materials the game re-assigns while treated are ceded to the
+    /// game (reference-checked restore); everything else comes back through
+    /// <see cref="RestoreEnemyInfoFlatten"/>. Driven from <see cref="LateTick"/> rather than from a
+    /// hover hook, so <c>FigureIntentPeek</c> opening the same popup via <c>SetHilighted(true)</c>
+    /// — and any future opener — is covered for free.
     ///
-    /// ─── ROUND 4 (hardware ModBuild 127): UNCHANGED by all three — it was never render state ──
-    ///
-    /// THE REPORT (user, verbatim): "Das Problem mit den Text des Verbündeten über der Gegner
-    /// info ist unverändert."
-    ///
-    /// WHAT THE FRESH LOG PROVES (the ModBuild-127 run the user judged): every prior mechanism
-    /// RAN — the round-2 draw-order lift fired ("moved the track's 'EnemyCardsHolder' branch …
-    /// to LAST (3)"), the round-3 swap fired ("33 graphic(s) swapped onto ZTest-Always clones"),
-    /// the coplanarity pass held the popup plane (restore recorded) — and the cut was
-    /// pixel-identical. That ELIMINATES the whole family those rounds addressed: canvas paint
-    /// order, plane pose and the depth test were all provably correct while the banner stayed
-    /// half-invisible. The remaining occluder class must be one that ignores sibling order,
-    /// renderQueue, ZTest AND z. UI CLIPPING is exactly that class:
-    /// <list type="bullet">
-    /// <item><see cref="RectMask2D"/> clips per RENDERER — <c>CanvasRenderer.EnableRectClipping</c>
-    ///   feeds <c>_ClipRect</c>/<c>UNITY_UI_CLIP_RECT</c> to the shader regardless of which
-    ///   material instance is bound (the round-3 clone keeps the keyword), and CULLS renderers
-    ///   that leave the rect (<c>CanvasRenderer.cull</c>);</item>
-    /// <item>a stencil <see cref="Mask"/> wraps every maskable child's
-    ///   <c>materialForRendering</c> in stencil-Equal ops — also orthogonal to everything rounds
-    ///   1–3 touched.</item>
-    /// </list>
-    ///
-    /// WHY A CLIPPER IS PROVABLY THERE (source + this project's own records): the popups hang
-    /// under <c>InitiativeTrack.enemyCardsHolder</c>, which is the CONTENT of the "Main Area"
-    /// ScrollRect (found during the Y-swing hunt — .planning/refactor/INVARIANTS-WorldUI.md, the
-    /// enemyCardsHolder attribution entry), and the conversion's <c>EnsureScrollClipping</c>
-    /// (CanvasConversion.2.Adopt) logged NOTHING for this panel — by its own code that silence
-    /// means the viewport ALREADY HAD a working clipper (enabled game-owned RectMask2D, or a
-    /// functioning stencil Mask; both are prefab-level components invisible to decompilation,
-    /// which is why no round could cite them from source). The banner is the only popup part
-    /// that crosses that clipper's top edge; the card body hangs inside it — one clip boundary
-    /// explains every observation of all four rounds, including the enemy popups' immunity.
-    ///
-    /// WHY ROUNDS 1–3 COULD NOT HAVE FIXED IT, one line each: the lift orders draws WITHIN the
-    /// canvas (a clipped fragment is discarded no matter when it draws); the coplanarity pass
-    /// moves the popup plane (the clip rect is evaluated in canvas space and moves with it); the
-    /// ZTest clone wins the DEPTH test (rect clip and stencil are separate shader stages that
-    /// the clone's <c>unity_GUIZTestMode</c> override does not touch).
-    ///
-    /// THE FIX (round 4): while a popup is shown, its subtree is detached from ancestor clippers
-    /// — <see cref="UnmaskedUiGraphics"/>: <c>maskable=false</c> + <c>RecalculateClipping()</c>
-    /// per graphic, BOTH calls load-bearing (the shipped uGUI 1.0.0 <c>maskable</c> setter only
-    /// dirties the stencil; only <c>RecalculateClipping → UpdateClipParent →
-    /// RectMask2D.RemoveClippable</c> disables the renderer's clip rect and clears its cull flag
-    /// — see that class's doc for the line-level citations). Graphics under the popup's OWN
-    /// internal clippers are skipped (their clipping is design), and authored values come back
-    /// through <see cref="RestoreEnemyInfoFlatten"/> / the holder stand-down, exactly like the
-    /// round-3 materials. Rounds 1–3 STAY: each closed a real occluder that would regress
-    /// without it (band paint order; plane pose; the raised rail's depth).
-    ///
-    /// HONESTY NOTE (source vs inference): that a working clipper sits on the popup's ancestor
-    /// chain is READ FROM SOURCE (EnsureScrollClipping's contract + its silence in the log +
-    /// the INVARIANTS ScrollRect record); that its edge is the exact cut line is INFERRED —
-    /// prefab data is not in the decompiled sources. That is why <see cref="DiagnoseBannerClip"/>
-    /// ships WITH the fix: a one-shot "BANNER-CLIP DIAG" line that prints, for the live banner,
-    /// every ancestor clipper with its rect vs the banner's rect (root-canvas space), canvas
-    /// overrides and renderer cull flags — the next hardware log carries the proof either way.
-    /// And per the standing test-confidence rule, the unmask closes ALL clip-family candidates
-    /// at once (rect clip, renderer cull, stencil) instead of testing one.
+    /// HONESTY NOTE (source vs inference): the popup's structure, the writers above and the
+    /// clipper's existence are READ FROM SOURCE; which occluder produced which screenshot is
+    /// INFERRED — prefab data is not in the decompiled sources and no log line measures the
+    /// ancestor chain's z, the branches' sibling order or the clip rect. That is why each round
+    /// closed a whole family at once instead of shipping a hypothesis test, and why
+    /// <see cref="DiagnoseBannerClip"/> ships with the fix: a one-shot "BANNER-CLIP DIAG" line
+    /// printing every ancestor clipper's rect vs the banner's, canvas overrides and renderer cull
+    /// flags, so the next hardware log carries the proof either way.
     /// </summary>
     private const float EnemyInfoAngleEpsilon = 0.05f; // degrees, CanvasConversion.FlattenAngleEpsilon
     private const float EnemyInfoZEpsilon = 0.01f;     // uGUI px, CanvasConversion.FlattenZEpsilon

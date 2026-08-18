@@ -10,10 +10,11 @@ namespace GloomhavenVR.Hands;
 ///
 /// Source priority:
 /// 1. Glove prefab from <c>BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle</c>
-///    (companion Unity project; arrives via a later human step — unity/HANDS.md).
+///    (built from the companion Unity project — unity/HANDS.md, scripts/build-bundles.sh).
 ///    Expected asset paths (documented contract, docs/INTERFACES-P2.md §Hand assets):
 ///      <c>Assets/Bundle/Hands/VRHand_L.prefab</c> / <c>VRHand_R.prefab</c>
-///    (legacy alias also probed: <c>HandLeft.prefab</c> / <c>HandRight.prefab</c>).
+///    (legacy alias also probed: <c>HandLeft.prefab</c> / <c>HandRight.prefab</c>;
+///    the Plate/Arcane pairs resolve through <see cref="HandStyles.BaseName"/>).
 ///    Rig mapping inside the prefab, by child name (first match wins):
 ///      anchors  <c>Anchor_Wrist</c>, <c>Anchor_Palm</c>, <c>Anchor_IndexTip</c>, <c>Anchor_Grab</c>,
 ///      fingers  <c>Anchor_{Thumb|Index|Middle|Ring|Pinky}_{Root|Mid|Tip}</c>,
@@ -352,7 +353,8 @@ internal static class HandVisuals
     /// hundreds of ms of wall time on the game's side (frame 2 alone was 571.85 ms, and the log's
     /// own verdict there is "NOT the mod"). <see cref="GetBundle"/> then blocks on
     /// <c>request.assetBundle</c> for the REMAINDER only. Nothing about WHEN the hands appear
-    /// changes: <see cref="Build"/> still returns a complete <see cref="HandRig"/> synchronously on
+    /// changes: <see cref="Build(Transform, HandSide, HandStyle)"/> still returns a complete
+    /// <see cref="HandRig"/> synchronously on
     /// the same frame it does today, so there is no procedural→glove pop and no deferred hand.</para>
     ///
     /// <para>REJECTED ALTERNATIVES.
@@ -364,7 +366,8 @@ internal static class HandVisuals
     /// BUNDLE'S IDENTITY (refactor-guard pins it) and may only be rebuilt with
     /// <c>/home/claw/unity-2021.3.5</c>. That is a deliberate decision for the integrator, not a
     /// side effect of a perf pass — so it is written down here and NOT done.
-    /// (2) <b>Make <see cref="Build"/> itself async</b> (return a procedural hand, swap in the
+    /// (2) <b>Make <see cref="Build(Transform, HandSide, HandStyle)"/> itself async</b> (return a
+    /// procedural hand, swap in the
     /// glove when the load lands). Rejected: it would pop, which the project forbids, and
     /// <c>Net.RemoteAvatar</c> depends on the synchronous contract.
     /// (3) <b>Decompress off the main thread ourselves.</b> Rejected outright: every AssetBundle
@@ -374,8 +377,9 @@ internal static class HandVisuals
     /// the adoption probes in Cards/WorldUI cannot see it and a <c>LoadFromFile</c> from those
     /// modules would be refused. Unity exposes no way to observe an in-flight load, so the window
     /// is bounded instead: it opens at chainloader time and closes at the first
-    /// <see cref="PumpPrewarm"/> that sees <c>isDone</c> (or at the first <see cref="Build"/>,
-    /// frame ~4). Both other consumers only reach the bundle when a table/tray/card exists — i.e.
+    /// <see cref="PumpPrewarm"/> that sees <c>isDone</c> (or at the first
+    /// <see cref="Build(Transform, HandSide, HandStyle)"/>, frame ~4).
+    /// Both other consumers only reach the bundle when a table/tray/card exists — i.e.
     /// inside a scenario, hundreds of frames later. The <c>[Hands] PREWARM</c> log lines below make
     /// the exact window visible in the next log.</para>
     /// </summary>

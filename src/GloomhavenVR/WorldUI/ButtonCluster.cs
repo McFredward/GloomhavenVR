@@ -102,10 +102,13 @@ internal sealed class ButtonCluster
     // The cluster no longer sits bottom-CENTER under the card slots: every turn-flow
     // button — including the transient round ones ("Bewegung überspringen" etc.) — now
     // stacks in a column on the RIGHT side of the board, directly beside the
-    // Confirm/Undo ("Rückgängig machen") pads and the gear. Constants are tray-ROOT-local
-    // meters, taken from PlayTray's collision map: the free bottom-right zone LEFT of the
-    // Undo/gear column (pad left edge ≈ 0.185, gear left edge ≈ 0.19) and BELOW the card
+    // Confirm/Undo ("Rückgängig machen") pads and the dashboard plates. Constants are
+    // tray-ROOT-local meters, taken from PlayTray's collision map: the free bottom-right zone
+    // LEFT of that column (pad left edge ≈ 0.185, plate left edge ≈ 0.19) and BELOW the card
     // slots (captions bottom edge ≈ -0.068), inside the board (bottom edge -0.16).
+    // (The "gear" the older notes in this file mention was the settings plate in that same
+    // column; it went with the free-floating settings panel — the VR settings are an
+    // options-window tab now. The measured edges above are unchanged.)
     // The column ANCHOR is fixed — transient buttons appear/disappear in place and only
     // the per-button size/slots reflow, never the cluster's world position.
     //
@@ -1163,7 +1166,7 @@ internal sealed class ButtonCluster
             // restyle. The cap now reads exactly like those: wood-grain lit keycap
             // (NewKeycapMaterial) in the worn accent colour + parchment ENGRAVED label
             // (StyleEngravedLabel below) — same colour family and style as the
-            // VR-settings gear button.
+            // Confirm/Undo and Fixiert keycaps.
 
             // Poke collider slightly proud of the cap (primitive box — poke contract).
             _collider = _rootGo.AddComponent<BoxCollider>();

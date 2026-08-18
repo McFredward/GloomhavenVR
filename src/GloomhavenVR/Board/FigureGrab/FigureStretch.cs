@@ -288,7 +288,9 @@ internal static class FigureStretch
         FigureGrabbable? target = st.Target;
 
         // The hold under the gesture can end at any time (holder released, busy-gate auto-release,
-        // authoritative move, teardown) and a fist can still grip-grab a card mid-gesture. Any of
+        // authoritative move, teardown), and the gesture hand can still fill itself mid-gesture —
+        // not with a card or a figure (both are trigger-only and the trigger is ours here) but via
+        // the grip fall-through to a tray bar / panel (ProximityGrabber.TryGripFallThrough). Any of
         // those ends the gesture; the factor stays committed on the grabbable (irrelevant if the
         // hold ended — the next grab resets it to 1).
         if (target == null || !target.IsHeld || !target.TryGetHeldCenter(out Vector3 center))

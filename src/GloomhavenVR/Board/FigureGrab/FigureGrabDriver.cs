@@ -151,14 +151,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
         // HELD SIZE — re-assert every held mini's LATCHED grab-time size (user, 2026-08-11: "die
         // Größe soll nur abhängig sein wann sie greift und dann fix in der Hand sein - auch wenn man
-        // dabei zoomed"). This step used to re-derive a constant WORLD size from the LIVE hand anchor
-        // every frame, and since the hand anchor carries the diorama zoom (Rig/WorldGrab writes the
-        // rig root's scale), that is exactly what made a mini change size in the hand while zooming;
-        // it now writes the vector frozen at the grab, so a zoom moves nothing. Kept above the config
-        // gate for the same reason as Glide: a mini still in the hand when GrabFigures is toggled off
-        // is released by the gate's ReleaseAll on THIS frame, and it must not be rendered at a size
-        // some other writer touched for the frame in between. Cheap (one vector store per held
-        // figure) and a strict no-op when nothing is held. See FigureGrabbable._heldLocalScale.
+        // dabei zoomed"). It writes the vector frozen at the grab, so a zoom moves nothing; the root
+        // cause it fixed is in FigureGrabbable._heldLocalScale. Kept above the config gate for the
+        // same reason as Glide: a mini still in the hand when GrabFigures is toggled off is released
+        // by the gate's ReleaseAll on THIS frame, and it must not be rendered at a size some other
+        // writer touched for the frame in between. Cheap (one vector store per held figure) and a
+        // strict no-op when nothing is held.
         TickGuard.Run("FigureGrab.HeldSize", FigureGrabbable.TickHeldScale);
 
         if (!FigureGrabConfig.GrabFigures.Value)
@@ -188,10 +186,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         TickGuard.Run("FigureGrab.OffsetAnchorSelect", cache ? _tickAnchorSelect ??= TickOffsetAnchorSelect : TickOffsetAnchorSelect);
         TickGuard.Run("FigureGrab.LaserGrab", cache ? _tickLaserGrab ??= TickLaserGrab : TickLaserGrab);
 
-        // (Issue A) The held rotation is a FIXED CONSTANT anchor-LOCAL rotation
-        // (FigureGrabConfig.HeldUprightRotation) applied at grab — no world-up / head derivation and
-        // no per-frame re-derivation — so it RIDES THE HAND (turning the hand turns the mini) while
-        // the grab approach angle never changes the resting hold and it never clips into the palm.
+        // (Issue A) There is deliberately NO per-frame rotation step here: the held rotation is a
+        // fixed anchor-local rotation applied once at grab — see FigureGrabConfig.HeldUprightRotation.
 
         // Keep the held figure's stat panel locked to that figure even if the laser sweeps
         // another figure on the board (risk #5 — the game's hover would otherwise re-target).
@@ -322,13 +318,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                 continue;
             }
 
-            // HOLD GATE (user ruling 2026-08-11), second belt — PER-FIGURE, not global. The old
-            // code asked the grab-gate FigureBusy.IsBusy here, whose global unbounded-wait clause
-            // dumped a held idle figure the moment ANY attack resolved anywhere (every
-            // "AUTO-RELEASE (turn-deadlock gate)" line in the hardware log carries that global
-            // why-string). HoldMustEnd fires only when the game depends on THIS figure or the
-            // figure itself leaves idle — "Solange diese eine figure idle its soll sie auch in
-            // der Hand bleiben können, egal was passiert."
+            // HOLD GATE (user ruling 2026-08-11), second belt — PER-FIGURE, not global.
+            // HoldMustEnd fires only when the game depends on THIS figure or the figure itself
+            // leaves idle — "Solange diese eine figure idle its soll sie auch in der Hand bleiben
+            // können, egal was passiert." TRAP: asking the GRAB gate FigureBusy.IsBusy here, as
+            // the old code did, dumps a held idle figure the moment ANY attack resolves anywhere
+            // (its global unbounded-wait clause). See FigureBusy for the predicate split.
             //
             // FigureGrabbable.AllowsHand already refuses the holder on the same predicate, which
             // makes ProximityGrabber.HealDeadHeld force-release it through the normal OnRelease
@@ -402,17 +397,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         if (hand.TriggerDown)
         {
             // THE LASER IS A DELIBERATE AIM, so it is not subject to the proximity arbitration —
-            // clear this hand's suppression on the target before plucking. Before the pinch-radius
-            // gate this could not matter: SelectByOffsetAnchor always elected SOME winner among the
-            // palm-reach figures, and TryLaserGrab early-outs while the grabber has a highlight, so
-            // a suppressed figure was never a laser target either. Now that a figure can be inside
-            // the palm reach with NO winner elected, the laser can reach one that is suppressed —
-            // and ForceGrab consults the same AllowsHand filter, so without this it would refuse a
-            // pluck the player aimed at. Safe to clear for exactly one frame: on the next one the
-            // holding branch of SelectByOffsetAnchor elects THIS figure (it is the one in the hand)
-            // and vetoes every other, so the clear cannot widen into a second grabbable figure.
-            // — that branch used to CLEAR the veto for the whole hand instead, which is the leak
-            // ApplySuppression was written to end; this sentence was corrected with it.
+            // clear this hand's suppression on the target before plucking. It is load-bearing since
+            // the pinch-radius gate: a figure can now be inside the palm reach with NO winner
+            // elected, so the laser can reach a suppressed one, and ForceGrab consults the same
+            // AllowsHand filter — without this it would refuse a pluck the player aimed at. Safe to
+            // clear for exactly one frame: on the next one the holding branch of
+            // SelectByOffsetAnchor elects THIS figure (it is the one in the hand) and vetoes every
+            // other, so the clear cannot widen into a second grabbable figure.
             adopted.Grabbable.SetProximitySuppressed(hand.Side, false);
             hand.Grabber.ForceGrab(adopted.Grabbable, releaseOnTriggerUp: true);
         }
@@ -423,16 +414,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// (the point where the held mini appears, <c>GrabAnchor.TransformPoint(HeldOffsetFor(side))</c>)
     /// rather than nearest to the palm. We can't change <see cref="ProximityGrabber"/>'s palm-based
     /// metric, so instead we mark every figure EXCEPT the offset-anchor winner as suppressed for
-    /// that hand (per-hand <see cref="IGrabbableHandFilter"/>): the grabber then skips the losers and
-    /// can only highlight/grab the winner. Runs every frame per hand, and the veto covers EVERY
-    /// adopted figure, near or far — see <see cref="ApplySuppression"/> for the flashing-highlight
-    /// defect that a distance-gated veto caused. The laser far-grab is untouched because it clears
-    /// its own target's veto at the moment of the pluck (<see cref="TryLaserGrab"/>).
+    /// that hand (per-hand <see cref="IGrabbableHandFilter"/>). Runs every frame per hand, and the
+    /// veto covers EVERY adopted figure, near or far — see <see cref="ApplySuppression"/> for the
+    /// flashing-highlight defect that a distance-gated veto caused. The laser far-grab is untouched
+    /// because it clears its own target's veto at the pluck (<see cref="TryLaserGrab"/>).
     ///
-    /// <para>IT IS ALSO THE PICK VOLUME (user report 2026-08, accidental grabs). The same offset
-    /// anchor that decides WHICH figure wins now decides WHETHER any figure wins at all: a
-    /// candidate has to be within <see cref="FigureGrabConfig.PickRadiusRealMeters"/> — real metres
-    /// at the hand, converted to world units by the rig's own scale — of the pinch point, or every
+    /// <para>IT IS ALSO THE PICK VOLUME (user report 2026-08, accidental grabs): a candidate has to
+    /// be within <see cref="FigureGrabConfig.PickRadiusRealMeters"/> of the pinch point or every
     /// figure is suppressed and nothing lights up. Doing it here rather than in
     /// <see cref="ProximityGrabber"/> is deliberate: that reach is 13 cm because a CARD is a
     /// hand-span wide, and narrowing it there would narrow the card fan with it.</para>
@@ -474,14 +462,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         }
 
         // HELD-FIGURE STRETCH capture: while this hand sits inside the stretch zone of the mini
-        // in the OTHER hand (or is mid-gesture), it elects NOBODY — the veto covers every adopted
-        // figure, so the ProximityGrabber can neither highlight nor grab a board figure standing
-        // behind the held mini, and the trigger belongs to the gesture (FigureStretch clamps the
-        // beam, which already makes every HasFreshUiHit consumer defer). Published as a veto like
-        // any other frame — never skipped — for the ApplySuppression reason: a frame in which a
-        // hand's flags are not written is a frame the grabber may highlight on stale ones. The
-        // hysteresis drops with it so leaving the zone re-admits figures on the tight entry
-        // radius, not the wide exit ring.
+        // in the OTHER hand (or is mid-gesture), it elects NOBODY — so the ProximityGrabber can
+        // neither highlight nor grab a board figure standing behind the held mini, and the trigger
+        // belongs to the gesture (FigureStretch clamps the beam, which already makes every
+        // HasFreshUiHit consumer defer). Same two rules as the branch above: the veto is PUBLISHED
+        // rather than skipped, and the hysteresis is dropped with it.
         if (FigureStretch.Engaged(hand.Side))
         {
             ApplySuppression(hand, null);
@@ -520,17 +505,15 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // times a second, and each crossing is one highlight. Two mechanisms, because the report
         // describes two different flashes and one lever cannot answer both:
         //
-        //   ENTER/EXIT (a Schmitt trigger) kills the chatter of ONE figure at the boundary: the
-        //   winner has to come inside the configured radius, but it only LOSES the election past a
-        //   wider exit radius. Between the two the answer is whatever it already was, so drift
-        //   cannot toggle it. The exit ring is a factor rather than a second dial: a player tunes
-        //   "how close do I have to get", not "how much slack does the release get".
+        //   ENTER/EXIT (a Schmitt trigger, PickExitFactor) kills the chatter of ONE figure at the
+        //   boundary: the winner has to come inside the configured radius, but it only LOSES the
+        //   election past a wider exit radius. Between the two the answer is whatever it already
+        //   was, so drift cannot toggle it.
         //
-        //   DWELL kills the sweep across SEVERAL figures ("bei verschiedenen Figuren"): a NEW
-        //   candidate must hold the election for a few consecutive frames before it is allowed to
-        //   light up. Reaching for a mini clears that in well under the time it takes to notice;
-        //   sweeping a hand across the board never does, because each figure owns the nearest slot
-        //   for only a frame or two on the way past.
+        //   DWELL (PickDwellFrames) kills the sweep across SEVERAL figures ("bei verschiedenen
+        //   Figuren"): a NEW candidate must hold the election for a few consecutive frames before
+        //   it is allowed to light up. Sweeping a hand across the board never clears that, because
+        //   each figure owns the nearest slot for only a frame or two on the way past.
         //
         // Neither weakens the deliberate grab the user says already works: he ends up INSIDE the
         // radius and STAYS there, which is precisely the case both mechanisms are built to pass.
@@ -723,11 +706,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// REAL millimetres at the hand, the world units that comes to at the current zoom, the zoom
     /// itself, and the width of one hex in the same real millimetres.
     ///
-    /// <para>Written because "der Bereich ist zu groß" is unanswerable without them. The radius is
-    /// a constant at the HAND and a variable on the BOARD (the mod zooms by scaling the rig, so the
-    /// board keeps its world size while the player grows), and those two readings of the same
-    /// number are what the report and the code disagreed about. The hex width is the third column
-    /// for that reason: radius-in-hexes is the ratio the player actually sees next to a mini.</para>
+    /// <para>Written because "der Bereich ist zu groß" is unanswerable without them: the radius is
+    /// a constant at the HAND and a variable on the BOARD, and those two readings of the same
+    /// number are what the report and the code disagreed about. Hence the hex column —
+    /// radius-in-hexes is the ratio the player actually sees next to a mini.</para>
     ///
     /// <para>Deduped on the formatted line, so it costs one line per zoom change or config edit —
     /// both of which are human acts — and nothing at all while the player just plays.</para>

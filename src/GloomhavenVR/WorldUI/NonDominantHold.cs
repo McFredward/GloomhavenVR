@@ -1,4 +1,3 @@
-using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using UnityEngine;
 
@@ -6,28 +5,29 @@ namespace GloomhavenVR.WorldUI;
 
 /// <summary>
 /// Shared per-frame tracker for the NON-dominant lower face button (A/X) — the one
-/// button that carries TWO hold chords (P6):
+/// button that carries both hold chords (P6), each firing AT the shared
+/// <c>[WorldUI] ManualScreenChordSeconds</c> threshold while the button is STILL held:
 ///
-/// - manual flat-screen toggle: long hold, fires AT the threshold while still held
-///   (<see cref="FlatScreen"/>, the in-scenario self-rescue).
+/// - modal escape chord: closes the top floating modal (<see cref="ModalFallback"/>) —
+///   the test-#17 hard-lock guarantee. Runs FIRST, so while a modal floats the press
+///   means "close it".
+/// - manual flat-screen toggle: the in-scenario self-rescue (<see cref="FlatScreen"/>).
 ///
-/// One tracker, one truth: both consumers read the same press, and the long-hold
-/// consumer marks the press <see cref="Consumed"/> so its release cannot ALSO
-/// trigger the short-hold action. Ticked exactly once per frame by the WorldUI
-/// driver, before any consumer.
+/// One tracker, one truth: both consumers read the same press and mark it
+/// <see cref="Consumed"/>, so one physical press can only ever produce one action.
+/// Ticked exactly once per frame by the WorldUI driver, before any consumer.
 ///
-/// A THIRD gesture rides the same tracker: a short TAP — press then release BELOW
-/// the settings-panel hold threshold, with the press left unconsumed by any hold
-/// chord — surfaces as <see cref="ShortTapThisFrame"/> (the game OPTIONS window
-/// toggle, <see cref="OptionsToggle"/>). Taps and holds never collide: both hold
-/// chords act at/after their threshold (the long chords fire while STILL held and
-/// mark the press <see cref="Consumed"/>; the settings short-hold requires
-/// <see cref="ReleasedAfterSeconds"/> ≥ the threshold), so a clean sub-threshold
-/// release belongs to the tap alone.
+/// A TAP rides the same tracker: press and release inside <c>TapFallbackSeconds</c>
+/// with the press left unconsumed by either chord surfaces as
+/// <see cref="ShortTapThisFrame"/> (the game OPTIONS window toggle,
+/// <see cref="OptionsToggle"/>). Taps and holds never collide: a chord has already
+/// consumed the press before the release frame, so a clean sub-window release belongs
+/// to the tap alone.
 /// </summary>
 internal static class NonDominantHold
 {
-    /// <summary>Tap window when the settings chord is disabled (ChordHoldSeconds = 0) — still allow a quick tap.</summary>
+    /// <summary>The tap window. It is the only boundary left: the mod's settings panel and its
+    /// configurable short-hold are gone (see the ShortTapThisFrame edge below).</summary>
     private const float TapFallbackSeconds = 0.35f;
     /// <summary>Seconds the button has been held so far in the current press (0 while up).</summary>
     internal static float HeldSeconds { get; private set; }
@@ -43,7 +43,7 @@ internal static class NonDominantHold
 
     /// <summary>
     /// True only on the frame a short TAP completed: an unconsumed press released
-    /// below the settings-panel hold threshold (the game OPTIONS window toggle).
+    /// inside <c>TapFallbackSeconds</c> (the game OPTIONS window toggle).
     /// </summary>
     internal static bool ShortTapThisFrame { get; private set; }
 

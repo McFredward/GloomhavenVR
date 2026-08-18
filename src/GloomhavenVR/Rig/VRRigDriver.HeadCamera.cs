@@ -276,12 +276,11 @@ internal sealed partial class VRRigDriver
     /// Create OUR head camera under the rig root, seeded from the anchor game camera:
     /// depth = anchor + 1, far plane from the anchor. Clip planes are seeded for
     /// <paramref name="rigScale"/> and kept scale-aware per frame by
-    /// <see cref="TickClipPlanes"/> (test #17). Mask policy (CAMERA-POLICY §2):
+    /// <see cref="TickClipPlanes"/> (test #17). Mask policy is <see cref="ComposeHeadMask"/>'s:
     /// scenario = anchor mask | mod layer (never 0); menu (<paramref name="modLayerOnly"/>,
-    /// test #10) = the mod layer ONLY, with a forced SolidColor [Rig] VoidColor clear —
-    /// Menu2D shows the world exclusively through the FlatScreen RT, so the HMD renders
-    /// void + quad + hands and nothing of the 3D scene. Scenario keeps the anchor's
-    /// Skybox clear when it has one (that IS visible content). The game camera itself is
+    /// test #10) = the mod layer ONLY, with a forced SolidColor [Rig] VoidColor clear.
+    /// Scenario keeps the anchor's Skybox clear when it has one (that IS
+    /// visible content). The game camera itself is
     /// never modified; stereo on it (and every other game camera) is owned by
     /// <see cref="VRCameraPolicy"/>.
     /// </summary>

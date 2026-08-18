@@ -7,9 +7,9 @@ namespace GloomhavenVR.Rig;
 /// VR camera rig: rig-OWNED head camera anchored at the game camera's vantage
 /// (game cameras never render stereo — docs/CAMERA-POLICY.md §3), diorama/table
 /// scale, recenter (Phase 1, feat/xr-bootstrap) + Demeo-style world grab, snap turn,
-/// height/recenter comfort and the <see cref="ComfortSettings"/> API (feat/comfort). The in-VR
-/// settings panel that binds to that API shipped — <see cref="WorldUI.SettingsPanel"/>; this
-/// doc used to say it was "deferred to the P3c panel framework".
+/// height/recenter comfort and the <see cref="ComfortSettings"/> API (feat/comfort). Those
+/// entries are surfaced in VR by <see cref="WorldUI.VROptionsTab"/> — curated Komfort rows plus
+/// the generic config browser it builds from <see cref="WorldUI.ConfigCatalog"/>.
 ///
 /// Key seams: <see cref="CameraController_LateUpdate_Patch"/> (prefix-skip) +
 /// <see cref="VRRigDriver"/> (rig lifecycle) + <see cref="WorldGrab"/>/<see cref="SnapTurn"/>/

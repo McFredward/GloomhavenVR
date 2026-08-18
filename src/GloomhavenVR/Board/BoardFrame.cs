@@ -167,7 +167,7 @@ namespace GloomhavenVR.Board;
 /// <para><b>THE FACING ITSELF WAS NEVER WRONG — ONLY THE CLAMP WAS.</b> Worth stating plainly,
 /// because the obvious reading of "the log says MIN, the class doc said MAX" is that
 /// <see cref="FaceSign"/> is broken, and chasing that is a dead end. <c>PlayTray.EnsureBuilt</c>
-/// (PlayTray.1.Core.cs:461-470) builds the board face frame from the same four anchors,
+/// (PlayTray.1.Core.cs:486-497) builds the board face frame from the same four anchors,
 /// <c>nF = (Slot2−Slot1) × (ShortRest−LongRest)</c>, and its own comment records that the choice was
 /// VERIFIED BY OFFSCREEN RENDER: elements face the anchor's local −Z, forward = +nF, therefore
 /// <b>−nF points out of the decorated face</b> ("do not flip to −nF: that hides the cards on the
@@ -595,10 +595,12 @@ internal sealed class BoardFrame
     /// normal and −n points OUT of the decorated face. Only the sign of that direction's z matters
     /// here, because the stroke is a flat ring in the board-root XY plane.
     ///
-    /// <para>Every shipped prefab answers +1 (measured offline: the assets occupy z ∈ [−depth, 0]
-    /// with the decorated face at 0), which is also the assumption when the anchors are missing —
-    /// a board without them cannot seat a card either, so it is broken well before this. The log
-    /// says which of the two happened.</para>
+    /// <para>Every shipped prefab answers −1 AT RUNTIME: the assets occupy z ∈ [−depth, 0] and the
+    /// DECORATED face is the MIN-z end (the hardware log line quoted in THE PLANE; the older
+    /// "MAX-z, face at 0" reading was an offline reconstruction of the import chain that never
+    /// agreed with the log, and the log was the measurement). The degenerate fallbacks below still
+    /// answer +1 — a board without the four anchors cannot seat a card either, so it is broken well
+    /// before this. The log says which of the two happened.</para>
     /// </summary>
     private static float FaceSign(Transform visual, Transform boardRoot, out bool fromAnchors)
     {
@@ -777,24 +779,19 @@ internal sealed class BoardFrame
     /// <para>Each hull edge is cut into <see cref="SagBucketLocal"/>-long buckets. A bucket keeps
     /// the LEAST-INWARD cloud point that projects into it and lies within
     /// <see cref="SagTrustLocal"/> of the edge; that point's inward distance is the bucket's sag,
-    /// and the contour vertex is the bucket's midpoint pulled in by it. Buckets with no such point
-    /// are linearly interpolated between their populated neighbours, with sag 0 pinned at both hull
-    /// VERTICES — which is exact, because a hull vertex IS a cloud point and therefore has no sag.
-    /// On a long straight rim run (where a decimated mesh has no vertex to offer) that interpolation
-    /// reproduces the hull edge, which is the correct answer there.</para>
+    /// and the contour vertex is the bucket's midpoint pulled in by it. ONE profile is built around
+    /// the WHOLE closed hull and filtered as a closed signal: <see cref="FillCircular"/> (gaps
+    /// interpolated circularly, with NO pin at a hull vertex — that pin is exactly what scalloped
+    /// ModBuild 84's contour), then <see cref="MedianCircular"/>, then <see cref="SagSmoothPasses"/>
+    /// passes of <see cref="SmoothCircular"/>. On a long straight rim run (where a decimated mesh
+    /// has no vertex to offer) the interpolation reproduces the hull edge, which is correct
+    /// there.</para>
     ///
     /// <para>Every property the shipped convex hull was chosen for survives, because this IS the
-    /// hull, moved:
-    /// <list type="bullet">
-    /// <item>the contour can only ever move INWARD from the hull, and never further than
-    ///   <see cref="SagTrustLocal"/> — it is bounded on both sides by construction, so it cannot
-    ///   wander into the board's interior art;</item>
-    /// <item>no interior feature can be drawn: a recess, well or dial is metres — at minimum, more
-    ///   than 10 mm — inside the hull and can never win a bucket;</item>
-    /// <item>the output is ONE closed polygon walked once around the hull, so no fragment
-    ///   ("Versprengung") is expressible.</item>
-    /// </list>
-    /// Null when the hull is degenerate; the caller then uses the hull itself.</para>
+    /// hull, moved: bounded INWARD only and never further than <see cref="SagTrustLocal"/>, unable
+    /// to reach any interior feature, and ONE closed polygon walked once around the hull so no
+    /// fragment ("Versprengung") is expressible. The three guarantees are argued in full in the
+    /// class doc. Null when the hull is degenerate; the caller then uses the hull itself.</para>
     ///
     /// <para>Cost: one pass over the cloud per hull edge (~1.2 M point tests on a shipped board,
     /// tens of milliseconds once, on the frame the board is built).</para>
@@ -1003,7 +1000,8 @@ internal sealed class BoardFrame
     /// <summary>
     /// The convex hull of <paramref name="cloud"/> in counter-clockwise order (Andrew's monotone
     /// chain), preceded by an Akl–Toussaint octagon reject that typically discards well over 90 % of
-    /// the points before the sort. Kept as the RADIAL TRACE's fallback and as its area reference.
+    /// the points before the sort. It is both the geometry <see cref="Trace"/> sags onto the mesh
+    /// boundary and the contour the caller falls back to when that trace finds no evidence.
     /// </summary>
     private static List<Vector2> Hull(List<Vector3> cloud)
     {

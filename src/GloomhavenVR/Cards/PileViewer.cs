@@ -41,9 +41,9 @@ internal sealed class PileViewer
     /// <summary>
     /// The character-items pile (item 4): a self-contained THIRD stack below the burnt
     /// pile, browsed like the others but rendered from <c>Inventory.AllItems</c> instead
-    /// of ability-card widgets (see <see cref="ItemsPile"/>). Its poke/grab is routed here
-    /// (not through <see cref="PokeToggled"/>/<see cref="GrabOpened"/>) so it opens its own
-    /// item browse without any CardsDriver wiring.
+    /// of ability-card widgets (see <see cref="ItemsPile"/>). Its poke/laser toggle is routed
+    /// here rather than out through <see cref="PokeToggled"/>, so it opens its own item browse
+    /// without any CardsDriver wiring.
     /// </summary>
     private readonly ItemsPile _itemsBrowse = new();
 
@@ -71,8 +71,6 @@ internal sealed class PileViewer
     /// only ONE pile fan is ever up (the discard/burnt→items direction already closes the items fan; this
     /// is the missing items→discard/burnt direction).</summary>
     internal System.Action? ItemsOpening;
-
-    internal bool IsBuilt => _discard != null;
 
     /// <summary>Requirement 4: is the item fan currently open? CardsDriver's foreign-interaction /
     /// click-away path polls this to dismiss the item fan on the SAME seams that close the

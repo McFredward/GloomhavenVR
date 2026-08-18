@@ -140,9 +140,8 @@ internal static class HexHighlightFix
 {
     private const string Scope = "HexHighlightFix";
 
-    // The bundle ASSET PATH of the stable decal shader used to be a const here. It lives in
-    // Core.BundleShaders now, with every other bundled shader's, so no call site can get the folder
-    // or the casing wrong and a stale path fails a build gate instead of a hardware round.
+    // The bundle ASSET PATH of the stable decal shader lives in Core.BundleShaders with every other
+    // bundled shader's, so a stale path fails a build gate instead of a hardware round.
     private const string StableShaderName = "GloomhavenVR/HexDecalStable";
     private const string OriginalShaderName = "OmniDecal_Shd";
 
@@ -623,11 +622,9 @@ internal static class HexHighlightFix
         }
 
         /// <summary>
-        /// (Re-)apply the occlusion knobs to a stable-shader material: ZTest
-        /// (default 4 = LEqual — with the shader's per-pixel SV_Depth export the
-        /// highlight is occluded by figures on the hex and by walls; 8 = vanilla
-        /// draw-through) and the anti-z-fight depth bias. Logged when the applied
-        /// ZTest changes.
+        /// (Re-)apply the occlusion knobs to a stable-shader material — ZTest (default 4 = LEqual,
+        /// 8 = vanilla draw-through) and the anti-z-fight depth bias; the class doc's OCCLUSION
+        /// section says what each one buys. Logged when the applied ZTest changes.
         /// </summary>
         private static void ApplyOcclusionKnobs(Material mat)
         {

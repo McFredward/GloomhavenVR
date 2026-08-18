@@ -1496,28 +1496,8 @@ internal sealed class RemoteAvatar
     /// in-flight card slab is backs-only for exactly the same reason and would be fixed by exactly the
     /// same (forbidden) field.
     ///
-    /// ORIENTATION (multiplayer half of user report 2): a held card is not rigid in the owner's
-    /// hand — <see cref="Cards.VRCard"/>.TickHeldPose re-billboards it to the OWNER's head every
-    /// frame, so the owner always reads it face-on however their wrist is turned. The POSITION for
-    /// that rule rides the wire already; the ROTATION does not need to. This slab used to simply
-    /// slerp toward the transmitted rotation, which breaks the rule on the receiver in two ways:
-    /// (a) the rotation is a 16-bit-quantized snapshot taken at the SEND rate and then eased with
-    /// <see cref="NetProtocol.InterpolationSharpness"/> INDEPENDENTLY of the head and of the card's
-    /// own position, so during head/hand motion the slab visibly lags out of the "facing its owner"
-    /// relationship instead of holding it; and (b) after packet loss the last rotation keeps
-    /// pointing at where the peer's head WAS. Both vanish if the receiver simply re-derives the
-    /// billboard each frame from data it already has: the peer's head is a mandatory part of the
-    /// SAME rig packet (<see cref="AvatarState.Head"/>, eased onto <see cref="HeadHolder"/> a few
-    /// lines earlier in <see cref="Tick"/>), so <c>LookRotation(slabPos − headPos, head.up)</c>
-    /// reproduces exactly what the owner sees — NO new wire field, no flag bit, no version bump.
-    /// This is the same receiver-side billboard <see cref="RemoteItemFan"/> and
-    /// <see cref="RemoteBrowserFan"/> already run for the peer's fans; the held-card slab was the
-    /// one card proxy still trusting the transmitted rotation. The transmitted rotation is still
-    /// read and still used as the fallback for a peer whose head is not tracked.
-    ///
-    /// No extra slerp on top: the billboard is derived from an ALREADY-eased slab position and an
-    /// already-eased head, so it inherits their smoothing — easing it again would only re-introduce
-    /// the lag this removes.
+    /// ORIENTATION is re-derived receiver-side rather than slerped toward the transmitted rotation
+    /// — see <see cref="UpdateCardSlab"/>, which does it for both held slabs.
     /// </summary>
     private void UpdateHeldCard(float k)
         => UpdateCardSlab(ref _heldCardHolder, "HeldCard",
@@ -1538,10 +1518,12 @@ internal sealed class RemoteAvatar
     /// hand — <see cref="Cards.VRCard"/>.TickHeldPose re-billboards it to the OWNER's head every
     /// frame, so the owner always reads it face-on however their wrist is turned. The POSITION for
     /// that rule rides the wire already; the ROTATION does not need to. A slab that simply slerps
-    /// toward the transmitted rotation breaks the rule on the receiver twice: the quantized
-    /// rotation snapshot eases INDEPENDENTLY of the head and lags out of the "facing its owner"
-    /// relationship during motion, and after packet loss it keeps pointing at where the peer's
-    /// head WAS. Both vanish by re-deriving the billboard each frame from data already here: the
+    /// toward the transmitted rotation breaks the rule on the receiver twice: the 16-bit-quantized
+    /// rotation snapshot, taken at the SEND rate and eased with
+    /// <see cref="NetProtocol.InterpolationSharpness"/>, eases INDEPENDENTLY of the head and lags
+    /// out of the "facing its owner" relationship during motion, and after packet loss it keeps
+    /// pointing at where the peer's head WAS. Both vanish by re-deriving the billboard each frame
+    /// from data already here: the
     /// peer's head is a mandatory part of the rig packet (eased onto <see cref="_headHolder"/> in
     /// <see cref="Tick"/>), so <c>LookRotation(slabPos − headPos, head.up)</c> reproduces exactly
     /// what the owner sees — no new wire field. Same receiver-side billboard

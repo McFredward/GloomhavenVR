@@ -1,6 +1,5 @@
 using GloomhavenVR.Core;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 namespace GloomhavenVR.Cards;
 

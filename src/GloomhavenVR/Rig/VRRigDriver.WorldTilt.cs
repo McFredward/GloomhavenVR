@@ -94,16 +94,14 @@ internal sealed partial class VRRigDriver
 
     // ---- grab-motion-masked aim consumption (round 7) --------------------------------------
     //
-    // Round-7 hardware log: the old grab-active instant-consume branch ate the WHOLE
-    // accumulated view error the instant the stick was PRESSED (and NotifyTiltAxisSnap did
-    // the same at RELEASE) — but at those instants the grab has not moved the world at all
-    // (deadzones haven't even latched), so nothing masked the snap: with room-scale movement
-    // having banked a ~25° view error, every press/release visibly jumped the scene. Genuine
-    // masking only exists while the grab is actually MOVING the world, in proportion to that
-    // motion. These constants map the grab's APPLIED world motion each frame to the aim
-    // degrees it may consume; each ratio is chosen conservatively so the re-aim-induced world
-    // motion (a rotation of sin(tilt)·step ≤ 0.87·step about the HEAD — see the pivot
-    // selection in TickWorldTilt) stays well below the masking motion itself:
+    // ROOT CAUSE this replaced (round-7 hardware log): the old branch consumed the WHOLE view
+    // error at grab PRESS/RELEASE — instants at which the grab has moved the world by nothing
+    // (the deadzones have not even latched), so a ~25° banked error snapped unmasked and the
+    // scene visibly jumped. Genuine masking exists only while the grab is actually MOVING the
+    // world, in proportion to that motion. These constants map the grab's APPLIED world motion
+    // each frame to the aim degrees it may consume; each ratio is conservative so the
+    // re-aim-induced world motion (a rotation of sin(tilt)·step ≤ 0.87·step about the HEAD —
+    // see the pivot selection in TickWorldTilt) stays well below the masking motion itself:
     //  - DegPerMeter 20: 1 cm of real-meter drag masks 0.2° of re-aim → at a typical 1–2 m
     //    board distance the induced displacement stays under ~half the drag displacement;
     //  - DegPerWorldYawDeg 0.5: induced rotation ≤ 0.87·0.5 ≈ 0.44× the world yaw actually
@@ -292,14 +290,10 @@ internal sealed partial class VRRigDriver
                 // the tilt is still flat — consume the whole error at once, invisibly.
                 // This is exactly Demeo's recenter mechanism (InputTracking.Recenter
                 // absorbs the head yaw into the root behind a fade). World-grab
-                // press/release is deliberately NOT in this set (round 7): at those
-                // instants the grab has not moved the world yet (deadzones haven't even
-                // latched), so nothing masks an instant re-aim — with room-scale
-                // movement having banked a large view error, the one-frame consume
-                // orbited the rig around FocusPoint and visibly jumped the scene. A
-                // grab re-aims only in proportion to the motion it actually applies
-                // (NotifyWorldGrabMotion, Update phase); the head-rate channel below
-                // stays live during a grab.
+                // press/release is deliberately NOT in this set (round 7 — root cause on
+                // the grab-motion constants above); a grab re-aims only in proportion to
+                // the motion it actually applies (NotifyWorldGrabMotion, Update phase),
+                // and the head-rate channel below stays live during a grab.
                 _tiltAimYawDeg = headYawDeg;
                 aimError = 0f;
             }

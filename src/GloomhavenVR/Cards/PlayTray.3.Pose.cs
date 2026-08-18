@@ -1,9 +1,5 @@
-using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands;
-using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
-using TMPro;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -206,35 +202,16 @@ internal sealed partial class PlayTray
     /// its own slot has one place to say so.</summary>
     private int GenericCount => GenericButtonCount;
 
-    /// <summary>Vertical room (tray-local meters) the generic cluster packs its buttons into. Kept clear of
-    /// the round readout (top edge) and the settings gear (bottom edge) so a 3-member stack (with the item
-    /// "Use" confirm) fits between them without colliding.</summary>
-    private const float GenericColumnHeight = 0.16f;
-
-    /// <summary>Minimum inter-button gap (tray-local meters) when the generic cluster auto-fits &gt;2 buttons.</summary>
-    private const float GenericButtonGap = 0.010f;
-
-    /// <summary>
-    /// SUPERSEDED (user: "der Use-Button soll genauso groß sein und sich nach den Werten richten,
-    /// die die generischen Buttons vorgegeben haben"). Every generic-cluster member — Confirm, Undo
-    /// and the item "Use" confirm alike — now keeps the tuned [BoardButtons] cap size at ANY count,
-    /// and the stack makes room by SPACING instead (see <see cref="GenericClusterY"/>). The old
-    /// auto-shrink meant a cluster changed size depending on how many members happened to be live,
-    /// so the moment Use appeared all three caps snapped to a smaller auto-fit square and none of
-    /// them matched the size the player had dialled in. Kept only for callers that still want the
-    /// old fit answer; nothing in the cluster path uses it.
-    ///
-    /// Item D (original): per-button side length for a generic cluster of <paramref name="count"/>
-    /// buttons. A pair (or single) keeps the full authored size; from 3 up each cap shrinks so the whole stack
-    /// fits <see cref="GenericColumnHeight"/> (auto-scale from the count), floored so it stays pokeable.
-    /// </summary>
-    internal static float GenericClusterButtonSize(float baseSide, int count)
-    {
-        if (count <= 2)
-            return baseSide;
-        float avail = (GenericColumnHeight - (count - 1) * GenericButtonGap) / count;
-        return Mathf.Clamp(Mathf.Min(baseSide, avail), 0.02f, baseSide);
-    }
+    // CAP AUTO-SHRINK IS GONE, AND MUST NOT COME BACK. `GenericClusterButtonSize(baseSide, count)`
+    // and its two constants (GenericColumnHeight 0.16, GenericButtonGap 0.010) lived here and
+    // shrank every cap to fit a FIXED column once a cluster grew past two members. User ruling:
+    // "der Use-Button soll genauso groß sein und sich nach den Werten richten, die die generischen
+    // Buttons vorgegeben haben". The moment the item "Use" confirm appeared, all three caps snapped
+    // to a smaller auto-fit square and none of them matched the size the player had dialled in — a
+    // cluster that changes size depending on how many members happen to be live. Every member now
+    // keeps the tuned [BoardButtons] cap size at ANY count and the stack makes room by SPACING
+    // instead (GenericClusterY below). The function had already been left unwired and unreferenced;
+    // it is deleted, this note is what remains, and re-wiring it re-opens the ruling.
 
     /// <summary>
     /// Local-Y of button <paramref name="index"/> in a top-to-bottom generic stack of
@@ -242,7 +219,7 @@ internal sealed partial class PlayTray
     /// <paramref name="spacing"/> as the step at every count. At count 2 this is exactly the old
     /// ±spacing/2 pair, so nothing about the tuned Confirm/Undo layout changes.
     ///
-    /// WHY the step is the tuned spacing and no longer <see cref="GenericColumnHeight"/>/(count−1):
+    /// WHY the step is the tuned spacing and no longer the old fixed column height/(count−1):
     /// the old form packed extra members into a FIXED column, which only works if the caps shrink
     /// to match — and shrinking the caps is exactly what the user rejected ("the Use button should
     /// be the same size and follow the values the generic buttons were given"). Sizes now come

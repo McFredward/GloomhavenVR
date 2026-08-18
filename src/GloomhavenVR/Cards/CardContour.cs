@@ -48,8 +48,9 @@ namespace GloomhavenVR.Cards;
 /// <para>THE BOX-METRICS INVARIANT (standing): nothing that MEASURES a card may measure the
 /// shape. The built mesh's <c>bounds</c> are therefore pinned to the full card box
 /// (width × height × thickness, the rounded slab's envelope) — a diagnostic or layout reading
-/// mesh bounds sees the box, never the contour. Collider, fan layout, dock apron and
-/// <c>VRCard.WorldWidth</c> all derive from <c>CardsConfig.CardWidth/CardHeight</c> and are
+/// mesh bounds sees the box, never the contour. Collider, fan layout, dock apron and the sweep's
+/// face width (<c>VRCard.SweepFaceWidthWorld</c>) all derive from
+/// <c>CardsConfig.CardWidth/CardHeight</c> and are
 /// untouched by construction.</para>
 ///
 /// <para>DEGRADES TO TODAY: every refusal (no loop, implausible area, triangulation failure)

@@ -74,9 +74,6 @@ internal sealed class CardArtWatch
     /// still answer "did the ceiling bind?" — the question the 2026-08 regression turned on.</summary>
     private const long LogStepBytes = 1024L * 1024L;
 
-    /// <summary>True once a root has been captured and the per-frame poll can do anything.</summary>
-    internal bool IsArmed => _images != null && _sprites != null;
-
     /// <summary>
     /// (Re)capture the watch arrays from <paramref name="root"/>'s live hierarchy. Cheap enough
     /// to run on adoption and on the owner's slow backstop cadence (the allocating

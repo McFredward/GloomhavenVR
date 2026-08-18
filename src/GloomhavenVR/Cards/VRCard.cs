@@ -864,9 +864,6 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _instantNext = instant;
     }
 
-    /// <summary>Extra forward pop + scale for the hovered card (set by layouts each frame is fine — plain field).</summary>
-    internal void SetPopped(bool popped) => _popped = popped;
-
     /// <summary>
     /// Laser hover (P6, Demeo pluck): separate flag so the dominant hand's ray and the
     /// proximity highlight never stomp each other — the card pops while EITHER is set.

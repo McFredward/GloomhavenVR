@@ -11,11 +11,12 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// (<c>BepInEx/config/dev.gloomhavenvr.figuregrab.cfg</c>) via
 /// <see cref="ModuleConfig.Create"/> — self-contained, so this worker never has to edit
 /// the shared <see cref="BoardConfig"/>. Feature toggle plus the in-hand pose tunables
-/// (held scale / offset / tilt) that need a hardware pass to feel right.
+/// (offset / rotation) and the held-size bounds, all of which need a hardware pass to feel right.
+/// There is deliberately NO held-scale dial — see the note above <see cref="HeldOffset"/>.
 ///
 /// PER HAND STYLE (2026-07 request A): the held mini is docked between thumb and index of
 /// the hand MESH, whose geometry differs per style (Glove/Plate/Arcane) — so every held-pose
-/// tunable (offset X/Y/Z, tilt, face yaw, scale) is stored PER STYLE (the <c>Style*</c>
+/// tunable (offset X/Y/Z, pitch, yaw, roll) is stored PER STYLE (the <c>Style*</c>
 /// arrays, exactly the HandsConfig per-style seat pattern): each style is SEEDED on first
 /// bind from the legacy global entry in this same file (BepInEx returns saved over default,
 /// so a tuned pose carries over to all three styles instead of resetting; afterwards the

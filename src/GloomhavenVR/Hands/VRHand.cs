@@ -414,11 +414,11 @@ internal sealed class VRHand : MonoBehaviour
     // ---- per-frame -------------------------------------------------------------------------
 
     /// <summary>
-    /// Apply the four [Hands] seat offsets between the tracked (grip) pose and the
-    /// HandRig root: pitch (rotation) plus lateral (X), vertical (Y) and forward (Z) —
+    /// Apply the [Hands] seat controls between the tracked (grip) pose and the HandRig
+    /// root: pitch, roll and yaw plus lateral (X), vertical (Y), forward (Z) and spread —
     /// PER-STYLE absolute values since the per-style rework
-    /// (<see cref="HandsConfig.StyleSeatPitch"/> etc., seeded from the old shared seat
-    /// controls + trims on first run) — all device-space, applied to
+    /// (<see cref="HandsConfig.StyleSeatPitch"/> etc.; the shipped defaults are the
+    /// hardware-measured tables in Defaults.Hands.cs) — all device-space, applied to
     /// the HandRoot origin so wrist, palm, grab anchor and index-knuckle laser origin
     /// translate/rotate together (relative rig geometry, and the per-hand mirroring in
     /// <see cref="HandVisuals"/>, are unchanged). Pitch semantics: NEGATIVE = fingertips
@@ -429,13 +429,13 @@ internal sealed class VRHand : MonoBehaviour
     /// grip pose. The OpenXR grip pose points up along the controller handle, not where a
     /// relaxed hand points (hardware tests #4/#24/#27); reference: LCVR (DaXcess/LCVR,
     /// Source/Player/VRPlayer.cs) rotates its controller-relative interact/ray origins by
-    /// Quaternion.Euler(80, 0, 0) — ~80° down from the tracked pose. All four re-checked
-    /// per frame (float compare only) so the values are live-tunable.
+    /// Quaternion.Euler(80, 0, 0) — ~80° down from the tracked pose. Every value (plus the
+    /// style scale) is re-checked per frame, float compare only, so all of them live-tune.
     /// </summary>
     private void SyncVisualOffset()
     {
-        // Per-STYLE tunables (scale + the four ABSOLUTE per-style seat controls — the
-        // per-style rework replaced the old shared globals + additive trims), keyed by
+        // Per-STYLE tunables (scale + the ABSOLUTE per-style seat controls, which replaced
+        // the old shared globals + additive trims), keyed by
         // the style the visuals were ACTUALLY built with (Rig.VisualStyle — an old
         // bundle may have degraded Plate/Arcane to Glove). Before the rig exists (first
         // call from Initialize) fall back to the configured style; Build applies the
@@ -483,13 +483,11 @@ internal sealed class VRHand : MonoBehaviour
         _appliedGripYaw = yaw;
         _appliedSpread = spread;
 
-        // EVERYTHING IN THE HAND COMES ALONG, and it does so by construction rather than by anyone
-        // remembering to update it. The rig's anchors and sockets (PalmCenter, GrabAnchor, the
-        // finger tips) are descendants of _handRoot, and a grabbed figure or a held card is
-        // PARENTED to one of those sockets — so every value written here moves the contents of the
-        // hand with the hand, and the held-object offsets stay what they say they are: relative to
-        // the hand. The same parenting is why other players see all of it: the pose on the wire is
-        // sampled from Rig.Root, which IS this transform.
+        // EVERYTHING IN THE HAND COMES ALONG, by construction rather than by anyone remembering to
+        // update it: the rig's anchors and sockets are descendants of _handRoot and a grabbed
+        // figure or held card is PARENTED to one of them, so held-object offsets stay relative to
+        // the hand. The same parenting is why other players see all of it — the pose on the wire
+        // is sampled from Rig.Root, which IS this transform.
         _handRoot.localPosition = new Vector3(lateral + spread, vertical, forward);
         _handRoot.localRotation = Quaternion.Euler(-pitch, yaw, roll);
         if (Rig != null)
@@ -502,10 +500,9 @@ internal sealed class VRHand : MonoBehaviour
     }
 
     /// <summary>
-    /// Perf attribution (2026-07 perf pass): the hand's Update reads the XR device pose, drives
-    /// the visual seat, velocity, pose classification and finger curls, and runs twice per frame
-    /// (one instance per hand). It sits directly on the tracking path, so if a head/hand-motion
-    /// spike is ours this is one of the two places it can live.
+    /// Perf attribution (2026-07 perf pass): this runs twice per frame (one instance per hand)
+    /// directly on the tracking path, so if a head/hand-motion spike is ours it is one of the
+    /// two places it can live.
     /// </summary>
     private void Update()
     {
@@ -877,11 +874,10 @@ internal sealed class VRHand : MonoBehaviour
             // stay raw for the 0.75/0.55 press hysteresis and pose classification.
             float gripCurl = RemapCurlInput(GripValue);
             float triggerCurl = RemapCurlInput(TriggerValue);
-            // INDEX MAPPING (pointing fix, supersedes the round-2 grip-fist override):
-            // the old override closed ALL fingers at gripCurl>=0.9, which made index
-            // pointing IMPOSSIBLE on the dead-analog-trigger runtime (VDXR): gripping
-            // the controller always curled the index. The index is now gated by the
-            // trigger CAPACITIVE touch (TriggerTouch/IndexTouch usage, see ReadDevice):
+            // INDEX MAPPING: the index is gated by the trigger CAPACITIVE touch, NOT by
+            // the grip (root cause of that rule: the TriggerTouchUsage field doc — the
+            // superseded grip-fist override closed every finger at gripCurl>=0.9 and so
+            // made pointing impossible on a dead-analog-trigger runtime). The rules:
             //   - touch source available:  trigger NOT touched ⇒ index straight
             //     (pointing) even at full grip; touched ⇒ the index joins the fist
             //     (max of the analog trigger and, at near-full grip, the grip curl —

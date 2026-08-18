@@ -40,31 +40,26 @@ internal sealed class FingerCurler
     /// <summary>
     /// GLOVE-PINKY splay fix (2026-07 hardware round): the glove pinky MESH tube leans
     /// ~18° outward in XZ (PCA (+0.30,+0.25,+0.92)) while its bone chain is straight
-    /// (0,0,1), so a full local-X curl leaves the curled pinky mesh visibly splayed
-    /// outward from the fist. A Blender bone-ROLL fix cannot correct this — roll only
-    /// spins the flexion axis within the plane perpendicular to the bone, and the
-    /// desired mesh-plane axis's perpendicular component IS the existing +X — so the
-    /// least-invasive fix is runtime: a small counter-abduction about the root joint's
-    /// local Z (the palm normal at rest; Unity's ZXY euler order applies Z BEFORE the
-    /// X flexion) coupled to the curl value. Positive local-Z adducts the LEFT pinky
-    /// toward the ring finger (local +X→+Y under +Z; the bone tilts toward world -X);
-    /// the RIGHT hand mirrors, so the sign flips per side. Glove style only — the
-    /// styled hands' refit chains follow their mesh tubes and need no compensation.
+    /// (0,0,1), so a full local-X curl left the curled pinky mesh visibly splayed
+    /// outward from the fist. The runtime compensation is a small counter-abduction about
+    /// the root joint's local Z (the palm normal at rest; Unity's ZXY euler order applies
+    /// Z BEFORE the X flexion) coupled to the curl value. Positive local-Z adducts the
+    /// LEFT pinky toward the ring finger (local +X→+Y under +Z; the bone tilts toward
+    /// world -X); the RIGHT hand mirrors, so the sign flips per side. Glove style only —
+    /// the styled hands' refit chains follow their mesh tubes and need no compensation.
     ///
-    /// <para>2026-07, SUPERSEDED BY THE ASSET (value kept, default not yet changed):
-    /// the premise above — "a Blender bone-ROLL fix cannot correct this" — is true but
-    /// too narrow. Roll is constrained to the plane perpendicular to the bone; the
-    /// rig contract only requires that local +X be the flexion axis, and re-framing the
-    /// bone node (local +X := the digit's hinge axis, local Y := the digit direction,
-    /// heads and mesh untouched) is unconstrained. unity/hand-prep/aim_curl_axes.py did
-    /// exactly that to VRHand_{L,R}_rig.fbx: the glove's hinge-vs-digit error is now
-    /// 0.00° on all five digits (was pinky +15.2°, index −10.5°, thumb −9.0°), so the
-    /// splay this term compensates no longer exists. Render-measured on the fixed rig, a
-    /// full fist at 0° already tucks the pinky beside the ring finger (tip spacing
-    /// 11.9 mm, ring↔middle 22.4 mm); the historical 14° pulls it a further 3.4 mm and
-    /// over-adducts. RECOMMENDED VALUE FOR THE FIXED RIG: 0. The default is left at 14
-    /// here because it is a persisted user setting — change it deliberately, not as a
-    /// side effect.</para>
+    /// <para>SUPERSEDED BY THE ASSET (2026-07; value kept, default deliberately unchanged).
+    /// A Blender bone-ROLL cannot fix this — roll only spins the flexion axis within the
+    /// plane perpendicular to the bone — but RE-FRAMING the bone node can (local +X := the
+    /// digit's hinge axis, local Y := the digit direction, heads and mesh untouched), and
+    /// unity/hand-prep/aim_curl_axes.py did exactly that to VRHand_{L,R}_rig.fbx: the
+    /// glove's hinge-vs-digit error is now 0.00° on all five digits (was pinky +15.2°,
+    /// index −10.5°, thumb −9.0°), so the splay this term compensates no longer exists.
+    /// Render-measured on the fixed rig, a full fist at 0° already tucks the pinky beside
+    /// the ring finger (tip spacing 11.9 mm, ring↔middle 22.4 mm); the historical 14°
+    /// pulls it a further 3.4 mm and over-adducts. RECOMMENDED VALUE FOR THE FIXED RIG: 0.
+    /// The default is left at 14 here because it is a persisted user setting — change it
+    /// deliberately, not as a side effect.</para>
     /// </summary>
     internal const float DefaultGlovePinkyCounterAbductionDeg = Defaults.GlovePinkyCounterAbduction;
 

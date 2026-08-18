@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Text;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using ScenarioRuleLibrary;

@@ -219,9 +219,6 @@ internal sealed class InitiativePortraitPin
     /// <summary>Rate limit for the incomplete-coverage rebuild retry.</summary>
     private float _nextCoverageRetry;
 
-    /// <summary>How many buttons are currently pinned — the arm line's coverage number.</summary>
-    public int PinnedButtons => _pins.Count;
-
     /// <summary>
     /// Per-frame from <see cref="InitiativeTrackSurface.LateTick"/>, AFTER the reorder slide: the
     /// slide owns the entry roots and this class measures what it left behind.

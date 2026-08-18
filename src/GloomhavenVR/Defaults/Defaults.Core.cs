@@ -23,6 +23,9 @@
 //
 // Editing: change the number, rebuild. Or drop a tuned cfg into .planning/debug/default/ and
 // run `python3 scripts/rebase-defaults.py apply`.
+//
+// This preamble is the canonical copy: every other Defaults.*.cs carries a short pointer
+// to it instead of repeating it.
 
 
 using UnityEngine;

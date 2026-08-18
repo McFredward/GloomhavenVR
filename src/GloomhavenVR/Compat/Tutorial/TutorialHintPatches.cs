@@ -39,7 +39,8 @@ namespace GloomhavenVR.Compat;
 ///    TUTORIAL_2_TEXT_003 is the camera box (user-verified on hardware: the
 ///    "W A S D" instructions). Every referenced VR control was cross-checked against
 ///    the mod's input code — WorldGrab (stick-click drag/rotate/zoom), SnapTurn
-///    (stick-axis flick), ProximityGrabber ([Cards] GrabButton, trigger default),
+///    (stick-axis flick), ProximityGrabber (cards and figures grab on the TRIGGER; the
+///    [Cards] GrabButton dial is retired),
 ///    BoardClickDriver (laser trigger / fingertip poke, second-click-to-confirm),
 ///    HalfSelection (docked round cards, top/bottom poke, on-face default-action
 ///    buttons), PlayTray/ButtonCluster (CONFIRM/UNDO/SKIP keycaps, round rest
@@ -58,14 +59,16 @@ namespace GloomhavenVR.Compat;
 ///    Tokens cover EN + DE (the mod's replacement languages); every match is logged
 ///    loudly so the key can be promoted to tier 1 after one hardware run.
 ///
-/// GATING: double-gated to tutorial scenarios (<see cref="TutorialVR.IsTutorialActive"/> —
-/// front-end tutorial, guildmaster tutorial, tutorial/intro-flagged map scenarios), so
-/// a coincidental match in normal play is impossible. A headless sweep for flat-specific
+/// GATING: every postfix checks <see cref="TutorialVR.Enabled"/> (the bridge's error latch —
+/// the [Compat] TutorialVRAdapt config gate went with the 2026-08-13 ruling) AND
+/// <see cref="TutorialVR.IsTutorialActive"/> — front-end tutorial, guildmaster tutorial,
+/// tutorial/intro-flagged map scenarios — so a coincidental match in normal play is impossible. A headless sweep for flat-specific
 /// keys in NON-tutorial scripted levels is not possible without the game data; if a
 /// hardware log ever shows one, widen the gate deliberately then.
 ///
 /// Story/game-rule hints are untouched: anything matching no tier keeps the game's own
-/// translation. Reversible: config off ⇒ postfixes no-op ⇒ vanilla text. This funnel rewrites
+/// translation. Outside a tutorial — or once the error latch trips — the postfixes no-op and the
+/// game's own text stands (there is no config switch any more). This funnel rewrites
 /// TEXT only — it can never add a step. Injecting extra CLevelMessages into
 /// <c>LevelEventsController.m_MessagesToShow</c> stays deliberately unbuilt (that IS new
 /// machinery on the scripted chain); where the VR tutorial genuinely needs an ADDITIONAL step,
@@ -231,9 +234,10 @@ internal static class TutorialHints
     /// card when it can be identified — and then point at the VR burnt PILE, the only place
     /// the card can still be looked at once it has left the hand.
     ///
-    /// The pile paragraph is appended ONLY while the pile stacks actually exist
-    /// ([Cards] PileViewer, default on): the mod must never teach an interaction the player's
-    /// own configuration has switched off. When they do exist the interaction is the stack's
+    /// The pile paragraph is appended only while the pile stacks exist
+    /// (<see cref="PilesAvailable"/> — unconditionally true since the 2026-08-11 ruling retired
+    /// the [Cards] PileViewer dial; the guard stays so the mod can never teach an interaction
+    /// that is not there). When they do exist the interaction is the stack's
     /// real one — fingertip poke or board laser click toggles the browse fan
     /// (<c>PileViewer.PileStack.OnPoke</c>/<c>LaserToggle</c>), and the stack is live because
     /// the burn has just put a card on it (<c>_hasCards</c>; the hardware log shows

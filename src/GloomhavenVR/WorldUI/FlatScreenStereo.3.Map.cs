@@ -1,11 +1,8 @@
 using System.Collections.Generic;
-using System.Reflection;
 using System.Text;
-using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.Rendering;
-using UnityEngine.Video;
 using UnityEngine.XR;
 
 namespace GloomhavenVR.WorldUI;
@@ -341,9 +338,6 @@ internal sealed partial class FlatScreenStereo
         catch { /* singleton not ready / type shape changed — treat as no overlay */ }
         return false;
     }
-
-    /// <summary>True while a pan drag is actively moving the map (FlatScreen suppresses its click/hover).</summary>
-    internal bool MapPanning => _mapPanning;
 
     /// <summary>Start a grab-pan: remember the world point (on the focal plane y=0) under the press pixel.</summary>
     internal void BeginMapPan(Vector2 downPixel)

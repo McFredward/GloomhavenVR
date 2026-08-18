@@ -285,7 +285,7 @@ public class Plugin : BaseUnityPlugin
         // mod built NO rig at all — no head tracking, no tracked anchor for the hands, and no
         // anchor for the floating 2D screen that carries the main menu. That is the same class of
         // brick the 2026-08-11 round removed [WorldUI] Master and FlatScreen for. The menu rig is
-        // unconditional now (VRRigDriver.TickRig).
+        // unconditional now (VRRigDriver.UpdateBody).
         SpawnInCircle = Config.Bind(
             "Rig", "SpawnInCircle", Defaults.SpawnInCircle,
             "Multiplayer: when you join a session or enter a scenario, seat you ACROSS the board " +
@@ -473,20 +473,18 @@ public class Plugin : BaseUnityPlugin
     }
 
     /// <summary>
-    /// Bind the per-STYLE [Hands] entries (scale + 4 seat trims for each of Glove/Plate/
-    /// Arcane). NOTE the split: <c>{Style}Scale</c> is LIVE (HandVisuals and the settings
-    /// panel read it every frame), while the four <c>{Style}*Trim</c> entries are LEGACY —
-    /// superseded by the ABSOLUTE per-style seat keys in <c>dev.gloomhavenvr.hands.cfg</c> and
-    /// read by nothing at all — the per-style seat now ships its own measured defaults. They stay bound
-    /// because unbinding drops the keys from every existing .cfg (CHARTER §5); their
-    /// descriptions say so, so a knob that does nothing at least admits it.
+    /// Bind the per-STYLE <c>[Hands] {Style}Scale</c> entries (Glove/Plate/Arcane), read live by
+    /// <c>Hands.HandVisuals</c>. The per-style SEAT pose is not here — it lives as absolute keys in
+    /// <c>dev.gloomhavenvr.hands.cfg</c> ([Hands] {Style}GripPitchDegrees / {Style}LateralOffset /
+    /// …) with its own measured defaults. The four <c>{Style}*Trim</c> relative entries this method
+    /// used to bind alongside the scales are gone with that move; do not reintroduce them.
+    ///
     /// Scale defaults are EVIDENCE-BASED: all three meshes are normalized to the
     /// same 0.19 m hand length by the prep pipeline, but the armored styles are 1.5-2x
     /// bulkier (knuckle-region width 0.198/0.14+ m and palm thickness 0.084/0.072 m vs
     /// the glove's 0.123/0.042 m; four-finger MCP span 0.101/0.113 m vs 0.074 m —
     /// measured on the prepped GLBs). 0.62 matches the Plate knuckle width and the
-    /// Arcane MCP span to the glove's real-world hand bulk; trims default to 0 (the
-    /// global seat controls remain the shared baseline). All five live-apply per frame
+    /// Arcane MCP span to the glove's real-world hand bulk. Live-applied per frame
     /// via VRHand.SyncVisualOffset — no rebuild needed.
     /// </summary>
     private void BindHandStyleEntries()

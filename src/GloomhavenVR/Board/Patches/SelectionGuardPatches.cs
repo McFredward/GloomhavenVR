@@ -79,12 +79,12 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
         // focus is taken, vanilla's ENTIRE OnClick is suppressed — both halves of it
         // (InitiativeTrackPlayerAvatar.cs:30-44):
         //   * the SELECT (base.OnClick → InitiativeTrack.Select → avatar.Select →
-        //     CardsHandManager.SwitchHand) — a real game-state write, and the one that re-points
-        //     the docked control-board cards at a non-acting actor whose halves the game then
-        //     silently refuses (FullAbilityCard.cs:635), i.e. the original action deadlock;
+        //     CardsHandManager.SwitchHand) — the game-state write that re-points the docked cards
+        //     at a non-acting actor whose halves the game then silently refuses
+        //     (FullAbilityCard.cs:635): the action deadlock in this file's header;
         //   * the unconditional CardsHandManager.ToggleViewAllCards, which latches
-        //     IsFullCardPreviewShowing and deadlocks every later card action (see
-        //     Board/Patches/AllCardsViewerBlock.cs, which blocks that latch independently).
+        //     IsFullCardPreviewShowing — that latch is documented, and blocked independently, in
+        //     Board/Patches/AllCardsViewerBlock.cs.
         // That is the STRUCTURAL separation the ruling asks for: a VR portrait click cannot
         // answer, cancel or advance anything, because the only code that runs for it is
         // CharacterFocus.TryFocus, and TryFocus has no rules call in it. A pending decision
@@ -92,10 +92,9 @@ internal static class InitiativeTrackPlayerAvatar_OnClick_Guard
         // different surface entirely (WorldUI.Surfaces.DecisionDockSurface on
         // PlayTray.DecisionMount) and are never re-parented, re-built or re-pointed by a focus.
         //
-        // It is also why NO gate below can block the switch any more: the switch has already
-        // happened by the time we get there — with the ONE exception minted inside TryFocus itself
-        // (the FOCUS PIN, below), which is a refusal of the switch and not a side effect on top of
-        // one that already landed.
+        // It is also why no gate below can block the switch any more: by the time we get there it
+        // has already happened. The ONE exception is minted inside TryFocus itself (the FOCUS PIN,
+        // below) — a refusal of the switch, not a side effect on top of one that landed.
         if (CharacterFocus.TryFocus(clicked))
         {
             Report(clicked, ClickSound.Outcome.Succeeded,

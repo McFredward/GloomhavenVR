@@ -382,9 +382,6 @@ namespace GloomhavenVR
             WritePng(TexDir + "/Env_Spark.png", MakeSpark(64), 64, 64, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Glow.png", MakeGlow(128), 128, 128, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Streak.png", MakeStreak(256, 64), 256, 64, sRGB: true, clamp: true);
-            // THE DRAUGHT'S CARRIED MATTER. See MakeWisp for why the cellar's
-            // wind could not go on using Env_Spark.
-            WritePng(TexDir + "/Env_Wisp.png", MakeWisp(256, 32), 256, 32, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_FogPuff.png", MakeFogPuff(256), 256, 256, sRGB: true, clamp: true);
             WritePng(TexDir + "/Env_Moon.png", MakeMoon(512), 512, 512, sRGB: true, clamp: true);
             // The ORB WEB itself is no longer drawn here — it is a real CC0
@@ -408,11 +405,7 @@ namespace GloomhavenVR
                 HauntTile * HauntAtlasCols, HauntTile * HauntAtlasRows,
                 sRGB: true, clamp: true,
                 comp: TextureImporterCompression.Uncompressed);
-            // THE FIRE ATLAS. See MakeFireAtlas for why a fire could not go on
-            // being drawn with the candle sprite.
-            WritePng(TexDir + "/Env_Fire.png", MakeFireAtlas(),
-                FireTile * FireAtlasCols, FireTile * FireAtlasRows,
-                sRGB: true, clamp: true);
+            // NO FIRE ATLAS HERE ANY MORE — see THE RETIRED FIRE ATLAS below.
             AssetDatabase.Refresh();
         }
 
@@ -1600,173 +1593,27 @@ namespace GloomhavenVR
             return px;
         }
 
-        // ======================================================== FIRE ATLAS ====
-        // FIRE REAL. USER VERDICT, hardware, ModBuild 144: "Das Feuer im Keller
-        // sieht eher aus wie viele Kerzenflammen statt wirklich ein bedrohliches
-        // Brennen der Möbel!"
+        // ================================================ THE RETIRED FIRE ATLAS
+        // The procedural fire atlas that used to be generated here (MakeFireAtlas,
+        // Env_Fire.png, 2x2 cells of 256 px) is GONE. User verdict, ModBuild 147:
+        // "Bitte benutze irgendein Feuer FX das schon vorgefertigt ist als es
+        // selber zu bauen ... Ich will lieber das du es mit solchen fx Dingen
+        // umsetzt statt selber zu machen." The fires are drawn from real CC0 flame
+        // art now — Imported/Textures/fire_atlas_alb.png, derived reproducibly by
+        // Assets/Editor/fire_atlas_pipeline.py — and the reasoning that the ART
+        // and not the shader was the wrong half is recorded at
+        // EnvRoomBuilder.FireAtlas(). The generator kept running for six builds
+        // after that, writing a PNG that PruneUnreferenced deleted again at the
+        // end of every bake; it is removed here.
         //
-        // WHY A NEW SPRITE IS THE FIRST OF THE THREE FIXES, and not a tuning. The
-        // cellar's six fires were drawn with `candle_flame_alb` — a photograph of
-        // ONE CANDLE FLAME. A candle flame is laminar: a single smooth teardrop
-        // with a closed, continuous silhouette and no internal structure, because
-        // at two centimetres the flow never goes turbulent. Enlarging that to half
-        // a metre does not make a fire; it makes a large candle flame, and eleven
-        // of them side by side make eleven large candle flames. That is what he
-        // photographed, word for word.
-        //
-        // What a burning object's flame actually looks like, and what each cell
-        // below is drawn to be:
-        //   0 BED     the seat. WIDER THAN TALL (about 2:1 of the drawn mass),
-        //             dense and near-solid across its middle, ragged along its
-        //             top, thinning to nothing at its ends. Several of these
-        //             overlap additively into the one continuous incandescent
-        //             body a fire has and a candle does not.
-        //   1,2 TONGUE two different tongues. Tapered but NOT closed: each one is
-        //             cut by holes and its edge is torn, so two overlapping cards
-        //             merge into one mass instead of reading as two objects with
-        //             outlines. That is the single most important difference from
-        //             the candle sprite, and it is why there are two of them —
-        //             one silhouette repeated a dozen times is a pattern.
-        //   3 PUFF    a piece that has torn off: a lopsided ragged blob with no
-        //             stem at all. Its whole job is to not be attached.
-        //
-        // ALPHA ONLY (RGB is white). All colour comes from the shader's three-stop
-        // temperature ramp, which is measured up the whole FIRE rather than up the
-        // card — so one bed sprite is white-blue at the seat of a big fire and
-        // orange at the seat of a small one, out of one texture.
-        //
-        // COMPRESSED, unlike the haunt atlas: this is a single channel that varies
-        // smoothly, i.e. the best case for BC3's alpha block rather than the worst
-        // case its RGB blocks are. 512x512 with mips is 170 KiB.
-        public const int FireTile = 256;
-        public const int FireAtlasCols = 2, FireAtlasRows = 2;
-
-        private static Color[] MakeFireAtlas()
-        {
-            int W = FireTile * FireAtlasCols, H = FireTile * FireAtlasRows;
-            var px = new Color[W * H];
-
-            // HLSL's smoothstep(edge0, edge1, x), which is NOT Unity's
-            // Mathf.SmoothStep(from, to, t) — that one is a LERP FROM `from` TO
-            // `to` with a smoothed t, and the two have the same three arguments in
-            // the same order. The first bake of this atlas wrote
-            // Mathf.SmoothStep(0f, 0.055f, v), meaning "fade in over the bottom
-            // 5%", and got back a number that never exceeds 0.055: the bed came
-            // out at an alpha of 3/255 and was invisible, so the fire in the
-            // preview was tongues alone — which is precisely the picture this
-            // round exists to stop producing. The rest of this file uses the
-            // Unity form correctly and always with an InverseLerp inside it; a
-            // named local is cheaper than remembering which is which.
-            float Ss(float e0, float e1, float x)
-                => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(e0, e1, x));
-
-            // A tongue: `taper` is how fast it narrows toward the tip, `lean`
-            // bends its axis, `seed` picks the tears. u,v are 0..1 inside the cell
-            // with v = 0 at the base.
-            float Tongue(float u, float v, float taper, float lean, int seed)
-            {
-                // the axis wanders, so the tongue is not an axis-aligned spindle
-                float axis = 0.5f + lean * v * v
-                             + 0.13f * (Noise3(v * 3.1f, seed * 0.13f, 2.2f, seed) - 0.5f);
-                // FAT LOW, CLOSING HIGH. A candle flame is widest at its middle and
-                // perfectly symmetric about its axis; a tongue of fire is widest
-                // near where it is fed and its two sides are not the same shape.
-                // So the half-widths left and right are drawn from two independent
-                // noises — that asymmetry is most of what separates this
-                // silhouette from a teardrop, and it costs one extra lookup.
-                float wdt = 0.30f * (0.38f + 0.62f * Ss(0f, 0.13f, v))
-                            * Mathf.Pow(Mathf.Clamp01(1f - v), taper);
-                float wl = wdt * (0.72f + 0.58f * Noise3(v * 4.6f, 1.7f, seed * 0.21f, seed + 11));
-                float wr = wdt * (0.72f + 0.58f * Noise3(v * 4.6f, 5.3f, seed * 0.21f, seed + 23));
-                float s = u - axis;
-                float d = s < 0f ? -s / Mathf.Max(wl, 1e-4f) : s / Mathf.Max(wr, 1e-4f);
-                // NO PLATEAU. The obvious profile — opaque out to half the width,
-                // then an edge — puts a region of alpha 1 down the tongue's spine,
-                // and in an additive pass a region of alpha 1 clips to white with
-                // a STRAIGHT SIDE. The third bake's crate fire had two of those in
-                // it and they read as two white candles standing in the flames,
-                // which is the exact word the user used about the whole feature.
-                // Falling from the axis outward with no flat top costs nothing and
-                // there is no straight edge left anywhere in the sprite.
-                float body = 1f - Ss(0.08f, 1.06f, d);
-                // TORN, in two octaves. The coarse one eats bites out of the
-                // silhouette; the fine one cuts HOLES through the body, and the
-                // holes are the important half: they are what lets two overlapping
-                // cards merge into one mass instead of showing two outlines.
-                // Without them the silhouette is an analytic curve, which is the
-                // grammar of a sprite rather than of a flame.
-                body *= 0.28f + 0.72f * Ss(0.30f, 0.62f,
-                    Fbm3(new Vector3(u * 3.5f, v * 6.5f - 2f, seed * 0.7f), 4, seed));
-                body *= 0.42f + 0.58f * Ss(0.34f, 0.70f,
-                    Fbm3(new Vector3(u * 9f, v * 13f, seed * 1.9f), 3, seed + 77));
-                // the base is fed and the tip is dying
-                body *= Mathf.Lerp(1f, 0.20f, Ss(0.40f, 1.0f, v));
-                // ...and it is not cut off flat at the very bottom. 10% of the
-                // card, not the first bake's 3.5%: a tongue whose base is inside
-                // the bed can afford a long fade, and one that is climbing a
-                // trunk with no bed under it at all (bedFrac 0) has nothing else
-                // to hide a straight bottom edge behind.
-                body *= Ss(0f, 0.10f, v);
-                return Mathf.Clamp01(body * 1.60f);
-            }
-
-            for (int y = 0; y < H; y++)
-                for (int x = 0; x < W; x++)
-                {
-                    int cx = x / FireTile, cy = y / FireTile;
-                    int cell = cy * FireAtlasCols + cx;
-                    float u = (x % FireTile + 0.5f) / FireTile;
-                    float v = (y % FireTile + 0.5f) / FireTile;
-                    float a;
-                    if (cell == 0)
-                    {
-                        // THE BED. The drawn mass fills the cell across and sits in
-                        // its lower half, so a card whose quad is twice as wide as
-                        // it is tall carries a mass of roughly the right aspect
-                        // without the sprite being stretched.
-                        // SOFT ALL ROUND. Every straight edge in this cell becomes
-                        // a straight edge in the picture the moment two beds
-                        // overlap and the sum clips — the second bake's fires had
-                        // visible white parallelograms in them for exactly that
-                        // reason, and half of that was the energy and half was
-                        // this: a fade over 24% of the width and 12% of the height
-                        // costs nothing and there is no card edge left to see.
-                        float across = 1f - Ss(0.18f, 0.50f, Mathf.Abs(u - 0.5f));
-                        // solid to about a third of the cell, then a ragged top
-                        float top = 0.34f + 0.20f * Fbm3(new Vector3(u * 5.0f, 1.3f, 0.7f), 3, 6101);
-                        float up = 1f - Ss(top * 0.45f, top, v);
-                        // ...and it is not flat underneath either: a bed sits INTO
-                        // whatever it is burning on
-                        float under = Ss(0f, 0.12f, v);
-                        float lump = 0.55f + 0.75f * Fbm3(new Vector3(u * 5.5f, v * 7f, 3.3f), 4, 6102);
-                        // gaps, so that several overlapping beds are a glowing MASS
-                        // and not a flat slab of light
-                        float gap = 0.52f + 0.66f * Ss(0.30f, 0.68f,
-                            Fbm3(new Vector3(u * 11f, v * 9f, 8.1f), 3, 6103));
-                        // DENSE. This is the brightest thing in the room and it has
-                        // to be nearly opaque in its middle, or several overlapping
-                        // beds still add up to a haze.
-                        a = Mathf.Clamp01(across * up * under * Mathf.Clamp01(lump) * gap * 1.5f);
-                    }
-                    else if (cell == 1) a = Tongue(u, v, 1.30f, 0.16f, 6201);
-                    else if (cell == 2) a = Tongue(u, v, 0.80f, -0.21f, 6301);
-                    else
-                    {
-                        // THE PUFF: lopsided, ragged, no stem. Its centre is off
-                        // the cell's centre on purpose — a detached piece of fire
-                        // that is radially symmetric reads as a spark.
-                        float dx = (u - 0.47f) * 2.10f, dy = (v - 0.55f) * 1.75f;
-                        float r = Mathf.Sqrt(dx * dx + dy * dy);
-                        float warp = 0.50f * (Fbm3(new Vector3(u * 3.8f, v * 3.8f, 5.1f), 3, 6401) - 0.5f);
-                        float blob = 1f - Ss(0.26f, 0.95f, r + warp);
-                        float grain = 0.30f + 0.95f * Ss(0.28f, 0.72f,
-                            Fbm3(new Vector3(u * 8f, v * 8f, 1.9f), 4, 6402));
-                        a = Mathf.Clamp01(blob * grain * 1.25f);
-                    }
-                    px[y * W + x] = new Color(1, 1, 1, a);
-                }
-            return px;
-        }
+        // ONE TRAP SURVIVES IT, because the rest of this file can still hit it:
+        // Unity's Mathf.SmoothStep(from, to, t) is NOT HLSL's smoothstep(e0, e1, x).
+        // It LERPS from `from` to `to` with a smoothed t, and the two have the same
+        // three arguments in the same order. Writing Mathf.SmoothStep(0f, 0.055f, v)
+        // for "fade in over the bottom 5%" returns a number that never exceeds
+        // 0.055 — a sprite at alpha 3/255, i.e. invisible, through a bake that
+        // reports nothing. Every SmoothStep in this file is therefore written as
+        // Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(e0, e1, x)).
 
         /// <summary>Alpha-test threshold for the cobwebs. Shared by the STRAND
         /// texture's mip-coverage setting below, by the imported cobweb alpha's
@@ -1885,65 +1732,17 @@ namespace GloomhavenVR
             return px;
         }
 
-        /// <summary>THE DRAUGHT'S CARRIED MATTER — a soft, irregular filament.
-        ///
-        /// <para>USER VERDICT, ModBuild 143 (verbatim): "Bei der Luft finde ich die
-        /// Idee gut, dass es aus dem Fenster kommt, sollte aber auch wirklich mehr
-        /// wie Wind wirken, aktuell diese Pünktchen erinnern eher an weiße Funken,
-        /// das ist nicht immersiv oder realistisch."</para>
-        ///
-        /// <para>He is describing Env_Spark, and he is right about it. That sprite
-        /// is a tight gaussian CORE with a soft skirt — a point of light. Stretched
-        /// along a 1.3 m/s velocity it elongates by about eight centimetres, which
-        /// at four metres is under a sprite width: it stays a dot, it stays bright
-        /// in the middle, and a bright dot on black in a dark room is a spark. No
-        /// amount of tinting or dimming fixes that, because what reads as "spark"
-        /// is the CONCENTRATION, not the colour.</para>
-        ///
-        /// <para>So this is the opposite sprite by construction. There is no core:
-        /// the profile along the filament is a broad, flat-topped hump with the
-        /// peak alpha barely over half, torn by two octaves of noise so no two
-        /// motes are the same shape, and it tapers to nothing at BOTH ends. It is
-        /// four times as long as it is wide before the renderer stretches it at
-        /// all, so a mote in the cellar's draught is a 20-40 cm hair of dust
-        /// rather than a point — extent and irregularity, which is what the eye
-        /// separates carried matter from sparks by.</para>
-        ///
-        /// <para>SYMMETRIC ABOUT v = 0.5, exactly as MakeStreak is and for the same
-        /// reason: in Stretch render mode the sprite may roll about its own
-        /// velocity axis, and a filament that is symmetric about that axis cannot
-        /// show the roll. (It is deliberately NOT symmetric along u — a real mote
-        /// is lopsided — but u-asymmetry is invisible under roll.)</para></summary>
-        private static Color[] MakeWisp(int w, int h)
-        {
-            var px = new Color[w * h];
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++)
-                {
-                    float u = (x + 0.5f) / w, v = (y + 0.5f) / h;
-                    float sy = (v - 0.5f) * 2f;                       // -1..1
-                    // ALONG the filament: a wide flat hump, not a head. The
-                    // exponent 0.55 on the sine is what flattens the top — a
-                    // plain sin would peak in the middle and read as a bead.
-                    float along = Mathf.Pow(Mathf.Max(Mathf.Sin(u * Mathf.PI), 0f), 0.55f);
-                    // ...torn: two octaves of noise on the length, so the mote is
-                    // uneven and no two are alike (the noise is seeded, so every
-                    // client bakes the same sprite).
-                    float tear = 0.62f + 0.38f * Noise3(u * 6.5f, 1.7f, 0.4f, 4471)
-                                       + 0.22f * (Noise3(u * 17f, 5.1f, 2.3f, 4472) - 0.5f);
-                    along *= Mathf.Clamp01(tear);
-                    // ACROSS it: soft, and it THINS toward the ends, so the thing
-                    // has a shape instead of being a bar with rounded caps.
-                    float wdt = Mathf.Lerp(0.34f, 1.0f, along);
-                    float across = Mathf.Exp(-(sy * sy) / (wdt * wdt));
-                    // 0.55 peak, not 1.0: this is dust seen by a moonbeam, and it
-                    // is meant to be at the edge of legibility. The emitter's own
-                    // start colour dims it further.
-                    float a = 0.55f * along * across;
-                    px[y * w + x] = new Color(1, 1, 1, Mathf.Clamp01(a));
-                }
-            return px;
-        }
+        // THE DRAUGHT'S CARRIED MATTER (MakeWisp, Env_Wisp.png) IS RETIRED.
+        // It was the sprite for the cellar's free-air streaks, and the user had
+        // those deleted outright in ModBuild 147: "Die Luftströme im Keller sind
+        // zu cartoonig zu grob - diese weißen Linien gefallen mir so nicht."
+        // Nothing has referenced the material (FX_ElemDraught) or the texture
+        // since; the bake wrote them and PruneUnreferenced deleted them again.
+        // The lesson it carried is worth keeping and belongs with FX_ElemGust,
+        // which is what the cellar's air reads as now: a tight gaussian CORE is
+        // a POINT OF LIGHT and stretching one along its velocity does not stop it
+        // being a spark, because what reads as "spark" is the CONCENTRATION and
+        // not the colour.
 
         private static Color[] MakeFogPuff(int n)
         {
@@ -2677,10 +2476,11 @@ namespace GloomhavenVR
             ember.SetColor("_Tint", new Color(1f, 0.42f, 0.13f, 1f));
             ElemFX(ember, own: new Vector4(1f, 0f, 0f, 0f), spark: 0f);
 
-            var snow = LoadOrNewMat(MatDir + "/FX_ElemSnow.mat", "GloomhavenVR/EnvParticleAlpha");
-            snow.SetTexture("_MainTex", T("Env_Spark.png")); // radially symmetric: billboard-legal
-            snow.SetColor("_Tint", new Color(0.86f, 0.92f, 1f, 1f));
-            ElemFX(snow, own: new Vector4(0f, 1f, 0f, 0f));
+            // ICE HAS NO EMITTER. User verdict, ModBuild 147: "Entferne auch die
+            // weißen Flocken. Da der Himmel klar ist macht es keinen Sinn dass es
+            // schneit." Ice is a SURFACE element in both rooms instead — see the
+            // ICE block in BuildEnvironmentRooms.AddElementFX. FX_ElemSnow.mat
+            // went with the emitter.
 
             // Env_Spark, NOT Env_Streak. The first bake used the comet sprite on
             // the driven air and the previews showed exactly what that is: three
@@ -2702,27 +2502,6 @@ namespace GloomhavenVR
             sift.SetTexture("_MainTex", T("Env_Spark.png"));
             sift.SetColor("_Tint", new Color(0.72f, 0.63f, 0.50f, 1f));
             ElemFX(sift, own: new Vector4(0f, 0f, 0f, 1f));
-
-            // THE CELLAR'S DRAUGHT — rebuilt after the ModBuild 143 verdict
-            // ("aktuell diese Pünktchen erinnern eher an weiße Funken"). Three
-            // changes, and all three are about the same thing, which is that a
-            // bright concentrated dot is a spark whatever colour it is:
-            //   * Env_Wisp, not Env_Spark: a torn filament with no core, four
-            //     times as long as it is wide before the stretch (see MakeWisp);
-            //   * the tint goes from 0.80/0.74/0.62 — a warm near-white, i.e. the
-            //     colour of an ember — to a cold, dark grey-blue at 0.42 of the
-            //     brightness. Dust in a moonbeam is not white, it is the moon's
-            //     own colour at a fraction of its intensity;
-            //   * and it stays ALPHA-blended, which for once matters: an additive
-            //     mote can only ever add light, so it always reads as glowing.
-            //     Carried dust OCCLUDES as much as it scatters.
-            // The emitters that use it (EnvRoomBuilder.AddElementFX and
-            // AddCellarDraught) carry the other half: many more, much longer,
-            // much slower to line up, and tumbling.
-            var draught = LoadOrNewMat(MatDir + "/FX_ElemDraught.mat", "GloomhavenVR/EnvParticleAlpha");
-            draught.SetTexture("_MainTex", T("Env_Wisp.png"));
-            draught.SetColor("_Tint", new Color(0.46f, 0.52f, 0.62f, 1f));
-            ElemFX(draught, own: new Vector4(0f, 0f, 1f, 0f));
 
             // warm torch halo — used by the cellar shell's inactive GlowTemplate
             var glowWarm = LoadOrNewMat(MatDir + "/FX_GlowWarm.mat", "GloomhavenVR/EnvGlow");

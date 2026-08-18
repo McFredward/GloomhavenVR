@@ -1,10 +1,8 @@
-using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.Video;
 using UnityEngine.XR;
 

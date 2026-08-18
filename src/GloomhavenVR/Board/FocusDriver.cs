@@ -24,10 +24,9 @@ namespace GloomhavenVR.Board;
 ///
 ///   <para>"Waiting on" is <c>CharacterFocus.AttentionActor</c> = the actor at turn, or — when
 ///   nobody is at turn, which is the WHOLE of an enemy's action — the character that owes an OPEN
-///   DECISION. Reading only the turn was the 2026-08-08 defect: a take-damage prompt is raised
-///   inside the enemy's Action phase, where <c>Choreographer.CurrentPlayerActor</c> is null, so the
-///   character that actually owed the player a choice wore no ring and its board wore no stroke
-///   ("im Falle einer Schadensauswahl ist das Highlighting nicht sichtbar, nur das rote Overlay").
+///   DECISION. Reading only the turn was the 2026-08-08 defect (a take-damage prompt is raised
+///   inside the enemy's Action phase, where <c>Choreographer.CurrentPlayerActor</c> is null; the
+///   root cause and its evidence are on <c>CharacterFocus.AttentionActor</c>).
 ///   The decision owner is NOT resolved here — it comes from
 ///   <c>Cards.CardsGameApi.DecidingHand</c> through <c>CharacterFocus.DecisionOwner</c>, the same
 ///   deciding-actor chain the card board presents from and <c>DecisionDockSurface.PromptOwner</c>

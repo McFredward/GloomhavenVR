@@ -50,16 +50,11 @@ internal sealed class HandsDriver : MonoBehaviour
         _tickGhost = HandGhosts.Tick;
 
         // BOOT STALL (hardware log ModBuild 107 / b765a5b6e): the mod's first touch of
-        // gloomhavenvr.bundle cost 981.48 ms of a 1145.21 ms frame 4, under the black Unity
-        // splash — 64 % of a 1717 ms stall was ours. The archive is ONE 58 MB LZMA block (read
-        // out of the shipped file; see HandVisuals.Prewarm), and a synchronous LoadFromFile has
-        // to inflate all of it on the calling thread before it returns. This Awake runs at BepInEx
-        // chainloader time, several hundred milliseconds of wall clock BEFORE the hands are first
-        // built (the hand build lands in frame 4; frame 2 alone was 571.85 ms of game-side work),
-        // so starting the load here lets Unity's loading thread do that inflate concurrently with
-        // the game's own boot. Nothing about WHEN the hands appear changes — HandVisuals.Build
-        // still completes synchronously on the same frame; it just blocks on the remainder instead
-        // of on the whole thing.
+        // gloomhavenvr.bundle cost 981.48 ms on the main thread, under the black Unity splash.
+        // This Awake runs at BepInEx chainloader time, several hundred ms BEFORE the hands are
+        // first built (frame 4), so starting the load here lets Unity's loading thread inflate
+        // the archive concurrently with the game's own boot. Measurement, root cause and the
+        // rejected alternatives all live on HandVisuals.Prewarm — do not restate them here.
         HandVisuals.Prewarm();
     }
 
@@ -186,10 +181,9 @@ internal sealed class HandsDriver : MonoBehaviour
                             $"1-bone intro skinning. handsRoot lossyScale={rootScale:F2}, hand WorldScale={worldScale:F2}.");
     }
 
-    // ISOLATED for the same reason VRHand.OnDestroy is: this runs in the destroy wave of a
-    // scenario teardown, it frees cloned ghost materials and destroys the hand tree, and an
-    // unguarded throw here would leave VRHands pointing at dead hands under a single anonymous
-    // NullReferenceException (the game logs no stack traces — see Core/ExceptionTraces).
+    // ISOLATED for the reason spelled out on VRHand.OnDestroy: this runs in the destroy wave of a
+    // scenario teardown, and an unguarded throw would leave VRHands pointing at dead hands and the
+    // ghost materials un-freed, under one anonymous stackless NullReferenceException.
     private void OnDestroy() => TickGuard.Run("Hands.Teardown.Driver", TearDown, "Hands");
 
     private void OnModeChanged(VRModeChange change) => ApplyMode(change.To);

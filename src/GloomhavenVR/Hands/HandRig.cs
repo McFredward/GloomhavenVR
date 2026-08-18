@@ -55,7 +55,11 @@ internal sealed class HandRig
     public Transform Root = null!;
 
     /// <summary>
-    /// Wrist joint (== Root for the procedural hand).
+    /// Wrist joint. What lands here is the zero-offset <c>Socket_Wrist</c> child that
+    /// <c>HandVisuals.CreateSocket</c> interposes for scale compensation — on
+    /// <c>Anchor_Wrist</c> for a prefab hand, on <see cref="Root"/> itself for the
+    /// procedural one (whose wrist frame is therefore Root's frame). It is never the
+    /// same object as <see cref="Root"/>.
     ///
     /// <para>ITS AXES ARE NOT <see cref="Root"/>'S — read this before parenting anything to it.
     /// In every shipped prefab (VRHand, VRHandPlate, VRHandArcane, L and R alike) <c>Anchor_Wrist</c>

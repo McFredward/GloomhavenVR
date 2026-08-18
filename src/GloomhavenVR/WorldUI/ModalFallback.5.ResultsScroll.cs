@@ -1,10 +1,7 @@
-using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
-using Script.GUI.Popups;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;

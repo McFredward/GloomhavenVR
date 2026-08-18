@@ -12,8 +12,9 @@ namespace GloomhavenVR.Hands;
 /// and the cards — fingers, knuckles and the glove cuff cover card details exactly where the
 /// player is trying to read them. Fading that one hand while its fan is open keeps the hand
 /// present (you still see where your fingers are, so grabbing a card stays intuitive) but lets
-/// the art through. Optional and OFF by default ([Hands] GhostHandOnFan), strength tunable
-/// ([Hands] GhostHandStrength) — see <see cref="HandGhosts"/> for the policy side.
+/// the art through. Toggleable per cause ([Hands] GhostHandOnFan / GhostHandOnHeldCard — both
+/// ship ON, see Defaults.Hands.cs), strength tunable ([Hands] GhostHandStrength) — see
+/// <see cref="HandGhosts"/> for the policy side.
 ///
 /// SAFETY — why this never corrupts anything:
 ///  * NO SHARED MATERIAL IS EVER MUTATED. Hand materials are shared: the procedural hand builds
@@ -38,14 +39,11 @@ namespace GloomhavenVR.Hands;
 /// SHADER HANDLING: the hands do not all use one shader. The procedural fallback uses
 /// <c>Sprites/Default</c> (unlit, already alpha-blended — the VR void has no lights, see
 /// <see cref="HandVisuals"/>'s CreateHandMaterial), while a bundle glove ships whatever the
-/// companion Unity project baked (Standard, in practice). An OPAQUE Standard material ignores
-/// the alpha channel entirely until its rendering mode is switched, so
-/// <see cref="MakeTransparent"/> flips the whole Standard "Fade" recipe — <c>_Mode</c>,
-/// <c>_SrcBlend</c>/<c>_DstBlend</c>/<c>_ZWrite</c>, the keyword trio and the render queue —
-/// plus the URP <c>_Surface</c>/<c>_SURFACE_TYPE_TRANSPARENT</c> equivalents, all guarded by
-/// <c>HasProperty</c> so a shader that has none of them (the unlit fallback) is simply tinted.
-/// The engage log names the shaders actually found, so an unexpected one is diagnosable from a
-/// hardware log instead of guesswork.
+/// companion Unity project baked. <see cref="MakeTransparent"/> owns that problem: it flips the
+/// whole Standard/URP "Fade" recipe where the shader exposes it, and RE-SHADERS the clone where it
+/// does not — a shader with hard-coded opaque blending cannot be faded by writing properties (root
+/// cause recorded there). The engage log names the shaders actually found, so an unexpected one is
+/// diagnosable from a hardware log instead of guesswork.
 /// </summary>
 internal sealed class HandGhost
 {
@@ -284,18 +282,21 @@ internal sealed class HandGhost
     /// angezeigt obwohl die Option an ist und der Fächer auf"). The hardware log named it exactly:
     ///   Ghost hand ON (local Left) — alpha 0.45 …, 1 renderer(s) cloned …
     /// ONE renderer. The sweep was excluding almost the entire hand, so of course nothing looked
-    /// different. The reason is that <see cref="HandRig.Wrist"/> is NOT a socket at all in the
-    /// shipped rigs: <c>HandVisuals</c> assigns <c>rig.Wrist = handRoot</c> for the procedural hand
-    /// and falls back to the whole prefab instance for a glove. Testing "is any ancestor the wrist"
-    /// therefore matched EVERY renderer in the hand, and the <c>rig.Root</c> escape below could
-    /// never be reached because the wrist test ran first and the two are the same object.
+    /// different. The wrist was tested FIRST, and <see cref="HandRig.Wrist"/> was then the hand
+    /// root itself (<c>HandVisuals</c> assigns <c>rig.Wrist = handRoot</c> for the procedural hand,
+    /// and falls back to the whole prefab instance for a glove without an <c>Anchor_Wrist</c>), so
+    /// "is any ancestor the wrist" matched EVERY renderer in the hand and the <c>rig.Root</c>
+    /// escape below could never be reached.
     ///
     /// So: the hand ROOT is checked FIRST — reaching it means we walked up through nothing but hand
-    /// geometry — and the wrist only counts as a socket when it is genuinely a separate node. The
-    /// wrist HUD, which really does hang off the wrist and must stay solid, is excluded by its own
-    /// identity instead: it is a mod-owned widget on the UI layer (<see cref="UiLayer"/>, set in
-    /// WristHud.Build), which no hand mesh ever uses. That is a property of the thing itself rather
-    /// than of where it happens to be parented, so it keeps working whatever the rig's shape.
+    /// geometry — and the wrist only counts as a socket when it is genuinely a separate node. (At
+    /// HEAD it always is: <c>HandVisuals</c> interposes a zero-offset <c>Socket_Wrist</c> child. The
+    /// order and the wrist!=root guard stay anyway — they cost nothing and are what makes this
+    /// correct for a rig of any shape.) The wrist HUD, which really does hang off the wrist and must
+    /// stay solid, is excluded by its own identity instead: it is a mod-owned widget on the UI layer
+    /// (<see cref="UiLayer"/>, set in WristHud.Build), which no hand mesh ever uses. That is a
+    /// property of the thing itself rather than of where it happens to be parented, so it keeps
+    /// working whatever the rig's shape.
     /// </summary>
     private static bool IsAttachment(Transform t, HandRig rig)
     {
@@ -305,8 +306,8 @@ internal sealed class HandGhost
 
         for (Transform? c = t; c != null; c = c.parent)
         {
-            // Checked FIRST: with rig.Wrist == rig.Root (the shipped case) this is what tells us
-            // we walked up through hand geometry only. Getting the order wrong excluded the hand.
+            // Checked FIRST: reaching the root means we walked up through hand geometry only.
+            // Getting this order wrong once excluded the whole hand (see the doc above).
             if (ReferenceEquals(c, rig.Root))
                 return false;
             if (ReferenceEquals(c, rig.PalmCenter) || ReferenceEquals(c, rig.GrabAnchor))
@@ -326,9 +327,8 @@ internal sealed class HandGhost
     /// (this is exactly what the Standard shader's own inspector does when you pick "Fade").
     /// Fade — not Transparent — is the right preset for a ghost: it dims the WHOLE surface
     /// including highlights, which is what "the hand is barely there" should look like.
-    /// Everything is guarded by <c>HasProperty</c>, so the unlit <c>Sprites/Default</c> fallback
-    /// (already premultiplied-alpha blended with ZWrite off) passes through untouched and only
-    /// gets its colour tinted.
+    /// Everything is guarded by <c>HasProperty</c>; a shader that exposes none of the knobs has
+    /// its blending hard-coded and is re-shadered instead (root cause below).
     /// </summary>
     private static void MakeTransparent(Material m)
     {
@@ -341,17 +341,15 @@ internal sealed class HandGhost
         // guarded by HasProperty, and GloomhavenVR/BoardLit — a bundled OPAQUE shader — exposes
         // none of them: no _Mode, no _Surface, no _SrcBlend/_DstBlend, no _ZWrite. So the whole
         // recipe silently no-opped, SetAlpha dutifully wrote alpha into a colour the shader never
-        // blends with, and the hand rendered exactly as before. "1 material(s) tinted" in the log
-        // was reporting a write that could not possibly show.
+        // blends with, and "1 material(s) tinted" reported a write that could not possibly show.
         //
         // A shader with no blend state cannot be made to fade by setting properties — the fix has
-        // to REPLACE it. We are working on a private clone (see Engage), so swapping its shader is
-        // as reversible as everything else here: the original material is untouched and restored
-        // wholesale on release. Sprites/Default is the right target: unlit and alpha-blended, and
-        // already the proven choice for hands in this project (CreateHandMaterial picks it for the
-        // procedural hand precisely because the VR void and the menu scenes have NO lights, so a
-        // lit shader renders the hand pitch black). The base map and tint are carried across so the
-        // ghost keeps the glove's own colour rather than turning into a white silhouette.
+        // to REPLACE it, on our private clone (see Engage), which is as reversible as everything
+        // else here. Sprites/Default is the right target: unlit and alpha-blended, and already the
+        // proven choice for hands here (CreateHandMaterial picks it for the procedural hand because
+        // the VR void and the menu scenes have NO lights, so a lit shader renders the hand pitch
+        // black). Base map and tint carry across so the ghost keeps the glove's own colour rather
+        // than turning into a white silhouette.
         if (!CanBlend(m))
             SwapToBlendableShader(m);
 
@@ -381,9 +379,8 @@ internal sealed class HandGhost
     /// <summary>
     /// Can this material's shader blend at all? A shader that exposes neither the Standard/URP
     /// surface-mode switch nor the raw blend factors has its blending HARD-CODED (opaque, in every
-    /// case we ship), so no amount of property writing will ever fade it — see
-    /// <see cref="MakeTransparent"/> for how that produced a ghost hand that logged success and
-    /// changed nothing.
+    /// case we ship), so no amount of property writing will ever fade it — see the root cause on
+    /// <see cref="MakeTransparent"/>.
     /// </summary>
     private static bool CanBlend(Material m) =>
         m.HasProperty(ModeId) || m.HasProperty(SurfaceId)

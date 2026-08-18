@@ -3,8 +3,8 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Shared spawn / re-place clamp for movable world panels (the in-VR settings panel
-/// and the combat log). Given the head pose it either produces a fresh spawn pose or
+/// Shared spawn / re-place clamp for movable world panels (the combat log, the enemy
+/// reveal, the MP version dialog). Given the head pose it either produces a fresh spawn pose or
 /// HEALS an existing/persisted pose into one GUARANTEED to sit inside the player's
 /// forward field of view at a comfortable reading distance:
 ///

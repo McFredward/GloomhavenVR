@@ -1,8 +1,5 @@
-using System;
 using System.Collections.Generic;
-using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
-using GloomhavenVR.Hands;
 using Script.GUI.Popups;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -10,11 +7,9 @@ using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
-// THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them to something
-// prettier. Compile order is the filename sort of the SDK's default `**/*.cs`
-// glob, and a partial class's members land in metadata in compile order, so the
-// numbering is what makes the nine parts concatenate back into the original
-// member order — including the two NESTED types (DecisionDock in part 2,
+// THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them (rule and
+// reasoning: FlatScreen.1.Core.cs). The nine parts concatenate back into the
+// original member order — including the two NESTED types (DecisionDock in part 2,
 // WindowPanel in part 3), which are ordered the same way.
 //
 // Tick() is in part 4 and stays WHOLE. It is a numbered step sequence and the
@@ -80,7 +75,7 @@ namespace GloomhavenVR.WorldUI;
 /// - "screen": pre-P8 behavior — <see cref="ScreenWanted"/> shows the full 2D
 ///   composite (<see cref="FlatScreen"/>) while any fallback window is open.
 ///
-/// The manual chord ([WorldUI] ManualScreenChord, <see cref="FlatScreen"/>) stays the
+/// The manual chord ([WorldUI] ManualScreenChordSeconds, <see cref="FlatScreen"/>) stays the
 /// universal rescue: while it forces the screen, all window conversions are RELEASED
 /// (a converted window would be missing from the screen's RT composite) and re-applied
 /// when the chord toggles the screen off again.
@@ -134,13 +129,12 @@ internal static partial class ModalFallback
 
     /// <summary>
     /// Item 1 (size): board-relative DEFAULT width for a floated menu, real meters — the same
-    /// order as the control board and the VR settings panel, so the pause/Options menu opens at a
-    /// comfortable, board-sized default instead of the ~1.3 m full-screen slab that read "too big".
-    /// The three widths are deliberately INDEPENDENT tunables and are NOT in sync: this one is
-    /// 0.80, `SettingsPanel.SettingsPanelWidthMeters` is 0.82 (widened with its pixel width) and
+    /// order as the control board, so the pause/Options menu opens at a comfortable, board-sized
+    /// default instead of the ~1.3 m full-screen slab that read "too big".
+    /// The widths are deliberately INDEPENDENT tunables and are NOT in sync: this one is 0.80,
     /// `PlayTray.BoardW` is 0.64. Do not "re-sync" this to a number quoted from another file.
-    /// Like the VR settings panel, this is a REAL-world target: the diorama
-    /// WorldScale cancels out (position still uses it), so table zoom does not grow/shrink it.
+    /// This is a REAL-world target: the diorama WorldScale cancels out (position still uses it),
+    /// so table zoom does not grow/shrink it.
     /// Applied as a CAP on <see cref="WindowScaleFactor"/> — small dialogs (confirmations) keep
     /// the 0.7 factor; only windows wider than the board are shrunk to it. The user's two-hand
     /// resize (<see cref="PanelGrabHandle.MinScale"/>–<see cref="PanelGrabHandle.MaxScale"/>,

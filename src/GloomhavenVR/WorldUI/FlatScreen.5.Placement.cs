@@ -1,10 +1,8 @@
 using GloomhavenVR.Core;
-using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using TMPro;
 using UnityEngine;
-using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 namespace GloomhavenVR.WorldUI;

@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
 using TMPro;
@@ -13,22 +12,22 @@ namespace GloomhavenVR.Cards;
 //
 //   PlayTray.1.Core.cs      class doc, fields/consts, mount accessors, laser targets, lifecycle
 //                           (EnsureBuilt + Build*), grab handle, dashboard controls, follow mode,
-//                           Destroy, SetVisible / TickPlacement / PlaceAtHead / ReassertPlacement
+//                           Destroy, SetVisible / TickPlacement / PlaceAtHead / ReassertPlacement,
+//                           solid occluder + furniture draw order
 //   PlayTray.2.Watchdog.cs  the LOST-BOARD WATCHDOG, whole and alone
 //   PlayTray.3.Pose.cs      debug-menu live apply, fixed base positions, ReapplyOrientation,
 //                           rebuild helpers, board-switch pose, PersistPoseToConfig
-//   PlayTray.4.Slots.cs     slots, pick field (REMOVED), highlight, item-use slot
-//   PlayTray.5.Status.cs    TickStatus
+//   PlayTray.4.Slots.cs     slots, pick field (REMOVED), highlight, recess seat liner (RETIRED),
+//                           item-use slot, the multiplayer board-UI read seam
+//   PlayTray.5.Status.cs    TickStatus, pick banner + keycap overrides
 //   PlayTray.6.Build.cs     build helpers, shaders, materials, MeasureBoardLocalExtents,
 //                           board diagnostics
 //   PlayTray.7.Nested.cs    the four nested types (LaserTarget, SlotPulse, BoardSurfaceTarget,
 //                           BoardButton) — see that file's own header for why they stay nested
 //
-// THE FILENAMES ARE NOT DECORATION. The csproj uses the SDK's default `**/*.cs` glob, so compile
-// order follows the filename sort, and a partial class's members land in metadata in compile
-// order. The digits keep the seven parts concatenating back into the ORIGINAL member order,
-// which is what lets refactor-guard.sh prove this split changed nothing. Renaming a part so it
-// sorts differently silently reorders field initializers. Do not do it.
+// THE FILENAMES ARE NOT DECORATION — the digits keep the seven parts concatenating back into the
+// ORIGINAL member order. Renaming a part so it sorts differently silently reorders field
+// initializers. Canonical statement of the rule and why: CardsDriver.1.Core.cs's header.
 //
 // Part 2 is the one to notice. Those ~288 lines are the subsystem's most expensive lesson, and
 // several of them are COMMENT BLOCKS WITH NO CODE UNDER THEM — that is not leftover cruft, it is
@@ -37,7 +36,7 @@ namespace GloomhavenVR.Cards;
 /// <summary>
 /// The control board (P7 redesign, test #10; test #15: central DASHBOARD): a
 /// desk-like tray in front of the player, tilted toward them like a card-table edge
-/// (~30° from horizontal, [Cards] TrayTilt), chest height, anchored in rig space by
+/// (~30° from horizontal, [Cards] BoardTilt_{board}), chest height, anchored in rig space by
 /// default ([Cards] TrayFollow; the PIN button on the frame switches to
 /// world-anchored). Visible for the WHOLE scenario since test #15 (dashboard), not
 /// only during card selection. Layout:
@@ -307,9 +306,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// <summary>Stack center X in PileMount-local meters (see BuildMounts collision math).</summary>
     internal const float PileStackOffsetX = 0.05f;
 
-    /// <summary>Vertical distance between the two stack centers, PileMount-local meters.</summary>
-    internal const float PileStackSpacing = Defaults.PileSpacing_Oak;
-
     /// <summary>Target panel width at the initiative mount, tray-local meters (× mount lossyScale).</summary>
     internal const float InitiativeMountWidth = BoardW;
 
@@ -420,17 +416,10 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             LaserTargets.Add(new LaserTarget(collider, target));
     }
 
-    /// <summary>
-    /// Remove a laser target by collider (items rework): the item-browse chips register their
-    /// colliders as laser targets while the fan is open and unregister on close/rebuild, so the
-    /// transient chips never leak stale entries into <see cref="LaserTargets"/>. No-op if absent.
-    /// </summary>
-    internal void UnregisterLaserTarget(Collider collider)
-    {
-        if (collider == null)
-            return;
-        LaserTargets.RemoveAll(t => ReferenceEquals(t.Collider, collider));
-    }
+    // No unregister-by-collider counterpart: transient targets (item chips, destroyed caps) are
+    // dropped by the null-collider sweep instead — see PurgeDeadLaserTargets and the three
+    // RemoveAll(t => t.Collider == null) sites in PlayTray.3.Pose. Destroying the object IS the
+    // unregister, so a by-collider variant only ever duplicated it.
 
     // ------------------------------------------------------------------ lifecycle --
 
@@ -647,20 +636,15 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// <summary>Cluster mount board-Y (collision math in <see cref="BuildMounts"/>).</summary>
     private const float ButtonClusterMountY = -0.115f;
 
-    /// <summary>
-    /// Initiative-track mount board-Y (tray-local meters). +Y = the board's BACK/far edge;
-    /// the old +0.012 past the top edge (y ≈ 0.172) OVERHUNG the far edge. Pulled FORWARD
-    /// (toward the player-front) to BoardH*0.5 − 0.06 ≈ 0.10 so the track sits just in front
-    /// of the top edge, still above the board face.
-    /// </summary>
-    private const float InitiativeMountY = BoardH * 0.5f - 0.06f;
-
     private void BuildMounts()
     {
         _initiativeMount = new GameObject("InitiativeMount").transform;
         _initiativeMount.SetParent(_root, worldPositionStays: false);
-        // PART B: the initiative-track mount position is PER-BOARD (debug-menu tunable);
-        // seeded from the old fixed (0, InitiativeMountY, −0.004) so Oak is unchanged.
+        // PART B: the initiative-track mount position is PER-BOARD (debug-menu tunable) and comes
+        // WHOLLY from [Cards] InitiativeOffset_{board} — there is no fixed fallback Y any more.
+        // Board-Y convention: +Y = the board's BACK/far edge. Watch that edge when tuning: an
+        // early fixed y ≈ 0.172 (BoardH*0.5 = 0.16) OVERHUNG it, which is what made the mount
+        // per-board in the first place.
         _initiativeMount.localPosition = CardsConfig.InitiativeOffset(CardsConfig.CurrentBoard).Value;
 
         // Items 4/6: the objectives ('Aufgaben') dock mount position + size are PER-BOARD
@@ -764,7 +748,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // objectives' 0.012 mount gap. Stacks (PileViewer) sit at mount-local
         // x = PileStackOffsetX (0.05) → centers x ≈ 0.382, worst-case right edge
         // 0.382 + slab half 0.026 ≈ 0.408 — off-board, nothing docks there.
-        // Vertically: two stacks at y = ±PileStackSpacing/2 (±0.058); each cell
+        // Vertically: two stacks at y = ±spacing/2 — the step is the per-board dial
+        // [Cards] PileSpacing_{board} (PileViewer reads it), Oak default 0.116 → ±0.058; each cell
         // spans slab half-height 0.031 + caption (bottom edge ≈ -0.055 in cell
         // space) → column extent y ≈ +0.089 .. -0.113, inside the board's ±0.16
         // half-height and clear of the FollowToggle (0.275, -0.19) and the handle
@@ -1129,9 +1114,10 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
     /// <summary>
     /// Position the board in rig space from the current head pose + config offsets.
-    /// [Cards] TrayTilt is degrees FROM HORIZONTAL: 0 = flat desk, 90 = upright
-    /// panel; default 30 reads like a lectern / card-table edge (test #10). The
-    /// board's -Z (element side) faces up toward the player.
+    /// [Cards] BoardTilt_{board} is degrees FROM HORIZONTAL: 0 = flat desk, 90 = upright
+    /// panel; default 30 reads like a lectern / card-table edge (test #10). (The global
+    /// [Cards] TrayTilt it replaced is still bound so old cfg files load, but nothing reads
+    /// it — see ComputeBoardRotation.) The board's -Z (element side) faces up toward the player.
     /// </summary>
     internal void PlaceAtHead()
     {

@@ -17,11 +17,9 @@ namespace GloomhavenVR.Rig;
 /// immer noch nicht mit dem joystick drehen. Die drehung soll nie blockiert sein!").
 /// This class used to hard-disable turning throughout <see cref="VRMode.BoardTargeting"/>
 /// because "targeting owns the thumbstick" — Phase-3a rotates AoE patterns with it. Two
-/// hardware reports killed that rule in two steps: ModBuild 137 showed the mode is
-/// derived from the SHARED Choreographer wait-state, so a fellow player's pending
-/// movement confirmation froze EVERY peer's turning; ModBuild 138 showed the remaining
-/// LOCAL case was just as wrong, because placing a waypoint is not AoE aiming and
-/// <c>AoeControl.CanRotate</c> declines to rotate anything there. The ruling is now
+/// hardware reports proved the MODE is the wrong question: it is derived from the SHARED
+/// Choreographer wait-state (so a peer's pending move froze everyone's turning), and it is
+/// also true where the AoE rotation it protected declines to run. The ruling is now
 /// unconditional: turning is never suppressed for what the BOARD is doing — only for a
 /// consumer that would really read this same physical axis this frame, which
 /// <see cref="LocalTurnControl.TargetingOwnsStick"/> asks the consumer itself. And since
@@ -100,13 +98,10 @@ internal sealed class SnapTurn : MonoBehaviour
         VRMode vrMode = VRModeStateMachine.CurrentMode;
         // Test #13: ModalUI no longer suppresses turning (see class doc).
         //
-        // TURN NEVER (user, hardware ModBuild 138). Note what is NOT tested here any more: the mode.
-        // BoardTargeting used to be the whole condition, and it was wrong twice over — it is true on
-        // every peer in the session (ModBuild 137) and true throughout movement/waypoint selection,
-        // where the AoE rotation it was protecting refuses to run (ModBuild 138). The question is
-        // now asked of the consumer instead: LocalTurnControl.TargetingOwnsStick is true only while
-        // an AoE pattern would REALLY rotate on this very stick — which, since AoeControl moved to
-        // the non-turn hand, it never is. Reasoning and rejected alternatives: LocalTurnControl.
+        // TURN NEVER (user, hardware ModBuild 138 — class doc). Note what is NOT tested here any
+        // more: the MODE. The question is asked of the consumer instead, and TargetingOwnsStick is
+        // true only while an AoE pattern would REALLY rotate on this very stick — which, since
+        // AoeControl moved to the non-turn hand, it never is. Rejected alternatives: LocalTurnControl.
         //
         // Menu2D STAYS, and is not an oversight: it is the flat 2D menu, where there is no board in
         // front of the player to turn around at all (dev-proxy runs exempt). The menu-scroll gate

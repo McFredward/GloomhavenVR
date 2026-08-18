@@ -27,27 +27,18 @@ namespace GloomhavenVR.Board.Patches;
 /// laser routinely leaves the board (or crosses a non-hex gap), leaving the highlight
 /// visibly stuck on the last hex. This matches the reported bug exactly.
 ///
-/// FIX: a Postfix on <c>WorldspaceStarHexDisplay.Update()</c> (so it runs AFTER the
-/// tail re-activation at :487 and gets the last word) deactivates the cursor star
-/// whenever the mod is in a live scenario and the VR laser is NOT genuinely resolving
-/// to a hex. "Resolving to a hex" is judged the same way the game does
-/// (<c>Interactable()?.GetComponent&lt;TileBehaviour&gt;()?.m_ClientTile != null</c>,
-/// WSHD.cs:3212): a real hex hover means the VR pick both hit a collider AND that
-/// collider carries a <c>TileBehaviour</c> with a live <c>m_ClientTile</c>. Anything
-/// else — laser off the board (no hit), laser over a non-hex gap, laser on a FIGURE /
-/// prop (a <c>CInteractableActor</c>, no TileBehaviour), OR no VR pick produced at all
-/// (<c>source==None</c>, ray untracked / mode policy) — is "not on a hex", so any lit
-/// cursor star is stale and gets killed.
+/// FIX: a Postfix on <c>WorldspaceStarHexDisplay.Update()</c> — so it runs AFTER the tail
+/// re-activation at :487 and gets the last word — deactivates a stale cursor star while the mod
+/// is in a live scenario. WHETHER the pointer is on a hex at all is judged exactly the way the
+/// game judges it (<see cref="ResolvePointedHex"/>, mirroring WSHD.cs:3212); WHEN a lit star is
+/// legitimate is THE ONE RULE below.
 ///
-/// Why this is stronger than the old <c>Active &amp;&amp; !HasHit</c> gate:
-/// - <c>source==None</c> gap: with no VR pick, <see cref="BoardPick.Active"/> was false
-///   and the postfix NO-OPPED, so the game's fallback (stale) mouse position could keep
-///   a star lit / Update's tail could re-activate a star parented to a stale tile. We
-///   now gate on <see cref="BoardPick.InScenario"/> instead, which is true even when no
-///   hand produced a pick, so the stale star is cleared in that case too.
-/// - figure hover: a laser on a mini hits a collider (HasHit) but resolves to NO
-///   TileBehaviour, so the game's own null branch already cleared the tile ref but left
-///   the previous hex's star lit; we now kill it.
+/// TRAP — do NOT gate this on <c>Active &amp;&amp; !HasHit</c> again (the superseded gate). With no
+/// VR pick at all (<c>source==None</c>) <see cref="BoardPick.Active"/> is false, so the postfix
+/// NO-OPPED and Update's tail kept re-lighting a star parented to a stale tile; the gate is
+/// <see cref="BoardPick.InScenario"/>, which holds even when no hand produced a pick. It also
+/// missed the figure hover: a laser on a mini HAS a hit but resolves to no TileBehaviour, so the
+/// game's null branch cleared its tile ref and left the previous hex's star lit.
 ///
 /// UNDISCOVERED-ROOM LEAK (user hardware report, ModBuild 90 — "pointing at a tile in an
 /// undiscovered room lights up the tile I last hovered in the discovered room"). The gate
@@ -69,16 +60,16 @@ namespace GloomhavenVR.Board.Patches;
 ///       return;                                                    // ← never places a star
 ///   }
 /// </code>
-/// So an undiscovered hex NEVER gets a star; the pooled star just stays parked — still
-/// positioned by the last <c>SetStarPos</c> (WSHD.cs:3000) on the last VALID hex, i.e. the
-/// last hex hovered inside the discovered room — and Update's unconditional tail (:487-489)
-/// re-activates it the very same frame. That is the reported symptom, exactly: point at the
-/// dark, the discovered room's last-hovered tile lights up.
+/// So an undiscovered hex NEVER gets a star; the pooled star stays parked where the last
+/// <c>SetStarPos</c> (WSHD.cs:3000) put it — the last hex hovered in the DISCOVERED room — and
+/// Update's unconditional tail (:487-489) re-activates it the same frame. Exactly the report:
+/// point at the dark, the discovered room's last-hovered tile lights up.
 ///
 /// THE ONE RULE (this class, since the ModBuild 90 fix): the cursor star may stay lit only
 /// while the game has actually placed it on the hex the VR pointer is resolving to RIGHT
 /// NOW; every other outcome CLEARS it — a miss never falls back to a remembered hex. That is
-/// three conditions, checked in <see cref="StarIsOnPointedHex"/>:
+/// three conditions, checked in order by <see cref="Run"/> (there is no separate predicate
+/// method — each condition owns its own ClearStar reason string):
 /// 1. the pointer resolves to a live hex at all (collider → <c>TileBehaviour.m_ClientTile</c>),
 /// 2. that hex is REVEALED (the game's own :3220 test, inverted) — an undiscovered hex is a
 ///    hex the game refuses to star, so any lit star is by definition somewhere else,
@@ -107,10 +98,9 @@ namespace GloomhavenVR.Board.Patches;
 ///   highlighting is untouched — only the stale single hover star is killed.
 /// - Only runs while <see cref="BoardPick.InScenario"/> (never in Menu2D, never outside a
 ///   scenario Controller), so vanilla behaviour outside a live scenario is intact.
-/// - We only ever DEACTIVATE the star; nothing here activates one. Re-hovering a valid hex
+/// - We only ever DEACTIVATE the cursor star; nothing here activates one, and when it IS on the
+///   pointed hex we early-return and leave the game's fresh star alone. Re-hovering a valid hex
 ///   restores it through the game's own <c>DisplayCursorHoverStar</c> + Update tail.
-/// - When the star IS on the hex under the pointer we early-return, leaving the game's fresh
-///   star up untouched; the separate targeting star dictionaries are never read or written.
 ///
 /// STALE HOVER HINT (second stale-hover bug, same family — verified in the decompiled
 /// WSHD 2026-07-21): the info hint shown when hovering a loot tile ("2 Gold"), a closed

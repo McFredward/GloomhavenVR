@@ -97,7 +97,7 @@ namespace GloomhavenVR.Rig;
 /// </summary>
 internal static class RenderQuality
 {
-    /// <summary>Valid MSAA sample counts, in cycle order for the settings-panel button.</summary>
+    /// <summary>Valid MSAA sample counts, in the order <see cref="CycleMsaa"/> walks them.</summary>
     private static readonly int[] MsaaSteps = { 0, 2, 4, 8 };
 
     /// <summary>Forced minimum / global maximum aniso level while ForceAnisotropic is on.</summary>
@@ -198,7 +198,7 @@ internal static class RenderQuality
     /// <summary>
     /// Bind-once against the rig's own module config (dev.gloomhavenvr.rig.cfg —
     /// canonical <see cref="ModuleConfig"/> pattern; Plugin.cs's main config is owned
-    /// by another seam). Lazy: called from the tick and the settings-panel accessors.
+    /// by another seam). Lazy: called from the tick and from the panel accessors.
     /// </summary>
     internal static void Bind()
     {
@@ -537,12 +537,9 @@ internal static class RenderQuality
     /// render-path state, then the per-frame pixel-sample budget and the resolution-lever
     /// verification.
     ///
-    /// NOTE ON WHAT THIS CAN PROVE (class doc, RETRACTED section): the sample counts printed
-    /// here describe the SUBMITTED swapchain image, which is single-sample by definition, so
-    /// they say nothing about whether MSAA ran. This method used to close with a VERDICT
-    /// asserting the opposite and it misdirected a whole performance investigation. It now
-    /// prints the numbers, states their limits, and leaves the MSAA question to the one
-    /// instrument that can answer it — looking through the headset with the row toggled.
+    /// WHAT THIS CAN PROVE: nothing about MSAA — see the class doc's RETRACTED section for the
+    /// full argument and the trap. It prints the numbers, states their limits, and leaves the
+    /// MSAA question to the headset.
     /// </summary>
     private static void LogEyeTargetDiagnostics(string reason)
     {
@@ -596,10 +593,8 @@ internal static class RenderQuality
             }
         }
 
-        // What the descs above CAN and CANNOT decide. Read this before drawing a conclusion
-        // from msaaSamples: an earlier version of this method printed "MSAA is NOT binding"
-        // whenever it read 1 here, which is not an inference the number supports, and a whole
-        // performance investigation was built on top of that sentence.
+        // What the descs above CAN and CANNOT decide — the string says it, because the log is
+        // where the wrong verdict was read (class doc, RETRACTED).
         VRLog.Info("Rig", "EYE-TARGET DIAG: the sample counts above describe the SUBMITTED SWAPCHAIN " +
                           "IMAGE, which is single-sample by definition (multisample surfaces are " +
                           "resolved before submission). msaaSamples=1 there is therefore the EXPECTED " +
@@ -653,7 +648,14 @@ internal static class RenderQuality
         }
     }
 
-    // ---- settings-panel accessors (WorldUI SettingsPanel "MSAA" cycle row) -------------------
+    // ---- panel accessors: "MSAA" cycle row — NO CALLER TODAY --------------------------------
+    // Label/cycle pairs for three in-VR options rows (MSAA here, supersampling and graphics
+    // preset below). THEY ARE CURRENTLY UNCALLED: the WorldUI.SettingsPanel that bound them no
+    // longer exists, and WorldUI.VROptionsTab curates no RenderQuality row at all — the
+    // [RenderQuality] entries are reachable only through the generic config browser
+    // (Debug ▸ Alle Einstellungen). Evidence: .planning/menu-audit/03-core-rig-perf.md.
+    // They are kept because whether to curate these rows again is an open product decision;
+    // deleting them is that decision, not a cleanup.
 
     internal static string MsaaLabel()
     {
@@ -676,7 +678,7 @@ internal static class RenderQuality
         // the new level to the XR display next frame; BepInEx persists on set.
     }
 
-    // ---- settings-panel accessors (WorldUI SettingsPanel "Supersampling" stepper row) ---------
+    // ---- panel accessors: "Supersampling" stepper row — no caller today (see the MSAA block) --
 
     /// <summary>Stepper readout for the resolution row ("0.5x".."2.0x").</summary>
     internal static string EyeScaleLabel()
@@ -703,7 +705,7 @@ internal static class RenderQuality
         EyeResolutionScale.Value = clamped;
     }
 
-    // ---- settings-panel accessors (WorldUI SettingsPanel graphics-preset cycle row) -----------
+    // ---- panel accessors: graphics-preset cycle row — no caller today (see the MSAA block) ----
 
     /// <summary>
     /// Index of the preset the CURRENT values match, or -1 for a hand-tuned combination. The

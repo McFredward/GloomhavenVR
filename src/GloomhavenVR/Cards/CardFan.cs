@@ -525,8 +525,8 @@ internal sealed class CardFan
     // ------------------------------------------------------------------ insertion gap (reorder) --
 
     /// <summary>How wide the opened insertion gap is, as a fraction of a card width (each side
-    /// slides half of this). ~one card so a full card visibly fits. Local until the orchestrator
-    /// wires a live-tunable <c>FanInsertGapWidth</c> config (see the worker report).</summary>
+    /// slides half of this). ~one card so a full card visibly fits. Deliberately a local constant
+    /// and not a config dial — no [Cards] key has ever been bound for it.</summary>
     private const float FanInsertGapFactor = 0.9f;
 
     /// <summary>The gap glow overlay sits this far proud (toward the viewer, negative local Z) of
@@ -2431,7 +2431,7 @@ internal sealed class CardFan
     }
 
     /// <summary>
-    /// Where incoming card <paramref name="i"/> flies IN FROM: the deal point off the arc's
+    /// Where incoming <paramref name="card"/> flies IN FROM: the deal point off the arc's
     /// low-index end, or — for a card that was on its way OUT and got named again — exactly where
     /// it is right now, so a mid-air turnaround is continuous rather than a teleport back to the
     /// start line. The rescued lookup is a linear scan of a list that is empty in every ordinary

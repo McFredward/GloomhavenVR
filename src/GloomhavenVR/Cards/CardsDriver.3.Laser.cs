@@ -1,10 +1,7 @@
 using System.Collections.Generic;
-using GloomhavenVR.Cards.Patches;
 using GloomhavenVR.Core;
-using GloomhavenVR.Core.Events;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
-using ScenarioRuleLibrary;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -405,9 +402,9 @@ internal sealed partial class CardsDriver
     /// USER ISSUE A (fan sweep lifts several cards) + B (dock highlight fights): per-tick
     /// SINGLE-WINNER arbitration over every card the free (dominant) hand can touch — the
     /// open fan's cards plus the slot-docked/pick-field cards. Among all cards in contact
-    /// range (index tip within <see cref="ContactTipReach"/> OR palm within
-    /// <see cref="ContactPalmReach"/> of the card's grab collider), exactly ONE wins: the
-    /// closest by hand distance, with a <see cref="ContactStickyMargin"/> hysteresis bonus
+    /// range (index tip within <see cref="FanSweep.TipReachMeters"/> OR palm within
+    /// <see cref="FanSweep.PalmReachMeters"/> of the card's grab collider), exactly ONE wins: the
+    /// closest by hand distance, with a <see cref="FanSweep.StickyMarginMeters"/> hysteresis bonus
     /// for the incumbent so the lift never flutters at strip boundaries. Every other pool
     /// card is suppressed (<see cref="VRCard.SetHandPopSuppressed"/>): its hand-driven pop
     /// drops immediately AND it refuses the hand in <c>AllowsHand</c>, so the

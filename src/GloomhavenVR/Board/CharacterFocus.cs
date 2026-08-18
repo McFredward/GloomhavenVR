@@ -82,11 +82,9 @@ internal enum FocusTurnMark
 /// "Ich will das das highlighting sowie die Auswahl nur bei dem jeweiligen Character getroffen
 /// werden kann der diese Entscheidung treffen muss"). While the board is waiting for one of THIS
 /// player's characters to pick a hex — a move destination, an attack target — the focus is PINNED
-/// to that character: <see cref="PinnedActor"/>. It is not a third clause of <see cref="Open"/> and
-/// it never will be: <see cref="Open"/>/<see cref="Refusal"/> is the GLOBAL gate ("may anything be
-/// focused at all"), which is what the 08-08 ruling is written on and what three other subsystems
-/// consume, whereas the pin is an ACTOR-DEPENDENT refusal ("may THIS character be focused instead
-/// of the one being asked") that is open for the pinned character itself the whole time. It is
+/// to that character: <see cref="PinnedActor"/>. It is an ACTOR-DEPENDENT refusal ("may THIS
+/// character be focused instead of the one being asked") and never a third clause of the GLOBAL
+/// gate <see cref="Open"/>/<see cref="Refusal"/> that the 08-08 ruling is written on. It is
 /// bounded by the game's own targeting wait states and by local seat AND local character ownership,
 /// so it cannot exist during a teammate's turn, during the enemies' turn, or anywhere outside a
 /// live hex pick. The full derivation, the multiplayer argument and the rejected alternatives are
@@ -111,10 +109,8 @@ internal enum FocusTurnMark
 ///
 /// <para>AND A SWITCH CANNOT DISTURB A DECISION EITHER — structurally, not by care.
 /// <see cref="TryFocus"/> writes exactly one mod-local field (<see cref="_focused"/>) and asks the
-/// card driver for a rebuild. It calls no rules API: no <c>InitiativeTrack.Select</c>, no
-/// <c>CardsHandManager.SwitchHand</c>, no <c>PhaseManager</c>, no
-/// <c>ScenarioRuleClient.MessageHandler</c>, no <c>CPhaseAction</c>. There is no mutator ON the
-/// path to reach for. The click seam
+/// card driver for a rebuild; by the read-only guarantee above there is no mutator ON the path to
+/// reach for. The click seam
 /// (<c>Board/Patches/SelectionGuardPatches.cs</c>) additionally SUPPRESSES vanilla's entire
 /// <c>OnClick</c> whenever a focus is taken, so not one of its side effects (Select → SwitchHand →
 /// ClearHilightedActors → SetHilighted → CameraController.SmartFocus → ToggleViewAllCards) can
@@ -195,7 +191,7 @@ internal static class CharacterFocus
     /// <summary>
     /// Edge guard for the floor's diagnostic — the actor id we last announced it for, or null while
     /// the floor is not engaged. Deliberately NULLABLE and not "0 means nothing": 0 is a real id in
-    /// this space (<c>NetFigures.StableActorId(null)</c> returns it, NetFigures.cs:510-511), and it
+    /// this space (<c>NetFigures.StableActorId(null)</c> returns it, NetFigures.cs:520-521), and it
     /// is exactly the id of the one case that would then re-log on every rebuild — the floor finding
     /// nothing to fall back to.
     /// </summary>
@@ -243,14 +239,6 @@ internal static class CharacterFocus
     /// </summary>
     internal static bool Open => Refusal(out _);
 
-    /// <summary>
-    /// The gate as a REASON rather than a bool: returns true when focus is allowed and
-    /// <paramref name="why"/> is null, false with a short, log-safe explanation otherwise.
-    /// Every refusal in the whole feature is minted here and nowhere else, so
-    /// "<c>[Board] [Focus] switch REFUSED — …</c>" can never carry a reason this method does not
-    /// know about — and after the 2026-08-08 ruling the only reason it can ever mint is the
-    /// card-selection phase.
-    /// </summary>
     /// <summary>The ONE refusal reason the feature is allowed to have, short enough to read in a
     /// clear/refuse line. The rationale is spelled out once in <see cref="SecretWindowDetail"/>
     /// so the refusal line can carry it without every other line repeating it.</summary>
@@ -264,6 +252,14 @@ internal static class CharacterFocus
         "This is the feature's ONLY refusal and it lifts by itself the moment the cards are " +
         "revealed — nothing else, and no pending decision in any phase, can refuse a switch.";
 
+    /// <summary>
+    /// The gate as a REASON rather than a bool: returns true when focus is allowed and
+    /// <paramref name="why"/> is null, false with a short, log-safe explanation otherwise.
+    /// Every refusal in the whole feature is minted here and nowhere else, so
+    /// "<c>[Board] [Focus] switch REFUSED — …</c>" can never carry a reason this method does not
+    /// know about — and after the 2026-08-08 ruling the only reason a PLAYER can ever see there is
+    /// the card-selection phase.
+    /// </summary>
     internal static bool Refusal(out string? why)
     {
         if (!CardsGameApi.InScenario)
@@ -713,12 +709,10 @@ internal static class CharacterFocus
     ///
     /// <para>"The character the game is waiting on" is <see cref="AttentionActor"/>: the character
     /// AT TURN, or — when nobody is at turn, which is the whole of an enemy's action — the
-    /// character that owes an OPEN DECISION (<see cref="DecisionOwner"/>). The colours and the
-    /// blink are unchanged; only the set of moments in which they appear grew, and it grew by
-    /// exactly the moments the user reported as unmarked ("Der Character der aktuell eine
-    /// Entscheidung treffen muss soll genauso gehighlighted werden wie zuvor auch"). Both states
-    /// mean one thing to the player — <b>the game is waiting on THIS character of yours</b> — so
-    /// they are deliberately ONE cue rather than two competing ones.</para>
+    /// character that owes an OPEN DECISION (<see cref="DecisionOwner"/>). Both states mean one
+    /// thing to the player — <b>the game is waiting on THIS character of yours</b> — so they are
+    /// deliberately ONE cue rather than two competing ones; why the visual vocabulary did not have
+    /// to grow with them is on <see cref="FocusTurnMark"/>.</para>
     /// </summary>
     internal static FocusTurnMark LocalMark
     {
@@ -786,10 +780,10 @@ internal static class CharacterFocus
     /// machines agree about what the game is waiting on — the assumption a pending DECISION breaks,
     /// because a take-damage prompt is raised inside an ENEMY's action where
     /// <c>Choreographer.CurrentPlayerActor</c> is null on every client, and the receiver cannot
-    /// repair that locally: <c>UIScenarioMultiplayerController.RefreshDamagePhase</c> routes a remote
-    /// player's prompt through <c>TakeDamagePanel.ShowOtherPlayer</c>, which ends in
-    /// <c>myWindow.Hide(instant: true)</c> (TakeDamagePanel.cs:1133), so <c>IsOpen</c> is false and
-    /// both <c>CardsGameApi.DecidingHand</c> and <c>DecisionDockSurface.PromptOwner</c> answer null
+    /// repair that locally: the game itself hides a remote player's prompt (the
+    /// <c>RefreshDamagePhase</c> → <c>ShowOtherPlayer</c> → <c>Hide</c> chain cited in the class
+    /// doc's "WHAT DOES RIDE THE WIRE"), so <c>CardsGameApi.DecidingHand</c> and
+    /// <c>DecisionDockSurface.PromptOwner</c> both answer null
     /// there. So the SENDER states the two facts and this is now a pure function of them —
     /// term for term the same expression <see cref="LocalMark"/> evaluates on the sender's machine
     /// (own the attention actor at all? then: is it the one being looked at?), which is what makes
@@ -897,12 +891,11 @@ internal static class CharacterFocus
             return false;
         }
 
-        // FOCUS PIN (user ModBuild 139) — the one actor-DEPENDENT refusal, and deliberately not a
-        // second clause of Refusal(): that method is the global gate the 2026-08-08 ruling is
-        // written on ("the only reason it can ever mint is the card-selection phase"), and it is
-        // consumed as Open by the interactability bypass and by the two keycap interlocks, none of
-        // which may be shut just because SOME character cannot be focused this instant. The refusal
-        // is minted next to the state it depends on and logged through the same one line.
+        // FOCUS PIN (user ModBuild 139) — the one actor-DEPENDENT refusal, deliberately minted
+        // here and NOT as a second clause of Refusal() (that gate is global and is consumed as
+        // Open by the interactability bypass and the two keycap interlocks, none of which may be
+        // shut just because SOME character cannot be focused this instant — the argument is on
+        // PinnedActor). It goes out through the same single refusal line.
         if (PinRefuses(player, out CPlayerActor? pinned))
         {
             LogRefusal(player, PinReason(pinned));
@@ -986,11 +979,8 @@ internal static class CharacterFocus
     /// of <see cref="IsForeign"/> — so offline (where every merc is ours) the answer is always yes
     /// and the feature is unconditional.</para>
     ///
-    /// <para>WHY NOT ALSO FOREIGN, given that a foreign HAND is not secret. It is not secret: the
-    /// class doc's "WHAT IS AND IS NOT A DISCLOSURE" reads it off the game's own model
-    /// (<c>CCharacterClass.HandAbilityCards</c> is host-replicated with no visibility gate,
-    /// <c>CCharacterClass.cs:91</c>), the game builds a fully populated <c>CardsHandUI</c> per
-    /// player actor on EVERY client (<c>Choreographer.cs:925/1112</c>), and the focus fan already
+    /// <para>WHY NOT ALSO FOREIGN, given that a foreign HAND is not secret (the class doc's "WHAT IS
+    /// AND IS NOT A DISCLOSURE" reads that off the game's own model) and the focus fan already
     /// DRAWS those cards face-up today. So refusing here is NOT a secrecy necessity — nothing new
     /// would be disclosed. It is refused because a foreign view's read-only guarantee is
     /// STRUCTURAL and worth keeping absolute: while the mod presents a character the player may not
@@ -1151,12 +1141,10 @@ internal static class CharacterFocus
     /// looking at: a focus switch moved every other surface and left the two numbers behind, and a
     /// card burned by the focused character never showed up at all.</para>
     ///
-    /// <para>It is the same decision tree, term for term, minus the mutations: no focus / gate shut
-    /// / focused character exhausted ⇒ the game's hand; the focus IS the game's hand ⇒ the game's
-    /// hand (<see cref="ResolveHand"/> additionally drops the now-pointless override, which is a
-    /// state change and therefore stays there); otherwise the focused character's hand, falling back
-    /// to the game's hand while its widget has not been built yet. <see cref="ResolveHand"/> calls
-    /// THIS method for its own lookup, so the two cannot drift apart.</para>
+    /// <para>It is <see cref="ResolveHand"/>'s decision tree, term for term, minus the mutations
+    /// (that method additionally drops a now-pointless override, which is a state change and
+    /// therefore stays there). <see cref="ResolveHand"/> calls THIS method for its own lookup, so
+    /// the two cannot drift apart.</para>
     /// </summary>
     internal static CardsHandUI? PresentedHand(CardsHandUI? gameHand)
     {
@@ -1197,7 +1185,7 @@ internal static class CharacterFocus
     /// (CardsDriver.2.Update.cs:944-945), and <see cref="ResolveHand"/> latched that null straight
     /// into <see cref="PresentedActor"/>. Result: from the moment a teammate's turn began until the
     /// player clicked a portrait, the control board had NOBODY on it — no fan, no piles, no
-    /// selection ring (<c>FocusDriver.cs:440</c> only draws it for a non-null
+    /// selection ring (<c>FocusDriver.TickRings</c> only draws it for a non-null
     /// <see cref="LookingAt"/>), and record 22 carried actor id 0, so the peers' mirrors showed him
     /// looking at nothing either. <c>CardsHandManager.Hide()</c> only clears <c>isShown</c>
     /// (CardsHandManager.cs:899-918) — <c>currentHand</c> keeps pointing at the foreign actor
@@ -1313,16 +1301,13 @@ internal static class CharacterFocus
     /// game was still in my character's turn":</para>
     /// <list type="bullet">
     /// <item>"Beim Test war das Controllboard leer als ich aktiv mit einer Beschwörung angegriffen
-    ///   habe über eine Karte die mir das erlaubt hat." — the summon becomes
-    ///   <c>Choreographer.m_CurrentActor</c> (<c>GameState.OverrideCurrentActorForOneAction</c> →
-    ///   <c>CUpdateCurrentActor_MessageData</c> → Choreographer.cs:10622) and a
-    ///   <c>CHeroSummonActor</c> is not a <c>CPlayerActor</c> (CHeroSummonActor.cs:10), so the
-    ///   pattern match failed and NOBODY's cards docked;</item>
+    ///   habe über eine Karte die mir das erlaubt hat." — the summon becomes the acting figure and
+    ///   is not a <c>CPlayerActor</c>, so the pattern match failed and NOBODY's cards docked (the
+    ///   whole chain, with its source lines, is on <see cref="TurnActor"/>);</item>
     /// <item>"Während dessen eine Bewegung oder ein Angriff bestätigt werden muss … werden die
     ///   ausgewählten Karten auf dem Controllboard nicht mehr angezeigt" — the same hole, reached
     ///   through the movement/targeting messages, which re-point the acting figure at the FIGURE
-    ///   BEING MOVED or TARGETED (<c>Choreographer.cs:4269</c>
-    ///   <c>m_CurrentActor = m_MoveAbility.CurrentMovingActor</c>, <c>:5996</c>
+    ///   BEING MOVED or TARGETED (<c>Choreographer.cs:4269</c> move, <c>:5996</c>
     ///   <c>ActorIsSelectingTargetingFocus</c>, <c>:9878/:10013</c> push/pull) — a summon or an
     ///   ally, while the turn never left the character who played the card.</item>
     /// </list>

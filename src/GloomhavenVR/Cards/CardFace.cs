@@ -71,12 +71,6 @@ internal sealed class CardFace
 
     internal bool IsAdopted => _face != null;
 
-    /// <summary>
-    /// True once the face was re-claimed from a burn/lose/discard confirm popup back
-    /// onto our dock (see <see cref="Maintain"/>). Purely informational.
-    /// </summary>
-    internal bool ReclaimedFromDialog => _reclaimedFromDialog;
-
     internal AbilityCardUI? Owner => _owner;
 
     /// <summary>Pixel size of the face rect (for host canvas sizing).</summary>
@@ -949,7 +943,7 @@ internal sealed class CardFace
     ///
     /// <para>WHAT THIS DOES AND DOES NOT CHANGE. It changes ONE thing: the rectangle the sprite's
     /// alpha is stamped into. Nothing here touches <c>CardsConfig.CardWidth</c>,
-    /// <c>CardsConfig.CardHeight</c>, the mesh, the collider, <c>VRCard.WorldWidth</c>, the fan, the
+    /// <c>CardsConfig.CardHeight</c>, the mesh, the collider, <c>VRCard.SweepFaceWidthWorld</c>, the fan, the
     /// recesses or <c>[Cards] SlotOverlayScale</c> — the card keeps exactly the size, proportions
     /// and behaviour it has today (user, verbatim: "Ich möchte gerne an den aktuellen Proportionen
     /// festhalten. Ich will es also so wie es jetzt ist und sich verhält - nur eben ohne die

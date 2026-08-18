@@ -637,22 +637,6 @@ internal static partial class MixedReality
         }
     }
 
-    /// <summary>Advance the key color to the next preset (settings-panel swatch cycle).</summary>
-    internal static void CycleKeyColor()
-    {
-        int index = 0;
-        Color c = KeyColor.Value;
-        for (int i = 0; i < Presets.Length; i++)
-        {
-            if (Approximately(Presets[i].Color, c))
-            {
-                index = i + 1;
-                break;
-            }
-        }
-        KeyColor.Value = Presets[index % Presets.Length].Color; // BepInEx persists on set
-    }
-
     private static bool Approximately(Color a, Color b) =>
         Mathf.Abs(a.r - b.r) < 0.02f && Mathf.Abs(a.g - b.g) < 0.02f &&
         Mathf.Abs(a.b - b.b) < 0.02f && Mathf.Abs(a.a - b.a) < 0.02f;
@@ -941,240 +925,124 @@ internal static partial class MixedReality
     /// whole see-through class, and the Preview signal keeps covering any translucent stack
     /// renderer that might not run the family shader.
     ///
-    /// ROUND 3 (hardware 2026-08-05: the hexes read right, but "die ANIMATION DRUMRUM ist immer
-    /// noch transparent"). All 226 family hexes carried full-slot underlays, so the still-open
-    /// border animation is either a DIFFERENT renderer both round-2 signals miss, or an animated
-    /// pass overhanging its own static underlay silhouette. Three changes: (a) the family signal
-    /// widened from shader-name-only to GO/material/shader name — the game names the whole kit
-    /// 'Unseen', including the dedicated animated ground-plane shader 'UnseenGroundPlane_Shd'
-    /// the Player.log addressables list ships and round 2 could miss (its material can fail the
-    /// blend probe; family slots therefore now earn the dark plate on the NAME too, see
-    /// <see cref="BuildUnseenUnderlay"/>); (b) family PARTICLES/trails are recognised but never
-    /// material-touched (standing instruction) — they compose additively/blended over the
-    /// now-dark region wherever a backed mesh is behind them; (c) the census
-    /// (<see cref="CensusUnseenBorder"/>) prints every uncovered translucent renderer near the
-    /// region so the next hardware log names the animation definitively instead of the mod
-    /// guessing a fourth time.
+    /// WHERE THE GREEN COMES FROM (user correction 2026-08-07, verbatim premise — and the fact
+    /// nine earlier rounds all reasoned past): "Virtual Desktop replaces the green BACKGROUND with
+    /// reality … The problem with SEMI-TRANSPARENT surfaces: they ALTER the green tone and VD can
+    /// no longer key it properly … The green comes SOLELY from the background, not from the tiles
+    /// themselves." The glowing pixels are the KEY BLENDED THROUGH the family's translucent
+    /// surfaces, and the compositor keys FINAL pixels — which is why dark hex tops survived every
+    /// round and the bright animated grout could never survive, whatever was rendered behind it.
+    /// It also settles the above/below asymmetry for good: from BELOW every ray terminates on a
+    /// backing; from ABOVE, grazing rays through the raised translucent rim edges exit SIDEWAYS
+    /// past the diorama into the key background, where no backing can ever be behind them. Backing
+    /// is therefore structurally complete below and structurally insufficient above, and the answer
+    /// had to be GEOMETRY that closes the open directions, never a wider material predicate.
     ///
-    /// ROUND 4 (hardware 2026-08-05 #2, ModBuild 59): the census ANSWERED — all 19 candidates
-    /// near the region were ambient FX (torch sparks, character idle-FX systems with sloppy
-    /// AABBs, the waypoint path), none the border animation, and round 3's name-widening matched
-    /// nothing new (count stayed 226). By elimination the still-transparent "Animation drumrum"
-    /// is the matched family's OWN animated pass reaching past its rest-pose mesh — beyond the
-    /// 1:1 underlay's static silhouette. Fix: THE SKIRT — every underlay is scaled up about its
-    /// bounds center (<see cref="UnseenSkirtScale"/>; the default is INFERRED, not asset-derived
-    /// — see <see cref="DumpUnseenShaderProperties"/>, the instrument that lets the next log
-    /// replace the guess) so the moving fringe always lands on dark. The census stays as the
-    /// regression instrument: a future transparent border WITH an empty census means the margin
-    /// is short, not a renderer missed — its empty-set message says exactly that.
+    /// THE KIT IS THREE AUTHORED RENDERERS PER HEX, and counting them is what ended the search
+    /// after sixteen rounds of widening predicates. The WallSegmentFade MAPTILE dumps give preview
+    /// subtrees of 603 / 225 / 171 renderers — every one divisible by 9 — with the backing triple
+    /// hanging off 'EN_Unseen_FloorHex_Edge_Damage_03_PR'. So the kit is 'Simple Tile' +
+    /// 'EN_Unseen_FloorHex_Edge_Damage_03_PR' + 'EN_CR_FloorTiles_Damaged_03', and the mod backed
+    /// exactly TWO of the three. The unbacked third is 'Simple Tile' — bounds y−0.4..−0.1, the
+    /// block's FULL HEIGHT, i.e. the outer CLIFF the user kept photographing. It is not family-NAMED
+    /// anywhere and it fails the blend probe (hardcoded pass blend, no _DstBlend property,
+    /// opaque-range queue), so no material signal was ever going to reach it.
     ///
-    /// ROUND 5 (hardware 2026-08-05 #3, ModBuild 61): the shader-property dump ANSWERED the
-    /// margin question — 'Unseen_Floor_Hex_Mat' animates by UV-SCROLL (_UV_Offset/_UVTiling/
-    /// _WorldSpace_tiling, no displacement property), so the pattern can never leave its mesh
-    /// silhouette and the round-4 skirt was aimed at a failure mode that does not exist
-    /// (harmless, kept — it still widens the backing under each piece). The census again listed
-    /// only ambient FX, and no 'UnseenGroundPlane_Shd' material was ever family-matched (the
-    /// dump would have fired for it), so by elimination the remaining "green glass BETWEEN the
-    /// hexagons" is family geometry scrolling its pattern over the GROUT GAPS between pieces,
-    /// where no piece — and therefore no per-piece underlay — has anything dark behind the
-    /// blend. Fix at the time: per-piece rectangular REGION BASE quads under each piece's AABB —
-    /// REMOVED again in round 7 (user ruling, see below); the round-7 groove FILL is their
-    /// hex-silhouette successor.
+    /// WHAT CLOSES EACH DIRECTION, in the order a ray meets them:
+    /// <list type="bullet">
+    /// <item>BELOW / every authored surface — the PRIMARY underlay, an exact 1:1 same-mesh dark
+    ///   copy, coplanar behind every face from every direction (<see cref="BuildUnseenUnderlay"/>).
+    ///   It is 1:1 and not scaled: a copy displaced about the mesh centre stops sitting coplanar
+    ///   behind the beveled groove faces, and a grazing ray then slips through the parallax gap
+    ///   into the V-channel and onto the key. <see cref="UnseenSkirtScale"/> survives as a widening
+    ///   of the WAFER only; it was originally a fringe margin for an animation that turns out to
+    ///   scroll its UVs ('Unseen_Floor_Hex_Mat' has _UV_Offset/_UVTiling and no displacement
+    ///   property), so the pattern can never leave its own silhouette and no margin was ever needed.</item>
+    /// <item>ABOVE / the seams between neighbouring hexes — the GAP BACKING WAFER, a flat copy
+    ///   seated at each piece's own top plane minus <see cref="UnseenWaferDrop"/> (~2 cm). The
+    ///   earlier deep "groove fill" sat 0.3+ wu lower than the hex tops (y−0.7..−0.4 against tops at
+    ///   ~y−0.1) and the raw key floor showed straight through the canyon between pieces.</item>
+    /// <item>THE OUTER RIM / the vertical cliff faces — the RIM CURTAIN
+    ///   (<see cref="MrRimCurtain"/>): a mod-BUILT opaque dark prism per backed piece, hex-shaped
+    ///   from the mesh-local bounds, XZ-inset <see cref="UnseenRimInset"/> inside the authored side
+    ///   faces and spanning from mesh-top − <see cref="UnseenRimTopClearance"/> (forced strictly
+    ///   below the wafer plane) down past the mesh bottom. BUILT geometry rather than a same-mesh
+    ///   copy for a hard reason: the authored meshes carry near-zero vertex alpha on the side/rim
+    ///   vertices, both candidate backing shaders multiply that into their output, and
+    ///   'EN_CR_FloorTiles_Damaged_03' "is not CPU-readable — its vertex-color channel cannot be
+    ///   stripped". A mesh the mod builds has no colour channel at all, the attribute defaults to
+    ///   white, and the dark material renders unconditionally.</item>
+    /// <item>THE CLIFF PIECE ITSELF is reached by <see cref="RegionMembershipPass"/>, the route that
+    ///   asks the material nothing: it backs every mesh renderer that merely STANDS INSIDE a family
+    ///   piece's AABB and either stays under that piece's top plane OR SPANS the host (bottom at the
+    ///   tile's underside, top level with the tile's top) — see <see cref="ClassifyRegion"/>. A prop
+    ///   standing ON a tile has its bottom at the tile's TOP and satisfies neither clause; the block
+    ///   that FORMS the tile satisfies the second by construction. Figures, mod objects, non-meshes
+    ///   and oversized footprints are refused, and every refusal is counted.</item>
+    /// </list>
+    /// <see cref="IsTranslucent"/> also learned the RenderType-TAG signal (Transparent/Fade/Overlay
+    /// — the family's own materials are tagged 'Overlay'), which catches such pieces through the
+    /// Preview-ancestor branch. Family PARTICLES/trails are recognised but never material-touched
+    /// (standing instruction); they compose over the now-dark region.
     ///
-    /// ROUND 6 (hardware 2026-08-05 #4, ModBuild 62): the base quads sealed the region from
-    /// BELOW but not from ABOVE ("falsch rum — es soll von BEIDEN Seiten dicht sein"). Two
-    /// candidate mechanisms were closed blind (twin back-to-back quads against cull-back
-    /// shaders; the adaptive backing queue in <see cref="EnsureUnseenMaterials"/> against a
-    /// family depth-write at/below the backings' queue) plus the render-state dump to settle
-    /// them. The ModBuild-63 log then settled BOTH as non-causes: the dark material really is
-    /// 'Sprites/Default' (Cull Off) and the family queue really is 3000 (all pass state
-    /// hardcoded; RenderType tag 'Overlay') — the backings draw first and cull nothing. The
-    /// adaptive queue + dump stay (cheap, and they are the proof for the next anomaly); the
-    /// quads themselves are gone (round 7).
+    /// MECHANISMS TRIED AND REJECTED, so none of them is reached for again:
+    /// <list type="bullet">
+    /// <item>OPAQUE COPIES OF THE AUTHORED MATERIAL. All blend/depth state is hardcoded in the pass
+    ///   (verified by the render-state dump), so a copy can only move renderQueue and keeps
+    ///   blending — the old 'forced OPAQUE' lines were HasProperty-guarded no-ops plus a queue move.</item>
+    /// <item>A SHADER SWAP onto the mod's bundled 'GloomhavenVR/Overlay'. User verdict: raw
+    ///   '_MainTex x _Color' without the Amp shader's fog-of-war treatment rendered a BRIGHT stone
+    ///   texture ("statt schwarze tiles ist da jetzt eine merkwuerdige textur"), and any swap must
+    ///   also bring its own motion — no decompiled writer of '_UV_Offset' exists, the scroll is
+    ///   shader-time.</item>
+    /// <item>A "KEY DODGE" MPB dimming the family's exposed colour/boost properties. Its premise
+    ///   ("the authored glow is green") is what the user correction above overturned, and its own
+    ///   instrumentation had already convicted '_Tint' as inert.</item>
+    /// <item>RECTANGULAR REGION BASE QUADS under each piece's AABB. User ruling: visible at the
+    ///   region rim as an alien dark slab. Nothing rectangular from any angle, and nothing past the
+    ///   outer hex edges except the long-accepted thin rim — this is a standing constraint on any
+    ///   future backing.</item>
+    /// <item>OPAQUE BACKINGS WITH ZWRITE PLUS A FULL-HEIGHT INSET SIDE SKIRT. The skirt is a
+    ///   same-mesh copy, so it carries the piece's own TOP surface a hair inside the authored one
+    ///   and simply covered it: the whole region became one featureless dark plate.</item>
+    /// <item>"CORRECTING" THE WAFER'S SEATING GEOMETRY — see the DO-NOT-FIX note at the offset in
+    ///   <see cref="BuildUnseenUnderlay"/>. The seam coverage the user approved IS the widened slab
+    ///   riding above the hex tops; correcting it geometrically removed exactly the thing that was
+    ///   working ("die Lücken sind nun wieder vollständig da wie zuvor"). Standing lesson for this
+    ///   whole system: geometric correctness is not the goal, the approved look is — a "defect" the
+    ///   user has blessed is a FEATURE, and any future change to the seam coverage must be additive.</item>
+    /// </list>
     ///
-    /// ROUND 7 (hardware 2026-08-06, ModBuild 63, screenshot mixed_reality_transparenz.png):
-    /// two user rulings. (1) The rectangular base plate is VISIBLE at the region rim as an
-    /// alien dark slab — removed entirely, twins included. (2) The hex TOPS read correctly
-    /// dark, but the beveled V-CHANNELS between neighboring hexes glow bright green. Root
-    /// cause READ FROM THE CODE against the screenshot: round 4 did not ADD a skirt copy, it
-    /// SCALED THE ONLY dark copy — and a copy displaced about the mesh center no longer sits
-    /// coplanar behind the piece's beveled groove faces, so a grazing ray slips through the
-    /// parallax gap between the translucent bevel and its shifted backing, into the channel,
-    /// onto the key (round 5 had already proven the scale bought nothing: UV-scroll cannot
-    /// leave the silhouette). Fix: the PRIMARY underlay is exact 1:1 again — every surface
-    /// backed coplanar from every direction — and each piece additionally gets the GROOVE
-    /// FILL, a second same-mesh copy, XZ-widened by <see cref="UnseenSkirtScale"/> and dropped
-    /// <see cref="UnseenWaferDrop"/> wu straight down, whose hex-shaped top surfaces lie under
-    /// the groove floors; neighboring fills overlap under the groove line, so the union
-    /// follows the hex silhouettes everywhere — nothing rectangular from any angle, nothing
-    /// past the outer hex edges except the long-accepted thin rim.
+    /// TRAPS THAT COST ROUNDS HERE, all of them instruments or engine behaviour rather than logic:
+    /// <list type="bullet">
+    /// <item>A PERSISTED CONFIG VALUE SURVIVES A DEFAULT CHANGE. The wafer depth was re-defaulted
+    ///   and the user's cfg kept the old 0.35, so the canyon came back with the fix in place. The
+    ///   key was RENAMED rather than re-defaulted — see <see cref="UnseenWaferDrop"/>.</item>
+    /// <item>A CHILD TRANSFORM SCALES ITS MESH ABOUT THE OBJECT ORIGIN, not the mesh's bounds
+    ///   centre, so a seating offset is wrong by −centre.y·(1−squash) for every mesh whose bounds
+    ///   centre is not at y = 0.</item>
+    /// <item>A SHORT MATERIAL ARRAY makes Unity skip the extra submeshes, and an unbacked bevel
+    ///   submesh renders its translucency over raw key. The copies' arrays are sized to the mesh's
+    ///   subMeshCount and padded with dark; a one-shot line prints subMeshCount vs material counts.</item>
+    /// <item>AN ALL-CLEAR FROM A CHANGE-GATED INSTRUMENT CAN BE EMPTY-SET NOISE. "UNBACKED PREVIEW
+    ///   RENDERERS — none" printed six times while the region held no renderers at all, because the
+    ///   gate hashed only the (empty) list; and it records ONLY renderers passing
+    ///   <see cref="UnderPreviewNode"/>, whose depth cap the Apparance nesting can exceed. The gate
+    ///   now folds in the live backing count and the cap is <see cref="PreviewAncestorScanDepth"/>.
+    ///   (For the record, raising that cap from 12 to 40 added nothing — the count stayed 226 — so
+    ///   the depth was never the blocker it was suspected of being.)</item>
+    /// </list>
+    /// The census (<see cref="CensusUnseenBorder"/>) and the property/render-state dumps
+    /// (<see cref="DumpUnseenShaderProperties"/>, <see cref="EnsureUnseenMaterials"/>'s adaptive
+    /// queue) stay as regression instruments: with the wafers in place the census must list NO
+    /// un-backed tile-geometry translucent, the remaining candidates being floating particle FX
+    /// that are deliberately left authored. The REGION NAME CENSUS in MixedReality.Diag.cs
+    /// classifies every renderer by the live rule with every instance in exactly one bucket, so no
+    /// piece can hide in a gap between counts.
     ///
-    /// ROUND 8 (hardware 2026-08-06 #2, ModBuild 65): the rectangle is gone, the grout STILL
-    /// reads transparent — because it was never (only) a backing problem: THE ANIMATION IS
-    /// BEING CHROMA-KEYED AWAY. Verified from data: the round-7 screenshot's brightest grout
-    /// pixels sample at (1,250,0)…(3,232,2) — within ~2 % of the live key (log: "keyed to
-    /// Green (RGBA 0,1,0,1)") — and the compositor keys FINAL pixels, so the family's own
-    /// near-pure-green glow is replaced by passthrough regardless of what is rendered behind
-    /// it. Dark hex tops survived every round because their final pixels are dark; the bright
-    /// animated grout could never survive. The fix of the round — a per-renderer MPB "key
-    /// dodge" dimming the family's exposed color/boost properties — is GONE (round 10): its
-    /// premise ("the authored glow is green") was corrected by the user, and its own
-    /// instrumentation had already convicted '_Tint' as inert.
-    ///
-    /// ROUND 9 (hardware 2026-08-06 #3, ModBuild 66): the round-8 instrumentation delivered a
-    /// conviction — the '_Tint' MPB writes are on record with ZERO visual effect
-    /// (mixed_reality_tiles1.png: from above the grout still pure bright green; tiles2.png:
-    /// from below fully opaque — the fills' side of the job is DONE). The per-material dumps
-    /// (all three family materials: Unseen_Floor_Hex/Plain/Blocks_Mat) show NO other color
-    /// property. The '_Diffuse_Boost' promotion this round shipped never got a hardware verdict
-    /// — it was overtaken by the round-10 user correction and removed with the whole dodge.
-    ///
-    /// ROUND 10 (user correction 2026-08-07, verbatim premise): "Virtual Desktop replaces the
-    /// green BACKGROUND with reality … The problem with SEMI-TRANSPARENT surfaces: they ALTER
-    /// the green tone and VD can no longer key it properly … The green comes SOLELY from the
-    /// background, not from the tiles themselves." So the grout pixels are the KEY BLENDED
-    /// THROUGH the family's translucent surfaces — which also closes the above/below asymmetry
-    /// for good: from above, grazing rays through the raised translucent rim edges exit
-    /// SIDEWAYS past the diorama into the key background, where no backing can ever be behind
-    /// them; from below every ray terminates on the fills. Backing = structurally complete
-    /// below, structurally insufficient above. Ruling: REBUILD the surfaces ("umbauen" — a look
-    /// change is accepted). Mechanism adjudication with the data on record: (a) opaque copies
-    /// of the AUTHORED material cannot work — the round-9 dump proves all blend/depth state
-    /// hardcoded in the pass, so a copy can only move renderQueue and keeps blending (the
-    /// ModBuild-57 'forced OPAQUE' lines were HasProperty-guarded no-ops plus a queue move;
-    /// its improvement came from stacks sitting over the opaque board). (b) a swap must bring
-    /// its own motion — no decompiled writer of '_UV_Offset' exists, the scroll is shader-time.
-    /// Round 10 shipped a swap onto the mod's bundled 'GloomhavenVR/Overlay' shader (same
-    /// _MainTex, Blend One Zero) — REVERTED in round 11, see below.
-    ///
-    /// ROUND 11 (hardware 2026-08-07 #2, ModBuild 68, screenshot wall_und_mixed.png): the user
-    /// REJECTED the swap — raw '_MainTex x _Color' without the Amp shader's fog-of-war
-    /// treatment rendered a BRIGHT stone texture ("statt schwarze tiles ist da jetzt eine
-    /// merkwuerdige textur") — and the top-side green seams were UNCHANGED anyway, because the
-    /// seams are not a family SURFACE at all: the MAPTILE dumps pin hex tops at ~y-0.1 with the
-    /// round-7 fills a full 0.3+ wu lower (y-0.7..-0.4), so from above the raw key floor showed
-    /// through the open canyon BETWEEN adjacent hex pieces. The swap is fully reverted (the
-    /// authored dark look is back), and the fix moved to where the geometry says it belongs:
-    /// the fill became the flat GAP BACKING WAFER seated at each piece's own top plane minus
-    /// <see cref="UnseenWaferDrop"/> (~2 cm) — see the wafer block in
-    /// <see cref="BuildUnseenUnderlay"/>. The census keeps running after each sweep; with the
-    /// wafers in place it must list NO un-backed tile-geometry translucent (the remaining
-    /// candidates are floating particle FX, which are deliberately left authored).
-    ///
-    /// ROUND 12 (hardware 2026-08-07 #3, ModBuild 69): tiles dark again (revert correct), seams
-    /// still green — the GAP BACKING log line convicted the cause itself: "wafer = mesh-top −
-    /// 0.35 wu". The user's persisted cfg still carried UnseenFillDrop=0.35 from the deep-fill
-    /// rounds; round 11 changed the DEFAULT but a persisted value survives a default change, so
-    /// the wafer sat 0.25 wu below the top plane and the canyon was back. Fix one: the key is
-    /// RENAMED (fresh bind '[MixedReality] UnseenWaferDrop' at 0.02; the orphaned old entry is
-    /// never read). Fix two, checked rather than trusted: the copies' material arrays are now
-    /// sized to the MESH's subMeshCount (short arrays make Unity skip the extra submeshes — an
-    /// unbacked bevel submesh would render its translucency over raw key as the wide green
-    /// bands in mixed_reality_tiles3.png); extras are padded with dark, and a one-shot sample
-    /// line prints subMeshCount vs material counts so the next log proves the coverage.
-    ///
-    /// ROUND 13 (hardware 2026-08-07 #4, ModBuild 70): TOP CLOSED — "Die Lücken oben sind
-    /// geschlossen und sieht gut aus top!" (instruments confirm: wafer at mesh-top − 0.02, and
-    /// submeshes 1/mats 1 — the submesh theory is dead, the harmless padding stays). REMAINING:
-    /// the outer-rim SIDE faces still glow translucent-over-key (mixed_reality_tiles4.png), and
-    /// the MAPTILE dumps show the 'Simple Tile' renderers — the hex side/base block geometry,
-    /// y−0.4..−0.1 — carry NO backing children while every EN_* piece does. Why the sweep skips
-    /// them (read from code + census): 'Simple Tile' is not family-NAMED anywhere, and it never
-    /// appeared in the census either, so it must also fail the blend probe — the round-3
-    /// documented blind spot (hardcoded pass blend, no _DstBlend property, opaque-range queue).
-    /// Fix: <see cref="IsTranslucent"/> learned the RenderType-TAG signal
-    /// (Transparent/Fade/Overlay — the family's own materials are tagged 'Overlay', the same
-    /// authoring style), which matches such pieces through the Preview-ancestor branch and
-    /// backs them like the rest (underlay + wafer; their sides get the coplanar dark treatment
-    /// the EN_* sides always had). Proof instrument: UNBACKED PREVIEW RENDERERS — every
-    /// Preview-descendant the sweep leaves un-backed is dumped with shader/queue/tag/reason,
-    /// change-gated; the goal state ("none") is logged too. If 'Simple Tile' still appears
-    /// there, its line carries exactly the signal the next round must add.
-    ///
-    /// ROUND 14 (hardware 2026-08-07 #5, ModBuild 72) — REVERTED on the user's verdict: making
-    /// the backings opaque with ZWrite plus a full-height inset SIDE SKIRT turned the whole
-    /// region into one featureless dark plate (the skirt is a same-mesh copy, so it carries the
-    /// piece's own TOP surface a hair inside the authored one and simply covered it). Two facts
-    /// from that round survive and drive round 15, both READ FROM THE LOG: (a) the instrument
-    /// still reported "UNBACKED PREVIEW RENDERERS — none" while the rim stayed green — backing
-    /// present, no dark pixels on the side faces; (b) "MR: unseen backing mesh
-    /// 'EN_CR_FloorTiles_Damaged_03' is not CPU-readable — its vertex-color channel cannot be
-    /// stripped". The prime suspect for (a) — authored near-zero vertex alpha on the side/rim
-    /// vertices, which BOTH candidate backing shaders multiply into their output — is therefore
-    /// permanently unfixable on any copy of an authored mesh.
-    ///
-    /// ROUND 15 (this change): the ONE remaining defect is the OUTER RIM — the region reads as a
-    /// dark island whose vertical cliff faces glow key-green ("die Ränder … also die Höhe … sind
-    /// immer noch transparent", mixed_reality_tiles5.png). Fix: the RIM CURTAIN
-    /// (<see cref="MrRimCurtain"/>) — a mod-BUILT opaque dark prism per backed piece, hex-shaped
-    /// from the mesh-local bounds, XZ-inset <see cref="UnseenRimInset"/> inside the authored side
-    /// faces and spanning from mesh-top − <see cref="UnseenRimTopClearance"/> (forced strictly
-    /// below the wafer plane) down past the mesh bottom. Built geometry rather than another
-    /// same-mesh copy for exactly reason (b): a mesh the mod builds has no color channel, the
-    /// attribute defaults to white, and the dark material renders unconditionally — the one
-    /// construction that is immune to the authoring the game will not let us read. Nothing above
-    /// the wafer plane changes, so the approved round-13 tops/relief/animation are untouched by
-    /// construction, and the inset guarantees no dark ever protrudes past the outer silhouette
-    /// (the standing anti-"alien dark slab" ruling).
-    ///
-    /// ROUND 16 (hardware 2026-08-07 #6, ModBuild 74 — "Immer noch exakt das selbe Problem, ich
-    /// sehe ÜBERHAUPT KEINEN Unterschied"): round 14 and its revert are OPPOSITE changes with the
-    /// SAME result, which says the glowing pixels were never produced by anything these rounds
-    /// touched. Three facts, all READ FROM THE ModBuild-74 LOG, closed the case without new
-    /// hardware:
-    /// (a) THE COUNT. The WallSegmentFade MAPTILE dumps give preview subtrees WITH backings of 603
-    /// / 225 / 171 renderers — every one exactly divisible by 9 — and one with content but no
-    /// backings of 66 = 22×3. So the kit is THREE authored renderers per hex ('Simple Tile',
-    /// 'EN_Unseen_FloorHex_Edge_Damage_03_PR', 'EN_CR_FloorTiles_Damaged_03') and the mod backs
-    /// exactly TWO of them, 6 = 2×3 backings per hex. The unbacked third is 'Simple Tile' — bounds
-    /// y−0.4..−0.1, the block's FULL HEIGHT, i.e. the outer CLIFF the user photographs. Sixteen
-    /// rounds of widening MATERIAL predicates never touched the piece that glows.
-    /// (b) THE FALSE ALL-CLEAR. "UNBACKED PREVIEW RENDERERS — none" never covered it twice over:
-    /// its change gate hashed only the (empty) list, so all six occurrences were printed while the
-    /// region was still empty ("GAP BACKING — 0 renderer(s)" beside each), and the instrument
-    /// records ONLY renderers that pass <see cref="UnderPreviewNode"/> — whose 12-level cap the
-    /// Apparance nesting may well exceed. Both are fixed: the gate folds in the live backing count,
-    /// and the cap is <see cref="PreviewAncestorScanDepth"/> = 40.
-    /// (c) THE FLOATING WAFER. A child transform scales its mesh about the OBJECT ORIGIN, not the
-    /// mesh's bounds centre, so the wafer's seating offset was wrong by −centre.y·(1−squash) for
-    /// every mesh whose bounds centre is not at y = 0: the log shows
-    /// 'GloomhavenVR.MrUnseenFill'[y0.1..0.1] under a source at y−0.4..−0.1 — a widened dark slab
-    /// hovering ~0.16 wu ABOVE the hex tops, covering the authored animation instead of flooring
-    /// the seams beneath it. Corrected in <see cref="BuildUnseenUnderlay"/>.
-    /// THE FIX itself is the route that does not ask the material anything:
-    /// <see cref="RegionMembershipPass"/> backs every mesh renderer that merely STANDS INSIDE a
-    /// family piece's AABB, below that piece's own top plane, with figures, mod objects, non-meshes
-    /// and oversized footprints refused and every refusal counted. Round 15's rim curtain is not
-    /// wasted by this — it is finally BUILT ON THE CLIFF PIECE, which is where it was always aimed.
-    /// The diagnostics of the round survive whatever the outcome (MixedReality.Diag.cs: the
-    /// config-gated debug tint, the rim-population dump and the camera-setup dump), so a rim that
-    /// still glows is one config flip away from a decision, not another blind round.
-    ///
-    /// ROUND 17 (hardware 2026-08-07 #7, ModBuild 75): two verdicts.
-    /// (a) THE WAFER "FIX" WAS A REGRESSION — "die Lücken sind nun wieder vollständig da wie
-    /// zuvor". The seam coverage approved in ModBuild 70 IS the widened slab riding above the hex
-    /// tops; the round-16 geometric correction removed exactly the thing that was working.
-    /// Reverted, with a standing DO-NOT-FIX note at the offset. Standing lesson for this whole
-    /// system: geometric correctness is not the goal, the approved look is — a "defect" that the
-    /// user has already blessed is a FEATURE, and any future change to the seam coverage must be
-    /// additive.
-    /// (b) THE RIM IS STILL OPEN AND BOTH ROUND-16 ROUTES MISSED THE CLIFF. The accounting says it
-    /// plainly: 226 by family/tag — EXACTLY the pre-round-16 number, so raising the Preview scan
-    /// from 12 to 40 levels added nothing and the depth cap was never the blocker — plus 16 by
-    /// region membership, and those 16 are all 'CV_Floor_Scatter' LODs, floor clutter. No
-    /// 'Simple Tile' line anywhere, and the MAPTILE dumps still show 603/225/171 = 9 renderers per
-    /// hex with the backing triple hanging off 'EN_Unseen_FloorHex_Edge_Damage_03_PR' and nothing
-    /// under 'Simple Tile'. The refusal counters point at one rail — 57 "above the host piece's
-    /// top plane" — which is plausible for a block whose top is LEVEL with its host's, but the
-    /// arithmetic does not close (111 hexes, 57 refusals), so it stays a hypothesis until measured.
-    /// This round therefore does two things: it MEASURES (the REGION NAME CENSUS in
-    /// MixedReality.Diag.cs classifies every renderer by the live rule and aggregates by distinct
-    /// name, with every instance landing in exactly one bucket — no gap for a piece to hide in),
-    /// and it fixes the rail the measurement suspects, correctly: see <see cref="ClassifyRegion"/>,
-    /// where a candidate now passes either by staying under its host's top plane OR by SPANNING the
-    /// host (bottom at the tile's underside, top level with the tile's top). A prop standing ON a
-    /// tile has its bottom at the tile's TOP and can satisfy neither clause; the block that FORMS
-    /// the tile satisfies the second by construction.
+    /// (The "round N" tags scattered through this file are provenance markers on individual
+    /// decisions — each states its own fact. This block is the consolidated answer they add up to;
+    /// the build-by-build chronology of rounds 3–17 lives in git history and .planning/STATE.md.)
     ///
     /// WHY AN UNDERLAY AND NOT FORCED-OPAQUE MATERIAL COPIES (the previous mechanism, replaced
     /// here): forcing Blend One/Zero on a copy rewires the shader's own output — the animated

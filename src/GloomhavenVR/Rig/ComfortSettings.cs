@@ -43,9 +43,8 @@ internal enum FlightDirectionSource
 
 /// <summary>
 /// Typed accessor over one comfort config entry: read/write value + a typed change
-/// event. The in-VR settings panel (<see cref="WorldUI.SettingsPanel"/>) binds its widgets to
-/// these — one wrapper per row — instead of touching BepInEx types directly. It shipped; this
-/// doc used to call it "the future P3c panel".
+/// event. UI binds its widgets to these — one wrapper per row — instead of touching BepInEx
+/// types directly.
 /// </summary>
 internal sealed class ComfortSetting<T>
 {
@@ -112,10 +111,10 @@ internal sealed class ComfortSetting<T>
 /// documented legacy no-op.) Bound in <see cref="RigModule.Init"/>, released in
 /// <see cref="RigModule.Shutdown"/> — hot-reload clean.
 ///
-/// The in-VR settings panel (<see cref="WorldUI.SettingsPanel"/>) binds to the
-/// <see cref="ComfortSetting{T}"/> wrappers and the runtime ops on <see cref="Comfort"/>;
-/// nothing here depends on UI. The dependency runs one way, and it still does now that the
-/// panel exists — keep it that way.
+/// The in-VR options UI (<see cref="WorldUI.VROptionsTab"/>: curated Komfort rows plus the
+/// generic config browser) reads the <see cref="ComfortSetting{T}"/> wrappers and the runtime
+/// ops on <see cref="Comfort"/>; nothing here depends on UI. The dependency runs one way —
+/// keep it that way.
 /// </summary>
 internal static class ComfortSettings
 {
@@ -137,7 +136,8 @@ internal static class ComfortSettings
     // visible) as a side effect of a cleanup nobody asked to change the view. The tuned value is
     // folded into the constant instead, so the setting disappears and the seat does not move.
     // 0.30 m above the focus plane, 0.70 m back, is the leaning-in-over-the-board view the dial was
-    // pinned to; from there the stick and the grip take over, which is the whole point of the ruling.
+    // pinned to; from there stick flight and the stick-click world grab take over, which is the
+    // whole point of the ruling.
     internal const float StandingEyeHeightMeters = 0.30f;
     internal const float StandingEyeBackMeters = 0.70f;
 
@@ -149,9 +149,10 @@ internal static class ComfortSettings
     /// <summary>Fired with the entry key after ANY comfort setting changes (panel dirty-marking).</summary>
     public static event Action<string>? AnyChanged;
 
-    // ---- typed accessors (the settings-panel binding surface) ---------------------------
+    // ---- typed accessors (the UI binding surface) ---------------------------------------
 
-    /// <summary>Master switch for grip-based world grab (drag/rotate/scale).</summary>
+    /// <summary>Master switch for the STICK-CLICK world grab (drag/rotate/scale), <see cref="WorldGrab"/>.
+    /// Not the grip: the grip has been figure-grab since P8.</summary>
     public static ComfortSetting<bool> WorldGrabEnabled { get; private set; } = null!;
 
     /// <summary>
@@ -163,13 +164,13 @@ internal static class ComfortSettings
     /// </summary>
     public static ComfortSetting<bool> FreeMovement { get; private set; } = null!;
 
-    /// <summary>Allow one-grip drag to move the table vertically (always on while <see cref="FreeMovement"/>).</summary>
+    /// <summary>Allow the one-hand drag to move the table vertically (always on while <see cref="FreeMovement"/>).</summary>
     public static ComfortSetting<bool> VerticalDrag { get; private set; } = null!;
 
-    /// <summary>Two-grip yaw rotation of the table.</summary>
+    /// <summary>Two-hand (both sticks clicked) yaw rotation of the table.</summary>
     public static ComfortSetting<bool> RotateEnabled { get; private set; } = null!;
 
-    /// <summary>Two-grip pinch scale of the table.</summary>
+    /// <summary>Two-hand (both sticks clicked) pinch scale of the table.</summary>
     public static ComfortSetting<bool> ScaleEnabled { get; private set; } = null!;
 
     /// <summary>Lower scale clamp, as a multiplier of the base WorldScale.</summary>
@@ -204,12 +205,13 @@ internal static class ComfortSettings
 
     // TableHeightOffset ("Tischhöhe") lived here. REMOVED — user ruling 2026-08, see the
     // preset comment above: free locomotion replaced it. Do not re-add a height dial; the
-    // answer to "the table sits wrong for me" is the stick and the grip, not a slider.
+    // answer to "the table sits wrong for me" is stick flight and the stick-click world grab,
+    // not a slider.
 
     /// <summary>Hold B+Y on both hands this long to recenter (0 disables the chord).</summary>
     public static ComfortSetting<float> RecenterHoldSeconds { get; private set; } = null!;
 
-    /// <summary>Last pinch-scale multiplier (persisted automatically after each two-grip gesture).</summary>
+    /// <summary>Last pinch-scale multiplier (persisted automatically after each two-hand gesture).</summary>
     public static ComfortSetting<float> SavedScaleMultiplier { get; private set; } = null!;
 
     /// <summary>Comfort debug overlay (world-grab state, scale, clamps).</summary>

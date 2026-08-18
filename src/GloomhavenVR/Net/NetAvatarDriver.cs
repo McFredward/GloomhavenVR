@@ -244,7 +244,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// board-UI-edge argument. Human-paced (a prompt opening), never a stream.</summary>
     private string? _lastSentDecisionLines;
 
-    /// <summary>Last decision DISPLAY STATE put on the wire (extension record 23), packed as
+    /// <summary>Last decision DISPLAY STATE put on the wire (extension record 24,
+    /// <see cref="NetProtocol.ExtIdDecisionState"/>), packed as
     /// <c>flags | count &lt;&lt; 8 | option bytes &lt;&lt; 16…</c> for the change test alone;
     /// −1 = no record was written. The option states change on a CLICK (a toggle flips, the game
     /// re-asserts a gate), which is exactly the human-paced edge the decision lines already
@@ -252,7 +253,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// "not synced".</summary>
     private long _lastSentDecisionState = -1;
 
-    /// <summary>Sample buffer for the per-option state bytes (extension record 23) — a persistent
+    /// <summary>Sample buffer for the per-option state bytes (extension record 24) — a persistent
     /// array handed to the serializer with a live count, the <see cref="_wallFadeSample"/>
     /// pattern, so the 5 Hz path allocates nothing while a prompt is docked.</summary>
     private readonly byte[] _decisionOptionSample = new byte[NetProtocol.DecisionStateMaxOptions];
@@ -515,21 +516,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     /// <summary>
     /// The live driver, or null (networking off / offline / module shut down). Exists ONLY as the
-    /// read seam for <see cref="CollectPeerHeads"/> — nothing writes through it.
+    /// read seam for <see cref="CollectPeerHeads"/> and <see cref="TryGetPeerRigScale"/> — nothing
+    /// writes through it.
     /// </summary>
     private static NetAvatarDriver? _instance;
 
-    /// <summary>
-    /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
-    /// how many were added.
-    ///
-    /// <para>WHY THIS SEAM EXISTS: the VR spawn ring (<see cref="Rig.SpawnRing"/>) has to know
-    /// where the other players are standing before it can seat a joining player in the largest
-    /// free wedge around the table. That information is ALREADY here — it rides the rig packets
-    /// the embodiment sync receives anyway — so the feature needs no new wire field, no new packet
-    /// and no extra traffic. Strictly read-only and strictly local; a peer with no valid head pose
-    /// yet is simply not counted.</para>
-    /// </summary>
     /// <summary>
     /// A peer's LIVE rig scale — their diorama zoom — or false when that peer has no avatar yet.
     ///
@@ -556,6 +547,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         return scale > 0f;
     }
 
+    /// <summary>
+    /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
+    /// how many were added.
+    ///
+    /// <para>WHY THIS SEAM EXISTS: the VR spawn ring (<see cref="Rig.SpawnRing"/>) has to know
+    /// where the other players are standing before it can seat a joining player in the largest
+    /// free wedge around the table. That information is ALREADY here — it rides the rig packets
+    /// the embodiment sync receives anyway — so the feature needs no new wire field, no new packet
+    /// and no extra traffic. Strictly read-only and strictly local; a peer with no valid head pose
+    /// yet is simply not counted.</para>
+    /// </summary>
     internal static int CollectPeerHeads(List<Vector3> into)
     {
         NetAvatarDriver? driver = _instance;
@@ -1115,8 +1117,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         bool capPressChanged = capPressNow >= 0 && capPressNow != _lastSentCapPress;
 
         // TRACK HOVER (extension record 16, user defect "die Mouseover der Initiativreihenfolge
-        // sind nicht synchronisiert"): which initiative-track entry OUR pointer is on (stable
-        // CActor.ID — the display order is per-client, see the record doc) plus whether its info
+        // sind nicht synchronisiert"): which initiative-track entry OUR pointer is on (the STABLE
+        // actor id, NetFigures.StableActorId — not the per-class CActor.ID; the display order is
+        // per-client, see the record doc) plus whether its info
         // popup is open. Same capped pre-emption: a laser can sweep the whole track in under a
         // second.
         bool trackHover = InitiativeHoverSampler.TrySample(out int trackActorId, out bool trackPopup);
@@ -1445,7 +1448,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         // BOARD TUNING (extension record 28): OUR OWN dial positions for the board, its mesh and
         // the hand fan, sampled sparsely — only the dials that differ from the shipped default for
-        // our current board style. Sampling walks ~49 config entries and allocates nothing, so it
+        // our current board style. Sampling walks ~118 config entries and allocates nothing, so it
         // runs on the send path rather than needing a config-change hook; a player who has tuned
         // nothing produces a ZERO-length payload and therefore no record at all, which is what
         // keeps an untuned packet byte-identical to the previous build's. A change is an edge
@@ -1698,8 +1701,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // SLOT-CARD SIZE (extension record 11): written only while a live tray exists AND either
         // width differs from the legacy assumption every pre-record receiver hardcodes
         // (NetProtocol.SlotCardWidthLegacy = 82.55 mm). At the SHIPPED defaults it always differs
-        // — SlotOverlayScale defaults to 1.45, so an untuned player's card renders at 119.7 mm while
-        // every peer used to draw 82.55 mm; that 31 % gap is the reported defect. A sender whose
+        // — SlotOverlayScale defaults to 1.9 on Oak/Steel and 1.65 on Bronze, so an untuned player's
+        // card renders at ~157 mm (Bronze ~136 mm) while every peer used to draw 82.55 mm; that
+        // near-2x gap is the reported defect. A sender whose
         // config lands exactly on the legacy constant omits the record and stays byte-identical
         // to the previous build.
         ushort legacyCode = NetProtocol.EncodeSlotWidth(NetProtocol.SlotCardWidthLegacy);
@@ -1777,8 +1781,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   "only, NO card identity); peers render them as inert plates at their copy's " +
                   "decision seat.");
         }
-        // DECISION STATE (extension record 23): written on exactly the gate record 12 rides, so a
-        // peer can never hold states for a row whose wordings it does not have (or the reverse).
+        // DECISION STATE (extension record 24, NetProtocol.ExtIdDecisionState — the two log lines
+        // below still say "record 23"; that wording is a shipped grep token, the ID they name is
+        // wrong): written on exactly the gate record 12 rides, so a peer can never hold states for
+        // a row whose wordings it does not have (or the reverse).
         if (decisionStateNow >= 0)
         {
             extras.HasDecisionState = true;
@@ -2528,13 +2534,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         int len = PresenceSerializer.Write(in extras, _sendBuffer);
         _transport.Send(_sendBuffer, len);
     }
-
-    // The board-tuning CHANGE KEY that used to live here (an FNV-1a hash of the payload) is RETIRED
-    // by the paging pass: the detector now lives inside BoardTunePageSender.Update, which
-    // byte-compares the sampled field list against the one it holds. Two detectors would have been
-    // two opinions about when the tuning changed, and the pager's is the load-bearing one — it is
-    // what restarts the page cycle, and therefore what makes the convergence bound measurable from
-    // the drag rather than from wherever the cursor happened to be.
 
     // ---- receive ------------------------------------------------------------------------
 

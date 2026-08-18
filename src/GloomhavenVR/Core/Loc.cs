@@ -343,7 +343,9 @@ internal static partial class Loc
         // Composed at display time from two parts so each half can stand alone: the rule line
         // (named when the burnt card is identifiable, plain when it is not) plus the pile
         // paragraph, which is appended ONLY while the VR pile stacks actually exist
-        // ([Cards] PileViewer) — never teach an interaction that is switched off.
+        // (TutorialHintPatches.PilesAvailable) — never teach an interaction that is not there.
+        // NOT a config gate: the [Cards] PileViewer key was removed by user ruling 2026-08-11
+        // (the stacks are the only way to see those piles in VR, so they are unconditional).
         // {0} = the burnt card's game-localized title; the pile paragraph's {0} = the pile's
         // OWN caption, read from the game's GUI_CARD_SECTION_BURNT section noun (PileViewer.Caption),
         // so the hint and the label physically written on the stack can never disagree.
@@ -388,8 +390,9 @@ internal static partial class Loc
             "Desktop-Hinweis — in VR: Stick-Klick + Ziehen bewegt den Tisch; Laser + Trigger wählt; Brett-Tasten bestätigen."),
 
         // ---- SettingsPanel: sections / labels / buttons ----
-        // ["table_scale"] is GONE with its row (user ruling 2026-08: the "Tischgröße" setting
-        // was removed — [Rig] WorldScale is a documented legacy no-op now). ["table_height"] is
+        // ["table_scale"] is GONE with its row (user ruling 2026-08: the "Tischgröße" setting was
+        // removed, and the frozen [Rig] WorldScale key it wrapped went with it — see the
+        // WorldScaleBase note in Rig/ComfortSettings.cs). ["table_height"] is
         // GONE the same way (user ruling 2026-08: [Comfort] TableHeightOffset removed, free
         // locomotion replaced it) — see VROptionsTab.4.Curated.cs for the whole story.
         ["comfort"] = Pair("Comfort", "Komfort"),

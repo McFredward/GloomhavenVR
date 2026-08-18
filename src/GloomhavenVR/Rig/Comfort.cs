@@ -14,7 +14,7 @@ namespace GloomhavenVR.Rig;
 ///   <c>[Comfort] RecenterHoldSeconds</c> → recenter. Requiring the two-hand chord keeps
 ///   single B/Y presses free for future features and makes accidental fires unlikely.
 /// - Recenter re-aligns the rig so the HMD sits at the fixed standing spot at the table
-///   edge: 0.70 m above the table plane, 0.70 m back, at the azimuth the player is already
+///   edge: 0.30 m above the table plane, 0.70 m back, at the azimuth the player is already
 ///   at. That preset is the WHOLE seat now — the old seated-mode preset is GONE (user:
 ///   irrelevant — the world is freely draggable) and so is the
 ///   <c>[Comfort] TableHeightOffset</c> dial that used to be added to the height (user
@@ -46,7 +46,11 @@ internal sealed class Comfort : MonoBehaviour
         }
     }
 
-    // ---- runtime ops (the settings-panel surface, see docs/INTERFACES-P4.md) -------------
+    // ---- runtime ops (the UI-facing surface, docs/INTERFACES-P4.md) ----------------------
+    // RequestRecenter is still driven from this class (B+Y chord, F11). SetScaleMultiplier has NO
+    // caller any more: the WorldUI.SettingsPanel table-scale slider that drove it is gone and
+    // VROptionsTab offers no replacement row. Nothing is broken — WorldGrab's pinch reaches the
+    // same state — but giving the row back is a product decision, not a cleanup.
 
     /// <summary>Recenter now (same path as the button chord). Safe no-op without a rig.</summary>
     internal static void RequestRecenter() => VRRigDriver.RequestRecenter();

@@ -1,9 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands;
-using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.Rig;
-using TMPro;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -124,18 +121,6 @@ internal sealed partial class PlayTray
 
         topLocalY = Mathf.Clamp(maxLocalY, BoardTopLocalY, BoardTopLocalY + BoardExtentSanityMargin);
         halfLocalX = Mathf.Clamp(maxLocalAbsX, BoardHalfWidthLocal, BoardHalfWidthLocal + BoardExtentSanityMargin);
-    }
-
-    /// <summary>
-    /// The CONTROL BOARD's REAL top edge in WORLD space, horizontally centred on the board (board-
-    /// local X 0) and on the board face plane (local Z 0). <c>TransformPoint</c> carries the live
-    /// pose, tilt and lossy scale, so callers re-read it every tick and stay aligned through grabs,
-    /// resizes and board switches. See <see cref="MeasureBoardLocalExtents"/> for the derivation.
-    /// </summary>
-    internal static Vector3 BoardTopEdgeWorld(Transform root)
-    {
-        MeasureBoardLocalExtents(root, out float topLocalY, out _);
-        return root.TransformPoint(new Vector3(0f, topLocalY, 0f));
     }
 
     private void BuildProceduralBoard()
