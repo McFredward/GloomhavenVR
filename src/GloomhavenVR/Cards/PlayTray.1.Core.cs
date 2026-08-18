@@ -1001,26 +1001,15 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                 _pinRoot.gameObject.hideFlags = HideFlags.HideAndDontSave;
                 Object.DontDestroyOnLoad(_pinRoot.gameObject);
             }
-            // ONLY seat the holder while ADOPTING the tray. It used to be re-seated to the origin on
-            // every call, which was harmless while the holder was a fixed frame — and is not any more:
-            // since TickPinnedZoomCarry the holder's pose is MEANINGFUL (it is solved so the tray's
-            // local transform never has to move, see PlayTray.2.Watchdog.cs), so stomping it back to
-            // the origin with the tray already parented underneath would teleport the board by the
-            // whole accumulated carry. The two per-frame-ish callers below already guard on
-            // `_root.parent != _pinRoot`, so this branch was previously unreachable with an
-            // established holder; the guard makes that a property of THIS method instead of a
-            // property of its callers, which is where a future caller would break it.
+            Transform? scaleRef = _root.parent != null ? _root.parent : _anchorParent;
+            _pinRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            _pinRoot.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
             if (_root.parent != _pinRoot)
-            {
-                Transform? scaleRef = _root.parent != null ? _root.parent : _anchorParent;
-                _pinRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-                _pinRoot.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
                 _root.SetParent(_pinRoot, worldPositionStays: true);
-                // Freeze-sentinel announcement: engaging the pin is world-pose-preserving
-                // (worldPositionStays), but the re-parent under the scaled holder can leave
-                // float-noise-sized deltas — name it so it never reads as an unknown writer.
-                NotePinnedWrite("pin engaged (ApplyFollowMode — world-pose-preserving re-parent)");
-            }
+            // Freeze-sentinel announcement: engaging the pin is world-pose-preserving
+            // (worldPositionStays), but the re-parent under the scaled holder can leave
+            // float-noise-sized deltas — name it so it never reads as an unknown writer.
+            NotePinnedWrite("pin engaged (ApplyFollowMode — world-pose-preserving re-parent)");
         }
         if (_followToggle != null)
         {

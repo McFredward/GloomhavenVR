@@ -173,12 +173,38 @@ namespace GloomhavenVR.Core;
 /// project's own <see cref="Rig.VRRigDriver"/> notes call the largest single piece of submission
 /// volume the mod adds. That is why it is opt-in.</para>
 ///
-/// <para>WHAT IS STILL NOT BUILT, so the next round does not re-derive it: REPLACING the material
-/// with a mod-owned water shader from the mod's own bundle. That is the standing fallback if the
-/// game shader turns out to be uncorrectable from outside; it needs a bundle lane
-/// (<c>unity/**</c> + <c>Core/BundleShaders.cs</c>) that this lane does not own, and it should
-/// not be reached for until the log below has said which of the four mechanisms above was the
-/// live one.</para>
+/// <para>ROUND FIVE — <c>[Water] OwnSurface</c>, AND WHY THERE IS NOTHING LEFT TO TUNE. ModBuild
+/// 161's <c>BAND READ-BACK</c> block reads values back off the LIVE MATERIAL INSTANCE after the
+/// writes, i.e. exactly what the shader samples, and it proves every property this module can reach
+/// is already neutral: <c>_Edge_Distance 0.2 -> 0</c>, <c>_Edge_Colour_Distance 0.9 -> 0</c>,
+/// <c>_WaterBorderWidth 0.1 -> 0</c>, <c>_Edge_Colour</c> and <c>_WaterBorderCol</c> both repainted
+/// in the body hue at alpha 0, <c>_EdgeColour_Toggle 1 -> 0</c>, the instance's keyword list EMPTY,
+/// <c>_Smoothness 0.754 -> 0.08</c>, every metal/reflection scalar at 0, <c>_Color_Tint.a</c> at
+/// 0.45. Verdict: <i>"Keine Änderungen bei der Wasser Problematik."</i> Every band is gone and the
+/// sheet is still pale, and he adds <i>"Ich konnte aber mit den anderen Einstellungen die
+/// kopf-gebundene Reflektion nicht deaktivieren, egal was ich eingestellt hab."</i></para>
+///
+/// <para>AND THE ONE THING THAT WAS STILL AMBIGUOUS IS NOW MEASURED. <c>[Water] DebugPaint</c> was
+/// built for exactly this and he has now run it: <i>"Die debug farbe funktioniert - alles färbt
+/// sich magenta wie gewollt."</i> MAGENTA is the FILM's colour. <b>These are our renderers</b> —
+/// three rounds of "are we even tuning what he is looking at" closed in one second, and that
+/// question is dead. OWNED RENDERER + EVERY REACHABLE PROPERTY NEUTRAL + THE DEFECT UNCHANGED
+/// leaves exactly one explanation, and it is no longer a hypothesis: the pale sheet AND the
+/// head-bound reflection are a TEXTURE or a CONSTANT compiled into <c>VFX/Water_Shd_Trans</c>,
+/// and nothing addressed by property name reaches either.</para>
+///
+/// <para>SO THE FILM'S WHOLE MATERIAL IS REPLACED — <c>[Water] OwnSurface</c>, default ON
+/// (<see cref="WaterOwnSurface"/>): a mod-owned material on <c>GloomhavenVR/Overlay</c> out of the
+/// mod's own bundle, carrying the tileset's OWN authored <c>_Color_Tint</c> hue at the
+/// <c>[Water] Opacity</c> alpha, at the authored render queue. That deletes the game's shader from
+/// the surface and everything compiled inside it. It also satisfies the requirement his second
+/// sentence makes hard rather than preferable: Overlay's fragment is
+/// <c>tex2D(_MainTex,uv) * _Color * i.color</c> and its source contains no <c>unity_SpecCube</c>,
+/// no <c>reflect()</c>, no <c>samplerCUBE</c> and no cubemap input at all, so it HAS no
+/// view-dependent term and cannot produce a head-bound reflection. The price is stated rather than
+/// hidden: this film does not ripple. Only the FILM is re-based; the basin
+/// (<c>Amp_Basic_N_MRAO</c>) is opaque ground, not a film, and keeps the property retune
+/// below.</para>
 ///
 /// <para>THE FLICKER OF ModBuild 158, AND ITS ACTUAL CAUSE — found, not guessed. That build set
 /// <c>Renderer.enabled = false</c> and re-surveyed on a slow round-robin, and the user saw the
@@ -383,19 +409,24 @@ internal static class WaterTerrainVR
             + "'TERRAIN_Water_Plane' on shader family 'Water_Sh*' AND the basin bed/rim inside "
             + "its own footprint) all KEEP RENDERING (user ruling 2026-08-18: hiding is not an "
             + "option) and are retuned for a "
-            + "free camera. ROUND FOUR changes WHICH PART of the surface is being tuned. "
-            + "ModBuild 160's writes all landed and the user still saw no difference; "
-            + "spiegeltiles.jpg shows why — the affected hexes are a near-WHITE sheet, and the "
-            + "authored body colour is dark green RGBA(0.195,0.311,0.131), so the visible pixels "
-            + "were never the body. They are the edge/foam/border band, which is now collapsed by "
-            + "NUMBER rather than by keyword: every width to 0 and every band colour to the body "
-            + "hue at alpha 0, including _WaterBorderWidth/_WaterBorderCol — a second border "
-            + "mechanism with no keyword at all, which nothing this mod shipped had ever touched. "
-            + "Two dials come with it: [Water] DebugPaint paints the film flat MAGENTA and the "
-            + "basin flat CYAN so one look settles whether these are the renderers being looked "
-            + "at, and [Water] BodyOnly forces the film to nothing but its authored green. See "
-            + "the WATER SURFACE STATE line's DEBUG PAINT and BAND READ-BACK blocks — both report "
-            + "what is on the material, not what was called.");
+            + "free camera. ROUND FIVE STOPS TUNING THE GAME'S SHADER AND REPLACES IT. Two "
+            + "hardware readings close the question between them: [Water] DebugPaint came back "
+            + "'alles färbt sich magenta wie gewollt', so these ARE the renderers in "
+            + "spiegeltiles.jpg; and ModBuild 161's BAND READ-BACK proves every property this "
+            + "module can reach is already neutral on the live instance — every band width 0, "
+            + "every band colour at alpha 0, the keyword list empty, _Smoothness 0.08, the "
+            + "metal/reflection ceiling 0 — against 'Keine Änderungen bei der Wasser Problematik' "
+            + "and 'Ich konnte aber mit den anderen Einstellungen die kopf-gebundene Reflektion "
+            + "nicht deaktivieren'. Owned renderer plus every reachable property neutral plus the "
+            + "defect unchanged leaves one explanation: a texture or a constant compiled INSIDE "
+            + "VFX/Water_Shd_Trans. So [Water] OwnSurface (default ON) gives the FILM a material "
+            + "of the mod's own on '" + WaterOwnSurface.FilmShaderName + "' — the tileset's own "
+            + "green at the [Water] Opacity alpha, at the authored render queue, with no "
+            + "shoreline, no foam, no depth read and NO ENVIRONMENT SAMPLE AT ALL, which is why it "
+            + "cannot have a head-bound reflection. It does not ripple; that is the stated price. "
+            + "The basin keeps the property retune. Read the OWN SURFACE block of the WATER "
+            + "SURFACE STATE line: it counts renderers that ACTUALLY carry our shader, not "
+            + "renderers we tried to swap.");
     }
 
     /// <summary>Drop the driver, restoring every material we replaced and destroying everything
@@ -481,6 +512,12 @@ internal static class WaterTerrainVR
 
         /// <summary>Multiplier on the local probe's brightness.</summary>
         internal static ConfigEntry<float>? ProbeBrightness;
+
+        /// <summary>ROUND FIVE. Replace the water FILM's material outright with a mod-owned
+        /// material on <see cref="WaterOwnSurface.FilmShaderName"/>, instead of retuning the
+        /// game's. Default ON — see the class header for why there is nothing left to
+        /// retune.</summary>
+        internal static ConfigEntry<bool>? OwnSurface;
 
         /// <summary>THE INSTRUMENT. Paint every tracked renderer a flat unlit colour — film
         /// magenta, basin cyan — so one look answers whether we own what the user is pointing
@@ -580,6 +617,28 @@ internal static class WaterTerrainVR
                     + "Lower if the pool looks washed out, higher if it looks dead. Only has an "
                     + "effect while LocalProbe is on.",
                     new AcceptableValueRange<float>(0f, 2f)));
+            OwnSurface = config.Bind("Water", "OwnSurface", true,
+                "Give the water FILM a material of the mod's own instead of retuning the game's. "
+                + "The water still renders, at the same place in the draw order and in the "
+                + "tileset's own colour — what changes is that the shader drawing it is "
+                + "GloomhavenVR/Overlay out of this mod's bundle rather than the game's "
+                + "VFX/Water_Shd_Trans. WHY THIS EXISTS: four rounds of property tuning are now "
+                + "read back off the live material and every one of them landed — every shoreline, "
+                + "foam and border width at 0, every band colour at alpha 0, the keyword list "
+                + "empty, every gloss and metal value at 0 — and the pool is still a pale, milky "
+                + "sheet LIGHTER than the stone around it, where the game authors a dark green. "
+                + "Only two explanations survive that, and this switch settles both at once: "
+                + "either the pale pixels come from a texture or a constant compiled INSIDE the "
+                + "game's shader, in which case replacing the whole shader removes them; or these "
+                + "are not the surfaces you are looking at, in which case NOTHING changes — and "
+                + "that is itself the answer, because a surface that is unaffected by having its "
+                + "entire material replaced cannot be one of the ones this mod holds. WHAT YOU "
+                + "GIVE UP: the mod's film does not ripple. It is a flat, still, translucent sheet "
+                + "of the game's own water colour at [Water] Opacity, because the mod's overlay "
+                + "shader has nowhere to put the game's ripple normal map. The basin bed and rim "
+                + "under the water are NOT replaced — they are opaque ground, not a film, and keep "
+                + "the ordinary retune. OFF puts the game's own water shader back immediately and "
+                + "hands [Water] BodyOnly, ShoreFoam and DepthFade back their meaning.");
             DebugPaint = config.Bind("Water", "DebugPaint", false,
                 "DIAGNOSTIC — paints every water renderer this mod has taken over in a flat, "
                 + "unmistakable colour, with the game's own shading switched off entirely: the "
@@ -590,8 +649,12 @@ internal static class WaterTerrainVR
                 + "it pale; CYAN means the basin floor under the water is what you have been "
                 + "looking at; STILL PALE AND WHITE means the mod is tuning objects that are not "
                 + "what you see, and the log's FLOOR CENSUS names what actually is. Three rounds "
-                + "of tuning have died on exactly that ambiguity. Turn it back off afterwards — "
-                + "the mod restores the authored materials immediately.");
+                + "of tuning have died on exactly that ambiguity. IT HAS NOW BEEN RUN AND THE "
+                + "ANSWER WAS MAGENTA — the mod holds the surfaces you were pointing at, which is "
+                + "what made [Water] OwnSurface the right next move. Keep this switch: it is still "
+                + "the fastest way to re-confirm ownership in one second if anything about the "
+                + "pool changes again. Turn it back off afterwards — the mod restores the authored "
+                + "materials immediately.");
             BodyOnly = config.Bind("Water", "BodyOnly", false,
                 "LAST RESORT — forces the water film to nothing but its own authored colour (dark "
                 + "green) at the capped opacity, with every shoreline, foam and border term at "
@@ -599,11 +662,12 @@ internal static class WaterTerrainVR
                 + "The photograph (spiegeltiles.jpg) shows a near-WHITE sheet where the game "
                 + "authors a dark green tint, so the visible pixels are the shoreline band and not "
                 + "the water body; this switch removes every band this shader exposes at once, "
-                + "regardless of ShoreFoam. If the surface is STILL white with this on while "
-                + "DebugPaint has proved the mod owns the renderer, then the white comes from a "
-                + "texture or from a constant compiled into the shader, no setting can reach it, "
-                + "and the only remaining fix is a water shader of the mod's own — the log says so "
-                + "in those words rather than offering another guess.");
+                + "regardless of ShoreFoam. ONLY HAS AN EFFECT WHILE [Water] OwnSurface IS OFF: "
+                + "this switch tunes the GAME's water shader, and OwnSurface replaces that shader "
+                + "outright. Its own question is already answered — the log read every band back "
+                + "off the live material at zero and the sheet stayed pale — which is precisely "
+                + "why OwnSurface was built and is on by default. Keep this for the A/B that shows "
+                + "what the game's water looks like with every band removed.");
             // No AcceptableValueList here: it constrains T : IEquatable<T>, which an enum is not.
             // BepInEx already enumerates an enum entry itself, and so does the VR options menu.
             DepthFade = config.Bind("Water", "DepthFade", WaterDepthFadeMode.Authored,
@@ -784,6 +848,24 @@ internal static class WaterTerrainVR
         private Shader? _paintShader;
         private string _paintHow = "no unlit shader resolved yet";
 
+        /// <summary>Whether the tracked FILMS currently carry the mod's own material. Like
+        /// <see cref="_appliedDebugPaint"/> and for the same reason, a change here is NOT a
+        /// re-apply: <c>Material.shader =</c> has no exact inverse, so a flip releases everything
+        /// and lets the next tick re-adopt off the authored shared material.</summary>
+        private bool _appliedOwnSurface;
+
+        /// <summary>The mod's own film shader (<see cref="WaterOwnSurface.FilmShaderName"/>),
+        /// resolved once through <see cref="BundleShaders"/>. Null while nothing has asked for it,
+        /// or when the bundle could not be reached at all — in which case every film KEEPS the
+        /// game's material and the census says so loudly, because a silent fallback here would
+        /// look exactly like a fifth round that changed nothing.</summary>
+        private Shader? _ownShader;
+
+        /// <summary>The derivation of the last film colour written, verbatim from
+        /// <see cref="WaterOwnSurface.TryBuildFilmColour"/> — printed in the OWN SURFACE block so a
+        /// reader of the log can check it against the authored numbers on the same line.</summary>
+        private string _ownNote = "not attempted yet";
+
         /// <summary>How many times a tracked renderer was found NOT carrying the material
         /// instance we handed it, and had to be re-adopted. This is the number that says whether
         /// anything in the game is fighting us — <c>MaterialLoaderData.CheckAllMaterialLoaded</c>
@@ -882,6 +964,7 @@ internal static class WaterTerrainVR
         private void Awake()
         {
             _appliedTune = Want;
+            _appliedOwnSurface = WantOwnSurface;
             _appliedDebugPaint = WantDebugPaint;
             _appliedBodyOnly = WantBodyOnly;
             _appliedDepthFade = WantedDepthFade;
@@ -893,9 +976,14 @@ internal static class WaterTerrainVR
             && WaterConfig.VRFriendlyWater != null
             && WaterConfig.VRFriendlyWater.Value;
 
-        /// <summary>See <see cref="WantsDepthTexture"/>. Content-gated on purpose.</summary>
+        /// <summary>See <see cref="WantsDepthTexture"/>. Content-gated on purpose — and gated on
+        /// <see cref="OwnSurfaceActive"/> as well, because the whole point of the depth texture is
+        /// the GAME shader's depth-fed shoreline: once the film draws on the mod's own shader,
+        /// which reads no depth at all, that request would buy a full extra opaque scene submission
+        /// per eye for nothing. The basin never read depth either.</summary>
         internal bool NeedsDepth =>
             _tracked.Count > 0
+            && !OwnSurfaceActive
             && WaterConfig.ShoreFoam != null
             && WaterConfig.ShoreFoam.Value;
 
@@ -916,6 +1004,16 @@ internal static class WaterTerrainVR
 
         private static float WantedProbeBrightness =>
             WaterConfig.ProbeBrightness != null ? WaterConfig.ProbeBrightness.Value : 1f;
+
+        private static bool WantOwnSurface =>
+            WaterConfig.OwnSurface == null || WaterConfig.OwnSurface.Value;
+
+        /// <summary>Is the film actually drawing on the mod's own shader right now? The dial ANDed
+        /// with the shader having been reached — never the dial alone. Four rounds have ended with
+        /// a log full of intentions, so nothing in this file may report a wish as an outcome, and
+        /// a bundle that failed to yield the shader has to leave every dependent decision
+        /// (the depth request, the band writes, the census wording) exactly where it was.</summary>
+        private bool OwnSurfaceActive => WantOwnSurface && _ownShader != null;
 
         private static bool WantDebugPaint =>
             WaterConfig.DebugPaint != null && WaterConfig.DebugPaint.Value;
@@ -970,7 +1068,11 @@ internal static class WaterTerrainVR
                 return;
             _next = Time.unscaledTime + TickInterval;
 
-            // Before ReassertAll, because the flip below repaints from it in the same tick.
+            // Before Discover AND before ReassertAll: Adopt() writes the film in the same call, so
+            // a shader that resolved only afterwards would leave the first room's water on the
+            // game's material until something else moved. Both resolvers are one dictionary hit
+            // once they have succeeded.
+            MaintainOwnShader();
             MaintainPaintShader();
             Discover();
             ReassertAll();
@@ -1331,6 +1433,37 @@ internal static class WaterTerrainVR
                 return;
             }
 
+            // [Water] OwnSurface is a shader swap on our instance too, so it flips the same way and
+            // for the same reason: Material.shader= has no exact inverse. Hand every renderer its
+            // AUTHORED shared material back, destroy the instances, and re-adopt from scratch on
+            // the next tick. One frame of the game's own water is the whole cost.
+            bool own = WantOwnSurface;
+            if (own != _appliedOwnSurface)
+            {
+                _appliedOwnSurface = own;
+                if (own)
+                    MaintainOwnShader();
+                int hadOwn = _tracked.Count;
+                RestoreAll();
+                _next = 0f;
+                _nextCensus = 0f;
+                VRLog.Info(Name,
+                    "WATER SURFACE: [Water] OwnSurface went " + (own ? "ON" : "OFF") + " — "
+                    + hadOwn + " tracked renderer(s) were handed their AUTHORED shared material "
+                    + "back and every material instance we owned was destroyed; the next frame "
+                    + "re-adopts them and "
+                    + (own
+                        ? "draws the water FILM on '" + WaterOwnSurface.FilmShaderName
+                          + "' out of the mod's own bundle, in the tileset's own green at the "
+                          + "[Water] Opacity alpha, with no shoreline, no foam and no environment "
+                          + "sample. The basin keeps the property retune. Read the OWN SURFACE "
+                          + "block of the next WATER SURFACE STATE line: it counts renderers that "
+                          + "ACTUALLY carry our shader, not renderers we tried to swap."
+                        : "puts the game's own VFX/Water_Shd_Trans back on the film, which also "
+                          + "gives [Water] BodyOnly, ShoreFoam and DepthFade their meaning again."));
+                return;
+            }
+
             Camera? head = Rig.VRRigDriver.HeadCamera;
             bool granted = head != null && (head.depthTextureMode & DepthTextureMode.Depth) != 0;
             float smoothness = WantedSmoothness;
@@ -1404,6 +1537,18 @@ internal static class WaterTerrainVR
                 if (paint)
                 {
                     PaintOne(shared, inst, o.IsFilm);
+                    continue;
+                }
+
+                // ROUND FIVE. The FILM's whole material is REPLACED rather than retuned, so none
+                // of the band or reflection writes below apply to it: those name properties of
+                // VFX/Water_Shd_Trans, and the instance no longer runs that shader. Skipping them
+                // is not an optimisation — writing them would fill the census with "ABSENT FROM
+                // THIS SHADER" lines about a shader that is deliberately gone, and that is exactly
+                // the kind of line four rounds have already misread as a finding.
+                if (o.IsFilm && OwnSurfaceActive)
+                {
+                    OwnFilmOne(shared, inst);
                     continue;
                 }
 
@@ -1536,6 +1681,138 @@ internal static class WaterTerrainVR
             _paintHow = "NO BUNDLED UNLIT SHADER REACHED — painting through the game's own shader "
                         + "colour properties instead, which cannot answer the question on its own";
             return null;
+        }
+
+        // ---- ROUND FIVE: THE MOD'S OWN FILM ----------------------------------------------------
+
+        /// <summary>
+        /// Re-base ONE film material instance onto the mod's own shader, in the tileset's own
+        /// colour.
+        ///
+        /// <para>WHY THE WHOLE MATERIAL AND NOT ANOTHER PROPERTY. Two facts from hardware close the
+        /// question between them. First, <c>[Water] DebugPaint</c> was finally run and the user's
+        /// verdict is <i>"Die debug farbe funktioniert - alles färbt sich magenta wie gewollt"</i>
+        /// — so these ARE the renderers in <c>spiegeltiles.jpg</c>, and "we are tuning the wrong
+        /// objects" is dead, measured. Second, ModBuild 161's read-back proves every property this
+        /// module can reach is already neutral on the live instance, and his verdict on that was
+        /// <i>"Keine Änderungen bei der Wasser Problematik"</i> plus <i>"Ich konnte aber mit den
+        /// anderen Einstellungen die kopf-gebundene Reflektion nicht deaktivieren, egal was ich
+        /// eingestellt hab."</i> Owned renderer + every reachable property neutral + the defect
+        /// unchanged = the pale sheet and the head-bound reflection are a TEXTURE or a CONSTANT
+        /// compiled into <c>VFX/Water_Shd_Trans</c>. Nothing addressed by name can reach either.
+        /// Replacing the shader removes the whole of it, including whatever that is.</para>
+        ///
+        /// <para>WHY <c>GloomhavenVR/Overlay</c> AND NOT A PRETTIER ONE — the hard requirement is
+        /// now "samples no environment", because a head-bound reflection is precisely the thing
+        /// that cannot survive this build. Overlay's fragment is
+        /// <c>tex2D(_MainTex, uv) * _Color * i.color</c> and its source contains no
+        /// <c>unity_SpecCube</c>, no <c>reflect()</c>, no <c>samplerCUBE</c> and no cubemap input
+        /// at all — verified by sweeping the .shader file, which returned zero matches. It cannot
+        /// produce a view-dependent reflection because there is no view-dependent term in it.
+        /// <c>GloomhavenVR/EnvPuddle</c> was the first candidate and is DISQUALIFIED on exactly
+        /// this: it computes <c>float3 R = reflect(-V, N)</c> and builds its moon and candle mirror
+        /// images out of it, perturbed by the ripple normal — a head-bound reflection by
+        /// construction. See <see cref="WaterOwnSurface"/> for the second, independent reason it
+        /// could not be used here.</para>
+        ///
+        /// <para>The instance keeps the AUTHORED render queue, so the film draws exactly where the
+        /// water drew. No texture is bound: <c>_MainTex</c> declares a <c>"white"</c> default, so
+        /// clearing it leaves the tint alone on screen — and under the surviving hypothesis a
+        /// texture is the SUSPECT, so binding one would be the one move guaranteed to keep the
+        /// question open.</para>
+        /// </summary>
+        private void OwnFilmOne(Material shared, Material inst)
+        {
+            Shader? own = _ownShader;
+            if (own == null)
+                return;
+            try
+            {
+                Color authored = shared.HasProperty(ColorTintId)
+                    ? shared.GetColor(ColorTintId)
+                    : Color.white;
+                if (!WaterOwnSurface.TryBuildFilmColour(
+                        authored, WantedOpacity, out Color film, out string why))
+                {
+                    // Refused: leave this renderer on the game's material rather than paint it in
+                    // a colour this module invented. The census prints the reason.
+                    _ownNote = why;
+                    return;
+                }
+                _ownNote = why;
+
+                inst.shaderKeywords = Array.Empty<string>();
+                inst.shader = own;
+                inst.SetColor(WaterOwnSurface.TintProperty, film);
+                inst.SetTexture(WaterOwnSurface.MainTexProperty, null);
+                inst.SetFloat(WaterOwnSurface.CullProperty, WaterOwnSurface.CullOff);
+                inst.SetFloat(WaterOwnSurface.ZWriteProperty, WaterOwnSurface.ZWriteOff);
+                inst.SetFloat(WaterOwnSurface.ZTestProperty, WaterOwnSurface.ZTestLessEqual);
+                // STRAIGHT ALPHA, never additive — see WaterOwnSurface.SrcBlendSrcAlpha: One/One
+                // here would re-create the photographed defect out of the mod's own shader.
+                inst.SetFloat(
+                    WaterOwnSurface.SrcBlendProperty, WaterOwnSurface.SrcBlendSrcAlpha);
+                inst.SetFloat(
+                    WaterOwnSurface.DstBlendProperty, WaterOwnSurface.DstBlendOneMinusSrcAlpha);
+                inst.renderQueue = shared.renderQueue;
+            }
+            catch (Exception e)
+            {
+                _ownNote = "the material swap threw (" + e.GetType().Name + ") on '" + shared.name
+                           + "' — that renderer keeps the game's water, and the OWN SURFACE count "
+                           + "below is what says how many actually carry our shader";
+            }
+        }
+
+        /// <summary>
+        /// The mod's own film shader, resolved through <see cref="BundleShaders"/>.
+        ///
+        /// <para>Never a bare <see cref="Shader.Find"/>: a bundled shader referenced only from
+        /// runtime C# is never loaded, <c>Shader.Find</c> returns null with the bundle open and
+        /// nothing is thrown — the failure that has silently cost this project two shipped builds,
+        /// and one that would be indistinguishable here from a fifth round that changed nothing.
+        /// <c>BundleShaders.Resolve</c> also loads the shader ASSET out of every open bundle by
+        /// path and sweeps the loaded shader objects, and prints an inventory when all three
+        /// miss.</para>
+        ///
+        /// <para>Called from the SLOW tick only. A miss is deliberately not cached by
+        /// <see cref="BundleShaders"/> (a bundle can load later than the first lookup), so calling
+        /// it per renderer would put a <c>Shader.Find</c> and a walk of every loaded AssetBundle
+        /// into the frame once per water quad; four attempts a second picks the bundle up the
+        /// moment it arrives.</para>
+        /// </summary>
+        private Shader? MaintainOwnShader()
+        {
+            if (_ownShader != null)
+                return _ownShader;
+            if (!WantOwnSurface)
+                return null;
+            _ownShader = BundleShaders.Resolve(
+                WaterOwnSurface.FilmShaderName, Name,
+                "[Water] OwnSurface can now replace the game's water film outright — the film "
+                + "renders on the mod's own transparent shader, in the tileset's own colour, with "
+                + "no shoreline term, no foam term and NO ENVIRONMENT SAMPLE of any kind. That "
+                + "last part is the requirement: the user reports the head-bound reflection cannot "
+                + "be switched off by any property dial, and a shader with no view-dependent term "
+                + "in it cannot produce one.",
+                "[Water] OwnSurface CANNOT RUN: every water film keeps the game's own "
+                + "VFX/Water_Shd_Trans material and this build is therefore a repeat of ModBuild "
+                + "161 with no new mechanism in it. Do NOT read an unchanged pool as a finding "
+                + "until this line is gone — the OWN SURFACE block counts how many renderers "
+                + "actually carry our shader, and that count is the only thing that makes the "
+                + "photograph mean anything.");
+            // THE BUNDLE CAN ARRIVE LATE. A miss is not cached, so this retries four times a
+            // second — and a film adopted while the lookup was still missing is sitting on the
+            // game's material with no event that would ever bring it back here. Release the whole
+            // tracked set the moment the shader turns up; RestoreAll clears the tile-count memo, so
+            // the Discover() immediately after this call re-adopts every one of them onto our
+            // shader in the SAME tick.
+            if (_ownShader != null && _tracked.Count > 0)
+            {
+                RestoreAll();
+                _nextCensus = 0f;
+            }
+            return _ownShader;
         }
 
         /// <summary>
@@ -2264,6 +2541,7 @@ internal static class WaterTerrainVR
               .Append(", probe usage forced Off->BlendProbes on ").Append(_probeUsageForced)
               .Append(" renderer(s).");
 
+            AppendOwnSurface(sb);
             AppendDebugPaint(sb);
             AppendReadBack(sb);
 
@@ -2346,33 +2624,119 @@ internal static class WaterTerrainVR
                 sb.Append(" | REFLECTION unreadable: ").Append(e.GetType().Name);
             }
 
-            sb.Append(" WHAT IS ALREADY SETTLED, AND THE ORDER TO TOGGLE IN, so the next round is "
-                      + "decidable from this line alone. SETTLED: (H1 the write never landed) dead "
-                      + "— there is no property block left, and 'instancing=True' on the WATER "
-                      + "SURFACE line above is the retroactive reason ModBuild 159's block never "
-                      + "reached the shader. (The body tuning) dead as an EXPLANATION: the "
-                      + "authored _Color_Tint is dark green RGBA(0.195,0.311,0.131) and "
-                      + "spiegeltiles.jpg is a near-WHITE sheet, so no alpha on that body could "
-                      + "have produced what is on screen and three rounds of tuning it were "
-                      + "answering a question the user was not asking. STILL OPEN, in the order "
-                      + "that resolves them fastest: (1) [Water] DebugPaint ON — do this FIRST, it "
-                      + "costs one second and it is the only reading that says whether these are "
-                      + "the renderers being looked at; magenta = the film is ours, cyan = the "
-                      + "basin is what he means, unchanged pale = neither, and the FLOOR CENSUS "
-                      + "names the real one. (2) [Water] BodyOnly ON with DebugPaint back off — "
-                      + "every band term and every gloss/metal scalar at zero; if the sheet goes "
-                      + "dark green, the band WAS the white and the BAND READ-BACK above names the "
-                      + "property that carried it; if it stays pale, no property can reach the "
-                      + "pale pixels and the only remaining move is the mod's own water shader out "
-                      + "of the bundle. (3) [Water] DepthFade=Inverted — only worth trying if (2) "
-                      + "left it pale AND (1) said the renderer is ours; it flips which extreme "
-                      + "the pinned depth term sits at, which is the one lever that reaches a fade "
-                      + "term whose property name we never learned. (4) [Water] BasinSurfaces and "
-                      + "[Water] LocalProbe remain the A/Bs for the SWIMMING half of the report, "
-                      + "which is a different complaint from the paleness and must not be tested "
-                      + "in the same toggle.");
+            sb.Append(" WHAT IS SETTLED, so the next round is decidable from this line alone. "
+                      + "(1) THE WRITE LANDS. There is no property block left; every value goes on "
+                      + "a per-renderer material instance and the BAND READ-BACK reads it back off "
+                      + "that instance. 'instancing=True' on the WATER SURFACE line is the "
+                      + "retroactive reason ModBuild 159's block never reached the shader. "
+                      + "(2) THE RENDERERS ARE OURS — measured, not argued. The user ran [Water] "
+                      + "DebugPaint on hardware: 'Die debug farbe funktioniert - alles färbt sich "
+                      + "magenta wie gewollt.' Three rounds of ambiguity closed in one second, and "
+                      + "'we are tuning objects he is not looking at' is dead. (3) NO PROPERTY OF "
+                      + "THE GAME'S SHADER REACHES THE DEFECT. Every band width read back at 0, "
+                      + "every band colour at alpha 0, the keyword list empty, _Smoothness 0.08, "
+                      + "the metal/reflection ceiling 0, a flat local probe REACHING the surface — "
+                      + "and 'Keine Änderungen bei der Wasser Problematik', plus 'Ich konnte aber "
+                      + "mit den anderen Einstellungen die kopf-gebundene Reflektion nicht "
+                      + "deaktivieren, egal was ich eingestellt hab.' Owned renderer + every "
+                      + "reachable property neutral + the defect unchanged leaves exactly one "
+                      + "explanation: a TEXTURE or a CONSTANT compiled into VFX/Water_Shd_Trans. "
+                      + "THAT IS WHY [Water] OwnSurface IS ON BY DEFAULT and is the only mechanism "
+                      + "in this build that is new — it deletes the game's shader from the film "
+                      + "rather than addressing it. The OWN SURFACE block above is the one to "
+                      + "read. WHAT IS STILL A DIAL RATHER THAN AN ANSWER: [Water] BasinSurfaces "
+                      + "and [Water] LocalProbe are the A/Bs for the SWIMMING half of the report "
+                      + "on the BASIN, which is opaque ground, is not replaced by OwnSurface and "
+                      + "is a different complaint from the film's paleness — do not test them in "
+                      + "the same toggle. [Water] BodyOnly, ShoreFoam and DepthFade only mean "
+                      + "anything while OwnSurface is OFF; they address the shader OwnSurface "
+                      + "removes.");
 
             VRLog.Info(Name, sb.ToString());
+        }
+
+        /// <summary>
+        /// THE OWN SURFACE BLOCK — which shader was resolved, by which of
+        /// <see cref="BundleShaders"/>' three mechanisms, how many renderers ACTUALLY carry it,
+        /// what the look was derived from, and what a still-pale report proves after this build.
+        ///
+        /// <para>Everything here is counted off the live material instances, never off an
+        /// intention. That distinction is the whole reason this block is worth its length: ModBuild
+        /// 160's census reported <c>UNDONE: 0 re-asserts</c> — which says only that our write was
+        /// still attached — and that read as confirmation for a whole round while the surface was
+        /// unchanged.</para>
+        /// </summary>
+        private void AppendOwnSurface(System.Text.StringBuilder sb)
+        {
+            sb.Append(" | OWN SURFACE: [Water] OwnSurface=").Append(WantOwnSurface);
+            if (!WantOwnSurface)
+            {
+                sb.Append(" — the film runs the game's own VFX/Water_Shd_Trans and the band and "
+                          + "reflection writes above are what is carrying the fix. That is the "
+                          + "configuration ModBuild 161 shipped, and its verdict was 'Keine "
+                          + "Änderungen bei der Wasser Problematik'.");
+                return;
+            }
+
+            sb.Append(" shader '").Append(WaterOwnSurface.FilmShaderName).Append("' ");
+            if (_ownShader == null)
+            {
+                sb.Append("NOT RESOLVED — the mod's bundle did not yield it, EVERY FILM IS STILL "
+                          + "ON THE GAME'S MATERIAL, and this build carries no new mechanism at "
+                          + "all. An unchanged pool proves NOTHING while this line reads NOT "
+                          + "RESOLVED; the BUNDLED SHADER error line earlier in this log carries "
+                          + "the inventory that says whether the bundle loaded.");
+                return;
+            }
+            sb.Append("resolved via ").Append(BundleShaders.How(WaterOwnSurface.FilmShaderName));
+
+            int filmTracked = 0, filmOwned = 0;
+            for (int i = 0; i < _tracked.Count; i++)
+            {
+                Renderer r = _tracked[i];
+                if (r == null || !_owned.TryGetValue(r, out Owned o) || !o.IsFilm)
+                    continue;
+                filmTracked++;
+                Material? inst = o.Instances.Length > 0 ? o.Instances[0] : null;
+                if (inst != null && ReferenceEquals(inst.shader, _ownShader))
+                    filmOwned++;
+            }
+
+            sb.Append(". SWAPPED: ").Append(filmOwned).Append(" of ").Append(filmTracked)
+              .Append(" film renderer(s) actually DRAW with the mod's material now (read off the "
+                      + "instance's live shader, not counted from the calls). The basin is "
+                      + "deliberately NOT swapped — it is opaque ground, not a film, and keeps the "
+                      + "property retune. DERIVED FROM THE TILESET'S OWN VALUES: ")
+              .Append(_ownNote)
+              .Append("; render queue kept at the authored value so the film draws exactly where "
+                      + "the water drew; no texture bound (_MainTex defaults to \"white\", and a "
+                      + "texture is the prime SUSPECT, so binding one would keep the question "
+                      + "open); blend SrcAlpha/OneMinusSrcAlpha, ZWrite off, two-sided. WHAT THIS "
+                      + "SHADER CANNOT DO, which is the point: GloomhavenVR/Overlay's fragment is "
+                      + "tex2D(_MainTex,uv) * _Color * vertexColour and its source contains no "
+                      + "unity_SpecCube, no reflect(), no samplerCUBE and no cubemap input — so it "
+                      + "has no view-dependent term and CANNOT produce a head-bound reflection, "
+                      + "which the user reports no property dial could switch off. It also has no "
+                      + "shoreline, no foam and no depth read, so no band can be pinned on by a "
+                      + "missing _CameraDepthTexture. The price is stated rather than hidden: this "
+                      + "film does not ripple.");
+
+            sb.Append(" WHAT A STILL-PALE REPORT PROVES AFTER THIS BUILD, and read it in this "
+                      + "order. The user has now run [Water] DebugPaint on hardware — 'Die debug "
+                      + "farbe funktioniert - alles färbt sich magenta wie gewollt' — so 'these "
+                      + "are not our renderers' is SETTLED AND DEAD: the pale hexes are this "
+                      + "driver's tracked water film. With the renderer confirmed ours, every band "
+                      + "width read back at 0, every band colour at alpha 0, the keyword list "
+                      + "empty, _Smoothness at 0.08, the metal/reflection ceiling at 0 and a flat "
+                      + "local probe reaching the surface, the pale sheet AND the head-bound "
+                      + "reflection can only have come from a texture or a constant compiled into "
+                      + "VFX/Water_Shd_Trans — which is exactly what this build removes. So: if "
+                      + "SWAPPED above equals the film count and the pool is STILL pale, the "
+                      + "material swap took and the pale pixels are not being drawn by the film's "
+                      + "material at all, which means a SECOND renderer is stacked over it and the "
+                      + "FLOOR CENSUS is where to look. If SWAPPED is 0 or short of the film "
+                      + "count, the swap FAILED on those renderers and the photograph says nothing "
+                      + "about the hypothesis — that is a defect in this driver, not a finding.");
         }
 
         /// <summary>
@@ -2472,6 +2836,19 @@ internal static class WaterTerrainVR
                           + "instance, so the band properties are not what it draws with.");
                 return;
             }
+            if (OwnSurfaceActive)
+            {
+                sb.Append("suppressed — [Water] OwnSurface has replaced this instance's whole "
+                          + "material, so VFX/Water_Shd_Trans' band properties are not what it "
+                          + "draws with and printing them would report on a shader that is "
+                          + "deliberately gone. The OWN SURFACE block above is the read-back that "
+                          + "applies now. Everything this block used to say is settled: every band "
+                          + "width read back at 0 and every band colour at alpha 0 on ModBuild "
+                          + "161, the user's verdict was 'Keine Änderungen bei der Wasser "
+                          + "Problematik', and [Water] DebugPaint has since confirmed on hardware "
+                          + "that the renderers are ours.");
+                return;
+            }
 
             try
             {
@@ -2496,15 +2873,16 @@ internal static class WaterTerrainVR
                   .Append(" -> instance ")
                   .Append(inst.IsKeywordEnabled(EdgeColourKeyword) ? "STILL ON" : "OFF")
                   .Append("; instance keywords=[").Append(string.Join(",", inst.shaderKeywords))
-                  .Append("]. THE READING THAT MATTERS: the authored body is dark green "
-                          + "RGBA(0.195,0.311,0.131) and spiegeltiles.jpg shows a near-WHITE "
-                          + "sheet, so if every band value above is 0 and the surface is STILL "
-                          + "pale, the pale pixels come from a texture or from a constant compiled "
-                          + "into VFX/Water_Shd_Trans, no shader property can reach them, and the "
-                          + "only remaining move is a water shader of the mod's own out of the "
-                          + "bundle. Turn [Water] BodyOnly on to make that conclusion clean, and "
-                          + "[Water] DebugPaint on to confirm the renderer is ours before drawing "
-                          + "it.");
+                  .Append("]. THE READING THAT MATTERS, and it has already been taken: ModBuild "
+                          + "161 read every one of these back at 0 / alpha 0 with an empty keyword "
+                          + "list, [Water] DebugPaint has since proved on hardware that these "
+                          + "renderers are ours, and the user's verdict was still 'Keine "
+                          + "Änderungen bei der Wasser Problematik'. So the pale sheet and the "
+                          + "head-bound reflection come from a texture or a constant compiled into "
+                          + "VFX/Water_Shd_Trans and no shader property reaches them. This block "
+                          + "is now only running because [Water] OwnSurface is OFF or its shader "
+                          + "did not resolve — the mechanism that answers this is the OWN SURFACE "
+                          + "block, which replaces the whole material rather than tuning it.");
             }
             catch (Exception e)
             {
@@ -2625,8 +3003,48 @@ internal static class WaterTerrainVR
                         sb.Append("<no material>");
                     else if (WantDebugPaint)
                         sb.Append("suppressed — [Water] DebugPaint owns this instance's shader");
+                    else if (OwnSurfaceActive)
+                        sb.Append("suppressed — [Water] OwnSurface has replaced this material "
+                                  + "outright; the band belongs to a shader this instance no "
+                                  + "longer runs");
                     else
                         ApplyWaterFilm(mat, inst, sb);
+                }
+                catch (Exception e)
+                {
+                    sb.Append("unreadable: ").Append(e.GetType().Name);
+                }
+
+                // THE ONE TERM OF OUR OWN SHADER THAT COMES FROM THE MESH RATHER THAN FROM US.
+                // GloomhavenVR/Overlay's fragment is tex2D(_MainTex,uv) * _Color * i.color, so a
+                // quad that ships a COLOR channel multiplies our tint by it — and a dark or
+                // zero-alpha vertex colour would make the film darker or invisible for a reason no
+                // property of ours could explain. HasVertexAttribute answers that without touching
+                // mesh.colors32, which would allocate and would log an error on a non-readable
+                // mesh. Read once per material, in the capped heavy line.
+                sb.Append(" | FILM MESH: ");
+                try
+                {
+                    var mf = r.GetComponent<MeshFilter>();
+                    Mesh? mesh = mf != null ? mf.sharedMesh : null;
+                    if (mesh == null)
+                    {
+                        sb.Append("no MeshFilter/sharedMesh (a SkinnedMeshRenderer or a "
+                                  + "procedural quad) — vertex colour unknown");
+                    }
+                    else
+                    {
+                        bool hasColour = mesh.HasVertexAttribute(VertexAttribute.Color);
+                        sb.Append('\'').Append(mesh.name).Append("' vertexColour=")
+                          .Append(hasColour)
+                          .Append(hasColour
+                              ? " — GloomhavenVR/Overlay MULTIPLIES its tint by the mesh's vertex "
+                                + "colour, so if [Water] OwnSurface produces a film that is darker "
+                                + "than the tint above, or invisible in places, this is where it "
+                                + "comes from and no property of ours can correct it"
+                              : " — nothing modulates our tint, so the film draws exactly the "
+                                + "colour named in the OWN SURFACE block");
+                    }
                 }
                 catch (Exception e)
                 {

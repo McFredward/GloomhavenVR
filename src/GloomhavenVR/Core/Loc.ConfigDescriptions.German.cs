@@ -2418,6 +2418,32 @@ internal static partial class Loc
                 + "weil das Wasser ohne sie richtig aussähe: das tut es nicht, und dies ist der einzige "
                 + "Schalter, mit dem du prüfen kannst, ob dem Ufersaum die ganze Zeit nur eine echte "
                 + "Tiefentextur gefehlt hat. BodyOnly übersteuert ihn. Gilt nur in Räumen mit Wasser.",
+            ["Water/OwnSurface"] =
+                "Gibt dem WASSERFILM ein eigenes Material des Mods, statt das des Spiels "
+                + "nachzuregeln. Das Wasser wird weiterhin dargestellt, an derselben Stelle in der "
+                + "Zeichenreihenfolge und in der Farbe, die das Spiel selbst gestaltet hat — was "
+                + "sich ändert, ist der Shader dahinter: GloomhavenVR/Overlay aus dem Bundle des "
+                + "Mods statt VFX/Water_Shd_Trans des Spiels. WARUM: Vier Runden Feineinstellung "
+                + "werden inzwischen direkt vom lebenden Material zurückgelesen, und alle sind "
+                + "angekommen — jede Ufer-, Schaum- und Randbreite auf 0, jede Saumfarbe auf "
+                + "Deckkraft 0, die Schlüsselwortliste leer, jeder Glanz- und Metallwert auf 0 — "
+                + "und der Tümpel ist immer noch eine blasse, milchige Fläche, HELLER als der "
+                + "Stein ringsum, wo das Spiel ein dunkles Grün gestaltet. Dazu die Rückmeldung, "
+                + "dass sich die kopf-gebundene Spiegelung mit keiner Einstellung abschalten "
+                + "ließ, und der DebugPaint-Test, der bewiesen hat, dass der Mod genau diese "
+                + "Flächen im Griff hat. Damit bleibt nur eine Erklärung: Das Blasse und die "
+                + "Spiegelung stecken in einer Textur oder einer fest einkompilierten Konstante "
+                + "IM Shader des Spiels, und kein Regler erreicht sie. Dieser Schalter löscht "
+                + "diesen Shader von der Fläche. Der Shader des Mods tastet KEINE Umgebung an — "
+                + "keine Reflexionssonde, kein Würfeltextur-Eingang, kein blickabhängiger Anteil "
+                + "— er KANN also gar keine mitschwimmende Spiegelung erzeugen. WAS DU DAFÜR "
+                + "AUFGIBST: Dieser Film wellt sich nicht. Er ist eine flache, ruhige, "
+                + "durchscheinende Fläche in der Wasserfarbe des Spiels bei [Water] Opacity, weil "
+                + "der Overlay-Shader des Mods keinen Platz für die Wellen-Normalen des Spiels "
+                + "hat. Beckenbett und Rand unter dem Wasser werden NICHT ersetzt — das ist "
+                + "undurchsichtiger Boden, kein Film, und behält die übliche Nachregelung. AUS "
+                + "stellt sofort den Wasser-Shader des Spiels wieder her und gibt [Water] "
+                + "BodyOnly, ShoreFoam und DepthFade ihren Sinn zurück.",
             ["Water/DebugPaint"] =
                 "DIAGNOSE — färbt jeden Wasser-Renderer, den der Mod übernommen hat, in einer flachen, "
                 + "unverwechselbaren Farbe ein und schaltet die Beleuchtung des Spiels dafür komplett ab: "
@@ -2428,7 +2454,12 @@ internal static partial class Loc
                 + "macht; TÜRKIS heißt, du siehst den Beckenboden unter dem Wasser; BLASS UND WEISS heißt, "
                 + "der Mod regelt Objekte nach, die du gar nicht siehst — dann nennt die FLOOR CENSUS im "
                 + "Log, was du wirklich vor dir hast. Genau an dieser Unklarheit sind drei Runden "
-                + "gescheitert. Danach wieder ausschalten, der Mod stellt die Materialien sofort her.",
+                + "gescheitert. DU HAST ES INZWISCHEN LAUFEN LASSEN, UND DIE ANTWORT WAR MAGENTA — "
+                + "der Mod hat die Flächen im Griff, auf die du gezeigt hast; genau deshalb ist "
+                + "[Water] OwnSurface der richtige nächste Schritt gewesen. Behalte den Schalter: "
+                + "Er bleibt der schnellste Weg, diesen Besitz in einer Sekunde erneut zu "
+                + "bestätigen, falls sich am Tümpel wieder etwas ändert. Danach wieder "
+                + "ausschalten, der Mod stellt die Materialien sofort her.",
             ["Water/BodyOnly"] =
                 "LETZTES MITTEL — zwingt den Wasserfilm auf nichts als seine eigene gestaltete Farbe "
                 + "(dunkelgrün) bei gedeckelter Deckkraft, mit jedem Ufer-, Schaum- und Randanteil auf "
@@ -2436,11 +2467,13 @@ internal static partial class Loc
                 + "Foto (spiegeltiles.jpg) zeigt eine fast WEISSE Fläche dort, wo das Spiel ein "
                 + "dunkelgrünes Wasser gestaltet — die sichtbaren Pixel sind also der Ufersaum und nicht "
                 + "der Wasserkörper. Dieser Schalter entfernt jeden Saum, den der Shader anbietet, auf "
-                + "einmal und unabhängig von ShoreFoam. Ist die Fläche damit IMMER NOCH weiß, während "
-                + "DebugPaint belegt hat, dass der Mod den Renderer besitzt, dann kommt das Weiß aus einer "
-                + "Textur oder aus einer fest einkompilierten Konstante des Shaders, keine Einstellung "
-                + "erreicht es, und es hilft nur noch ein eigener Wasser-Shader des Mods — das Log sagt "
-                + "das dann genau so, statt eine weitere Vermutung anzubieten.",
+                + "einmal und unabhängig von ShoreFoam. WIRKT NUR, SOLANGE [Water] OwnSurface AUS "
+                + "IST: Dieser Schalter regelt den Wasser-Shader des SPIELS nach, und OwnSurface "
+                + "ersetzt genau diesen Shader. Seine eigene Frage ist bereits beantwortet — das "
+                + "Log hat jeden Saum am lebenden Material auf null zurückgelesen und die Fläche "
+                + "blieb blass; genau deshalb wurde OwnSurface gebaut und ist standardmäßig an. "
+                + "Behalte diesen Schalter für den A/B-Vergleich, wie das Wasser des Spiels ohne "
+                + "jeden Saum aussieht.",
             ["Water/DepthFade"] =
                 "In welche Richtung die Tiefenblende des Shaders zeigt (_InvertDepthFade, gestaltet 0). "
                 + "Die VR-Kopfkamera schreibt keine Tiefentextur, dieser Anteil ist also über die ganze "

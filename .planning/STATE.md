@@ -126,6 +126,33 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 162** (bundle unchanged, 67,164,721 bytes) — **five builds optimised the wrong
+  invariant, and one second of headset time closed what three rounds of logs could not.**
+  * **"Mitzoomen" never meant what five builds took it to mean.** ModBuild 161's log proves the
+    board held perfectly still *in the eye* — 47.3 cm, 0.62 m, 41°, through rig ×22 → ×64 — and the
+    user still rejected it, because the same log shows the board travelling through the room
+    (`world pos (41.46,22.11,14.41) → (38.02,19.35,15.36)`, `world scale 47.662 → 41.826`) on every
+    pinch. **He was always talking about the WORLD, never about his eye.** Read that way, every
+    report from 158 onward is the same report. Ruling, final: *"Fixiert heißt FIX. Keinerlei
+    Abhängigkeit zum Spieler mehr, sondern fix in der Welt."*
+  * **The zoom carry is deleted.** The delta from 158 is 137 lines in two files, no new component.
+    While FIXIERT and not grabbed, nothing writes the board's world transform (every writer was
+    counted; only the rig-rebuild carry remains). The min/max divisor is the pin holder instead of
+    the live rig, so the settings window stops riding the zoom.
+  * **A diagnostic that measures the player frame will agree with any build that rides the player.**
+    Five versions of the board line did exactly that. `BOARD ANCHOR` now prints the WORLD pose and
+    WORLD scale and calls a move a defect.
+  * **The water mirror is inside the game's shader.** `[Water] DebugPaint` came back **magenta**, so
+    we own the renderers; and the read-back off the live material instance shows every band at 0,
+    the keyword list empty, `_Smoothness` at 0.08 and a flat probe reaching the surface. Only a
+    texture or a compiled-in constant is left, and no property can reach it. The film's material is
+    now replaced with a mod-owned one on `GloomhavenVR/Overlay` (source-linted to contain no
+    environment sample). `EnvPuddle` was disqualified — it computes `reflect(-V, N)`, i.e. the
+    reported defect under a new name. **Price: this film does not ripple** until a shader is
+    authored into the bundle.
+  * **Ship the one-second diagnostic sooner.** `DebugPaint` was written in round four and answered
+    in round five what rounds two and three could not.
+
 - **ModBuild 161** (bundle unchanged, 67,164,721 bytes) — **the board half of 160 is REVERTED on the
   user's instruction, and both defects turned out to be a term nobody had looked at.**
   * **The zoom pivots on the HANDS, not the head** — `Rig/WorldGrab.cs:400`,

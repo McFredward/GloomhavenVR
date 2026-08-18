@@ -673,29 +673,21 @@ internal sealed partial class PlayTray
         {
             float adjusted = live / trayScale;
             CardsConfig.BoardScale(board).Value = adjusted;
-            // WARN, not Info, and this line is the SECOND half of the user's 2026-08-15 report
-            // ("weiterhin hat sich damit auch das maximum und minimum wieder verschoben"). The
-            // re-seat is a RATCHET: BoardScale_{board} is also what the settings window measures
-            // its own range against (0.5–2 × BoardScale), so every absorption MOVES the range the
-            // player can dial. His ModBuild 158 log fired it twice in one session — Steel re-seated
-            // to 1.00 (window 0.27–1.09 → 0.50–2.00) and then to 1.13 (→ 0.57–2.25).
-            //
-            // IT IS DELIBERATELY NOT "FIXED" IN ModBuild 161, because its TRIGGER may already be
-            // gone. The releases that fired it were sizes the two factors could not express
-            // between them, and the player could only reach those because GrabScaleLimits drifted
-            // with the zoom (apparent width per scale unit = parent chain ÷ rig scale, with a pin
-            // holder frozen at pin time). BoardZoomCarry keeps that ratio constant now, so the
-            // gesture window no longer wanders — and widening the persistence band on the same
-            // build would make the next hardware log unable to say which change did it. If this
-            // line appears in a ModBuild 161 log, the ratchet has an independent trigger and the
-            // band is what to widen; if it does not appear, the window was the whole of it.
+            // WARN, not Info: this re-seat is a RATCHET and it is the second half of the user's
+            // 2026-08-15 size report ("weiterhin hat sich damit auch das maximum und minimum wieder
+            // verschoben"). BoardScale_{board} is what the settings window measures its OWN range
+            // against (0.5–2 × BoardScale), so every absorption MOVES the range the player can dial
+            // — his ModBuild 158 log fired it twice in one session, Steel 0.54 → 1.00 → 1.13.
+            // ModBuild 162 does not widen the band, because the releases that could reach outside it
+            // were only reachable while the gesture window itself drifted with the zoom, and that
+            // divisor is now the pin holder rather than the live rig (TryGetApparentWidthPerScaleUnit).
+            // If this line appears in a 162 log the ratchet has an independent trigger and the band
+            // is what to widen next; if it does not appear, the drifting window was the whole of it.
             VRLog.Warn("Cards", $"Board size {live:F2}× is outside what TrayScale alone can express " +
                                 $"(0.5–2 × BoardScale {boardScale:F2} = {0.5f * boardScale:F2}–" +
                                 $"{2f * boardScale:F2}): BoardScale_{board} re-seated to {adjusted:F2} " +
                                 "so the size the player set survives every future re-place. THIS MOVES " +
-                                "THE SETTINGS WINDOW'S OWN MIN/MAX — report this line, it is the second " +
-                                "half of the 2026-08-15 size report and ModBuild 161 deliberately left " +
-                                "its trigger in place to find out whether the zoom-drift fix removed it.");
+                                "THE SETTINGS WINDOW'S OWN MIN/MAX — report this line.");
         }
         VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
                             $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +

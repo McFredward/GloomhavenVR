@@ -40,9 +40,6 @@ internal static class Program
             // failure that kept [Rig] Experimental3DMap unimplemented — and it is decidable from
             // four numbers without a headset.
             MapRoomSeatVectors.Run(t);
-            // Whether the player's own instrument rides the world zoom — four user reports that must
-            // all be true at once, plus a SOURCE LINT on the frame phase, which no vector can express.
-            BoardZoomCarryVectors.Run(t, repoRoot);
             // Which shader property is the mirror, and which way it points. ModBuild 160 writes
             // onto shaders whose property names nobody here has ever read (they ship compiled in
             // the game's bundles), so the one thing holding that up is the invariant that no cap
@@ -50,6 +47,12 @@ internal static class Program
             // from inside a headset, and has now cost three hardware rounds.
             WaterReflectionVectors.Run(t);
             WaterEdgeVectors.Run(t);
+            // Round five: the film's whole material is replaced rather than retuned, and the two
+            // things that would silently undo that are properties of TEXT — the replacement shader
+            // acquiring an environment sample (the head-bound reflection is the symptom the user
+            // cannot switch off) and the blend going additive (which re-creates the pale sheet out
+            // of the mod's own shader). Both are linted against the .shader source.
+            WaterOwnSurfaceVectors.Run(t, repoRoot);
         }
         catch (Exception e)
         {

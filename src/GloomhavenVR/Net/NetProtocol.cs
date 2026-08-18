@@ -416,7 +416,96 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 161;
+    public const ushort ModBuild = 162;
+    // Build 162: FIX MEANS FIX, AND THE MIRROR IS INSIDE THE SHADER. Nothing on the wire; every
+    // packet is byte-identical to build 161's. The bundle is unchanged.
+    //
+    // ── 1. THE BOARD: THE RULING IS TAKEN LITERALLY THIS TIME ──────────────────────────────────
+    // User, 2026-08-18, on build 161: "Bei 'Fixiert' zoomed das board wieder mit anstatt statisch zu
+    // sein! Das DARF NICHT SEIN. Fixiert heißt FIX. Keinerlei Abhängigkeit zum Spieler mehr, sondern
+    // fix in der Welt."
+    //
+    // BUILD 161 DID EXACTLY WHAT IT SET OUT TO DO, and the log proves it: apparent width constant at
+    // 47.3 cm, distance ~0.62 m, subtended angle ~41°, through rig scales ×22 → ×64. In the player's
+    // EYE the board did not move at all. It was still wrong, and the reason is that "mitzoomen"
+    // never meant what five builds took it to mean.
+    //
+    // WHAT HE HAS BEEN SAYING SINCE THE FIRST REPORT: the board moves and rescales IN THE WORLD when
+    // he zooms. The same log line that proves the eye held still also shows
+    //     PINNED tray transform WRITE [zoom carry (rig ×64.54 → ×56.63)]:
+    //         world pos (41.46, 22.11, 14.41) → (38.02, 19.35, 15.36), world scale 47.662 → 41.826
+    // — the board travelling through the room and changing size every time he pinched. Read that
+    // way, every report is the same report: 158 dragged it by the hand, 159 rescaled it, 160 and 161
+    // carried its whole pose. FIVE BUILDS OPTIMISED THE WRONG INVARIANT, and each time a diagnostic
+    // that measured the PLAYER frame agreed with the build.
+    //
+    // SO THE ZOOM CARRY IS DELETED — files, driver registration, vectors, project entries. The
+    // delta from ModBuild 158 is now 137 lines in two files and no new component:
+    //   * WHILE FIXIERT AND NOT GRABBED, NOTHING WRITES THE BOARD'S WORLD TRANSFORM. Every writer
+    //     was counted: PlaceAtHead, RestorePose, ReapplyOrientation and the lost-board recovery are
+    //     explicit actions; ClampApparentSize is FOLLOW-only; the one remaining automatic write is
+    //     the tracking-origin carry on a rig rebuild/recentre, which has been there since 158 and
+    //     exists so a scenario start does not strand the board at the old seat. The pinned freeze
+    //     sentinel names anything else, by design.
+    //   * THE MIN/MAX NO LONGER DIVIDE BY THE PLAYER. `TryGetApparentWidthPerScaleUnit` measured the
+    //     board's width in PLAYER metres — world width ÷ the LIVE rig scale — so the one number the
+    //     settings window and the two-hand gesture are expressed in wandered with the zoom while the
+    //     board itself stood still. That is the second half of his 2026-08-15 report and it is a
+    //     dependency on the player, which the ruling forbids. While pinned the divisor is now the
+    //     PIN HOLDER (the rig scale as it was at pin time), so the window is constant at every zoom.
+    //     FOLLOW mode keeps the live rig scale and must: there the board really does hang off the
+    //     player, and a frozen divisor would let the 2026-08-03 "extrem winzig" shrink-onto-shrink
+    //     multiplication back in.
+    //   * THE DIAGNOSTIC MEASURES THE INVARIANT THAT WAS ASKED FOR. `BOARD ANCHOR` prints the
+    //     board's WORLD position and WORLD scale with the rig scale beside them, and a verdict: a
+    //     move above float noise (0.1 mm, 0.05 %) while FIXIERT and not held is reported as A
+    //     DEFECT, with a pointer to the writer line at the same timestamp. Every earlier version of
+    //     this line reported a player-frame quantity — apparent width, then distance and subtended
+    //     angle — and each of those is CONSTANT for a board that is riding the player. That is how a
+    //     diagnostic agrees with five builds the user rejected.
+    //   * WHAT HE WILL SEE, and it is the point rather than a defect: a pinned board is now world
+    //     geometry, so zooming changes how big it looks exactly as it changes how big the dungeon
+    //     looks. It stays nailed to its spot in the room.
+    //
+    // ── 2. THE WATER: THE RENDERER IS OURS, SO THE MIRROR IS IN THE SHADER ─────────────────────
+    // User, same round: "Keine Änderungen bei der Wasser Problematik." Then, decisively, after
+    // running the diagnostic build 161 shipped for exactly this: "Die debug farbe funktioniert -
+    // alles färbt sich magenta wie gewollt. Ich konnte aber mit den anderen Einstellungen die
+    // kopf-gebundene Reflektion nicht deaktivieren, egal was ich eingestellt hab."
+    //
+    // ONE SECOND OF HEADSET TIME CLOSED THE BRANCH THREE ROUNDS OF LOGS COULD NOT. `[Water]
+    // DebugPaint` came back magenta: WE OWN THE RENDERERS HE IS LOOKING AT. Combined with build
+    // 161's `BAND READ-BACK` — read off the LIVE material instance after the writes, so it is what
+    // the shader samples, not what we called — every band width is 0, every band colour is at alpha
+    // 0, the keyword list is empty, `_Smoothness` is 0.08, the metal/reflection ceiling is 0, and a
+    // flat local cubemap probe reaches the surface. Only one explanation survives: THE PALE SHEET
+    // AND THE HEAD-BOUND REFLECTION ARE A TEXTURE OR A CONSTANT COMPILED INTO
+    // `VFX/Water_Shd_Trans`, and no shader property can reach them. Four rounds of dials were
+    // answering a question the surface does not listen to.
+    //
+    // `[Water] OwnSurface` (default ON) therefore REPLACES the film's material with a mod-owned one
+    // instead of retuning the game's.
+    //   * `GloomhavenVR/EnvPuddle` was the obvious pick and is DISQUALIFIED: it computes
+    //     `reflect(-V, N)` with a ripple-perturbed normal — the head-bound reflection, re-shipped
+    //     under a new name — and its whole shape is authored against `PuddleMesh`'s radial UVs, so
+    //     its meniscus constant would draw a bright hairline across every water hex.
+    //     `EnvGround` and `HeadUnlit` are opaque. `GloomhavenVR/Overlay` is one transparent pass
+    //     whose source contains no `unity_SpecCube`, no `reflect(`, no cubemap sampler of any kind —
+    //     it CANNOT produce a view-dependent term — and a wire test now lints that, so a future edit
+    //     to Overlay cannot silently re-open the reflection.
+    //   * The look is built from the water's OWN authored values: `_Color_Tint` hue verbatim, alpha
+    //     `min(authored 0.737, [Water] Opacity)`, authored renderQueue kept, no texture bound.
+    //     THE STATED PRICE: Overlay declares no normal input, so this film does not ripple — a flat,
+    //     still, translucent sheet. That is a deliberate trade for a defect that five rounds could
+    //     not otherwise reach, it is reversible on one dial, and an animated replacement needs a
+    //     shader authored into the bundle, which is a bundle rebuild and a separate round.
+    //   * The basin keeps the property retune; the film only is swapped.
+    //   * "Not our renderers" is no longer offered as a branch anywhere in the log, because it is
+    //     settled. A still-pale report after this build means either a SECOND renderer stacked over
+    //     the film (the FLOOR CENSUS names it) or that the swap did not take — and the `OWN SURFACE`
+    //     block counts shaders read back off the live instances, never calls made, so a failed swap
+    //     reads as a failure instead of as an answer.
+    //
     // Build 161: THE ZOOM PIVOTS ON THE HANDS, AND THE WHITE IS THE EDGE BAND. Nothing on the wire;
     // every packet is byte-identical to build 160's. The bundle is unchanged.
     //

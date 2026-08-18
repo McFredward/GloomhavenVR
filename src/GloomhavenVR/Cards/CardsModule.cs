@@ -74,11 +74,6 @@ internal sealed class CardsModule : IVRModule
         Object.DontDestroyOnLoad(_driverGo);
         _driverGo.hideFlags = HideFlags.HideAndDontSave;
         _driverGo.AddComponent<CardsDriver>();
-        // The FIXIERT zoom carry. A SECOND component, on the same GameObject, purely so it can carry
-        // [DefaultExecutionOrder(20000)] without freezing an order on CardsDriver — see
-        // BoardZoomCarryDriver for why that one read must happen after every Update-phase rig writer
-        // AND after VRRigDriver.LateUpdate's tilt heal, and what shipped when it did not.
-        _driverGo.AddComponent<BoardZoomCarryDriver>();
 
         VRLog.Info(Name, "Card hand installed (fan + tray + half selection + pile viewer; " +
                          "2D hand visually suppressed).");
