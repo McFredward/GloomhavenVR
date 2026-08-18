@@ -151,6 +151,19 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\MapRoom\MapRoomSeat.cs" Link="worldui\MapRoomSeat.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, and here for the FigureStretchMath reason at its sharpest: it decides how
+       big the control board is allowed to be and how big it currently LOOKS, and both are observed
+       only from inside a headset, one zoom sweep at a time. The bound was a function of the live
+       rig scale through four shipped builds (ModBuild 35/39/57/73) because the tray's parent chain
+       was assumed to carry the player's scale and, while FIXIERT, did not — nothing threw, nothing
+       logged, and the tester reported the same defect three times ("das Minimum und Maximum des
+       boards ist immer noch abhängig von der Größe meiner Maske"). BoardSizeFrame.cs was written
+       free of everything but Mathf precisely so it could be linked in here and driven at his own
+       recorded rig scales. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\BoardSizeFrame.cs" Link="cards\BoardSizeFrame.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
@@ -186,6 +199,7 @@
          links no mod source: it reads src/ as TEXT and recomputes the formula. -->
     <Compile Include="CardFaceRectVectors.cs" />
     <Compile Include="MapRoomSeatVectors.cs" />
+    <Compile Include="BoardSizeVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

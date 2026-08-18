@@ -416,7 +416,90 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 158;
+    public const ushort ModBuild = 159;
+    // Build 159: THE WATER IS WATER, AND THE BOARD'S SIZE BOUND WAS DIVIDED BY THE PLAYER. Nothing
+    // on the wire; every packet is byte-identical to build 158's. The bundle is unchanged.
+    //
+    // THE WATER IS RENDERED AGAIN, BY USER RULING: "Das Wasser soll auf jeden Fall dargstellt werden
+    // - aber eben in einer VR-freundlichen Variante. Einfach ausblenden ist keine Option." ModBuild
+    // 158's hide path and its `[Water] HideTerrainWaterInVR` dial are DELETED, not defaulted off.
+    //   * WHAT IT IS, since he asked: 17 `TERRAIN_Water_Plane` quads, material
+    //     `TERRAIN_GEN_WaterPlane_Crypt_Mat`, the game's `VFX/Water_Shd_Trans` — an animated,
+    //     depth-faded, edge-foamed water surface over the tileset's own sunken basin. It is water,
+    //     it belongs there, and it is supposed to look like water.
+    //   * WHERE THE MIRROR COMES FROM: not a broken effect — the reflection environment. The census
+    //     reads `reflectionMode=Skybox reflectionIntensity=0.5 customReflection=<null> liveProbes=0`
+    //     against `_Smoothness = 0.754`. A near-mirror surface asks for a local probe, THE SCENE HAS
+    //     NOT ONE, so the engine hands it the skybox. Flat, you look almost straight down and the
+    //     reflection vector points into the dark part of that sky; across a VR table you see it at
+    //     GRAZING angles from a moving head and the vector sweeps the bright sky.
+    //   * AND A SECOND, INDEPENDENT CAUSE for "you cannot see the tiles underneath": the head camera
+    //     runs `depthTextureMode=None` (turned off in the 2026-07 submission-cost pass, because on
+    //     the built-in forward path that texture costs a full extra opaque render PER EYE), while
+    //     the shader's depth fade and shore foam read `_CameraDepthTexture`. Unfed, the fade pins at
+    //     one extreme and paints a SHEET instead of a FILM.
+    //   * FIX: per-renderer MaterialPropertyBlock on the game's own quads, derived from each
+    //     material's authored values — shared materials never written, ripple and hue untouched, and
+    //     every term a material CONSTANT, so it is per-eye identical rather than the screen-space
+    //     shape that parked the masonry fade. Smoothness 0.754 -> 0.08 (the lobe widens, the sampled
+    //     sky collapses to its average and stops swinging with the head); tint alpha 0.737 -> 0.45 so
+    //     the floor reads through; the unfed edge term neutralised BY COLOUR rather than by distance,
+    //     because zeroing a distance depends on the sign of a term inside a shader we cannot open.
+    //     `[Water] ShoreFoam` opts into the depth prepass and hands the authored foam back.
+    //   * THE FLICKER HAD A DIFFERENT CAUSE THAN ASSUMED: nothing re-enables those renderers — THEY
+    //     ARE DESTROYED AND RE-INSTANTIATED. They are Apparance prefab instances and every content
+    //     rebuild destroys and re-creates them; there is no pooling anywhere in that DLL and it never
+    //     writes `Renderer.enabled` at all. 158's round-robin took up to 2.75 s to re-hide the new
+    //     instance, and that gap IS the flicker. Closed from both ends: nothing writes visibility any
+    //     more, so there is no state to lose, and the respawn now has an EVENT (a postfix on
+    //     `ProceduralBase.NotifyContentPlacementComplete`) instead of a poll.
+    //
+    // THE HOVER HINT WAS BROKEN FOR FOUR PROP CLASSES, NOT FOR WATER. Water is `TerrainWater` ->
+    // `CObjectDifficultTerrain`, movement cost 2, and it HAS a card (`UIPropInfoPanel.
+    // ShowDifficultTerrain`). But that card's only trigger is `HoverRegisterer.Update`, which rays
+    // `Camera.main.ScreenPointToRay(InputManager.CursorPosition)` — and the mod projects its faked
+    // cursor through the HEAD camera while `Camera.main` is the parked, frozen orbit camera. Two
+    // cameras, two poses; the hover ray lands nowhere near the laser. Traps, hazardous terrain and
+    // spawners were silent the same way and nobody had reported them, because `WorldspaceStarHex
+    // Display.ShowTooltipForTile` — the second source that keeps doors and chests working — HAS NO
+    // BRANCH FOR ANY `Terrain*` TYPE AND NONE FOR `Trap`. Fixed with a prefix that rays
+    // `BoardPick.TryGetGameRay` against the registerer's OWN serialized `targetLayer` (read by field
+    // ref, because that mask lives in a shipped scene asset and hard-coding it would be a guess) and
+    // runs the original's bookkeeping ON THE GAME'S OWN LISTS — so "a card is showing" is identical
+    // to "this IHoverable is in the list" by construction, and an unpatch mid-session resumes on
+    // consistent state. The parked mouse cannot drive it: this path never reads CursorPosition and
+    // never touches a camera, so there is no pixel for it to sit at.
+    //
+    // THE BOARD'S SIZE BOUND WAS DIVIDED BY HOW BIG THE PLAYER CURRENTLY IS, and the user's three
+    // statements are ONE bug. His first sentence blamed the head mask; IT IS NOT THE MASK — nothing
+    // in the board's size chain reads `[Net] MaskSize`, and the "reference 1.65x" in the log is a
+    // compile-time constant for the health bars that the board never reads. HIS THIRD SENTENCE NAMES
+    // THE REAL CAUSE: the zoom.
+    //   * While FIXIERT the board hangs under a holder whose scale is BAKED AT PIN TIME. His was
+    //     x2.4137 against live rig scales of 2.41 -> 20.34, so the two stopped cancelling and the
+    //     ratio fell to 0.12. A board of constant localScale under a frozen holder has apparent size
+    //     proportional to 1/rigScale — IT SHRANK MORE THAN EIGHTFOLD while he held it.
+    //   * The same falling ratio raised the gesture's FLOOR until it stood above the handle's own
+    //     ceiling and INFLATED the board; his log has it released at localScale 2.253. The overflow
+    //     was then persisted into `BoardScale_Steel`, which is what the settings window measures its
+    //     range against: 0.54 -> 1.00 -> 1.13 IN ONE SESSION, window 0.27-1.09 -> 0.50-2.00 ->
+    //     0.57-2.25. That is his "Minimum und Maximum wieder verschoben", as a measured series.
+    //   * FOUR EARLIER CUTS (ModBuild 35, 39, 57, 73) each moved WHERE the same rig-divided measure
+    //     is enforced; none made the bound independent of the player's scale, and 73 explicitly
+    //     declared the drift correct. Two of those commits' own hardware logs already contained the
+    //     non-cancellation as a number and it was read as a curiosity.
+    //   * The invariant now is `parentScale == rigScale`: the pin holder re-asserts its scale from
+    //     the live rig every frame, restoring the tray's world pose around the write, so apparent
+    //     width is pure geometry and the bounds carry no rig factor at all. Pickup and release both
+    //     WRITE NOTHING — grabbing cannot resize and letting go cannot either. The ratchet is retired
+    //     at the source: `TrayScale` now covers the whole legal range alone, so `BoardScale_<board>`
+    //     goes back to being a per-board seed nothing but the player writes.
+    //   * THIS OVERRODE A WRITTEN `DO NOT DELETE` INVARIANT and that is flagged for his ruling. The
+    //     tie-breaker is his own FIXIERT rule read literally — "bewegt sich in KEINSTER Weise, außer
+    //     es wird aktiv verschoben oder skaliert" — and zooming is not actively scaling the board.
+    //   * MULTIPLAYER NEEDED NOTHING, and that is structural rather than lucky: the wire samples the
+    //     board's WORLD scale, which is exactly the quantity the freeze operates on.
+    //
     // Build 158: THE 3D WORLD MAP, PHASES 0-2. Nothing on the wire; every packet is byte-identical
     // to build 157's. The feature is behind `[Rig] Experimental3DMap`, off by default, and its OFF
     // state is the flat map unchanged in every detail (the flat path's only diff is four stand-down

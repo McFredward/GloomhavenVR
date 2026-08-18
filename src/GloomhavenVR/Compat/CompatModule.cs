@@ -104,16 +104,18 @@ internal sealed class CompatModule : IVRModule
         // MaterialLoaderHeal header for the stranding mechanisms.
         MaterialLoaderHeal.Install();
 
-        // The mirroring floor (user report 2026-08-15, spiegeltiles.jpg): a room whose hexes
-        // are the game's WATER TERRAIN renders as a pale sheet that moves with the head. The
-        // surface is named in the mod's own floor census — 'TERRAIN_Water_Plane' on shader
-        // 'VFX/Water_Shd_Trans' (q2900), 17 quads over a Crypt_Water basin — and the session's
-        // logs contain no reflection probe, cubemap or grab pass at all, so it is the game's
-        // water shader's own view coupling, authored for one fixed top-down camera pitch and
-        // uncorrectable from mod code. WaterTerrainVR hides those quads as a DELIBERATE,
-        // live-reversible fallback and prints the property/camera census that would let a
-        // future round do better. Installed after the loader heal so a just-healed water quad
-        // is surveyed on the next tick. See the WaterTerrainVR header for the full cost.
+        // The mirroring floor (user report 2026-08-15, spiegeltiles.jpg; ruling 2026-08-18 "Das
+        // Wasser soll auf jeden Fall dargstellt werden - aber eben in einer VR-freundlichen
+        // Variante. Einfach ausblenden ist keine Option."). A room whose hexes are the game's
+        // WATER TERRAIN — 'TERRAIN_Water_Plane' on shader 'VFX/Water_Shd_Trans' (q2900), 17 quads
+        // over a Crypt_Water basin — reads across a VR table as a mirror that swims with the head.
+        // The mod's own census printed both causes on hardware (LogOutput.log:942): _Smoothness
+        // 0.754 against a scene with liveProbes=0 and reflectionMode=Skybox, so the only thing the
+        // surface can reflect is GH_Evil_Sky_MAT; and depthTextureMode=None on the head camera, so
+        // the shader's depth fade and shore foam read an unwritten _CameraDepthTexture and pin the
+        // whole quad at one extreme. WaterTerrainVR RETUNES those quads through a per-renderer
+        // property block — the water always renders, and the 158 hide path is gone. Installed after
+        // the loader heal so a just-healed water quad is retuned on the next tick.
         WaterTerrainVR.Install();
         // Round 7: loaders ENROLL THEMSELVES via this postfix on the game's
         // MaterialLoader.LoadMaterials — scanning for them proved unreliable twice
@@ -203,7 +205,7 @@ internal sealed class CompatModule : IVRModule
         WallSegmentFade.Uninstall();
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
         MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert
-        WaterTerrainVR.Uninstall();       // restores every water quad's AUTHORED enabled flag first
+        WaterTerrainVR.Uninstall();       // clears every property block we wrote — authored material back, bit-for-bit
         CardParticlesOff.Uninstall();     // restores the game's own NoCardsParticles value verbatim
         SceneRegistry.Shutdown();         // the enrolment postfixes go with UnpatchSelf — the lists must not outlive them
         if (_hooked)

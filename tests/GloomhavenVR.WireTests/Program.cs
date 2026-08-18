@@ -40,6 +40,9 @@ internal static class Program
             // failure that kept [Rig] Experimental3DMap unimplemented — and it is decidable from
             // four numbers without a headset.
             MapRoomSeatVectors.Run(t);
+            // How big the control board is allowed to be, and how big it looks — the arithmetic
+            // behind three user reports, driven at the rig scales his own log recorded.
+            BoardSizeVectors.Run(t, repoRoot);
         }
         catch (Exception e)
         {

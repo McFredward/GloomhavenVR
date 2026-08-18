@@ -906,9 +906,12 @@ internal static partial class Loc
                 + "Platzierung, in Grad. Wird automatisch geschrieben, wenn du das Brett mit dem Griff an "
                 + "seiner Haltestange bewegst; von Hand nur zum Zurücksetzen ändern.",
             ["Cards/TrayScale"] =
-                "Größenfaktor des Kontrollbretts (0.5–2). Wird automatisch vom beidhändigen Brett-Griff "
+                "Größenfaktor des Kontrollbretts. Wird automatisch vom beidhändigen Brett-Griff "
                 + "geschrieben (Haltestange mit beiden Händen greifen und auseinanderziehen/zusammenschieben); "
-                + "von Hand nur zum Zurücksetzen ändern.",
+                + "von Hand nur zum Zurücksetzen ändern. Deckt seit ModBuild 159 den GANZEN erlaubten "
+                + "Bereich allein ab — vorher war er auf 0.5–2 begrenzt, sodass ein Griff am Anschlag den "
+                + "Überschuss in BoardScale_<Brett> abgeschoben hat und die Grenzen von Sitzung zu Sitzung "
+                + "wanderten.",
             ["Cards/TrayFollow"] =
                 "Verankerung des Kontrollbretts (Test #15, umgeschaltet mit dem Pin-Knopf am Brettrahmen). "
                 + "true = das Brett hängt am Rig: es bewegt sich mit dir (Welt greifen, stufenweises Drehen, "
@@ -1161,12 +1164,12 @@ internal static partial class Loc
                 "Zusätzliche Board-Drehung (Gieren), die auf den durch Greifen geschriebenen TrayYaw ADDIERT "
                 + "wird, Grad. Startwert 0 (Oak).",
             ["Cards/BoardScale_*"] =
-                "Größen-MULTIPLIKATOR des Boards, angewendet zusätzlich zum durch Greifen geschriebenen "
-                + "TrayScale. Standard 0.5: das Board hängt am Rig, seine scheinbare Größe schrumpft also nicht "
-                + "mit dem Tisch — der Standard von ~0.4 (Tischverhältnis) wirkte beim ersten Erscheinen etwas "
-                + "klein, deshalb öffnet das Board leicht größer (0.5). Die Größe lässt sich jederzeit mit der "
-                + "beidhändigen Greifgeste ändern (schreibt TrayScale); dies ist der Startwert pro Board "
-                + "obendrauf.",
+                "Startgröße pro Brett-Ausführung, als Multiplikator auf den durch Greifen geschriebenen "
+                + "TrayScale. Die Größe lässt sich jederzeit mit der beidhändigen Greifgeste ändern (die "
+                + "schreibt TrayScale); dies hier ist nur der Anfangswert. Seit ModBuild 159 schreibt die "
+                + "Geste NICHT mehr hierher zurück: vorher lief der Überschuss eines Griffs am Anschlag in "
+                + "diesen Wert, und weil die Grenzen des Einstellfensters an ihm gemessen werden, "
+                + "verschoben sie sich mit jeder Sitzung (gemessen: 0.54 → 1.00 → 1.13 in einer einzigen).",
             ["Cards/BoardPosOffset_*"] =
                 "Positions-Versatz des Boards, der auf den kopfrelativen Versatz des Trays ADDIERT wird, "
                 + "echte Meter im Kopf-Bezugssystem (X = rechts, Y = hoch, Z = vorne). Startwert 0 (Oak).",
@@ -2354,6 +2357,39 @@ internal static partial class Loc
                 + "dreht. PRO STIL geltender absoluter Wert, solange dieser Handstil getragen wird (ersetzt den "
                 + "gemeinsamen alten Eintrag, aus dem er beim ersten Lauf befüllt wurde). Live änderbar — eine "
                 + "gehaltene Figur wird sofort neu ausgerichtet.",
+            // ---- [Water] — das Wassergelände des Spiels, VR-tauglich nachgeregelt ----
+            ["Water/VRFriendlyWater"] =
+                "Regelt das WASSERGELÄNDE des Spiels (TERRAIN_Water_Plane, Shader VFX/Water_Shd*) für eine "
+                + "frei bewegliche VR-Kamera nach. Das Wasser wird IMMER dargestellt — hier ändert sich nur "
+                + "WIE. Das Spiel gestaltet diese Fläche für genau einen steilen Kamerawinkel von oben; über "
+                + "den VR-Tisch hinweg siehst du sie flach, und ihre fast spiegelglatte Oberfläche wirft dann "
+                + "den Himmel zurück und schwimmt mit den Kopfbewegungen mit (Meldung 2026-08-15, "
+                + "spiegeltiles.jpg). AN schreibt einen MaterialPropertyBlock pro Renderer: weniger "
+                + "Spiegelung, gedeckelte Deckkraft, und der von der Kameratiefe abhängige Uferschaum wird "
+                + "neutralisiert, solange es keine Tiefentextur gibt. Das gemeinsame Material bleibt "
+                + "unangetastet. AUS zeigt das Wasser des Spiels sofort wieder unverändert.",
+            ["Water/Smoothness"] =
+                "Glanzstärke des Wassers in VR (das Spiel setzt 0,754). DAS ist der Spiegel-Regler: hohe "
+                + "Werte lassen die Fläche den Himmel scharf abbilden — genau das wirkt wie ein kaputter "
+                + "Spiegel, der sich mit dem Kopf mitbewegt, weil die Szene keine Reflexionssonde anbietet, "
+                + "die stattdessen den Raum spiegeln könnte. Niedrige Werte verbreitern den Glanz zu einem "
+                + "matten Schimmer. Nur dann wieder erhöhen, wenn über dem Becken einmal eine lokale "
+                + "Reflexionssonde ergänzt wird.",
+            ["Water/Opacity"] =
+                "Obergrenze für die Deckkraft der Wasserfärbung (das Spiel setzt 0,737). Der Farbton bleibt "
+                + "wie gestaltet; gedeckelt wird nur, wie viel Boden das Wasser verdeckt — ohne Tiefentextur "
+                + "der Kamera steht die Tiefenblende des Shaders auf \"maximal tief\" und färbt die ganze "
+                + "Fläche ein. Niedriger = du siehst mehr von den Feldern unter dem Becken. Der gestaltete "
+                + "Wert wird nie überschritten.",
+            ["Water/ShoreFoam"] =
+                "Fordert für die VR-Kopfkamera eine Tiefentextur an, solange Wassergelände sichtbar ist, "
+                + "damit der vom Spiel gestaltete Uferschaum und die Tiefenblende arbeiten statt "
+                + "neutralisiert zu werden. KOSTET EINEN KOMPLETTEN ZUSÄTZLICHEN DURCHGANG ALLER "
+                + "UNDURCHSICHTIGEN OBJEKTE PRO AUGE, solange Wasser erfasst ist (der eingebaute "
+                + "Forward-Pfad hat keinen G-Buffer, Unity baut die Tiefentextur also durch erneutes "
+                + "Zeichnen). Dieselben Kosten wie [Optimize] HeadDepthPrepass, mit dem dieser Schalter "
+                + "verodert und den er nicht überstimmt. Standardmäßig aus: das Wasser ist so gebaut, dass "
+                + "es auch ohne gut aussieht. Gilt nur in Räumen mit Wasser.",
             // ---- [HexHighlight] ----
             ["HexHighlight/SwapStableShader"] =
                 "Ersetzt den OmniDecal_Shd der Feld-Hervorhebung durch den stereostabilen "

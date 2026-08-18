@@ -830,22 +830,45 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// APPARENT-SIZE LIMITS, enforced INSIDE the two-hand gesture (user report 2026-08-04: in
     /// FOLGEN mode the resize pushed past the board's min/max). The release-time safety clamp
     /// (<see cref="ClampApparentSize"/>) deliberately never runs while a hand grips the bar, and
-    /// the handle's generic factor range bounds the wrong quantity: the apparent width per
-    /// localScale unit moves with the world zoom (rig scale vs. the tray's parent-chain scale —
-    /// in FOLLOW mode the hands-root parent does NOT track the live rig zoom, hardware log:
-    /// constant "parent chain ×25.18" against rig scales 4–70), so a factor the range allows can
-    /// be metres of perceived width. This window converts the perceived-cm limits into localScale
-    /// bounds with the SAME measure the safety clamp uses (one source of truth,
-    /// <see cref="TryGetApparentWidthPerScaleUnit"/>), read live each resize frame — the pinch
-    /// simply stops at the limit, in EVERY anchor mode, and nothing resizes on its own.
+    /// the handle's generic factor range bounds the wrong quantity — a raw factor, not a size —
+    /// so this window converts the perceived-cm limits into localScale bounds with the SAME
+    /// measure the safety clamp uses (one source of truth, <see cref="BoardSizeFrame"/>), read
+    /// live each resize frame: the pinch simply stops at the limit, in EVERY anchor mode, and
+    /// nothing resizes on its own.
+    ///
+    /// <para>TWO THINGS THE FIRST CUT OF THIS WINDOW GOT WRONG, both convicted by the ModBuild
+    /// 158 hardware log (user: "Das Minimum und Maximum des boards ist immer noch abhängig von
+    /// der Größe meiner Maske … weiterhin hat sich damit auch das maximum und minimum wieder
+    /// verschoben").</para>
+    ///
+    /// <para>1. IT WAS ZOOM-COUPLED. The bounds were <c>MinWidth/perUnit … MaxWidth/perUnit</c>
+    /// with <c>perUnit = BoardW × parentChain ÷ rigScale</c> — linear in the player's own scale
+    /// whenever the parent chain does not track it, which is precisely the FIXIERT case (the pin
+    /// holder was baked once and frozen). Two hardware logs measured the non-cancellation:
+    /// constant parent chains ×25.18 and ×40.10 against live rig scales of 4–137. The fix is
+    /// upstream — <c>SyncPinHolder</c> now keeps the holder on the live rig scale, so the ratio
+    /// is 1 in both modes — and the division is still done explicitly here, so a stale anchor
+    /// would show up in the BOARD SIZE diagnostic instead of moving the player's limits.</para>
+    ///
+    /// <para>2. IT COULD INFLATE THE BOARD. <c>PanelGrabHandle</c> applies its generic factor
+    /// range FIRST and this window SECOND, so a floor above the generic ceiling does not restrict
+    /// the gesture — it rewrites the clamped target upward. With the zoom-coupled floor of (1)
+    /// climbing past 2.0, that is exactly what happened: his log shows the released board at
+    /// localScale 2.25 (above the handle's own maximum of 2), <c>PersistPoseToConfig</c> absorbing
+    /// the overflow into <c>BoardScale_Steel</c>, and the per-board factor ratcheting 0.54 → 1.00
+    /// → 1.13 in ONE session — each step widening the config's expressible window, which is the
+    /// "min/max shifted again" half of the report, measured. The window is therefore INTERSECTED
+    /// with the generic range (<see cref="BoardSizeFrame.GestureWindow"/>) and can never invert.</para>
     /// </summary>
     Vector2 WorldUI.IPanelGrabOwner.GrabScaleLimits
     {
         get
         {
-            if (!TryGetApparentWidthPerScaleUnit(out float perUnit, out _, out _))
+            if (!TryGetApparentWidthPerScaleUnit(out _, out float parent, out float rigScale))
                 return new Vector2(WorldUI.PanelGrabHandle.MinScale, WorldUI.PanelGrabHandle.MaxScale);
-            return new Vector2(MinWidthMeters / perUnit, MaxWidthMeters / perUnit);
+            BoardSizeFrame.GestureWindow(MinWidthMeters, MaxWidthMeters, parent, rigScale,
+                out float lo, out float hi);
+            return new Vector2(lo, hi);
         }
     }
 
@@ -1200,7 +1223,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
         _root.position = pos;
         _root.rotation = ComputeBoardRotation(flatForward, board);
-        _root.localScale = Vector3.one * ComputeBoardScale(board);
+        _root.localScale = Vector3.one * LocalScaleForConfiguredSize(board);
         NotePinnedWrite("head-relative placement (PlaceAtHead — first seat/recall/recovery)");
         _placed = true;
         _everPlaced = true;
@@ -1238,15 +1261,50 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         * Quaternion.LookRotation(flatForward, Vector3.up)
         * Quaternion.Euler(90f - CardsConfig.BoardTilt(board).Value - CardsConfig.EffectiveTrayPitch, 0f, 0f);
 
-    /// <summary>PART B: the board's local scale = grab-written TrayScale × per-board BoardScale
-    /// (seeded 1). The per-board factor is floored at 0.05 (user ruling 2026-08-13): TrayScale
-    /// is already read-clamped to 0.5-2 by ClampedTrayScale, but BoardScale_{board} carries no
-    /// range — it is grab-WRITTEN (PlayTray.3.Pose absorbs whatever TrayScale cannot express),
-    /// so a config range would fight the gesture. A hand-edited 0 would leave the control board
-    /// at zero size, i.e. no board at all, and the board is not optional content. Floored at the
-    /// READ instead, which changes nothing for any value the gesture can produce.</summary>
+    /// <summary>PART B: the board's size in SIZE UNITS (<see cref="BoardSizeFrame"/>) = the
+    /// grab-written TrayScale × the per-board BoardScale, held inside the board's absolute size
+    /// bounds. The per-board factor is floored at 0.05 (user ruling 2026-08-13): a hand-edited 0
+    /// would leave the control board at zero size, i.e. no board at all, and the board is not
+    /// optional content. Floored at the READ, which changes nothing for any value the gesture can
+    /// produce.
+    ///
+    /// <para>THE PRODUCT IS CLAMPED HERE, and that is what retired the BoardScale ratchet
+    /// (ModBuild 158 log: <c>BoardScale_Steel</c> 0.54 → 1.00 → 1.13 in one session, each step
+    /// moving the window the settings can express). The band it is clamped into is absolute —
+    /// 18…140 cm of apparent width over the board's own 64 cm of geometry — so the two factors can
+    /// no longer walk each other outward, and <see cref="PersistPoseToConfig"/> no longer has to
+    /// re-seat the per-board factor to make the product expressible. Read as a localScale ONLY
+    /// through <see cref="BoardSizeFrame.LocalScaleFor"/>: the two are equal exactly while the
+    /// anchor invariant holds, and the conversion is what keeps that from being an assumption.</para></summary>
     private static float ComputeBoardScale(ControlBoard board) =>
-        CardsConfig.ClampedTrayScale * Mathf.Max(0.05f, CardsConfig.BoardScale(board).Value);
+        BoardSizeFrame.ClampUnits(
+            CardsConfig.ClampedTrayScale * Mathf.Max(0.05f, CardsConfig.BoardScale(board).Value),
+            MinWidthMeters, MaxWidthMeters);
+
+    /// <summary>
+    /// <see cref="ComputeBoardScale"/> expressed as the tray's own localScale AT THE CURRENT
+    /// ANCHOR — the only form a transform may be written with. Identical to the size units while
+    /// the anchor invariant holds (<see cref="BoardSizeFrame"/>), which is the normal case in both
+    /// modes; the conversion exists so that a frame in which it does NOT hold (a pin engaged this
+    /// very frame, a rig rebuilt mid-placement) still puts the board at the size the config asks
+    /// for, instead of at that size times whatever the anchor happened to be carrying.
+    /// </summary>
+    private float LocalScaleForConfiguredSize(ControlBoard board)
+    {
+        float units = ComputeBoardScale(board);
+        if (_root == null)
+            return units;
+        float local = _root.localScale.x;
+        if (!(local > 1e-5f) || float.IsInfinity(local) || float.IsNaN(local))
+            return units;
+        float parent = _root.lossyScale.x / local; // everything ABOVE the tray
+        Transform? rig = Rig.VRRigDriver.RigRoot;
+        float rigScale = rig != null ? rig.lossyScale.x : 1f;
+        if (!(parent > 1e-5f) || !(rigScale > 1e-5f)
+            || float.IsInfinity(parent) || float.IsInfinity(rigScale))
+            return units;
+        return BoardSizeFrame.LocalScaleFor(units, parent, rigScale);
+    }
 
     /// <summary>
     /// Item 3 safety net: clamp a candidate board offset from the head to a sane reach — no

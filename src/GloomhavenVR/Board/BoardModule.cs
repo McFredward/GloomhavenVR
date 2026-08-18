@@ -86,6 +86,14 @@ internal sealed class BoardModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(Patches.MF_FindInteractableAtMousePosition_Patch));
         VRSession.Harmony?.PatchAll(typeof(Patches.InputManager_CursorPosition_Patch));
         VRSession.Harmony?.PatchAll(typeof(Patches.UIManager_IsPointerOverUI_Patch));
+        // USER-BUG (ModBuild 158, "Weiterhin wenn ich mit dem laser drauf hovere kommt kein
+        // Hinweis." — said of water, true of far more): HoverRegisterer is the ONLY caller of
+        // IHoverable.OnCursorEnter/Exit in the whole game, and it un-projects the cursor through
+        // the cached, PARKED Camera.main — not the head camera the patched cursor was measured
+        // in. So the hint cards that have no second producer (difficult terrain incl. WATER,
+        // traps, hazardous terrain, spawners) were silent for the entire life of the rig. Give
+        // it the VR pick ray directly, on its own targetLayer mask. See HoverPickPatch.
+        VRSession.Harmony?.PatchAll(typeof(Patches.HoverPickPatch));
         // Feature #3 fix: clear the stale cursor-hover hex highlight when the VR laser
         // is on no hex (WorldspaceStarHexDisplay never deactivates s_CursorHighlightedStar
         // on a null pick; see HexHoverClear).
@@ -200,6 +208,7 @@ internal sealed class BoardModule : IVRModule
             SelectionOwnershipFallback.Reset();
             Patches.PingNameTag.Reset();
             Patches.EnemyInfoPhaseSkip.Reset();
+            Patches.HoverPickPatch.Reset();
         }
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }

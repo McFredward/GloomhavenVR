@@ -54,9 +54,9 @@ internal static class MF_FindInteractableAtMousePosition_Patch
 
 /// <summary>
 /// Keeps every remaining cursor consumer consistent with the VR pick: the game
-/// cursor becomes the screen projection of the VR pick point, so HoverRegisterer
-/// (hover/highlight registration), melee-AoE facing (RotateAOEWithMouse builds the
-/// facing from the hovered tile) and tooltip anchoring all follow the hand.
+/// cursor becomes the screen projection of the VR pick point, so melee-AoE facing
+/// (RotateAOEWithMouse builds the facing from the hovered tile) and tooltip anchoring
+/// follow the hand. It does NOT reach HoverRegisterer — see the caveat-#12 note below.
 ///
 /// Verified against the REAL GH.Runtime.dll with ilspycmd (2026-07-15):
 /// <code>
@@ -66,9 +66,21 @@ internal static class MF_FindInteractableAtMousePosition_Patch
 ///   // mouse branch returns InputSystemUtilities.GetMousePosition()
 /// </code>
 /// PATCH-TARGETS §5: 208 B — explicitly NOT inline-endangered, safe to prefix.
-/// Caveat #12 (HoverRegisterer caches Camera.main in Awake) is moot in Phase 1's
-/// rig design: the rig drives the game's existing scenario camera object, so the
-/// cached reference stays valid.
+///
+/// CAVEAT #12 IS REAL — this comment used to claim it was "moot in Phase 1's rig design:
+/// the rig drives the game's existing scenario camera object, so the cached reference stays
+/// valid". That described a rig design that no longer exists and the claim is FALSE.
+/// <c>HoverRegisterer</c> caches <c>Camera.main</c> in <c>Awake</c> and un-projects THIS
+/// patched cursor through it, while this patch's value is measured in the screen space of
+/// <c>VRRigDriver.HeadCamera</c> — a separate, never-MainCamera-tagged GameObject
+/// (VRRigDriver.HeadCamera.cs:311, BoardPick.cs:174). The game's scenario camera is left
+/// standing and FROZEN (<c>m_IsCameraCodeControlDisabled</c>, VRRigDriver.cs:~703), so
+/// <c>Camera.main</c> is a parked vantage and the hover ray landed nowhere near the laser.
+/// So the "HoverRegisterer follows the hand" promise in this class's summary is NOT delivered
+/// by the cursor projection: it is delivered by <see cref="HoverPickPatch"/>, which replaces
+/// HoverRegisterer's ray with the VR pick ray outright. Read that class before touching this
+/// one. (A false comment is worse than a verbose one; this project has lost a round to exactly
+/// that.)
 /// </summary>
 [HarmonyPatch(typeof(InputManager), nameof(InputManager.CursorPosition), MethodType.Getter)]
 internal static class InputManager_CursorPosition_Patch
