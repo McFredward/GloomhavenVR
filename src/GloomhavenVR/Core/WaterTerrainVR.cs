@@ -574,6 +574,15 @@ internal static class WaterTerrainVR
         /// wave shading and removes only the highlights.</summary>
         internal static ConfigEntry<float>? Shimmer;
 
+        /// <summary>How BIG the waves are — one multiplier over both the swell's wavelength and
+        /// the two ripple layers' resolved tilings, so the whole surface scales together.</summary>
+        internal static ConfigEntry<float>? WaveScale;
+
+        /// <summary>How high the swell actually lifts the water's geometry, as a fraction of a
+        /// water quad's own width. 0 gives the film its authored mesh back and makes it flat
+        /// again.</summary>
+        internal static ConfigEntry<float>? SwellHeight;
+
         /// <summary>THE INSTRUMENT. Paint every tracked renderer a flat unlit colour — film
         /// magenta, basin cyan — so one look answers whether we own what the user is pointing
         /// at.</summary>
@@ -690,35 +699,72 @@ internal static class WaterTerrainVR
                 + "from the view direction, which is the one thing this shader may not contain, "
                 + "because a highlight computed from where your eye is slides across the water as "
                 + "you turn your head (that is the original defect) and is a different image in "
-                + "each eye. Tune it with [Water] RippleSpeed and [Water] Shimmer. The basin bed "
+                + "each eye. AND THE SURFACE ACTUALLY HAS RELIEF: the film is handed a finer mesh "
+                + "and a slow swell moves its vertices, because no shading term can make a flat "
+                + "sheet three-dimensional and 'weiße Streifen auf einer flachen Oberfläche' was "
+                + "the verdict on trying. Tune it with [Water] SwellHeight (how high), [Water] "
+                + "WaveScale (how big), [Water] RippleSpeed (how fast) and [Water] Shimmer (how "
+                + "much sparkle). The basin bed "
                 + "and rim under the water are NOT replaced — they are opaque ground, not a film, "
                 + "and keep the ordinary retune. OFF puts the game's own water shader back "
                 + "immediately and hands [Water] BodyOnly, ShoreFoam and DepthFade back their "
                 + "meaning.");
-            RippleSpeed = config.Bind("Water", "RippleSpeed", 1f,
+            RippleSpeed = config.Bind("Water", "RippleSpeed", 0.5f,
                 new ConfigDescription(
-                    "How fast the mod's own water film scrolls, as a multiple of what the tileset "
-                    + "authored. 1.0 is the authored rate and is the default: the two scroll rates "
-                    + "come from the water material's own _WaterUVAnimSpeedA/B, read at runtime. "
-                    + "WHY IT IS A DIAL AT ALL — everything else about this surface can be checked "
-                    + "against the game's material offline, but not this: the game's shaders ship "
-                    + "COMPILED inside the game's own bundles and there is no install on the build "
-                    + "machine to open them with, so how those numbers turn into a speed is "
-                    + "inferred rather than read. If the water looks like a conveyor belt, lower "
-                    + "it; if it looks like a photograph, raise it. 0 freezes the surface without "
-                    + "otherwise changing how it looks.",
+                    "How fast the water moves, as a multiple of the rate the tileset authored. It "
+                    + "scales BOTH the swell's phase speed and the two ripple layers' drift. THE "
+                    + "DEFAULT IS HALF, not one, and that is a re-base rather than a preference: "
+                    + "through ModBuild 163 the authored rate was fed to the shader in TEXTURE "
+                    + "repeats per second, so on screen it came out as rate divided by tiling — "
+                    + "4.3 and 5.0 WORLD UNITS per second across a one-metre hex, which is the "
+                    + "'extrem schnelle hektische weiße Streifen die vorbeisausen' of the report. "
+                    + "The rate now means world units per second whatever the tiling is, and half "
+                    + "of the authored 0.6 is the drift of quiet water. The census prints the "
+                    + "resolved rate in world units per second, so 'too fast' is a number in the "
+                    + "log rather than an argument. 0 freezes the surface without otherwise "
+                    + "changing how it looks.",
                     new AcceptableValueRange<float>(0f, 3f)));
-            Shimmer = config.Bind("Water", "Shimmer", 0.35f,
+            Shimmer = config.Bind("Water", "Shimmer", 0.10f,
                 new ConfigDescription(
                     "How strong the moving glints on the mod's own water film are. They are made "
-                    + "by the scrolling ripples turning toward a fixed light, so they are born on "
-                    + "a crest, travel with it and break up where the two ripple layers slide past "
-                    + "each other — and they do NOT move when you move your head, which is the "
-                    + "difference between this and the reflection the original report was about. 0 "
-                    + "removes the highlights and keeps the wave shading, which is the closest "
-                    + "this surface gets to ModBuild 162's flat sheet. Raise it if the pool looks "
-                    + "dead; lower it if the sparkle is busy or crawls.",
+                    + "by the moving surface turning toward a FIXED light, so they are born on a "
+                    + "crest, travel with it and break up where the swell and the ripple disagree "
+                    + "— and they do NOT move when you move your head, which is the difference "
+                    + "between this and the reflection the original report was about. RE-BASED "
+                    + "FROM 0.35: the highlight used to be a tight lobe that was also added into "
+                    + "the film's OPACITY, so a crest went bright and opaque at once, which is a "
+                    + "white streak by construction. It is now a broad, dim sheen measured against "
+                    + "the flat sheet's own brightness — still water glints exactly zero — and it "
+                    + "never touches the opacity. 0 removes the highlights and keeps the wave "
+                    + "shading. Raise it if the pool looks dead; lower it if the sparkle is busy.",
                     new AcceptableValueRange<float>(0f, 2f)));
+            WaveScale = config.Bind("Water", "WaveScale", 1f,
+                new ConfigDescription(
+                    "How BIG the waves are, as a multiple of the shipped size — one dial over the "
+                    + "swell's wavelength AND the two ripple layers, so the whole surface scales "
+                    + "together and never comes apart into a big wave carrying the wrong-sized "
+                    + "detail. 1.0 puts about three swell crests across a pool of one-metre hexes "
+                    + "(a 1.6 m wavelength). Raise it for a longer, lazier swell; lower it for a "
+                    + "choppier one. It does not change how fast the water travels: the phase "
+                    + "speed scales with the wavelength, so a longer wave takes proportionally "
+                    + "longer to pass and the water keeps the same character. The census prints "
+                    + "the resolved wavelengths in metres.",
+                    new AcceptableValueRange<float>(0.25f, 4f)));
+            SwellHeight = config.Bind("Water", "SwellHeight", 0.045f,
+                new ConfigDescription(
+                    "How HIGH the swell lifts the water, as a fraction of one water quad's own "
+                    + "width — so a hex about a metre across gets 4.5 cm at the default, and a "
+                    + "diorama at another scale gets a wave that looks the same rather than one "
+                    + "that is invisible or enormous. THIS IS REAL GEOMETRY, not shading: the film "
+                    + "is handed a finer mesh and its vertices actually move, which is what makes "
+                    + "the surface read as three-dimensional at a grazing angle instead of as "
+                    + "stripes painted on a flat sheet. The wave is a function of world position "
+                    + "and time only, so it is identical in both eyes. 0 gives the film its "
+                    + "authored mesh back and makes it flat again — which is also the A/B for "
+                    + "whether the relief is worth its vertices. The ceiling is set by the 9 cm "
+                    + "the census measured between the water and the basin bed underneath it: a "
+                    + "trough may never dip through its own pool floor.",
+                    new AcceptableValueRange<float>(0f, 0.05f)));
             DebugPaint = config.Bind("Water", "DebugPaint", false,
                 "DIAGNOSTIC — paints every water renderer this mod has taken over in a flat, "
                 + "unmistakable colour, with the game's own shading switched off entirely: the "
@@ -914,6 +960,14 @@ internal static class WaterTerrainVR
         private float _appliedReflectivity = float.NaN;
         private float _appliedRippleSpeed = float.NaN;
         private float _appliedShimmer = float.NaN;
+        private float _appliedWaveScale = float.NaN;
+        private float _appliedSwellHeight = float.NaN;
+
+        /// <summary>What the last film mesh swap did, or why it did nothing. Printed by the
+        /// census's FILM MESH block — a mesh swap that silently failed leaves a flat pool that
+        /// looks exactly like a shader that shipped and did nothing, which is the trap this whole
+        /// module was built out of.</summary>
+        private string _swellNote = "no film mesh handled yet";
         private bool _appliedBasin = true;
         private bool _appliedBodyOnly;
         private WaterDepthFadeMode _appliedDepthFade = WaterDepthFadeMode.Authored;
@@ -1054,6 +1108,31 @@ internal static class WaterTerrainVR
 
             internal bool ProbeUsageWasForced;
 
+            // ---- THE FILM'S MESH. The swell displaces vertices, and TERRAIN_Water_Plane is a
+            //      flat plane with a handful of them, so the film is handed a subdivided copy
+            //      (WaterSwellMesh) and owes the original back. Everything here is recorded BEFORE
+            //      the swap and restored by ReleaseAt, exactly as the material array is: an
+            //      Apparance quad that kept a mod mesh after the mod let go would be a change the
+            //      game has no way to undo.
+
+            /// <summary>The film's MeshFilter, when it has one at all. Null for a renderer we
+            /// never swapped — a SkinnedMeshRenderer, or a film whose mesh was too fine or not
+            /// readable.</summary>
+            internal MeshFilter? Filter;
+
+            /// <summary>The mesh the game had on that filter, restored on release.</summary>
+            internal Mesh? AuthoredMesh;
+
+            /// <summary>What we put there instead, so the next tick can tell OUR mesh from a mesh
+            /// the game swapped in behind us.</summary>
+            internal Mesh? SwellMesh;
+
+            /// <summary>The film's largest horizontal extent in world units, measured off the
+            /// renderer while the AUTHORED mesh was still on it. The swell's amplitude is a
+            /// fraction of this, so it must never be read off the padded bounds of our own mesh —
+            /// that would grow the wave a little every time it was measured.</summary>
+            internal float FilmWidthWU;
+
             /// <summary>Whether slot 0 held a real material when we adopted, i.e. whether the
             /// per-frame reference compare has a key to compare against. False for a renderer
             /// whose first slot is empty — comparing a null against a null would read as "the
@@ -1143,7 +1222,13 @@ internal static class WaterTerrainVR
             WaterConfig.RippleSpeed != null ? WaterConfig.RippleSpeed.Value : 1f;
 
         private static float WantedShimmer =>
-            WaterConfig.Shimmer != null ? WaterConfig.Shimmer.Value : 0.35f;
+            WaterConfig.Shimmer != null ? WaterConfig.Shimmer.Value : 0.10f;
+
+        private static float WantedWaveScale =>
+            WaterConfig.WaveScale != null ? WaterConfig.WaveScale.Value : 1f;
+
+        private static float WantedSwellHeight =>
+            WaterConfig.SwellHeight != null ? WaterConfig.SwellHeight.Value : 0.045f;
 
         /// <summary>Is the film actually drawing on the mod's own shader right now? The dial ANDed
         /// with the shader having been reached — never the dial alone. Four rounds have ended with
@@ -1614,12 +1699,19 @@ internal static class WaterTerrainVR
             WaterDepthFadeMode depthFade = WantedDepthFade;
             float rippleSpeed = WantedRippleSpeed;
             float shimmer = WantedShimmer;
+            float waveScale = WantedWaveScale;
+            float swellHeight = WantedSwellHeight;
             bool changed = granted != _depthGranted
                 || !Mathf.Approximately(smoothness, _appliedSmoothness)
                 || !Mathf.Approximately(opacity, _appliedOpacity)
                 || !Mathf.Approximately(reflectivity, _appliedReflectivity)
                 || !Mathf.Approximately(rippleSpeed, _appliedRippleSpeed)
                 || !Mathf.Approximately(shimmer, _appliedShimmer)
+                || !Mathf.Approximately(waveScale, _appliedWaveScale)
+                // A SwellHeight change is not only a property write: at 0 the film gives its own
+                // mesh back and at anything else it takes a subdivided one, so this compare is
+                // what drives the mesh swap as well.
+                || !Mathf.Approximately(swellHeight, _appliedSwellHeight)
                 || basin != _appliedBasin
                 || bodyOnly != _appliedBodyOnly
                 || depthFade != _appliedDepthFade
@@ -1631,6 +1723,8 @@ internal static class WaterTerrainVR
             _lightDirty = false;
             _appliedRippleSpeed = rippleSpeed;
             _appliedShimmer = shimmer;
+            _appliedWaveScale = waveScale;
+            _appliedSwellHeight = swellHeight;
             _depthGranted = granted;
             _appliedBodyOnly = bodyOnly;
             _appliedDepthFade = depthFade;
@@ -1673,6 +1767,17 @@ internal static class WaterTerrainVR
         private void Apply(Renderer r, Owned o)
         {
             bool paint = WantDebugPaint;
+
+            // THE MESH FIRST, because the amplitude the material writes below is measured off the
+            // renderer while its AUTHORED mesh is still on it. The swell is the one part of this
+            // retune that is geometry rather than a property, so it is also the one part that has
+            // to be given back: every path that stops wanting it — [Water] DebugPaint, OwnSurface
+            // off, SwellHeight 0, release, uninstall — goes through RestoreFilmMesh.
+            if (o.IsFilm && !paint && OwnSurfaceActive && WantedSwellHeight > 0f)
+                MaintainFilmMesh(r, o);
+            else
+                RestoreFilmMesh(o);
+
             for (int i = 0; i < o.Instances.Length; i++)
             {
                 Material inst = o.Instances[i];
@@ -1700,7 +1805,7 @@ internal static class WaterTerrainVR
                 // the kind of line four rounds have already misread as a finding.
                 if (o.IsFilm && OwnSurfaceActive)
                 {
-                    OwnFilmOne(shared, inst);
+                    OwnFilmOne(o, shared, inst);
                     continue;
                 }
 
@@ -1883,7 +1988,7 @@ internal static class WaterTerrainVR
         /// entirely and IS bound: it is the tileset's own, it is read off the game material, and it
         /// carries no colour into the frame — only slope.</para>
         /// </summary>
-        private void OwnFilmOne(Material shared, Material inst)
+        private void OwnFilmOne(Owned o, Material shared, Material inst)
         {
             Shader? own = _ownShader;
             if (own == null)
@@ -1918,7 +2023,7 @@ internal static class WaterTerrainVR
                     WaterOwnSurface.DstBlendProperty, WaterOwnSurface.DstBlendOneMinusSrcAlpha);
                 inst.renderQueue = shared.renderQueue;
                 if (_ownIsWater)
-                    AnimateFilmOne(shared, inst);
+                    AnimateFilmOne(o, shared, inst);
             }
             catch (Exception e)
             {
@@ -1947,7 +2052,7 @@ internal static class WaterTerrainVR
         /// <c>_ProcNormal</c> switches the shader to an analytic two-wave ripple instead, and the
         /// census says which of the two is live.</para>
         /// </summary>
-        private void AnimateFilmOne(Material shared, Material inst)
+        private void AnimateFilmOne(Owned o, Material shared, Material inst)
         {
             bool haveTex = shared.HasProperty(NormalMapId);
             Texture? bump = haveTex ? shared.GetTexture(NormalMapId) : null;
@@ -1977,12 +2082,30 @@ internal static class WaterTerrainVR
                 : WaterOwnSurface.AuthoredSmoothness;
 
             float dial = WantedRippleSpeed;
+            float waveScale = WantedWaveScale;
             Vector4 rateA = WaterOwnSurface.ScrollRate(speedA, noise, dial);
             Vector4 rateB = WaterOwnSurface.ScrollRate(speedB, noise, dial);
             float strength = WaterOwnSurface.NormalStrength(strVec);
 
+            // THE TILINGS ARE RESOLVED, NOT PASSED THROUGH. The authored (0.14, 6.00) is 43:1
+            // anisotropy — a band 7.1 m long and 17 cm wide, which is what "weiße Streifen" IS —
+            // and the two layers used to be summed at equal weight, so the fine one competed with
+            // the coarse one instead of riding it. See WaterOwnSurface.TameTilings/LayerWeights.
+            Vector4 resolved = WaterOwnSurface.TameTilings(tilings, waveScale);
+            Vector4 weights = WaterOwnSurface.LayerWeights(resolved);
+
+            // THE SWELL, in world units, off THIS quad's own width — so the same dial gives the
+            // same-looking wave in a diorama at another scale. The mesh that carries it was
+            // handed over by MaintainFilmMesh before this ran; if that refused, the amplitude
+            // below still writes and a 4-vertex quad simply has nothing to bend, which is the flat
+            // film and never a broken one.
+            float amp = WaterOwnSurface.SwellAmplitude(o.FilmWidthWU, WantedSwellHeight);
+            float swellWave = WaterOwnSurface.SwellWavelength * waveScale;
+            float swellSpeed = WaterOwnSurface.SwellSpeed * waveScale * Mathf.Max(dial, 0f);
+
             inst.SetTexture(WaterOwnSurface.NormalMapProperty, bump);
-            inst.SetVector(WaterOwnSurface.NormalTilingsProperty, tilings);
+            inst.SetVector(WaterOwnSurface.NormalTilingsProperty, resolved);
+            inst.SetVector(WaterOwnSurface.LayerWeightsProperty, weights);
             inst.SetVector(WaterOwnSurface.ScrollAProperty, rateA);
             inst.SetVector(WaterOwnSurface.ScrollBProperty, rateB);
             inst.SetFloat(WaterOwnSurface.NormalStrengthProperty, strength);
@@ -1990,6 +2113,9 @@ internal static class WaterTerrainVR
             inst.SetFloat(WaterOwnSurface.SmoothnessProperty, Mathf.Clamp01(smoothness));
             inst.SetFloat(WaterOwnSurface.ShimmerProperty, Mathf.Max(WantedShimmer, 0f));
             inst.SetVector(WaterOwnSurface.LightDirProperty, _lightLocal);
+            inst.SetFloat(WaterOwnSurface.SwellAmpProperty, amp);
+            inst.SetFloat(WaterOwnSurface.SwellWaveProperty, swellWave);
+            inst.SetFloat(WaterOwnSurface.SwellSpeedProperty, swellSpeed);
 
             _animNote =
                 "_Normal_Map " + (bump != null
@@ -2000,24 +2126,53 @@ internal static class WaterTerrainVR
                       + " -> the ANALYTIC two-wave ripple is live instead (_ProcNormal=1), which "
                       + "moves but is not the tileset's own pattern")
                 + "; _NormalTilings " + (haveTilings ? "READ " : "DEFAULTED ")
-                + Fmt(tilings)
+                + Fmt(tilings) + " -> tamed " + Fmt(resolved)
+                + " = one repeat every " + Wavelengths(resolved)
+                + " (aniso tame " + WaterOwnSurface.AnisoTame.ToString("0.##")
+                + ", [Water] WaveScale " + waveScale.ToString("0.###") + ")"
+                + "; layer weights A " + weights.x.ToString("0.###")
+                + " / B " + weights.y.ToString("0.###")
                 + "; _WaterUVAnimSpeedA " + (haveA ? "READ " : "DEFAULTED ") + Fmt(speedA)
-                + " -> " + rateA.x.ToString("0.###") + "," + rateA.y.ToString("0.###") + " UV/s"
+                + " -> " + rateA.x.ToString("0.###") + "," + rateA.y.ToString("0.###")
+                + " WORLD UNITS/s"
                 + "; _WaterUVAnimSpeedB " + (haveB ? "READ " : "DEFAULTED ") + Fmt(speedB)
-                + " -> " + rateB.x.ToString("0.###") + "," + rateB.y.ToString("0.###") + " UV/s"
+                + " -> " + rateB.x.ToString("0.###") + "," + rateB.y.ToString("0.###")
+                + " WORLD UNITS/s"
                 + " (x _WaterNoiseSpeed.x " + (haveNoise ? "READ " : "DEFAULTED ")
                 + noise.x.ToString("0.###")
                 + " x [Water] RippleSpeed " + dial.ToString("0.###") + ")"
+                + "; SWELL amplitude " + amp.ToString("0.####") + " world units (quad width "
+                + o.FilmWidthWU.ToString("0.###") + " x [Water] SwellHeight "
+                + WantedSwellHeight.ToString("0.###") + ", ceiling "
+                + WaterOwnSurface.MaxSwellAmplitude.ToString("0.###") + " against the "
+                + WaterOwnSurface.FilmToBedGap.ToString("0.##") + " gap to the basin bed)"
+                + ", wavelength " + swellWave.ToString("0.##") + " world units at "
+                + swellSpeed.ToString("0.###") + " world units/s = one crest every "
+                + (swellSpeed > 0.0001f ? (swellWave / swellSpeed).ToString("0.#") : "inf") + " s"
                 + "; _DetailOpacityBaseNormalStr " + (haveStr ? "READ " : "DEFAULTED ")
                 + Fmt(strVec) + " -> ripple strength " + strength.ToString("0.###")
                 + "; _Smoothness " + (haveSmooth ? "READ " : "DEFAULTED ")
-                + smoothness.ToString("0.###") + " -> glint tightness"
+                + smoothness.ToString("0.###") + " -> glint exponent "
+                + Mathf.Lerp(1f, 8f, Mathf.Clamp01(smoothness)).ToString("0.#")
                 + "; [Water] Shimmer " + WantedShimmer.ToString("0.###");
         }
 
         private static string Fmt(Vector4 v) =>
             "(" + v.x.ToString("0.###") + "," + v.y.ToString("0.###") + ","
             + v.z.ToString("0.###") + "," + v.w.ToString("0.###") + ")";
+
+        /// <summary>The resolved tilings said in the unit a reader can hold a ruler against: world
+        /// units per repeat, per axis, per layer. "Too big" and "too small" are then numbers in the
+        /// next log instead of an argument about a photograph.</summary>
+        private static string Wavelengths(Vector4 tilings) =>
+            "A " + Wave(tilings.x) + " x " + Wave(tilings.y)
+            + " m, B " + Wave(tilings.z) + " x " + Wave(tilings.w) + " m";
+
+        private static string Wave(float tiling)
+        {
+            float a = Mathf.Abs(tiling);
+            return a > 1e-4f ? (1f / a).ToString("0.##") : "inf";
+        }
 
         /// <summary>
         /// The mod's own film shader, resolved through <see cref="BundleShaders"/>.
@@ -2457,6 +2612,95 @@ internal static class WaterTerrainVR
                    .Append("; ");
         }
 
+        // ---- THE FILM'S MESH -------------------------------------------------------------------
+
+        /// <summary>
+        /// Make sure this film is carrying a mesh the swell can actually wave, and remember the
+        /// one it had.
+        ///
+        /// <para>WHY A MESH SWAP AT ALL. <c>GloomhavenVR/WaterVR</c> displaces vertices vertically
+        /// so the pool has real relief — the user's ruling after ModBuild 163 was <i>"Nicht nur
+        /// 'calm' sondern auch wirklich 3D wellen einbauen. Aktuell waren es nur weiße streifen auf
+        /// einer flachen Oberfläche"</i> — and <c>TERRAIN_Water_Plane</c> is a flat plane with a
+        /// handful of vertices. A vertex program cannot make a wave out of four corners, so the
+        /// geometry has to arrive from somewhere, and midpoint subdivision of the game's OWN mesh
+        /// is the only source that cannot get the pool's outline wrong. See
+        /// <see cref="WaterSwellMesh"/> for the culling bill and how it is paid exactly.</para>
+        ///
+        /// <para>THE WIDTH IS MEASURED HERE AND NOWHERE ELSE, while the authored mesh is still on
+        /// the renderer: <see cref="WaterSwellMesh"/> pads the bounds it hands back, so measuring
+        /// off our own mesh would inflate the quad's width — and the amplitude is a fraction of
+        /// that width, so the wave would grow a little every time it was re-measured.</para>
+        /// </summary>
+        private void MaintainFilmMesh(Renderer r, Owned o)
+        {
+            try
+            {
+                MeshFilter? mf = o.Filter;
+                if (mf == null)
+                {
+                    mf = r.GetComponent<MeshFilter>();
+                    if (mf == null)
+                    {
+                        _swellNote = "'" + r.name + "' has no MeshFilter (a SkinnedMeshRenderer or "
+                                     + "a procedural quad) — it keeps its own geometry and stays "
+                                     + "flat; nothing else about the film changes";
+                        return;
+                    }
+                    o.Filter = mf;
+                }
+
+                Mesh? live = mf.sharedMesh;
+                if (live == null)
+                    return;
+                if (o.SwellMesh != null && live == o.SwellMesh)
+                    return; // already ours, and the cache guarantees it is the right one
+
+                // Either the first pass over this renderer, or the game put its own mesh back.
+                // Both mean: record what is there NOW as the mesh we owe back.
+                o.AuthoredMesh = live;
+                Bounds wb = r.bounds;
+                o.FilmWidthWU = Mathf.Max(wb.size.x, wb.size.z);
+
+                Vector3 s = r.transform.lossyScale;
+                float minScale = Mathf.Min(Mathf.Abs(s.x), Mathf.Min(Mathf.Abs(s.y), Mathf.Abs(s.z)));
+
+                Mesh? swell = WaterSwellMesh.Build(live, o.FilmWidthWU, minScale, out string note);
+                _swellNote = note;
+                if (swell == null)
+                {
+                    o.SwellMesh = null;
+                    return;
+                }
+                mf.sharedMesh = swell;
+                o.SwellMesh = swell;
+            }
+            catch (Exception e)
+            {
+                _swellNote = "handling '" + r.name + "'s mesh threw " + e.GetType().Name
+                             + " — the film keeps its own geometry and stays flat";
+            }
+        }
+
+        /// <summary>Give the film its authored mesh back. Idempotent, and safe on a renderer that
+        /// was never swapped — every path that stops wanting the swell calls it, so the one thing
+        /// it must never do is throw.</summary>
+        private static void RestoreFilmMesh(Owned o)
+        {
+            if (o.SwellMesh == null)
+                return;
+            try
+            {
+                if (o.Filter != null && o.AuthoredMesh != null
+                    && o.Filter.sharedMesh == o.SwellMesh)
+                {
+                    o.Filter.sharedMesh = o.AuthoredMesh;
+                }
+            }
+            catch { /* the renderer went away between the null check and here */ }
+            o.SwellMesh = null;
+        }
+
         // ---- OWNERSHIP -----------------------------------------------------------------------
 
         /// <summary>
@@ -2472,6 +2716,10 @@ internal static class WaterTerrainVR
             if (!_owned.TryGetValue(r, out Owned o))
                 return;
             _owned.Remove(r);
+            // The mesh goes back whether or not the materials do: `restore: false` means the
+            // renderer is gone or the game already replaced our materials, and in the second case
+            // the filter is still live and still holding a mesh of ours.
+            RestoreFilmMesh(o);
             if (restore && r != null)
             {
                 try
@@ -2537,6 +2785,10 @@ internal static class WaterTerrainVR
             // rather than letting FilmSample() notice keeps "no film tracked" meaning exactly that.
             _censusSample = null;
             DestroyProbes();
+            // Every film has had its authored mesh handed back by ReleaseAt above, so the built
+            // meshes have no owner left. A mod-owned mesh must no more outlive its owner than a
+            // mod-owned material does.
+            WaterSwellMesh.Clear();
             _probeSig = int.MinValue;
         }
 
@@ -3419,8 +3671,26 @@ internal static class WaterTerrainVR
                     }
                     else
                     {
+                        // THE COUNTS AND THE BOUNDS, because the swell needs vertices to move and
+                        // a four-corner quad has none to spare: a film that reads 4 verts here is
+                        // a film whose mesh swap did not happen, which looks from inside the
+                        // headset exactly like a displacement that shipped and did nothing.
+                        // MESH SWAP says which, in words, on the same line.
                         bool hasColour = mesh.HasVertexAttribute(VertexAttribute.Color);
-                        sb.Append('\'').Append(mesh.name).Append("' vertexColour=")
+                        Bounds lb = mesh.bounds;
+                        sb.Append('\'').Append(mesh.name).Append("' ")
+                          .Append(mesh.vertexCount).Append(" verts / ")
+                          .Append(mesh.triangles.Length / 3).Append(" tris, local bounds centre (")
+                          .Append(lb.center.x.ToString("0.##")).Append(',')
+                          .Append(lb.center.y.ToString("0.##")).Append(',')
+                          .Append(lb.center.z.ToString("0.##")).Append(") size (")
+                          .Append(lb.size.x.ToString("0.###")).Append(',')
+                          .Append(lb.size.y.ToString("0.###")).Append(',')
+                          .Append(lb.size.z.ToString("0.###")).Append(')')
+                          .Append(" | MESH SWAP: ").Append(_swellNote)
+                          .Append(" [built ").Append(WaterSwellMesh.MeshesBuilt)
+                          .Append(" mesh(es), ").Append(WaterSwellMesh.VerticesBuilt)
+                          .Append(" verts total] | vertexColour=")
                           .Append(hasColour)
                           .Append(hasColour
                               ? " — GloomhavenVR/Overlay MULTIPLIES its tint by the mesh's vertex "

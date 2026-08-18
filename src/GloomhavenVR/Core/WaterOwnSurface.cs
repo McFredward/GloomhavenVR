@@ -44,13 +44,21 @@ namespace GloomhavenVR.Core;
 /// <c>GloomhavenVR/WaterVR</c>; the constants in this file are the measured fallbacks for a tileset
 /// whose material does not declare one of them, never a look chosen here.</para>
 ///
-/// <para>AND THE VERTEX WAVES ARE DELIBERATELY NOT REPRODUCED. The same census reads
-/// <c>_addSphericalWaves = 0</c>, so the tileset's own displacement gate is OFF and
-/// <c>_VertexOffsetWaves 0.05</c> never reaches geometry — displacing here would be a look the
-/// tileset never had. Independently: Unity culls a renderer against its MESH's authored bounds, so
-/// displaced geometry vanishes as you approach and, under MultiPass, vanishes in ONE EYE FIRST.
-/// This project has already lost a build to exactly that. <c>WaterVR.shader</c> has no vertex
-/// program that moves a vertex and no property that could switch one on.</para>
+/// <para>AND SINCE MODBUILD 164 THE GEOMETRY MOVES. Reproducing the tileset exactly was tried and
+/// the hardware verdict was <i>"Statt langsam, seichte Wellen sehe ich extrem schnelle (und viele)
+/// hektische weiße Streifen die auf der FLACHEN Oberfläche vorbeisausen"</i>, then
+/// <i>"Nicht nur 'calm' sondern auch wirklich 3D wellen einbauen"</i>. Four causes of the streaks
+/// are answered by <see cref="TameTilings"/>, <see cref="LayerWeights"/>, <see cref="ScrollRate"/>'s
+/// unit and the shader's own glint; the FLATNESS could not be, because no shading term can give a
+/// sheet relief. So <c>WaterVR</c> now displaces its vertices — vertically, by
+/// <see cref="SwellAmplitude"/>, as a function of world position and time only — and
+/// <see cref="WaterSwellMesh"/> pays the culling hazard that has cost this project a build before:
+/// Unity culls against the MESH's bounds, so the mesh handed to the film is subdivided (a flat quad
+/// has no vertices to wave) and its bounds are padded by exactly the amplitude. A pad is EXACT here
+/// where the earlier case needed an arc sweep, because this displacement is a bounded translation
+/// along one axis rather than a rotation. The tileset's own <c>_addSphericalWaves = 0</c> is still
+/// not read and still not reproduced: this swell is the VR-side relief the user asked for by name,
+/// with its own dial and its own ceiling.</para>
 ///
 /// <para><b>THE HARD REQUIREMENT: NOTHING IN THE REPLACEMENT SHADER MAY DEPEND ON THE VIEW
 /// DIRECTION.</b> The user's words for the defect were <i>"die kopf-gebundene Reflektion"</i> and
@@ -136,6 +144,7 @@ internal static class WaterOwnSurface
     // --- properties only GloomhavenVR/WaterVR declares: the animation itself.
     internal const string NormalMapProperty = "_Normal_Map";
     internal const string NormalTilingsProperty = "_NormalTilings";
+    internal const string LayerWeightsProperty = "_LayerWeights";
     internal const string ScrollAProperty = "_WaterUVAnimSpeedA";
     internal const string ScrollBProperty = "_WaterUVAnimSpeedB";
     internal const string NormalStrengthProperty = "_NormalStrength";
@@ -144,13 +153,17 @@ internal static class WaterOwnSurface
     internal const string ShimmerProperty = "_Shimmer";
     internal const string WaveShadeProperty = "_WaveShade";
     internal const string SmoothnessProperty = "_Smoothness";
+    internal const string SwellAmpProperty = "_SwellAmp";
+    internal const string SwellWaveProperty = "_SwellWave";
+    internal const string SwellSpeedProperty = "_SwellSpeed";
 
     /// <inheritdoc cref="CommonProperties"/>
     internal static readonly string[] WaterProperties =
     {
-        NormalMapProperty, NormalTilingsProperty, ScrollAProperty, ScrollBProperty,
-        NormalStrengthProperty, ProcNormalProperty, LightDirProperty, ShimmerProperty,
-        WaveShadeProperty, SmoothnessProperty,
+        NormalMapProperty, NormalTilingsProperty, LayerWeightsProperty, ScrollAProperty,
+        ScrollBProperty, NormalStrengthProperty, ProcNormalProperty, LightDirProperty,
+        ShimmerProperty, WaveShadeProperty, SmoothnessProperty,
+        SwellAmpProperty, SwellWaveProperty, SwellSpeedProperty,
     };
 
     // --- the names the GAME's material carries these values under. Three of them happen to be
@@ -226,15 +239,120 @@ internal static class WaterOwnSurface
     internal const float ReferenceNormalStrength = 5f;
 
     /// <summary>What <see cref="ReferenceNormalStrength"/> maps to in <c>WaterVR</c>'s own units —
-    /// the ripple strength the tileset's authored value means HERE.</summary>
-    internal const float NominalRippleStrength = 1.2f;
+    /// the ripple strength the tileset's authored value means HERE.
+    ///
+    /// <para>IT WAS 1.2 AND THAT WAS THE WHOLE SURFACE. With the two ripple layers summed at full
+    /// weight, 1.2 tilts the blended normal by up to about 26 degrees — four times the ~6 degrees
+    /// the swell's own crests reach at the shipped amplitude and wavelength — so the normal map
+    /// was not detail ON the waves, it WAS the waves, which is one half of "nur weiße streifen auf
+    /// einer flachen Oberfläche". The texture ripple is now second-order by construction: the
+    /// layers are weighted to sum to 1 rather than to 2, and this reference is 0.5.</para></summary>
+    internal const float NominalRippleStrength = 0.5f;
 
     /// <summary>Ceiling on the ripple strength, and it is a comfort limit as much as a look one.
     /// Past about this the two blended normals tilt far enough that <c>dot(N, L)</c> swings from
     /// end to end within a pixel, the glints stop being highlights and become per-pixel noise, and
     /// per-pixel noise on a 90 Hz headset ALIASES into a crawling carpet — which is a discomfort
-    /// report, not merely an ugly one.</summary>
-    internal const float MaxRippleStrength = 4f;
+    /// report, not merely an ugly one. Lowered with <see cref="NominalRippleStrength"/> for the
+    /// same reason: a tileset authoring three times the reference must still not out-shout the
+    /// swell.</summary>
+    internal const float MaxRippleStrength = 1.5f;
+
+    /// <summary>
+    /// How far each ripple layer's tiling is pulled toward its OWN geometric mean, 0 = the
+    /// authored anisotropy verbatim and 1 = perfectly isotropic.
+    ///
+    /// <para>THIS IS THE STREAK. The measured <c>_NormalTilings</c> layer A is (0.14, 6.00): one
+    /// texture repeat every 7.1 world units across and every 0.17 world units along, i.e. the
+    /// normal map stretched 43:1 into long thin bands. A band is what a streak IS, and set moving
+    /// it is the report's "hektische weiße Streifen" exactly. The tame is a power blend of the
+    /// ratio, so 43:1 lands at 43^(1-0.70) = 3.1:1 — the flow direction survives, the razor does
+    /// not.</para>
+    ///
+    /// <para>It is a constant rather than a dial because it is not a preference: an anisotropy the
+    /// user can restore is a way to put a shipped defect back. <see cref="TameTilings"/> is the
+    /// pure function, and the census prints the resolved wavelengths in metres so "too big" or
+    /// "too small" is a number in the next log rather than an argument.</para>
+    /// </summary>
+    internal const float AnisoTame = 0.70f;
+
+    /// <summary>The swell's wavelength in world units at <c>[Water] WaveScale</c> 1. Chosen
+    /// against the pool the report is about: 17 hexes about a metre across, so 1.1 m puts four or
+    /// five crests across the water — few enough to read as a swell rather than as corrugation,
+    /// many enough that the surface is plainly not flat from a seat at the table. It also sets the
+    /// STEEPNESS with the amplitude: 4.5 cm over 1.1 m is a slope of 14 degrees at the crest,
+    /// which is a shallow wave (height over length 1:24) and not a chop.</summary>
+    internal const float SwellWavelength = 1.1f;
+
+    /// <summary>The swell's phase speed in world units per second at <c>[Water] WaveScale</c> 1
+    /// and <c>[Water] RippleSpeed</c> 1. Note that the shipped <c>RippleSpeed</c> is 0.5, so the
+    /// surface actually runs at half of this: one crest every 11 seconds, which is the "langsam,
+    /// seichte Wellen" of the report in a number.</summary>
+    internal const float SwellSpeed = 0.20f;
+
+    /// <summary>
+    /// Ceiling on the swell's peak amplitude in world units, and it is a COLLISION limit rather
+    /// than a taste one. The hardware FLOOR CENSUS reads the film at <c>y[0.0..0.0]</c> with
+    /// <c>TERRAIN_Crypt_Water_02_Base</c> directly beneath it at <c>y[-0.34..-0.09]</c> — a 9 cm
+    /// gap. The wave is symmetric about the authored plane, so a trough reaches minus this much;
+    /// 6 cm leaves 3 cm of clearance at the worst dial setting and the shipped default uses
+    /// three quarters of it. A film that dipped through its own basin bed would z-fight with the stone,
+    /// which reads as the pool tearing open.
+    /// </summary>
+    internal const float MaxSwellAmplitude = 0.06f;
+
+    /// <summary>The measured gap between the film and the basin bed under it, which
+    /// <see cref="MaxSwellAmplitude"/> is derived from and which the wire test pins them
+    /// against.</summary>
+    internal const float FilmToBedGap = 0.09f;
+
+    /// <summary>How long a mesh edge may be, in world units, before the film is subdivided again.
+    /// A 1.6 m swell sampled every 12 cm is 13 segments per wavelength, which is past the point
+    /// where more vertices stop changing the silhouette.</summary>
+    internal const float TargetEdgeWU = 0.12f;
+
+    /// <summary>Ceiling on the number of 1-to-4 splits. Three turns a two-triangle quad into an
+    /// 8x8 grid — 128 triangles and 81 vertices where there were 2 and 4 — so the report's pool of
+    /// 17 films costs 2176 triangles in total. The ceiling exists so that a film the game happens
+    /// to author with a fine mesh cannot multiply itself into a frame cost nobody asked for, on a
+    /// Quest 3 whose main thread the perf log already shows blocked ~92% of the frame.</summary>
+    internal const int MaxSubdivisionLevel = 3;
+
+    /// <summary>Ceiling on the triangles ONE film mesh may end up with, whatever the level asks
+    /// for.</summary>
+    internal const int MaxSubdivisionTriangles = 4096;
+
+    /// <summary>
+    /// How many 1-to-4 midpoint splits a film mesh of this size and triangle count needs before
+    /// its edges are short enough to carry the swell.
+    ///
+    /// <para>THE PROBLEM THIS MEASURES. <c>TERRAIN_Water_Plane</c> is a flat plane with a handful
+    /// of vertices, and a vertex program cannot make a wave out of four corners — so the driver
+    /// hands the film a subdivided copy of the game's own mesh (<c>WaterSwellMesh</c>). This is the
+    /// pure part of that decision, kept here so it can be driven from the wire tests without a
+    /// graphics device.</para>
+    ///
+    /// <para>The current edge length is estimated as width / sqrt(triangles / 2), i.e. the mesh is
+    /// treated as a roughly square grid of that many triangles. That is exact for the quad this is
+    /// actually given and errs by at most a factor of two — one level — on anything else.</para>
+    /// </summary>
+    internal static int SubdivisionLevel(float widthWU, int triangles)
+    {
+        if (!Finite(widthWU) || widthWU <= 0f || triangles <= 0)
+            return 0;
+
+        float cells = Mathf.Max(1f, triangles * 0.5f);
+        float edge = widthWU / Mathf.Sqrt(cells);
+        int level = 0;
+        while (level < MaxSubdivisionLevel
+               && edge > TargetEdgeWU
+               && triangles * (1 << (2 * (level + 1))) <= MaxSubdivisionTriangles)
+        {
+            level++;
+            edge *= 0.5f;
+        }
+        return level;
+    }
 
     /// <summary>
     /// The replacement film's colour, built from the tileset's OWN authored body tint.
@@ -282,8 +400,17 @@ internal static class WaterOwnSurface
     }
 
     /// <summary>
-    /// One normal layer's SCROLL RATE, in UV per second, from the game material's own authored
-    /// speed vector.
+    /// One normal layer's DRIFT RATE, in WORLD UNITS per second, from the game material's own
+    /// authored speed vector.
+    ///
+    /// <para>THE UNIT IS THE FIX. Through ModBuild 163 this number was handed to a shader that
+    /// added it to a coordinate AFTER the tiling, i.e. it meant texture repeats per second — so
+    /// the speed on screen was rate divided by tiling, and layer A's 0.60 over a tiling of 0.14
+    /// was 4.3 WORLD UNITS per second across a 1 m hex, with layer B at 5.0. That is the report's
+    /// "extrem schnelle ... hektische weiße Streifen die ... vorbeisausen", and it was produced by
+    /// a unit, not by a value. The shader now drifts the WORLD coordinate and tiles afterwards, so
+    /// the same 0.60 means 0.60 world units per second whatever the tiling is, and the census
+    /// prints it in those units.</para>
     ///
     /// <para>THIS IS THE ONE GUESS IN THE WHOLE FEATURE AND IT IS MADE HERE ON PURPOSE — in a pure
     /// function, with a wire vector on it and a log line that prints what it resolved to and from
@@ -320,10 +447,10 @@ internal static class WaterOwnSurface
     /// <param name="noise">The material's <c>_WaterNoiseSpeed</c>, whose <c>.x</c> is the shared
     /// clock scale over both layers (authored 1.00, i.e. the identity on the report's tileset).</param>
     /// <param name="dial"><c>[Water] RippleSpeed</c>.</param>
-    /// <returns><c>(rateU, rateV, 0, 0)</c> in UV per second, ready to be written straight into the
-    /// shader's own <c>_WaterUVAnimSpeed*</c>. The shader multiplies it by the clock and adds it to
-    /// the tiled UV and does nothing else, so this function is the ONLY place the interpretation
-    /// lives.</returns>
+    /// <returns><c>(rateX, rateZ, 0, 0)</c> in WORLD UNITS per second, ready to be written straight
+    /// into the shader's own <c>_WaterUVAnimSpeed*</c>. The shader multiplies it by the clock, adds
+    /// it to the world coordinate and tiles the sum, so this function is the ONLY place the
+    /// interpretation lives.</returns>
     internal static Vector4 ScrollRate(Vector4 authored, Vector4 noise, float dial)
     {
         float layer = Positive(authored.z) ? authored.z : 1f;
@@ -333,6 +460,103 @@ internal static class WaterOwnSurface
         float u = Finite(authored.x) ? authored.x * k : 0f;
         float v = Finite(authored.y) ? authored.y * k : 0f;
         return new Vector4(u, v, 0f, 0f);
+    }
+
+    /// <summary>
+    /// The tilings <c>WaterVR</c> actually samples at, in REPEATS PER WORLD UNIT, from the game
+    /// material's authored <c>_NormalTilings</c>.
+    ///
+    /// <para>TWO THINGS HAPPEN HERE AND BOTH ARE THE REPORT. First the ANISOTROPY is tamed: each
+    /// layer's two components are pulled toward that layer's own geometric mean by
+    /// <see cref="AnisoTame"/>, which is a power blend of the ratio — so the mean feature size is
+    /// preserved EXACTLY (the product of the two components is unchanged), only the aspect ratio
+    /// moves, and the flow direction is kept. The measured layer A (0.14, 6.00) is 43:1, i.e. a
+    /// band 7.1 m long and 17 cm wide, and 43:1 tamed lands at 3.1:1 — (0.52, 1.61), or 1.92 m by
+    /// 0.62 m per repeat. Then <c>[Water] WaveScale</c> divides both components, because a bigger
+    /// wave is FEWER repeats per metre.</para>
+    ///
+    /// <para>A layer with a zero or non-finite component has no geometric mean to pull toward — a
+    /// tiling of 0 means "constant along this axis", which is a shape and not an accident — so it
+    /// is passed through with the scale applied and nothing else. That is the honest reading, and
+    /// the census says DEFAULTED or READ for the source vector either way.</para>
+    /// </summary>
+    /// <param name="authored">The material's <c>_NormalTilings</c>: layer A in xy, layer B in
+    /// zw.</param>
+    /// <param name="waveScale"><c>[Water] WaveScale</c> — how big the waves are, as a multiple of
+    /// the shipped size. Non-finite or non-positive is treated as 1.</param>
+    internal static Vector4 TameTilings(Vector4 authored, float waveScale)
+    {
+        float s = Positive(waveScale) ? waveScale : 1f;
+        Vector2 a = TameLayer(new Vector2(authored.x, authored.y), s);
+        Vector2 b = TameLayer(new Vector2(authored.z, authored.w), s);
+        return new Vector4(a.x, a.y, b.x, b.y);
+    }
+
+    private static Vector2 TameLayer(Vector2 t, float waveScale)
+    {
+        float ax = Mathf.Abs(t.x), ay = Mathf.Abs(t.y);
+        if (!Positive(ax) || !Positive(ay))
+            return t / waveScale;
+
+        float gm = Mathf.Sqrt(ax * ay);
+        float p = 1f - Mathf.Clamp01(AnisoTame);
+        float x = gm * Mathf.Pow(ax / gm, p) * Mathf.Sign(t.x);
+        float y = gm * Mathf.Pow(ay / gm, p) * Mathf.Sign(t.y);
+        return new Vector2(x, y) / waveScale;
+    }
+
+    /// <summary>
+    /// How much of the blended ripple normal each layer contributes, given the RESOLVED tilings.
+    ///
+    /// <para>THE TWO LAYERS USED TO BE ADDED AT EQUAL WEIGHT, and that is the third of the four
+    /// causes in the ModBuild 163 report: the fine, fast, streaky layer competed with the coarse
+    /// one instead of decorating it. Water does not work that way — a short wave rides on a long
+    /// one at a fraction of its height — so the weights are inversely proportional to each layer's
+    /// own frequency (the geometric mean of its tiling, in repeats per world unit) and sum to 1.
+    /// On the measured tilings that is A 0.145 / B 0.855: the 6-7 m swell carries the shape and
+    /// the 0.6-1.9 m layer is detail on top of it.</para>
+    ///
+    /// <para>Summing to 1 rather than to 2 is deliberate as well: the old expression added two
+    /// full-amplitude layers, so the same <c>_NormalStrength</c> produced twice the tilt it reads
+    /// as. See <see cref="NominalRippleStrength"/>.</para>
+    /// </summary>
+    /// <param name="resolved">The output of <see cref="TameTilings"/>.</param>
+    /// <returns><c>(weightA, weightB, 0, 0)</c>, ready for <see cref="LayerWeightsProperty"/>. A
+    /// degenerate tiling on either layer falls back to an even split, which is the previous
+    /// behaviour and cannot make the surface disappear.</returns>
+    internal static Vector4 LayerWeights(Vector4 resolved)
+    {
+        float fa = Mathf.Sqrt(Mathf.Abs(resolved.x * resolved.y));
+        float fb = Mathf.Sqrt(Mathf.Abs(resolved.z * resolved.w));
+        if (!Positive(fa) || !Positive(fb))
+            return new Vector4(0.5f, 0.5f, 0f, 0f);
+        float sum = fa + fb;
+        // 1/f normalised: the reciprocal weights (1/fa, 1/fb) scaled to sum to 1 are (fb, fa)/sum.
+        return new Vector4(fb / sum, fa / sum, 0f, 0f);
+    }
+
+    /// <summary>
+    /// The swell's peak vertical displacement in world units, from the film quad's OWN width.
+    ///
+    /// <para>WHY IT IS A FRACTION OF THE QUAD RATHER THAN A CONSTANT. The mod's environments are
+    /// dioramas at several scales and the same pool can arrive an order of magnitude smaller; a
+    /// world constant would be an invisible ripple in one room and a churning sea in another.
+    /// A hex about a metre across at the shipped 2% gives 2 cm, which is the amplitude every
+    /// number in the shader's header is quoted against.</para>
+    ///
+    /// <para>AND IT IS CAPPED TWICE. <see cref="MaxSwellAmplitude"/> is the collision limit
+    /// against the basin bed 9 cm below the film; the quad width is what makes the dial mean the
+    /// same thing at every scale. A non-finite width or dial gives 0 — a flat film, which is the
+    /// previous shipped behaviour and can never be a surface tearing through its own bed.</para>
+    /// </summary>
+    /// <param name="quadWidthWU">The film quad's largest horizontal extent in world units, off its
+    /// renderer bounds.</param>
+    /// <param name="dial"><c>[Water] SwellHeight</c>, as a fraction of that width.</param>
+    internal static float SwellAmplitude(float quadWidthWU, float dial)
+    {
+        if (!Finite(quadWidthWU) || !Finite(dial) || quadWidthWU <= 0f || dial <= 0f)
+            return 0f;
+        return Mathf.Clamp(quadWidthWU * dial, 0f, MaxSwellAmplitude);
     }
 
     /// <summary>

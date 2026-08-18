@@ -416,7 +416,82 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 163;
+    public const ushort ModBuild = 164;
+    // Build 164: THE WATER HAS A SURFACE NOW, AND IT IS CALM.
+    // ***** THE BUNDLE CHANGED — 67,150,300 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
+    //
+    // User, on 163: "Statt langsam, seichte Wellen sehe ich extrem schnelle (und viele) hektische
+    // weiße Streifen die auf der FLACHEN Oberfläche vorbeisausen. Das hat mit immersiven 3D Wellen
+    // nichts zu tun. Außerdem soll es eher dezent und ruhig sein." And then: "Nicht nur 'calm'
+    // sondern auch wirklich 3D wellen einbauen."
+    //
+    // THE RENDER SHOWED THE STREAKS IN 163 AND THEY WERE RATIONALISED AS TEXTURE GRAIN. That is the
+    // process failure of the last round, not a coding one, and it is why this build's contact sheet
+    // was judged frame by frame before the round went out.
+    //
+    // ── WHY IT WAS HECTIC: FOUR CAUSES THAT MULTIPLY ───────────────────────────────────────────
+    //   1. THE SCROLL WAS IN TEXTURE SPACE, so its speed was multiplied by the tiling: `uv*T +
+    //      frac(t*rate)` puts the on-screen rate at rate/T. Layer A ran 0.6/0.14 = 4.29 world
+    //      units/s sideways and layer B 1.0/0.20 = 5.0 wu/s. Over a 1 m hex that IS "vorbeisausen" —
+    //      produced by a UNIT, not by a value. The drift now moves the WORLD coordinate and tiles
+    //      afterwards, so a rate means world units per second.
+    //   2. 43:1 ANISOTROPY IS THE STREAK. `_NormalTilings` layer A (0.14, 6.00) is one repeat every
+    //      7.14 m across and every 0.17 m along — a band 7 m long and 17 cm wide. A band set in
+    //      motion is a white streak by definition. Tamed toward each layer's own geometric mean
+    //      (product preserved exactly): 43:1 → 3.1:1.
+    //   3. THE LAYERS WERE SUMMED AT EQUAL WEIGHT, so the fine streaky layer competed with the
+    //      coarse swell instead of riding it, and two full-amplitude layers doubled the tilt.
+    //      Amplitudes are now ∝ 1/frequency and sum to 1: A 0.145, B 0.855.
+    //   4. THE HIGHLIGHT WAS A SPARK THAT REACHED ALPHA. `pow(ndl, lerp(4,96,0.219))` is exponent
+    //      24, and the glint was added into the ALPHA — bright AND opaque in the same pixel, which
+    //      is a white streak by construction. The exponent range is now lerp(1,8,s), the amplitude
+    //      is cut, it is measured against the FLAT sheet's own response so still water glints
+    //      exactly zero, and it does not touch alpha at all.
+    //   * AND A PEDESTAL NOBODY HAD NOTICED: the body term `lerp(1-w, 1+w, ndl)` sat at 1.148 for
+    //     undisturbed water, i.e. the pool rendered 15 % ABOVE the authored tint before anything
+    //     moved. Half of "blasse, milchige Fläche" was that. Undisturbed water is now exactly the
+    //     authored tint and only waves move it.
+    //
+    // ── THE SURFACE IS REAL GEOMETRY NOW ───────────────────────────────────────────────────────
+    // Shading alone cannot make a plane look like it has a shape, and the film is a 2-triangle quad:
+    // four corners cannot carry a wave. So `Core/WaterSwellMesh.cs` midpoint-subdivides the game's
+    // OWN mesh (every new vertex lies on an existing edge, so the footprint, the UVs and the vertex
+    // colours are unchanged whatever the outline), welds and caches it per source mesh, and the
+    // driver restores the authored mesh on release/prune/config-flip/uninstall exactly as it
+    // restores the material array. A 1 m quad goes 2 tris → 128; 17 films 34 → 2176 tris.
+    //   * THE VERTEX PROGRAM MOVES `wp.y` ONLY, from `GhvrSwell(worldXZ, t)` — two travelling
+    //     trains with deep-water dispersion — and the FRAGMENT TAKES ITS NORMAL FROM THE ANALYTIC
+    //     DERIVATIVE OF THE SAME FUNCTION, so the light and the relief cannot disagree. Relief lit
+    //     as though it were flat is exactly the "flat surface with stripes" being complained about.
+    //     The normal-map ripple is now second-order detail riding ON the swell.
+    //   * CULLING CANNOT SEE A VERTEX PROGRAM — this project has lost a build to it (displaced
+    //     geometry culled against its UNDISPLACED bounds vanishes as you approach, one eye first
+    //     under MultiPass). The bounds are padded by `MaxSwellAmplitude`, THE CEILING AND NOT THE
+    //     CURRENT DIAL, on every local axis. A pad is EXACT here — unlike the earlier case that
+    //     needed an arc sweep — because the displacement is a bounded translation along ONE axis.
+    //   * THE TROUGH MUST NOT PUNCH THE BED. The film sits 9 cm above `TERRAIN_Crypt_Water_02_Base`;
+    //     the amplitude ceiling is 6 cm and a wire test pins ceiling < gap. The preview found this
+    //     for real: with the bed at the old 3 cm the pool came back with a scatter of holes.
+    //   * STILL NO VIEW-DEPENDENT TERM ANYWHERE — the displacement is a function of world position
+    //     and time only, so both eyes displace identically and the MultiPass guarantee holds. The
+    //     lint that pinned "v.vertex goes straight to UnityObjectToClipPos" is replaced by one that
+    //     pins the displacement is position-and-time only, plus the amplitude ceiling and the gap.
+    //
+    // ── SHIPPED CALM, MEASURED ─────────────────────────────────────────────────────────────────
+    // [Water] RippleSpeed 1.0 → 0.5 (0.25–0.50 wu/s, was effectively 4.3–5.0), Shimmer 0.35 → 0.10,
+    // new WaveScale 1.0 (1.1 m swell, ~4 crests across the pool) and SwellHeight 0.045 (4.5 cm on a
+    // 1 m hex). Motion over one second, mean |Δ| luminance at the grazing station: the 163 look
+    // 3.42, the shipped default 0.99 — 3.5× calmer, and the reference column reproduces the
+    // reported defect exactly, which is what makes the comparison worth anything.
+    //   * WHAT THE FRAMES DO AND DO NOT SHOW. At eye level the far edge is a plainly undulating
+    //     silhouette where the flat A/B is a dead straight line — that frame is the proof of relief.
+    //     But in a MONO STILL the swell's own shading peaks at ~5/255: what sells this in a headset
+    //     is stereo disparity, head parallax and that silhouette, none of which a PNG carries. If
+    //     the hardware verdict is still "too flat", the levers are [Water] SwellHeight up and
+    //     WaveScale down — NOT more sparkle. And the preview's bump texture is a STAND-IN
+    //     (`WaterBump` ships inside the game's bundles), so the frames settle motion, scale,
+    //     contrast and calmness, never the grain.
+    //
     // Build 163: THE WATER MOVES AGAIN, AND NOTHING IN IT DEPENDS ON WHERE YOU LOOK.
     // ***** THE BUNDLE CHANGED — 67,162,211 bytes. IT MUST BE REINSTALLED, not just the DLL. *****
     // Nothing on the wire; every packet is byte-identical to build 162's.

@@ -126,8 +126,31 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 163** (**BUNDLE CHANGED — 67,162,211 bytes, must be REINSTALLED**) — the water moves
-  again, on a shader of the mod's own.
+- **ModBuild 164** (**BUNDLE CHANGED — 67,150,300 bytes, must be REINSTALLED**) — the water has a
+  surface now, and it is calm.
+  * **The 163 render SHOWED the streaks and they were rationalised as texture grain.** That is the
+    round's real lesson and it is a process failure, not a coding one: *render it, then actually
+    judge the frame against the complaint*. This build's contact sheet was judged frame by frame,
+    with a flat-vs-swell A/B and a reference column that reproduces the reported defect.
+  * **"Hectic" was a UNIT, not a value.** The scroll was applied in texture space, so its rate was
+    divided by the tiling: layer A ran 0.6/0.14 = **4.29 world units per second** sideways. Drift
+    now moves the world coordinate and tiles afterwards.
+  * **The streak shape was 43:1 anisotropy** (`_NormalTilings` 0.14 × 6.00 = a band 7 m long and
+    17 cm wide). Tamed toward the geometric mean, product preserved: 43:1 → 3.1:1.
+  * **The glint reached ALPHA**, so a highlight went bright *and* opaque — a white streak by
+    construction. And the body term sat at 1.148 for undisturbed water: the pool rendered 15 %
+    above the authored tint before anything moved.
+  * **Shading cannot make a plane look shaped.** The film is a 2-triangle quad; four corners cannot
+    carry a wave. The driver now midpoint-subdivides the game's own mesh (new vertices on existing
+    edges, so footprint/UV/colour are untouched) and displaces `wp.y` only, with the fragment normal
+    taken from the **analytic derivative of the same wave function** — relief lit as though flat is
+    exactly the "stripes on a flat surface" complaint.
+  * **Culling still cannot see a vertex program**, but here the pad is EXACT rather than a guess:
+    the displacement is a bounded translation along one axis, so bounds + `MaxSwellAmplitude` is the
+    true swept volume. A wire test pins that ceiling below the 9 cm film-to-bed gap — the preview
+    caught real trough-through-bed holes when the bed was mis-set.
+
+- **ModBuild 163** (bundle 67,162,211 bytes) — the water moves again, on a shader of the mod's own.
   * User confirmed 162 fixed both defects, then: *"Das Wasser sieht jetzt sehr viel schlechter aus.
     Das echte Wasser hatte ANimation und co."* Overlay was a stopgap whose job was to prove the
     mirror lives inside `VFX/Water_Shd_Trans`; it did, so it is replaced.
