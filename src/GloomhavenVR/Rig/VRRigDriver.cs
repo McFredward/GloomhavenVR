@@ -144,12 +144,21 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// attempt counter so the throttling never hides how often it really ran.</summary>
     private const float RingLogIntervalSeconds = 3f;
 
-    /// <summary>What the current rig is built around (P5: menu rig added, MISSION A.7).</summary>
+    /// <summary>
+    /// What the current rig is built around (P5: menu rig added, MISSION A.7; the MAP rig added
+    /// for the 3D campaign map, <see cref="BuildMapRig"/>).
+    ///
+    /// <para><see cref="Map"/> is reached ONLY through <c>MapRoomDriver.Wanted</c>, a POSITIVE
+    /// map-open signal (a live <c>MapChoreographer</c> with an active worldMap/cityMap), never
+    /// through "not a scenario" — the mask policy below is re-asserted every frame and letting a
+    /// map flavour leak into the main menu would break the menu (test #10).</para>
+    /// </summary>
     private enum RigKind
     {
         None,
         Scenario,
-        Menu
+        Menu,
+        Map
     }
 
     private GameObject? _rigRoot;
@@ -220,6 +229,16 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
     /// <summary>Cached settle-poll delegate ([Optimize] CacheTickDelegates).</summary>
     private System.Action? _tickSpawnRingSettle;
+
+    /// <summary>Cached map-room upkeep delegate ([Optimize] CacheTickDelegates).</summary>
+    private System.Action? _tickMapRoom;
+
+    /// <summary>Cached map-room predicate delegate — it runs EVERY frame, including in the main
+    /// menu, so a fresh method-group allocation here would be pure per-frame garbage.</summary>
+    private System.Action? _tickMapRoomPredicate;
+
+    /// <summary>Map-room per-frame upkeep (see <see cref="BuildMapRig"/>).</summary>
+    private void TickMapRoom() => WorldUI.MapRoom.MapRoomDriver.TickActive(_camera);
 
     // Per-frame maintenance ticks, each routed through the shared Core.TickGuard so a
     // throw in one (most plausibly MixedReality.Tick) is isolated + attributed instead of
@@ -458,6 +477,9 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     {
         _sceneRecheck = true;
         _sceneRecheckName = e.Scene.name;
+        // The cached MapChoreographer belongs to the scene that is going away — drop it so the
+        // predicate re-finds instead of holding a Unity-null for FindIntervalFrames.
+        WorldUI.MapRoom.MapRoomDriver.ForgetScene();
     }
 
     /// <summary>
@@ -493,11 +515,23 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // (VRModeStateMachine.ScenarioBoardExists; decompiled Choreographer.cs:659,715).
         // Everything pre-scenario (campaign map, guildmaster, merchant, level-up)
         // stays on the MENU rig: head-tracked void + the WorldUI flat screen showing
-        // the full backbuffer composite (the map camera is a normal capture there).
-        // A head-tracked 3D map diorama is a deliberate FUTURE feature — the
-        // [Rig] Experimental3DMap placeholder is bound but UNIMPLEMENTED (it must
-        // never silently re-enable the broken orbit-camera anchoring).
+        // the full backbuffer composite (the map camera is a normal capture there) —
+        // UNLESS the 3D map room is on and a campaign map is provably open, which is
+        // the MAP rig (BuildMapRig, VRRigDriver.MapRig.cs).
+        //
+        // [Rig] Experimental3DMap IS NOW IMPLEMENTED, and the warning that used to
+        // stand here still binds its implementation: it must never re-enable the
+        // broken orbit-camera anchoring of test #8. It does not — the map rig's seat
+        // and scale come from the PARCHMENT RENDERER'S WORLD BOUNDS, and
+        // CameraController is read only for one horizontal direction (which side of
+        // the map to stand on) and for the culling mask, both with pure fallbacks.
         bool scenarioBoardExists = VRModeStateMachine.ScenarioBoardExists;
+
+        // Evaluate the map-room predicate BEFORE the rig kind, because the kind depends on it.
+        // Positive by construction: no MapChoreographer ⇒ not wanted ⇒ the main menu keeps the
+        // Menu rig and its mod-layer-only mask, unchanged.
+        TickGuard.Run("Rig.MapRoomPredicate",
+            _tickMapRoomPredicate ??= WorldUI.MapRoom.MapRoomDriver.TickPredicate);
 
         // P5 (MISSION A.7): outside a scenario the rig falls back to the menu camera
         // so the HMD view is head-tracked in the main menu / guildmaster map and the
@@ -505,6 +539,9 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         RigKind desired =
             !VRSession.IsRunning ? RigKind.None :
             scenarioCameraAlive && scenarioBoardExists ? RigKind.Scenario :
+            // MAP RIG: the 3D campaign map. Ordered AFTER the scenario test on purpose — a live
+            // scenario board always wins, so the map room can never displace the diorama.
+            WorldUI.MapRoom.MapRoomDriver.Wanted ? RigKind.Map :
             // MENU RIG, UNCONDITIONALLY ([Rig] MenuRig removed, user ruling 2026-08-13): the
             // former dial's OFF landed here on RigKind.None, i.e. no rig outside a scenario at
             // all — no head tracking, no hand anchor and nothing for the floating 2D screen (and
@@ -532,7 +569,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
                 teardownReason = "rig root destroyed externally";
             else if (_anchor == null)
                 teardownReason = "anchor camera destroyed";
-            else if (!_anchor.isActiveAndEnabled && _kind == RigKind.Menu)
+            else if (!_anchor.isActiveAndEnabled && (_kind == RigKind.Menu || _kind == RigKind.Map))
                 teardownReason = $"anchor camera '{_anchor.name}' disabled/deactivated";
             else if (sceneRecheck && _kind == RigKind.Menu)
             {
@@ -552,9 +589,17 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         {
             if (desired == RigKind.Scenario)
                 BuildRig(controller!);
+            else if (desired == RigKind.Map)
+                BuildMapRig();
             else if (desired == RigKind.Menu)
                 BuildMenuRig();
         }
+
+        // Map-room upkeep: hold the parchment override and keep the icon command buffer on the
+        // head camera. Isolated + attributed like every other per-frame step — a throw in the map
+        // room must never abort the rig's own Update.
+        if (_kind == RigKind.Map)
+            TickGuard.Run("Rig.MapRoom", _tickMapRoom ??= TickMapRoom);
 
         // Recenter once tracking delivers the first real pose (localPosition leaves zero).
         if (_pendingRecenter && _camera != null && _camera.transform.localPosition.sqrMagnitude > 1e-6f)
@@ -629,6 +674,10 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     {
         VREvents.SceneLoaded -= OnSceneLoaded;
         TearDownRig("rig driver destroyed (shutdown/hot reload)");
+        // Belt and braces: TearDownRig already stood the map room down if a map rig existed, but
+        // this is the process-level exit and the guarantee ("never leave an override material on a
+        // game renderer") must not depend on which rig happened to be up. Idempotent.
+        WorldUI.MapRoom.MapRoomDriver.StandDown("rig driver destroyed");
         // RESTORE ORDER IS LOAD-BEARING: MixedReality FIRST, then VRCameraPolicy. MR is the
         // narrower mutation and it lives ON cameras the policy owns — it resolves the head camera
         // through VRCameraPolicy.AllowedHead, and every camera it keyed was swept while the policy
@@ -800,6 +849,13 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     {
         bool hadRig = _kind != RigKind.None;
         bool wasMenu = _kind == RigKind.Menu;
+        bool wasMap = _kind == RigKind.Map;
+        // LEAVE NOTHING STANDING: the map room holds an override on a GAME renderer and a command
+        // buffer on OUR camera, and this method destroys that camera two dozen lines below. Stand
+        // the room down FIRST, before anything it points at stops existing. Idempotent, so the
+        // OnDestroy path below may call it again.
+        if (wasMap)
+            WorldUI.MapRoom.MapRoomDriver.StandDown($"rig teardown: {reason}");
         // What the NEXT build is coming from (spawn-ring arming — see BuildRig). Only a real rig
         // updates it: a teardown with nothing to tear down says nothing about where we were.
         if (hadRig)
@@ -864,7 +920,10 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
         if (hadRig)
         {
-            VRLog.Info("Rig", wasMenu
+            VRLog.Info("Rig", wasMap
+                ? $"Map rig torn down ({reason}) — owned head camera destroyed, parchment materials " +
+                  "restored, anchor untouched."
+                : wasMenu
                 ? $"Menu rig torn down ({reason}) — owned head camera destroyed, anchor untouched."
                 : $"VR rig torn down ({reason}) — owned head camera destroyed, game camera control restored.");
         }

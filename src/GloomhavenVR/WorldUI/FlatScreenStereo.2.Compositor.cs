@@ -137,6 +137,10 @@ internal sealed partial class FlatScreenStereo
         _quadMaterial = quadRenderer != null ? quadRenderer.sharedMaterial : null;
         _introGuard = introActive;
 
+        // Before anything else this tick: if the 3D map room has taken the parchment, release the
+        // flat map render (materials included) instead of running both against one renderer.
+        TickMapRoomHandover();
+
         if (!WantActive(leftRt))
         {
             if (_active)

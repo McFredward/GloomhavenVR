@@ -94,6 +94,16 @@ internal sealed partial class FlatScreen
         if (LoadingIndicator.FlatScreenSuppressed)
             return false;
 
+        // 3D MAP ROOM GATE ([Rig] Experimental3DMap): while the player is STANDING IN the campaign
+        // map, the flat screen is not a second view of it — it is a lit quad hanging in front of
+        // the map, and the stereo compositor behind it would fight the map room for the parchment
+        // renderer. Same shape as the loading gate above: a per-tick read of live state, so the
+        // screen returns through this very policy the frame the map room stands down. False in
+        // every other situation, including the main menu, because MapRoomDriver.Active is only
+        // ever true while the MAP rig is actually built.
+        if (MapRoom.MapRoomDriver.Active)
+            return false;
+
         VRMode mode = VRModeStateMachine.CurrentMode;
         if (mode == VRMode.Menu2D)
             return true; // always auto-show in Menu2D — user ruling 2026-08-11: the manual chord

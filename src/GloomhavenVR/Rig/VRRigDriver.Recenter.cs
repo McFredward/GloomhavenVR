@@ -61,6 +61,15 @@ internal sealed partial class VRRigDriver
             return;
         }
 
+        if (_kind == RigKind.Map)
+        {
+            // The map room's seat is a pure function of the parchment bounds, so "recenter" there
+            // means "back to the table" without consulting the orbit camera at all — which is
+            // also why the CameraController null-check below must not be allowed to swallow it.
+            RecenterMap();
+            return;
+        }
+
         CameraController controller = CameraController.s_CameraController;
         if (controller == null)
             return;

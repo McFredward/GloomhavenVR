@@ -1059,6 +1059,43 @@ namespace GloomhavenVR
         /// tipping bookcase is not, and print the pixel rectangle it covers in the
         /// ones that are. Uses the caller's camera, so it is checking the exact
         /// projection Shoot() will use.</summary>
+        /// <summary>Project a world-space box through the camera into the WxH
+        /// frame: the (unclipped) pixel rectangle its eight corners span, the
+        /// share of the frame the CLIPPED rectangle covers, where the box centre
+        /// lands, whether that centre is in frame at all, and how many corners are
+        /// behind the camera.
+        ///
+        /// <para>There is exactly ONE projection in this file, and that is the
+        /// point: every "is this station actually looking at the prop" gate —
+        /// the bookcase's and the map table's — measures the same way, so a gate
+        /// cannot be right for one prop and quietly wrong for the other. The
+        /// caller owns the aspect (cam.aspect must be W/H; see THE ASPECT HAS TO
+        /// BE SAID OUT LOUD) and the camera pose.</para></summary>
+        private static (float pct, Rect px, Vector2 ctrPx, bool ctrIn, int behind)
+            ProjectBox(Camera cam, Bounds b)
+        {
+            float x0 = float.MaxValue, x1 = float.MinValue;
+            float y0 = float.MaxValue, y1 = float.MinValue;
+            int behind = 0;
+            for (int k = 0; k < 8; k++)
+            {
+                var c = new Vector3((k & 1) == 0 ? b.min.x : b.max.x,
+                                    (k & 2) == 0 ? b.min.y : b.max.y,
+                                    (k & 4) == 0 ? b.min.z : b.max.z);
+                var vp = cam.WorldToViewportPoint(c);
+                if (vp.z <= 0f) { behind++; continue; }
+                x0 = Mathf.Min(x0, vp.x * W); x1 = Mathf.Max(x1, vp.x * W);
+                y0 = Mathf.Min(y0, (1f - vp.y) * H); y1 = Mathf.Max(y1, (1f - vp.y) * H);
+            }
+            var ctr = cam.WorldToViewportPoint(b.center);
+            float cw = Mathf.Max(Mathf.Min(x1, W) - Mathf.Max(x0, 0f), 0f);
+            float ch = Mathf.Max(Mathf.Min(y1, H) - Mathf.Max(y0, 0f), 0f);
+            bool ctrIn = ctr.z > 0f && ctr.x >= 0f && ctr.x <= 1f && ctr.y >= 0f && ctr.y <= 1f;
+            return (100f * cw * ch / (W * (float)H),
+                    Rect.MinMaxRect(x0, y0, x1, y1),
+                    new Vector2(ctr.x * W, (1f - ctr.y) * H), ctrIn, behind);
+        }
+
         private static void AssertShelfStations(GameObject inst, Camera cam)
         {
             MeshFilter shelf = null;
@@ -1108,28 +1145,12 @@ namespace GloomhavenVR
                 cam.fieldOfView = v.fov;
                 cam.transform.position = v.pos;
                 cam.transform.rotation = Quaternion.Euler(v.euler);
-                float x0 = float.MaxValue, x1 = float.MinValue;
-                float y0 = float.MaxValue, y1 = float.MinValue;
-                int behind = 0;
-                for (int k = 0; k < 8; k++)
-                {
-                    var c = new Vector3((k & 1) == 0 ? b.min.x : b.max.x,
-                                        (k & 2) == 0 ? b.min.y : b.max.y,
-                                        (k & 4) == 0 ? b.min.z : b.max.z);
-                    var vp = cam.WorldToViewportPoint(c);
-                    if (vp.z <= 0f) { behind++; continue; }
-                    x0 = Mathf.Min(x0, vp.x * W); x1 = Mathf.Max(x1, vp.x * W);
-                    y0 = Mathf.Min(y0, (1f - vp.y) * H); y1 = Mathf.Max(y1, (1f - vp.y) * H);
-                }
+                var (pct, box, ctrPx, ctrIn, behind) = ProjectBox(cam, b);
+                float x0 = box.xMin, x1 = box.xMax, y0 = box.yMin, y1 = box.yMax;
+                float cx = ctrPx.x, cy = ctrPx.y;
                 if (behind == 8)
                     throw new Exception($"Preview station '{vn}' has the whole bookcase BEHIND it. "
                         + "It is not photographing the prop it is listed for.");
-                var ctr = cam.WorldToViewportPoint(b.center);
-                float cx = ctr.x * W, cy = (1f - ctr.y) * H;
-                float cw = Mathf.Max(Mathf.Min(x1, W) - Mathf.Max(x0, 0f), 0f);
-                float ch = Mathf.Max(Mathf.Min(y1, H) - Mathf.Max(y0, 0f), 0f);
-                float pct = 100f * cw * ch / (W * (float)H);
-                bool ctrIn = ctr.z > 0f && ctr.x >= 0f && ctr.x <= 1f && ctr.y >= 0f && ctr.y <= 1f;
                 if (!ctrIn || pct < minPct)
                     throw new Exception($"Preview station '{vn}' at ({v.pos.x:F2},{v.pos.y:F2},"
                         + $"{v.pos.z:F2}) yaw {v.euler.y:F1} fov {v.fov:F0} does not see the "
@@ -2117,6 +2138,299 @@ namespace GloomhavenVR
                 UnityEngine.Object.DestroyImmediate(camGo);
                 UnityEngine.Object.DestroyImmediate(inst);
             }
+
+            if (string.IsNullOrEmpty(envFilter) || envFilter.Contains("MapTable"))
+                RenderMapTable(outDir, WantView);
+        }
+
+        // ==================== THE MAP TABLE (worldmap-3d.md §5 Phase 2) ==========
+        // It gets its own pass rather than a row in the Views table, and there are
+        // two reasons, both structural:
+        //   * it is NOT in either room (BuildMapTable.cs, WHY IT IS NOT IN A ROOM),
+        //     so there is no room instance to shoot it in; and
+        //   * dropping it into the cellar for these frames would put it in EVERY
+        //     cellar frame, and forty views' worth of previous rounds' reasoning
+        //     would stop being comparable overnight.
+        // The stations below are therefore derived from THE TABLE'S OWN ANCHORS —
+        // the prefab's TopAnchor and Seat0..3 — and every one of them is MEASURED
+        // against the real mesh before a single PNG is written. A preview station
+        // aimed at nothing does not fail; it renders, and it agrees with you.
+        // Three stations in this file were found mis-aimed in eight days.
+        private static readonly string[] MapTableMoods =
+            { "fireS", "iceS", "airS", "earthS", "lightS", "darkS", "split", "fall", "moff", "live0" };
+        private static readonly string[] MapTableElementViews = { "Wide", "Top", "Bench" };
+
+        private static void RenderMapTable(string outDir, Func<string, bool> wantView)
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(MapTableBuilder.PrefabPath);
+            if (prefab == null)
+            {
+                Debug.LogWarning("[GloomhavenVR][EnvPreview] " + MapTableBuilder.PrefabPath
+                                 + " missing — skipped.");
+                return;
+            }
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+
+            // ---- the prop's own frame, read off the prefab -------------------
+            var top = inst.transform.Find("TopAnchor")
+                      ?? throw new Exception("MapTable.prefab has no TopAnchor. Either the table "
+                          + "failed to build or the runtime contract was renamed — in which case "
+                          + "every station below is aimed at a hole in the world.");
+            var seats = new List<Transform>();
+            for (int i = 0; ; i++)
+            {
+                var s = inst.transform.Find("Seat" + i);
+                if (s == null) break;
+                seats.Add(s);
+            }
+            if (seats.Count != 4)
+                throw new Exception($"MapTable.prefab has {seats.Count} seat anchors, not 4. The "
+                    + "user asked for benches at both ends and the harness shoots the seats.");
+            // THE VERTICES, not Renderer.bounds — the ModBuild 153 lesson: a box
+            // padded for a vertex program measures a culling volume, and a station
+            // measured against a culling volume agrees with you as enthusiastically
+            // as one that measures nothing. (This prop's box is not padded, which
+            // is exactly the claim the bake makes; measuring the vertices is how
+            // this file stops depending on that claim.)
+            MeshFilter geo = null;
+            foreach (var mf in inst.GetComponentsInChildren<MeshFilter>(true))
+                if (mf.sharedMesh != null) { geo = mf; break; }
+            if (geo == null) throw new Exception("MapTable.prefab has no mesh.");
+            var verts = geo.sharedMesh.vertices;
+            var box = new Bounds(geo.transform.TransformPoint(verts[0]), Vector3.zero);
+            for (int i = 1; i < verts.Length; i++)
+                box.Encapsulate(geo.transform.TransformPoint(verts[i]));
+
+            Vector3 aimAt = top.position;
+            Vector3 Look(Vector3 from, Vector3 at)
+            {
+                var d = (at - from).normalized;
+                return new Vector3(-Mathf.Asin(Mathf.Clamp(d.y, -1f, 1f)) * Mathf.Rad2Deg,
+                                   Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg, 0f);
+            }
+            // Everything is expressed in the TABLE's own metres — half its length,
+            // half its width, its top height — so a re-sized table re-aims its own
+            // cameras. Nothing below is a typed world coordinate.
+            float hx = box.extents.x, hz = box.extents.z, ty = top.position.y;
+            var bench = seats[0].position;            // the east bench, first seat
+
+            // (name, camera position, the point it CLAIMS to be looking at, fov,
+            //  the smallest share of the frame the whole table may cover)
+            var stations = new (string name, Vector3 pos, Vector3 at, float fov, float minPct)[]
+            {
+                // three-quarter, standing: the frame the table is judged in
+                ("Wide", new Vector3(hx * 1.15f, 1.60f, -hz * 1.9f), aimAt, 55f, 12f),
+                // straight down the long axis, from where a player at one end stands
+                ("End", new Vector3(hx * 1.55f, 1.62f, 0f), aimAt, 55f, 10f),
+                // from a bench, at a seated eye height: the pose the map is read in
+                ("Seat", bench + new Vector3(Mathf.Sign(bench.x) * 0.28f, 1.15f - bench.y, 0f),
+                    aimAt, 65f, 14f),
+                // over the top, at the angle the map itself will be seen at
+                ("Top", new Vector3(-hx * 0.55f, ty + 1.05f, -hz * 0.75f), aimAt, 50f, 20f),
+                // LOW — the only pass that shows the trestle, the stretcher, the
+                // undersides and whether anything floats over the foot plane
+                ("Low", new Vector3(hx * 1.5f, 0.32f, -hz * 1.5f), aimAt - Vector3.up * 0.45f, 60f, 12f),
+                // close on one bench, which is the half of the request that is
+                // easiest to build and forget to look at
+                ("Bench", bench + new Vector3(Mathf.Sign(bench.x) * 0.95f, 0.85f, -0.75f),
+                    bench, 45f, 3f),
+            };
+
+            var camGo = new GameObject("PreviewCam");
+            var cam = camGo.AddComponent<Camera>();
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.01f, 0.01f, 0.015f);
+            cam.nearClipPlane = 0.05f;
+            cam.farClipPlane = 300f;
+            var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
+            var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
+            try
+            {
+                AssertMapTableStations(cam, box, stations);
+
+                void Shoot(string name, Vector3 pos, Vector3 at, float fov, string suffix)
+                {
+                    cam.fieldOfView = fov;
+                    cam.transform.position = pos;
+                    cam.transform.rotation = Quaternion.Euler(Look(pos, at));
+                    cam.targetTexture = rt;
+                    cam.Render();
+                    RenderTexture.active = rt;
+                    tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+                    var px = tex.GetPixels();
+                    for (int i = 0; i < px.Length; i++) { var c = px[i].gamma; c.a = 1f; px[i] = c; }
+                    tex.SetPixels(px);
+                    tex.Apply();
+                    // WHAT IS ACTUALLY IN THE FRAME. The station check above proves
+                    // the table is in the camera's FRUSTUM; it cannot prove a
+                    // single pixel of it was drawn. Counting the pixels that are
+                    // brighter than the clear colour can, and it is the same
+                    // instrument (and the same lesson) as the near-approach series:
+                    // thirteen confident PNGs once shipped a candle that was not in
+                    // any of them. Enforced on the plain pass only — the element
+                    // series legitimately includes frames the table is nearly black
+                    // in (darkS), and a floor there would be a floor on the art.
+                    int lit = 0;
+                    for (int i = 0; i < px.Length; i++) if (px[i].maxColorComponent > 0.06f) lit++;
+                    float share = 100f * lit / px.Length;
+                    string png = Path.Combine(outDir, $"maptable_{name}{suffix}.png");
+                    File.WriteAllBytes(png, tex.EncodeToPNG());
+                    Debug.Log($"[GloomhavenVR][EnvPreview] wrote {Path.GetFullPath(png)} "
+                              + $"({share:F1} % of the frame drawn above the clear colour)");
+                    if (suffix.Length == 0 && share < 2f)
+                        throw new Exception($"Map-table station '{name}' rendered a frame that is "
+                            + $"{share:F2} % lit. The table is inside the frustum (the station "
+                            + "check passed) but essentially nothing was drawn: the mesh, the "
+                            + "material or the shader failed, and a preview that agrees with you "
+                            + "about a black frame is worth less than no preview.");
+                }
+
+                // ---- the zero state ---------------------------------------------
+                // OUTDOORS (_GhvrIndoor = 0) is the table's own default: it is the
+                // state of an unset global, and it is what the map phase really is
+                // in `Default`, in `OffBlack` and over passthrough, where there is
+                // no room at all. The indoor pass at the end is the cellar case.
+                Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+                Shader.SetGlobalVector("_GhvrHauntForce", Vector4.zero);
+                Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
+                Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+                Shader.SetGlobalFloat("_GhvrIndoor", 0f);
+                foreach (var s in stations)
+                    if (wantView(s.name)) Shoot(s.name, s.pos, s.at, s.fov, "");
+
+                // ---- the elements ------------------------------------------------
+                // Ten moods, not seventeen: on this prop only four of the six have
+                // a term at all (see THE ELEMENT FRAME in BuildMapTable.cs), and
+                // each of those terms is an independent product of its own
+                // element's strength — so the six singles plus `split` plus `fall`
+                // settle all 64 subsets, and `moff`/`live0` are the zero-state
+                // proof (all six up with the master down, and the master up with
+                // all six down, must both be the plain frame pixel for pixel).
+                if (Environment.GetEnvironmentVariable("ENV_PREVIEW_NOELEM") != "1")
+                {
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", 3.7f);
+                    foreach (var tag in MapTableMoods)
+                    {
+                        int i = Array.FindIndex(ElementMoods, m => m.tag == tag);
+                        if (i < 0) throw new Exception($"MapTableMoods names an unknown mood '{tag}'.");
+                        Shader.SetGlobalVector("_GhvrElemA", ElementMoods[i].a);
+                        Shader.SetGlobalVector("_GhvrElemB", ElementMoods[i].b);
+                        foreach (var vn in MapTableElementViews)
+                        {
+                            var s = Array.Find(stations, x => x.name == vn);
+                            if (s.name == null)
+                                throw new Exception($"MapTableElementViews names an unknown station '{vn}'.");
+                            if (wantView(vn)) Shoot(vn, s.pos, s.at, s.fov, "_e" + tag);
+                        }
+                    }
+                    // ...and the SAME frames at the same instant with the channel
+                    // unset: the baseline `moff` and `live0` are compared against.
+                    Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
+                    Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                    foreach (var vn in MapTableElementViews)
+                    {
+                        var s = Array.Find(stations, x => x.name == vn);
+                        if (wantView(vn)) Shoot(vn, s.pos, s.at, s.fov, "_ebase");
+                    }
+
+                    // ---- INDOORS, WITH LIGHT UP: the one frame that settles the
+                    // window mask. In the cellar EnvRoom masks the Light element's
+                    // brightening with the window's throw, computed in the
+                    // material's own object space — and this prop's key points
+                    // straight up precisely so GhvrMoonWindow's |dir.xz| < 0.05
+                    // early-out returns 0 and the mask can never paint a rectangle
+                    // of another room's window across a table standing anywhere.
+                    // The claim is "indoors, Light does not brighten this prop and
+                    // does not stripe it either": _iLightS against _ebase is that,
+                    // and _iDarkS is the control that says the indoor path is live.
+                    Shader.SetGlobalFloat("_GhvrIndoor", 1f);
+                    foreach (var tag in new[] { "lightS", "darkS" })
+                    {
+                        int i = Array.FindIndex(ElementMoods, m => m.tag == tag);
+                        Shader.SetGlobalVector("_GhvrElemA", ElementMoods[i].a);
+                        Shader.SetGlobalVector("_GhvrElemB", ElementMoods[i].b);
+                        foreach (var vn in new[] { "Wide", "Top" })
+                        {
+                            var s = Array.Find(stations, x => x.name == vn);
+                            if (wantView(vn)) Shoot(vn, s.pos, s.at, s.fov, "_i" + tag);
+                        }
+                    }
+                    Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
+                    Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                    Shader.SetGlobalFloat("_GhvrIndoor", 0f);
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+                }
+            }
+            finally
+            {
+                RenderTexture.active = null;
+                cam.targetTexture = null;
+                UnityEngine.Object.DestroyImmediate(tex);
+                UnityEngine.Object.DestroyImmediate(rt);
+                UnityEngine.Object.DestroyImmediate(camGo);
+                UnityEngine.Object.DestroyImmediate(inst);
+            }
+        }
+
+        /// <summary>Fail the run if a map-table station is not looking at the map
+        /// table, and print the pixel rectangle it covers in every one that is.
+        /// Two independent tests per station, because they catch different
+        /// mistakes: the whole prop has to fill at least `minPct` of the frame
+        /// (which catches "photographing the empty room where the table is not"),
+        /// and the point the station CLAIMS to be aimed at has to land inside the
+        /// middle 60 % of the frame (which catches "the table is in shot but this
+        /// is not the frame it was described as").</summary>
+        private static void AssertMapTableStations(Camera cam, Bounds box,
+            (string name, Vector3 pos, Vector3 at, float fov, float minPct)[] stations)
+        {
+            cam.aspect = W / (float)H;
+            var log = new System.Text.StringBuilder();
+            log.Append("[GloomhavenVR][EnvPreview] MAP TABLE STATIONS — measured against the real "
+                + $"prop, whose bounds are ({box.min.x:F2},{box.min.y:F2},{box.min.z:F2})..("
+                + $"{box.max.x:F2},{box.max.y:F2},{box.max.z:F2}) m. Frame is {W}x{H}, pixel rows "
+                + "counted from the TOP.\n");
+            foreach (var s in stations)
+            {
+                cam.fieldOfView = s.fov;
+                cam.transform.position = s.pos;
+                var d = (s.at - s.pos).normalized;
+                cam.transform.rotation = Quaternion.Euler(
+                    -Mathf.Asin(Mathf.Clamp(d.y, -1f, 1f)) * Mathf.Rad2Deg,
+                    Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg, 0f);
+                var (pct, px, ctrPx, ctrIn, behind) = ProjectBox(cam, box);
+                if (behind == 8 || !ctrIn || pct < s.minPct)
+                    throw new Exception($"Preview station '{s.name}' at ({s.pos.x:F2},{s.pos.y:F2},"
+                        + $"{s.pos.z:F2}) fov {s.fov:F0} does not see the map table: its centre "
+                        + $"projects to ({ctrPx.x:F0},{ctrPx.y:F0}) which is "
+                        + $"{(ctrIn ? "in" : "OUTSIDE")} the frame, {behind}/8 corners are behind "
+                        + $"the camera, and the table covers {pct:F2} % of the frame against a "
+                        + $"floor of {s.minPct:F2} %. Re-derive the station from the prefab's own "
+                        + "anchors — a station that points at nothing renders happily and agrees "
+                        + "with whatever you already believed.");
+                // ...and the second test, which is NOT the first one again. Every
+                // station here looks exactly at its own `at`, so "is the aim point
+                // in the middle of the frame" is true by construction and measures
+                // nothing. What can be wrong is the aim point itself — an anchor
+                // that moved, a seat that is no longer where the bench is — so
+                // what is checked is that the point the station claims to look at
+                // is ON the prop, and that the camera is not inside it.
+                if (!box.Contains(s.at))
+                    throw new Exception($"Preview station '{s.name}' aims at ({s.at.x:F2},"
+                        + $"{s.at.y:F2},{s.at.z:F2}), which is not inside the table at all. The "
+                        + "anchor it was derived from has moved or gone.");
+                if (box.Contains(s.pos))
+                    throw new Exception($"Preview station '{s.name}' stands INSIDE the table. Its "
+                        + "frame is the inside of a plank.");
+                log.Append($"    {s.name,-6} centre at pixel ({ctrPx.x,4:F0},{ctrPx.y,4:F0}), table covers "
+                    + $"x {Mathf.Max(px.xMin, 0f),4:F0}..{Mathf.Min(px.xMax, W),4:F0}, y "
+                    + $"{Mathf.Max(px.yMin, 0f),4:F0}..{Mathf.Min(px.yMax, H),4:F0} = {pct,5:F2} % of "
+                    + $"the frame ({Vector3.Distance(s.pos, box.center):F2} m away"
+                    + (behind > 0 ? $", {behind}/8 corners behind the camera)" : ")") + "\n");
+            }
+            cam.ResetAspect();
+            Debug.Log(log.ToString());
         }
     }
 }

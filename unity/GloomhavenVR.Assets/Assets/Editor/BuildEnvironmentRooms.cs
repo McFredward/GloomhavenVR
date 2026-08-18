@@ -123,7 +123,15 @@ namespace GloomhavenVR
         private const float PlaySpaceToBoardRatio = 4.5f;   // SkyAlternative.cs
         private const float FloatGapToBoardRatio = 0.75f;   // SkyAlternative.cs
         private const float PlaySpaceCarpetY = 0.75f;
-        private const float PlaySpaceCarpetR = 1.70f;
+        // internal, not private: BuildMapTable.cs asserts against this number
+        // rather than restating it. The map table is the one prop in the bundle
+        // that is DELIBERATELY too big to stand in a room clearing (it IS the
+        // surface the map stands on, not something beside it), so it is built as
+        // a standalone prefab and never enters RoomGeo — and the way that
+        // exemption is kept honest is a bake assert that measures the table
+        // against this very radius. A second copy of 1.70 there would let the
+        // clearance and its one documented exception drift apart.
+        internal const float PlaySpaceCarpetR = 1.70f;
 
         /// <summary>Height of the floating board's UNDERSIDE over the room floor,
         /// in authored metres — see THE GROUND CARPET above for the derivation
@@ -1757,7 +1765,12 @@ namespace GloomhavenVR
         /// program can do to it, widen the boxes that fall short, and print the
         /// table with the metres in it. A shader with no row in VertexMovers fails
         /// the bake.</summary>
-        private static void ApplyDisplacedBounds(string room, Transform root)
+        /// <summary>internal, not private: the map table is a prop that ships
+        /// OUTSIDE both rooms, and a renderer nobody measures is exactly the
+        /// candle that vanished at ModBuild 153. It goes through this walk like
+        /// every renderer in a room, which is also what forces its shader to have
+        /// a VertexMovers row.</summary>
+        internal static void ApplyDisplacedBounds(string room, Transform root)
         {
             var need = new Dictionary<Mesh, Bounds>();
             var rows = new List<DispEntry>();
@@ -2091,7 +2104,11 @@ namespace GloomhavenVR
             return t;
         }
 
-        private static Texture2D Imp(string file)
+        /// <summary>internal, not private: the map table is textured with the
+        /// same imported CC0 set the cellar's ceiling and timbers use, and looks
+        /// it up through this one loader (which is also what makes a missing
+        /// texture a build error there as well as here).</summary>
+        internal static Texture2D Imp(string file)
         {
             foreach (var ext in new[] { ".jpg", ".png" })
             {
@@ -2854,7 +2871,12 @@ namespace GloomhavenVR
         // by depth; instead everything of one kind is welded into ONE mesh whose
         // VERTEX COLOURS carry the distance fade (EnvRoom/_VCol, EnvRoomCutout/
         // _VCol). One draw call per layer, smooth falloff into darkness.
-        private class Acc
+        // internal, not private: the map table (BuildMapTable.cs) is built with
+        // this same accumulator so that it can be handed to this file's
+        // closed-and-outward gate. Seven meshes in this project have shipped
+        // wound against the side they are seen from; a second accumulator with a
+        // second copy of the gate would be a gate that is only right in one file.
+        internal class Acc
         {
             public readonly List<Vector3> V = new List<Vector3>();
             public readonly List<Vector3> N = new List<Vector3>();
@@ -7698,7 +7720,9 @@ namespace GloomhavenVR
                       + $"{a.T.Count / 3} triangles, reversed, are rejected.");
         }
 
-        private static void AssertClosedAndOutward(Acc a, string what)
+        /// <summary>internal, not private: BuildMapTable.cs runs the map table
+        /// through THIS gate rather than growing a second one.</summary>
+        internal static void AssertClosedAndOutward(Acc a, string what)
         {
             if (a.T.Count >= 3 && ClosedOutwardGateProven.Add(what))
                 AssertClosedOutwardGateSelfTest(a, what);

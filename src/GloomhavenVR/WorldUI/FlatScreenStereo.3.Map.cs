@@ -9,6 +9,44 @@ namespace GloomhavenVR.WorldUI;
 
 internal sealed partial class FlatScreenStereo
 {
+    // ---- handover to the 3D map room ---------------------------------------------------------
+
+    /// <summary>
+    /// TRUE WHILE THE 3D MAP ROOM OWNS THE PARCHMENT (<c>WorldUI.MapRoom.MapRoomDriver</c>).
+    ///
+    /// <para>TWO OWNERS OF ONE RENDERER IS THE BUG THIS FLAG EXISTS TO PREVENT. This class swaps
+    /// the MapUnlit override onto the game's parchment renderer in <c>onPreRender</c> and swaps it
+    /// back in <c>onPostRender</c>, every frame. The map room instead HOLDS an override for the
+    /// lifetime of the mode. If both ran, this class's per-frame restore would capture the map
+    /// room's override as "the game's own materials" and hand them back as such — the game
+    /// renderer would end the session wearing a mod material, which is precisely the thing this
+    /// file's own teardown rule forbids. So the map room raises this flag BEFORE it acquires
+    /// anything, and every map path here stands down on it: no engage, no albedo camera, no
+    /// override write. Lowered again by <c>MapRoomDriver.StandDown</c>, after which the flat path
+    /// re-engages through its ordinary detection.</para>
+    /// </summary>
+    internal static bool MapRoomOwnsParchment { get; set; }
+
+    /// <summary>
+    /// Hand the parchment over to the 3D map room: if the flat map render is engaged when the room
+    /// takes ownership, release it here — including the material restore — rather than leaving it
+    /// half-live. One line, because a handover that happens silently is a handover nobody can
+    /// debug from a log.
+    /// </summary>
+    private void TickMapRoomHandover()
+    {
+        if (!MapRoomOwnsParchment || !_mapBaseCapture)
+            return;
+        ReleaseAlbedo();
+        _mapBaseCapture = false;
+        _blackConsecutive = 0;
+        _nonBlackMapConsecutive = 0;
+        VRLog.Info("WorldUI", "MAP RENDER stood down: the 3D map room ([Rig] Experimental3DMap) has taken "
+                              + "ownership of the campaign-map parchment. The flat map capture released its "
+                              + "override, its private RT and its camera; it re-engages through the ordinary "
+                              + "detection the moment the room stands down.");
+    }
+
     // ---- map base capture: probe + engage (class doc MAP ALBEDO RENDER) ---------------------
 
     /// <summary>
@@ -23,7 +61,7 @@ internal sealed partial class FlatScreenStereo
         // The detection gate ([WorldUI] ScreenLeftMirrorFallback) is GONE — user ruling
         // 2026-08-13: its OFF left the campaign map a BLACK SCREEN by design, which is not a
         // setting but a way to lose the campaign. The probe always runs.
-        if (_mapBaseCapture)
+        if (_mapBaseCapture || MapRoomOwnsParchment)
             return;
         if (!anyMirrorRendering || _leftRt == null || _probePending)
             return;
@@ -160,7 +198,7 @@ internal sealed partial class FlatScreenStereo
         // [WorldUI] MapAlbedoRender + ScreenLeftMirrorFallback are GONE (user ruling
         // 2026-08-13): both OFF states ended in a black campaign map. The rescue is
         // unconditional now.
-        if (_mapBaseCapture || mapSource == null || _leftRt == null || _introGuard)
+        if (_mapBaseCapture || MapRoomOwnsParchment || mapSource == null || _leftRt == null || _introGuard)
             return;
         if (_fastMapChoreo == null)
         {
@@ -229,6 +267,10 @@ internal sealed partial class FlatScreenStereo
     private void EngageMapCore()
     {
         _mapBaseCapture = true;
+        // Fresh MAP SCENE REPORT per map ENTRY: the phase-0 dump is what the later phases of the
+        // 3D map feature are planned against, and a report cached from a previous visit describes
+        // a scene that has since been rebuilt by InitMap.
+        ArmMapSceneReport();
         _mapEngageFrame = Time.frameCount; // start the fast per-frame base-RT probe window
         _mapEngageTime = Time.realtimeSinceStartup;
         // Reveal gate: hold the quad black until the mod camera renders its first frame at a valid
@@ -472,7 +514,7 @@ internal sealed partial class FlatScreenStereo
 
     private void ReconcileAlbedoCamera(Camera? mapSource)
     {
-        if (!_mapBaseCapture || mapSource == null || !EnsureAlbedoReady())
+        if (!_mapBaseCapture || MapRoomOwnsParchment || mapSource == null || !EnsureAlbedoReady())
         {
             if (_mapAlbedoCam != null && _mapAlbedoCam.enabled)
                 _mapAlbedoCam.enabled = false;
@@ -1114,61 +1156,364 @@ internal sealed partial class FlatScreenStereo
         return t;
     }
 
-    /// <summary>One-shot guard for the MAP SCENE renderers enumeration.</summary>
-    private bool _mapSceneRenderersLogged;
+    /// <summary>One-shot guard for the MAP SCENE REPORT (re-armed per map entry, and by the 3D map
+    /// room when it engages — see <see cref="ArmMapSceneReport"/>).</summary>
+    private static bool s_mapSceneReported;
+
+    /// <summary>Re-arm the MAP SCENE REPORT. Called on every map ENTRY (both engage paths) and by
+    /// the 3D map room, so a session that visits the map twice gets two readable reports and a
+    /// session that toggles the room gets one from each side.</summary>
+    internal static void ArmMapSceneReport() => s_mapSceneReported = false;
+
+    /// <summary>Hard caps so one report can never flood the log out of usefulness.</summary>
+    private const int ReportMaxRenderers = 60;
+    private const int ReportMaxCanvases = 40;
+    private const int ReportMaxHudMembers = 40;
 
     /// <summary>
-    /// Enumerate the 3D map-decoration renderers (location decals, city model, indicators, paths) under
-    /// MapChoreographer's scenario/village parents so we can see WHY they don't appear in our forward
-    /// render (they draw via the deferred map camera). Logs type/layer/shader/albedo-property grouped.
+    /// THE MAP SCENE REPORT — one instrumented dump of everything the later phases of the 3D map
+    /// feature have to be planned against, emitted once per map entry.
+    ///
+    /// <para>WHY IT IS ONE METHOD AND NOT SEVERAL. It is the ONLY logger for this question; both
+    /// the flat map render (which is what runs when [Rig] Experimental3DMap is off) and the 3D map
+    /// room call it, so the two modes produce comparable output instead of two dialects. It is
+    /// static for the same reason: the map room has no <c>FlatScreenStereo</c> instance.</para>
+    ///
+    /// <para>WHAT EACH SECTION IS FOR, so a reader knows what to look at:</para>
+    /// <list type="bullet">
+    ///   <item>CAMERAS — the map camera's CULLING MASK, read rather than guessed. The map rig's
+    ///   head mask is derived from it, and if the map is invisible this is the first suspect.</item>
+    ///   <item>PARCHMENT — the world bounds the rig seat and scale are derived from, and the mesh
+    ///   thickness (the icon lift has to clear it).</item>
+    ///   <item>RENDERERS — every renderer under the map roots WITH ITS SHADER PASS NAMES. This is
+    ///   the decisive column: a material with no forward pass draws NOTHING in the mod's forward
+    ///   head camera, which is why the parchment needs the MapUnlit override at all. Whatever else
+    ///   on the map turns out to be invisible, this census says which and how many.</item>
+    ///   <item>CANVASES / GUILDMASTER HUD — the open question phase 7 cannot be planned without:
+    ///   which windows are separable, what their UIWindowIDs are, and what owns them.</item>
+    ///   <item>PEERS — every peer head world position currently received. If they all land on the
+    ///   same point, the "menu rigs all sit at the same authored vantage" inference is CONFIRMED
+    ///   and phase 8 must assign seats; if they do not, that inference was wrong.</item>
+    /// </list>
     /// </summary>
-    private void LogMapSceneRenderers(int cullingMask)
+    internal static void LogMapSceneReport(Camera? mapCam, Renderer? parchment, int cullingMask, string context)
     {
-        if (_mapSceneRenderersLogged)
+        if (s_mapSceneReported)
             return;
-        _mapSceneRenderersLogged = true;
-        var choreo = Object.FindObjectOfType<MapChoreographer>();
+        s_mapSceneReported = true;
+        var sb = new StringBuilder(8192);
+        sb.Append($"MAP SCENE REPORT ({context}) — the phase-0 dump the 3D map feature is planned against.");
+        try
+        {
+            AppendReportCameras(sb, mapCam, cullingMask);
+            var choreo = Object.FindObjectOfType<MapChoreographer>();
+            AppendReportChoreographer(sb, choreo, parchment);
+            AppendReportRenderers(sb, choreo, parchment, cullingMask);
+            AppendReportCanvases(sb);
+            AppendReportGuildmasterHud(sb);
+            AppendReportPeers(sb);
+        }
+        catch (System.Exception ex)
+        {
+            sb.Append($"\n  !! the report threw and was truncated: {ex.GetType().Name}: {ex.Message}");
+        }
+        VRLog.Info("WorldUI", sb.ToString());
+    }
+
+    /// <summary>Human-readable layer list for a culling mask (the tester cannot read hex in a headset).</summary>
+    private static string DescribeMask(int mask)
+    {
+        var sb = new StringBuilder(96);
+        sb.Append($"0x{mask:X8} =");
+        bool any = false;
+        for (int layer = 0; layer < 32; layer++)
+        {
+            if ((mask & (1 << layer)) == 0)
+                continue;
+            string name = LayerMask.LayerToName(layer);
+            sb.Append(any ? ", " : " ").Append(layer).Append(':')
+              .Append(string.IsNullOrEmpty(name) ? "<unnamed>" : name);
+            any = true;
+        }
+        if (!any)
+            sb.Append(" <nothing>");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Pass names of a material's shader — the direct answer to "would this draw in a forward
+    /// camera?". A shader whose passes are all DEFERRED/ShadowCaster contributes nothing to the
+    /// mod's forward head camera, and that (not layers, not masks) is why most of the map is
+    /// invisible to it.
+    /// </summary>
+    private static string DescribePasses(Material? m)
+    {
+        if (m == null)
+            return "<null material>";
+        var sb = new StringBuilder(64);
+        int n;
+        try { n = m.passCount; }
+        catch { return "<passCount unavailable>"; }
+        for (int i = 0; i < n && i < 8; i++)
+        {
+            string pn;
+            try { pn = m.GetPassName(i); }
+            catch { pn = "?"; }
+            sb.Append(i > 0 ? "|" : "").Append(string.IsNullOrEmpty(pn) ? "<unnamed>" : pn);
+        }
+        if (n > 8)
+            sb.Append($"|(+{n - 8})");
+        return sb.Length == 0 ? "<no passes>" : sb.ToString();
+    }
+
+    private static void AppendReportCameras(StringBuilder sb, Camera? mapCam, int cullingMask)
+    {
+        sb.Append("\n CAMERAS (the map camera's mask is READ here, never guessed):");
+        CameraController cc = CameraController.s_CameraController;
+        Camera? game = cc != null ? cc.m_Camera : null;
+        AppendReportCamera(sb, "CameraController.m_Camera", game);
+        if (!ReferenceEquals(game, mapCam))
+            AppendReportCamera(sb, "map source handed to this report", mapCam);
+        AppendReportCamera(sb, "Camera.main", Camera.main);
+        AppendReportCamera(sb, "mod head camera", Rig.VRRigDriver.HeadCamera);
+        sb.Append($"\n  forward mask this render used: {DescribeMask(cullingMask)}");
+        sb.Append($"\n  mod layer bit                : {DescribeMask(VRLayers.ModLayerMask)}");
+    }
+
+    private static void AppendReportCamera(StringBuilder sb, string label, Camera? cam)
+    {
+        if (cam == null)
+        {
+            sb.Append($"\n  {label}: <none>");
+            return;
+        }
+        sb.Append($"\n  {label}: '{cam.name}' enabled={cam.enabled} depth={cam.depth:F1} " +
+                  $"path={cam.renderingPath}/actual={cam.actualRenderingPath} clear={cam.clearFlags} " +
+                  $"ortho={cam.orthographic} fov={cam.fieldOfView:F1} near={cam.nearClipPlane:F2} " +
+                  $"far={cam.farClipPlane:F0} rt={(cam.targetTexture != null ? cam.targetTexture.name : "<backbuffer>")} " +
+                  $"pos={cam.transform.position} euler={cam.transform.eulerAngles}\n    mask {DescribeMask(cam.cullingMask)}");
+    }
+
+    private static void AppendReportChoreographer(StringBuilder sb, MapChoreographer? choreo, Renderer? parchment)
+    {
+        sb.Append("\n MAPCHOREOGRAPHER + PARCHMENT:");
         if (choreo == null)
         {
-            VRLog.Info("WorldUI", "MAP SCENE renderers: no MapChoreographer found.");
+            sb.Append("\n  <no MapChoreographer in the loaded scene(s)>");
+        }
+        else
+        {
+            sb.Append($"\n  '{choreo.name}' at {choreo.transform.position}");
+            AppendReportSubtree(sb, "worldMap", choreo.worldMap);
+            AppendReportSubtree(sb, "cityMap", choreo.cityMap);
+            AppendReportSubtree(sb, "m_ScenariosParent", choreo.m_ScenariosParent);
+            AppendReportSubtree(sb, "m_VillagesParent", choreo.m_VillagesParent);
+            PartyToken? token = choreo.m_PartyToken;
+            sb.Append($"\n  m_PartyToken: {(token != null ? $"'{token.name}' at {token.transform.position} active={token.gameObject.activeInHierarchy}" : "<null>")}");
+        }
+        if (parchment == null)
+        {
+            sb.Append("\n  parchment renderer: <none acquired>");
+            return;
+        }
+        Bounds b = parchment.bounds;
+        sb.Append($"\n  parchment renderer: '{parchment.name}' L{parchment.gameObject.layer}" +
+                  $"({LayerMask.LayerToName(parchment.gameObject.layer)}) enabled={parchment.enabled}" +
+                  $"\n    world bounds center={b.center} size={b.size} (THICKNESS y={Mathf.Abs(b.size.y):F3}, " +
+                  $"widest horizontal={Mathf.Max(Mathf.Abs(b.size.x), Mathf.Abs(b.size.z)):F2})" +
+                  $"\n    transform pos={parchment.transform.position} scale={parchment.transform.lossyScale}");
+        var mf = parchment.GetComponent<MeshFilter>();
+        Mesh? mesh = mf != null ? mf.sharedMesh : null;
+        if (mesh != null)
+            sb.Append($"\n    mesh '{mesh.name}' subMeshes={mesh.subMeshCount} verts={mesh.vertexCount} " +
+                      $"localBounds center={mesh.bounds.center} size={mesh.bounds.size}");
+        Material[] mats = parchment.sharedMaterials;
+        for (int i = 0; i < mats.Length; i++)
+            sb.Append($"\n    mat[{i}] '{(mats[i] != null ? mats[i].name : "<null>")}' shader=" +
+                      $"'{(mats[i] != null && mats[i].shader != null ? mats[i].shader.name : "?")}' " +
+                      $"passes=[{DescribePasses(mats[i])}] queue={(mats[i] != null ? mats[i].renderQueue : -1)}");
+    }
+
+    private static void AppendReportSubtree(StringBuilder sb, string label, GameObject? go)
+    {
+        if (go == null)
+        {
+            sb.Append($"\n  {label}: <null>");
+            return;
+        }
+        var rends = go.GetComponentsInChildren<Renderer>(includeInactive: false);
+        bool haveBounds = false;
+        Bounds b = default;
+        for (int i = 0; i < rends.Length; i++)
+        {
+            if (!haveBounds) { b = rends[i].bounds; haveBounds = true; }
+            else b.Encapsulate(rends[i].bounds);
+        }
+        sb.Append($"\n  {label}: '{go.name}' active={go.activeInHierarchy} L{go.layer} " +
+                  $"children={go.transform.childCount} renderers={rends.Length} pos={go.transform.position}" +
+                  (haveBounds ? $" worldBounds center={b.center} size={b.size}" : " worldBounds=<no renderers>"));
+    }
+
+    private static void AppendReportRenderers(StringBuilder sb, MapChoreographer? choreo, Renderer? parchment, int cullingMask)
+    {
+        sb.Append($"\n RENDERERS under the map roots (cap {ReportMaxRenderers}); the PASSES column is the " +
+                  "decisive one — no forward pass means invisible in the mod's forward head camera:");
+        if (choreo == null)
+        {
+            sb.Append("\n  <no MapChoreographer>");
             return;
         }
         var roots = new List<Transform>();
         if (choreo.m_ScenariosParent != null) roots.Add(choreo.m_ScenariosParent.transform);
         if (choreo.m_VillagesParent != null) roots.Add(choreo.m_VillagesParent.transform);
-        if (_activeMapGo != null && _activeMapGo.transform.parent != null) roots.Add(_activeMapGo.transform.parent);
-        var sb = new StringBuilder();
-        int total = 0;
+        if (parchment != null && parchment.transform.parent != null) roots.Add(parchment.transform.parent);
+        int total = 0, listed = 0, noForward = 0;
         foreach (Transform root in roots)
         {
             foreach (Renderer r in root.GetComponentsInChildren<Renderer>(includeInactive: false))
             {
-                if (r == _worldMapRenderer) continue;
+                if (ReferenceEquals(r, parchment))
+                    continue;
                 total++;
-                bool inMask = (cullingMask & (1 << r.gameObject.layer)) != 0;
-                sb.Append($"\n  {r.name} [{r.GetType().Name}] L{r.gameObject.layer} mask={inMask} enabled={r.enabled} " +
-                          $"worldPos={r.transform.position} boundsSize={r.bounds.size}");
                 Material[] mats = r.sharedMaterials;
-                sb.Append($" sharedMats={mats.Length}");
+                bool anyForward = false;
                 for (int i = 0; i < mats.Length; i++)
+                {
+                    string passes = DescribePasses(mats[i]);
+                    if (passes.IndexOf("FORWARD", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || passes.IndexOf("<unnamed>", System.StringComparison.Ordinal) >= 0)
+                        anyForward = true;
+                }
+                if (!anyForward)
+                    noForward++;
+                if (listed >= ReportMaxRenderers)
+                    continue;
+                listed++;
+                bool inMask = (cullingMask & (1 << r.gameObject.layer)) != 0;
+                sb.Append($"\n  '{r.name}' [{r.GetType().Name}] L{r.gameObject.layer} inMask={inMask} " +
+                          $"enabled={r.enabled} pos={r.transform.position} boundsSize={r.bounds.size} mats={mats.Length}");
+                for (int i = 0; i < mats.Length && i < 4; i++)
                 {
                     Material? m = mats[i];
                     if (m == null) { sb.Append($" [{i}]=null"); continue; }
-                    string sh = m.shader != null ? m.shader.name : "<noshader>";
-                    Texture? mt = m.mainTexture;
                     string alb = "none";
                     if (m.HasProperty("_Alb") && m.GetTexture("_Alb") != null) alb = "_Alb:" + m.GetTexture("_Alb")!.name;
                     else if (m.HasProperty("_MainTex") && m.GetTexture("_MainTex") != null) alb = "_MainTex:" + m.GetTexture("_MainTex")!.name;
-                    else if (mt != null) alb = "main:" + mt.name;
-                    sb.Append($" [{i}]shader='{sh}' alb={alb} color={(m.HasProperty("_Color") ? m.GetColor("_Color").ToString() : "-")}");
+                    else if (m.mainTexture != null) alb = "main:" + m.mainTexture.name;
+                    sb.Append($"\n      [{i}] shader='{(m.shader != null ? m.shader.name : "?")}' " +
+                              $"passes=[{DescribePasses(m)}] queue={m.renderQueue} alb={alb}");
                 }
-                // MeshFilter mesh (for the icon geometry)
-                var mf = r.GetComponent<MeshFilter>();
-                if (mf != null && mf.sharedMesh != null)
-                    sb.Append($" mesh='{mf.sharedMesh.name}' verts={mf.sharedMesh.vertexCount}");
             }
         }
-        VRLog.Info("WorldUI", $"MAP SCENE renderers [{total} total] (forwardMask=0x{cullingMask:X8}):" + sb.ToString());
+        sb.Append($"\n  TOTAL {total} renderer(s); {noForward} of them have NO pass whose name contains " +
+                  "'FORWARD' — those are the ones a forward head camera will not draw, and each needs its " +
+                  "own override (or must be accepted as missing) before the map looks complete.");
+    }
+
+    private static void AppendReportCanvases(StringBuilder sb)
+    {
+        sb.Append($"\n CANVASES (cap {ReportMaxCanvases}) — phase 7 cannot be planned without knowing which " +
+                  "windows are separable and what their UIWindowIDs are:");
+        Canvas[] all = Object.FindObjectsOfType<Canvas>(includeInactive: false);
+        int listed = 0;
+        for (int i = 0; i < all.Length; i++)
+        {
+            Canvas c = all[i];
+            if (c == null || !c.isRootCanvas)
+                continue;
+            if (++listed > ReportMaxCanvases)
+                break;
+            var win = c.GetComponentInChildren<UnityEngine.UI.UIWindow>(includeInactive: false);
+            sb.Append($"\n  '{c.name}' mode={c.renderMode} cam=" +
+                      $"'{(c.worldCamera != null ? c.worldCamera.name : "<none>")}' sortLayer={c.sortingLayerName} " +
+                      $"order={c.sortingOrder} L{c.gameObject.layer} scale={c.transform.lossyScale.x:F3} " +
+                      $"childWindows={c.GetComponentsInChildren<UnityEngine.UI.UIWindow>(false).Length}" +
+                      (win != null ? $" firstWindow='{win.name}' id={win.ID}" : " firstWindow=<none>"));
+        }
+        sb.Append($"\n  ({listed} root canvas(es) listed of {all.Length} canvas component(s) found.)");
+    }
+
+    private static void AppendReportGuildmasterHud(StringBuilder sb)
+    {
+        sb.Append("\n UIGUILDMASTERHUD members (reflected — the bar buttons phase 6 mirrors and the " +
+                  "sub-windows phase 7 floats):");
+        UIGuildmasterHUD? hud = null;
+        try
+        {
+            if (Singleton<UIGuildmasterHUD>.IsInitialized)
+                hud = Singleton<UIGuildmasterHUD>.Instance;
+        }
+        catch { /* singleton not ready — reported as absent below */ }
+        if (hud == null)
+            hud = Object.FindObjectOfType<UIGuildmasterHUD>();
+        if (hud == null)
+        {
+            sb.Append("\n  <no UIGuildmasterHUD in the scene>");
+            return;
+        }
+        sb.Append($"\n  '{hud.name}' CurrentMode={hud.CurrentMode}");
+        System.Reflection.FieldInfo[] fields = hud.GetType().GetFields(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public
+            | System.Reflection.BindingFlags.NonPublic);
+        int listed = 0;
+        for (int i = 0; i < fields.Length && listed < ReportMaxHudMembers; i++)
+        {
+            string fn = fields[i].Name;
+            if (fn.IndexOf("Button", System.StringComparison.OrdinalIgnoreCase) < 0
+                && fn.IndexOf("Window", System.StringComparison.OrdinalIgnoreCase) < 0
+                && fn.IndexOf("Presenter", System.StringComparison.OrdinalIgnoreCase) < 0
+                && fn.IndexOf("Container", System.StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+            object? v;
+            try { v = fields[i].GetValue(hud); }
+            catch { continue; }
+            listed++;
+            if (v is not Component comp)
+            {
+                sb.Append($"\n  {fn} [{fields[i].FieldType.Name}] = {(v == null ? "<null>" : v.ToString())}");
+                continue;
+            }
+            var winId = comp.GetComponentInParent<UnityEngine.UI.UIWindow>();
+            sb.Append($"\n  {fn} [{fields[i].FieldType.Name}] go='{comp.gameObject.name}' " +
+                      $"active={comp.gameObject.activeInHierarchy} L{comp.gameObject.layer}" +
+                      (winId != null ? $" inWindow='{winId.name}' id={winId.ID}" : " inWindow=<none>"));
+        }
+        sb.Append($"\n  ({listed} member(s) listed of {fields.Length} field(s).)");
+    }
+
+    private static void AppendReportPeers(StringBuilder sb)
+    {
+        sb.Append("\n PEER HEADS (risk 7 — do all the menu rigs really sit at the same world point?):");
+        var heads = new List<Vector3>(8);
+        int n;
+        try { n = Net.NetAvatarDriver.CollectPeerHeads(heads); }
+        catch (System.Exception ex) { sb.Append($"\n  <unavailable: {ex.GetType().Name}>"); return; }
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        sb.Append($"\n  local head: {(head != null ? head.transform.position.ToString() : "<no rig>")}");
+        if (n == 0)
+        {
+            sb.Append("\n  no peer head poses received (single player, or no peer packet has arrived yet). " +
+                      "THIS SECTION IS ONLY MEANINGFUL IN A TWO-CLIENT SESSION.");
+            return;
+        }
+        float maxGap = 0f;
+        for (int i = 0; i < heads.Count; i++)
+        {
+            sb.Append($"\n  peer[{i}] head {heads[i]}");
+            if (head != null)
+                maxGap = Mathf.Max(maxGap, Vector3.Distance(heads[i], head.transform.position));
+            for (int j = i + 1; j < heads.Count; j++)
+                maxGap = Mathf.Max(maxGap, Vector3.Distance(heads[i], heads[j]));
+        }
+        sb.Append($"\n  {n} peer head(s); largest pairwise separation {maxGap:F2} world units. " +
+                  "A separation near zero CONFIRMS that every client's menu rig sits at the same authored " +
+                  "vantage, i.e. phase 8 must assign seats; a large one refutes it.");
+    }
+
+    /// <summary>Compatibility shim for the flat map render's existing call site.</summary>
+    private void LogMapSceneRenderers(int cullingMask)
+    {
+        LogMapSceneReport(_mapSourceCam, _worldMapRenderer, cullingMask, "flat map render");
     }
 
     /// <summary>
@@ -1891,6 +2236,10 @@ internal sealed partial class FlatScreenStereo
         if (MapDiagClearOnly)
             return; // diagnostic: leave the game's deferred material on → nothing draws → magenta clear only
 #pragma warning restore CS0162
+        // HARD GUARD: while the 3D map room holds its own override on this very renderer, this
+        // path must not touch sharedMaterials at all — see MapRoomOwnsParchment.
+        if (MapRoomOwnsParchment)
+            return;
         if (_overrideApplied || _worldMapRenderer == null || _worldMapOverrideMats == null)
             return;
         // Re-capture the live originals each time so the restore always puts back exactly what the
@@ -1963,7 +2312,7 @@ internal sealed partial class FlatScreenStereo
         _mapPanning = false;
         _mapPanLogged = false;
         RestoreWindParticles(); // leaving the map — give the game its wind/cloud particles back
-        _mapSceneRenderersLogged = false;
+        ArmMapSceneReport(); // fresh MAP SCENE REPORT on the next map entry
         _mapIconsLogCount = 0;
         _ndcLogCount = 0;
         _ndcLastLogFrame = int.MinValue;

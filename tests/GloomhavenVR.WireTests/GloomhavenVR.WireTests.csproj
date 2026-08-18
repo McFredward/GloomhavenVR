@@ -140,6 +140,17 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Board\FigureGrab\FigureStretchMath.cs" Link="board\FigureStretchMath.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file either, and here for the strongest version of the same reason: it decides
+       WHERE THE PLAYER IS STANDING and AT WHAT SCALE in the 3D campaign map. Get it wrong and the
+       verdict from inside a headset is "giant map below the player" — which is not a hypothetical,
+       it is hardware test #8, the exact failure that kept [Rig] Experimental3DMap unimplemented for
+       dozens of builds. The whole seat is a pure function of the parchment's world bounds, kept in
+       a file free of everything but Mathf/Bounds precisely so it can be driven here, bounds by
+       bounds, without a headset and without a game. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\MapRoom\MapRoomSeat.cs" Link="worldui\MapRoomSeat.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
@@ -174,6 +185,7 @@
          sync. This file states the millimetres and lints that there is now one definition. It
          links no mod source: it reads src/ as TEXT and recomputes the formula. -->
     <Compile Include="CardFaceRectVectors.cs" />
+    <Compile Include="MapRoomSeatVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

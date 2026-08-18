@@ -35,6 +35,11 @@ internal static class Program
             // for its body reads as "looks a bit off" from inside a headset and as nothing at all
             // from outside one. Report 12 (2026-08-15).
             CardFaceRectVectors.Run(t, repoRoot);
+            // Where the player STANDS in the 3D campaign map, and at what scale. The one defect
+            // this arithmetic can ship is hardware test #8's giant map below the player — the
+            // failure that kept [Rig] Experimental3DMap unimplemented — and it is decidable from
+            // four numbers without a headset.
+            MapRoomSeatVectors.Run(t);
         }
         catch (Exception e)
         {

@@ -416,7 +416,78 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 157;
+    public const ushort ModBuild = 158;
+    // Build 158: THE 3D WORLD MAP, PHASES 0-2. Nothing on the wire; every packet is byte-identical
+    // to build 157's. The feature is behind `[Rig] Experimental3DMap`, off by default, and its OFF
+    // state is the flat map unchanged in every detail (the flat path's only diff is four stand-down
+    // guards).
+    //
+    // THE ARCHITECTURE: DO NOT MOVE THE MAP — SCALE THE RIG TO IT. The rig root is already a scaled
+    // transform (VRRigDriver:676, doc at :32-35: "game units per real meter … so the board reads as
+    // a table"), so THE SCENARIO DIORAMA HAS NEVER BEEN A SHRUNKEN BOARD - IT IS A GIANT PLAYER. A
+    // third flavour of that is an addition, not a redesign, and nothing in MapChoreographer,
+    // MapLocation or AdventureState is touched. Re-seating the map onto a table transform was
+    // REJECTED on evidence: MapChoreographer writes ABSOLUTE world positions into every location
+    // (MapChoreographer.cs:602,612,638,642,662,666,687,702), so a mod transform on an ancestor is
+    // correct only until the next InitMap/travel/city switch — permanent maintenance against a
+    // 3,967-line class, for nothing scaling the rig does not give free.
+    //
+    // TWO CORRECTIONS TO MY OWN PREMISE, both read out of the code. The `MapUnlit` override is NOT
+    // optional: the parchment has no forward pass and the mod's head camera is forward, so without
+    // it the map renders BLACK. Same for the location icons — deferred Decalicious decals that draw
+    // nothing forward. Both were already solved in FlatScreenStereo.3.Map.cs; the work was to
+    // re-scope that solution from the capture camera to the head camera and from a per-render scope
+    // to the room's lifetime.
+    //
+    // THE PREDICATE IS POSITIVE ON ALL THREE COUNTS, and that is the round's main safety property:
+    // the switch, AND a MapChoreographer whose worldMap/cityMap is activeInHierarchy, AND a
+    // parchment with world bounds at least 1 cm wide. The string "not a scenario" appears nowhere.
+    // In the MAIN MENU there is no MapChoreographer, so the per-frame "MENU rig = mod layer ONLY"
+    // re-assert takes its unchanged branch and the Map branch is unreachable — which matters because
+    // an earlier experiment broke the menu exactly there. The third clause is deliberate: gating on
+    // the map GameObject alone would tear the menu rig down in the frames before the mesh exists,
+    // AND A TORN-DOWN RIG IS AN UNTRACKED HEADSET. Worst case degrades to an invisible map, never to
+    // a broken menu.
+    //
+    // THE SEAT IS SOLVED, NOT TYPED (MapRoom/MapRoomSeat.cs, pure and wire-tested, 27 assertions):
+    // scale = widest horizontal parchment extent / 1.20 m so the map reads as a 1.2 m tabletop;
+    // floor = parchment top face - 0.78 m x scale; seat = centre + view-side x (support + 0.45 m x
+    // scale); a 1.70 m player's eyes land 0.92 m above the parchment. The earlier attempt anchored
+    // to the game's own camera and got "giant map below the player, black flat window" — anchoring
+    // to the PARCHMENT'S OWN BOUNDS is precisely what that note was warning about. Recentring nulls
+    // the HORIZONTAL head offset only: at scale ~500 an uncorrected 0.5 m play-space offset is 250
+    // world units.
+    //
+    // WHAT IS STILL INVISIBLE, STATED RATHER THAN GLOSSED: everything on the map except the
+    // parchment and the icons. Mountains, sea, city buildings, labels and route props are deferred
+    // materials with no forward pass, and NOBODY KNOWS HOW MANY THEY ARE. That is what the Phase 0
+    // dump exists to answer: the MAP SCENE REPORT prints, among cameras/canvases/bounds/peer heads,
+    // a count of renderers with no pass containing "FORWARD" — and that single number decides
+    // whether the rest of Phase 1 is a small job or a large one.
+    //
+    // THE TABLE IS PROCEDURAL AND NOTHING WAS DOWNLOADED. 1.800 x 1.013 m top at 0.750 m, benches at
+    // 0.450 m — the measured seat height the cellar stool was rescaled to after "Hocker für eine
+    // Maus" — with four seat anchors, which is what makes four places out of "Bänken an beiden
+    // Enden". NO WIDTH IN THE FILE IS TYPED: the nine plank seams of the CC0 albedo were measured
+    // off the image and every face is a whole number of the photograph's boards wide with its edges
+    // on two seams, so the top is one slab wearing the photograph's own seams rather than five plank
+    // meshes fighting a plank texture. `AssertBoardAligned` fails the bake on any face that breaks
+    // that. A downloaded picnic table was rejected on the standing art ruling: it would read rustic
+    // garden in a medieval cellar and a night swamp, and be the only object in either room from
+    // somewhere else.
+    //
+    // AND IT MAY NOT STAND IN A ROOM, WHICH IS A BAKE-FAILING FACT RATHER THAN A COMMENT. Its
+    // footprint radius is 1.55 m, inside the 1.70 m PlaySpace carpet disc and 0.75 m tall — exactly
+    // what that gate exists to reject. So it ships as a standalone Bundle/Table prefab, and TWO
+    // asserts hold that: one re-measures the mesh against EnvRoomBuilder's own PlaySpaceCarpetR (no
+    // second copy of 1.70), the other walks both room prefabs' dependencies and fails if either ever
+    // references it.
+    //
+    // THE WINDING GATE PROVED ITSELF BEFORE IT PASSED: the same 192 triangles, reversed, are
+    // rejected — then 384 verts, 0 unpaired edges, signed volume +298663.5 cm^3, 0 triangles
+    // disagreeing with their normals. Seven meshes in this project have shipped wound against the
+    // side they are seen from; one was invisible for ten builds.
+    //
     // Build 157: THE THREE-PLAYER SESSION. Twelve reports, and the through-line is that FOUR of them
     // were the same defect wearing different clothes: A FACT THAT WAS RE-DERIVED ON THE RECEIVING
     // SIDE INSTEAD OF BEING TRANSMITTED. Three logs of one session — host plus both peers — is what

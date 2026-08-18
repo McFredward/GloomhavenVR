@@ -302,13 +302,16 @@ public class Plugin : BaseUnityPlugin
             "board yet / off).");
         Experimental3DMap = Config.Bind(
             "Rig", "Experimental3DMap", Defaults.Experimental3DMap,
-            "RESERVED — CURRENTLY UNIMPLEMENTED placeholder for a future feature: explore the " +
-            "campaign/world map as a head-tracked 3D diorama instead of the flat 2D screen. " +
-            "Today this switch has NO effect: everything before an actual combat scenario " +
-            "(campaign map, guildmaster, merchant, level-up) deliberately stays in Menu2D on " +
-            "the floating screen, because the map scene was never authored for a free VR " +
-            "camera (test #8: giant map below the player, black flat window). The wish is " +
-            "saved here so it survives into a later phase.");
+            "EXPERIMENTAL, off by default: stand IN the campaign map instead of looking at it " +
+            "on the flat screen. The map becomes a table-sized parchment you walk around and " +
+            "lean over, and in multiplayer you see each other there. Off = the flat 2D map, " +
+            "unchanged in every detail. Being built in phases — today it seats you at the " +
+            "parchment; the table, the pressable location icons, the floating placards and the " +
+            "movable windows arrive with the later phases, so expect an unfurnished room. " +
+            "The earlier attempt failed by anchoring to the game's own camera (test #8: giant " +
+            "map below the player, black flat window); this one anchors to the PARCHMENT'S own " +
+            "bounds, which is what that note was warning about. Everything is written to the " +
+            "log — look for MAP ROOM ENGAGED and MAP SCENE REPORT.");
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
             new ConfigDescription(

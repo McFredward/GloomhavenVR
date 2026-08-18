@@ -261,6 +261,14 @@ namespace GloomhavenVR
             AssetDatabase.SaveAssets();
             BuildCellar();
             BuildForest();
+            // The 3D world map's table (Assets/Bundle/Table/MapTable.prefab). It
+            // is built HERE, in the environment bake, because it is made of the
+            // same imported CC0 wood and drawn by the same EnvRoom shader as the
+            // rooms — but it is deliberately NOT part of either room prefab, and
+            // MapTableBuilder asserts that after the fact (see WHY IT IS NOT IN A
+            // ROOM there). Running after both rooms is what makes that assert
+            // possible: the room prefabs exist to be searched by the time it runs.
+            MapTableBuilder.Build();
             AssetDatabase.SaveAssets();
             PruneUnreferenced();
             AssetDatabase.SaveAssets();
@@ -2098,7 +2106,11 @@ namespace GloomhavenVR
             return c / lum;
         }
 
-        private static void SaveMesh(string path, Mesh src)
+        /// <summary>internal, not private: BuildMapTable.cs saves its one mesh
+        /// through the same function, so a rebuilt table updates the existing
+        /// asset in place (and keeps the prefab's reference) exactly the way a
+        /// rebuilt room mesh does.</summary>
+        internal static void SaveMesh(string path, Mesh src)
         {
             var existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
             if (existing == null)

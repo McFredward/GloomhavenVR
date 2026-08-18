@@ -680,13 +680,16 @@ internal static partial class Loc
                 + "Aus = alle Spieler behalten wie bisher denselben gemeinsamen Platz. Jeder Ausgang wird "
                 + "protokolliert (platziert / wartet auf Mitspieler / noch kein Brett / aus).",
             ["Rig/Experimental3DMap"] =
-                "RESERVIERT — DERZEIT NICHT UMGESETZTER Platzhalter für eine künftige Funktion: die "
-                + "Kampagnen-/Weltkarte als kopfgetracktes 3D-Diorama erkunden statt auf der flachen "
-                + "2D-Leinwand. Heute hat dieser Schalter KEINE Wirkung: alles vor einem echten Kampfszenario "
-                + "(Kampagnenkarte, Guildmaster, Händler, Stufenaufstieg) bleibt bewusst in Menu2D auf dem "
-                + "schwebenden Bildschirm, weil die Kartenszene nie für eine freie VR-Kamera gebaut wurde (Test "
-                + "#8: riesige Karte unter dem Spieler, schwarzes flaches Fenster). Der Wunsch ist hier "
-                + "festgehalten, damit er in eine spätere Phase überlebt.",
+                "EXPERIMENTELL, standardmäßig aus: Steh IN der Kampagnenkarte, statt sie auf der flachen "
+                + "Leinwand anzusehen. Die Karte wird zu einem tischgroßen Pergament, um das du herumgehst "
+                + "und über das du dich beugst; im Mehrspieler seht ihr euch dabei. Aus = die flache "
+                + "2D-Karte, in jedem Detail unverändert. Wird in Phasen gebaut — heute setzt es dich an "
+                + "das Pergament; der Tisch, die drückbaren Ortssymbole, die schwebenden Schilder und die "
+                + "verschiebbaren Fenster kommen mit den späteren Phasen, es ist also noch ein unmöblierter "
+                + "Raum. Der frühere Versuch scheiterte daran, dass er sich an der Kamera des Spiels "
+                + "festmachte (Test #8: riesige Karte unter dem Spieler, schwarzes flaches Fenster); dieser "
+                + "hier macht sich an den Maßen des PERGAMENTS fest, wovor jene Notiz gewarnt hat. Alles "
+                + "steht im Log — suche nach MAP ROOM ENGAGED und MAP SCENE REPORT.",
             ["Rig/WorldTiltDegrees"] =
                 "ALT — ohne Wirkung (Funktion 2026-08 auf Nutzerwunsch GEPARKT: die Weltneigung machte zu "
                 + "viele Probleme und ist vorerst abgeschaltet; sie kommt eventuell später wieder). Das war "

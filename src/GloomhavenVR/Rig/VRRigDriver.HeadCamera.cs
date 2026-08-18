@@ -16,6 +16,9 @@ internal sealed partial class VRRigDriver
     ///
     /// - SCENARIO rig: anchor game camera's mask OR the mod layer bit, never 0 — the
     ///   head camera renders the diorama world plus mod visuals.
+    /// - MAP rig (the 3D campaign map, <see cref="BuildMapRig"/>): the GAME MAP CAMERA'S mask
+    ///   OR the mod layer bit — the player stands in the real map geometry. Reachable only while
+    ///   a <c>MapChoreographer</c> map is provably active, so the menu policy below is unaffected.
     /// - MENU rig (hardware test #10 fix): the MOD LAYER ONLY — nothing else, ever.
     ///   Menu2D shows the world exclusively THROUGH the FlatScreen RT composite; the
     ///   anchor mask on the campaign map (0xF00FFE37, the whole 3D world) rendered the
@@ -121,7 +124,17 @@ internal sealed partial class VRRigDriver
         if (_kind == RigKind.None || _camera == null)
             return;
         int wanted;
-        if (_kind == RigKind.Menu)
+        if (_kind == RigKind.Map)
+        {
+            // MAP RIG: the game map camera's OWN mask (read, never guessed) OR the mod layer —
+            // the player is looking at the real map geometry, not at a photograph of it. This
+            // branch is unreachable outside a positively-detected open campaign map
+            // (MapRoomDriver.Wanted), so the menu policy below is untouched by construction; and
+            // ResolveMapMask's own last fallback is the mod layer alone, so even a total failure
+            // to read a camera degrades to exactly the menu picture rather than to a broken menu.
+            wanted = WorldUI.MapRoom.MapRoomDriver.ResolveMapMask(_anchor, out int _);
+        }
+        else if (_kind == RigKind.Menu)
         {
             // Mod layer only — never follow the anchor in Menu2D (test #10). The opt-out list is
             // deliberately NOT applied here: the menu mask is already the minimum that keeps the

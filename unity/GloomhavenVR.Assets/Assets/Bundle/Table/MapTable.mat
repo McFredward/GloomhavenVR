@@ -1,0 +1,72 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: MapTable
+  m_Shader: {fileID: 4800000, guid: 78343f4cd51f4c92ca13e5f2dc262690, type: 3}
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs:
+    - _BumpMap:
+        m_Texture: {fileID: 2800000, guid: e11aa888241138b9792c73f74a4da538, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _MainTex:
+        m_Texture: {fileID: 2800000, guid: a7bdb1106fb054b35b8379d5d9065975, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    m_Ints: []
+    m_Floats:
+    - _BumpScale: 0.9
+    - _Cutoff: 0.5
+    - _Cutout: 0
+    - _ElemFrost: 1
+    - _ElemGrowFreq: 3
+    - _ElemRad: 1.5539235
+    - _ElemScl: 1
+    - _ElemWarm: 1
+    - _FireRate: 6
+    - _PtHard: 0
+    - _RimPow: 3
+    - _VCol: 1
+    m_Colors:
+    - _AmbDown: {r: 0.032, g: 0.03, b: 0.028, a: 1}
+    - _AmbUp: {r: 0.095, g: 0.091, b: 0.086, a: 1}
+    - _DirCol: {r: 0.16, g: 0.145, b: 0.12, a: 1}
+    - _DirDir: {r: 0, g: 1, b: 0, a: 0}
+    - _ElemCentre: {r: 0, g: 0, b: 0, a: 0}
+    - _FireCol: {r: 0, g: 0, b: 0, a: 0}
+    - _FirePos0: {r: 0, g: 0, b: 0, a: 1}
+    - _FirePos1: {r: 0, g: 0, b: 0, a: 1}
+    - _FirePos2: {r: 0, g: 0, b: 0, a: 1}
+    - _FireRide: {r: 0, g: 0, b: 0, a: 0}
+    - _L0Col: {r: 1.35, g: 1.188, b: 0.89100003, a: 1.35}
+    - _L0Pos: {r: 0, g: 1.2, b: 0, a: 0.41666666}
+    - _L1Col: {r: 0, g: 0, b: 0, a: 0}
+    - _L1Pos: {r: 0, g: 0, b: 0, a: 1}
+    - _L2Col: {r: 0, g: 0, b: 0, a: 0}
+    - _L2Pos: {r: 0, g: 0, b: 0, a: 1}
+    - _MoonWin: {r: -2.068, g: 2.2, b: -0.636, a: 2.986}
+    - _MoonWinZ: {r: 4.5, g: 0.22, b: 0, a: 0}
+    - _RimCol: {r: 0, g: 0, b: 0, a: 1}
+    - _RimDir: {r: 0, g: 1, b: 0, a: 0}
+    - _Tint: {r: 1, g: 1, b: 1, a: 1}
+    - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
+    - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
+    - _TipPivot: {r: 0, g: 0, b: 0, a: 0}
+    - _TipSched: {r: 0, g: 0, b: 0, a: 0}
+    - _TipUse: {r: 0, g: -1, b: 0, a: 0}
+  m_BuildTextureStacks: []
