@@ -164,6 +164,22 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\BoardSizeFrame.cs" Link="cards\BoardSizeFrame.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, and the sharpest case of the FigureStretchMath reason yet: it decides
+       WHICH shader property is the mirror and WHICH WAY that property points, on shaders whose
+       property names nobody in this project has ever read — the game's shaders ship compiled
+       inside always_loaded_base* asset bundles and there is no game install on the build machine
+       to open them with. So the classification is unattended by construction, and the only thing
+       that makes writing onto an unknown shader defensible is one invariant: no cap may ever make
+       a surface SHINIER than the tileset authored it. Its violation does not throw, does not log
+       and does not look like a failure — it looks like a pool that mirrors worse, a report that
+       has now arrived three times (2026-08-15 spiegeltiles.jpg, and twice since). The
+       classification and the cap arithmetic were kept out of WaterTerrainVR.cs (Renderer,
+       Material, ReflectionProbe, the whole driver) in a file free of everything but Mathf
+       precisely so they could be linked in here and swept property by property. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WaterReflectionCaps.cs" Link="core\WaterReflectionCaps.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Shims.cs" />
     <Compile Include="Hex.cs" />
@@ -200,6 +216,8 @@
     <Compile Include="CardFaceRectVectors.cs" />
     <Compile Include="MapRoomSeatVectors.cs" />
     <Compile Include="BoardSizeVectors.cs" />
+    <Compile Include="BoardPinFrameVectors.cs" />
+    <Compile Include="WaterReflectionVectors.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>
 

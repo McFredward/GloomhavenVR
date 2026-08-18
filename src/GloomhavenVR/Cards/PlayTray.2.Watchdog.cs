@@ -30,13 +30,14 @@ internal sealed partial class PlayTray
     //     so neither VRPresenceWatch signal (userPresence feature / frozen head pose) fired.
     // A doff/don that the runtime hides from us is therefore INVISIBLE to every event-driven
     // recovery we have. Meanwhile the board CAN legitimately end up out of reach:
-    //   * FOLLOW mode anchors the board in RIG space, so physically walking across the room
+    //   * BOTH anchor modes now hold the board in RIG space, so physically walking across the room
     //     leaves it standing where it was (and at the diorama scale ~20.7 world units per real
     //     metre, "a few steps" is tens of world units of separation);
-    //   * PINNED mode anchors it in raw WORLD space, so a recentre — which TELEPORTS the rig to
-    //     the table-edge/circle seat, VRRigDriver.Recenter — strands it at the old seat;
-    //   * the pin holder's scale was baked ONCE at pin time from the rig's lossy scale, so a
-    //     later world-grab zoom silently rescaled the pinned board's world OFFSET with it.
+    //   * the two PINNED-specific ways the board used to get lost are gone with the world-space
+    //     pin (2026-08-18, see SyncPinHolder): a recentre TELEPORTING the rig to the table-edge
+    //     seat stranded a world-pinned board at the old seat, and the holder's scale — baked once
+    //     at pin time from the rig's lossy scale — let a later world-grab zoom rescale the pinned
+    //     board's world OFFSET with it. A rig-local pin has neither failure available to it.
     // So the safety net must be UNCONDITIONAL and per-frame, not event-driven. It mirrors the
     // then-proven LOST-MENU RECALL in WorldUI.ModalFallback: dwell timer, generous envelope,
     // never yank a board the user is holding, one loud log line stating WHY.
@@ -74,16 +75,22 @@ internal sealed partial class PlayTray
     // zurückholen" (CardsDriver.RequestBoardRecall → _recallBoard), which is a deliberate action
     // and therefore always allowed — but note it has NO button wired to it yet, so today the
     // non-finite verdict is in practice the only automatic recovery left.
-    /// <summary><see cref="VRRigDriver.RigPoseVersion"/> the PINNED world pose was authored under.
-    /// The version bumps ONLY on a rig (re)build or a deliberate recentre — i.e. exactly the
-    /// tracking-origin changes that move the player without moving the world — so a mismatch means
-    /// the pinned pose was authored against a DIFFERENT origin and must be carried along.</summary>
+    /// <summary><see cref="VRRigDriver.RigPoseVersion"/> the pin last saw. The version bumps ONLY on
+    /// a rig (re)build or a deliberate recentre — i.e. exactly the tracking-origin changes that move
+    /// the player without moving the world. It is no longer a TRIGGER for anything: a rig-local pin
+    /// is carried through those events by <see cref="TrayPinFrame"/> adopting the new rig, with no
+    /// arithmetic to run. It survives so the event can be LABELLED in the log and sanctioned for the
+    /// pose watchdogs — a carry that is invisible in code should still be legible in a log.</summary>
     private int _pinPoseVersion = -1;
 
-    /// <summary>Pending SANCTIONED-move label from <see cref="SyncPinHolder"/>, null when it wrote
-    /// nothing. The pin housekeeping legitimately changes the board's PARENT-LOCAL pose (the holder
-    /// rescale) or its world pose (the tracking-origin carry), and CardsDriver's issue-C pose watch
-    /// Warns on any change it did not sanction — so the driver drains this right after the tick.</summary>
+    /// <summary>Whether the pin frame had a live rig to copy last tick — the edge that legitimately
+    /// re-expresses the pin (see <see cref="SyncPinHolder"/>).</summary>
+    private bool _pinHadRig;
+
+    /// <summary>Pending SANCTIONED-move label from <see cref="SyncPinHolder"/>, null when it had
+    /// nothing to announce. The pin housekeeping can move the board's WORLD pose (the holder adopts
+    /// a rebuilt rig), and CardsDriver's issue-C pose watch Warns on any change it did not sanction
+    /// — so the driver drains this right after the tick.</summary>
     private string? _pinHousekeepingMove;
 
     /// <summary>Take (and clear) the pending pin-housekeeping move label — see <see cref="_pinHousekeepingMove"/>.</summary>
@@ -115,19 +122,24 @@ internal sealed partial class PlayTray
         if (_root == null || !_wantVisible || !_placed)
             return false;
 
-        // Housekeeping: keep the PINNED holder honest across tracking-origin changes. It is
-        // pose-preserving in the user's frame of reference — the board keeps the same place
-        // RELATIVE TO THE PLAYER across a recentre, which is what "it stayed where I put it"
+        // Housekeeping: put the pin holder on THIS frame's rig frame before anything below reads
+        // the anchor. Pose-preserving in the user's frame of reference by construction — the board
+        // keeps the same place relative to the player, which is what "it stayed where I put it"
         // means — so it is not a move under the ruling above.
         SyncPinHolder();
         // Runs AFTER SyncPinHolder (which is what makes the anchor honest) and BEFORE the
         // gripped early-out below — a held board is exactly the case it exists for.
         TickHeldSizeFreeze();
-        // NO world-tilt compensation (user decision 2026-08, supersedes item 11): a PINNED
-        // board is deliberately WORLD-static — a tilt change leaves it untouched (it then
-        // looks tilted like the rest of the world; the user re-adjusts it in Free mode).
-        // The old SyncWorldTiltComp counter-rotation visibly dragged the board through the
-        // tilt tween ("nachziehen") and was removed outright.
+        // NO world-tilt compensation, and none is needed any more. The 2026-08 decision here
+        // ("a PINNED board is deliberately WORLD-static — a tilt change leaves it untouched, it
+        // then looks tilted like the rest of the world") was made in the world frame, and the old
+        // SyncWorldTiltComp counter-rotation it rejected visibly dragged the board through the
+        // tilt tween ("nachziehen"). Under the rig-local pin the question dissolves: the world
+        // tilt is a rotation OF THE RIG, and the holder copies the rig's rotation, so the board
+        // rides the tween rigidly — no counter-rotation, no drag, and nothing moves in the
+        // player's view. That is the 2026-08-18 ruling applied to the tilt ("EGAL wie man zoomed
+        // oder sich bewegt"), and it does reverse the earlier decision's OUTCOME: a tilted world
+        // no longer tilts the board relative to the player. Flagged to the user as such.
 
         // A gripped board is being deliberately placed — never touch it mid-carry. The pinned
         // freeze sentinel drops its baseline too: a grab is the user's own hand, and the pose it
@@ -149,19 +161,28 @@ internal sealed partial class PlayTray
         // The board's apparent width IS visible here (BoardW × the root's lossy scale), so that is
         // what is clamped — every frame, so no gesture combination can slip past it.
         //
-        // FOLLOW MODE ONLY (user ruling 2026-08-07: "Fixiert heißt: völlig unabhängig vom
-        // Character, bewegt sich in KEINSTER Weise, außer es wird aktiv verschoben oder
-        // skaliert"). The clamp measures in PLAYER units — world width ÷ LIVE rig scale — and
-        // for a PINNED board that measure is the bug, not the safeguard: the board's WORLD size
-        // is frozen, but a world-grab zoom rescales the PLAYER, so the apparent width drifts
-        // across the 18/140 cm limits without anyone touching the board, and the clamp then
-        // "corrected" the frozen world size frame after frame. That is precisely the 2026-08-07
-        // report ("beim Zoomen nach einer Weile wird das fixierte Board kleiner oder größer");
-        // the hardware log convicts it — 18× "Board size CLAMPED" with a CONSTANT parent chain
-        // ×40.10 (the pin-holder snapshot) against rig scales ×5.13–×137.19 (the zoom). A pinned
-        // board's apparent size changing with zoom is what pinning MEANS; the size was legal
-        // when the player set it (the two-hand gesture window GrabScaleLimits bounds every
-        // explicit resize live, in BOTH modes), so while pinned nothing may re-derive it.
+        // FOLLOW MODE ONLY — and the reason has CHANGED, so read this before re-deciding it.
+        //
+        // WHY IT WAS GATED (2026-08-07, and this half is now WRONG): the clamp measures in PLAYER
+        // units — world width ÷ LIVE rig scale — and while the pin was stored in WORLD space that
+        // measure drifted on its own: the board's world size was frozen, a world-grab zoom rescaled
+        // the PLAYER, and the apparent width therefore swept across the 18/140 cm limits with
+        // nobody touching the board, whereupon the clamp "corrected" the frozen world size frame
+        // after frame (18× "Board size CLAMPED" in one log, with a CONSTANT parent chain ×40.10
+        // against rig scales ×5.13–×137.19). The block that stood here concluded from that: "A
+        // pinned board's apparent size changing with zoom is what pinning MEANS." That sentence is
+        // deleted, not softened — it is the exact fault the user reported three times and it was
+        // written down here as intent.
+        //
+        // WHY IT STAYS GATED ANYWAY (recommendation, 2026-08-18 — the user should rule): under the
+        // rig-local pin a FIXIERT board's apparent size CANNOT drift, so the drift that made the
+        // clamp harmful is gone and running it in both modes would now be safe arithmetic. It is
+        // still left off, because "safe" is not the test: every path that can set the size already
+        // bounds it (the two-hand gesture window bounds every explicit resize live in BOTH modes,
+        // and ComputeBoardScale clamps the configured product), so in FIXIERT this clamp has no
+        // reachable trigger left EXCEPT a hand-edited cfg — and firing on that would be an
+        // automatic resize of a board the ruling says only the player may resize. If the user wants
+        // a hand-edited size corrected rather than obeyed, delete the gate; it is one line.
         if (CardsConfig.TrayFollow.Value)
             ClampApparentSize();
 
@@ -205,8 +226,10 @@ internal sealed partial class PlayTray
         NotePinnedWrite($"lost-board recovery ({why})"); // freeze sentinel: sanctioned re-seat
         if (_wantVisible)
             SetVisible(true); // a recovery must never leave the board hidden
-        // Re-author the pinned world pose against the CURRENT tracking origin so the next
-        // recentre carries it instead of stranding it again.
+        // Adopt the CURRENT tracking origin as the one this pin was authored under, so the next
+        // rebuild/recentre is logged as one event and not as this recovery's aftershock. (It no
+        // longer decides anything: PlaceAtHead wrote a world pose, the holder is the player's own
+        // frame, and the pin that falls out of that re-parenting is rig-local like every other.)
         _pinPoseVersion = VRRigDriver.RigPoseVersion;
         VRLog.Info("Cards", $"CONTROL BOARD RECOVERED — {why}. Was at {before}, re-homed to " +
                             $"{_root.position} in front of the player. The board must never be " +
@@ -214,158 +237,101 @@ internal sealed partial class PlayTray
     }
 
     /// <summary>
-    /// PINNED-holder housekeeping, pose-preserving. Two silent glitch sources live here:
+    /// PINNED-holder housekeeping — one call, because the pin is now STORED in the frame it is
+    /// defined in instead of being recomputed into it every frame.
     ///
-    /// 1. SCALE DRIFT. <see cref="ApplyFollowMode"/> bakes the rig's lossy scale into the world
-    ///    holder at pin time. The rig is then rescaled live by the table zoom (0.1×–12× of base),
-    ///    and a holder left at the baked value no longer carries the player's scale — so the
-    ///    board's APPARENT size, its size bounds and the metres its head-relative offsets are
-    ///    persisted in all start drifting with the zoom. Re-assert the holder scale from the live
-    ///    rig scale every frame and restore the tray's WORLD pose around the write, so the board
-    ///    stays bolted to its world spot AND the same size to the eye at any zoom.
+    /// <para>WHAT USED TO BE HERE, and why it is gone. Two blocks of arithmetic: a LIVE HOLDER
+    /// RESCALE that re-asserted the world holder's scale from the rig's lossy scale (restoring the
+    /// tray's world pose around the write), and a TRACKING-ORIGIN CARRY that cached the board's
+    /// rig-relative pose every frame and re-applied it whenever <c>RigPoseVersion</c> bumped. Both
+    /// were correct descriptions of what a rig-local pin needs — and both were performed BY HAND,
+    /// in <c>CardsDriver.Update</c>, one phase before <c>WorldGrab.Update</c> writes the frame's
+    /// new rig scale. The 2026-08-18 hardware log proves the consequence by identity: L3467 prints
+    /// rig ×64.79 and L3474 prints "parent chain ×64.79 ÷ rig ×68.50" — the holder is EXACTLY one
+    /// frame behind. Over 223 <c>BOARD SIZE</c> lines the anchor ratio swung 0.89…1.11 during
+    /// zooms (only 79 of them read 1.00), i.e. the board breathed ±10 % through every pinch. Hand
+    /// arithmetic in the wrong phase cannot be tuned into being in the right one, so it was
+    /// deleted: <see cref="TrayPinFrame"/> copies the rig frame onto the holder in LateUpdate,
+    /// after every rig writer, and the board hangs under it with a CONSTANT local pose.</para>
     ///
-    /// 2. TRACKING-ORIGIN CHANGE. A pinned pose is raw WORLD space, but a recentre teleports the
-    ///    RIG (VRRigDriver.Recenter — table-edge seat / multiplayer spawn circle) without moving
-    ///    the world, which strands the board at the old seat. RigPoseVersion bumps on exactly
-    ///    those events (rig (re)build + deliberate recentre) and on nothing else — snap turns and
-    ///    world-grab deliberately do NOT bump it — so it is the stable signal to key on: carry the
-    ///    pinned board along by its RIG-RELATIVE pose, i.e. it keeps the same position/orientation
-    ///    relative to the player, which is what "my board stayed where I put it" means to the user.
+    /// <para>WHAT REMAINS. One <see cref="TrayPinFrame.Seat"/> call in this (Update) phase, so the
+    /// size diagnostic and the size clamp that run a few lines below read an anchor sampled THIS
+    /// frame rather than the previous one, and one log line when the rig transform was replaced.
+    /// The seat is idempotent and never touches the board's pose under the holder — the board
+    /// cannot move in the player's frame no matter how often it runs.</para>
+    ///
+    /// <para>THE TRACKING-ORIGIN CARRY IS NOW FREE, which is the point. A recentre or a rig
+    /// rebuild hands the follower a different rig transform; it copies that one, and the board —
+    /// whose pose is stored relative to the holder — arrives at the same place relative to the
+    /// player. <c>RigPoseVersion</c> is no longer a trigger for anything here; it is kept only to
+    /// LABEL the event in the log, because "the board was carried and nothing had to act" is worth
+    /// exactly one line in a hardware log and no code at all.</para>
     /// </summary>
     private void SyncPinHolder()
     {
         int version = VRRigDriver.RigPoseVersion;
-        if (_root == null || CardsConfig.TrayFollow.Value || _pinRoot == null)
+        if (_root == null || CardsConfig.TrayFollow.Value || _pinRoot == null || _pinFrame == null)
         {
-            // FOLLOW mode is rig-parented: both problems are structurally impossible there.
+            // FOLLOW mode hangs the tray under the rig-space anchor itself: the pin frame does not
+            // exist there, and there is nothing to keep honest.
             _pinPoseVersion = version;
             return;
         }
 
-        Transform? rig = VRRigDriver.RigRoot;
-        // (2) tracking-origin change — carry the pinned board with the rig.
-        if (rig != null && _pinPoseVersion >= 0 && _pinPoseVersion != version && _rigLocalPinValid)
+        _pinFrame.Seat();
+
+        // The holder can only track a rig that exists. Crossing that edge in either direction moves
+        // the board in the player's frame ONCE, legitimately — acquiring a rig converts a world pin
+        // authored with no rig (menu boot, flat dev proxy) into a rig-local one, and losing the rig
+        // leaves the holder standing still while the head keeps moving. Announce both, or the
+        // freeze sentinel reports the transition as an unknown writer and the one grep that is
+        // supposed to convict a real one gets a false positive to live with.
+        if (_pinHadRig != _pinFrame.HasRig)
         {
-            Vector3 pos = rig.TransformPoint(_rigLocalPinPos);
-            Quaternion rot = rig.rotation * _rigLocalPinRot;
-            if (IsFinite(pos))
-            {
-                Vector3 before = _root.position;
-                _root.SetPositionAndRotation(pos, rot);
-                _pinHousekeepingMove = "pin carried through a tracking-origin change";
-                NotePinnedWrite("tracking-origin carry (SyncPinHolder — rig rebuild/recentre)");
-                VRLog.Info("Cards", $"Control board (PINNED) carried through a tracking-origin change " +
-                                    $"(rig pose version {_pinPoseVersion} → {version}: rig rebuild or " +
-                                    $"recentre): {before} → {pos}. A world-space pin would have been " +
-                                    "stranded at the old seat.");
-            }
+            _pinHadRig = _pinFrame.HasRig;
+            NotePinnedWrite(_pinHadRig
+                ? "pin frame acquired the player's rig (world pin → rig-local pin, board unmoved)"
+                : "pin frame lost the rig (holding the last frame until one exists again)");
+        }
+
+        if (_pinPoseVersion >= 0 && _pinPoseVersion != version)
+        {
+            // A rebuild/recentre landed. The board did not have to be moved — announce it anyway,
+            // because a sanctioned label is cheaper than a Warn from a watchdog that sees the
+            // holder's world pose jump to the new tracking origin.
+            _pinHousekeepingMove = "pin frame adopted a rebuilt/recentred rig (rig-local pin carried)";
+            NotePinnedWrite("tracking-origin carry (TrayPinFrame — rig rebuild/recentre)");
         }
         _pinPoseVersion = version;
-
-        // (1) LIVE HOLDER RESCALE — REINSTATED, deliberately, against the block that used to
-        // stand here forbidding it. That block is quoted in full below because reversing a
-        // written invariant without quoting it is how an invariant gets reversed twice.
-        //
-        //     "NO live holder rescale. […] it cannot drift. The holder sits at the world ORIGIN
-        //      with identity rotation and a scale baked once at pin time; it is NOT parented under
-        //      the rig, so rescaling the rig cannot move or resize anything underneath it. […] the
-        //      rescale itself was the bug the tester then reported ('world zoom zooms the pinned
-        //      control board too — that must not happen'). With the holder FIXED, world size and
-        //      world distance are both constant, so a pinned board is completely unaffected by
-        //      zoom, which is the whole point of pinning it."
-        //
-        // WHAT THAT ARGUMENT MISSED. "Unaffected by zoom" was asserted in WORLD units, and the
-        // player does not live in world units. A zoom rescales the PLAYER: with the holder frozen,
-        // the board's world size is constant while the player's own scale runs 0.1×–12×, so its
-        // APPARENT size — the only size anybody can see — changes by the full zoom factor. The
-        // tester has now reported exactly that three times:
-        //   2026-08-07  "beim Zoomen nach einer Weile wird das fixierte Board kleiner oder größer"
-        //   2026-08-15  "in einer Hand das Controllboard und dann gezoomed — dann hat das
-        //                controllboard mitgezoomed, das soll nicht passieren"
-        // and his standing FIXIERT ruling is the tie-breaker, read literally:
-        //   "Fixiert heißt: völlig unabhängig vom Character, bewegt sich in KEINSTER Weise, außer
-        //    es wird aktiv verschoben oder skaliert."
-        // Zooming is not actively scaling the board. A fixed board whose apparent size follows the
-        // zoom is changing without being touched, which that sentence forbids.
-        //
-        // WHAT THE REINSTATEMENT COSTS AND WHY IT IS CHEAP NOW. The board's WORLD size does follow
-        // the zoom again — that is unavoidable: constant apparent size × a growing player IS a
-        // growing world size. The 2026-08 complaint about that ("world zoom zooms the pinned
-        // control board too") was made against a version that ALSO let the rescale drag the board
-        // across the room, because the tray sits at a non-zero local offset under the holder and
-        // nothing restored its world pose. Here the pose is captured and written back around the
-        // holder write, so position and rotation are bit-stable and only the size follows.
-        //
-        // WHAT IT BUYS: parentScale ≡ rigScale in BOTH anchor modes (BoardSizeFrame's invariant).
-        // Every quantity that was silently zoom-coupled while pinned falls out at once — the
-        // apparent size, the two-hand gesture's window, the min/max the player can reach, and the
-        // divisor PersistPoseToConfig stores the head-relative offsets with (his ModBuild 158 log
-        // persisted "fwd 3.39 m, down 1.36 m" for a board an arm's length from his face: that is
-        // the stale divisor, measured).
-        if (rig != null)
-        {
-            float live = rig.lossyScale.x;
-            float baked = _pinRoot.localScale.x;
-            if (live > 1e-5f && !float.IsInfinity(live)
-                && Mathf.Abs(live - baked) > 1e-4f * Mathf.Max(baked, 1e-4f))
-            {
-                Vector3 keepPos = _root.position;
-                Quaternion keepRot = _root.rotation;
-                _pinRoot.localScale = Vector3.one * live;
-                _root.SetPositionAndRotation(keepPos, keepRot); // holder scales about the origin
-                NotePinnedWrite("zoom-invariant size hold (SyncPinHolder — holder tracks the rig scale)");
-                CardsDriver.NoteExpectedPoseChange("pinned board size held against the table zoom");
-                float now = Time.unscaledTime;
-                if (now >= _nextPinScaleLog)
-                {
-                    _nextPinScaleLog = now + 5f;
-                    VRLog.Info("Cards", $"Board (FIXIERT) size held against the zoom: pin holder " +
-                                        $"×{baked:F2} → ×{live:F2} (the live rig scale), world pose " +
-                                        $"preserved. The board's APPARENT width is unchanged — that " +
-                                        "is what FIXIERT means (user ruling 2026-08-07, re-reported " +
-                                        "2026-08-15); its world size follows the player because it " +
-                                        "has to.");
-                }
-            }
-        }
-
-        // Re-cache the rig-relative pin pose every frame the origin is stable, so the NEXT
-        // origin change has a fresh, correct offset to carry the board by.
-        if (rig != null)
-        {
-            _rigLocalPinPos = rig.InverseTransformPoint(_root.position);
-            _rigLocalPinRot = Quaternion.Inverse(rig.rotation) * _root.rotation;
-            _rigLocalPinValid = IsFinite(_rigLocalPinPos);
-        }
-        else
-        {
-            _rigLocalPinValid = false;
-        }
     }
-
-    private Vector3 _rigLocalPinPos;
-    private Quaternion _rigLocalPinRot = Quaternion.identity;
-    private bool _rigLocalPinValid;
-
-    /// <summary>Log throttle for the pin holder's zoom tracking (a zoom sweep moves it every
-    /// frame; one line per 5 s is enough to prove it is working).</summary>
-    private float _nextPinScaleLog;
 
     // ------------------------------------------------------------- PINNED FREEZE SENTINEL --
     //
-    // User ruling 2026-08-07: a FIXIERT board is a world-frozen object — no position, rotation
-    // or scale change from ANY automatic source; only an explicit user grab/resize may move it.
-    // The sentinel is the enforcement's black box: every frame it compares the pinned tray's
-    // WORLD pose (position, rotation, LOSSY scale — world size, the quantity the ruling freezes;
-    // the CardsDriver issue-C watch compares parent-LOCAL and thus cannot see a holder rescale)
-    // against last frame's, and any change is logged WITH ITS SOURCE. Sanctioned writers
-    // announce themselves via NotePinnedWrite; a change with no announcement logs as a Warn —
-    // one grep ("PINNED tray transform WRITE") convicts a leftover writer in the next hardware
-    // log instantly. It never mutates anything; it only observes and re-baselines.
+    // User ruling 2026-08-07, re-stated 2026-08-18: a FIXIERT board changes NOTHING — position,
+    // orientation or size — unless the player grabs or resizes it. The sentinel is the
+    // enforcement's black box: every frame it diffs the pinned tray's pose against last frame's
+    // and logs any change WITH ITS SOURCE. Sanctioned writers announce themselves via
+    // NotePinnedWrite; a change with no announcement logs as a Warn — one grep ("PINNED tray
+    // transform WRITE") convicts a leftover writer in the next hardware log instantly. It never
+    // mutates anything; it only observes and re-baselines.
+    //
+    // IT MEASURES IN THE PLAYER'S FRAME, NOT THE WORLD'S — changed 2026-08-18 with the pin itself.
+    // It used to diff the WORLD pose and the LOSSY scale, which was the right instrument while the
+    // pin was stored in world coordinates. It is the wrong one now and would be pure noise: a
+    // rig-local board's world pose and world size move on every zoom, snap turn, teleport and step
+    // of locomotion BY DESIGN — that motion is what keeps it still in the player's eye. What must
+    // not change is its pose UNDER THE PIN HOLDER, which is the rig frame: position in player
+    // metres, orientation relative to the player, and its own localScale (its apparent size, since
+    // the holder carries exactly one rig-scale factor). Those are the three numbers the ruling
+    // freezes, so those are the three the sentinel now watches — and it is a STRICTER test than the
+    // old one, because it also convicts anything that moves the board while the player is moving.
 
+    /// <summary>Last frame's tray pose in the PLAYER's frame (position in player metres,
+    /// orientation relative to the player) and the size the player sees — the three quantities the
+    /// FIXIERT ruling freezes. NOT the world pose: see the block above.</summary>
     private Vector3 _pinFreezePos;
     private Quaternion _pinFreezeRot = Quaternion.identity;
-    private float _pinFreezeWorldScale = -1f;
+    private float _pinFreezeSize = -1f;
     private bool _pinFreezeValid;
     private string? _pinFreezeSource;
     private float _nextPinFreezeLog;
@@ -382,43 +348,43 @@ internal sealed partial class PlayTray
         _pinFreezeSource = _pinFreezeSource == null ? source : _pinFreezeSource + " + " + source;
     }
 
-    /// <summary>Per-frame world-pose diff of a PINNED tray — see the sentinel block above.</summary>
+    /// <summary>Per-frame PLAYER-FRAME pose diff of a PINNED tray — see the sentinel block
+    /// above.</summary>
     private void TickPinnedFreezeSentinel()
     {
-        if (_root == null || CardsConfig.TrayFollow.Value)
+        if (_root == null || CardsConfig.TrayFollow.Value
+            || !TryGetPlayerFramePose(out Vector3 pos, out Quaternion rot, out float size))
         {
             _pinFreezeValid = false;
             _pinFreezeSource = null;
             return;
         }
-        Vector3 pos = _root.position;
-        Quaternion rot = _root.rotation;
-        float worldScale = _root.lossyScale.x;
         string? source = _pinFreezeSource;
         _pinFreezeSource = null; // announcements are valid for exactly one sentinel pass
 
         if (_pinFreezeValid && IsFinite(pos))
         {
-            // Epsilons in PLAYER-perceivable terms: the parent chain (the pin holder carries the
-            // diorama scale) converts tray metres to world units, so 2 mm of perceived motion is
-            // 0.002 × that in world units. Scale compares relatively (0.2 % — one clamp frame in
-            // the 2026-08-07 log moved it ~1 %, comfortably above; float noise stays below).
-            float unit = Mathf.Max(worldScale / Mathf.Max(_root.localScale.x, 1e-4f), 1e-4f);
-            float posEps = 0.002f * unit;
-            bool moved = (pos - _pinFreezePos).sqrMagnitude > posEps * posEps
+            // Epsilons directly in PLAYER-perceivable terms — no conversion left to get wrong: the
+            // pin holder carries exactly one rig-scale factor, so a metre in this frame IS a metre
+            // to the player. 2 mm of drift, a quarter degree, and 0.2 % of size (one clamp frame in
+            // the 2026-08-07 log moved the size ~1 %, comfortably above; float noise stays below).
+            bool moved = (pos - _pinFreezePos).sqrMagnitude > 0.002f * 0.002f
                          || Quaternion.Angle(rot, _pinFreezeRot) > 0.25f
-                         || Mathf.Abs(worldScale - _pinFreezeWorldScale)
-                            > 0.002f * Mathf.Max(_pinFreezeWorldScale, 1e-4f);
+                         || Mathf.Abs(size - _pinFreezeSize)
+                            > 0.002f * Mathf.Max(_pinFreezeSize, 1e-4f);
             if (moved)
             {
                 float now = Time.unscaledTime;
                 if (now >= _nextPinFreezeLog) // an unknown per-frame writer must not flood the log
                 {
                     _nextPinFreezeLog = now + 1f;
-                    string detail = $"world pos {_pinFreezePos} → {pos}, " +
+                    string detail = $"pose in the PLAYER's frame {_pinFreezePos} → {pos} " +
+                                    $"(player metres, {(pos - _pinFreezePos).magnitude * 100f:F1} cm), " +
                                     $"rot Δ{Quaternion.Angle(rot, _pinFreezeRot):F1}°, " +
-                                    $"world scale {_pinFreezeWorldScale:F3} → {worldScale:F3} " +
-                                    $"(own localScale {_root.localScale.x:F3}).";
+                                    $"size {_pinFreezeSize:F3} → {size:F3}. The world pose is " +
+                                    "deliberately NOT compared: a rig-local pin moves through the " +
+                                    "world whenever the player does, and that is what holds it still " +
+                                    "in the eye.";
                     if (source != null)
                         VRLog.Info("Cards", $"PINNED tray transform WRITE [{source}]: {detail}");
                     else
@@ -431,8 +397,38 @@ internal sealed partial class PlayTray
 
         _pinFreezePos = pos;
         _pinFreezeRot = rot;
-        _pinFreezeWorldScale = worldScale;
+        _pinFreezeSize = size;
         _pinFreezeValid = IsFinite(pos);
+    }
+
+    /// <summary>
+    /// The tray's pose IN THE PLAYER'S OWN FRAME: position in player metres, orientation relative
+    /// to the player, and the size the player sees (the tray's own localScale, since the pin holder
+    /// contributes exactly one rig-scale factor and nothing else). This is the frame the FIXIERT
+    /// ruling freezes, and while pinned it is simply the tray's local pose under the holder — no
+    /// arithmetic, which is the whole reason the pin was moved into it. Falls back to an explicit
+    /// inverse-transform if anything ever re-parents the tray away from the holder, and returns
+    /// false in FOLGEN or with no holder (there is nothing to freeze there).
+    /// </summary>
+    private bool TryGetPlayerFramePose(out Vector3 pos, out Quaternion rot, out float size)
+    {
+        pos = Vector3.zero;
+        rot = Quaternion.identity;
+        size = 0f;
+        if (_root == null || _pinRoot == null)
+            return false;
+        if (ReferenceEquals(_root.parent, _pinRoot))
+        {
+            pos = _root.localPosition;
+            rot = _root.localRotation;
+        }
+        else
+        {
+            pos = _pinRoot.InverseTransformPoint(_root.position);
+            rot = Quaternion.Inverse(_pinRoot.rotation) * _root.rotation;
+        }
+        size = _root.lossyScale.x / Mathf.Max(_pinRoot.lossyScale.x, 1e-5f);
+        return IsFinite(pos) && size > 1e-5f && !float.IsInfinity(size);
     }
 
     // IsInHeadView lived here and is GONE with the automatic recall (see the ruling block at the
@@ -489,8 +485,11 @@ internal sealed partial class PlayTray
     /// re-seats to it. Only a localScale that stood still while the apparent size moved is a drift,
     /// and only that is corrected.</para>
     ///
-    /// <para>WITH <see cref="SyncPinHolder"/> KEEPING THE ANCHOR ON THE LIVE RIG SCALE, THIS SHOULD
-    /// NEVER FIRE, and that is the point of the log line: it is an assertion, not a mechanism. The
+    /// <para>WITH THE PIN STORED IN THE PLAYER'S OWN FRAME (<see cref="TrayPinFrame"/>) THIS SHOULD
+    /// NEVER FIRE, and that is the point of the log line: it is an assertion, not a mechanism. It
+    /// could not make that claim before 2026-08-18 — the anchor was re-derived by hand one phase
+    /// too early, so a zoom sweep moved the apparent size by up to ±10 % and this freeze was doing
+    /// real work while claiming to be an assertion. The
     /// paths that could still trip it are the ones that write the board mid-grip from somewhere
     /// else — a settings live-apply (<c>ReapplyOrientation</c>), a rig rebuild re-homing the tray.
     /// A "held size RE-ASSERTED" line in a future log names one of those; silence over a zoom sweep
@@ -596,9 +595,10 @@ internal sealed partial class PlayTray
         float wanted = Mathf.Clamp(width, min, max);
         float factor = wanted / width;
         _root.localScale = local * factor;
-        // Defensive: the caller gates this to FOLLOW mode (pinned = world-frozen, ruling
-        // 2026-08-07); should any future path run it on a pinned tray, the freeze sentinel
-        // names it instead of warning about an unknown writer.
+        // Defensive: the caller gates this to FOLLOW mode (a FIXIERT board is frozen in the
+        // player's frame — rulings 2026-08-07 and 2026-08-18, and the recommendation at that
+        // gate); should any future path run it on a pinned tray, the freeze sentinel names it
+        // instead of warning about an unknown writer.
         NotePinnedWrite("apparent-size clamp (ClampApparentSize)");
 
         // Sanctioned: the watchdog must be able to tell a clamp apart from a game event moving the
@@ -690,14 +690,28 @@ internal sealed partial class PlayTray
     /// <item>its min/max and where each bound came from — the board's own 64 cm of geometry and
     ///   <c>[Cards] BoardMinWidthMeters</c>/<c>BoardMaxWidthMeters</c>, plus the effective ceiling
     ///   the shared handle's factor range imposes on top;</item>
+    /// <item>THE DENOMINATOR: how far the board is from the head in PLAYER metres, the angle it
+    ///   subtends there, and what both did since the previous line;</item>
     /// <item>while held: that the size freeze is engaged and what the apparent size is.</item>
     /// </list>
-    /// <para>WHAT WOULD DISPROVE THE FIX. "anchor 1.00" is the whole claim. If a future log shows
-    /// this line with an anchor ratio away from 1.00 while a zoom is in progress, the pin holder is
-    /// not tracking the rig and every bound printed beside it is zoom-coupled again — that is the
-    /// 2026-08-15 defect, and it would read here as a number before the player ever notices it.
-    /// Equally: two of these lines from either side of a zoom sweep MUST agree on "apparent" and on
-    /// the min/max pair. If they do not, the freeze is not holding.</para>
+    /// <para>THIS DIAGNOSTIC WAS ITSELF A DEFECT, and that is why the distance is on it. Through
+    /// ModBuild 159 it printed "apparent cm", found it constant across a zoom sweep, and said so —
+    /// while the user was reporting, in the same session, that the board zoomed with him. Both were
+    /// true: apparent size is a NUMERATOR, the board's distance in player metres was sweeping with
+    /// the zoom, and an instrument that measures one term of a ratio will agree with any build that
+    /// breaks the other. It now prints the distance, the angular width, and their deltas.</para>
+    /// <para>WHAT WOULD DISPROVE THE FIX, in the order a hardware log should be read:
+    /// <list type="number">
+    /// <item>"anchor 1.00" — the size claim. Away from 1.00 during a zoom means the holder is not
+    ///   on the live rig frame and every bound printed beside it is zoom-coupled again. The
+    ///   2026-08-18 log has this at 0.89…1.11 (only 79 of 223 lines read 1.00), which is the
+    ///   one-frame lag the LateUpdate seat removed.</item>
+    /// <item>"distance … HELD" — the place claim, and the new one. Two lines from either side of a
+    ///   zoom, a snap turn, a teleport or a world grab MUST agree on the distance and on the
+    ///   angular width to within float noise. Only physically WALKING may change them: the board is
+    ///   nailed to the play space, so moving inside that space moves you relative to it.</item>
+    /// <item>the min/max pair, unchanged across the same sweep.</item>
+    /// </list></para>
     /// </summary>
     private void LogBoardSizeDiagnostics(string trigger)
     {
@@ -713,13 +727,52 @@ internal sealed partial class PlayTray
         float baseScale = Rig.VRRigDriver.BaseWorldScale;
         float zoom = baseScale > 0f ? rigScale / baseScale : 0f;
         bool held = _handle != null && _handle.IsGrabbed;
+        bool haveDistance = TryGetHeadDistance(out float distance, out float angular);
+        string distanceText;
+        if (!haveDistance)
+        {
+            distanceText = "DISTANCE unknown (no tracked head this frame) — the angular size claim " +
+                           "cannot be checked on this line.";
+        }
+        else
+        {
+            bool hadPrevious = _loggedDistance > 0f;
+            float dDist = hadPrevious ? distance - _loggedDistance : 0f;
+            float dAng = hadPrevious ? angular - _loggedAngular : 0f;
+            bool steady = hadPrevious && Mathf.Abs(dAng) <= 0.5f && Mathf.Abs(dDist) <= 0.01f;
+            distanceText =
+                $"DISTANCE {distance:F2} m in PLAYER metres ⇒ the board subtends {angular:F1}° — " +
+                $"that RATIO (size ÷ distance), not the centimetres above on their own, is what " +
+                $"the eye judges. " +
+                (!hadPrevious
+                    ? "First line of this session: nothing to compare it against yet."
+                    : steady
+                        ? $"HELD since the previous line (Δ{dDist * 100f:+0.0;-0.0;0.0} cm, " +
+                          $"Δ{dAng:+0.0;-0.0;0.0}°) — a zoom, snap turn, teleport or world grab may " +
+                          "never move these; only physically walking may."
+                        : $"CHANGED since the previous line (Δ{dDist * 100f:+0.0;-0.0;0.0} cm, " +
+                          $"Δ{dAng:+0.0;-0.0;0.0}°). Legitimate ONLY if you walked, grabbed the board " +
+                          "or resized it; if the log shows a zoom or a turn at this timestamp and no " +
+                          "grab, the pin is not rig-local any more — report this line.");
+            _loggedDistance = distance;
+            _loggedAngular = angular;
+        }
+        string anchorState = CardsConfig.TrayFollow.Value
+            ? "FOLGEN (the tray hangs under the rig itself)"
+            : _pinFrame == null
+                ? "FIXIERT but with NO pin frame — report this line"
+                : _pinFrame.HasRig
+                    ? $"FIXIERT on the player's own frame (rig ×{_pinFrame.SeatedScale:F2}, " +
+                      $"{_pinFrame.RigChanges} rebuild/recentre carr{(_pinFrame.RigChanges == 1 ? "y" : "ies")} so far)"
+                    : "FIXIERT, holding its last frame (no live rig right now)";
         VRLog.Info("Cards",
             $"BOARD SIZE [{trigger}]: {apparent * 100f:F1} cm apparent ({units:F3} size units, own " +
             $"localScale {_root.localScale.x:F3}). WORLD SCALE {rigScale:F2} = base {baseScale:F2} " +
             $"(auto from the game's tile size) × table zoom {zoom:F2}x ([Comfort] " +
             $"SavedScaleMultiplier, the world pinch) — and anchor {BoardSizeFrame.AnchorRatio(parent, rigScale):F2} " +
             $"(parent chain ×{parent:F2} ÷ rig ×{rigScale:F2}; 1.00 = the board's anchor carries the " +
-            $"player's scale and NOTHING about its size depends on the zoom). BOUNDS {unitsLo:F3}–" +
+            $"player's scale and NOTHING about its size depends on the zoom). {distanceText} " +
+            $"ANCHOR: {anchorState}. BOUNDS {unitsLo:F3}–" +
             $"{unitsHi:F3} units = {minW * 100f:F0}–{maxW * 100f:F0} cm, from the board's own " +
             $"{BoardSizeFrame.BoardWidthLocal * 100f:F0} cm of geometry and [Cards] BoardMinWidthMeters/" +
             $"BoardMaxWidthMeters — no rig, no mask, no avatar dial; the two-hand gesture reaches " +
@@ -731,12 +784,41 @@ internal sealed partial class PlayTray
                 : $"Not held ({(CardsConfig.TrayFollow.Value ? "FOLGEN" : "FIXIERT")})."));
     }
 
+    /// <summary>
+    /// The board's distance from the head in PLAYER metres and the angle its width subtends there —
+    /// the term the size diagnostic was blind to until 2026-08-18 (see
+    /// <see cref="LogBoardSizeDiagnostics"/>). Measured head-to-board-centre, which is the distance
+    /// the player's own "how big does it look" judgement uses. False with no tracked head or a
+    /// degenerate rig scale.
+    /// </summary>
+    private bool TryGetHeadDistance(out float metres, out float angularDegrees)
+    {
+        metres = 0f;
+        angularDegrees = 0f;
+        if (_root == null)
+            return false;
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+            return false;
+        if (!TryGetApparentWidthPerScaleUnit(out float perUnit, out _, out float rigScale))
+            return false;
+        if (!BoardSizeFrame.TryPlayerDistance(head.transform.position, _root.position, rigScale, out metres))
+            return false;
+        angularDegrees = BoardSizeFrame.AngularWidthDegrees(perUnit * _root.localScale.x, metres);
+        return true;
+    }
+
     /// <summary>Throttle for <see cref="LogBoardSizeDiagnostics"/> on the per-frame path.</summary>
     private float _nextBoardSizeLog;
 
     /// <summary>Per-frame diagnostic gate: one line per 10 s, plus one immediately whenever the
-    /// apparent size or the grip state actually CHANGES (the two events worth a line — a zoom sweep
-    /// that leaves the size alone is the fix working and must not flood the log).</summary>
+    /// apparent size or the grip state actually CHANGES (a zoom sweep that leaves the size alone is
+    /// the fix working and must not flood the log), plus a RATE-LIMITED one when the board's
+    /// angular size moves. That third trigger is the 2026-08-18 addition and it is deliberately
+    /// throttled where the other two are not: walking changes the angular size legitimately and
+    /// continuously, so an unthrottled line would flood a log with the fix WORKING — but a zoom
+    /// that moves it is the defect itself, and one line per second is enough to catch it in the
+    /// act, timestamped next to whatever moved the rig.</summary>
     private void TickBoardSizeDiagnostics()
     {
         if (_root == null)
@@ -749,16 +831,36 @@ internal sealed partial class PlayTray
                        || Mathf.Abs(apparent - _loggedApparent) > 0.005f * Mathf.Max(_loggedApparent, 1e-3f)
                        || held != _loggedHeld;
         float now = Time.unscaledTime;
-        if (!changed && now < _nextBoardSizeLog)
+        bool angularMoved = false;
+        if (!changed && _loggedAngular > 0f && now >= _nextBoardAngleLog
+            && TryGetHeadDistance(out _, out float angular)
+            && Mathf.Abs(angular - _loggedAngular) > 0.02f * _loggedAngular)
+        {
+            angularMoved = true;
+            _nextBoardAngleLog = now + 1f;
+        }
+        if (!changed && !angularMoved && now < _nextBoardSizeLog)
             return;
         _nextBoardSizeLog = now + 10f;
         _loggedApparent = apparent;
         _loggedHeld = held;
-        LogBoardSizeDiagnostics(changed ? (held ? "grip/size change" : "size change") : "periodic");
+        LogBoardSizeDiagnostics(changed
+            ? (held ? "grip/size change" : "size change")
+            : angularMoved ? "angular size moved" : "periodic");
     }
 
     private float _loggedApparent = -1f;
     private bool _loggedHeld;
+
+    /// <summary>The distance/angular pair the previous <see cref="LogBoardSizeDiagnostics"/> line
+    /// reported, so the next one can state what they DID rather than only what they are. −1 until
+    /// the first line of a session.</summary>
+    private float _loggedDistance = -1f;
+    private float _loggedAngular = -1f;
+
+    /// <summary>Throttle for the angular-size trigger — see <see cref="TickBoardSizeDiagnostics"/>
+    /// for why this one is rate-limited and the size trigger is not.</summary>
+    private float _nextBoardAngleLog;
 
     private static bool IsFinite(Vector3 v) =>
         !(float.IsNaN(v.x) || float.IsInfinity(v.x)

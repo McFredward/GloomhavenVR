@@ -916,9 +916,13 @@ internal static partial class Loc
                 "Verankerung des Kontrollbretts (Test #15, umgeschaltet mit dem Pin-Knopf am Brettrahmen). "
                 + "true = das Brett hängt am Rig: es bewegt sich mit dir (Welt greifen, stufenweises Drehen, "
                 + "neu zentrieren) und platziert sich beim Moduseintritt neu an den Versätzen "
-                + "TrayForward/Down/Right. false = das Brett ist FIXIERT, wo du es gelassen hast, in der Welt "
-                + "verankert — es bleibt liegen, während du dich bewegst, und platziert sich nie neu. Zurück "
-                + "auf FOLGEN verankert es wieder an den eingestellten Versätzen.",
+                + "TrayForward/Down/Right. false = das Brett ist FIXIERT, wo du es gelassen hast — in DEINEM "
+                + "Raum verankert, nicht in der Spielwelt (Nutzer-Entscheid 2026-08-18: \"Fixiert heißt in "
+                + "jeglicher hinsicht fixiert und fix, EGAL wie man zoomed oder sich bewegt\"). Zoomen, "
+                + "stufenweises Drehen, Welt greifen, Fliegen und Neuzentrieren lassen es aus deiner Sicht "
+                + "völlig unberührt; nur ein Griff oder die Zwei-Hand-Geste verändern es. Gehst du körperlich "
+                + "umher, verändert sich sein Anblick sehr wohl — du bewegst dich dann in dem Raum, an dem es "
+                + "festgenagelt ist. Zurück auf FOLGEN verankert es wieder an den eingestellten Versätzen.",
             ["Cards/BoardMoveMode"] =
                 "Punkt 12: was der Griff an der Haltestange mit dem Kontrollbrett tun darf. Limited "
                 + "(Standard, \"Begrenzt\") = das bisherige Verhalten: nur Position + Drehung, das Brett "
@@ -2359,22 +2363,51 @@ internal static partial class Loc
                 + "gehaltene Figur wird sofort neu ausgerichtet.",
             // ---- [Water] — das Wassergelände des Spiels, VR-tauglich nachgeregelt ----
             ["Water/VRFriendlyWater"] =
-                "Regelt das WASSERGELÄNDE des Spiels (TERRAIN_Water_Plane, Shader VFX/Water_Shd*) für eine "
-                + "frei bewegliche VR-Kamera nach. Das Wasser wird IMMER dargestellt — hier ändert sich nur "
-                + "WIE. Das Spiel gestaltet diese Fläche für genau einen steilen Kamerawinkel von oben; über "
-                + "den VR-Tisch hinweg siehst du sie flach, und ihre fast spiegelglatte Oberfläche wirft dann "
-                + "den Himmel zurück und schwimmt mit den Kopfbewegungen mit (Meldung 2026-08-15, "
-                + "spiegeltiles.jpg). AN schreibt einen MaterialPropertyBlock pro Renderer: weniger "
-                + "Spiegelung, gedeckelte Deckkraft, und der von der Kameratiefe abhängige Uferschaum wird "
-                + "neutralisiert, solange es keine Tiefentextur gibt. Das gemeinsame Material bleibt "
-                + "unangetastet. AUS zeigt das Wasser des Spiels sofort wieder unverändert.",
+                "Regelt das WASSER des Spiels für eine frei bewegliche VR-Kamera nach — den Wasserfilm "
+                + "(TERRAIN_Water_Plane) UND das Becken darunter. Das Wasser wird IMMER dargestellt, hier "
+                + "ändert sich nur WIE. Das Spiel gestaltet diese Flächen für genau einen steilen "
+                + "Kamerawinkel von oben; über den VR-Tisch hinweg siehst du sie flach, und dann werfen "
+                + "sowohl der metallische Beckenboden als auch der spiegelglatte Film den Himmel zurück und "
+                + "schwimmen mit dem Kopf mit (Meldung 2026-08-15, spiegeltiles.jpg). AN gibt jedem "
+                + "betroffenen Renderer sein EIGENES Material: Glanz-, Metall- und Reflexionswerte "
+                + "gedeckelt, Deckkraft gedeckelt, Uferschaum neutralisiert. Das gemeinsame Material bleibt "
+                + "unangetastet. AUS zeigt das Wasser sofort wieder unverändert.",
             ["Water/Smoothness"] =
-                "Glanzstärke des Wassers in VR (das Spiel setzt 0,754). DAS ist der Spiegel-Regler: hohe "
-                + "Werte lassen die Fläche den Himmel scharf abbilden — genau das wirkt wie ein kaputter "
-                + "Spiegel, der sich mit dem Kopf mitbewegt, weil die Szene keine Reflexionssonde anbietet, "
-                + "die stattdessen den Raum spiegeln könnte. Niedrige Werte verbreitern den Glanz zu einem "
-                + "matten Schimmer. Nur dann wieder erhöhen, wenn über dem Becken einmal eine lokale "
-                + "Reflexionssonde ergänzt wird.",
+                "Obergrenze für JEDEN Glanzwert auf einem Wasser-Shader (der Film setzt _Smoothness 0,754). "
+                + "Hohe Werte lassen eine Fläche den Himmel scharf abbilden — genau das wirkt wie ein "
+                + "kaputter Spiegel, der sich mit dem Kopf mitbewegt. Niedrige Werte verbreitern den Glanz "
+                + "zu einem matten Schimmer. Ein Shader, der stattdessen RAUHEIT anbietet — dieselbe Achse "
+                + "rückwärts — bekommt eine Untergrenze von 1 minus diesem Wert, damit ein Regler beide "
+                + "Schreibweisen abdeckt. Der gestaltete Wert wird nie überschritten.",
+            ["Water/Reflectivity"] =
+                "Obergrenze für jeden METALL- und Reflexionswert auf einem Wasser-Shader. Das Becken unter "
+                + "dem gemeldeten Tümpel läuft auf Amp_Basic_N_MRAO — Metallic/Roughness/AO — und eine "
+                + "metallische Fläche in einer Szene ohne jede Reflexionssonde IST ein Spiegel des Himmels; "
+                + "das ist die wahrscheinlichste Quelle des \"kaputten Spiegels\". 0 = nasser Stein statt "
+                + "Chrom. Nur erhöhen, wenn der Beckenboden zu flach wirkt. Der gestaltete Wert wird nie "
+                + "überschritten.",
+            ["Water/BasinSurfaces"] =
+                "Nimmt auch die FESTE Geometrie des Wassers in den Griff, nicht nur den Film — das versenkte "
+                + "Bett und den Rand innerhalb der Wasserfläche (TERRAIN_Crypt_Water_02_Base / _Edge im "
+                + "gemeldeten Raum). Bis ModBuild 159 wurde nur der durchsichtige Film angefasst, und das "
+                + "Wort des Melders für den Fehler war \"Tiles\". Ein Renderer wird nur übernommen, wenn "
+                + "sein NAME zur Wasser-Familie gehört UND seine Ausdehnung innerhalb der Wasserfläche "
+                + "liegt, ohne darüber hinauszuragen — der normale Boden des Raums, der denselben Shader "
+                + "nutzt, wird also nie mit erfasst. AUS ist der direkte A/B-Test, ob das Becken der "
+                + "Spiegel war.",
+            ["Water/LocalProbe"] =
+                "Setzt über jede Wasserstelle eine lokale Reflexionssonde mit einer FLACHEN Würfeltextur "
+                + "aus dem Umgebungslicht der Szene. Die Szene hat gar keine Reflexionssonde, also spiegelt "
+                + "jede glänzende oder metallische Fläche darin den Himmel — und der Himmel liegt unendlich "
+                + "weit weg, seine Spiegelung wandert deshalb bei jeder Kopfbewegung. Genau das ist das "
+                + "Mitschwimmen. Eine flache Würfeltextur liefert in jede Richtung dieselbe Farbe, die "
+                + "Spiegelfarbe kann sich also nicht mehr mit dem Kopf ändern — egal woher die Spiegelung "
+                + "kommt. AUS ist der A/B-Test, ob die Umgebung die Ursache war.",
+            ["Water/ProbeBrightness"] =
+                "Multiplikator für die Helligkeit der lokalen Wasser-Reflexionssonde. Ihre Farbe stammt aus "
+                + "dem Umgebungslicht der Szene mal deren Reflexionsstärke, 1,0 heißt also \"so hell, wie "
+                + "der Raum ohnehin ist\". Niedriger, wenn der Tümpel ausgewaschen wirkt, höher, wenn er tot "
+                + "wirkt. Wirkt nur, solange LocalProbe an ist.",
             ["Water/Opacity"] =
                 "Obergrenze für die Deckkraft der Wasserfärbung (das Spiel setzt 0,737). Der Farbton bleibt "
                 + "wie gestaltet; gedeckelt wird nur, wie viel Boden das Wasser verdeckt — ohne Tiefentextur "

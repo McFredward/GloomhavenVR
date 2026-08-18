@@ -43,6 +43,13 @@ internal static class Program
             // How big the control board is allowed to be, and how big it looks — the arithmetic
             // behind three user reports, driven at the rig scales his own log recorded.
             BoardSizeVectors.Run(t, repoRoot);
+            BoardPinFrameVectors.Run(t, repoRoot);
+            // Which shader property is the mirror, and which way it points. ModBuild 160 writes
+            // onto shaders whose property names nobody here has ever read (they ship compiled in
+            // the game's bundles), so the one thing holding that up is the invariant that no cap
+            // can ever make a surface SHINIER than authored — which is only observable by eye,
+            // from inside a headset, and has now cost three hardware rounds.
+            WaterReflectionVectors.Run(t);
         }
         catch (Exception e)
         {

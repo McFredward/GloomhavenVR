@@ -337,16 +337,32 @@ internal static class BoardSizeVectors
         t.True(Regex.IsMatch(defaults, @"BoardMaxWidthMeters\s*=\s*1\.4f"),
             "Defaults.BoardMaxWidthMeters is still 1.4 m (the 140 cm this file asserts)");
 
-        // THE INVARIANT, AS A SOURCE PROPERTY. The whole fix is that the FIXIERT holder tracks the
-        // live rig scale; the block that used to forbid exactly that stood in this file for
-        // dozens of builds. If the write goes away again, every vector above still passes (the
+        // THE INVARIANT, AS A SOURCE PROPERTY. The whole fix is that the FIXIERT holder carries the
+        // live rig scale; the block that used to forbid exactly that stood in the watchdog for
+        // dozens of builds. If that stops happening, every vector above still passes (the
         // arithmetic is fine — it is the anchor that would be stale), and only the tester would
-        // find out. So the write itself is linted.
+        // find out. So the mechanism itself is linted.
+        //
+        // WHAT THIS LINT USED TO PIN, and why it moved (2026-08-18): it required the literal
+        // `_pinRoot.localScale = Vector3.one * live` in SyncPinHolder — a hand-written rescale in
+        // the Update phase. That line WAS the anchor, and it was also defect (A): it ran one phase
+        // before WorldGrab writes the frame's rig scale, so the anchor it produced was always one
+        // frame old (L3467/L3474 of his log: parent ×64.79 ÷ rig ×68.50). Pinning an implementation
+        // is how a lint outlives the reason it was written. What matters is that the holder carries
+        // the rig's scale and that it is sampled in the last phase before rendering, so that is
+        // what is pinned now; the full argument and the numbers are in BoardPinFrameVectors.cs.
         string watchdog = File.ReadAllText(Path.Combine(
             repoRoot, "src", "GloomhavenVR", "Cards", "PlayTray.2.Watchdog.cs"));
-        t.True(Regex.IsMatch(watchdog, @"_pinRoot\.localScale\s*=\s*Vector3\.one\s*\*\s*live"),
-            "SyncPinHolder still re-asserts the pin holder's scale from the LIVE rig scale — "
-            + "without it the anchor ratio drifts and every bound above becomes zoom-coupled again");
+        string pinFrame = File.ReadAllText(Path.Combine(
+            repoRoot, "src", "GloomhavenVR", "Cards", "TrayPinFrame.cs"));
+        t.True(Regex.IsMatch(pinFrame, @"localScale\s*=\s*Vector3\.one\s*\*\s*scale"),
+            "TrayPinFrame still puts the pin holder on the LIVE rig scale — without it the anchor "
+            + "ratio drifts and every bound above becomes zoom-coupled again");
+        t.True(Regex.IsMatch(pinFrame, @"private\s+void\s+LateUpdate\(\)"),
+            "…and still does it in LateUpdate, after every rig writer (an Update-phase seat is a "
+            + "one-frame-stale anchor, which is the same defect wearing the fix's clothes)");
+        t.True(watchdog.Contains("_pinFrame.Seat()"),
+            "the watchdog re-seats it before the Update-phase readers (this diagnostic, the clamp)");
         t.True(watchdog.Contains("TickHeldSizeFreeze"),
             "the held-size freeze is still ticked — a board in the hand keeps its apparent size");
     }

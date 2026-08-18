@@ -37,8 +37,10 @@ namespace GloomhavenVR.Cards;
 /// The control board (P7 redesign, test #10; test #15: central DASHBOARD): a
 /// desk-like tray in front of the player, tilted toward them like a card-table edge
 /// (~30° from horizontal, [Cards] BoardTilt_{board}), chest height, anchored in rig space by
-/// default ([Cards] TrayFollow; the PIN button on the frame switches to
-/// world-anchored). Visible for the WHOLE scenario since test #15 (dashboard), not
+/// default ([Cards] TrayFollow; the PIN button on the frame switches to FIXIERT — since
+/// 2026-08-18 that means anchored in the PLAYER'S OWN frame at the place they left it, not in
+/// world coordinates, see <see cref="TrayPinFrame"/>). Visible for the WHOLE scenario since
+/// test #15 (dashboard), not
 /// only during card selection. Layout:
 /// - TOP edge: the game's REAL initiative track (converted canvas, posed by WorldUI
 ///   onto <see cref="InitiativeMount"/> — portraits incl. the vanilla '?' for
@@ -976,21 +978,37 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         bool follow = !CardsConfig.TrayFollow.Value;
         CardsConfig.TrayFollow.Value = follow; // BepInEx persists on set
         ApplyFollowMode();
-        VRLog.Info("Cards", $"Tray anchor mode → {(follow ? "FOLLOW (rig-anchored)" : "PINNED (world-anchored)")}.");
+        VRLog.Info("Cards", "Tray anchor mode → " + (follow
+            ? "FOLLOW (rig-anchored; re-places itself at the configured head offsets on mode entry)"
+            : "PINNED (nailed to the player's OWN frame where it stands — no zoom, snap turn, " +
+              "teleport or recentre may move or resize it again; only a grab or the two-hand " +
+              "resize may)") + ".");
     }
 
-    /// <summary>World-anchor holder while pinned (carries the rig scale — see ApplyFollowMode).</summary>
+    /// <summary>Anchor holder while pinned — a shadow of the player's rig frame, see
+    /// <see cref="TrayPinFrame"/>.</summary>
     private Transform? _pinRoot;
+
+    /// <summary>The follower on <see cref="_pinRoot"/> that copies the rig frame onto it every
+    /// LateUpdate. Null while FOLGEN (the holder does not exist then).</summary>
+    private TrayPinFrame? _pinFrame;
 
     /// <summary>
     /// Apply [Cards] TrayFollow to the live tray (test #15).
     /// Follow: re-home under the rig-space anchor and re-anchor at the configured
     /// head offsets. Pinned: the tray keeps its EXACT current world pose. It is
-    /// re-parented under a world-static holder ("TrayPin", DontDestroyOnLoad) whose
-    /// scale mirrors the rig anchor's lossy scale — so the tray's own localScale
-    /// keeps its 0.5×–2× semantics (PlaceAtHead, PersistPoseToConfig and the
-    /// two-hand resize clamp all assume that; a bare world detach would bake the
-    /// ~diorama-scale factor into localScale and break all three).
+    /// re-parented under a holder ("TrayPin", DontDestroyOnLoad) that carries the PLAYER'S OWN
+    /// FRAME — the rig's world pose, orientation and scale, re-copied every LateUpdate by
+    /// <see cref="TrayPinFrame"/> — so the tray's own localScale keeps its 0.5×–2× semantics
+    /// (PlaceAtHead, PersistPoseToConfig and the two-hand resize clamp all assume that; a bare
+    /// world detach would bake the ~diorama-scale factor into localScale and break all three).
+    ///
+    /// <para>THE HOLDER USED TO SIT AT THE WORLD ORIGIN with a scale baked at pin time, i.e. the
+    /// pin was stored in game-world coordinates. That is the frame the 2026-08-18 report convicts:
+    /// a zoom, a snap turn, a world grab or a recentre moves and rescales THE PLAYER, so a board
+    /// standing in world coordinates sweeps across the player's view and changes its angular size
+    /// without anything touching it. The pin is stored rig-locally now; <see cref="TrayPinFrame"/>
+    /// carries the full evidence and the two measured defects.</para>
     /// </summary>
     private void ApplyFollowMode()
     {
@@ -1014,6 +1032,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             {
                 Object.Destroy(_pinRoot.gameObject);
                 _pinRoot = null;
+                _pinFrame = null;
             }
         }
         else
@@ -1024,9 +1043,36 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                 _pinRoot.gameObject.hideFlags = HideFlags.HideAndDontSave;
                 Object.DontDestroyOnLoad(_pinRoot.gameObject);
             }
-            Transform? scaleRef = _root.parent != null ? _root.parent : _anchorParent;
-            _pinRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            _pinRoot.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
+            // The follower is what makes the holder the player's frame; a holder without one would
+            // be a world pin again — silently, and only the tester would find out. Re-attach rather
+            // than assume, so no path can leave the pair half-built.
+            if (_pinFrame == null)
+            {
+                // `??` would be wrong here: Unity's fake-null keeps a DESTROYED component non-null
+                // to the null-coalescing operator while `== null` reports it gone. Compare, do not
+                // coalesce (the same idiom as Net.PeerBoardFade.Attach).
+                TrayPinFrame? existing = _pinRoot.gameObject.GetComponent<TrayPinFrame>();
+                _pinFrame = existing != null ? existing : _pinRoot.gameObject.AddComponent<TrayPinFrame>();
+            }
+            // NO RIG YET (menu boot, flat dev proxy, the frames between two scenarios): seat the
+            // holder the way it was seated before this frame existed — world origin, identity, the
+            // parent chain's scale — so the tray's localScale keeps meaning the same thing. The
+            // first seat that finds a rig converts that world pin into a rig-local one WITHOUT
+            // moving the board (TrayPinFrame.Seat preserves the payload's world pose exactly once).
+            if (VRRigDriver.RigRoot == null)
+            {
+                Transform? scaleRef = _root.parent != null ? _root.parent : _anchorParent;
+                _pinRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                _pinRoot.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
+            }
+            if (_pinFrame != null)
+            {
+                _pinFrame.Payload = _root;
+                _pinFrame.Seat(); // adopt the player's frame NOW, not one frame late
+            }
+            // worldPositionStays: engaging the pin never moves the board. What the re-parent DOES
+            // is decide the frame the pin is expressed in — from here the board's localPosition/
+            // localRotation/localScale under the holder ARE the pin, and nothing re-derives them.
             if (_root.parent != _pinRoot)
                 _root.SetParent(_pinRoot, worldPositionStays: true);
             // Freeze-sentinel announcement: engaging the pin is world-pose-preserving
@@ -1056,6 +1102,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         {
             Object.DestroyImmediate(_pinRoot.gameObject);
             _pinRoot = null;
+            _pinFrame = null; // the follower is a component ON that object; it dies with it
         }
         _slots = new Transform?[2];
         _slotHighlights[0] = _slotHighlights[1] = null; // children of _root, destroyed with it
@@ -1104,7 +1151,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // stale pin state would otherwise be applied to the next root. (The lost-board dwell
         // timer that used to be reset here is gone with the automatic recall.)
         _pinPoseVersion = -1;
-        _rigLocalPinValid = false;
+        _pinHadRig = false;
         _pinHousekeepingMove = null;
         _pinFreezeValid = false;   // freeze sentinel: never diff a new root against the old one's pose
         _pinFreezeSource = null;
@@ -1336,7 +1383,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// runtime resume). The user is looking NOW, so the board must be PRESENT and sanely placed —
     /// it must never stay gone or stranded far away.
     /// - FOLLOW: re-seat at the head (through <see cref="PlaceAtHead"/>'s head-distance clamp).
-    /// - PINNED/world-anchored: KEEP the pinned world pose (roaming is legitimate), UNLESS it is
+    /// - PINNED/rig-anchored: KEEP the pin exactly as it stands (roaming is legitimate), UNLESS it is
     ///   non-finite or absurdly far/low (a real glitch) — then snap it back near the head.
     /// Either way the root is re-shown so a presence blip can never leave it hidden. Board-switch
     /// pose (<see cref="RestorePose"/>) is deliberately untouched.
@@ -1356,7 +1403,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             return;
         }
 
-        // PINNED: keep the world pose. DISTANCE IS NOT A REASON TO MOVE IT (user ruling
+        // PINNED: keep the pin. DISTANCE IS NOT A REASON TO MOVE IT (user ruling
         // 2026-08-03 — see the block at the top of PlayTray.2.Watchdog.cs): a pinned board being
         // far away or below the head is the normal consequence of pinning it and then walking
         // off, not a glitch. Only a NON-FINITE pose is recovered, because that is not a position

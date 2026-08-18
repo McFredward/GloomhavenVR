@@ -126,6 +126,33 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 160** (bundle unchanged, 67,164,721 bytes) — two reports, and **both were a
+  measurement that agreed with the wrong thing.**
+  * **The pinned board: four rounds moved *where* a world-space pin was re-derived; the pin itself
+    was the fault.** Angular size = size ÷ distance. ModBuild 159 froze the numerator (world size ÷
+    rig scale) and left the board at fixed WORLD coordinates while the zoom rescales the PLAYER —
+    146 log lines hold it at `(24.50, 7.83, 16.39)` while the rig swept ×19.01 → ×83.53, so it grew
+    4.4× in the eye while the `BOARD SIZE` line reported its size unchanged. **An instrument that
+    measures one term of the thing the user is looking at will agree with every broken build.**
+    The diagnostic now prints distance in player metres and the subtended angle.
+  * **A second, independent defect in the same place: a one-frame lag, proven by identity.** The
+    holder's scale was re-asserted in `CardsDriver.Update`, before `WorldGrab.Update` writes the new
+    rig scale — `parent chain ×64.79 ÷ rig ×68.50`, where 64.79 is the previous frame's rig scale
+    (82 of 158 moving-zoom samples). ±10 % breathing through every pinch. **Per-frame arithmetic in
+    the wrong phase cannot be tuned into the right one**; it was deleted, not moved. `TrayPinFrame`
+    shadows the rig frame in `LateUpdate` at execution order 20000 and the board hangs under it with
+    a constant local pose, so nothing computes where the board goes. A *shadow* and not a child
+    because `TearDownRig` would take the subtree — and the board — with it.
+  * **The water: `MaterialPropertyBlock` cannot set a shader keyword.** `_EdgeColour_Toggle` is an
+    Amplify `[Toggle]`, the live keyword list is `[_EDGECOLOUR_TOGGLE_ON]`, and such a property
+    compiles to a `shader_feature` branch that never reads the float. Half of 159's water retune was
+    inert **by construction**, and the "0 undone re-asserts" line proved only that our block was
+    still attached — not that anything read it. Blocks replaced by owned material instances.
+  * **And the scope was too narrow, which the user's own word had already said.** He wrote "Tiles".
+    `TERRAIN_Crypt_Water_02_Base`/`_Edge` run `Amp_Basic_N_MRAO` — metallic — directly under the
+    film, and `WaterTerrainVR` scoped itself to the `Water_Sh` shader stem and excluded them. **When
+    a report names a thing you did not model, that is data, not imprecision.**
+
 - **ModBuild 154** (commit `c7af67e`, bundle 67,148,369 bytes) — two reports, **one shape of fault:
   a lever that was built, logged and shipped without ever being reached.**
   * **The figures' darkening never executed once in 153.** `Shader.Find("GloomhavenVR/HeadUnlit")`

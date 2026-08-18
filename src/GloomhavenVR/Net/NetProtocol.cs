@@ -416,7 +416,122 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 159;
+    public const ushort ModBuild = 160;
+    // Build 160: THE PIN WAS THE FAULT, AND A PROPERTY BLOCK CANNOT SET A KEYWORD. Nothing on the
+    // wire; every packet is byte-identical to build 159's. The bundle is unchanged.
+    //
+    // ── 1. FIXIERT IS NOW ANCHORED IN THE PLAYER'S FRAME, NOT THE GAME WORLD ───────────────────
+    // User, 2026-08-18, on build 159: "Das Board zoomed immer noch im Fixiert modus mit - das soll
+    // nicht sein. Fixiert heißt in jeglicher hinsicht fixiert und fix, EGAL wie man zoomed oder
+    // sich bewegt auch wenn man es in einer Hand festhält."
+    //
+    // Two defects, both MEASURED in his log, not inferred:
+    //
+    //   (A) A ONE-FRAME LAG, PROVEN BY IDENTITY. `SyncPinHolder` re-asserted the holder's scale
+    //       from the live rig inside `CardsDriver.Update` — a phase that runs BEFORE
+    //       `WorldGrab.Update` writes the frame's new rig scale. The log prints the pair: L3467
+    //       reads rig ×64.79; L3474 reads "parent chain ×64.79 ÷ rig ×68.50". The holder at frame N
+    //       is EXACTLY the rig scale of frame N−1, and it holds in 82 of the 158 samples taken
+    //       while the zoom was moving (the rest are lines with more than one frame between them).
+    //       Across the session the anchor ratio ran 0.89…1.11 and snapped back to exactly 1.00 the
+    //       instant the pinch stopped: the board breathed ±10 % through every zoom gesture.
+    //
+    //   (B) THE DISTANCE TERM WAS NEVER FROZEN — the larger half. Angular size = size ÷ distance.
+    //       Build 159 froze the NUMERATOR (world size ÷ rig scale) and left the board standing at
+    //       fixed WORLD coordinates while the zoom rescaled the PLAYER. 146 log lines hold it at
+    //       (24.50, 7.83, 16.39) with own scale 0.74 while the rig swept ×19.01 → ×83.53: a board
+    //       at a fixed world spot, seen by a player who grew 4.39×, is 4.39× closer in the only
+    //       units that player has. It grew in his eye by that factor while the BOARD SIZE
+    //       diagnostic reported its size as unchanged — the instrument was measuring the numerator
+    //       and calling it the answer. THAT is why four prior rounds each "fixed" this and did not:
+    //       every one of them moved WHERE the same world-space pin was re-derived.
+    //
+    // THE FIX IS THE REMOVAL OF THE ARITHMETIC, NOT A BETTER VERSION OF IT. `TrayPinFrame`
+    // (new, `[DefaultExecutionOrder(20000)]`) copies the rig's world position, rotation and lossy
+    // scale onto the pin holder in LateUpdate — after every Update-phase rig writer and after
+    // `VRRigDriver.LateUpdate`'s world-tilt heal — and the board hangs under it with a CONSTANT
+    // local pose. Distance and size then scale together and cannot disagree; the anchor ratio is
+    // 1.000 because both sides of it are the same float read in the same frame. The rig-rebuild
+    // carry becomes free (adopt the new rig transform, keep the rig-local pose) and the
+    // `_pinPoseVersion` / `_rigLocalPin*` cache is gone with the world-space pin that needed it.
+    //   * IT IS A SHADOW, NOT A CHILD, and that is deliberate: `TearDownRig` destroys the rig root
+    //     and Unity takes the whole subtree with it (this is why `HandsDriver` rebuilds its hands
+    //     root after every rebuild). Parenting would destroy the pinned board on every rig rebuild
+    //     — killing exactly the carry it was meant to make free.
+    //   * WALKING STILL CHANGES WHAT YOU SEE. You are moving inside the space the board is nailed
+    //     to. Only rig-driven change (zoom, snap turn, world grab, flight, recentre) is invisible.
+    //   * THE DIAGNOSTIC THAT AGREED WITH A BROKEN BUILD IS ITSELF FIXED: BOARD SIZE now prints the
+    //     board's distance in PLAYER METRES and the angle it subtends, with the delta of both since
+    //     the previous line and a HELD/CHANGED verdict. A line that reports only the numerator is
+    //     how a fault survives four rounds of instrumentation.
+    //   * THE PINNED FREEZE SENTINEL now diffs the pose in the PLAYER's frame. Diffing world poses
+    //     would flag every zoom and every step — which is how a sentinel gets switched off.
+    //   * MULTIPLAYER NEEDS NO CHANGE, and gets better. The wire already carries head, hands, held
+    //     figures and held cards in raw world coordinates, and all of those are rig children — so a
+    //     peer's body already slides and rescales in world space when they zoom. Under 159 the
+    //     world-pinned board stood still while its owner swept through 4.4× of scale: peers watched
+    //     a player detach from their own board. Now it travels with the avatar it belongs to.
+    //     `boardMoving` will read true during zooms and locomotion in FIXIERT, so board extras ride
+    //     at 15 Hz instead of 5 Hz while that lasts — human-paced, no format change.
+    //   * SUPERSEDED, EXPLICITLY: `f6d9725`'s "the pin holder scale is written ONCE and never
+    //     re-asserted" invariant (it carried a DO-NOT-DELETE marker) and `fb2e6e3`'s world-space
+    //     pin. His 2026-08-07 ruling ("bewegt sich in KEINSTER Weise, außer es wird aktiv verschoben
+    //     oder skaliert") is not overturned by this — it is finally TRUE, because it was only ever
+    //     true in the frame of reference of the person wearing the headset.
+    //
+    // ── 2. THE WATER MIRROR: THE WRITE ITSELF WAS HALF-INERT ───────────────────────────────────
+    // User, same round: "Die Spiegelreflektionen sehen immer noch identisch unatürlich aus und
+    // bewegen sich schnell mit den Kopfbewegungen mit." Third round on this defect.
+    //
+    // ONE THING IS CERTAIN AND NOT A HYPOTHESIS: `_EdgeColour_Toggle` is an Amplify `[Toggle(...)]`
+    // property. The material's live keyword list is exactly `[_EDGECOLOUR_TOGGLE_ON]`, and such a
+    // property compiles to a `shader_feature` branch that never reads the float. A
+    // `MaterialPropertyBlock` CANNOT set or clear a shader keyword. Build 159's foam neutralisation
+    // therefore had a half that could not have done anything, whatever else was true.
+    //
+    // Build 159 also could not say WHY the rest failed to land, so 160 stops choosing between the
+    // remaining explanations and removes all of them:
+    //   * THE BLOCK IS GONE. Every tuned renderer carries its own material instance
+    //     (`Renderer.materials`), with `enableInstancing = false` written on each. A batched
+    //     instanced draw takes non-instanced properties from the MATERIAL; an instance cannot be
+    //     batched and can also `DisableKeyword`. Instance lifetime is owned: destroyed on prune, on
+    //     material swap, on config flip and on uninstall, with live/made/destroyed counts in the
+    //     census so a leak shows up as a number that only climbs.
+    //   * THE PROPERTY NAME NO LONGER MATTERS. `WaterReflectionCaps` (new) classifies a shader's
+    //     whole property table AT RUNTIME by name family (gloss / rough / metal / reflection), with
+    //     a selector veto (`_SmoothnessTextureChannel` is a real Unity name a 0.08 write would
+    //     semantically corrupt) and a declared-range gate — the frequency-scrub lesson: the water
+    //     material's own `_WaveFrequency=3` is a plain Float and must never be touched. Roughness
+    //     INVERTS and is floored at 1−cap, never capped. Every refusal is logged with its reason.
+    //   * THE SCOPE WAS TOO NARROW, AND HIS WORD WAS THE CLUE. He said "Tiles". In the same room
+    //     census, directly under and around the water film, sit `TERRAIN_Crypt_Water_02_Base` and
+    //     `_Edge` on `Amp_Basic_N_MRAO` — Metallic/Roughness/AO. A metallic surface in a scene with
+    //     `liveProbes=0` mirrors the skybox sharply and swims with the head, which is his sentence
+    //     verbatim. `WaterTerrainVR` scoped itself to the `Water_Sh` shader stem and excluded
+    //     exactly those. They are now adopted by name family AND geometry (inside a tracked film's
+    //     XZ footprint, not rising above it, span-capped) — both terms load-bearing, because the
+    //     room's ordinary floor runs the same shader and a shader-only rule would retune the room.
+    //   * AND ONE MECHANISM THAT IS INDEPENDENT OF ALL THREE: `[Water] LocalProbe` (default on)
+    //     spawns a `ReflectionProbeMode.Custom` probe per water feature carrying a flat 4×4 cubemap
+    //     built from `RenderSettings.ambientProbe`. `boxProjection = false` deliberately —
+    //     projection IS parallax. A flat cube cannot swim no matter which property, renderer or
+    //     shader the reflection comes from.
+    //   * WHAT THE NEXT LOG DECIDES, so this does not cost a fourth blind round: the census prints
+    //     the shared material's `instancing=` flag (settling retroactively whether a batched draw
+    //     ate 159's block) and each property's `Shader.GetPropertyAttributes` strings (the shader
+    //     stating in its own words which properties are keyword-driven). `[Water] BasinSurfaces`
+    //     and `[Water] LocalProbe` are live in-headset toggles, so he can A/B which mechanism bit.
+    //   * DELETED, NOT SOFTENED: the paragraph arguing a local probe "would contribute almost
+    //     nothing". A trade-off written in a comment is not one the user agreed to, and this round
+    //     disproved it.
+    //   * EXPECTED ABSENCE, so it is not misread next round: WallSegmentFade's FLOOR CENSUS no
+    //     longer annotates the water plane `OUR-MPB`. There is no property block any more. That is
+    //     the mechanism changing, not the driver stopping.
+    //
+    // ── 3. CONFIRMED FIXED BY THE USER ─────────────────────────────────────────────────────────
+    // "Was du erfolgreich gefixed hast ist die Info, top. Die taucht jetzt auf." — build 159's
+    // `HoverPickPatch`. Water, traps, hazardous terrain and spawners answer the laser again.
+    //
     // Build 159: THE WATER IS WATER, AND THE BOARD'S SIZE BOUND WAS DIVIDED BY THE PLAYER. Nothing
     // on the wire; every packet is byte-identical to build 158's. The bundle is unchanged.
     //

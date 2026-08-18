@@ -38,10 +38,22 @@ namespace GloomhavenVR.Cards;
 /// <see cref="AnchorRatio"/> is logged so a future stale holder shows up as a number instead of
 /// as a resized board.</para>
 ///
-/// <para>UNITY-FREE ON PURPOSE (beyond <c>Mathf</c>): this file is linked into
-/// tests/GloomhavenVR.WireTests and driven value by value. The property under test — "the size
-/// the gesture can reach does not move when the zoom does" — is observed ONLY from inside a
-/// headset, one hardware round at a time, and it has now cost four shipped builds.</para>
+/// <para>SIZE IS ONLY HALF OF WHAT THE EYE MEASURES, and the missing half cost ModBuild 159.
+/// <b>Angular size = size ÷ distance.</b> Everything above freezes the NUMERATOR. The 2026-08-18
+/// report ("Das Board zoomed immer noch im Fixiert modus mit") was the denominator: a world-space
+/// pin left the board standing at fixed game-world coordinates while the zoom rescaled the PLAYER
+/// about a pivot that is not the board, so its distance in player metres changed with every pinch
+/// and the board grew and shrank in the eye — while this file's own diagnostic reported "apparent
+/// cm" and called it constant, because that is all it measured. A diagnostic that agrees with a
+/// broken build is itself a defect, so the distance arithmetic now lives here too
+/// (<see cref="TryPlayerDistance"/>, <see cref="AngularWidthDegrees"/>), it is logged beside the
+/// size, and the wire vectors drive both terms across a zoom sweep.</para>
+///
+/// <para>UNITY-FREE ON PURPOSE (beyond <c>Mathf</c> and the plain <c>Vector3</c>/<c>Quaternion</c>
+/// value types, which the test assembly gets from the game's own UnityEngine.CoreModule): this
+/// file is linked into tests/GloomhavenVR.WireTests and driven value by value. The property under
+/// test — "the board does not change size or place when the zoom does" — is observed ONLY from
+/// inside a headset, one hardware round at a time, and it has now cost five shipped builds.</para>
 /// </summary>
 internal static class BoardSizeFrame
 {
@@ -108,6 +120,72 @@ internal static class BoardSizeFrame
 
     /// <summary>Apparent width, in perceived metres, of a board of <paramref name="units"/>.</summary>
     internal static float WidthOf(float units) => units * BoardWidthLocal;
+
+    // ---------------------------------------------------------------- THE DENOMINATOR --
+    //
+    // The three conversions above answer "how big is it?". The two below answer "how big does it
+    // LOOK?", which is the question the player is actually asking and the one ModBuild 159 got
+    // wrong: it held the size and let the distance move. Both are pure functions of numbers the
+    // caller already has, and both are driven by the wire vectors across the rig scales the
+    // 2026-08-18 log recorded.
+
+    /// <summary>
+    /// How far the board is from the head IN PLAYER METRES — the world distance divided by the
+    /// player's own scale, for exactly the reason the apparent width is: at rig scale 21 the player
+    /// IS twenty-one times larger, so a world metre is 1/21 of a metre to them. This is the
+    /// quantity a FIXIERT board must hold across any zoom, snap turn, teleport or world grab, and
+    /// the ONE the size diagnostic used to be blind to. False when the rig scale is degenerate.
+    /// </summary>
+    internal static bool TryPlayerDistance(Vector3 headWorld, Vector3 boardWorld, float rigScale,
+                                           out float metres)
+    {
+        metres = 0f;
+        if (!(rigScale > MinFactor) || float.IsInfinity(rigScale))
+            return false;
+        float world = (boardWorld - headWorld).magnitude;
+        if (float.IsNaN(world) || float.IsInfinity(world))
+            return false;
+        metres = world / rigScale;
+        return !float.IsInfinity(metres);
+    }
+
+    /// <summary>
+    /// The angle the board's width subtends at the eye, in degrees — <b>the number the user's
+    /// report is about</b>. Size and distance are each only half of it, and holding one while the
+    /// other moves is indistinguishable, from inside the headset, from holding neither. Scale-free
+    /// by construction: both arguments are in player metres, so their ratio is invariant under any
+    /// uniform rescale of the player, which is what makes it the right thing to assert. 0 for a
+    /// degenerate distance (a board at the eye has no meaningful angular width).
+    /// </summary>
+    internal static float AngularWidthDegrees(float apparentWidth, float playerDistance) =>
+        !(playerDistance > MinFactor) || !(apparentWidth > 0f)
+        || float.IsInfinity(playerDistance) || float.IsInfinity(apparentWidth)
+            ? 0f
+            : 2f * Mathf.Atan2(apparentWidth * 0.5f, playerDistance) * Mathf.Rad2Deg;
+
+    /// <summary>
+    /// A world point expressed in the PLAYER'S OWN FRAME (the rig frame): metres the player would
+    /// measure, along the player's own axes. This is the frame the FIXIERT pin is stored in since
+    /// 2026-08-18 — <c>PlayTray</c> gets it for free from the transform hierarchy (the pin holder
+    /// IS this frame), and the vectors get it from here so the invariant can be driven without a
+    /// scene: a constant player-frame pose against a sweeping rig is what "fixiert" means.
+    /// </summary>
+    internal static Vector3 ToPlayerFrame(Vector3 rigPos, Quaternion rigRot, float rigScale,
+                                          Vector3 worldPoint) =>
+        // Conjugate, not Quaternion.Inverse: a rig rotation is a unit quaternion, for which the two
+        // are the same value — and Inverse is an engine ECall, which would make this file
+        // un-runnable in the wire tests (they link it and run OUTSIDE Unity, so every native entry
+        // point throws SecurityException). The whole reason the arithmetic lives here is that it
+        // can be driven without a headset; a native call would quietly take that away.
+        new Quaternion(-rigRot.x, -rigRot.y, -rigRot.z, rigRot.w) * (worldPoint - rigPos)
+        / Mathf.Max(rigScale, MinFactor);
+
+    /// <summary>The inverse of <see cref="ToPlayerFrame"/>: where a player-frame point currently
+    /// IS in the world. A rig-local pin moves through the world on every zoom, turn and step —
+    /// that motion is not a defect, it is what holds the board still in the player's eye.</summary>
+    internal static Vector3 ToWorld(Vector3 rigPos, Quaternion rigRot, float rigScale,
+                                    Vector3 playerPoint) =>
+        rigPos + rigRot * (playerPoint * rigScale);
 
     /// <summary>
     /// THE BOARD'S SIZE BOUNDS, in size units — a function of the board's own geometry

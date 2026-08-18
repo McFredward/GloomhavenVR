@@ -715,9 +715,13 @@ internal static class CardsConfig
             "Tray anchor mode (test #15, toggled by the pin button on the tray frame). " +
             "true = the tray is rig-anchored: it moves with you (world grab, snap turn, " +
             "recenter) and re-places itself at the TrayForward/Down/Right offsets on mode " +
-            "entry. false = the tray is PINNED where you left it, world-anchored — it " +
-            "stays put while you move around and never re-places itself. Switching back " +
-            "to follow re-anchors it at the configured offsets.");
+            "entry. false = the tray is PINNED where you left it — anchored in the PLAYER'S OWN " +
+            "space, not in game-world coordinates (user ruling 2026-08-18: \"Fixiert heißt in " +
+            "jeglicher hinsicht fixiert und fix, EGAL wie man zoomed oder sich bewegt\"). A zoom, " +
+            "a snap turn, a world grab, flight and a recentre leave it completely untouched IN THE " +
+            "PLAYER'S EYE — only a grab or the two-hand resize may change it. Walking physically " +
+            "does change what you see of it: you are moving inside the space it is nailed to. " +
+            "Switching back to follow re-anchors it at the configured offsets.");
         BoardMoveMode = _file.Bind("Cards", "BoardMoveMode", Defaults.BoardMoveMode,
             "Item 12: how the handle-bar grab may MOVE the control board. Limited (default) = " +
             "today's behavior: position + yaw only, the board is kept level for you (under the " +
