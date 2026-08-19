@@ -2460,7 +2460,7 @@ internal static partial class Loc
                 + "der feinen Wellen sowie die drei des langsamen Aufblühens sind feste "
                 + "Vielfache genau dieser Dauer — 0 friert daher die ganze Fläche auf einmal ein, "
                 + "mit erhaltenem Relief, statt unter einer stehenden Welle noch etwas ticken zu "
-                + "lassen. DIE VOREINSTELLUNG IST 0,0175 — die Hälfte der 0,035 aus ModBuild "
+                + "lassen. DIE VOREINSTELLUNG IST 0,00875 — ein Viertel der 0,035 aus ModBuild "
                 + "166 — und das ist eine Vorgabe und kein Geschmack: 'so ungefähr hab ich mir "
                 + "das vorgestellt, nur finde ich es immer noch schnell. Mach die animation halb "
                 + "so schnell, dann ist es perfekt.' Eine Rate zu halbieren heißt, jede Dauer zu "
@@ -2471,7 +2471,7 @@ internal static partial class Loc
                 + "über 102, 165 und 266 Sekunden statt über 51, 82 und 133, und das langsame "
                 + "Aufblühen atmet auf 195, 295 und 459 statt auf 97, 148 und 229. Bei 1,0 "
                 + "schwingt die Dünung so schnell wie echtes Wasser dieser Wellenlänge (etwa "
-                + "einmal pro Sekunde); die 0,0175 sind ein Sechzigstel davon. Das Log schreibt "
+                + "einmal pro Sekunde); die 0,00875 sind ein Hundertzwanzigstel davon. Das Log schreibt "
                 + "die aufgelöste Drift mit (sie liest sich bauartbedingt als 0,000), alle sechs "
                 + "Schwingungsdauern, alle drei Überblenddauern und alle drei Aufblühdauern — "
                 + "'zu schnell' ist also eine Zahl und keine Diskussion.",

@@ -59,6 +59,11 @@ internal static class Program
             // every rescan — a prop that pops while neither wall changes state, visible only from
             // inside a headset.
             WallPropUnitVectors.Run(t);
+            // WHETHER a prop may fade with a wall at all. Same photograph (skelet.jpg), fourth
+            // report, and the one piece of arithmetic in the wall-fade family that fails in both
+            // directions in silence: too tight and the skull stays missing, too loose and masonry
+            // becomes permanently solid — which reads as wall see-through being switched off.
+            WallStandingPropVectors.Run(t);
         }
         catch (Exception e)
         {

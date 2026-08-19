@@ -416,7 +416,73 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 167;
+    public const ushort ModBuild = 168;
+    // Build 168: HALF AGAIN, AND THE SKULL WAS A DIFFERENT SKELETON ALL ALONG.
+    // ***** THE BUNDLE CHANGED — 67,172,123 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
+    //
+    // User, on 167: "Gerne noch langsamer (halbier die Geschwindigkeit der Animation nochmal). Der
+    // Schädel ist immer noch nicht sichtbar."
+    //
+    // ── 1. HALF AGAIN ─────────────────────────────────────────────────────────────────────────
+    // `[Water] RippleSpeed` 0.0175 → 0.00875, a QUARTER of the ModBuild 166 value he called too
+    // hectic. The swell's longest component now bobs once every ~126 s and the ripple crossfades
+    // run 203/329/533 s. Same single number as last round, verified there to reach all three
+    // temporal families, so the character is unchanged again and only the tempo drops. The
+    // "RippleSpeed 0 freezes the surface" test still passes because ModBuild 167 re-based it onto a
+    // RATIO instead of an absolute period — which is the whole reason it survived a second halving.
+    //
+    // ── 2. FOUR ROUNDS ON THE WRONG SKELETON ──────────────────────────────────────────────────
+    // I finally opened `.planning/debug/skelet.jpg` MYSELF instead of working from descriptions of
+    // it. It shows a skeleton slumped on a WOODEN DECK at floor level, leaning against a low
+    // masonry wall — ribcage, arms, pelvis and legs solid, skull gone, and the wall behind it
+    // visibly mid-dissolve. A FLOOR-LEVEL PROP.
+    //
+    // The `CR_OS_Skeleton_Statue_*` renderers that ModBuild 167 was built around anchor at 3.5 and
+    // 5.1 world units. **They are wall statues somewhere else in the level.** ModBuild 167 fixed a
+    // real defect — a statue torn between two wall owners — but not this one, and the new log said
+    // so in the terms 167 itself had set: ZERO `PROP UNIT` lines, which that lane had written down
+    // in advance as meaning "the pass never fired, look elsewhere". **Open the user's screenshot
+    // before the first fix, not after the fourth** — the same lesson the water round already cost.
+    //
+    // THE RULE'S OWN FIRST TERM WAS THE BLOCKER. ModBuild 157's STANDING PROP guard requires
+    // *figure/actor ancestry* AND a foot in the 1.0 wu floor band AND prop size. A scenery skeleton
+    // on a deck is not an actor, so the ancestry term refused it however well the geometry fitted —
+    // and that term is redundant, because the line's own justification for the geometric test is
+    // "wall-MOUNTED dressing never reaches the floor", which is already the discriminator.
+    //   * The guard now has TWO ARMS. The FIGURE arm is ModBuild 157 bit-for-bit, so nothing
+    //     confirmed regresses. The new FLOOR arm drops the ancestry term, builds the unit with
+    //     ModBuild 167's grouping (a lone skull a metre up looks airborne; the skeleton it belongs
+    //     to does not) and adds a HEIGHT CAP of 2.5 wu.
+    //   * THE CAP IS NOT OPTIONAL AND ITS NUMBER IS MEASURED: without it a wall course qualifies —
+    //     it also stands on the floor and is prop-sized horizontally — and see-through would
+    //     silently stop. The session's lowest-topped architecture is 2.8 wu (`Blocks`), and its
+    //     tallest floor-band dressing is 2.5 (`CR_ST_Shelf_Books_Sparse_02`). 2.5 sits in that gap.
+    //     It is a first cut, and the census now prints every unit's measured height so the next log
+    //     can move it on evidence rather than on taste.
+    //   * THE GUARD ALSO RUNS IN THE MOUNTED SWEEP NOW, and without that the floor arm would be
+    //     THEATRE: a skull refused by the wall path is left unclaimed, and the geometric mounted
+    //     sweep runs afterwards and adopts it anyway. The FIGURE arm never noticed because that
+    //     sweep carries its own figure guard.
+    //   * THE TWO FOLIAGE PATHS KEEP THE FIGURE ARM ONLY. A bush is a multi-piece thing standing on
+    //     the ground under the cap, so the widened rule there would hand back the "Gestrüpp-Wand"
+    //     report (gebüsch.png) in full.
+    //
+    // ── 3. AND THE LOG WILL NAME IT NEXT TIME ─────────────────────────────────────────────────
+    // Four rounds went by without knowing WHICH renderer disappears. `WallSegmentFade.FadeCensus.cs`
+    // now prints `FADE WRITE`: every renderer carrying a non-zero wall fade, with its ancestor path,
+    // its height over the room floor, its AABB, the PATH that wrote it (wall renderer / split
+    // segment / foliage / asset sibling / body / stacked shell / mounted dressing / corner piece)
+    // and the fade applied — grouped into prop units, **TORN units first**, smallest first, with the
+    // dropped count stated. A torn unit prints the siblings that were LEFT SOLID under the same
+    // root, which is the exact shape of this bug and a comparison no census had ever printed.
+    // Emitted after the apply, change-triggered, with the expensive half skipped on quiet frames.
+    //   * IT IS BUILT TO BE DECIDABLE THREE WAYS: a `TORN` line means the prop is still being torn
+    //     and names the wall; a `NEAR MISS` in `STANDING PROP` means the rule saw it and only the
+    //     height/span/count refused it, and states the number to move; and `[no prop unit — a unit
+    //     of one]` means the tileset parented the pieces flat, so the GROUPING and not the geometry
+    //     is what needs widening. If the skull appears in none of the three, no wall-fade path is
+    //     writing it and the cause is outside this module entirely.
+    //
     // Build 167: HALF THE TEMPO, FOUR DIALS GONE, AND THE STATUE KEEPS ITS HEAD.
     // ***** THE BUNDLE CHANGED — 67,162,676 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
     //

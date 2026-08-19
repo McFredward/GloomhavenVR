@@ -224,6 +224,19 @@
     <Compile Include="WallPropUnitVectors.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, and the sharpest case of the WallPropUnit reason: it decides WHETHER a
+       prop is allowed to fade with a wall at all, and it fails in BOTH directions in silence. Too
+       tight and the skeleton in .planning/debug/skelet.jpg keeps losing its head — the report has
+       arrived four times. Too loose and a course of masonry becomes permanently solid, which does
+       not read as a bug but as wall see-through having been switched off. Neither verdict throws,
+       logs a failure or looks wrong from outside a headset; both are seen by eye, one photograph
+       per round. WallStandingProp.cs was written free of Unity — floats and counts — precisely so
+       the case in the photograph could be driven here unit by unit. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallStandingProp.cs" Link="core\WallStandingProp.cs" />
+    <Compile Include="WallStandingPropVectors.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="true" />
   </ItemGroup>

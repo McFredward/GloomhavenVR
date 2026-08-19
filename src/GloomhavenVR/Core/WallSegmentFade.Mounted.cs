@@ -791,6 +791,23 @@ internal static partial class WallSegmentFade
                             "FIGURE (never touched — round-7 ruling, Lights-rule severity)");
                         continue;
                     }
+                    // FLOOR-STANDING PROP (skelet.jpg, fourth round): the wall path refuses these
+                    // at CollectWallFadeInfo, which leaves them UNCLAIMED — and this sweep runs
+                    // afterwards and is purely geometric, so without this line it would adopt the
+                    // skeleton's skull as sconce dressing and fade it anyway. The guard above
+                    // covered the rule's FIGURE arm by coincidence (a figure is refused here on
+                    // its own account); the FLOOR arm has no such cover. The mounted rule itself
+                    // is unchanged: a prop whose UNIT hangs a metre over the floor is not a unit
+                    // that reaches the floor, so nothing this pass protects can meet it. See
+                    // WallSegmentFade.Standing.cs.
+                    if (IsStandingFigureProp(c))
+                    {
+                        NoteStandingPropBlocked(c, null);
+                        NoteMountedReject(c, anchorY, bestGap,
+                            "part of a prop unit that STANDS ON THE FLOOR — never wall dressing "
+                            + "(WallSegmentFade.Standing.cs)");
+                        continue;
+                    }
                     if (c.GetComponentInParent<TileBehaviour>() != null
                         || c.GetComponentInParent<Canvas>() != null
                         || c.GetComponent<TMPro.TMP_Text>() != null)

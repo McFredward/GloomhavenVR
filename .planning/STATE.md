@@ -126,7 +126,28 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 167** (**BUNDLE CHANGED — 67,162,676 bytes, must be REINSTALLED**) — half the tempo,
+- **ModBuild 168** (**BUNDLE CHANGED — 67,172,123 bytes, must be REINSTALLED**) — half again, and
+  the skull was a different skeleton all along.
+  * **`[Water] RippleSpeed` 0.0175 → 0.00875** — a quarter of the value called "viel zu hektisch".
+    The "0 freezes the surface" test survived a second halving only because 167 re-based it onto a
+    RATIO instead of an absolute period.
+  * **FOUR ROUNDS ON THE WRONG SKELETON.** The screenshot — finally opened by the integrator rather
+    than worked from descriptions — shows a skeleton slumped on a WOODEN DECK at floor level. The
+    `CR_OS_Skeleton_Statue_*` renderers that ModBuild 167 was built around anchor at 3.5 and 5.1 wu:
+    **wall statues elsewhere in the level.** 167 fixed a real defect, just not this one, and its own
+    zero `PROP UNIT` lines said so in the terms it had set in advance.
+  * **The guard's FIRST term was the blocker.** ModBuild 157 required *figure/actor ancestry* — a
+    scenery skeleton is not an actor — and that term is redundant against the rule's own
+    justification ("wall-mounted dressing never reaches the floor"). Now two arms: the FIGURE arm
+    bit-for-bit, plus a FLOOR arm with no ancestry, unit-based geometry and a **measured** 2.5 wu
+    height cap (lowest architecture 2.8, tallest floor dressing 2.5).
+  * **The guard had to be added to the MOUNTED sweep too**, or the floor arm would be theatre: a
+    renderer refused by the wall path is left unclaimed and the geometric sweep adopts it anyway.
+  * **`FADE WRITE` now names every renderer any fade path hides**, with its path, height, ancestor
+    chain — and for a torn unit, the siblings left solid. Four rounds went by without knowing which
+    renderer disappears.
+
+- **ModBuild 167** (bundle 67,162,676 bytes) — half the tempo,
   four dials gone, and the statue keeps its head. **The water look is ACCEPTED by the user.**
   * **The halving came from one number**, and that it reaches all three temporal families was
     *verified*, not assumed. Measured: mean |ΔL| over 4.5 s 0.112 → 0.054 (0.48×), net translation

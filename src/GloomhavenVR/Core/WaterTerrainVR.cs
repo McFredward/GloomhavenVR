@@ -519,7 +519,7 @@ internal static class WaterTerrainVR
                 + "and rim under the water are NOT replaced — they are opaque ground, not a film, "
                 + "and keep the ordinary retune. OFF puts the game's own water shader back "
                 + "immediately, which is the A/B for what this replacement is worth.");
-            RippleSpeed = config.Bind("Water", "RippleSpeed", 0.0175f,
+            RippleSpeed = config.Bind("Water", "RippleSpeed", 0.00875f,
                 new ConfigDescription(
                     "How fast the water CHANGES, as a multiple of the shipped rate. NOTHING ON "
                     + "THIS SURFACE MOVES FROM PLACE TO PLACE, so this dial cannot make it flow "
@@ -527,7 +527,7 @@ internal static class WaterTerrainVR
                     + "bobbing period, and the ripple's three crossfade cycles and the bloom's "
                     + "three are fixed multiples of that period, so 0 freezes the entire surface "
                     + "at once with its relief intact rather than leaving something still ticking "
-                    + "under a motionless wave. THE DEFAULT IS 0.0175, HALF OF ModBuild 166's "
+                    + "under a motionless wave. THE DEFAULT IS 0.00875, A QUARTER OF ModBuild 166's "
                     + "0.035, and it is a ruling rather than a preference: 'so ungefähr hab ich "
                     + "mir das vorgestellt, nur finde ich es immer noch schnell. Mach die "
                     + "animation halb so schnell, dann ist es perfekt.' Halving a RATE is doubling "
@@ -998,7 +998,7 @@ internal static class WaterTerrainVR
             WaterConfig.OwnSurface == null || WaterConfig.OwnSurface.Value;
 
         private static float WantedRippleSpeed =>
-            WaterConfig.RippleSpeed != null ? WaterConfig.RippleSpeed.Value : 0.0175f;
+            WaterConfig.RippleSpeed != null ? WaterConfig.RippleSpeed.Value : 0.00875f;
 
         private static float WantedShimmer =>
             WaterConfig.Shimmer != null ? WaterConfig.Shimmer.Value : 0.03f;

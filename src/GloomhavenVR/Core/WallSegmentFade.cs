@@ -883,6 +883,13 @@ internal static partial class WallSegmentFade
 
             // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
             ApplyCornerPieces();
+            // WHICH RENDERERS ARE ACTUALLY BEING FADED, BY NAME (user report 2026-08-19,
+            // skelet.jpg: "Der Schädel ist immer noch nicht sichtbar"). Deliberately HERE — after
+            // every applier has run, so the line reports what was written and not what was
+            // intended (the ModBuild-164 lesson). Rate-limited and change-triggered; the
+            // expensive half only runs on a frame where the written set moved. See
+            // WallSegmentFade.FadeCensus.cs.
+            LogFadeWriteCensus(now);
             // Regenerated shell pieces (Apparance churn) must be re-hidden faster than the
             // 2s rescan — see the fast-reclaim doc in WallSegmentFade.Stacked.cs.
             FastReclaimRegeneratedShell(now);
@@ -2474,9 +2481,10 @@ internal static partial class WallSegmentFade
             // whose fade makes it a view-blocking leftover.
             foreach (MeshRenderer r in all)
             {
-                // Same standing-prop exclusion as the unsplit path: a floor-standing figure
-                // prop is never a wall's foliage dressing either (WallSegmentFade.Standing.cs).
-                if (r == null || !RendererUsesFoliage(r) || IsStandingFigureProp(r))
+                // Same standing-prop exclusion as the unsplit path, and the same FIGURE arm
+                // only: a floor-standing figure prop is never a wall's foliage dressing either,
+                // while a bush standing on the ground still is (WallSegmentFade.Standing.cs).
+                if (r == null || !RendererUsesFoliage(r) || IsStandingFigureOnlyProp(r))
                     continue;
                 Segment? best = null;
                 float bestSq = float.PositiveInfinity;
@@ -3579,9 +3587,13 @@ internal static partial class WallSegmentFade
                     // Not fade-capable — but a foliage dressing of this wall rides its fade
                     // (the "Gestrüpp-Wand" report). Ground-level tufts are dropped later by
                     // StripGroundRenderers, exactly like ground geometry. A floor-standing
-                    // figure prop is excluded here too: the foliage list hides its renderers
+                    // FIGURE prop is excluded here too: the foliage list hides its renderers
                     // outright, so a mossy statue would vanish whole instead of losing a head.
-                    if (RendererUsesFoliage(r) && !IsStandingFigureProp(r))
+                    // Deliberately the FIGURE arm only and not the 2026-08-19 widening — a bush
+                    // is a multi-piece thing standing on the ground under the height cap, so the
+                    // wider rule would hand the Gestrüpp-Wand report straight back. See
+                    // WallSegmentFade.Standing.cs, IsStandingFigureOnlyProp.
+                    if (RendererUsesFoliage(r) && !IsStandingFigureOnlyProp(r))
                         seg.Foliage.Add(r);
                     continue;
                 }

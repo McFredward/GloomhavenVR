@@ -358,11 +358,11 @@ internal static class WaterOwnSurface
     /// <para>1.1 s IS THE PHYSICAL ANSWER FOR THIS WAVE, which is why the dial and not the constant
     /// carries the "nur minimal Bewegungen" ruling. A 2.4 m deep-water wave has a period of
     /// sqrt(2 pi L / g) = 1.24 s; at the dial's own 1.0 this shader is therefore real water, and the
-    /// shipped <c>[Water] RippleSpeed</c> of 0.0175 stretches it to 63 s, which is a puddle. That
+    /// shipped <c>[Water] RippleSpeed</c> of 0.00875 stretches it to 126 s, which is a puddle. That
     /// split means the dial is a statement anyone can check ("a sixtieth of real water's rate")
     /// rather than a number chosen against a photograph, and turning it up gives something
     /// recognisable rather than something arbitrary. THE DIAL HAS BEEN RE-BASED TWICE, 0.12 ->
-    /// 0.035 -> 0.0175; this constant has not moved, because it is a measurement of water rather
+    /// 0.035 -> 0.0175 -> 0.00875; this constant has not moved, because it is a measurement of water rather
     /// than a preference.</para>
     /// </summary>
     internal const float SwellPeriod = 1.1f;
@@ -625,7 +625,7 @@ internal static class WaterOwnSurface
     /// <para>WHY THE DIAL DIVIDES. <c>[Water] RippleSpeed</c> is the one number a human moves, and
     /// "faster water" has to mean "shorter cycles" now that it cannot mean "quicker current". At
     /// the dial's own 1.0 the 2.4 m swell bobs in 1.1 s, which is what a real deep-water wave that
-    /// long does (sqrt(2 pi L / g) = 1.24 s); the shipped 0.0175 stretches that to 63 s, i.e. about
+    /// long does (sqrt(2 pi L / g) = 1.24 s); the shipped 0.00875 stretches that to 126 s, i.e. about
     /// a sixtieth of real water. That split is what makes the default a statement anyone can check
     /// rather than a number chosen against a photograph.</para>
     ///
@@ -633,7 +633,7 @@ internal static class WaterOwnSurface
     /// function exists for. <see cref="RippleFadeRatios"/> and <see cref="SwellBloomRatios"/> are
     /// multiples of what this returns and the shader's bloom divides the same
     /// <c>_SwellPeriod</c>, so there is exactly one place a tempo ruling has to land. ModBuild 167
-    /// re-based the dial from 0.035 to 0.0175 and every period on the surface doubled together —
+    /// re-based the dial 0.035 -> 0.0175 (ModBuild 167) -> 0.00875 (ModBuild 168), and every period on the surface doubled each time, together —
     /// "Mach die animation halb so schnell" answered without touching the relation between the
     /// swell, the crossfade and the bloom.</para>
     ///

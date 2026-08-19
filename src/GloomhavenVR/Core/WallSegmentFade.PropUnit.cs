@@ -123,8 +123,22 @@ internal static partial class WallSegmentFade
         private const int PropUnitMaxDepth = 4;
 
         /// <summary>Segment anchors this rescan — the walk stops AT one rather than climbing
-        /// through it, so a wall can never be swallowed into a "prop unit".</summary>
+        /// through it, so a wall can never be swallowed into a "prop unit". Refreshed by
+        /// <see cref="RefreshPropUnitAnchors"/> from BOTH scopes that need it: this pass's, and —
+        /// since the standing rule's FLOOR arm started using the same walk — the standing-prop
+        /// scope, which opens at the very top of the rescan.</summary>
         private readonly HashSet<Transform> _propUnitAnchors = new(64);
+
+        /// <summary>Scratch for <see cref="PropUnitRootOf"/> alone. Deliberately NOT
+        /// <c>_subtreeScratch</c>: that list is iterated by the asset-sibling collection while it
+        /// calls into this file family, and sharing scratch with something that walks it is how a
+        /// list gets cleared underneath its own iteration.</summary>
+        private readonly List<MeshRenderer> _propUnitWalkScratch = new(64);
+
+        /// <summary>Renderers this pass actually moved to (or recruited for) their unit's owner
+        /// this rescan — read by the FADE WRITE census so a written renderer can say that the
+        /// prop-unit pass is what put it where it is.</summary>
+        private readonly HashSet<Renderer> _propUnitTouched = new(64);
 
         /// <summary>Every renderer some segment holds this rescan, so a unit can tell a member
         /// that merely has no owner from one that has a different owner.</summary>
@@ -284,11 +298,26 @@ internal static partial class WallSegmentFade
             _propUnitClaimed.Clear();
             _propUnitOwnerNow.Clear();
             _propUnitCensus.Clear();
+            _propUnitTouched.Clear();
             _propUnitRegrouped = 0;
             _propUnitMoved = 0;
             _propUnitRecruited = 0;
             _propUnitUnfadeable = 0;
 
+            RefreshPropUnitAnchors();
+        }
+
+        /// <summary>Re-read the segment anchors the unit walk must stop at. Called from
+        /// <see cref="BeginStandingPropScope"/> at the top of the rescan (the standing rule's
+        /// FLOOR arm walks before any wall has been refreshed) and again from
+        /// <see cref="BeginPropUnitScope"/> once the table is final. A wall adopted for the first
+        /// time THIS rescan is therefore missing from the early set for one pass — and the size
+        /// caps are what catch it: a unit that reached across a wall is either wider than
+        /// <see cref="PropUnitMaxSpanWU"/> or taller than
+        /// <see cref="WallStandingProp.MaxHeightWU"/>, and is refused on those numbers rather than
+        /// on the table.</summary>
+        private void RefreshPropUnitAnchors()
+        {
             _propUnitAnchors.Clear();
             foreach (Segment seg in _segments.Values)
             {
@@ -414,10 +443,10 @@ internal static partial class WallSegmentFade
             {
                 if (_propUnitAnchors.Contains(node) || node.GetComponent<ProceduralWall>() != null)
                     break;
-                _subtreeScratch.Clear();
-                node.GetComponentsInChildren(includeInactive: false, _subtreeScratch);
-                int count = _subtreeScratch.Count;
-                _subtreeScratch.Clear();
+                _propUnitWalkScratch.Clear();
+                node.GetComponentsInChildren(includeInactive: false, _propUnitWalkScratch);
+                int count = _propUnitWalkScratch.Count;
+                _propUnitWalkScratch.Clear();
                 if (count > PropUnitMaxRenderers)
                     break; // container scale — this node and everything above it are architecture
                 if (count < 2)
@@ -504,6 +533,7 @@ internal static partial class WallSegmentFade
                         m.SetPropertyBlock(null);
                     seg.Renderers.RemoveAt(at);
                     moved++;
+                    _propUnitTouched.Add(m); // so the FADE WRITE census can attribute it
                     if (!_propUnitLosers.Contains(seg))
                         _propUnitLosers.Add(seg);
                 }
@@ -518,6 +548,7 @@ internal static partial class WallSegmentFade
                     continue;
                 }
                 recruited++;
+                _propUnitTouched.Add(m);
             }
 
             // The owner now controls geometry it did not before; its decision AABB has to enclose
