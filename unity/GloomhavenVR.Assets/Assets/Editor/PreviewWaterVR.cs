@@ -35,7 +35,10 @@
 //
 //    2. CHANGE RATE. The fraction of pixels whose luminance changes by more than a small threshold,
 //       and the mean absolute luminance change, over one second and over four and a half. This is
-//       the number "viel zu hektisch" is about.
+//       the number "viel zu hektisch" is about, and since ModBuild 167 it is also the number that
+//       says whether "mach die animation halb so schnell" was actually done: the `puddle` and
+//       `mb166` columns differ in [Water] RippleSpeed and in nothing else, so the ratio between
+//       their change rates is the halving, measured.
 //
 //  BOTH ARE MEASURED FROM A PURPOSE-BUILT STATION, not from a pretty one. `plan` is an
 //  ORTHOGRAPHIC camera directly above the pool looking straight down, so an offset in pixels is a
@@ -174,9 +177,16 @@ namespace GloomhavenVR
         }
 
         /// <summary>
-        /// The sheet. The ModBuild 165 reference first, then the shipped ModBuild 166 defaults and
-        /// two neighbours, then the two A/B controls. A candidate is only judged against what the
-        /// user was actually looking at when he wrote the report.
+        /// The sheet. The ModBuild 165 reference first, then the shipped ModBuild 167 defaults,
+        /// then ModBuild 166's tempo on otherwise IDENTICAL dials, then two neighbours and the two
+        /// A/B controls.
+        ///
+        /// <para>THE 'mb166' COLUMN IS THE DELIVERABLE OF THIS ROUND and it differs from 'puddle'
+        /// in exactly one number: <c>[Water] RippleSpeed</c>. The verdict on ModBuild 166 was that
+        /// the LOOK was right and only the TEMPO was not — <i>"so ungefähr hab ich mir das
+        /// vorgestellt, nur finde ich es immer noch schnell. Mach die animation halb so
+        /// schnell"</i> — so a comparison that also moved the amplitude or the shimmer would be
+        /// asking whether the halving worked while changing what is being halved.</para>
         /// </summary>
         private static readonly Candidate[] Candidates =
         {
@@ -194,7 +204,13 @@ namespace GloomhavenVR
             // THE SHIPPED DEFAULTS.
             new Candidate
             {
-                Name = "puddle", WaveScale = 1f, RippleSpeed = 0.035f, Shimmer = 0.03f,
+                Name = "puddle", WaveScale = 1f, RippleSpeed = 0.0175f, Shimmer = 0.03f,
+                SwellHeight = 0.005f, WaveShade = 0.35f, RippleStrength = 0.5f,
+            },
+            // THE TEMPO A/B. ModBuild 166's dial, everything else identical to 'puddle'.
+            new Candidate
+            {
+                Name = "mb166", WaveScale = 1f, RippleSpeed = 0.035f, Shimmer = 0.03f,
                 SwellHeight = 0.005f, WaveShade = 0.35f, RippleStrength = 0.5f,
             },
             new Candidate
@@ -204,12 +220,12 @@ namespace GloomhavenVR
                 // setting chosen for scoring best against the film lattice. A neighbour column that
                 // also changed the scale would be asking the user to judge calmness and tile
                 // repetition in the same frame.
-                Name = "stiller", WaveScale = 1f, RippleSpeed = 0.02f, Shimmer = 0.02f,
+                Name = "stiller", WaveScale = 1f, RippleSpeed = 0.01f, Shimmer = 0.02f,
                 SwellHeight = 0.003f, WaveShade = 0.30f, RippleStrength = 0.35f,
             },
             new Candidate
             {
-                Name = "livelier", WaveScale = 1f, RippleSpeed = 0.06f, Shimmer = 0.05f,
+                Name = "livelier", WaveScale = 1f, RippleSpeed = 0.03f, Shimmer = 0.05f,
                 SwellHeight = 0.009f, WaveShade = 0.40f, RippleStrength = 0.6f,
             },
             // A/B ONE — THE RELIEF. The shipped column with the geometry switched off. The
@@ -217,7 +233,7 @@ namespace GloomhavenVR
             // contributes, which is the question "wirklich 3D wellen" asks.
             new Candidate
             {
-                Name = "puddleflat", WaveScale = 1f, RippleSpeed = 0.035f, Shimmer = 0.03f,
+                Name = "puddleflat", WaveScale = 1f, RippleSpeed = 0.0175f, Shimmer = 0.03f,
                 SwellHeight = 0f, WaveShade = 0.35f, RippleStrength = 0.5f,
             },
             // A/B TWO — THE TESSELLATOR. The shipped column, same amplitude, forced onto the
@@ -226,7 +242,7 @@ namespace GloomhavenVR
             // and the proof is a photograph rather than a claim.
             new Candidate
             {
-                Name = "puddlenotess", WaveScale = 1f, RippleSpeed = 0.035f, Shimmer = 0.03f,
+                Name = "puddlenotess", WaveScale = 1f, RippleSpeed = 0.0175f, Shimmer = 0.03f,
                 SwellHeight = 0.005f, WaveShade = 0.35f, RippleStrength = 0.5f,
                 NoTessellation = true,
             },
@@ -453,7 +469,7 @@ namespace GloomhavenVR
             void SetClock(float t) => Shader.SetGlobalFloat("_GhvrTimeOfs", t);
 
             var report = new StringBuilder();
-            report.AppendLine("WATERVR MEASUREMENTS — ModBuild 166");
+            report.AppendLine("WATERVR MEASUREMENTS — ModBuild 167");
             report.AppendLine();
             report.AppendLine(
                 "NET TRANSLATION is the offset of the best cross-correlation match between the "

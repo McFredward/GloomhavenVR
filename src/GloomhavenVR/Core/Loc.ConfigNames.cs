@@ -181,7 +181,6 @@ internal static partial class Loc
             ["Water/VRFriendlyWater"] = Pair("VR-friendly water", "VR-freundliches Wasser"),
             ["Water/Smoothness"] = Pair("Water: mirror amount", "Wasser: Spiegelung"),
             ["Water/Opacity"] = Pair("Water: opacity", "Wasser: Deckkraft"),
-            ["Water/ShoreFoam"] = Pair("Water: shore foam (costly)", "Wasser: Uferschaum (teuer)"),
 
             // ---- [FigureGrab] — grabbing miniatures -----------------------------------------
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),

@@ -15,7 +15,7 @@ namespace GloomhavenVR.Core;
 /// repainted in the body hue at alpha 0, <c>_EdgeColour_Toggle 1 -> 0</c>, the instance's keyword
 /// list empty, <c>_Smoothness 0.754 -> 0.08</c>, every metal/reflection scalar at 0. The user's
 /// verdict was <i>"Keine Änderungen bei der Wasser Problematik."</i> and
-/// <c>[Water] DebugPaint</c> had already settled that these ARE our renderers
+/// a diagnostic paint (since retired) had already settled that these ARE our renderers
 /// (<i>"Die debug farbe funktioniert - alles färbt sich magenta wie gewollt."</i>). Owned renderer
 /// + every reachable property neutral + the defect unchanged leaves one explanation: the pale sheet
 /// and the head-bound reflection are a TEXTURE or a CONSTANT compiled into
@@ -358,11 +358,12 @@ internal static class WaterOwnSurface
     /// <para>1.1 s IS THE PHYSICAL ANSWER FOR THIS WAVE, which is why the dial and not the constant
     /// carries the "nur minimal Bewegungen" ruling. A 2.4 m deep-water wave has a period of
     /// sqrt(2 pi L / g) = 1.24 s; at the dial's own 1.0 this shader is therefore real water, and the
-    /// shipped <c>[Water] RippleSpeed</c> of 0.035 stretches it to 31 s, which is a puddle. That split
-    /// means the dial is a statement anyone can check ("a thirtieth of real water's rate") rather
-    /// than a number chosen against a photograph, and turning it up gives something recognisable
-    /// rather than something arbitrary. RE-BASED FROM 0.12 FOR MODBUILD 166: nine seconds was still
-    /// judged "viel zu hektisch", and the ruling asked for a large factor rather than a nudge.</para>
+    /// shipped <c>[Water] RippleSpeed</c> of 0.0175 stretches it to 63 s, which is a puddle. That
+    /// split means the dial is a statement anyone can check ("a sixtieth of real water's rate")
+    /// rather than a number chosen against a photograph, and turning it up gives something
+    /// recognisable rather than something arbitrary. THE DIAL HAS BEEN RE-BASED TWICE, 0.12 ->
+    /// 0.035 -> 0.0175; this constant has not moved, because it is a measurement of water rather
+    /// than a preference.</para>
     /// </summary>
     internal const float SwellPeriod = 1.1f;
 
@@ -437,14 +438,14 @@ internal static class WaterOwnSurface
     /// the strongest available statement that the three cycles never come back into step. (The
     /// first draft used 1.618 / 2.414 / 3.732 and the wire test caught it: 2.414/1.618 is 1.492,
     /// within half a percent of three halves, i.e. a pair that beats every third cycle.) At the
-    /// shipped dial they resolve to 51, 82 and 133 seconds — long enough that the mix is "barely
+    /// shipped dial they resolve to 102, 165 and 266 seconds — long enough that the mix is "barely
     /// moving" by construction and not by taste. The census prints all three.</para>
     /// </summary>
     internal static readonly float[] RippleFadeRatios = { 1.618034f, 2.618034f, 4.236068f };
 
     /// <summary>The three BLOOM periods — the large-scale envelope that decides which part of the
     /// pool is lively — again as multiples of the swell's own resolved period, so one dial moves
-    /// everything. They resolve to 97, 148 and 229 seconds at the shipped dial: a disturbance that
+    /// everything. They resolve to 195, 295 and 459 seconds at the shipped dial: a disturbance that
     /// swells and decays in one place over a couple of minutes and then in another, which is what
     /// "random" looks like on standing water. MIRRORED IN THE SHADER (GhvrSwellBloom).</summary>
     internal static readonly float[] SwellBloomRatios = { 3.1f, 4.7f, 7.3f };
@@ -624,9 +625,17 @@ internal static class WaterOwnSurface
     /// <para>WHY THE DIAL DIVIDES. <c>[Water] RippleSpeed</c> is the one number a human moves, and
     /// "faster water" has to mean "shorter cycles" now that it cannot mean "quicker current". At
     /// the dial's own 1.0 the 2.4 m swell bobs in 1.1 s, which is what a real deep-water wave that
-    /// long does (sqrt(2 pi L / g) = 1.24 s); the shipped 0.035 stretches that to 31 s, i.e. about a
-    /// thirtieth of real water. That split is what makes the default a statement anyone can check
+    /// long does (sqrt(2 pi L / g) = 1.24 s); the shipped 0.0175 stretches that to 63 s, i.e. about
+    /// a sixtieth of real water. That split is what makes the default a statement anyone can check
     /// rather than a number chosen against a photograph.</para>
+    ///
+    /// <para>AND HALVING THE DIAL HALVES THE WHOLE SURFACE'S RATE, which is the property this
+    /// function exists for. <see cref="RippleFadeRatios"/> and <see cref="SwellBloomRatios"/> are
+    /// multiples of what this returns and the shader's bloom divides the same
+    /// <c>_SwellPeriod</c>, so there is exactly one place a tempo ruling has to land. ModBuild 167
+    /// re-based the dial from 0.035 to 0.0175 and every period on the surface doubled together —
+    /// "Mach die animation halb so schnell" answered without touching the relation between the
+    /// swell, the crossfade and the bloom.</para>
     ///
     /// <para>AND THE PERIOD SCALES AS sqrt(WAVELENGTH), not linearly — deep-water dispersion, the
     /// same rule the six components are spaced by. A longer swell is a slower one, which is what
@@ -643,15 +652,25 @@ internal static class WaterOwnSurface
     /// drift to accumulate.</para>
     /// </summary>
     /// <param name="waveScale"><c>[Water] WaveScale</c>.</param>
-    /// <param name="dial"><c>[Water] RippleSpeed</c>. Clamped away from zero rather than
-    /// special-cased: 0 gives a period a hundred times the shipped one, so the surface holds still
-    /// with its relief intact instead of flattening.</param>
+    /// <param name="dial"><c>[Water] RippleSpeed</c>. Clamped to <see cref="MinSpeedDial"/> rather
+    /// than special-cased, so 0 holds the surface still with its relief intact instead of
+    /// flattening it.</param>
     internal static float ResolvedSwellPeriod(float waveScale, float dial)
     {
         float s = Positive(waveScale) ? waveScale : 1f;
         float d = Finite(dial) ? Mathf.Max(dial, 0f) : 1f;
-        return SwellPeriod * Mathf.Sqrt(Mathf.Max(s, 0.01f)) / Mathf.Max(d, 0.01f);
+        return SwellPeriod * Mathf.Sqrt(Mathf.Max(s, 0.01f)) / Mathf.Max(d, MinSpeedDial);
     }
+
+    /// <summary>The smallest rate this dial resolves at, so that <c>[Water] RippleSpeed</c> 0 means
+    /// STILL and not merely "slower". It has to be far below the shipped default rather than a
+    /// round number near it: the floor used to be 0.01 against a shipped 0.12, which made 0 a
+    /// twelvefold slowdown, and two re-bases of the default have since walked the shipped value
+    /// down past it. At 1e-4 the swell's period at 0 is about three hours, which is a surface that
+    /// does not change while anyone is looking at it — and the wire test pins the RATIO to the
+    /// shipped period rather than the constant, so a third re-base cannot quietly undo this
+    /// again.</summary>
+    internal const float MinSpeedDial = 1e-4f;
 
     /// <summary>The three ripple crossfade periods in seconds, from the resolved swell period.
     /// Written straight into <see cref="RippleFadeProperty"/>; the census prints all three, so

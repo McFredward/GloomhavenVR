@@ -116,8 +116,8 @@ Shader "GloomhavenVR/WaterVR"
         // The three CROSSFADE PERIODS in seconds, x/y/z. They are the only clock the ripple has, and
         // they are the first three powers of phi (1.618 / 2.618 / 4.236) times the swell's own period, so [Water]
         // RippleSpeed 0 freezes the ripple as well as the geometry. These defaults are the
-        // resolution at the shipped dial, where the swell's period is 31 s.
-        _RippleFade ("Ripple crossfade periods in seconds (x, y, z)", Vector) = (51,82,133,0)
+        // resolution at the shipped dial, where the swell's period is 63 s.
+        _RippleFade ("Ripple crossfade periods in seconds (x, y, z)", Vector) = (102,165,266,0)
         _NormalStrength ("Ripple strength (from _DetailOpacityBaseNormalStr)", Range(0,8)) = 0.5
         // 0 = sample _Normal_Map. 1 = the analytic fallback, used ONLY when the driver could not
         // read a normal map off the game material at all. It is a property rather than a keyword so
@@ -146,10 +146,12 @@ Shader "GloomhavenVR/WaterVR"
         // phase contains no clock (GhvrStanding in WaterVR.cginc).
         //
         // How long the LONGEST component takes to rise and fall once, in seconds. The shorter
-        // components scale as sqrt(their wavelength ratio), so at 31 s they run 31 / 28 / 27 / 24 /
-        // 20 / 16 s — six incommensurate rates, which is what leaves the sum with no beat. This is
-        // the number "viel zu hektisch" is about and the census prints all six.
-        _SwellPeriod ("Swell period of the longest component (seconds)", Float) = 31
+        // components scale as sqrt(their wavelength ratio), so at 63 s they run 63 / 56 / 53 / 47 /
+        // 40 / 32 s — six incommensurate rates, which is what leaves the sum with no beat. This is
+        // the number "viel zu hektisch" is about and the census prints all six. RE-BASED WITH THE
+        // DIAL for ModBuild 167 ("Mach die animation halb so schnell"): halving the rate doubles
+        // every period on the surface at once, because every other cycle is a multiple of this one.
+        _SwellPeriod ("Swell period of the longest component (seconds)", Float) = 63
         // How far the QUIET parts of the pool drop below full amplitude, 0 = the same everywhere and
         // 1 = dead still where the three long standing modulations cancel. This is the term that
         // answers "die animationen sollen sehr dezent und random sein" — see GhvrSwellBloom.

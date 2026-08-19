@@ -107,14 +107,18 @@
 //  AND EVERYTHING IS SUBTLER THAN MODBUILD 165, BY A LARGE FACTOR
 // ============================================================================
 //  "Viel zu hektisch" was said of a surface with a 3.6 cm peak bobbing once
-//  every 9 seconds. The shipped dials now give 1.3 cm once every 31 seconds on
-//  the same film — a third of the height and a third of the rate, i.e. about a
-//  tenth of the vertical speed — and the ripple's own crossfades run on cycles
-//  of 51, 82 and 133 seconds. The offscreen harness MEASURES both halves of that
-//  claim (Assets/Editor/PreviewWaterVR.cs): the net translation of the pattern
-//  between two instants, which must come back as exactly (0,0), and the fraction
-//  of pixels that change per second, which must come back far under ModBuild
-//  165's 6.73 % over 4.5 s.
+//  every 9 seconds. The shipped dials now give 1.3 cm once every 63 seconds on
+//  the same film — a third of the height and a seventh of the rate — and the
+//  ripple's own crossfades run on cycles of 102, 165 and 266 seconds. ModBuild
+//  166's look was ACCEPTED and only its tempo was not ("nur finde ich es immer
+//  noch schnell. Mach die animation halb so schnell"), so ModBuild 167 halved
+//  ONE number — [Water] RippleSpeed, 0.035 -> 0.0175 — and every period above
+//  doubled with it, leaving the relation between swell, crossfade and bloom
+//  exactly as it was. The offscreen harness MEASURES both halves of the claim
+//  (Assets/Editor/PreviewWaterVR.cs): the net translation of the pattern between
+//  two instants, which must come back as exactly (0,0), and the fraction of
+//  pixels that change per second, which must come back at about half ModBuild
+//  166's figure.
 #ifndef GHVR_WATERVR_INCLUDED
 #define GHVR_WATERVR_INCLUDED
 
@@ -417,7 +421,7 @@ float2 GhvrRippleBump (float2 p, float2 tiling, float2 cs, float2 ofs)
 
 // ============================================== THE CROSSFADE, AND IT IS ALL THAT MOVES HERE ==
 // Three weights that ALWAYS SUM TO EXACTLY ONE, moving on the three incommensurate cycles the
-// driver resolves into _RippleFade (51, 82 and 133 seconds at the shipped dial). Normalising rather
+// driver resolves into _RippleFade (102, 165 and 266 seconds at the shipped dial). Normalising rather
 // than just adding three cosines is what keeps the ripple's total strength constant: an unnormalised
 // sum would breathe in AMPLITUDE, and a whole pool getting rougher and smoother together is a pulse,
 // which is a rhythm, which is what the ruling forbids. What changes is only WHICH of the three fixed

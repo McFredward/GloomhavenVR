@@ -416,7 +416,78 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 166;
+    public const ushort ModBuild = 167;
+    // Build 167: HALF THE TEMPO, FOUR DIALS GONE, AND THE STATUE KEEPS ITS HEAD.
+    // ***** THE BUNDLE CHANGED — 67,162,676 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
+    //
+    // User, on 166: "1) Sehr gut! Schon viel besser, so ungefähr hab ich mir das vorgestellt, nur
+    // finde ich es immer noch schnell. Mach die animation halb so schnell, dann ist es perfekt.
+    // 2) Entferne die ganzen debug Wassereinstellungen die jetzt nicht mehr nötig sind.
+    // 3) Der Kopf des Skeletts wird immer noch ausgeblendet."
+    //
+    // ── 1. HALF THE TEMPO, FROM ONE NUMBER ─────────────────────────────────────────────────────
+    // `[Water] RippleSpeed` 0.035 → 0.0175, and it was VERIFIED to be the root of all three
+    // temporal families rather than assumed: the swell period divides by it, the ripple crossfades
+    // multiply that period, and the shader's bloom divides the same period. So the character is
+    // unchanged and only the tempo drops — swell 31.4 → 62.9 s, crossfades 51/82/133 → 102/165/266,
+    // bloom 97/148/229 → 195/295/459.
+    //   * MEASURED, not claimed, from the orthographic station: mean |ΔL| over 4.5 s 0.112 → 0.054
+    //     (0.48×) and over 1 s 0.024 → 0.012 (0.50×). Net translation stays exactly (0,0).
+    //   * ONE MANDATORY FOLLOW-ON that the existing suite caught: the dial's zero-clamp was
+    //     `Max(d, 0.01)`, which against the new shipped period made `RippleSpeed 0` only 1.75× the
+    //     default — "0 freezes the surface" would have quietly become false. The clamp is now
+    //     1e-4 and the test pins the RATIO (≥ 50× the shipped period), so a fourth re-base cannot
+    //     undo it again. A test that pins an absolute number instead of a relation expires silently
+    //     the first time the thing it guards is retuned.
+    //
+    // ── 2. FOUR DIALS REMOVED, AND WHAT SURVIVED IS SAID OUT LOUD ──────────────────────────────
+    // Standing ruling: settings may only configure optional content or comfort. Removed with their
+    // whole code path, English text, German text, menu name and wire-test references:
+    //   * `[Water] DebugPaint` — pure diagnostic, and it did its job: the magenta answer settled
+    //     renderer ownership in one second after three rounds of ambiguity.
+    //   * `[Water] BodyOnly` and `[Water] DepthFade` — both only ever acted on
+    //     `VFX/Water_Shd_Trans`, which the FILM no longer runs.
+    //   * `[Water] ShoreFoam` — requested a `_CameraDepthTexture` so the game shader's authored foam
+    //     could work; the film does not draw on that shader, so it bought a full extra opaque
+    //     submission PER EYE for nothing. Its one consumer in `Rig/VRRigDriver.HeadCamera.cs` now
+    //     reads the perf dial alone.
+    // KEPT, and each was checked against a live code path rather than assumed: `Smoothness`,
+    // `Reflectivity`, `BasinSurfaces`, `LocalProbe`, `ProbeBrightness` all still reach the BASIN —
+    // 34 of the 51 tracked renderers are `Amp_Basic_N_MRAO` and still run the game's shader — plus
+    // the look dials `Opacity`, `WaveScale`, `SwellHeight`, `Shimmer`, `RippleSpeed` and the two
+    // masters `VRFriendlyWater` / `OwnSurface`. Removals are announced by a `RetiredKeys` table that
+    // now names all five retired water keys and what replaced them, so no removal is silent.
+    // `WaterTerrainVR`'s 216-line round-by-round header is compressed to what a future reader needs.
+    //
+    // ── 3. THE STATUE WAS BEING TORN APART BY TWO WALLS ────────────────────────────────────────
+    // The skeleton is not a figure at all — it is a STATUE BUILT INTO THE WALL, and its parts are
+    // claimed by DIFFERENT wall units: one rescan has `Wall 6` holding skull+body+broken while
+    // `Wall 3` holds a skull. When one owner dissolves and the other does not, the statue is
+    // decapitated. That is why ModBuild 157's STANDING PROP rule could not reach it: that rule
+    // needs figure ancestry AND a foot in the ground band, and both terms fail correctly here — the
+    // anchors sit 3.5 (body) and 5.1 (skull) wu up while every floor plane logs at 0.05.
+    //   * REFUSING THE CLAIM WOULD BE WORSE. These renderers genuinely ARE wall geometry; a solid
+    //     skull hanging in a dissolved wall is a bigger artefact than the current one. So the unit
+    //     must fade — TOGETHER.
+    //   * `Core/WallPropUnit.cs` groups by the HIGHEST ancestor whose subtree is still prop-sized,
+    //     stopping at a segment anchor, at anything carrying or containing a `ProceduralWall`, at
+    //     24 renderers, at 6.0 wu of span and at 4 levels — the same caps the standing-prop rule
+    //     already uses, not invented ones. Without them a unit would climb to the room container,
+    //     hand every wall renderer one owner and silently switch see-through off. A name stem is a
+    //     fallback only, and only when the group also passes those caps, so a wall course with
+    //     skulls in it cannot read as one prop.
+    //   * OWNER: sticky while faded (a mid-dissolve handover pops the statue back to opaque inside
+    //     a hole), then majority, then nearest centroid with a tie band, then ordinal key order —
+    //     never dictionary order, so two peers cannot disagree.
+    //   * IT IS A CLASS, NOT A PROP. `SB_AC_Arch_Top` + `SB_AC_Arch_Pillars` — one archway, two
+    //     meshes — sit in the same near-miss lines against the same walls, and the bone wall shelf
+    //     that fades correctly today is now protected against being torn apart when a wall boundary
+    //     moves.
+    //   * NAMED GAP: if the skull turns out to sit in a PER-RENDERER split segment rather than a
+    //     whole wall, this pass deliberately stays out of it and stays silent — so an unchanged
+    //     photograph together with NO `PROP UNIT` line is itself the diagnosis, and points at
+    //     `RefreshSplitWall`/`NeutralizeEngulfingSegments` instead of at ownership.
+    //
     // Build 166: NOTHING ON THE WATER TRANSLATES, AND IT IS MEASURED.
     // ***** THE BUNDLE CHANGED — 67,167,091 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
     //

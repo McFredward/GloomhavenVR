@@ -2017,6 +2017,15 @@ internal static partial class WallSegmentFade
             // mounted pass (which must see the EXTENDED AABBs so torches hanging on the shell
             // attach to the same wall the shell rides).
             CollectStackedShellPieces(sceneRenderers);
+            // PROP UNIT COHESION (user report 2026-08-19, skelet.jpg — "Der Kopf des Skeletts wird
+            // immer noch ausgeblendet"): the statue's skull sat in one wall unit's renderer list
+            // and its body in another's, and the two walls fade independently, so the statue was
+            // decapitated. Regroup every multi-part prop and give each unit ONE owner. HERE on
+            // purpose: after every pass that can put a renderer into a segment (so all the claims
+            // are in), and BEFORE the sibling and mounted passes, so both of those see the
+            // corrected lists — including the mounted pass's ownership table, whose NEAR-MISS
+            // census is what reported this defect. See WallSegmentFade.PropUnit.cs.
+            EnforcePropUnitCohesion();
             CollectAdoptedSiblings();
             // LAST on purpose: the mounted-dressing rule is geometric (airborne over the room
             // plane + hugging the wall slab), so it needs the FINAL segment table, their room
@@ -2034,6 +2043,9 @@ internal static partial class WallSegmentFade
             // The standing-prop proof line, after every collection pass has run so its "claims
             // refused" count is the rescan's total (WallSegmentFade.Standing.cs).
             LogStandingPropCensus();
+            // The prop-unit proof line, for the same reason and in the same place: emitted after
+            // the pass has run, so every number in it is an outcome (WallSegmentFade.PropUnit.cs).
+            LogPropUnitCensus();
         }
 
         /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor

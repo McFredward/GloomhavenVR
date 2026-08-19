@@ -126,8 +126,27 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 166** (**BUNDLE CHANGED — 67,167,091 bytes, must be REINSTALLED**) — nothing on the
-  water translates, and it is measured.
+- **ModBuild 167** (**BUNDLE CHANGED — 67,162,676 bytes, must be REINSTALLED**) — half the tempo,
+  four dials gone, and the statue keeps its head. **The water look is ACCEPTED by the user.**
+  * **The halving came from one number**, and that it reaches all three temporal families was
+    *verified*, not assumed. Measured: mean |ΔL| over 4.5 s 0.112 → 0.054 (0.48×), net translation
+    still exactly (0,0).
+  * **A test that pins an absolute number expires silently when the thing it guards is retuned.**
+    The `RippleSpeed` zero-clamp made "0 freezes the surface" false the moment the default halved;
+    the test now pins the RATIO. Caught by the existing suite, which is the point of it.
+  * **Four water dials removed with their whole code paths** — `DebugPaint` (its magenta answer had
+    already settled ownership), `BodyOnly`, `DepthFade`, `ShoreFoam` (which bought a full extra
+    opaque submission per eye for a shader the film no longer runs). What survived was checked
+    against a live code path: **34 of the 51 tracked renderers are the basin and still run the
+    game's shader**, so its dials stay.
+  * **The skeleton is a STATUE BUILT INTO THE WALL, torn apart by two owners** — one rescan has
+    `Wall 6` holding skull+body+broken while `Wall 3` holds a skull. ModBuild 157's STANDING PROP
+    rule needs figure ancestry AND a foot in the ground band; both fail correctly at anchors 3.5 and
+    5.1 wu up. Refusing the claim would be worse (a solid skull in a dissolved wall), so the fix is
+    **one prop = one unit = one owner**, grouped by the highest still-prop-sized ancestor with the
+    standing rule's own caps. **It is a class**: `SB_AC_Arch_Top` + `_Pillars` is the same shape.
+
+- **ModBuild 166** (bundle 67,167,091 bytes) — nothing on the water translates, and it is measured.
   * **"Nets to zero over time" is not "does not move".** ModBuild 165 shipped a sway that reversed —
     an integrator instruction — and the user described it back verbatim: *"es fließt einmal in die
     eine Richtung, stoppt kurz und fließt dann wieder in die andere. Erscheint nicht mehr immersiv."*

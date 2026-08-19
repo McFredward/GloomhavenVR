@@ -19,7 +19,12 @@ namespace GloomhavenVR.WireTests;
 /// cannot render as a pale sheet at any alpha, so the visible pixels are the SHORELINE BAND. The
 /// band is what <see cref="WaterEdgeBand"/> collapses and what this file pins.</para>
 ///
-/// <para>THE THREE THINGS THAT WOULD SILENTLY RE-OPEN THE BUG, each of which has a vector below:</para>
+/// <para>IT ONLY RUNS WHILE THE FILM DRAWS ON THE GAME'S SHADER — <c>[Water] OwnSurface</c> off,
+/// or the mod's bundle failing to yield its water shader. The shipped film carries a mod-owned
+/// material with no band on it at all, and the basin under it is opaque ground that never had
+/// one.</para>
+///
+/// <para>THE TWO THINGS THAT WOULD SILENTLY RE-OPEN THE BUG, each of which has a vector below:</para>
 /// <list type="number">
 ///   <item><b>Losing <c>_WaterBorderWidth</c> / <c>_WaterBorderCol</c> from the name tables.</b>
 ///   That pair is a SECOND border mechanism on the same material, it carries no toggle keyword at
@@ -32,11 +37,6 @@ namespace GloomhavenVR.WireTests;
 ///   authored width RAISES it. The whole module rests on never making a surface brighter or
 ///   shinier than the tileset authored it, because a violation arrives as "jetzt ist es noch
 ///   heller" and nothing in this repository could otherwise notice.</item>
-///
-///   <item><b>Making <see cref="WaterDepthFadeMode.Inverted"/> reachable without the user asking.</b>
-///   It is the ONE write in this module that raises a value above the authored one (0 -> 1), and
-///   it is defensible only as a dial. The sweep below states that fact as an assertion rather than
-///   as a comment.</item>
 /// </list>
 ///
 /// <para>And one derivation that is easy to get wrong and impossible to see: the hardware census
@@ -68,7 +68,6 @@ internal static class WaterEdgeVectors
         KeywordDerivation(t);
         WidthCollapse(t);
         ColourCollapse(t);
-        DepthFadeDial(t);
         NeverBrighterSweep(t);
     }
 
@@ -169,48 +168,6 @@ internal static class WaterEdgeVectors
     }
 
     // ---------------------------------------------------------------------------------------
-    //  5. The depth-fade dial. Trap 3: Inverted is the only raise in the module.
-    // ---------------------------------------------------------------------------------------
-    private static void DepthFadeDial(Harness t)
-    {
-        // Authored WRITES the authored value rather than skipping, so winding the dial back
-        // restores the surface exactly instead of leaving the last setting standing on our
-        // instance. It is a write, and it is an identity.
-        bool a = WaterEdgeBand.TryResolveDepthFade(
-            WaterDepthFadeMode.Authored, 0f, out float va, out string ra);
-        t.True(a && Math.Abs(va) < 1e-6f,
-            $"DepthFade=Authored must write the authored 0 back (got ok={a}, {va:0.###}, {ra})");
-        bool a1 = WaterEdgeBand.TryResolveDepthFade(
-            WaterDepthFadeMode.Authored, 1f, out float va1, out _);
-        t.True(a1 && Math.Abs(va1 - 1f) < 1e-6f,
-            $"DepthFade=Authored must be an identity for any authored value, got {va1:0.###}");
-
-        bool n = WaterEdgeBand.TryResolveDepthFade(
-            WaterDepthFadeMode.NotInverted, 1f, out float vn, out _);
-        t.True(n && Math.Abs(vn) < 1e-6f,
-            $"DepthFade=NotInverted must force 0, got ok={n} value {vn:0.###}");
-
-        bool i = WaterEdgeBand.TryResolveDepthFade(
-            WaterDepthFadeMode.Inverted, 0f, out float vi, out string ri);
-        t.True(i && Math.Abs(vi - 1f) < 1e-6f,
-            $"DepthFade=Inverted must force 1, got ok={i} value {vi:0.###}");
-        t.True(ri.IndexOf("RAISES", StringComparison.Ordinal) >= 0,
-            "DepthFade=Inverted is the only write in this module that raises a value above the "
-            + "authored one, and its reason string must SAY so in the hardware log — that string "
-            + "is the only place a reader of the log learns it. Got: " + ri);
-
-        // The default of the enum is what a fresh install gets, and it must be the one setting
-        // that makes no claim about a shader nobody here has read.
-        t.True(default(WaterDepthFadeMode) == WaterDepthFadeMode.Authored,
-            "the default WaterDepthFadeMode must be Authored: any other default silently forces a "
-            + "sign onto a compiled shader this project has never opened, and Inverted would raise "
-            + "_InvertDepthFade above the tileset's own 0 without anyone asking");
-
-        RefusesDepthFade(t, "NaN", float.NaN);
-        RefusesDepthFade(t, "Infinity", float.PositiveInfinity);
-    }
-
-    // ---------------------------------------------------------------------------------------
     //  6. THE INVARIANT. The reason this file is on the list at all.
     // ---------------------------------------------------------------------------------------
     private static void NeverBrighterSweep(Harness t)
@@ -265,23 +222,6 @@ internal static class WaterEdgeVectors
         }
         t.True(colourChecks > 15,
             $"the water band colour sweep actually ran (only {colourChecks} collapses applied)");
-
-        // Every mode, every plausible authored value: only Inverted may ever raise.
-        foreach (WaterDepthFadeMode mode in Enum.GetValues(typeof(WaterDepthFadeMode)))
-        {
-            for (int a = 0; a <= 4; a++)
-            {
-                float authored = a / 4f;
-                if (!WaterEdgeBand.TryResolveDepthFade(mode, authored, out float v, out string why))
-                    continue;
-                bool raised = v > authored + 1e-6f;
-                t.True(!raised || mode == WaterDepthFadeMode.Inverted,
-                    $"only DepthFade=Inverted may raise _InvertDepthFade: {mode} took authored "
-                    + $"{authored:0.###} to {v:0.###} ({why})");
-                t.True(!float.IsNaN(v) && !float.IsInfinity(v),
-                    $"_InvertDepthFade write finite: {mode} {authored:0.###} -> {v:0.###}");
-            }
-        }
     }
 
     // ---------------------------------------------------------------------------------------
@@ -323,14 +263,5 @@ internal static class WaterEdgeVectors
         t.True(!ok, $"water band colour '{what}' should have been REFUSED but wrote alpha {v.a}");
         t.True(!string.IsNullOrEmpty(reason),
             $"water band colour '{what}': a refusal must always carry a reason for the log");
-    }
-
-    private static void RefusesDepthFade(Harness t, string what, float authored)
-    {
-        bool ok = WaterEdgeBand.TryResolveDepthFade(
-            WaterDepthFadeMode.NotInverted, authored, out _, out string reason);
-        t.True(!ok, $"_InvertDepthFade '{what}' should have been REFUSED rather than written");
-        t.True(!string.IsNullOrEmpty(reason),
-            $"_InvertDepthFade '{what}': a refusal must always carry a reason for the log");
     }
 }

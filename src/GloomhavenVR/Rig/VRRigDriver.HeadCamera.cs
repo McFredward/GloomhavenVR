@@ -206,17 +206,12 @@ internal sealed partial class VRRigDriver
         if (_camera == null)
             return;
         DepthTextureMode current = _camera.depthTextureMode;
-        // OR'd, not overridden: a CONTENT-GATED requester may need the texture in a scenario the
-        // global switch is off for. Today that is the game's water terrain — its shader's depth
-        // fade, shore foam and _InvertDepthFade all read _CameraDepthTexture, and with the 2026-07
-        // default off (Defaults.HeadDepthPrepass = false) they read an unwritten one and pin the
-        // whole quad at one extreme (report 2026-08-15 spiegeltiles.jpg; measured
-        // depthTextureMode=None in LogOutput.log:942). WaterTerrainVR.WantsDepthTexture is true
-        // only while [Water] ShoreFoam is on AND water quads are actually tracked, so the extra
-        // per-eye opaque submission this costs is confined to the rooms that need it instead of
-        // being paid for the whole game. Two field reads; the bit-level ownership below is
-        // unchanged.
-        bool wantDepth = Core.PerfConfig.DepthPrepassOn || Core.WaterTerrainVR.WantsDepthTexture;
+        // The global switch is the only requester. The game's water terrain used to ask for the
+        // texture as well — its shader's depth fade and shore foam read _CameraDepthTexture — but
+        // the water film no longer draws on that shader at all (WaterTerrainVR: the film carries a
+        // mod-owned material that reads no depth), so there is nothing left for a per-eye opaque
+        // re-submission to buy there.
+        bool wantDepth = Core.PerfConfig.DepthPrepassOn;
         if (wantDepth == ((current & DepthTextureMode.Depth) != 0))
             return;
         _camera.depthTextureMode = wantDepth

@@ -2362,9 +2362,10 @@ internal static partial class Loc
                 + "Kamerawinkel von oben; über den VR-Tisch hinweg siehst du sie flach, und dann werfen "
                 + "sowohl der metallische Beckenboden als auch der spiegelglatte Film den Himmel zurück und "
                 + "schwimmen mit dem Kopf mit (Meldung 2026-08-15, spiegeltiles.jpg). AN gibt jedem "
-                + "betroffenen Renderer sein EIGENES Material: Glanz-, Metall- und Reflexionswerte "
-                + "gedeckelt, Deckkraft gedeckelt, Uferschaum neutralisiert. Das gemeinsame Material bleibt "
-                + "unangetastet. AUS zeigt das Wasser sofort wieder unverändert.",
+                + "betroffenen Renderer sein EIGENES Material: der FILM bekommt den Wasser-Shader des "
+                + "Mods ([Water] OwnSurface), das Becken darunter bekommt jeden Glanz-, Metall- und "
+                + "Reflexionswert gedeckelt. Das gemeinsame Material bleibt unangetastet. AUS zeigt das "
+                + "Wasser sofort wieder unverändert, samt Himmelsspiegelung.",
             ["Water/Smoothness"] =
                 "Obergrenze für JEDEN Glanzwert auf einem Wasser-Shader (der Film setzt _Smoothness 0,754). "
                 + "Hohe Werte lassen eine Fläche den Himmel scharf abbilden — genau das wirkt wie ein "
@@ -2407,17 +2408,6 @@ internal static partial class Loc
                 + "der Kamera steht die Tiefenblende des Shaders auf \"maximal tief\" und färbt die ganze "
                 + "Fläche ein. Niedriger = du siehst mehr von den Feldern unter dem Becken. Der gestaltete "
                 + "Wert wird nie überschritten.",
-            ["Water/ShoreFoam"] =
-                "Fordert für die VR-Kopfkamera eine Tiefentextur an, solange Wassergelände sichtbar ist, "
-                + "damit der vom Spiel gestaltete Uferschaum und die Tiefenblende arbeiten statt "
-                + "neutralisiert zu werden. KOSTET EINEN KOMPLETTEN ZUSÄTZLICHEN DURCHGANG ALLER "
-                + "UNDURCHSICHTIGEN OBJEKTE PRO AUGE, solange Wasser erfasst ist (der eingebaute "
-                + "Forward-Pfad hat keinen G-Buffer, Unity baut die Tiefentextur also durch erneutes "
-                + "Zeichnen). Dieselben Kosten wie [Optimize] HeadDepthPrepass, mit dem dieser Schalter "
-                + "verodert und den er nicht überstimmt. Standardmäßig aus wegen dieser Kosten — NICHT, "
-                + "weil das Wasser ohne sie richtig aussähe: das tut es nicht, und dies ist der einzige "
-                + "Schalter, mit dem du prüfen kannst, ob dem Ufersaum die ganze Zeit nur eine echte "
-                + "Tiefentextur gefehlt hat. BodyOnly übersteuert ihn. Gilt nur in Räumen mit Wasser.",
             ["Water/OwnSurface"] =
                 "Gibt dem WASSERFILM ein eigenes Material des Mods, statt das des Spiels "
                 + "nachzuregeln. Das Wasser wird weiterhin dargestellt, an derselben Stelle in der "
@@ -2431,7 +2421,7 @@ internal static partial class Loc
                 + "und der Tümpel ist immer noch eine blasse, milchige Fläche, HELLER als der "
                 + "Stein ringsum, wo das Spiel ein dunkles Grün gestaltet. Dazu die Rückmeldung, "
                 + "dass sich die kopf-gebundene Spiegelung mit keiner Einstellung abschalten "
-                + "ließ, und der DebugPaint-Test, der bewiesen hat, dass der Mod genau diese "
+                + "ließ, und der inzwischen entfernte Einfärbe-Test, der bewiesen hat, dass der Mod genau diese "
                 + "Flächen im Griff hat. Damit bleibt nur eine Erklärung: Das Blasse und die "
                 + "Spiegelung stecken in einer Textur oder einer fest einkompilierten Konstante "
                 + "IM Shader des Spiels, und kein Regler erreicht sie. Dieser Schalter löscht "
@@ -2460,8 +2450,8 @@ internal static partial class Loc
                 + "[Water] Shimmer (wie viel Funkeln). Beckenbett "
                 + "und Rand unter dem Wasser werden NICHT ersetzt — das ist "
                 + "undurchsichtiger Boden, kein Film, und behält die übliche Nachregelung. AUS "
-                + "stellt sofort den Wasser-Shader des Spiels wieder her und gibt [Water] "
-                + "BodyOnly, ShoreFoam und DepthFade ihren Sinn zurück.",
+                + "stellt sofort den Wasser-Shader des Spiels wieder her — das ist der "
+                + "A/B-Vergleich, was der Ersatz überhaupt bringt.",
             ["Water/RippleSpeed"] =
                 "Wie schnell sich das Wasser VERÄNDERT, als Vielfaches der ausgelieferten Rate. "
                 + "NICHTS AUF DIESER FLÄCHE WANDERT VON EINEM ORT ZUM ANDEREN, dieser Regler kann "
@@ -2470,17 +2460,21 @@ internal static partial class Loc
                 + "der feinen Wellen sowie die drei des langsamen Aufblühens sind feste "
                 + "Vielfache genau dieser Dauer — 0 friert daher die ganze Fläche auf einmal ein, "
                 + "mit erhaltenem Relief, statt unter einer stehenden Welle noch etwas ticken zu "
-                + "lassen. DIE VOREINSTELLUNG IST 0,035 statt 0,12, und das ist eine Vorgabe und "
-                + "kein Geschmack: das Urteil zu ModBuild 165 lautete 'Immer noch viel zu "
-                + "hektisch ... Ich will außerdem so gut wie KEIN fließen, es ist kein Fluss "
-                + "sondern eine Pfütze. Die animationen sollen sehr dezent und random sein!' Die "
-                + "Dünung hebt und senkt sich jetzt einmal in 31 Sekunden statt in 9, die "
-                + "Überblendungen laufen über 51, 82 und 133 Sekunden. Bei 1,0 schwingt die "
-                + "Dünung so schnell wie echtes Wasser dieser Wellenlänge (etwa einmal pro "
-                + "Sekunde); die 0,035 sind ein Dreißigstel davon. Das Log schreibt die "
-                + "aufgelöste Drift mit (sie liest sich bauartbedingt als 0,000), alle sechs "
-                + "Schwingungsdauern und alle drei Überblenddauern — 'zu schnell' ist also eine "
-                + "Zahl und keine Diskussion.",
+                + "lassen. DIE VOREINSTELLUNG IST 0,0175 — die Hälfte der 0,035 aus ModBuild "
+                + "166 — und das ist eine Vorgabe und kein Geschmack: 'so ungefähr hab ich mir "
+                + "das vorgestellt, nur finde ich es immer noch schnell. Mach die animation halb "
+                + "so schnell, dann ist es perfekt.' Eine Rate zu halbieren heißt, jede Dauer zu "
+                + "verdoppeln, und weil jeder Zyklus dieser Fläche ein festes Vielfaches der "
+                + "Dünungsdauer ist, verdoppeln sich hier alle gemeinsam — der Charakter der "
+                + "Bewegung bleibt also unangetastet, nur ihr Tempo sinkt. Die Dünung hebt und "
+                + "senkt sich jetzt einmal in 63 Sekunden statt in 31, die Überblendungen laufen "
+                + "über 102, 165 und 266 Sekunden statt über 51, 82 und 133, und das langsame "
+                + "Aufblühen atmet auf 195, 295 und 459 statt auf 97, 148 und 229. Bei 1,0 "
+                + "schwingt die Dünung so schnell wie echtes Wasser dieser Wellenlänge (etwa "
+                + "einmal pro Sekunde); die 0,0175 sind ein Sechzigstel davon. Das Log schreibt "
+                + "die aufgelöste Drift mit (sie liest sich bauartbedingt als 0,000), alle sechs "
+                + "Schwingungsdauern, alle drei Überblenddauern und alle drei Aufblühdauern — "
+                + "'zu schnell' ist also eine Zahl und keine Diskussion.",
             ["Water/Shimmer"] =
                 "Wie kräftig die wandernden Glanzlichter auf dem Wasserfilm des Mods sind. Sie "
                 + "entstehen dadurch, dass sich die bewegte Oberfläche einer FESTEN Lichtrichtung "
@@ -2539,47 +2533,6 @@ internal static partial class Loc
                 + "ergibt sich aus den 9 cm, die zwischen dem Wasser und dem Beckenbett darunter "
                 + "gemessen wurden: ein Wellental darf niemals durch den eigenen Beckenboden "
                 + "stoßen.",
-            ["Water/DebugPaint"] =
-                "DIAGNOSE — färbt jeden Wasser-Renderer, den der Mod übernommen hat, in einer flachen, "
-                + "unverwechselbaren Farbe ein und schaltet die Beleuchtung des Spiels dafür komplett ab: "
-                + "der Wasserfilm wird MAGENTA, das Beckenbett und der Rand werden TÜRKIS. Es wird nichts "
-                + "ausgeblendet — das Wasser wird weiterhin dargestellt, nur eben einfarbig. Schalte es "
-                + "für eine Sekunde an und sieh auf die blassen Felder: MAGENTA heißt, der Mod hat den "
-                + "Wasserfilm im Griff und offen ist nur noch, WELCHE seiner Eigenschaften ihn blass "
-                + "macht; TÜRKIS heißt, du siehst den Beckenboden unter dem Wasser; BLASS UND WEISS heißt, "
-                + "der Mod regelt Objekte nach, die du gar nicht siehst — dann nennt die FLOOR CENSUS im "
-                + "Log, was du wirklich vor dir hast. Genau an dieser Unklarheit sind drei Runden "
-                + "gescheitert. DU HAST ES INZWISCHEN LAUFEN LASSEN, UND DIE ANTWORT WAR MAGENTA — "
-                + "der Mod hat die Flächen im Griff, auf die du gezeigt hast; genau deshalb ist "
-                + "[Water] OwnSurface der richtige nächste Schritt gewesen. Behalte den Schalter: "
-                + "Er bleibt der schnellste Weg, diesen Besitz in einer Sekunde erneut zu "
-                + "bestätigen, falls sich am Tümpel wieder etwas ändert. Danach wieder "
-                + "ausschalten, der Mod stellt die Materialien sofort her.",
-            ["Water/BodyOnly"] =
-                "LETZTES MITTEL — zwingt den Wasserfilm auf nichts als seine eigene gestaltete Farbe "
-                + "(dunkelgrün) bei gedeckelter Deckkraft, mit jedem Ufer-, Schaum- und Randanteil auf "
-                + "null und jedem Glanz- und Metallwert auf null; nur die Wellen-Normalen bleiben. Das "
-                + "Foto (spiegeltiles.jpg) zeigt eine fast WEISSE Fläche dort, wo das Spiel ein "
-                + "dunkelgrünes Wasser gestaltet — die sichtbaren Pixel sind also der Ufersaum und nicht "
-                + "der Wasserkörper. Dieser Schalter entfernt jeden Saum, den der Shader anbietet, auf "
-                + "einmal und unabhängig von ShoreFoam. WIRKT NUR, SOLANGE [Water] OwnSurface AUS "
-                + "IST: Dieser Schalter regelt den Wasser-Shader des SPIELS nach, und OwnSurface "
-                + "ersetzt genau diesen Shader. Seine eigene Frage ist bereits beantwortet — das "
-                + "Log hat jeden Saum am lebenden Material auf null zurückgelesen und die Fläche "
-                + "blieb blass; genau deshalb wurde OwnSurface gebaut und ist standardmäßig an. "
-                + "Behalte diesen Schalter für den A/B-Vergleich, wie das Wasser des Spiels ohne "
-                + "jeden Saum aussieht.",
-            ["Water/DepthFade"] =
-                "In welche Richtung die Tiefenblende des Shaders zeigt (_InvertDepthFade, gestaltet 0). "
-                + "Die VR-Kopfkamera schreibt keine Tiefentextur, dieser Anteil ist also über die ganze "
-                + "Fläche KONSTANT — die Einstellung wählt somit nur, an welchem der beiden Extreme die "
-                + "GANZE Fläche liegt: überall Ufer oder überall offenes Wasser. Authored (Standard) "
-                + "lässt den Wert des Spiels unangetastet und ist die ehrliche Einstellung: niemand hier "
-                + "hat den Quelltext dieses Shaders gelesen, welches Extrem welches ist, lässt sich also "
-                + "nicht herleiten, nur sehen. NotInverted und Inverted erzwingen ihn. Inverted ist die "
-                + "einzige Einstellung im ganzen Abschnitt, die einen Wert ÜBER den vom Spiel gestalteten "
-                + "hebt — deshalb nie Standard. Nur ausprobieren, wenn die Fläche auch mit BodyOnly noch "
-                + "falsch aussieht.",
             // ---- [HexHighlight] ----
             ["HexHighlight/SwapStableShader"] =
                 "Ersetzt den OmniDecal_Shd der Feld-Hervorhebung durch den stereostabilen "

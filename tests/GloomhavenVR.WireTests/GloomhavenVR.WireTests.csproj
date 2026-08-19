@@ -211,6 +211,19 @@
     <Compile Include="Program.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, and here for the MapRoomSeat reason at its most literal: it decides WHICH
+       WALL owns a multi-part prop, and the defect it cures has been photographed twice
+       (.planning/debug/skelet.jpg — a skeleton statue whose skull dissolved with one wall while its
+       body stayed with another). The way this arithmetic fails is not an exception: it is an owner
+       that flips from one rescan to the next, i.e. a statue that pops in and out every two seconds
+       while neither wall changes state, which nothing in this repository can see and only a
+       headset can. WallPropUnit.cs was written free of Unity — counts, distances and strings —
+       precisely so the case from the hardware log could be driven here claim by claim. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallPropUnit.cs" Link="core\WallPropUnit.cs" />
+    <Compile Include="WallPropUnitVectors.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="true" />
   </ItemGroup>

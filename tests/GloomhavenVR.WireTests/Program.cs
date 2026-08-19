@@ -53,6 +53,12 @@ internal static class Program
             // cannot switch off) and the blend going additive (which re-creates the pale sheet out
             // of the mod's own shader). Both are linted against the .shader source.
             WaterOwnSurfaceVectors.Run(t, repoRoot);
+            // Which WALL owns a statue that two walls claim. The report it answers has been
+            // photographed twice (skelet.jpg: the skeleton's head dissolved with one wall while
+            // its body stayed with another), and the way the fix fails is an owner that flips
+            // every rescan — a prop that pops while neither wall changes state, visible only from
+            // inside a headset.
+            WallPropUnitVectors.Run(t);
         }
         catch (Exception e)
         {

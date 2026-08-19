@@ -3,39 +3,6 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// Which way should <c>_InvertDepthFade</c> point? A DIAL, never a silent choice.
-///
-/// <para>The water film authors <c>_InvertDepthFade = 0</c> and the VR head camera writes no
-/// <c>_CameraDepthTexture</c> at all (hardware census: <c>depthTextureMode=None</c>). So the
-/// shader's depth-fade input is a CONSTANT across the whole quad, and this property does not
-/// grade anything — it only selects WHICH of the two extremes the entire surface sits at. One of
-/// those extremes paints the quad as shoreline; the other paints it as open water. Nobody in this
-/// project has read this shader's source (it ships compiled inside <c>always_loaded_base*</c> and
-/// there is no game install on the build machine), so WHICH extreme is which cannot be derived —
-/// it can only be observed.
-///
-/// <para>That is exactly why collapsing the band widths to zero is the primary attack and this is
-/// the secondary one: a band of width zero draws nothing at EITHER extreme, so it does not depend
-/// on knowing the sign. This dial exists for the case where the whiteness turns out to come from a
-/// depth-fade term that is not one of the named band properties, and it is a dial rather than a
-/// default because <see cref="Inverted"/> is the one write in this whole module that RAISES a value
-/// above what the tileset authored.</para>
-/// </summary>
-internal enum WaterDepthFadeMode
-{
-    /// <summary>Write back exactly what the tileset authored. The default, and the only setting
-    /// under which this module makes no claim about the sign at all.</summary>
-    Authored = 0,
-
-    /// <summary>Force <c>_InvertDepthFade = 0</c>.</summary>
-    NotInverted = 1,
-
-    /// <summary>Force <c>_InvertDepthFade = 1</c>. This is a RAISE above the authored 0 and is
-    /// therefore only ever reachable by the user moving the dial.</summary>
-    Inverted = 2,
-}
-
-/// <summary>
 /// THE EDGE / FOAM / BORDER BAND — the arithmetic of collapsing it, kept in a file free of
 /// everything but <see cref="Mathf"/> and <see cref="Color"/> so it can be driven property by
 /// property in <c>tests/GloomhavenVR.WireTests</c>, without a headset and without a game.
@@ -69,11 +36,14 @@ internal enum WaterDepthFadeMode
 /// <para>THE INVARIANT, and the only thing that makes an unattended write onto a compiled shader
 /// defensible: <b>no collapse in this file may ever raise a value above what the tileset
 /// authored.</b> A width already at or below zero is left exactly alone rather than written to
-/// zero; a band colour already fully transparent is left alone. The single exception is
-/// <see cref="WaterDepthFadeMode.Inverted"/>, which raises <c>_InvertDepthFade</c> from 0 to 1 and
-/// is therefore unreachable except by the user moving a dial in the headset. <c>WaterEdgeVectors</c>
-/// pins all of that, because its violation would arrive as "jetzt ist es noch heller" and nothing
-/// in this repository could otherwise have noticed.</para>
+/// zero; a band colour already fully transparent is left alone. There is no exception — nothing
+/// here can make a surface brighter than the tileset drew it. <c>WaterEdgeVectors</c> pins that,
+/// because its violation would arrive as "jetzt ist es noch heller" and nothing in this repository
+/// could otherwise have noticed.</para>
+///
+/// <para>THIS ONLY RUNS WHILE THE FILM DRAWS ON THE GAME'S SHADER, i.e. while
+/// <c>[Water] OwnSurface</c> is off or the mod's bundle has not yielded its water shader. The
+/// shipped film carries a mod-owned material with no band of any kind on it.</para>
 /// </summary>
 internal static class WaterEdgeBand
 {
@@ -109,9 +79,6 @@ internal static class WaterEdgeBand
 
     /// <inheritdoc cref="EdgeToggleProperty"/>
     internal const string EdgeToggleKeyword = "_EDGECOLOUR_TOGGLE_ON";
-
-    /// <summary>The depth-fade sign. See <see cref="WaterDepthFadeMode"/> for why it is a dial.</summary>
-    internal const string InvertDepthFadeProperty = "_InvertDepthFade";
 
     /// <summary>
     /// Collapse one band WIDTH to nothing.
@@ -169,47 +136,5 @@ internal static class WaterEdgeBand
         reason = $"RGBA({authored.r:0.###},{authored.g:0.###},{authored.b:0.###},{authored.a:0.###})"
                  + $" -> body hue RGBA({body.r:0.###},{body.g:0.###},{body.b:0.###}) at alpha 0";
         return true;
-    }
-
-    /// <summary>
-    /// Which value should <c>_InvertDepthFade</c> carry? See <see cref="WaterDepthFadeMode"/>.
-    ///
-    /// <para><see cref="WaterDepthFadeMode.Authored"/> WRITES the authored value rather than
-    /// skipping the property, so that winding the dial back restores the surface exactly instead
-    /// of leaving whatever the last setting wrote standing on our instance.</para>
-    /// </summary>
-    internal static bool TryResolveDepthFade(
-        WaterDepthFadeMode mode, float authored, out float value, out string reason)
-    {
-        value = authored;
-        if (float.IsNaN(authored) || float.IsInfinity(authored))
-        {
-            reason = "authored value is not finite — refused rather than written";
-            return false;
-        }
-        switch (mode)
-        {
-            case WaterDepthFadeMode.NotInverted:
-                value = 0f;
-                reason = authored <= 0f
-                    ? $"forced to 0 ([Water] DepthFade=NotInverted; authored {authored:0.###}, so "
-                      + "this changes nothing)"
-                    : $"{authored:0.###} -> 0 ([Water] DepthFade=NotInverted)";
-                return true;
-            case WaterDepthFadeMode.Inverted:
-                value = 1f;
-                reason = $"authored {authored:0.###} -> 1 ([Water] DepthFade=Inverted). THIS IS THE "
-                         + "ONE WRITE IN THIS MODULE THAT RAISES A VALUE ABOVE WHAT THE TILESET "
-                         + "AUTHORED, which is why it is reachable only by the user moving the "
-                         + "dial and is never a default: with no _CameraDepthTexture the fade input "
-                         + "is constant across the whole quad, so this flips which extreme the "
-                         + "WHOLE surface sits at rather than grading anything";
-                return true;
-            default:
-                reason = $"left at the authored {authored:0.###} ([Water] DepthFade=Authored — this "
-                         + "module makes no claim about which extreme is which, because the shader "
-                         + "ships compiled and nobody here has read it)";
-                return true;
-        }
     }
 }
