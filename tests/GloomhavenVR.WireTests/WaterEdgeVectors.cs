@@ -19,7 +19,7 @@ namespace GloomhavenVR.WireTests;
 /// cannot render as a pale sheet at any alpha, so the visible pixels are the SHORELINE BAND. The
 /// band is what <see cref="WaterEdgeBand"/> collapses and what this file pins.</para>
 ///
-/// <para>IT ONLY RUNS WHILE THE FILM DRAWS ON THE GAME'S SHADER — <c>[Water] OwnSurface</c> off,
+/// <para>IT ONLY RUNS WHILE THE FILM DRAWS ON THE GAME'S SHADER — <c>WaterSettings.OwnSurface</c> off,
 /// or the mod's bundle failing to yield its water shader. The shipped film carries a mod-owned
 /// material with no band on it at all, and the basin under it is opaque ground that never had
 /// one.</para>

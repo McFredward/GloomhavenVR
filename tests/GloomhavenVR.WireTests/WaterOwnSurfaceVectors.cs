@@ -70,7 +70,7 @@
 //      against UnityEngine.Rendering.BlendMode itself, so a transposed digit cannot pass.
 //
 //   3. THE LOOK CEASING TO BE THE TILESET'S. The film's hue is the authored _Color_Tint verbatim
-//      and its alpha is min(authored, [Water] Opacity). A change that let either rise arrives as
+//      and its alpha is min(authored, WaterSettings.Opacity). A change that let either rise arrives as
 //      "jetzt ist es noch heller" and nothing else in this repository could notice — the same
 //      invariant WaterEdgeBand holds, for the same reason. Check 4 sweeps it.
 //
@@ -99,10 +99,10 @@ internal static class WaterOwnSurfaceVectors
     /// (LogOutput.log:1018). Every number this file compares against is measured.</summary>
     private static readonly Color AuthoredTint = new(0.195f, 0.311f, 0.131f, 0.737f);
 
-    /// <summary><c>[Water] Opacity</c>'s shipped default.</summary>
+    /// <summary><c>WaterSettings.Opacity</c>'s shipped default.</summary>
     private const float DefaultOpacity = 0.45f;
 
-    /// <summary><c>[Water] RippleSpeed</c>'s shipped default — the one number the whole surface's
+    /// <summary><c>WaterSettings.RippleSpeed</c>'s shipped default — the one number the whole surface's
     /// tempo hangs off. Re-based 0.12 -> 0.035 -> 0.0175 across three hardware rounds, and every
     /// check below that quotes a period in seconds quotes it AT THIS DIAL, so a fourth re-base
     /// changes one constant here rather than a scatter of literals.</summary>
@@ -560,7 +560,7 @@ internal static class WaterOwnSurfaceVectors
         swept.Sort();
         float median = swept[swept.Count / 2];
         t.True(median >= 0.05f,
-            $"the median [Water] WaveScale setting scores {median:0.###} cycles of lattice "
+            $"the median WaterSettings.WaveScale setting scores {median:0.###} cycles of lattice "
             + "mismatch, under the 0.05 floor. Half the dial handing the user a field that nearly "
             + "repeats tile for tile is a component table whose ratios are not incommensurate "
             + "enough, whatever the shipped default happens to score.");
@@ -571,7 +571,7 @@ internal static class WaterOwnSurfaceVectors
         {
             float m = WaterOwnSurface.LatticeMismatch(WaterOwnSurface.SwellWavelength * scale);
             t.True(shipped >= m || m >= 0.10f,
-                $"[Water] WaveScale {scale:0.##} scores {m:0.###} against the shipped 1.0's "
+                $"WaterSettings.WaveScale {scale:0.##} scores {m:0.###} against the shipped 1.0's "
                 + $"{shipped:0.###}. The shipped default must be at least as good as any round "
                 + "setting that beats the 0.10 floor — it is the one the user will actually see.");
         }
@@ -709,14 +709,14 @@ internal static class WaterOwnSurfaceVectors
             + "look like the game's.");
 
         t.True(ok && Math.Abs(v.a - DefaultOpacity) < 1e-6f,
-            $"at the shipped [Water] Opacity {DefaultOpacity:0.###} the film's alpha must be the "
+            $"at the shipped WaterSettings.Opacity {DefaultOpacity:0.###} the film's alpha must be the "
             + $"cap (the tileset authors {AuthoredTint.a:0.###}), got {v.a:0.###}");
 
         // A cap ABOVE the authored alpha must not raise it — the dial can only ever hide less of
         // the floor than the tileset intended, never more.
         bool ok2 = WaterOwnSurface.TryBuildFilmColour(AuthoredTint, 1f, out Color v2, out _);
         t.True(ok2 && Math.Abs(v2.a - AuthoredTint.a) < 1e-6f,
-            $"[Water] Opacity at 1.0 must leave the film at the AUTHORED alpha "
+            $"WaterSettings.Opacity at 1.0 must leave the film at the AUTHORED alpha "
             + $"{AuthoredTint.a:0.###}, got {v2.a:0.###} — the cap is a ceiling, never a target");
 
         // The reason string is the only place a reader of the hardware log can check the
@@ -1110,7 +1110,7 @@ internal static class WaterOwnSurfaceVectors
     {
         float shipped = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSpeedDial);
         t.True(shipped > 50f && shipped < 80f,
-            $"the shipped [Water] RippleSpeed must give the longest swell component a bob period "
+            $"the shipped WaterSettings.RippleSpeed must give the longest swell component a bob period "
             + $"around 63 s (got {shipped:0.#}). ModBuild 165 shipped 9 s and ModBuild 166 shipped "
             + "31 s, and the verdict on 31 was 'nur finde ich es immer noch schnell. Mach die "
             + "animation halb so schnell'.");
@@ -1138,7 +1138,7 @@ internal static class WaterOwnSurfaceVectors
                && Mathf.Abs(fade.y - shipped * WaterOwnSurface.RippleFadeRatios[1]) < 1e-3f
                && Mathf.Abs(fade.z - shipped * WaterOwnSurface.RippleFadeRatios[2]) < 1e-3f,
             "the ripple's three crossfade periods must be fixed multiples of the swell's own "
-            + "period, so [Water] RippleSpeed moves the whole surface's clock at once");
+            + "period, so WaterSettings.RippleSpeed moves the whole surface's clock at once");
         t.True(fade.x > shipped && fade.y > fade.x && fade.z > fade.y,
             $"the crossfade periods {fade.x:0.#}/{fade.y:0.#}/{fade.z:0.#} s must be strictly "
             + "increasing and all LONGER than the swell's own period. The ripple is the fine "
@@ -1175,16 +1175,16 @@ internal static class WaterOwnSurfaceVectors
         // this assertion would have said so.
         float frozen = WaterOwnSurface.ResolvedSwellPeriod(1f, 0f);
         t.True(frozen >= shipped * 50f,
-            $"[Water] RippleSpeed 0 must give a period far longer than the shipped one (got "
+            $"WaterSettings.RippleSpeed 0 must give a period far longer than the shipped one (got "
             + $"{frozen:0.#} s against {shipped:0.#} s), so the surface holds still WITH ITS "
             + "RELIEF rather than flattening. A re-base of the default that walks it toward "
             + "WaterOwnSurface.MinSpeedDial silently turns 'freeze' into 'a bit slower'.");
 
-        // AND A BIGGER WAVE IS A SLOWER ONE — deep-water dispersion, so [Water] WaveScale cannot
+        // AND A BIGGER WAVE IS A SLOWER ONE — deep-water dispersion, so WaterSettings.WaveScale cannot
         // turn a lazy roll into a fast one.
         t.True(WaterOwnSurface.ResolvedSwellPeriod(4f, ShippedSpeedDial)
                > WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSpeedDial),
-            "the swell's period must grow with [Water] WaveScale (as its square root), or a longer "
+            "the swell's period must grow with WaterSettings.WaveScale (as its square root), or a longer "
             + "wave would run at the same rate and read as a faster current");
 
         float nan = WaterOwnSurface.ResolvedSwellPeriod(float.NaN, float.NaN);
@@ -1228,10 +1228,10 @@ internal static class WaterOwnSurfaceVectors
             "the tame must keep every component's sign — it changes the aspect ratio, not the "
             + "direction the layer runs");
 
-        // [Water] WaveScale is a pure size dial: twice the scale is half the repeats per metre.
+        // WaterSettings.WaveScale is a pure size dial: twice the scale is half the repeats per metre.
         Vector4 big = WaterOwnSurface.TameTilings(raw, 2f);
         t.True(Near(big.x, tame.x * 0.5f) && Near(big.w, tame.w * 0.5f, 1e-4f),
-            "[Water] WaveScale must divide every resolved tiling, i.e. bigger waves are fewer "
+            "WaterSettings.WaveScale must divide every resolved tiling, i.e. bigger waves are fewer "
             + "repeats per world unit");
         Vector4 zeroScale = WaterOwnSurface.TameTilings(raw, 0f);
         t.True(Near(zeroScale.x, tame.x) && Near(zeroScale.y, tame.y),
@@ -1280,7 +1280,7 @@ internal static class WaterOwnSurfaceVectors
         // The shipped case: a hex about a metre across at the shipped 2%.
         float a = WaterOwnSurface.SwellAmplitude(1f, 0.02f);
         t.True(Near(a, 0.02f),
-            $"a 1 m film quad at [Water] SwellHeight 0.02 must give a 2 cm peak, got {a:0.####}");
+            $"a 1 m film quad at WaterSettings.SwellHeight 0.02 must give a 2 cm peak, got {a:0.####}");
 
         // ...and the same dial at another diorama scale gives a wave that LOOKS the same, which is
         // the whole reason it is a fraction of the quad rather than a world constant.
@@ -1316,7 +1316,7 @@ internal static class WaterOwnSurfaceVectors
         // The dial's own OFF position has to be exact — it is the A/B for whether the relief is
         // worth its vertices.
         t.True(Near(WaterOwnSurface.SwellAmplitude(1f, 0f), 0f),
-            "[Water] SwellHeight at 0 must flatten the film exactly");
+            "WaterSettings.SwellHeight at 0 must flatten the film exactly");
     }
 
     // ---------------------------------------------------------------------------------------

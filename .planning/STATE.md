@@ -126,7 +126,36 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 168** (**BUNDLE CHANGED — 67,172,123 bytes, must be REINSTALLED**) — half again, and
+- **ModBuild 169** (**BUNDLE CHANGED — 66,607,352 bytes, must be REINSTALLED**) — the glove is
+  someone's work now, and the water menu is gone.
+  * **The default hand style stops being AI output.** One artist-authored LEFT-hand FBX arrived
+    already on the 19-name rig contract, with hand-painted weights and a matching 2048² atlas, so
+    the job was to ADOPT it (`unity/hand-prep/import_glove_fbx.py`), not to rig it — re-running
+    `rig_hand.py` would have replaced all three with generated equivalents. Two additions only:
+    `Anchor_IndexTip` promoted from Blender's `Anchor_Index_Tip_end` leaf and axis-aligned to the
+    wrist frame (the poke probe is a place, not a knuckle), and the right hand mirrored as the
+    conjugation `M' = S·M·S`, which keeps each bone's local +X so the SAME positive local-X curl
+    the runtime applies produces the mirror-image tuck.
+  * **ROOT CAUSE, caught by a gate written in the same hour:** the first mirror reversed each face
+    by rewriting its loops' vertex indices in place, which reverses the winding and leaves the UVs
+    on the wrong corners. The shell gate said so as a number — left `+297.98 cm³` against right
+    `+152.94 cm³` — and `bmesh.ops.reverse_faces` (which carries every loop layer) made them equal.
+    Four meshes have shipped wound against the side they are seen from; this is the first that
+    could not have. Six gates run before anything is written: CONTRACT, SHELL, CURL AXIS, FLEXION
+    (on the *evaluated* mesh, so it tests the skinning), MIRROR (needed because every other gate is
+    mirror-invariant and would pass a hand never mirrored at all) and ROUND TRIP.
+  * **`_Cull Off` is a repair, not a look** — it makes a hole show the surface behind it, and costs
+    a second shaded fragment over the whole hand in both eyes every frame. Now per set, from the
+    measurement: glove 0 boundary / 0 non-manifold → single-sided; Plate 540/1072 and Arcane
+    869/1680 are open shells and keep it.
+  * **The whole `[Water]` section is deleted** — thirteen entries, the cfg file, the display names
+    and the German help text — and replaced by twelve `const`s in `WaterTerrainVR.WaterSettings` at
+    168's values *verbatim*, so it is a removal of the dials and not a retune. Every one of them
+    existed to answer a question during the six water rounds; all are answered. An A/B switch whose
+    OFF side restores a reported defect is not a setting. `AnnounceRetiredFile` is the one line
+    that stops a tester's now-unread `dev.gloomhavenvr.water.cfg` from looking authoritative.
+
+- **ModBuild 168** (bundle 67,172,123 bytes) — half again, and
   the skull was a different skeleton all along.
   * **`[Water] RippleSpeed` 0.0175 → 0.00875** — a quarter of the value called "viel zu hektisch".
     The "0 freezes the surface" test survived a second halving only because 167 re-based it onto a

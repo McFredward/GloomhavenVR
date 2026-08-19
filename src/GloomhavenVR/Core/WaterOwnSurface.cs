@@ -132,7 +132,7 @@ namespace GloomhavenVR.Core;
 /// <para>THE INVARIANT, and the same one <see cref="WaterEdgeBand"/> holds for the same reason:
 /// <b>the replacement look may never be brighter or more opaque than what the tileset
 /// authored.</b> The hue is the authored <c>_Color_Tint</c> RGB verbatim — this module cannot
-/// invent a colour the tileset never had — and the alpha is <c>min(authored, [Water] Opacity)</c>.
+/// invent a colour the tileset never had — and the alpha is <c>min(authored, WaterSettings.Opacity)</c>.
 /// <c>WaterVR</c>'s own body term is a lerp SYMMETRIC about 1.0, so the wave shading has a mean of
 /// exactly the authored tint rather than a pedestal above it; only the glint adds, and only over
 /// the few percent of pixels that carry one. A violation arrives as "jetzt ist es noch heller" and
@@ -336,7 +336,7 @@ internal static class WaterOwnSurface
     internal const float AnisoTame = 0.70f;
 
     /// <summary>
-    /// The LONGEST swell component's wavelength in world units at <c>[Water] WaveScale</c> 1. The
+    /// The LONGEST swell component's wavelength in world units at <c>WaterSettings.WaveScale</c> 1. The
     /// other three are irrational fractions of it (see <see cref="SwellRatios"/>).
     ///
     /// <para>RE-BASED FROM 1.1 m, AND THE OLD VALUE IS HALF OF WHY EVERY TILE LOOKED THE SAME. The
@@ -352,13 +352,13 @@ internal static class WaterOwnSurface
 
     /// <summary>
     /// How long the LONGEST swell component takes to rise and fall once, in seconds, at
-    /// <c>[Water] RippleSpeed</c> 1. The shorter components scale as the square root of their
+    /// <c>WaterSettings.RippleSpeed</c> 1. The shorter components scale as the square root of their
     /// wavelength ratio — deep-water dispersion reduced to its shape.
     ///
     /// <para>1.1 s IS THE PHYSICAL ANSWER FOR THIS WAVE, which is why the dial and not the constant
     /// carries the "nur minimal Bewegungen" ruling. A 2.4 m deep-water wave has a period of
     /// sqrt(2 pi L / g) = 1.24 s; at the dial's own 1.0 this shader is therefore real water, and the
-    /// shipped <c>[Water] RippleSpeed</c> of 0.00875 stretches it to 126 s, which is a puddle. That
+    /// shipped <c>WaterSettings.RippleSpeed</c> of 0.00875 stretches it to 126 s, which is a puddle. That
     /// split means the dial is a statement anyone can check ("a sixtieth of real water's rate")
     /// rather than a number chosen against a photograph, and turning it up gives something
     /// recognisable rather than something arbitrary. THE DIAL HAS BEEN RE-BASED TWICE, 0.12 ->
@@ -388,7 +388,7 @@ internal static class WaterOwnSurface
     /// each one is individually gentler. The two added ones were picked by an exhaustive sweep against
     /// <see cref="LatticeMismatch"/> — every candidate ratio of that irrational family against every
     /// whole-degree direction at least 13 degrees from all the others, keeping only pairs that leave
-    /// the mismatch at or above 0.145 cycles at <c>[Water] WaveScale</c> 1, a median of at least
+    /// the mismatch at or above 0.145 cycles at <c>WaterSettings.WaveScale</c> 1, a median of at least
     /// 0.055 over the whole dial, and no round dial setting scoring better than the shipped one. The
     /// winner leaves the mismatch at exactly the 0.156 the four-component table scored, i.e. neither
     /// new component is ever the worst one.</para>
@@ -419,7 +419,7 @@ internal static class WaterOwnSurface
 
     /// <summary>
     /// The three ripple CROSSFADE periods, as multiples of the swell's own resolved period — so
-    /// <c>[Water] RippleSpeed</c> 0 freezes the ripple as well as the geometry, and there is one
+    /// <c>WaterSettings.RippleSpeed</c> 0 freezes the ripple as well as the geometry, and there is one
     /// clock over the whole surface rather than a rhythm running under a motionless swell.
     ///
     /// <para>THIS IS WHAT REPLACED THE SCROLL, AND IT IS A USER RULING RATHER THAN A TUNING CHOICE.
@@ -570,7 +570,7 @@ internal static class WaterOwnSurface
     /// <param name="authored">The film material's authored <c>_Color_Tint</c> — read off the SHARED
     /// material, never off our instance, so a re-apply is exactly idempotent. Measured on hardware
     /// as RGBA(0.195, 0.311, 0.131, 0.737).</param>
-    /// <param name="opacityCap"><c>[Water] Opacity</c>, the ceiling on how much floor the film may
+    /// <param name="opacityCap"><c>WaterSettings.Opacity</c>, the ceiling on how much floor the film may
     /// hide. Default 0.45.</param>
     /// <param name="value">The colour to write into <see cref="TintProperty"/>. Only meaningful
     /// when this returns true.</param>
@@ -593,7 +593,7 @@ internal static class WaterOwnSurface
         }
         if (!Finite(opacityCap))
         {
-            reason = "[Water] Opacity is not finite — refused for the same reason";
+            reason = "WaterSettings.Opacity is not finite — refused for the same reason";
             return false;
         }
 
@@ -605,7 +605,7 @@ internal static class WaterOwnSurface
         reason = $"authored _Color_Tint RGBA({authored.r:0.###},{authored.g:0.###},"
                  + $"{authored.b:0.###},{authored.a:0.###}) -> film RGBA({value.r:0.###},"
                  + $"{value.g:0.###},{value.b:0.###},{value.a:0.###}) (hue verbatim, alpha "
-                 + $"min(authored, [Water] Opacity {opacityCap:0.###}))";
+                 + $"min(authored, WaterSettings.Opacity {opacityCap:0.###}))";
         return true;
     }
 
@@ -622,7 +622,7 @@ internal static class WaterOwnSurface
     /// with the properties it fed. Nothing in the surface has a rate any more; everything has a
     /// PERIOD, and a period cannot move a pattern.</para>
     ///
-    /// <para>WHY THE DIAL DIVIDES. <c>[Water] RippleSpeed</c> is the one number a human moves, and
+    /// <para>WHY THE DIAL DIVIDES. <c>WaterSettings.RippleSpeed</c> is the one number a human moves, and
     /// "faster water" has to mean "shorter cycles" now that it cannot mean "quicker current". At
     /// the dial's own 1.0 the 2.4 m swell bobs in 1.1 s, which is what a real deep-water wave that
     /// long does (sqrt(2 pi L / g) = 1.24 s); the shipped 0.00875 stretches that to 126 s, i.e. about
@@ -639,7 +639,7 @@ internal static class WaterOwnSurface
     ///
     /// <para>AND THE PERIOD SCALES AS sqrt(WAVELENGTH), not linearly — deep-water dispersion, the
     /// same rule the six components are spaced by. A longer swell is a slower one, which is what
-    /// stops <c>[Water] WaveScale</c> from turning a lazy roll into a fast one.</para>
+    /// stops <c>WaterSettings.WaveScale</c> from turning a lazy roll into a fast one.</para>
     ///
     /// <para>A NOTE ON THE FREQUENCY-SCRUB CLASS, because this function looks like it. The value
     /// returned here becomes a divisor of the shared clock inside the shader, and this project has
@@ -651,8 +651,8 @@ internal static class WaterOwnSurface
     /// like and is the accepted cost of a tuning dial; nothing varies it per frame, so there is no
     /// drift to accumulate.</para>
     /// </summary>
-    /// <param name="waveScale"><c>[Water] WaveScale</c>.</param>
-    /// <param name="dial"><c>[Water] RippleSpeed</c>. Clamped to <see cref="MinSpeedDial"/> rather
+    /// <param name="waveScale"><c>WaterSettings.WaveScale</c>.</param>
+    /// <param name="dial"><c>WaterSettings.RippleSpeed</c>. Clamped to <see cref="MinSpeedDial"/> rather
     /// than special-cased, so 0 holds the surface still with its relief intact instead of
     /// flattening it.</param>
     internal static float ResolvedSwellPeriod(float waveScale, float dial)
@@ -662,7 +662,7 @@ internal static class WaterOwnSurface
         return SwellPeriod * Mathf.Sqrt(Mathf.Max(s, 0.01f)) / Mathf.Max(d, MinSpeedDial);
     }
 
-    /// <summary>The smallest rate this dial resolves at, so that <c>[Water] RippleSpeed</c> 0 means
+    /// <summary>The smallest rate this dial resolves at, so that <c>WaterSettings.RippleSpeed</c> 0 means
     /// STILL and not merely "slower". It has to be far below the shipped default rather than a
     /// round number near it: the floor used to be 0.01 against a shipped 0.12, which made 0 a
     /// twelvefold slowdown, and two re-bases of the default have since walked the shipped value
@@ -794,7 +794,7 @@ internal static class WaterOwnSurface
     /// preserved EXACTLY (the product of the two components is unchanged), only the aspect ratio
     /// moves, and the flow direction is kept. The measured layer A (0.14, 6.00) is 43:1, i.e. a
     /// band 7.1 m long and 17 cm wide, and 43:1 tamed lands at 3.1:1 — (0.52, 1.61), or 1.92 m by
-    /// 0.62 m per repeat. Then <c>[Water] WaveScale</c> divides both components, because a bigger
+    /// 0.62 m per repeat. Then <c>WaterSettings.WaveScale</c> divides both components, because a bigger
     /// wave is FEWER repeats per metre.</para>
     ///
     /// <para>A layer with a zero or non-finite component has no geometric mean to pull toward — a
@@ -804,7 +804,7 @@ internal static class WaterOwnSurface
     /// </summary>
     /// <param name="authored">The material's <c>_NormalTilings</c>: layer A in xy, layer B in
     /// zw.</param>
-    /// <param name="waveScale"><c>[Water] WaveScale</c> — how big the waves are, as a multiple of
+    /// <param name="waveScale"><c>WaterSettings.WaveScale</c> — how big the waves are, as a multiple of
     /// the shipped size. Non-finite or non-positive is treated as 1.</param>
     internal static Vector4 TameTilings(Vector4 authored, float waveScale)
     {
@@ -879,7 +879,7 @@ internal static class WaterOwnSurface
     /// </summary>
     /// <param name="quadWidthWU">The film quad's largest horizontal extent in world units, off its
     /// renderer bounds.</param>
-    /// <param name="dial"><c>[Water] SwellHeight</c>, as a fraction of that width.</param>
+    /// <param name="dial"><c>WaterSettings.SwellHeight</c>, as a fraction of that width.</param>
     internal static float SwellAmplitude(float quadWidthWU, float dial)
     {
         if (!Finite(quadWidthWU) || !Finite(dial) || quadWidthWU <= 0f || dial <= 0f)

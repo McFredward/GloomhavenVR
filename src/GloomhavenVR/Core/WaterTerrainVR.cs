@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using BepInEx.Configuration;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -31,7 +30,7 @@ namespace GloomhavenVR.Core;
 /// sweeps with every head movement. The user's own first word for the defect was <i>"Tiles"</i>,
 /// not "Wasser".</para>
 ///
-/// <para>THE FILM: ITS WHOLE MATERIAL IS REPLACED — <c>[Water] OwnSurface</c>, default ON
+/// <para>THE FILM: ITS WHOLE MATERIAL IS REPLACED — <c>WaterSettings.OwnSurface</c>, default ON
 /// (<see cref="WaterOwnSurface"/>). Four rounds of property tuning were read back OFF THE LIVE
 /// MATERIAL INSTANCE and every one of them landed — every band width at 0, every band colour at
 /// alpha 0, the keyword list empty, <c>_Smoothness 0.754 -> 0.08</c>, every metal/reflection
@@ -58,8 +57,8 @@ namespace GloomhavenVR.Core;
 /// shaders' source and fails the build gate on a hit.</para>
 ///
 /// <para>THE BASIN IS NOT REPLACED — it is opaque ground, not a film — so it keeps the PROPERTY
-/// RETUNE, and that retune is what <c>[Water] Smoothness</c>, <c>[Water] Reflectivity</c> and
-/// <c>[Water] BasinSurfaces</c> still drive. It is not a hard-coded name list: the driver walks
+/// RETUNE, and that retune is what <c>WaterSettings.Smoothness</c>, <c>WaterSettings.Reflectivity</c> and
+/// <c>WaterSettings.BasinSurfaces</c> still drive. It is not a hard-coded name list: the driver walks
 /// the shader's WHOLE property table at runtime and caps every property whose name belongs to a
 /// reflection family — gloss, metal, explicit reflection strength — flooring every ROUGHNESS
 /// property instead, which is the same axis backwards. It has to work that way because the game's
@@ -71,7 +70,7 @@ namespace GloomhavenVR.Core;
 ///
 /// <para>AND A MECHANISM THAT DOES NOT CARE WHICH SURFACE IS AT FAULT. Whatever samples
 /// <c>unity_SpecCube0</c> in this room gets the skybox, because there is not one reflection probe
-/// in the scene. <c>[Water] LocalProbe</c> (default ON) puts a local
+/// in the scene. <c>WaterSettings.LocalProbe</c> (default ON) puts a local
 /// <see cref="ReflectionProbe"/> over each water feature in
 /// <see cref="ReflectionProbeMode.Custom"/> mode, carrying a FLAT cubemap built from the scene's
 /// own ambient probe. A flat cube returns the same colour in every direction, so the reflected
@@ -80,7 +79,7 @@ namespace GloomhavenVR.Core;
 /// exactly the parallax being removed.</para>
 ///
 /// <para>THE EDGE / FOAM / BORDER BAND still exists in the code and is reached only while the film
-/// draws on the GAME's shader — <c>[Water] OwnSurface</c> off, or a bundle that yielded neither
+/// draws on the GAME's shader — <c>WaterSettings.OwnSurface</c> off, or a bundle that yielded neither
 /// mod shader. With no <c>_CameraDepthTexture</c> the shader's depth term is constant across the
 /// whole quad, so the near-white <c>_Edge_Colour</c> covers the hex instead of a shoreline; the
 /// band is collapsed BY NUMBER (every width to 0, every colour to the body hue at alpha 0), which
@@ -275,7 +274,7 @@ internal static class WaterTerrainVR
     {
         if (_driver != null || !VRSession.IsRunning)
             return;
-        WaterConfig.Bind();
+        WaterSettings.AnnounceRetiredFile();
         var go = new GameObject(DriverName);
         Object.DontDestroyOnLoad(go);
         _driver = go.AddComponent<Driver>();
@@ -288,9 +287,9 @@ internal static class WaterTerrainVR
             + "'TERRAIN_Water_Plane' on shader family 'Water_Sh*' AND the basin bed/rim inside "
             + "its own footprint) all KEEP RENDERING (user ruling 2026-08-18: hiding is not an "
             + "option) and are retuned for a free camera. THE FILM does not run the game's "
-            + "shader at all: [Water] OwnSurface (default ON) gives it a material of the mod's "
+            + "shader at all: WaterSettings.OwnSurface (default ON) gives it a material of the mod's "
             + "own on '" + WaterOwnSurface.FilmShaderName + "', in the tileset's own green at "
-            + "the [Water] Opacity alpha, at the authored render queue, carrying the tileset's "
+            + "the WaterSettings.Opacity alpha, at the authored render queue, carrying the tileset's "
             + "own normal map and a tessellated swell — with no shoreline, no foam, no depth "
             + "read, nothing that translates, and NO VIEW DIRECTION ANYWHERE IN IT (no cube "
             + "sample, no reflect(), no Fresnel, no half-vector specular, because a half-vector "
@@ -358,312 +357,140 @@ internal static class WaterTerrainVR
         return NameHasAny(r.name, TerrainWaterNameTokens) && IsWaterShader(r, matScratch);
     }
 
-    /// <summary>Module-owned config (the ModuleConfig pattern — the VR menu enumerates it
-    /// automatically, so every dial here is reachable in-headset without touching a file, and the
-    /// look can be ruled on live rather than rebuilt for).</summary>
-    internal static class WaterConfig
+    /// <summary>
+    /// The water look, as CONSTANTS. There is no <c>[Water]</c> config section any more and no
+    /// <c>dev.gloomhavenvr.water.cfg</c> — this class is what stands where thirteen dials stood.
+    ///
+    /// <para>WHY THE DIALS WENT (user, hardware, 2026-08-20): "Das Menu im Erweiterten VR Menu das
+    /// sich mit dem Wasser-Einstellungen und dem alten Mesh beschäftigt ist immer noch zu sehen —
+    /// entferne das komplett (In der UI und im Code)." Every one of them existed to answer a
+    /// question during the six rounds it took to get from the game's head-swimming mirror to a
+    /// still crypt puddle: <c>DebugPaint</c> asked which renderers this driver owns,
+    /// <c>LocalProbe</c> and <c>BasinSurfaces</c> asked whether the environment or the basin was
+    /// the reflection, <c>OwnSurface</c> asked whether replacing the shader was worth it, and
+    /// <c>RippleSpeed</c> / <c>SwellHeight</c> / <c>Shimmer</c> / <c>WaveScale</c> carried the
+    /// tuning of the answer. All of them are answered and the answers are ruled on. What is left
+    /// is not a preference a player has: an A/B switch whose OFF side restores a defect the user
+    /// reported is not a setting, and the standing rule for this menu is that anything whose
+    /// OFF-state breaks the experience is removed rather than defaulted.</para>
+    ///
+    /// <para>The values are ModBuild 168's verbatim — the build whose water the user accepted —
+    /// so this is a removal of the dials and not a retune. Each one's reasoning lives at its
+    /// field. Changing the look now means changing a number here and shipping a build, which is
+    /// the point: the look is the mod's, not the session's.</para>
+    /// </summary>
+    internal static class WaterSettings
     {
-        private static ConfigFile? _file;
+        /// <summary>Retune the game's water FEATURE (the film TERRAIN_Water_Plane and the basin
+        /// bed/rim under it) for a free VR camera. The water ALWAYS renders — user ruling
+        /// 2026-08-18, "Einfach ausblenden ist keine Option" — this only ever changed how.</summary>
+        internal const bool VRFriendlyWater = true;
 
-        /// <summary>ON (default): retune the game's water terrain for a free VR camera.
-        /// OFF: the game's water renders exactly as authored, sky mirror and all.</summary>
-        internal static ConfigEntry<bool>? VRFriendlyWater;
+        /// <summary>Ceiling for every SHARPNESS property on a water-feature shader. The film
+        /// authors _Smoothness 0.754, which mirrors the skybox sharply — and a skybox is
+        /// infinitely far away, so its reflection sweeps with your head. That was the original
+        /// report ("kaputter Spiegel", spiegeltiles.jpg).</summary>
+        internal const float Smoothness = 0.08f;
 
-        /// <summary>The sharpness dial. The water film authors <c>_Smoothness</c> 0.754.</summary>
-        internal static ConfigEntry<float>? Smoothness;
+        /// <summary>Upper bound on the water tint's alpha (the game authors 0.737). Without a
+        /// camera depth texture the shader's depth fade pins at its deepest and tints the whole
+        /// quad, hiding the floor under the pool.</summary>
+        internal const float Opacity = 0.45f;
 
-        /// <summary>Upper bound on <c>_Color_Tint</c>'s alpha. Authored 0.737.</summary>
-        internal static ConfigEntry<float>? Opacity;
+        /// <summary>Ceiling for every METALLIC and explicit reflection-strength property. The
+        /// basin runs Amp_Basic_N_MRAO, and a metallic surface in a scene with no reflection
+        /// probe IS a mirror of the skybox. 0 = wet stone rather than chrome.</summary>
+        internal const float Reflectivity = 0f;
 
-        /// <summary>Upper bound on every METALLIC / explicit reflection-strength scalar found on
-        /// a water-feature shader. Default 0 — a crypt pool's bed is wet stone, not chrome.</summary>
-        internal static ConfigEntry<float>? Reflectivity;
+        /// <summary>Take the water feature's SOLID geometry into scope as well as the film — the
+        /// sunken bed and the rim inside the water's own footprint. Through ModBuild 159 only the
+        /// transparent film was touched, and the user's own word for the defect was "Tiles".</summary>
+        internal const bool BasinSurfaces = true;
 
-        /// <summary>Take the basin bed and rim into scope, not only the water film.</summary>
-        internal static ConfigEntry<bool>? BasinSurfaces;
+        /// <summary>Put a local reflection probe with a FLAT cubemap over each water feature. The
+        /// scene ships no reflection probe at all (liveProbes=0), so everything glossy reflects
+        /// the skybox; a flat cubemap returns the same colour in every direction, so the
+        /// reflected colour cannot change with your head whatever produces it.</summary>
+        internal const bool LocalProbe = true;
 
-        /// <summary>Spawn a local flat reflection probe over each water feature.</summary>
-        internal static ConfigEntry<bool>? LocalProbe;
+        /// <summary>Multiplier on that probe's brightness. 1 = as bright as the room already
+        /// is (the scene's own ambient probe times its reflection intensity).</summary>
+        internal const float ProbeBrightness = 1f;
 
-        /// <summary>Multiplier on the local probe's brightness.</summary>
-        internal static ConfigEntry<float>? ProbeBrightness;
+        /// <summary>Draw the film with the mod's own shader instead of retuning the game's. Four
+        /// rounds of property tuning were read back off the live material and every one landed —
+        /// every foam and border width 0, every band colour alpha 0, the keyword list empty,
+        /// every gloss and metal value 0 — and the pool was still a milky sheet with a reflection
+        /// that swung with the head. That can only come from a texture or a constant compiled
+        /// INSIDE the game's shader, and replacing the shader is what removes it.</summary>
+        internal const bool OwnSurface = true;
 
-        /// <summary>ROUND FIVE. Replace the water FILM's material outright with a mod-owned
-        /// material on <see cref="WaterOwnSurface.FilmShaderName"/>, instead of retuning the
-        /// game's. Default ON — see the class header for why there is nothing left to
-        /// retune.</summary>
-        internal static ConfigEntry<bool>? OwnSurface;
+        /// <summary>How fast the water CHANGES, as a multiple of the shipped rate. NOTHING ON THIS
+        /// SURFACE MOVES FROM PLACE TO PLACE — this is one clock over every cycle there is, so 0
+        /// would freeze the whole surface at once with its relief intact. A QUARTER of ModBuild
+        /// 166's 0.035, by ruling twice over: "nur finde ich es immer noch schnell. Mach die
+        /// animation halb so schnell" and then "Gerne noch langsamer (halbier die Geschwindigkeit
+        /// der Animation nochmal)". Halving a RATE doubles every PERIOD, and every cycle here is a
+        /// fixed multiple of the swell's own, so the character of the motion is untouched: the
+        /// swell rises and falls once every 126 s, the ripple crossfades on 203 / 329 / 533 s, the
+        /// bloom breathes on 390 / 590 / 918 s. Real water of this wavelength bobs about once a
+        /// second — this is a hundred-and-twentieth of that.</summary>
+        internal const float RippleSpeed = 0.00875f;
 
-        /// <summary>Multiplier on how fast the mod's own water film CHANGES — nothing on it
-        /// travels. It divides the swell's bob period and, through that, the ripple's crossfade
-        /// cycles and the bloom's, so one dial moves the whole surface's clock and 0 freezes all of
-        /// it (see <see cref="WaterOwnSurface.ResolvedSwellPeriod"/>).</summary>
-        internal static ConfigEntry<float>? RippleSpeed;
+        /// <summary>How strong the moving glints are. Made by the moving surface turning toward a
+        /// FIXED light, so they are born on a crest and do NOT move when you move your head —
+        /// which is the whole difference between this and the reflection that was reported. A
+        /// broad dim sheen measured against the flat sheet's own brightness (still water glints
+        /// exactly zero), and it never touches the film's opacity: adding the highlight into ALPHA
+        /// is what made a crest go bright and opaque at once, i.e. a white streak by
+        /// construction.</summary>
+        internal const float Shimmer = 0.03f;
 
-        /// <summary>How strong the moving glints on the mod's own water film are. Zero leaves the
-        /// wave shading and removes only the highlights.</summary>
-        internal static ConfigEntry<float>? Shimmer;
+        /// <summary>How BIG the waves are — one multiplier over the swell's wavelength AND both
+        /// ripple layers, so the surface never comes apart into a big wave carrying wrong-sized
+        /// detail. 1.0 makes the longest swell component 2.4 m, longer than either side of a water
+        /// hex (1.73 x 2.0 m); a component shorter than a tile is what let ModBuild 164's surface
+        /// read as the same figure on every tile.</summary>
+        internal const float WaveScale = 1f;
 
-        /// <summary>How BIG the waves are — one multiplier over both the swell's wavelength and
-        /// the two ripple layers' resolved tilings, so the whole surface scales together.</summary>
-        internal static ConfigEntry<float>? WaveScale;
+        /// <summary>How HIGH the swell lifts the water, as a fraction of one water quad's own
+        /// width — so a 2.6 m film gets a 1.3 cm peak and a diorama at another scale gets a wave
+        /// that looks the same rather than one that is invisible or enormous. THIS IS REAL
+        /// GEOMETRY: the film is subdivided by the shader's own tessellator and the vertices
+        /// actually move, because "weiße Streifen auf einer flachen Oberfläche" was the verdict on
+        /// trying to fake relief with shading. The six components together come to 2.9 degrees of
+        /// crest slope, and the ceiling is the 9 cm the census measured between the water and the
+        /// basin bed: a trough may never dip through its own pool floor.</summary>
+        internal const float SwellHeight = 0.005f;
 
-        /// <summary>How high the swell actually lifts the water's geometry, as a fraction of a
-        /// water quad's own width. 0 gives the film its authored mesh back and makes it flat
-        /// again.</summary>
-        internal static ConfigEntry<float>? SwellHeight;
-
-        internal static void Bind()
-        {
-            if (_file != null)
-                return;
-            ConfigFile config = _file = ModuleConfig.Create("water");
-            VRFriendlyWater = config.Bind("Water", "VRFriendlyWater", true,
-                "Retune the game's water FEATURE (the film TERRAIN_Water_Plane on shader "
-                + "VFX/Water_Shd*, and the basin bed/rim under it) for a free VR camera. The "
-                + "water always RENDERS — this only changes how. The game's water is authored "
-                + "for one fixed steep top-down camera pitch; across a VR table it is seen at "
-                + "grazing angles, where the metallic basin and the near-mirror film both "
-                + "reflect the skybox and swing with the head (report 2026-08-15 "
-                + "spiegeltiles.jpg, unchanged through two rebuilds). ON gives each affected "
-                + "renderer its OWN material instance and writes onto that: the FILM gets the "
-                + "mod's own water shader ([Water] OwnSurface), and the basin under it gets every "
-                + "reflection, gloss and metal property the shader declares capped. The shared "
-                + "material is never touched. OFF restores the game's water immediately, sky "
-                + "mirror and all.");
-            Smoothness = config.Bind("Water", "Smoothness", 0.08f,
-                new ConfigDescription(
-                    "Ceiling for every SHARPNESS property on a water-feature shader (the water "
-                    + "film authors _Smoothness 0.754). High values make a surface mirror the "
-                    + "skybox sharply, which is what reads as a broken mirror that swims with "
-                    + "your head. Low values widen the lobe into a broad sheen. A shader that "
-                    + "exposes ROUGHNESS instead — the same axis backwards — is floored at "
-                    + "1 minus this value, so one dial covers both spellings. Never raises what "
-                    + "the tileset authored.",
-                    new AcceptableValueRange<float>(0f, 1f)));
-            Opacity = config.Bind("Water", "Opacity", 0.45f,
-                new ConfigDescription(
-                    "Upper bound on the water tint's alpha (the game authors 0.737). The tint's "
-                    + "hue is left as authored; only how much of the floor it hides is capped, "
-                    + "because with no camera depth texture the shader's depth fade is pinned at "
-                    + "its deepest and tints the whole quad. Lower = you see more of the tiles "
-                    + "under the pool. Never raises the authored value.",
-                    new AcceptableValueRange<float>(0f, 1f)));
-            Reflectivity = config.Bind("Water", "Reflectivity", 0f,
-                new ConfigDescription(
-                    "Ceiling for every METALLIC and explicit reflection-strength property on a "
-                    + "water-feature shader. The basin under the report's pool runs "
-                    + "Amp_Basic_N_MRAO — Metallic/Roughness/AO — and a metallic surface in a "
-                    + "scene with no reflection probe IS a mirror of the skybox, which is the "
-                    + "likeliest source of the 'kaputter Spiegel'. 0 = wet stone rather than "
-                    + "chrome. Raise it only if the pool bed looks too flat. Never raises what "
-                    + "the tileset authored.",
-                    new AcceptableValueRange<float>(0f, 1f)));
-            BasinSurfaces = config.Bind("Water", "BasinSurfaces", true,
-                "Take the water feature's SOLID geometry into scope as well as the film — the "
-                + "sunken bed and the rim inside the water's own footprint "
-                + "(TERRAIN_Crypt_Water_02_Base / _Edge in the report's room). Through ModBuild "
-                + "159 only the transparent film was ever touched, and the user's own word for "
-                + "the defect was 'Tiles'. A renderer is only adopted when its NAME belongs to "
-                + "the water-feature family AND its bounds lie inside a tracked water film's "
-                + "footprint without rising above it, so the room's ordinary floor — which runs "
-                + "the same shader — is never swept up. OFF confines the retune to the film "
-                + "again, which is the direct A/B for whether the basin was the mirror.");
-            LocalProbe = config.Bind("Water", "LocalProbe", true,
-                "Put a local reflection probe over each water feature, carrying a FLAT cubemap "
-                + "built from the scene's own ambient light. This scene has NO reflection probe "
-                + "at all (liveProbes=0), so every glossy or metallic surface in it reflects the "
-                + "skybox — and a skybox is infinitely far away, so its reflection sweeps as you "
-                + "move your head. That is the swimming. A flat cubemap returns the same colour "
-                + "in every direction, so the reflected colour cannot change with your head no "
-                + "matter which property or which renderer the reflection comes from. Box "
-                + "projection is off deliberately: it would put the parallax back. OFF is the "
-                + "A/B for whether the environment, rather than any material, was the cause.");
-            ProbeBrightness = config.Bind("Water", "ProbeBrightness", 1f,
-                new ConfigDescription(
-                    "Multiplier on the local water reflection probe's brightness. The probe's "
-                    + "colour comes from the scene's own ambient probe times the scene's "
-                    + "reflection intensity, so 1.0 means 'as bright as the room already is'. "
-                    + "Lower if the pool looks washed out, higher if it looks dead. Only has an "
-                    + "effect while LocalProbe is on.",
-                    new AcceptableValueRange<float>(0f, 2f)));
-            OwnSurface = config.Bind("Water", "OwnSurface", true,
-                "Give the water FILM a material of the mod's own instead of retuning the game's. "
-                + "The water still renders, at the same place in the draw order, in the tileset's "
-                + "own colour and with the tileset's own ripple — what changes is that the shader "
-                + "drawing it is GloomhavenVR/WaterVR out of this mod's bundle rather than the "
-                + "game's VFX/Water_Shd_Trans. WHY THIS EXISTS: four rounds of property tuning are "
-                + "read back off the live material and every one of them landed — every shoreline, "
-                + "foam and border width at 0, every band colour at alpha 0, the keyword list "
-                + "empty, every gloss and metal value at 0 — and the pool was still a pale, milky "
-                + "sheet with a reflection that swung with your head, which no dial could switch "
-                + "off. That can only come from a texture or a constant compiled INSIDE the game's "
-                + "shader, and replacing the whole shader removes it. WHAT THE MOD'S OWN WATER IS: "
-                + "the game's own normal map at the game's own two tilings, sampled at fixed "
-                + "places on the world and blended between three fixed patterns that fade in and "
-                + "out. The glints come from the moving surface lit by a FIXED light direction — "
-                + "never from the view direction, which is the one thing this shader may not "
-                + "contain, because a highlight computed from where your eye is slides across the "
-                + "water as you turn your head (that is the original defect) and is a different "
-                + "image in each eye. AND THE SURFACE ACTUALLY HAS RELIEF: the graphics card "
-                + "subdivides each water hex on the fly and a slow swell moves the result, because "
-                + "no shading term can make a flat sheet three-dimensional and 'weiße Streifen auf "
-                + "einer flachen Oberfläche' was the verdict on trying. AND NOTHING ON IT FLOWS, "
-                + "IN ANY DIRECTION, EVER: the waves rise and fall exactly where they are, six of "
-                + "them at rates that share no common measure so there is no rhythm to notice, and "
-                + "a very slow bloom leaves a different part of the pool nearly still every few "
-                + "minutes. That is what 'es ist kein Fluss sondern eine Pfütze' means, and it is "
-                + "also why the same figure does not appear on every tile. Tune it with [Water] "
-                + "SwellHeight (how high), [Water] WaveScale (how big), [Water] RippleSpeed (how "
-                + "slowly it changes) and [Water] Shimmer (how much sparkle). The basin bed "
-                + "and rim under the water are NOT replaced — they are opaque ground, not a film, "
-                + "and keep the ordinary retune. OFF puts the game's own water shader back "
-                + "immediately, which is the A/B for what this replacement is worth.");
-            RippleSpeed = config.Bind("Water", "RippleSpeed", 0.00875f,
-                new ConfigDescription(
-                    "How fast the water CHANGES, as a multiple of the shipped rate. NOTHING ON "
-                    + "THIS SURFACE MOVES FROM PLACE TO PLACE, so this dial cannot make it flow "
-                    + "faster: it is one clock over every cycle there is. It divides the swell's "
-                    + "bobbing period, and the ripple's three crossfade cycles and the bloom's "
-                    + "three are fixed multiples of that period, so 0 freezes the entire surface "
-                    + "at once with its relief intact rather than leaving something still ticking "
-                    + "under a motionless wave. THE DEFAULT IS 0.00875, A QUARTER OF ModBuild 166's "
-                    + "0.035, and it is a ruling rather than a preference: 'so ungefähr hab ich "
-                    + "mir das vorgestellt, nur finde ich es immer noch schnell. Mach die "
-                    + "animation halb so schnell, dann ist es perfekt.' Halving a RATE is doubling "
-                    + "every PERIOD, and because every cycle on this surface is a fixed multiple "
-                    + "of the swell's own, halving it here doubles all of them together and the "
-                    + "character of the motion is untouched: the swell rises and falls once every "
-                    + "63 seconds instead of 31, the ripple's crossfades run on 102, 165 and 266 "
-                    + "seconds instead of 51, 82 and 133, and the bloom breathes on 195, 295 and "
-                    + "459 instead of 97, 148 and 229. At 1.0 the swell would bob about once a "
-                    + "second, which is what real water of this wavelength does — the shipped "
-                    + "setting is a sixtieth of that. The census prints the resolved drift (which "
-                    + "reads 0.000 by construction), all six bob periods, all three crossfade "
-                    + "periods and all three bloom periods, so 'too fast' is a number in the log "
-                    + "rather than an argument.",
-                    new AcceptableValueRange<float>(0f, 3f)));
-            Shimmer = config.Bind("Water", "Shimmer", 0.03f,
-                new ConfigDescription(
-                    "How strong the moving glints on the mod's own water film are. They are made "
-                    + "by the moving surface turning toward a FIXED light, so they are born on a "
-                    + "crest, travel with it and break up where the swell and the ripple disagree "
-                    + "— and they do NOT move when you move your head, which is the difference "
-                    + "between this and the reflection the original report was about. RE-BASED "
-                    + "FROM 0.35: the highlight used to be a tight lobe that was also added into "
-                    + "the film's OPACITY, so a crest went bright and opaque at once, which is a "
-                    + "white streak by construction. It is now a broad, dim sheen measured against "
-                    + "the flat sheet's own brightness — still water glints exactly zero — and it "
-                    + "never touches the opacity. RE-BASED AGAIN FOR MODBUILD 165, from 0.10 to "
-                    + "0.05: the standing brief is 'deutlich ruhiger und eher dezent', and a "
-                    + "puddle in a crypt is not a sparkling one. 0 removes the highlights and "
-                    + "keeps the wave shading. Raise it if the pool looks dead; lower it if the "
-                    + "sparkle is busy. RE-BASED AGAIN FOR MODBUILD 166, to 0.03, with everything "
-                    + "else on the surface: a glint is a change of brightness, and the whole "
-                    + "round is about the surface changing less.",
-                    new AcceptableValueRange<float>(0f, 2f)));
-            WaveScale = config.Bind("Water", "WaveScale", 1f,
-                new ConfigDescription(
-                    "How BIG the waves are, as a multiple of the shipped size — one dial over the "
-                    + "swell's wavelength AND the two ripple layers, so the whole surface scales "
-                    + "together and never comes apart into a big wave carrying the wrong-sized "
-                    + "detail. 1.0 makes the LONGEST of the swell's four components 2.4 m — "
-                    + "longer than either side of a water hex (1.73 x 2.0 m), which is deliberate: "
-                    + "a component shorter than a tile is what let ModBuild 164's surface read as "
-                    + "the same figure on every tile. Raise it for a longer, lazier swell; lower "
-                    + "it for a choppier one, but the census's LATTICE MISMATCH number is what "
-                    + "says whether a setting has walked back into repeating tile for tile. It "
-                    + "does not change how fast the water moves: the bob periods are set by "
-                    + "[Water] RippleSpeed and scale with the SQUARE ROOT of the wavelength — "
-                    + "deep-water dispersion — so a longer swell is automatically a lazier one and "
-                    + "the water keeps its character. The census prints all six resolved "
-                    + "wavelengths in metres.",
-                    new AcceptableValueRange<float>(0.25f, 4f)));
-            SwellHeight = config.Bind("Water", "SwellHeight", 0.005f,
-                new ConfigDescription(
-                    "How HIGH the swell lifts the water, as a fraction of one water quad's own "
-                    + "width — so the report's 2.6 m film gets a 1.3 cm peak at the default, and a "
-                    + "diorama at another scale gets a wave that looks the same rather than one "
-                    + "that is invisible or enormous. THIS IS REAL GEOMETRY, not shading: the film "
-                    + "is subdivided by the shader's own tessellator and the resulting vertices "
-                    + "actually move, which is what makes the surface read as three-dimensional at "
-                    + "a grazing angle instead of as stripes painted on a flat sheet. RE-BASED "
-                    + "TWICE. ModBuild 164 ran 0.045, which clamped straight to the 6 cm ceiling "
-                    + "and over that build's 1.1 m wavelength made a crest slope of 19 degrees; "
-                    + "ModBuild 165's 0.014 brought that to 8.6 degrees and was still judged 'viel "
-                    + "zu hektisch'. The six components together now come to 2.9 degrees at the "
-                    + "default — a third of the steepness again — which is what 'so gut wie KEIN "
-                    + "fließen ... sehr dezent' means as an angle, and still relief you can see at "
-                    + "the waterline where flatness was judged. The wave is a function of world "
-                    + "position and time only, so it is identical in both eyes, and it does not "
-                    + "travel: the crests rise and fall where they are. 0 makes the film flat "
-                    + "again, which is also the A/B for whether the relief is worth its triangles. "
-                    + "The ceiling is set by the 9 cm the census measured between the water and "
-                    + "the basin bed underneath it: a trough may never dip through its own pool "
-                    + "floor.",
-                    new AcceptableValueRange<float>(0f, 0.05f)));
-            AnnounceRetiredKeys(config);
-        }
         /// <summary>
-        /// The keys this section has RETIRED, and what stands where each of them stood.
+        /// The config file this module no longer has, announced once if a tester still has it.
         ///
-        /// <para>A removed config key is silent by construction: the player's tuned value simply
-        /// stops being read and their setting reverts with no message. BepInEx keeps an unbound
-        /// entry verbatim — <c>ConfigFile.Save</c> concatenates <c>OrphanedEntries</c> back into
-        /// the file — so a tester who set one still has the line in
-        /// <c>dev.gloomhavenvr.water.cfg</c> and would otherwise have no way to learn it is inert.
-        /// This table is what makes the removal loud instead. Read through reflection because
-        /// <c>OrphanedEntries</c> is private on the BepInEx build we reference; a failure to read
-        /// it costs nothing but these lines.</para>
+        /// <para>A removed config key is silent by construction: the tuned value simply stops
+        /// being read and the setting reverts with no message. Removing the whole SECTION is
+        /// worse — BepInEx never opens <c>dev.gloomhavenvr.water.cfg</c> again, so the file sits
+        /// on disk looking exactly as authoritative as its neighbours while nothing in the build
+        /// can see it. This is the one line that says so. It reads the file, it never writes it:
+        /// deleting a tester's tuning behind their back is not this function's business.</para>
         /// </summary>
-        private static readonly (string Key, string Why)[] RetiredKeys =
-        {
-            ("HideTerrainWaterInVR",
-             "hiding the game's water was removed by user ruling 2026-08-18 ('Das Wasser soll auf "
-             + "jeden Fall dargstellt werden - aber eben in einer VR-freundlichen Variante. "
-             + "Einfach ausblenden ist keine Option.'). The water always renders now; what "
-             + "replaced that switch is [Water] VRFriendlyWater and the look dials under it"),
-            ("ShoreFoam",
-             "the film no longer runs the game's shader, so there is no authored shore foam left "
-             + "for a depth texture to confine, and the water no longer asks the head camera for "
-             + "one. [Optimize] HeadDepthPrepass is the only switch over that cost now"),
-            ("DebugPaint",
-             "a diagnostic whose question is answered. It was run on hardware and came back 'alles "
-             + "färbt sich magenta wie gewollt' — this driver owns the renderers in the report — "
-             + "and nothing since has re-opened that"),
-            ("BodyOnly",
-             "it collapsed every edge / foam / border term of VFX/Water_Shd_Trans, and the film "
-             + "does not draw with that shader any more"),
-            ("DepthFade",
-             "it chose which way _InvertDepthFade pointed on the game's water shader, which the "
-             + "film no longer draws with"),
-        };
-
-        private static void AnnounceRetiredKeys(ConfigFile config)
+        internal static void AnnounceRetiredFile()
         {
             try
             {
-                var orphans = AccessTools.Field(typeof(ConfigFile), "OrphanedEntries")
-                    ?.GetValue(config) as System.Collections.IDictionary;
-                if (orphans == null)
+                string path = System.IO.Path.Combine(BepInEx.Paths.ConfigPath,
+                                                     "dev.gloomhavenvr.water.cfg");
+                if (!System.IO.File.Exists(path))
                     return;
-                foreach (System.Collections.DictionaryEntry e in orphans)
-                {
-                    if (e.Key is not ConfigDefinition def)
-                        continue;
-                    foreach ((string key, string why) in RetiredKeys)
-                    {
-                        if (!string.Equals(def.Key, key, StringComparison.Ordinal))
-                            continue;
-                        VRLog.Info(Name,
-                            "WATER SURFACE: RETIRED CONFIG KEY [Water] " + key + " = '" + e.Value
-                            + "' is still in dev.gloomhavenvr.water.cfg and NOTHING READS IT ANY "
-                            + "MORE — " + why + ". The old line is harmless and can be deleted.");
-                        break;
-                    }
-                }
+                VRLog.Info(Name,
+                    "WATER SURFACE: the [Water] config section is RETIRED and " + path + " is "
+                    + "INERT — every value in it (VRFriendlyWater, Smoothness, Opacity, "
+                    + "Reflectivity, BasinSurfaces, LocalProbe, ProbeBrightness, OwnSurface, "
+                    + "RippleSpeed, Shimmer, WaveScale, SwellHeight, and the older HideTerrainWaterInVR "
+                    + "/ ShoreFoam / DebugPaint / BodyOnly / DepthFade) is now a constant in "
+                    + "WaterTerrainVR.WaterSettings at ModBuild 168's accepted values. The file is "
+                    + "harmless and can be deleted.");
             }
-            catch { /* diagnostics only — a private field that moved must never block a bind */ }
+            catch { /* diagnostics only — an unreadable config path must never block install */ }
         }
     }
 
@@ -971,43 +798,32 @@ internal static class WaterTerrainVR
             _tick = Tick;
         }
 
-        private static bool Want =>
-            VRSession.IsRunning
-            && WaterConfig.VRFriendlyWater != null
-            && WaterConfig.VRFriendlyWater.Value;
+        // The look is fixed in WaterSettings; these stay as named accessors rather than being
+        // inlined at the ~40 call sites, so the census keeps printing WHAT VALUE WAS IN FORCE
+        // instead of a literal, and a future retune is still one edit.
+        private static bool Want => VRSession.IsRunning && WaterSettings.VRFriendlyWater;
 
-        private static float WantedSmoothness =>
-            WaterConfig.Smoothness != null ? WaterConfig.Smoothness.Value : 0.08f;
+        private static float WantedSmoothness => WaterSettings.Smoothness;
 
-        private static float WantedOpacity =>
-            WaterConfig.Opacity != null ? WaterConfig.Opacity.Value : 0.45f;
+        private static float WantedOpacity => WaterSettings.Opacity;
 
-        private static float WantedReflectivity =>
-            WaterConfig.Reflectivity != null ? WaterConfig.Reflectivity.Value : 0f;
+        private static float WantedReflectivity => WaterSettings.Reflectivity;
 
-        private static bool WantBasin =>
-            WaterConfig.BasinSurfaces == null || WaterConfig.BasinSurfaces.Value;
+        private static bool WantBasin => WaterSettings.BasinSurfaces;
 
-        private static bool WantProbe =>
-            WaterConfig.LocalProbe == null || WaterConfig.LocalProbe.Value;
+        private static bool WantProbe => WaterSettings.LocalProbe;
 
-        private static float WantedProbeBrightness =>
-            WaterConfig.ProbeBrightness != null ? WaterConfig.ProbeBrightness.Value : 1f;
+        private static float WantedProbeBrightness => WaterSettings.ProbeBrightness;
 
-        private static bool WantOwnSurface =>
-            WaterConfig.OwnSurface == null || WaterConfig.OwnSurface.Value;
+        private static bool WantOwnSurface => WaterSettings.OwnSurface;
 
-        private static float WantedRippleSpeed =>
-            WaterConfig.RippleSpeed != null ? WaterConfig.RippleSpeed.Value : 0.00875f;
+        private static float WantedRippleSpeed => WaterSettings.RippleSpeed;
 
-        private static float WantedShimmer =>
-            WaterConfig.Shimmer != null ? WaterConfig.Shimmer.Value : 0.03f;
+        private static float WantedShimmer => WaterSettings.Shimmer;
 
-        private static float WantedWaveScale =>
-            WaterConfig.WaveScale != null ? WaterConfig.WaveScale.Value : 1f;
+        private static float WantedWaveScale => WaterSettings.WaveScale;
 
-        private static float WantedSwellHeight =>
-            WaterConfig.SwellHeight != null ? WaterConfig.SwellHeight.Value : 0.005f;
+        private static float WantedSwellHeight => WaterSettings.SwellHeight;
 
         /// <summary>Is the film actually drawing on the mod's own shader right now? The dial ANDed
         /// with the shader having been reached — never the dial alone. Four rounds have ended with
@@ -1033,7 +849,7 @@ internal static class WaterTerrainVR
                 {
                     RestoreAll();
                     VRLog.Info(Name,
-                        "WATER SURFACE: [Water] VRFriendlyWater turned OFF — every water-feature "
+                        "WATER SURFACE: WaterSettings.VRFriendlyWater turned OFF — every water-feature "
                         + "renderer got its authored shared material back, our material instances "
                         + "and local reflection probes are destroyed, and the game's own water "
                         + "renders again exactly as on a flat screen, sky mirror and all.");
@@ -1405,14 +1221,14 @@ internal static class WaterTerrainVR
                 _next = 0f;
                 _nextCensus = 0f;
                 VRLog.Info(Name,
-                    "WATER SURFACE: [Water] OwnSurface went " + (own ? "ON" : "OFF") + " — "
+                    "WATER SURFACE: WaterSettings.OwnSurface went " + (own ? "ON" : "OFF") + " — "
                     + hadOwn + " tracked renderer(s) were handed their AUTHORED shared material "
                     + "back and every material instance we owned was destroyed; the next frame "
                     + "re-adopts them and "
                     + (own
                         ? "draws the water FILM on '" + _ownShaderName
                           + "' out of the mod's own bundle, in the tileset's own green at the "
-                          + "[Water] Opacity alpha, rippling on the tileset's own normal map at "
+                          + "WaterSettings.Opacity alpha, rippling on the tileset's own normal map at "
                           + "its own two tilings and speeds, with no shoreline, no foam and no "
                           + "view-dependent term of any kind. The basin keeps the property retune. "
                           + "Read the OWN SURFACE block of the next WATER SURFACE STATE line: it "
@@ -1689,13 +1505,13 @@ internal static class WaterTerrainVR
             // is no rate left on this surface to multiply — the ruling of ModBuild 165 was that the
             // pattern must not travel at all — so "faster" can only mean "shorter cycles", and the
             // ripple's crossfades and the bloom's breathing are both derived from the swell's own
-            // period so that ONE dial moves the whole clock. [Water] RippleSpeed 0 therefore
+            // period so that ONE dial moves the whole clock. WaterSettings.RippleSpeed 0 therefore
             // freezes everything at once, with the relief intact, instead of leaving a slow pulse
             // running under a motionless swell.
             //
             // THE PERIOD SCALES AS sqrt(WAVELENGTH), not linearly — deep-water dispersion, the same
             // rule the six components are spaced by. A longer swell is a slower one, which is what
-            // stops [Water] WaveScale from turning a lazy ocean roll into a fast one.
+            // stops WaterSettings.WaveScale from turning a lazy ocean roll into a fast one.
             float swellPeriod = WaterOwnSurface.ResolvedSwellPeriod(waveScale, dial);
             Vector4 fadePeriods = WaterOwnSurface.ResolvedFadePeriods(swellPeriod);
             float tess = Mathf.Clamp(WaterOwnSurface.TessellationFactor, 1f,
@@ -1728,7 +1544,7 @@ internal static class WaterTerrainVR
                 + Fmt(tilings) + " -> tamed " + Fmt(resolved)
                 + " = one repeat every " + Wavelengths(resolved)
                 + " (aniso tame " + WaterOwnSurface.AnisoTame.ToString("0.##")
-                + ", [Water] WaveScale " + waveScale.ToString("0.###") + ")"
+                + ", WaterSettings.WaveScale " + waveScale.ToString("0.###") + ")"
                 + "; layer weights A " + weights.x.ToString("0.###")
                 + " / B " + weights.y.ToString("0.###")
                 // THE RESOLVED DRIFT, FIRST, AND IT IS A CONSTANT ZERO BY CONSTRUCTION. The user
@@ -1745,7 +1561,7 @@ internal static class WaterTerrainVR
                 + " / " + fadePeriods.z.ToString("0.#")
                 + " s, and the swell's spatial phase contains no clock"
                 + "; SWELL amplitude " + amp.ToString("0.####") + " world units (quad width "
-                + o.FilmWidthWU.ToString("0.###") + " x [Water] SwellHeight "
+                + o.FilmWidthWU.ToString("0.###") + " x WaterSettings.SwellHeight "
                 + WantedSwellHeight.ToString("0.###") + ", ceiling "
                 + WaterOwnSurface.MaxSwellAmplitude.ToString("0.###") + " against the "
                 + WaterOwnSurface.FilmToBedGap.ToString("0.##") + " gap to the basin bed)"
@@ -1791,7 +1607,7 @@ internal static class WaterTerrainVR
                 + "; _Smoothness " + (haveSmooth ? "READ " : "DEFAULTED ")
                 + smoothness.ToString("0.###") + " -> glint exponent "
                 + Mathf.Lerp(1f, 8f, Mathf.Clamp01(smoothness)).ToString("0.#")
-                + "; [Water] Shimmer " + WantedShimmer.ToString("0.###");
+                + "; WaterSettings.Shimmer " + WantedShimmer.ToString("0.###");
         }
 
         private static string Fmt(Vector4 v) =>
@@ -1877,7 +1693,7 @@ internal static class WaterTerrainVR
             // BundleShaders' bundle-asset step is the mechanism that will.
             Shader? water = BundleShaders.Resolve(
                 WaterOwnSurface.FilmShaderName, Name,
-                "[Water] OwnSurface can now replace the game's water film with the mod's own "
+                "WaterSettings.OwnSurface can now replace the game's water film with the mod's own "
                 + "ANIMATED water: the tileset's own normal map scrolled as two layers at its own "
                 + "two tilings and two speeds, which the hardware census measured as the whole of "
                 + "the game water's motion, lit by a FIXED light direction. NO VIEW-DEPENDENT TERM "
@@ -1902,10 +1718,10 @@ internal static class WaterTerrainVR
             {
                 _ownShader = BundleShaders.Resolve(
                     WaterOwnSurface.FallbackFilmShaderName, Name,
-                    "[Water] OwnSurface runs on the FALLBACK film — a flat, still, translucent "
+                    "WaterSettings.OwnSurface runs on the FALLBACK film — a flat, still, translucent "
                     + "sheet in the tileset's own colour. It removes the head-bound reflection and "
                     + "the pale sheet, and it does not animate.",
-                    "[Water] OwnSurface CANNOT RUN AT ALL: neither the mod's water shader nor its "
+                    "WaterSettings.OwnSurface CANNOT RUN AT ALL: neither the mod's water shader nor its "
                     + "overlay fallback could be reached, every water film keeps the game's own "
                     + "VFX/Water_Shd_Trans material, and this build therefore carries no new "
                     + "mechanism. Do NOT read an unchanged pool as a finding until this line is "
@@ -2054,7 +1870,7 @@ internal static class WaterTerrainVR
                 report.Append(" — NO REFLECTION-FAMILY SCALAR ON THIS SHADER: if this surface is "
                               + "still mirroring, its reflection comes from a texture (an MRAO "
                               + "pack) or from a constant inside the compiled shader, and only "
-                              + "[Water] LocalProbe can reach it");
+                              + "WaterSettings.LocalProbe can reach it");
             }
         }
 
@@ -2114,7 +1930,7 @@ internal static class WaterTerrainVR
 
         /// <summary>
         /// The water FILM's own treatments while it still draws on the GAME's shader — i.e. while
-        /// <c>[Water] OwnSurface</c> is off, or while the bundle has not yielded the mod's own
+        /// <c>WaterSettings.OwnSurface</c> is off, or while the bundle has not yielded the mod's own
         /// shader: the tint alpha, and the EDGE / FOAM / BORDER BAND, which is where the visible
         /// pixels of <c>spiegeltiles.jpg</c> actually came from.
         ///
@@ -2236,7 +2052,7 @@ internal static class WaterTerrainVR
         ///
         /// <para>THE PAD IS THE CEILING, NOT THE CURRENT DIAL — it comes from
         /// <see cref="WaterOwnSurface.MaxSwellAmplitude"/> and never from the amplitude in force,
-        /// so a player who raises <c>[Water] SwellHeight</c> mid-scene cannot outrun bounds baked
+        /// so a player who raises <c>WaterSettings.SwellHeight</c> mid-scene cannot outrun bounds baked
         /// for a lower one. The displacement is a translation along world Y bounded by that
         /// ceiling, so the swept volume is exactly the rest bounds Minkowski-summed with a segment
         /// of twice it; padding every LOCAL axis contains that segment whatever the quad's
@@ -2359,7 +2175,7 @@ internal static class WaterTerrainVR
         }
 
         /// <summary>Hand the basin back without touching the film — the live A/B behind
-        /// <c>[Water] BasinSurfaces</c>.</summary>
+        /// <c>WaterSettings.BasinSurfaces</c>.</summary>
         private void ReleaseBasin()
         {
             for (int i = _tracked.Count - 1; i >= 0; i--)
@@ -2438,7 +2254,7 @@ internal static class WaterTerrainVR
                 {
                     DestroyProbes();
                     _probeSig = int.MinValue;
-                    _probeNote = "[Water] LocalProbe is OFF — every surface here samples the "
+                    _probeNote = "WaterSettings.LocalProbe is OFF — every surface here samples the "
                                  + "skybox again";
                 }
                 _appliedLocalProbe = false;
@@ -2655,7 +2471,7 @@ internal static class WaterTerrainVR
             {
                 VRLog.Info(Name,
                     "WATER SURFACE: the flat reflection cubemap could not be built ("
-                    + e.GetType().Name + ") — [Water] LocalProbe is inert this session and the "
+                    + e.GetType().Name + ") — WaterSettings.LocalProbe is inert this session and the "
                     + "material caps are carrying the fix alone.");
                 return null;
             }
@@ -2732,7 +2548,7 @@ internal static class WaterTerrainVR
               .Append(" (dial ").Append(_appliedReflectivity.ToString("0.###")).Append(')')
               .Append(", _Color_Tint.a capped at ").Append(_appliedOpacity.ToString("0.###"))
               .Append(" (authored 0.737), basin surfaces ")
-              .Append(_appliedBasin ? "IN SCOPE" : "released ([Water] BasinSurfaces OFF)")
+              .Append(_appliedBasin ? "IN SCOPE" : "released (WaterSettings.BasinSurfaces OFF)")
               .Append(", edge/foam/border band COLLAPSED BY NUMBER wherever the film still draws "
                       + "on the game's shader — every width to 0 and every band colour to the body "
                       + "hue at alpha 0, _WaterBorderWidth/_WaterBorderCol included (a SECOND "
@@ -2745,7 +2561,7 @@ internal static class WaterTerrainVR
             AppendReadBack(sb);
 
             // Mechanism four, and whether it reached anything.
-            sb.Append(" | LOCAL PROBE: [Water] LocalProbe=").Append(WantProbe)
+            sb.Append(" | LOCAL PROBE: WaterSettings.LocalProbe=").Append(WantProbe)
               .Append(" brightness=").Append(WantedProbeBrightness.ToString("0.##"))
               .Append(" -> ").Append(_probeNote);
 
@@ -2793,7 +2609,7 @@ internal static class WaterTerrainVR
                         sb.Append(" NO PROBE REACHES THE WATER — so the surface reflects the "
                                   + "SKYBOX and nothing else, which is a reflection that is "
                                   + "sampled at infinity and therefore sweeps with every head "
-                                  + "movement. If [Water] LocalProbe is ON and this still says "
+                                  + "movement. If WaterSettings.LocalProbe is ON and this still says "
                                   + "zero, the probe is not being built where the water is and "
                                   + "mechanism four is not in play at all.");
                     }
@@ -2815,12 +2631,16 @@ internal static class WaterTerrainVR
                       + "the metal/reflection ceiling 0, a flat local probe REACHING the surface — "
                       + "and 'Keine Änderungen bei der Wasser Problematik'. The pale sheet and the "
                       + "head-bound reflection were a TEXTURE or a CONSTANT compiled into "
-                      + "VFX/Water_Shd_Trans, which is why [Water] OwnSurface deletes that shader "
-                      + "from the film rather than addressing it. WHAT IS STILL A DIAL RATHER THAN "
-                      + "AN ANSWER: [Water] BasinSurfaces and [Water] LocalProbe are the A/Bs for "
-                      + "the SWIMMING half of the report on the BASIN, which is opaque ground and "
-                      + "is not replaced by OwnSurface — a different complaint from the film's "
-                      + "paleness, so do not test them in the same toggle.");
+                      + "VFX/Water_Shd_Trans, which is why WaterSettings.OwnSurface deletes that shader "
+                      + "from the film rather than addressing it. AND NONE OF THIS IS A DIAL ANY "
+                      + "MORE: the section was removed at ModBuild 169 and every value above is a "
+                      + "constant in WaterSettings, so a report about this surface is a report "
+                      + "about the build and not about a setting. The two that still separate two "
+                      + "different complaints are WaterSettings.BasinSurfaces and "
+                      + "WaterSettings.LocalProbe: they carry the SWIMMING half of the report on "
+                      + "the BASIN, which is opaque ground and is not replaced by OwnSurface — "
+                      + "changing them means editing WaterSettings and shipping, and they must "
+                      + "not be moved together with the film's paleness.");
 
             VRLog.Info(Name, sb.ToString());
         }
@@ -2838,7 +2658,7 @@ internal static class WaterTerrainVR
         /// </summary>
         private void AppendOwnSurface(System.Text.StringBuilder sb)
         {
-            sb.Append(" | OWN SURFACE: [Water] OwnSurface=").Append(WantOwnSurface);
+            sb.Append(" | OWN SURFACE: WaterSettings.OwnSurface=").Append(WantOwnSurface);
             if (!WantOwnSurface)
             {
                 sb.Append(" — the film runs the game's own VFX/Water_Shd_Trans and the band and "
@@ -2982,7 +2802,7 @@ internal static class WaterTerrainVR
             }
             if (OwnSurfaceActive)
             {
-                sb.Append("suppressed — [Water] OwnSurface has replaced this instance's whole "
+                sb.Append("suppressed — WaterSettings.OwnSurface has replaced this instance's whole "
                           + "material, so VFX/Water_Shd_Trans' band properties are not what it "
                           + "draws with and printing them would report on a shader that is "
                           + "deliberately gone. The OWN SURFACE block above is the read-back that "
@@ -3022,7 +2842,7 @@ internal static class WaterTerrainVR
                           + "Änderungen bei der Wasser Problematik'. So the pale sheet and the "
                           + "head-bound reflection come from a texture or a constant compiled into "
                           + "VFX/Water_Shd_Trans and no shader property reaches them. This block "
-                          + "is now only running because [Water] OwnSurface is OFF or its shader "
+                          + "is now only running because WaterSettings.OwnSurface is OFF or its shader "
                           + "did not resolve — the mechanism that answers this is the OWN SURFACE "
                           + "block, which replaces the whole material rather than tuning it.");
             }
@@ -3144,7 +2964,7 @@ internal static class WaterTerrainVR
                     if (mat == null || inst == null)
                         sb.Append("<no material>");
                     else if (OwnSurfaceActive)
-                        sb.Append("suppressed — [Water] OwnSurface has replaced this material "
+                        sb.Append("suppressed — WaterSettings.OwnSurface has replaced this material "
                                   + "outright; the band belongs to a shader this instance no "
                                   + "longer runs");
                     else
@@ -3202,7 +3022,7 @@ internal static class WaterTerrainVR
                           .Append(hasColour)
                           .Append(hasColour
                               ? " — our fragment MULTIPLIES its tint by the mesh's vertex colour, "
-                                + "so if [Water] OwnSurface produces a film that is darker than "
+                                + "so if WaterSettings.OwnSurface produces a film that is darker than "
                                 + "the tint above, or invisible in places, this is where it comes "
                                 + "from and no property of ours can correct it"
                               : " — nothing modulates our tint, so the film draws exactly the "

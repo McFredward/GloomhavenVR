@@ -40,14 +40,27 @@ namespace GloomhavenVR
         private const string ShaderName = "GloomhavenVR/BoardLit"; // self-contained, bundled, baked-lit
         // Per-set albedo, extracted from each source GLB and committed as a loose PNG
         // (each L/R pair shares one atlas). No normal maps are used (BoardLit flat bump).
-        //   VRHand       — original leather glove (default style)
+        //   VRHand       — leather glove (default style); artist-authored mesh + rig,
+        //                  adopted via unity/hand-prep/import_glove_fbx.py
         //   VRHandPlate  — plate-armor gauntlet   (prepare_hand.py + rig_hand.py, Hunyuan3D)
         //   VRHandArcane — arcane-runes mage glove (same pipeline)
-        private static readonly (string baseName, string albedo)[] HandSets =
+        //
+        // doubleSided: render the set with Cull Off. This is a REPAIR, not a look — an
+        // AI-generated shell is fragmented and non-manifold, so back-facing and missing
+        // patches read as black voids under ordinary back-face culling (worst on the
+        // middle finger), and BoardLit's VFACE path lights the back faces so a hole shows
+        // the surface behind it instead. It costs a second shaded fragment over the whole
+        // hand, in both eyes, every frame — so it is per set, and set from a MEASUREMENT
+        // (unity/hand-prep, boundary + non-manifold edge counts on the shipped rigs):
+        //   VRHand       0 boundary,  0 non-manifold, +298 cm3  -> closed, wound outward
+        //   VRHandPlate  540 boundary, 1072 non-manifold        -> open shell
+        //   VRHandArcane 869 boundary, 1680 non-manifold        -> open shell
+        // A closed, outward-wound shell has no hole to fill, so the glove pays nothing.
+        private static readonly (string baseName, string albedo, bool doubleSided)[] HandSets =
         {
-            ("VRHand",       Hands + "/VRHand_albedo.png"),
-            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png"),
-            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png"),
+            ("VRHand",       Hands + "/VRHand_albedo.png",       false),
+            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  true),
+            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", true),
         };
 
         // Every transform name the mod's HandVisuals.MapPrefabRig resolves by name.
@@ -66,10 +79,10 @@ namespace GloomhavenVR
             try
             {
                 AssetDatabase.Refresh();
-                foreach ((string baseName, string albedo) in HandSets)
+                foreach ((string baseName, string albedo, bool doubleSided) in HandSets)
                 {
-                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo);
-                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo);
+                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo, doubleSided);
+                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo, doubleSided);
                 }
                 AssetsBuilder.BuildAll(); // exits the editor (0/1)
             }
@@ -81,13 +94,13 @@ namespace GloomhavenVR
             }
         }
 
-        private static void BuildHand(string fbxName, string rootName, string albedoPath)
+        private static void BuildHand(string fbxName, string rootName, string albedoPath, bool doubleSided)
         {
             string fbx = $"{Hands}/{fbxName}";
             Debug.Log($"[GloomhavenVR] === building {rootName} from {fbx} ===");
 
             ImportModel(fbx);
-            Material mat = BuildMaterial(rootName, albedoPath);
+            Material mat = BuildMaterial(rootName, albedoPath, doubleSided);
             AssemblePrefab(fbx, rootName, mat);
         }
 
@@ -119,7 +132,7 @@ namespace GloomhavenVR
             importer.SaveAndReimport();
         }
 
-        private static Material BuildMaterial(string rootName, string albedoPath)
+        private static Material BuildMaterial(string rootName, string albedoPath, bool doubleSided)
         {
             Shader shader = Shader.Find(ShaderName)
                             ?? throw new System.Exception($"Bundled shader '{ShaderName}' not found (compile error?).");
@@ -130,11 +143,9 @@ namespace GloomhavenVR
 
             var mat = new Material(shader) { name = rootName };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);
-            // DEFECT 2 FIX — render the glove double-sided (Cull Off). The AI mesh is
-            // fragmented/non-manifold, so single-sided culling shows missing and back-
-            // facing shells as black voids (worst on the middle finger). BoardLit's
-            // VFACE path lights the back faces, so holes fill with the surface behind.
-            mat.SetFloat("_Cull", 0f); // 0 = CullMode.Off
+            // DEFECT 2 FIX — Cull Off for the AI-generated shells only; see HandSets for
+            // the measurement that decides it per set. 0 = CullMode.Off, 2 = CullMode.Back.
+            mat.SetFloat("_Cull", doubleSided ? 0f : 2f);
             // No normal map is embedded in the FBX; BoardLit's flat "bump" default is used.
             string matPath = $"{Hands}/{rootName}.mat";
             AssetDatabase.CreateAsset(mat, matPath);

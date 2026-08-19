@@ -119,8 +119,8 @@ internal static class WaterReflectionVectors
     // ---------------------------------------------------------------------------------------
     private static void Direction(Harness t)
     {
-        const float smooth = 0.08f;   // [Water] Smoothness default
-        const float reflect = 0f;     // [Water] Reflectivity default
+        const float smooth = 0.08f;   // WaterSettings.Smoothness default
+        const float reflect = 0f;     // WaterSettings.Reflectivity default
 
         // The water film, as authored: _Smoothness(Range 0..1) = 0.754.
         Cap(t, "film gloss", WaterCapFamily.Gloss, 0.754f, true, 0f, 1f, smooth, reflect, 0.08f);
@@ -135,7 +135,7 @@ internal static class WaterReflectionVectors
         // Already rougher than the floor — left alone, never dragged down to it.
         Cap(t, "roughness over floor", WaterCapFamily.Rough, 0.97f, true, 0f, 1f, smooth, reflect, 0.97f);
 
-        // Metal and explicit reflection strength ride [Water] Reflectivity, not [Water] Smoothness.
+        // Metal and explicit reflection strength ride WaterSettings.Reflectivity, not WaterSettings.Smoothness.
         Cap(t, "metal", WaterCapFamily.Metal, 1f, true, 0f, 1f, smooth, reflect, 0f);
         Cap(t, "reflection", WaterCapFamily.Reflection, 0.6f, true, 0f, 1f, smooth, reflect, 0f);
 
@@ -143,7 +143,7 @@ internal static class WaterReflectionVectors
         Cap(t, "metal at 0.3", WaterCapFamily.Metal, 1f, true, 0f, 1f, smooth, 0.3f, 0.3f);
 
         // A sharpness dial of 1.0 is "do nothing" in both spellings — the identity a user gets
-        // when they wind [Water] Smoothness all the way up to compare.
+        // when they wind WaterSettings.Smoothness all the way up to compare.
         Cap(t, "gloss dial open", WaterCapFamily.Gloss, 0.754f, true, 0f, 1f, 1f, reflect, 0.754f);
         Cap(t, "rough dial open", WaterCapFamily.Rough, 0.10f, true, 0f, 1f, 1f, reflect, 0.10f);
 

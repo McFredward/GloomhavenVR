@@ -169,9 +169,9 @@ internal static class WaterReflectionCaps
     /// false).</param>
     /// <param name="rangeMax">Declared upper limit (ignored when <paramref name="hasRange"/> is
     /// false).</param>
-    /// <param name="smoothnessCap"><c>[Water] Smoothness</c> — the sharpness ceiling, and the
+    /// <param name="smoothnessCap"><c>WaterSettings.Smoothness</c> — the sharpness ceiling, and the
     /// value the roughness floor is derived from.</param>
-    /// <param name="reflectivityCap"><c>[Water] Reflectivity</c> — the ceiling for metal and
+    /// <param name="reflectivityCap"><c>WaterSettings.Reflectivity</c> — the ceiling for metal and
     /// explicit reflection-strength scalars.</param>
     /// <param name="value">The value to write. Only meaningful when this returns true.</param>
     /// <param name="reason">Always set: either what was done, or why nothing was. Goes verbatim
@@ -241,7 +241,7 @@ internal static class WaterReflectionCaps
 
         float target = family switch
         {
-            // The inverted axis. 1 - cap, so [Water] Smoothness stays the ONE dial that governs
+            // The inverted axis. 1 - cap, so WaterSettings.Smoothness stays the ONE dial that governs
             // sharpness whichever end of the axis a given shader chose to expose.
             WaterCapFamily.Rough => Mathf.Max(authored, 1f - smoothnessCap),
             WaterCapFamily.Metal => Mathf.Min(authored, reflectivityCap),

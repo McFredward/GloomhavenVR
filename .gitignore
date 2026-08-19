@@ -42,3 +42,6 @@ unity/board-prep/out/
 unity/mask-prep/out/
 .planning/refactor/.guard/
 ressources
+
+# hands asset build log (Unity batch)
+buildhands.log

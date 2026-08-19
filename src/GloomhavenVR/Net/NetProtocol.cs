@@ -416,7 +416,90 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 168;
+    public const ushort ModBuild = 169;
+    // Build 169: THE GLOVE IS SOMEONE'S WORK NOW, AND THE WATER MENU IS GONE.
+    // ***** THE BUNDLE CHANGED — 66,607,352 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
+    //
+    // User: "Schau bitte in .debug/ressources - dort habe ich ein verbessertes mesh inklusive textur
+    // für die 'Glove' Hand abgelegt. Übernehme das. 2) Das Menu im Erweiterten VR Menu das sich mit
+    // dem Wasser-Einstellungen und dem alten Mesh beschäftigt ist immer noch zu sehen - entferne das
+    // komplett (In der UI und im Code)."
+    //
+    // ── 1. THE GLOVE ──────────────────────────────────────────────────────────────────────────
+    // The default hand style stops being AI output. What arrived is one LEFT-hand FBX carrying a
+    // hand-built armature already on this mod's 19-name contract, hand-painted weights and a
+    // matching 2048² atlas — so the job was to ADOPT it, not to rig it. Re-running rig_hand.py
+    // against the new mesh would have replaced all three with generated equivalents, which is the
+    // obvious wrong move and the reason this got its own script (unity/hand-prep/import_glove_fbx.py)
+    // instead of an env var on the old one.
+    //
+    // Two things the delivered file could not do for itself:
+    //   * ANCHOR_INDEXTIP. The contract names nineteen transforms; a rig built from the finger
+    //     chains has eighteen. The nineteenth is not a joint — it is the poke point at the end of
+    //     the index finger, and Blender already writes it as the leaf `Anchor_Index_Tip_end`. It is
+    //     promoted to a real bone, axis-aligned the way the previous shipped rig had it (local +Y
+    //     along the fingers, local +Z the palm normal) rather than inheriting the last joint's tilt:
+    //     the touch probe is a place, not a knuckle. The other six `*_end` leaves are dropped — no
+    //     weights, never resolved, one GameObject and one skin bone each.
+    //   * THE RIGHT HAND, as the conjugation M' = S·M·S with S = diag(-1,1,1). That is a proper
+    //     rotation, so it keeps each bone's local +X and negates local +Y/+Z — which is exactly the
+    //     property the runtime depends on, because the mod curls BOTH hands with the same positive
+    //     local-X rotation and under this mirror that produces the mirror-image tuck. A plain
+    //     "negate X on everything" flips the frames' handedness and curls the right hand's fingers
+    //     OUT of the palm.
+    //
+    // SIX GATES RUN BEFORE ANYTHING IS WRITTEN, and one of them earned its place during this build:
+    // the first mirror reversed each face by rewriting its loops' vertex indices in place, which
+    // silently left the UVs on the wrong corners. The shell gate caught it as a number — left
+    // +297.98 cm³ against right +152.94 cm³ — and the fix (bmesh.ops.reverse_faces, which carries
+    // every loop layer) brought them equal. This project has shipped FOUR meshes wound against the
+    // side they are seen from; this is the first one that could not have.
+    //   CONTRACT   all 19 names resolve, per hand
+    //   SHELL      signed volume > 0 AND the mirror's volume + UV area equal the left's.
+    //              Glove: +297.98 cm³, 0 boundary edges, 0 non-manifold edges, both hands
+    //   CURL AXIS  each finger bone's local +X ⟂ its own finger plane, so a curl adds no abduction
+    //              (the 2026-07 pinky splay). Index ≤1.8°, Middle ≤0.6°, Ring ≤0.3°, Pinky ≤3.8°
+    //   FLEXION    +40° on every joint actually pulls the fingertip toward the palm, measured on
+    //              the EVALUATED mesh — this tests the skinning, not the skeleton
+    //   MIRROR     the right rig sits at the left's X-negated positions. Needed because every
+    //              other gate here is mirror-INVARIANT and would pass a hand never mirrored at all
+    //   ROUND TRIP the written FBX is read back and compared bone by bone against what was
+    //              verified. Export settings that silently rescale a rig have cost a build before
+    //              (rig_hand.py's armature-100× bug)
+    //
+    // AND THE GLOVE STOPS PAYING FOR SOMEONE ELSE'S HOLES. `_Cull Off` was never a look — it is a
+    // repair for a fragmented AI shell, making a hole show the surface behind it instead of a black
+    // void, and it costs a second shaded fragment over the whole hand in both eyes every frame. It
+    // is now per set and set from the measurement above: the glove is closed (0/0) and renders
+    // single-sided; Plate (540 boundary / 1072 non-manifold) and Arcane (869 / 1680) are open
+    // shells and keep it. Rendered before shipping, single-sided, in BoardLit's exact shading, in
+    // all four views, against the old glove as a reference column: no hole anywhere, cuff capped.
+    //
+    // ── 2. THE WATER MENU IS GONE, NOT HIDDEN ─────────────────────────────────────────────────
+    // The whole `[Water]` section — thirteen entries and the file dev.gloomhavenvr.water.cfg —
+    // is deleted, along with its display names and its German help text. What stands in its place
+    // is WaterTerrainVR.WaterSettings: twelve `const`s at ModBuild 168's values verbatim, so this
+    // is a removal of the dials and NOT a retune. The look he accepted is the look that ships.
+    //
+    // WHY THEY WERE ALWAYS TEMPORARY: every one of them existed to answer a question during the six
+    // rounds from the game's head-swimming mirror to a still crypt puddle. DebugPaint asked which
+    // renderers this driver owns; LocalProbe and BasinSurfaces asked whether the environment or the
+    // basin was the reflection; OwnSurface asked whether replacing the shader was worth it;
+    // RippleSpeed / SwellHeight / Shimmer / WaveScale carried the tuning of the answer. All are
+    // answered and all are ruled on. An A/B switch whose OFF side restores a defect the user
+    // reported is not a setting, and the standing rule for this menu is that anything whose
+    // OFF-state breaks the experience is removed rather than defaulted.
+    //
+    // THE ONE THING A SILENT REMOVAL WOULD HAVE COST: BepInEx never opens a retired section's file
+    // again, so a tester's dev.gloomhavenvr.water.cfg sits on disk looking exactly as authoritative
+    // as its neighbours while nothing in the build can see it. WaterSettings.AnnounceRetiredFile
+    // is the one line that says so, at install, naming every key it covers. It reads the file and
+    // never writes it — deleting someone's tuning behind their back is not its business.
+    //
+    // Every diagnostic string that named `[Water] X` now names `WaterSettings.X`, because that is
+    // where the number lives; the census sentence that offered BasinSurfaces and LocalProbe as
+    // live A/Bs now says they are constants and that changing them means shipping a build.
+    //
     // Build 168: HALF AGAIN, AND THE SKULL WAS A DIFFERENT SKELETON ALL ALONG.
     // ***** THE BUNDLE CHANGED — 67,172,123 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
     //

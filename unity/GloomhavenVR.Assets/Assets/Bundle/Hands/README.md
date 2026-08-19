@@ -47,7 +47,7 @@ VR players (`Net.AvatarState.HandStyle`, additive wire-v3 trailing byte):
 
 | Style  | Prefab pair | Source |
 |---|---|---|
-| Glove (default) | `VRHand_L/R.prefab` | original leather glove (`Hand_prepped.glb`, hardcoded joints in `rig_hand.py`) |
+| Glove (default) | `VRHand_L/R.prefab` | **artist-authored** leather glove — mesh, rig, weights and UV atlas all hand-made, delivered as a single LEFT-hand FBX and adopted by `import_glove_fbx.py` (ModBuild 169; replaced the AI-generated `Hand_prepped.glb` + `rig_hand.py` glove) |
 | Plate  | `VRHandPlate_L/R.prefab` | Hunyuan3D plate-armor gauntlet (`hunyuan3d-a22a9142…glb`) |
 | Arcane | `VRHandArcane_L/R.prefab` | Hunyuan3D arcane-runes mage glove (`hunyuan3d-31b7b393…glb`) |
 
@@ -134,12 +134,57 @@ Pipeline for the alternative sets (Blender 4.2 headless, `unity/hand-prep/`):
    geometrically impossible and compensated one finger at runtime instead — see
    `FingerCurler.DefaultGlovePinkyCounterAbductionDeg`). `verify_aim.py <before> <after>`
    asserts the whole list; `fist_metrics.py` reports the fist the rig actually makes.
-   NOTE: `rig_hand.py` can no longer rebuild the glove — its source
-   `ressources/hands/Hand_prepped.glb` is gone — so the committed FBX pair IS the
-   master for this style. Edit it with the surgical tools, never by a Blender
-   scene round trip.
+   NOTE: none of §1–4 applies to the GLOVE any more. As of ModBuild 169 the glove is
+   an artist-authored asset, not a generated one — see the separate pipeline below.
 5. `Assets/Editor/BuildHands.cs` assembles all three prefab pairs (BoardLit material,
-   `_Cull Off`, per-set loose albedo) and verifies every contract bone per prefab.
+   per-set loose albedo, `_Cull` per set — see below) and verifies every contract
+   bone per prefab.
+
+### Pipeline for the GLOVE (`import_glove_fbx.py`)
+
+The glove arrives as ONE left-hand FBX that already carries a hand-built armature on
+the 19-name contract, hand-painted weights and a matching 2048² albedo. The script
+therefore *adopts* rather than rigs: re-running `rig_hand.py` against this mesh would
+throw all three away for generated equivalents.
+
+```
+/home/claw/blender-4.2/blender --background --python unity/hand-prep/import_glove_fbx.py
+# GLOVE_SRC=<fbx>  GLOVE_OUT=<dir>  GLOVE_NAME=<base>  to point it elsewhere
+```
+
+It does exactly two things the delivered file cannot do for itself:
+
+1. **Promotes `Anchor_IndexTip`.** The contract names nineteen transforms; a rig built
+   from the finger chains alone has eighteen. The nineteenth is not a joint but the
+   poke point at the end of the index finger, which Blender already writes as the leaf
+   `Anchor_Index_Tip_end`. It becomes a real bone, axis-aligned the way the previous
+   shipped rig had it (local +Y along the fingers, +X = world +X, so local +Z is the
+   palm normal) rather than inheriting the last joint's tilt. Every other `*_end` leaf
+   is dropped — no weights, never resolved, one GameObject and one skin bone each.
+2. **Mirrors the right hand** as the conjugation `M' = S·M·S`, `S = diag(-1,1,1)`. That
+   is a proper rotation, so it keeps each bone's local +X and negates local +Y/+Z —
+   which is exactly what makes the SAME positive local-X rotation the runtime applies
+   produce the mirror-image tuck. A plain "negate X" would flip the frames' handedness
+   and curl the right hand's fingers out of the palm.
+
+Four hard gates run before anything is written, and all four have caught a real defect
+in this project before:
+
+| Gate | What it asserts |
+|---|---|
+| CONTRACT | all 19 names resolve, per hand |
+| CURL AXIS | each finger bone's local +X ⟂ its own finger plane, so a curl adds no abduction (the 2026-07 pinky splay). Shipped glove: Index ≤1.8°, Middle ≤0.6°, Ring ≤0.3°, Pinky ≤3.8°; thumb reported only (deliberate 45° tuck) |
+| SHELL | signed volume > 0 (closed and wound OUTWARD) and the mirrored hand's volume + UV area equal the left's. Shipped glove: **+297.98 cm³, 0 boundary edges, 0 non-manifold edges** on both hands |
+| FLEXION | posing every joint +40° actually pulls the fingertip toward the palm, measured on the EVALUATED mesh — the skinning, not the skeleton |
+| MIRROR | the right rig sits at the left's X-negated positions (every other gate above is mirror-invariant and would pass a hand that was never mirrored) |
+| ROUND TRIP | the written FBX is read back and compared bone by bone against what was verified — export settings that silently rescale a rig have cost this project a build (`rig_hand.py`'s armature-100× bug) |
+
+**`_Cull` is set from that shell measurement, per set** (`BuildHands.cs` `HandSets`).
+`Cull Off` is a repair for fragmented AI shells, not a look: it makes a hole show the
+surface behind it instead of a black void, and it costs a second shaded fragment over
+the whole hand in both eyes every frame. The glove is closed (0/0 above) so it renders
+single-sided; Plate (540 boundary / 1072 non-manifold) and Arcane (869 / 1680) are open
+shells and keep `Cull Off`.
 
 Missing styled prefabs (old bundle) degrade to the Glove pair at runtime; no bundle
 at all still degrades to the procedural hand.

@@ -42,7 +42,7 @@ namespace GloomhavenVR.Core;
 /// could otherwise have noticed.</para>
 ///
 /// <para>THIS ONLY RUNS WHILE THE FILM DRAWS ON THE GAME'S SHADER, i.e. while
-/// <c>[Water] OwnSurface</c> is off or the mod's bundle has not yielded its water shader. The
+/// <c>WaterSettings.OwnSurface</c> is off or the mod's bundle has not yielded its water shader. The
 /// shipped film carries a mod-owned material with no band of any kind on it.</para>
 /// </summary>
 internal static class WaterEdgeBand
