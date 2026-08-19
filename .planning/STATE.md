@@ -126,8 +126,30 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 164** (**BUNDLE CHANGED — 67,150,300 bytes, must be REINSTALLED**) — the water has a
-  surface now, and it is calm.
+- **ModBuild 165** (**BUNDLE CHANGED — 67,163,699 bytes, must be REINSTALLED**) — standing water,
+  and the geometry is finally there.
+  * **A log line hid a whole round, and it was a printing ORDER.** 164 printed `MESH SWAP: no film
+    mesh handled yet`, which reads as a diagnosis and was not one: the census ran *before* `Apply()`
+    and is capped to one emission, so that field could only print its own initialiser. **A line that
+    cannot say anything else is worse than no line** — it looks like evidence.
+  * **`33 verts / 0 tris` is the NON-READABLE signature.** Game assets are imported without
+    Read/Write, so `mesh.triangles` returns empty and the CPU subdivision could only ever refuse, on
+    every film, forever. `WaterSwellMesh.cs` deleted; **GPU tessellation** (`#pragma hull/domain`,
+    target 4.6) needs no CPU access at all. The culling pad moved to `Renderer.localBounds`.
+  * **The tessellation factor is FIXED, not distance-based** — a camera-derived factor subdivides
+    the same patch differently per MultiPass eye: stereo rivalry through the *geometry*.
+  * **Per-tile repetition was one coordinate.** The shader keyed off `uv + object world ORIGIN`,
+    which on a tile grid is identical per tile by construction; and the ripple repeated every 1.92 m
+    against a 1.998 m tile pitch. Now the interpolated **world XZ** everywhere. Irregularity comes
+    from four incommensurate standing components plus a large-scale calm modulation — **never a
+    per-quad seed**, which would draw a seam at every tile edge. `LatticeMismatch` scores it: 0.156
+    shipped vs 0.022 for 164.
+  * **The preview had been lying about the mesh** — it staged its own subdivided grids, which is why
+    the failed swap stayed invisible. It now stages the real 33-vertex hex. It also had an unlit
+    shader lookup returning null in batch mode and a far wall backface-culled in *every sheet it had
+    ever produced*.
+
+- **ModBuild 164** (bundle 67,150,300 bytes) — the water has a surface now, and it is calm.
   * **The 163 render SHOWED the streaks and they were rationalised as texture grain.** That is the
     round's real lesson and it is a process failure, not a coding one: *render it, then actually
     judge the frame against the complaint*. This build's contact sheet was judged frame by frame,

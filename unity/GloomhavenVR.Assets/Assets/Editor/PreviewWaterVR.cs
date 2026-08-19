@@ -1,57 +1,52 @@
 // GloomhavenVR companion project — the WaterVR CONTACT SHEET.
 //
-// Batch: Unity -batchmode -projectPath <this> -buildTarget Win64
+// Batch: xvfb-run -a Unity -batchmode -projectPath <this> -buildTarget Win64
 //        -executeMethod GloomhavenVR.WaterVRPreview.RenderAll -logFile water-preview.log
-//   IMPORTANT: run WITHOUT -nographics (rendering needs a graphics device); on a
-//   headless box wrap in `xvfb-run -a`. Output goes to $WATERVR_PREVIEW_OUT, or
-//   ./water-previews when that is unset.
+//   IMPORTANT: run WITHOUT -nographics (rendering needs a graphics device), and the device must
+//   support shader model 4.6 or the tessellated SubShader cannot be exercised at all — RenderAll
+//   says so in the log and in the frame names rather than quietly rendering the fallback.
+//   Output goes to $WATERVR_PREVIEW_OUT, or ./water-previews when that is unset.
 //
 // ============================================================================
 //  WHY THIS EXISTS, AND WHAT IT CAN AND CANNOT SETTLE
 // ============================================================================
-//  EnvironmentsPreview renders the mod's OWN Env_*.prefab shells. The water film
-//  is not one of those: it is the GAME's TERRAIN_Water_Plane, placed by
-//  Apparance inside a running scenario, and there is no game install on the
-//  build machine (checked — no bundle, no StreamingAssets, nothing but the
-//  managed DLLs). So the shipped surface cannot be rendered here.
+//  EnvironmentsPreview renders the mod's OWN Env_*.prefab shells. The water film is not one of
+//  those: it is the GAME's TERRAIN_Water_Plane, placed by Apparance inside a running scenario, and
+//  there is no game install on the build machine. So the shipped surface cannot be rendered here.
 //
-//  WHAT CAN. The shader is a pure function of its properties, and every property
-//  the driver writes is known: the hardware WATER SURFACE census read them off
-//  TERRAIN_GEN_WaterPlane_Crypt_Mat. So this stages the same MATERIAL on the same
-//  ARRANGEMENT of geometry — SEVENTEEN separate 1 m quads, which is exactly how
-//  many TERRAIN_Water_Plane instances the report's room holds and exactly how the
-//  game places them — and renders SEVERAL CANDIDATE SETTINGS at the SAME two
-//  instants of the shader clock, from a camera down at the water's own level.
-//  That answers, without a headset:
-//    * does the shader COMPILE and DRAW (a pink quad or an empty frame is the
-//      single most likely way a round like this is lost),
-//    * is the surface SLOW — the two instants are one second apart, so how far
-//      the pattern travels between two frames IS the speed, in quad widths,
-//    * does it have RELIEF — the grazing station puts the eye 15 cm above the
-//      water so a crest breaks the far rim's line, which is the one thing a
-//      top-down frame can never show and the one thing the last round got wrong,
-//    * is the film translucent over the floor rather than a lighter sheet on
-//      top of it (the ADDITIVE trap that would re-create the photographed
-//      defect out of the mod's own shader),
-//    * and — the one that no argument can replace — is the frame IDENTICAL when
-//      only the CAMERA moves. Two frames are taken from two different positions
-//      at the same clock; a view-dependent term would make the surface differ
-//      between them, which is the same difference the two eyes see under
-//      MultiPass.
+//  WHAT CAN. The shader is a pure function of its properties, and every property the driver writes
+//  is known: the hardware WATER SURFACE census read them off TERRAIN_GEN_WaterPlane_Crypt_Mat. So
+//  this stages the same MATERIAL on the same ARRANGEMENT of geometry and renders several candidate
+//  settings at the same instants of the shader clock.
 //
-//  WHAT IT CANNOT. The bump texture is NOT the game's. 'WaterBump' lives in the
-//  game's own bundles and is not on this machine, so a stand-in is synthesised
-//  below and every frame is named `_synthbump` to say so. The MOTION, the wave
-//  scale, the contrast, the calmness, the relief and the view-independence are
-//  all the shipped ones; the GRAIN of the fine ripple is not, and no judgement
-//  about the pattern's own texture may be read off these frames.
+// ============================================================================
+//  THE MESH IS THE ONE THE GAME SUPPLIES, AND THAT IS THE CHANGE THAT MATTERS
+// ============================================================================
+//  Through ModBuild 164 this harness staged its own 8x8 SUBDIVIDED grids, "because that is what the
+//  driver produces". The driver produced nothing of the kind: the mesh swap it relied on could never
+//  run, because the game imports its meshes without Read/Write and there is no index buffer to
+//  subdivide. A whole hardware round was lost to that, and it was invisible HERE because the
+//  preview had quietly staged the successful outcome of the step that was failing.
 //
-//  AND THE MESH IS AUTHORED HERE, which is a second honest difference. On
-//  hardware the film's mesh is the game's own, subdivided by
-//  Core/WaterSwellMesh.cs; the game's mesh is not on this machine either, so
-//  the quads below are built as grids directly. The SUBDIVISION DENSITY is the
-//  same 8x8 the driver's own ceiling produces for a 1 m quad, so the sampling of
-//  the swell is the shipped one even though the source quad is not.
+//  So the staged film is now the mesh the census actually measured:
+//
+//      FILM MESH: 'TERRAIN_Water_Plane' 33 verts / 0 tris,
+//                 local bounds centre (0,0.02,0) size (1.73,0,1.998)
+//
+//  — a hexagon 1.73 m across the flats and 1.998 m point to point, carrying exactly 33 vertices.
+//  The TOPOLOGY behind those 33 is not knowable from the log (the `0 tris` is Mesh.triangles
+//  refusing on a non-readable mesh, not a count), so HexFilm below builds the COARSEST plausible
+//  reading: one centre vertex and 32 around the rim, fanned into 32 triangles. If the game's mesh
+//  is a grid instead it is finer than this, so every judgement about whether the relief READS is a
+//  lower bound. Staging a finer guess would repeat exactly the mistake this file is correcting.
+//
+// ============================================================================
+//  WHAT IT CANNOT
+// ============================================================================
+//  The bump texture is NOT the game's. 'WaterBump' lives in the game's own bundles and is not on
+//  this machine, so a stand-in is synthesised below and every frame is named `_synthbump` to say
+//  so. The MOTION, the wave scale, the contrast, the calmness, the relief and the view-independence
+//  are all the shipped ones; the GRAIN of the fine ripple is not.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -67,11 +62,10 @@ namespace GloomhavenVR
         private const int W = 1280, H = 720;
 
         // ---- the authored material, read off the hardware WATER SURFACE census of
-        //      TERRAIN_GEN_WaterPlane_Crypt_Mat on VFX/Water_Shd_Trans. These are the same
-        //      numbers src/GloomhavenVR/Core/WaterOwnSurface.cs carries as its measured
-        //      fallbacks; they are repeated here rather than shared because this project does
-        //      not reference the mod's assembly, and check-mirrors.sh is not watching a Unity
-        //      editor script. If they ever disagree, WaterOwnSurface is the authority.
+        //      TERRAIN_GEN_WaterPlane_Crypt_Mat on VFX/Water_Shd_Trans. These are the same numbers
+        //      src/GloomhavenVR/Core/WaterOwnSurface.cs carries as its measured fallbacks; they are
+        //      repeated here rather than shared because this project does not reference the mod's
+        //      assembly. If they ever disagree, WaterOwnSurface is the authority.
         private static readonly Vector4 Tilings = new Vector4(0.14f, 6.00f, -0.12f, -0.20f);
         private static readonly Vector4 SpeedA = new Vector4(1.00f, 1.00f, 0.60f, 0f);
         private static readonly Vector4 SpeedB = new Vector4(0.50f, 1.00f, 1.00f, 0f);
@@ -83,20 +77,33 @@ namespace GloomhavenVR
 
         // WaterOwnSurface's own constants, mirrored for the reason above.
         private const float AnisoTame = 0.70f;
-        private const float SwellWavelength = 1.1f;
-        private const float SwellSpeed = 0.20f;
+        private const float SwellWavelength = 2.4f;
+        private const float SwellDriftSpeed = 0.02f;
+        private const float SwellPeriod = 1.1f;
+        private const float SwellCalmDepth = 0.75f;
+        private const float RippleSwayPeriodA = 13f;
+        private const float RippleSwayPeriodB = 17f;
+        private const float RippleDriftShare = 0.25f;
         private const float MaxSwellAmplitude = 0.06f;
-        private const float QuadWidth = 1.0f;
+        private const float TessellationFactor = 4f;
 
-        // The live _Smoothness on hardware: the game authors 0.754 and the driver's reflection
-        // cap brings it down to this, which is the value the glint exponent must be judged at.
+        // The film's measured footprint and the lattice the game lays it out on. A pointy-top hex
+        // 1.73 m across the flats tiles at 1.73 in x, 0.75 x 1.998 in z, with alternate rows offset
+        // half a width — which is exactly how these 17 quads sit in the report's room and is what
+        // makes "does the pattern repeat tile for tile" a question this sheet can answer.
+        private const float HexFlats = 1.73f;
+        private const float HexPoints = 1.998f;
+        private const int HexRimVerts = 32;   // + 1 centre = the 33 the census counted
+
+        // The live _Smoothness on hardware: the game authors 0.754 and the driver's reflection cap
+        // brings it down to this, which is the value the glint exponent must be judged at.
         private const float Smoothness = 0.219f;
 
         private static readonly Vector4 LightLocal =
             new Vector4(0.34f, 0.22f, 0.91f, 0f).normalized;
 
-        /// <summary>One column of the contact sheet: everything the four dials and the two
-        /// constants resolve to, named so a frame says which settings produced it.</summary>
+        /// <summary>One column of the contact sheet: everything the dials resolve to, named so a
+        /// frame says which settings produced it.</summary>
         private struct Candidate
         {
             public string Name;
@@ -106,75 +113,139 @@ namespace GloomhavenVR
             public float SwellHeight;    // [Water] SwellHeight, a fraction of the quad's width
             public float WaveShade;      // the shader's own body-shading depth
             public float RippleStrength; // WaterOwnSurface.NormalStrength's output
-            /// <summary>True for the ModBuild 163 reference column: the authored tilings
-            /// untamed, the two layers at equal weight, and the drift rates converted so that
-            /// the surface moves at the speed that build ACTUALLY produced on screen.</summary>
-            public bool AsReported;
+
+            /// <summary>Force the LOD 100 SubShader, i.e. NO tessellation. True for the ModBuild
+            /// 164 reference column (which shipped with no added geometry at all, because its mesh
+            /// swap could not run) and for the geometry A/B.</summary>
+            public bool NoTessellation;
+
+            /// <summary>The ModBuild 164 reference column: the swell at ITS wavelength and
+            /// amplitude, the ripple as a pure one-way DRIFT at its rate, and the large-scale calm
+            /// modulation switched off — i.e. every property of that build's look that the user was
+            /// judging when he wrote "Es fließt noch viel zu schnell" and "bei jedem tile
+            /// identisch".</summary>
+            public bool AsReported164;
+
+            /// <summary>ModBuild 164's swell numbers, written straight onto the shader so the
+            /// reference column is that build's SURFACE rather than that build's dials fed through
+            /// this build's constants. -1 leaves each one derived as usual. They have to be
+            /// overrides rather than a WaveScale: 164's WaveScale was 1, so borrowing that dial to
+            /// reach its 1.1 m swell would also have shrunk its ripple by more than half.</summary>
+            public float SwellWaveOverride;
+
+            /// <inheritdoc cref="SwellWaveOverride"/>
+            public float SwellDriftOverride;
+
+            /// <inheritdoc cref="SwellWaveOverride"/>
+            public float SwellPeriodOverride;
         }
 
         /// <summary>
-        /// The sheet. One recommended default, one calmer, one livelier — and the shipped
-        /// ModBuild 163 look as a reference column, because a candidate is only judged against
-        /// what the user was actually looking at when he wrote "extrem schnelle (und viele)
-        /// hektische weiße Streifen".
+        /// The sheet. The ModBuild 164 reference first, then the shipped ModBuild 165 defaults and
+        /// two neighbours, then the two A/B controls. A candidate is only judged against what the
+        /// user was actually looking at when he wrote the report.
         /// </summary>
         private static readonly Candidate[] Candidates =
         {
+            // THE REFERENCE. It reproduces ModBuild 164's SAMPLING (no tessellation — that build's
+            // mesh swap never ran), its SPEED (RippleSpeed 0.5 fed to a pure drift), its SCALE
+            // (SwellHeight 0.045, which clamped to the 6 cm ceiling) and its uniformity (no calm
+            // modulation). The one thing it cannot reproduce exactly is that 164's swell TRAVELLED
+            // where this one stands: that form was deleted, so at a single instant the field is the
+            // same shape and only its evolution between the two clocks differs. Everything the
+            // verdict was actually about is in the frame.
             new Candidate
             {
-                Name = "asreported163", WaveScale = 1f, RippleSpeed = 1f, Shimmer = 0.35f,
-                SwellHeight = 0f, WaveShade = 0.18f, RippleStrength = 1.2f, AsReported = true,
+                Name = "ref164", WaveScale = 1f, RippleSpeed = 0.5f,
+                Shimmer = 0.10f, SwellHeight = 0.045f, WaveShade = 0.35f, RippleStrength = 0.5f,
+                NoTessellation = true, AsReported164 = true,
+                // 1.1 m at 0.1 m/s was ModBuild 164's swell: one crest every 11 s. The drift
+                // carries the pattern bodily, which is what that build did and what "das ist kein
+                // Fluss" rejects; the 11 s period is its own crest interval, so the reference
+                // column changes at 164's rate as well as at 164's scale.
+                SwellWaveOverride = 1.1f, SwellDriftOverride = 0.1f, SwellPeriodOverride = 11f,
+            },
+            // THE SHIPPED DEFAULTS.
+            new Candidate
+            {
+                Name = "puddle", WaveScale = 1f, RippleSpeed = 0.12f, Shimmer = 0.05f,
+                SwellHeight = 0.014f, WaveShade = 0.35f, RippleStrength = 0.5f,
             },
             new Candidate
             {
-                Name = "calm", WaveScale = 1f, RippleSpeed = 0.5f, Shimmer = 0.10f,
-                SwellHeight = 0.045f, WaveShade = 0.35f, RippleStrength = 0.5f,
+                // WAVE SCALE STAYS AT 1 ON BOTH NEIGHBOURS. It is the one dial that moves the
+                // LATTICE MISMATCH — the preview log prints it per candidate — and 1.0 is the
+                // setting chosen for scoring best against the film lattice. A neighbour column that
+                // also changed the scale would be asking the user to judge calmness and tile
+                // repetition in the same frame.
+                Name = "stiller", WaveScale = 1f, RippleSpeed = 0.07f, Shimmer = 0.03f,
+                SwellHeight = 0.009f, WaveShade = 0.30f, RippleStrength = 0.35f,
             },
             new Candidate
             {
-                Name = "calmer", WaveScale = 1.6f, RippleSpeed = 0.3f, Shimmer = 0.05f,
-                SwellHeight = 0.025f, WaveShade = 0.26f, RippleStrength = 0.35f,
+                Name = "livelier", WaveScale = 1f, RippleSpeed = 0.20f, Shimmer = 0.08f,
+                SwellHeight = 0.020f, WaveShade = 0.40f, RippleStrength = 0.6f,
             },
+            // A/B ONE — THE RELIEF. The shipped column with the geometry switched off. The
+            // difference between this and 'puddle' is exactly what the displaced surface
+            // contributes, which is the question "wirklich 3D wellen" asks.
             new Candidate
             {
-                Name = "livelier", WaveScale = 0.7f, RippleSpeed = 0.8f, Shimmer = 0.18f,
-                SwellHeight = 0.05f, WaveShade = 0.42f, RippleStrength = 0.7f,
-            },
-            // THE A/B FOR THE SWELL ITSELF: the recommended column with the geometry switched
-            // off. Everything else is identical, so the difference between this frame and 'calm'
-            // is exactly what the displaced mesh contributes — which is the question "wirklich 3D
-            // wellen" asks, and the one a single frame of a single setting cannot answer.
-            new Candidate
-            {
-                Name = "calmflat", WaveScale = 1f, RippleSpeed = 0.5f, Shimmer = 0.10f,
+                Name = "puddleflat", WaveScale = 1f, RippleSpeed = 0.12f, Shimmer = 0.05f,
                 SwellHeight = 0f, WaveShade = 0.35f, RippleStrength = 0.5f,
+            },
+            // A/B TWO — THE TESSELLATOR. The shipped column, same amplitude, forced onto the
+            // LOD 100 SubShader. If this frame equals 'puddle' then the hull/domain stages did
+            // NOTHING and the round is ModBuild 164 again; if it differs, the GPU added geometry
+            // and the proof is a photograph rather than a claim.
+            new Candidate
+            {
+                Name = "puddlenotess", WaveScale = 1f, RippleSpeed = 0.12f, Shimmer = 0.05f,
+                SwellHeight = 0.014f, WaveShade = 0.35f, RippleStrength = 0.5f,
+                NoTessellation = true,
             },
         };
 
-        /// <summary>The two instants, ONE SECOND APART on purpose: at a drift measured in world
-        /// units per second, the distance the pattern moves between two frames is the speed in
-        /// metres, and every quad below is exactly one metre across to read it off against.</summary>
-        private static readonly float[] Clocks = { 0f, 1f };
+        /// <summary>The two instants. FOUR AND A HALF SECONDS APART, not one: the swell's longest
+        /// component takes 9 s to rise and fall, so half of that is the largest change the surface
+        /// ever makes and one second would show almost nothing. A separate t=1 frame of the
+        /// recommended column is taken at the grazing station for reading the SPEED off — the hex
+        /// is 1.73 m across the flats, so how far the pattern moves in a second is measurable
+        /// against it.</summary>
+        private static readonly float[] Clocks = { 0f, 4.5f };
 
-        /// <summary>The stations. BRIM and GRAZE are the measurement; the other two are controls.
+        /// <summary>The stations. All of them are set back for the real film size: seventeen hexes
+        /// 1.73 m across is a pool 8.6 m wide and 6 m deep, where ModBuild 164's harness staged
+        /// 1 m quads.
         ///
-        /// <para>BRIM puts the eye 6 cm above the undisturbed water and looks along it. At that
-        /// height a 4.5 cm crest is most of the eye's own elevation, so the near waves stand
-        /// against the stone beyond the pool and against the far wall — a crest BREAKING THE
-        /// HORIZON is a silhouette, and a silhouette is the only proof of relief a still frame can
-        /// carry. It is not a seat anybody sits in; it is the shot that cannot be argued with.</para>
+        /// <para>BRIM puts the eye 7 cm above the undisturbed water and looks along it. At that
+        /// height a 2.6 cm crest is a third of the eye's own elevation, so the near waves stand
+        /// against the stone beyond the pool — a crest BREAKING THE HORIZON is a silhouette, and a
+        /// silhouette is the only proof of relief a still frame can carry.</para>
         ///
-        /// <para>GRAZE is a player leaning right down over the pool, 45 cm above it. STAND is the
-        /// ordinary standing view at 1.6 m, which is where the verdict "das sieht ruhig aus" or
-        /// "das tickt aus" is actually formed. STEEP is the view-independence control: same clock,
-        /// different camera, and any difference between it and the others is a term that would
-        /// differ between the two MultiPass eyes.</para></summary>
+        /// <para>GRAZE is a player leaning down over the pool. STAND is the ordinary standing view,
+        /// which is where the verdict "das sieht ruhig aus" is actually formed. STEEP is the
+        /// view-independence control: same clock, different camera, and any difference between it
+        /// and the others is a term that would differ between the two MultiPass eyes.</para>
+        ///
+        /// <para>WIDE is new and it answers (b) directly: high and back, looking down the whole
+        /// pool, so five hexes across and five rows deep are in one frame. If the field repeated
+        /// tile for tile it would be unmissable here and nowhere else.</para></summary>
         private static readonly (string Name, Vector3 Pos, Vector3 Look)[] Stations =
         {
-            ("brim", new Vector3(0f, 0.07f, -2.60f), new Vector3(0f, 0.035f, 0.80f)),
-            ("graze", new Vector3(0f, 0.45f, -3.20f), new Vector3(0f, 0f, 0.40f)),
-            ("stand", new Vector3(0f, 1.60f, -3.40f), new Vector3(0f, 0f, 0.30f)),
-            ("steep", new Vector3(0f, 2.60f, -1.10f), new Vector3(0f, 0f, 0.20f)),
+            // THE FIRST FOUR STAND AT THE POOL'S NEAR EDGE, not back from it. The first render of
+            // this sheet put them 5 m away from a pool 8.6 m wide, and every column came back
+            // near-featureless for the same reason a lake looks flat from a hill: at that distance
+            // one pixel averages half a metre of water and a 3.6 cm crest has nothing left to be.
+            // The nearest hex now fills the lower third of the frame, which is where the verdict is
+            // actually formed — the player is at the table, not across the room.
+            ("brim", new Vector3(0f, 0.07f, -4.20f), new Vector3(0f, 0.045f, 2.00f)),
+            ("graze", new Vector3(0f, 0.35f, -4.40f), new Vector3(0f, 0f, -0.60f)),
+            ("stand", new Vector3(0f, 1.60f, -5.00f), new Vector3(0f, 0f, -0.50f)),
+            ("steep", new Vector3(1.60f, 2.20f, -3.40f), new Vector3(0f, 0f, -0.80f)),
+            // ...and WIDE keeps its distance on purpose: it is the frame for question (b), where
+            // seeing all nineteen tiles at once is the whole point.
+            ("wide", new Vector3(0f, 5.00f, -6.60f), new Vector3(0f, 0f, 0.20f)),
         };
 
         public static void RenderAll()
@@ -206,20 +277,43 @@ namespace GloomhavenVR
             if (shader == null)
                 throw new Exception($"{ShaderPath} did not load as a Shader.");
             // A shader that fails to compile still LOADS; `isSupported` is what says whether the
-            // graphics device got a usable program out of it. Checking it here turns the single
-            // most likely way this round is lost — a compile error nobody read out of a 7000-line
-            // batch log — into an exit code.
+            // graphics device got a usable program out of it. Checking it here turns the single most
+            // likely way this round is lost — a compile error nobody read out of a batch log — into
+            // an exit code.
             if (!shader.isSupported)
                 throw new Exception(
                     $"'{shader.name}' loaded but is NOT SUPPORTED on this device: it failed to "
                     + "compile. The shader errors are earlier in this log.");
+
+            // WHETHER THE TESSELLATED SUBSHADER IS EVEN REACHABLE HERE. If this device is below
+            // shader model 4.6 then every "tessellated" frame below is silently the LOD 100
+            // fallback, the A/B proves nothing, and the sheet must say so in as many words rather
+            // than be read as a pass. This is the same reading the runtime driver logs on hardware.
+            bool canTessellate = SystemInfo.graphicsShaderLevel >= 46;
+            Debug.Log(
+                "[GloomhavenVR][WaterPreview] device: " + SystemInfo.graphicsDeviceType
+                + " '" + SystemInfo.graphicsDeviceName + "' shaderLevel "
+                + SystemInfo.graphicsShaderLevel
+                + (canTessellate
+                    ? " — the TESSELLATED SubShader (LOD 300) is reachable, so the *_notess A/B is "
+                      + "a real comparison"
+                    : " — BELOW 46: THIS DEVICE CANNOT RUN THE TESSELLATED SubShader. Every frame "
+                      + "in this sheet is the LOD 100 fallback and the flat-vs-tessellated A/B is "
+                      + "MEANINGLESS. Do not read relief off these frames."));
 
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             BuildBasin();
             Material water = new Material(shader) { name = "WaterVRPreview" };
             Texture2D bump = SynthBump();
-            BuildWaterField(water);
+            Mesh film = HexFilm();
+            Debug.Log(
+                $"[GloomhavenVR][WaterPreview] staged film mesh '{film.name}': {film.vertexCount} "
+                + $"verts / {film.triangles.Length / 3} tris, local bounds size {film.bounds.size} "
+                + "(the census measured 33 verts over (1.73, 0, 1.998); the padded bounds are the "
+                + "driver's own Renderer.localBounds pad reproduced on the mesh, because this "
+                + "harness has no driver to write it)");
+            BuildWaterField(water, film);
 
             var camGo = new GameObject("WaterPreviewCam");
             var cam = camGo.AddComponent<Camera>();
@@ -229,10 +323,9 @@ namespace GloomhavenVR
             cam.nearClipPlane = 0.03f;
             cam.farClipPlane = 100f;
 
-            // ARGBHalf and a manual gamma encode, for the reason EnvironmentsPreview gives: an
-            // 8-bit LINEAR target quantises at 1/255 linear, which after the encode is a first
-            // step of 18/255, and every soft gradient arrives as contour bands that are not on
-            // the headset.
+            // ARGBHalf and a manual gamma encode: an 8-bit LINEAR target quantises at 1/255 linear,
+            // which after the encode is a first step of 18/255, and every soft gradient arrives as
+            // contour bands that are not on the headset.
             var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGBHalf,
                                        RenderTextureReadWrite.Linear);
             var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
@@ -256,61 +349,66 @@ namespace GloomhavenVR
 
             // ================================================== ONE CLOCK FOR EVERY COLUMN ==
             // The shader reads `_Time.y + _GhvrTimeOfs`, so a sheet meant to compare candidates
-            // depends on _Time.y being the SAME for every frame in the batch. MEASURED, not
-            // assumed: the first frame is rendered a second time as the very LAST frame of the
-            // run, under the same name + "_ctrl", and the two came back byte-identical (mean
-            // absolute difference 0.0 over 1280x720x3) — so _Time.y does not advance across
-            // Camera.Render calls in batch mode and the offset alone IS the instant.
+            // depends on _Time.y being the SAME for every frame in the batch. MEASURED, not assumed:
+            // the first frame is rendered a second time as the very LAST frame of the run, under the
+            // same name + "_ctrl", and the two came back byte-identical — so _Time.y does not
+            // advance across Camera.Render calls in batch mode and the offset alone IS the instant.
             //
             // The control frame stays in the sheet. A future Unity that ran the clock would make
-            // every comparison here meaningless, and that is a thing to find out from a diff
-            // rather than from an argument: an earlier draft of this file "corrected" for a
-            // drifting clock by subtracting Time.realtimeSinceStartup, and the control frame is
-            // what proved the correction was itself the drift (1.19 mean, 36 peak).
+            // every comparison here meaningless, and that is a thing to find out from a diff rather
+            // than from an argument.
             void SetClock(float t) => Shader.SetGlobalFloat("_GhvrTimeOfs", t);
 
             foreach (Candidate c in Candidates)
             {
                 ApplyCandidate(water, bump, c);
+                // FORCING THE SUBSHADER is how the geometry A/B is made provable: LOD 200 excludes
+                // the tessellated SubShader (LOD 300) and leaves only the plain one (LOD 100).
+                shader.maximumLOD = c.NoTessellation ? 200 : 600;
+
                 foreach (float t in Clocks)
                 {
                     SetClock(t);
-                    Shoot($"watervr_synthbump_{c.Name}_graze_t{Mathf.RoundToInt(t * 100f):D3}",
+                    string stamp = $"t{Mathf.RoundToInt(t * 100f):D3}";
+                    Shoot($"watervr_synthbump_{c.Name}_graze_{stamp}",
                           Stations[1].Pos, Stations[1].Look);
+                    Shoot($"watervr_synthbump_{c.Name}_brim_{stamp}",
+                          Stations[0].Pos, Stations[0].Look);
                 }
-                // ...and the silhouette shot, at the first instant only: it answers a question
-                // about SHAPE, and the same shape one second later answers it twice.
+                // ...and the wide shot, which is the frame that answers "bei jedem tile identisch".
                 SetClock(Clocks[0]);
-                Shoot($"watervr_synthbump_{c.Name}_brim_t000", Stations[0].Pos, Stations[0].Look);
+                Shoot($"watervr_synthbump_{c.Name}_wide_t000", Stations[4].Pos, Stations[4].Look);
                 Shoot($"watervr_synthbump_{c.Name}_stand_t000", Stations[2].Pos, Stations[2].Look);
             }
 
-            // ---- the recommended column from the other two stations. SEAT is what the player
-            //      actually sits at; STEEP is the view-independence control, and it is a
-            //      MEASUREMENT: the same water at the same instant from somewhere else.
+            // ---- the recommended column from the view-independence control station, and at ONE
+            //      SECOND, which is where the drift rate can be read off against a 1.73 m hex.
             Candidate rec = Candidates[1];
             ApplyCandidate(water, bump, rec);
-            SetClock(Clocks[0]);
-            Shoot($"watervr_synthbump_{rec.Name}_stand_t000", Stations[2].Pos, Stations[2].Look);
+            shader.maximumLOD = 600;
             SetClock(Clocks[0]);
             Shoot($"watervr_synthbump_{rec.Name}_steep_t000", Stations[3].Pos, Stations[3].Look);
+            SetClock(1f);
+            Shoot($"watervr_synthbump_{rec.Name}_graze_t100", Stations[1].Pos, Stations[1].Look);
 
-            // ---- the FALLBACK path, which is what is on screen when the game material carries
-            //      no readable normal map. It has to move too; a still film there would be
+            // ---- the FALLBACK ripple path, which is what is on screen when the game material
+            //      carries no readable normal map. It has to move too; a still film there would be
             //      ModBuild 162's flat sheet arrived at silently.
             water.SetFloat("_ProcNormal", 1f);
             SetClock(Clocks[0]);
             Shoot($"watervr_procfallback_{rec.Name}_graze_t000", Stations[1].Pos, Stations[1].Look);
             water.SetFloat("_ProcNormal", 0f);
 
-            // ---- THE CLOCK CONTROL. Same candidate, same station, same instant as the very
-            //      first frame of the sheet; `compare` it against that frame.
+            // ---- THE CLOCK CONTROL. Same candidate, same station, same instant as the very first
+            //      frame of the sheet; `compare` it against that frame.
             ApplyCandidate(water, bump, Candidates[0]);
+            shader.maximumLOD = Candidates[0].NoTessellation ? 200 : 600;
             SetClock(Clocks[0]);
             Shoot($"watervr_synthbump_{Candidates[0].Name}_graze_t000_ctrl",
                   Stations[1].Pos, Stations[1].Look);
 
             Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+            shader.maximumLOD = 600;
             cam.targetTexture = null;
             RenderTexture.active = null;
             rt.Release();
@@ -318,9 +416,9 @@ namespace GloomhavenVR
 
         /// <summary>
         /// Write ONE candidate onto the film material, doing exactly the arithmetic
-        /// <c>WaterOwnSurface</c> does at runtime — the tame, the weights, the drift resolution
-        /// and the swell — so a frame here is a frame of the shipped resolution and not of a set
-        /// of numbers chosen for a picture.
+        /// <c>WaterOwnSurface</c> and the driver do at runtime — the tame, the weights, the rate
+        /// resolution, the swell and the period division — so a frame here is a frame of the shipped
+        /// resolution and not of a set of numbers chosen for a picture.
         /// </summary>
         private static void ApplyCandidate(Material m, Texture bump, Candidate c)
         {
@@ -337,45 +435,60 @@ namespace GloomhavenVR
             m.SetFloat("_SrcBlend", 5f);      // SrcAlpha
             m.SetFloat("_DstBlend", 10f);     // OneMinusSrcAlpha
             m.renderQueue = 2900;             // the authored queue
+            m.SetFloat("_TessFactor", TessellationFactor);
 
             m.SetFloat("_Shimmer", c.Shimmer);
             m.SetFloat("_WaveShade", c.WaveShade);
             m.SetFloat("_NormalStrength", c.RippleStrength);
 
-            Vector4 tiling = c.AsReported ? Tilings : Tame(Tilings, c.WaveScale);
-            Vector4 weights = c.AsReported
-                ? new Vector4(1f, 1f, 0f, 0f)   // ModBuild 163 added both layers at full amplitude
-                : Weights(tiling);
+            Vector4 tiling = Tame(Tilings, c.WaveScale);
+            Vector4 weights = Weights(tiling);
             m.SetVector("_NormalTilings", tiling);
             m.SetVector("_LayerWeights", weights);
 
             Vector4 rateA = Resolve(SpeedA, c.RippleSpeed);
             Vector4 rateB = Resolve(SpeedB, c.RippleSpeed);
-            if (c.AsReported)
-            {
-                // ModBuild 163 added the drift AFTER the tiling, so its rate meant texture
-                // repeats per second and the speed on screen was rate/tiling. Dividing by the
-                // tiling reproduces THAT surface exactly under the shipped shader, which is what
-                // makes this column a fair reference instead of a straw man.
-                rateA = new Vector4(rateA.x / Tilings.x, rateA.y / Tilings.y, 0f, 0f);
-                rateB = new Vector4(rateB.x / Tilings.z, rateB.y / Tilings.w, 0f, 0f);
-            }
             m.SetVector("_WaterUVAnimSpeedA", rateA);
             m.SetVector("_WaterUVAnimSpeedB", rateB);
 
-            float amp = Mathf.Clamp(QuadWidth * c.SwellHeight, 0f, MaxSwellAmplitude);
+            float speedDial = Mathf.Max(c.RippleSpeed, 0f);
+            float inv = 1f / Mathf.Max(speedDial, 0.01f);
+            // THE REFERENCE COLUMN'S RIPPLE IS A PURE ONE-WAY DRIFT, because that is what ModBuild
+            // 164 shipped and it is half of "es fließt noch viel zu schnell". Everything else sways.
+            float driftShare = c.AsReported164 ? 1f : RippleDriftShare;
+            // THE DIAL DOES NOT DIVIDE THE SWAY PERIOD — it already scales the rate, which is the
+            // speed. Dividing the rhythm as well squares the effect, and that is exactly the bug
+            // the first run of this sheet caught: a swell logged as bobbing once every 75 seconds.
+            m.SetVector("_RippleSway", new Vector4(
+                RippleSwayPeriodA, RippleSwayPeriodB, driftShare, 0f));
+
+            float width = Mathf.Max(HexFlats, HexPoints);
+            float amp = Mathf.Clamp(width * c.SwellHeight, 0f, MaxSwellAmplitude);
             m.SetFloat("_SwellAmp", amp);
-            m.SetFloat("_SwellWave", SwellWavelength * c.WaveScale);
-            m.SetFloat("_SwellSpeed", SwellSpeed * c.WaveScale * c.RippleSpeed);
+            float swellWave = c.SwellWaveOverride > 0f
+                ? c.SwellWaveOverride : SwellWavelength * c.WaveScale;
+            float swellDrift = c.SwellDriftOverride > 0f
+                ? c.SwellDriftOverride : SwellDriftSpeed * c.WaveScale * speedDial;
+            float swellPeriod = c.SwellPeriodOverride > 0f
+                ? c.SwellPeriodOverride
+                : SwellPeriod * Mathf.Sqrt(Mathf.Max(c.WaveScale, 0.01f)) * inv;
+            m.SetFloat("_SwellWave", swellWave);
+            m.SetFloat("_SwellSpeed", swellDrift);
+            m.SetFloat("_SwellPeriod", swellPeriod);
+            m.SetFloat("_SwellCalm", c.AsReported164 ? 0f : SwellCalmDepth);
 
             Debug.Log(
-                $"[GloomhavenVR][WaterPreview] candidate '{c.Name}': tilings {tiling} "
-                + $"(= one repeat every {Wave(tiling.x)} x {Wave(tiling.y)} m and "
-                + $"{Wave(tiling.z)} x {Wave(tiling.w)} m), weights {weights.x:0.###}/"
-                + $"{weights.y:0.###}, drift A {rateA.x:0.###},{rateA.y:0.###} and B "
-                + $"{rateB.x:0.###},{rateB.y:0.###} world units/s, swell {amp:0.###} m at "
-                + $"{SwellWavelength * c.WaveScale:0.##} m / "
-                + $"{SwellSpeed * c.WaveScale * c.RippleSpeed:0.###} m/s, shimmer {c.Shimmer:0.##} "
+                $"[GloomhavenVR][WaterPreview] candidate '{c.Name}'"
+                + (c.NoTessellation ? " [LOD 100, NO TESSELLATION]" : " [LOD 300, tessellated x"
+                                                                      + TessellationFactor + "]")
+                + $": tilings {tiling} (= one repeat every {Wave(tiling.x)} x {Wave(tiling.y)} m "
+                + $"and {Wave(tiling.z)} x {Wave(tiling.w)} m), weights {weights.x:0.###}/"
+                + $"{weights.y:0.###}, ripple rate A {rateA.x:0.####},{rateA.y:0.####} world "
+                + $"units/s peak of which {driftShare * 100f:0}% is one-way drift, swell "
+                + $"{amp:0.####} m peak, longest component {swellWave:0.##} m bobbing once every "
+                + $"{swellPeriod:0.#} s, trace drift {swellDrift:0.####} m/s, calm "
+                + $"{(c.AsReported164 ? 0f : SwellCalmDepth):0.##}, lattice mismatch "
+                + $"{LatticeMismatch(swellWave):0.###} cycles, shimmer {c.Shimmer:0.##}, "
                 + $"exponent {Mathf.Lerp(1f, 8f, Smoothness):0.##}");
         }
 
@@ -415,9 +528,7 @@ namespace GloomhavenVR
             return new Vector4(fb / sum, fa / sum, 0f, 0f);
         }
 
-        /// <summary>WaterOwnSurface.ScrollRate, mirrored: .xy is the per-axis rate, .z a
-        /// per-layer multiplier, _WaterNoiseSpeed.x the shared clock scale, and the dial on
-        /// top.</summary>
+        /// <summary>WaterOwnSurface.ScrollRate, mirrored.</summary>
         private static Vector4 Resolve(Vector4 speed, float dial)
         {
             float layer = speed.z > 0f ? speed.z : 1f;
@@ -426,20 +537,40 @@ namespace GloomhavenVR
             return new Vector4(speed.x * k, speed.y * k, 0f, 0f);
         }
 
+        /// <summary>WaterOwnSurface.LatticeMismatch, mirrored — printed per candidate so the log
+        /// says how far each setting is from drawing the same figure on every tile.</summary>
+        private static float LatticeMismatch(float wavelength)
+        {
+            float[] ratios = { 1f, 0.618034f, 0.414214f, 0.267949f };
+            float[] degrees = { 17f, 103f, 61f, 148f };
+            Vector2[] lattice = { new Vector2(HexFlats, 0f), new Vector2(0f, HexPoints) };
+            float worst = 1f;
+            foreach (Vector2 v in lattice)
+                for (int i = 0; i < ratios.Length; i++)
+                {
+                    float rad = degrees[i] * Mathf.Deg2Rad;
+                    float cycles = Vector2.Dot(new Vector2(Mathf.Cos(rad), Mathf.Sin(rad)), v)
+                                   / (wavelength * ratios[i]);
+                    worst = Mathf.Min(worst, Mathf.Abs(cycles - Mathf.Round(cycles)));
+                }
+            return worst;
+        }
+
         /// <summary>
         /// The basin: a flat unlit checker bed under the film, and a low rim of the same stone
         /// BEYOND the pool so the water has something to be a silhouette against.
         ///
-        /// <para>IT IS A CHECKER ON PURPOSE. The film is transparent, and two of the failures
-        /// worth catching are about what is UNDER it: an additive blend would make the water
-        /// LIGHTER than the stone (the photographed defect), and a film that hid the floor
-        /// entirely would mean the alpha cap never landed. A flat colour would hide both; a
-        /// pattern you can read through the water shows them at a glance.</para>
+        /// <para>IT IS A CHECKER ON PURPOSE. The film is transparent, and two of the failures worth
+        /// catching are about what is UNDER it: an additive blend would make the water LIGHTER than
+        /// the stone (the photographed defect), and a film that hid the floor entirely would mean
+        /// the alpha cap never landed. A flat colour would hide both.</para>
         ///
-        /// <para>THE FAR WALL IS THE HORIZON. From the grazing station the pool's far edge cuts
-        /// across the stone behind it, so a crest that rises above that line is visible AS a
-        /// silhouette — which is the only way a still frame can show relief, and the thing the
-        /// last round's top-down render could not have shown however long anyone looked at it.</para>
+        /// <para>THE BED IS NINE CENTIMETRES DOWN, because that is what the hardware FLOOR CENSUS
+        /// measured: the film at y[0.0..0.0] with TERRAIN_Crypt_Water_02_Base at y[-0.34..-0.09]
+        /// directly beneath it. THIS DEPTH IS PART OF THE TEST. An earlier draft left the bed 3 cm
+        /// down and the first swell render came back with a scatter of small holes in the pool — the
+        /// troughs reaching BELOW the bed, where ZTest LEqual rejects them. That is exactly the
+        /// collision WaterOwnSurface.MaxSwellAmplitude is set against.</para>
         /// </summary>
         private static void BuildBasin()
         {
@@ -451,107 +582,160 @@ namespace GloomhavenVR
             for (int y = 0; y < 64; y++)
                 for (int x = 0; x < 64; x++)
                 {
+                    // A GENTLER CHECKER THAN THE FIRST DRAFT'S 0.34/0.22. The film is 45% opaque,
+                    // so a high-contrast bed reads THROUGH it and swamps the water's own shading,
+                    // which varies by a few percent — the first render of this sheet was a
+                    // photograph of a chessboard with a green filter on it. The pattern still has
+                    // to be legible, because seeing the floor through the water is what proves the
+                    // blend is not additive.
                     bool a = ((x / 8) + (y / 8)) % 2 == 0;
-                    float v = a ? 0.34f : 0.22f;
+                    float v = a ? 0.30f : 0.245f;
                     tex.SetPixel(x, y, new Color(v, v * 0.96f, v * 0.90f, 1f));
                 }
             tex.Apply();
 
             var mat = new Material(Shader.Find("Unlit/Texture"));
             mat.mainTexture = tex;
-            mat.mainTextureScale = new Vector2(9f, 9f);
+            mat.mainTextureScale = new Vector2(16f, 16f);
 
             var floor = GameObject.CreatePrimitive(PrimitiveType.Quad);
             floor.name = "BasinBed";
-            // NINE CENTIMETRES under the film, because that is what the hardware FLOOR CENSUS
-            // measured: the film at y[0.0..0.0] with TERRAIN_Crypt_Water_02_Base at
-            // y[-0.34..-0.09] directly beneath it. THIS DEPTH IS PART OF THE TEST. An earlier
-            // draft left the bed 3 cm down, and the first swell render came back with a scatter of
-            // small holes in the pool — the troughs (3.5 cm at the time) reaching BELOW the bed, where ZTest
-            // LEqual rejects them. That is exactly the collision WaterOwnSurface.MaxSwellAmplitude
-            // is set against, and with the bed at the measured depth it cannot happen: 6 cm of
-            // ceiling under 9 cm of clearance.
             floor.transform.position = new Vector3(0f, -0.09f, 0f);
             floor.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
-            floor.transform.localScale = new Vector3(9f, 9f, 1f);
+            floor.transform.localScale = new Vector3(16f, 16f, 1f);
             floor.GetComponent<MeshRenderer>().sharedMaterial = mat;
+
+            // THE FAR WALL IS THE HORIZON, and it is built on the SAME Unlit/Texture shader as the
+            // bed rather than on Unlit/Color. Unlit/Color did not resolve in batch mode — the first
+            // two renders of this sheet had no wall at all, so the brim station was a silhouette
+            // shot against an empty black background and could not have shown a crest breaking a
+            // skyline however long anyone looked at it. Shader.Find returning null gives a material
+            // that renders NOTHING and says nothing about it, which is the same class of silent
+            // failure this whole round is about.
+            var wallTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+            wallTex.SetPixel(0, 0, new Color(0.26f, 0.26f, 0.29f, 1f));
+            wallTex.Apply();
+            var wallMat = new Material(Shader.Find("Unlit/Texture"));
+            if (wallMat.shader == null)
+                throw new Exception("Unlit/Texture did not resolve — the sheet has no horizon.");
+            wallMat.mainTexture = wallTex;
 
             var wall = GameObject.CreatePrimitive(PrimitiveType.Quad);
             wall.name = "FarWall";
-            wall.transform.position = new Vector3(0f, 1.2f, 4.6f);
-            wall.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
-            wall.transform.localScale = new Vector3(14f, 2.4f, 1f);
-            var wallMat = new Material(Shader.Find("Unlit/Color"));
-            wallMat.color = new Color(0.10f, 0.10f, 0.12f, 1f);
+            wall.transform.position = new Vector3(0f, 1.2f, 6.0f);
+            // NO ROTATION. Unity's Quad primitive has its normal along -Z, so it already faces the
+            // cameras, which all stand at negative z. The Euler(0,180,0) that used to be here turned
+            // it AWAY from them and it was backface-culled in every frame of every sheet this file
+            // has ever produced — which is the second silent-nothing of this round, in the very
+            // instrument built to catch the first.
+            wall.transform.localScale = new Vector3(22f, 2.4f, 1f);
             wall.GetComponent<MeshRenderer>().sharedMaterial = wallMat;
         }
 
         /// <summary>
-        /// SEVENTEEN separate 1 m quads on a hex lattice, which is what the game places: the
-        /// report's room holds 17 TERRAIN_Water_Plane instances, each with its own transform and
-        /// its own UV running 0..1 across itself. One big quad would stretch the ripple over five
-        /// metres and every judgement about its scale would be wrong by a factor of five.
+        /// NINETEEN separate hexes on the lattice the game lays them out on. The report's room holds
+        /// 17 TERRAIN_Water_Plane instances; this stages a closed 3-4-5-4-3 patch instead, because
+        /// the ROW PARITY is what makes hexes meet edge to edge and a 2-4-5-4-2 patch has two
+        /// half-offset rows in a row. The first render of this sheet showed exactly that as ragged
+        /// gaps between the top rows, which would have been read as something wrong with the film.
         ///
-        /// <para>THE ROWS ARE OFFSET HALF A STEP, like brickwork and like the hex rows the game
-        /// lays these out in, so that no two quads share a UV origin. The shipped shader keys both
-        /// the ripple and the swell on WORLD position, so per-quad repetition cannot arise either
-        /// way — but a preview on a lattice where every quad sat at the same offset would hide a
-        /// whole class of repetition bug if that ever stopped being true. The rows are a full metre
-        /// apart rather than a hex row's 0.866: square quads at 0.866 OVERLAP, and two transparent
-        /// films over each other are twice the opacity, which would be read off these frames as a
-        /// look rather than as a staging mistake.</para>
-        ///
-        /// <para>EACH QUAD IS A GRID, not two triangles. The swell displaces vertices, and four
-        /// corners cannot carry a wave; on hardware the driver subdivides the game's own mesh to
-        /// an edge of about 12 cm, so these are built at the 8x8 that produces. Their bounds are
-        /// padded by the swell's ceiling for the same reason the driver pads: Unity culls against
-        /// the mesh's bounds and a crest outside them vanishes — one eye first, under
-        /// MultiPass.</para>
+        /// <para>THE LATTICE IS THE MEASUREMENT, NOT A CONVENIENCE. A pointy-top hexagon 1.73 m
+        /// across the flats and 1.998 m point to point tiles at 1.73 in x and 0.75 x 1.998 = 1.4985
+        /// in z, with alternate rows offset half a width. Those two numbers are exactly what
+        /// WaterOwnSurface.LatticeMismatch is computed against, so the WIDE frame of this sheet is a
+        /// direct test of the claim that the field cannot repeat tile for tile — with the hexes
+        /// meeting edge to edge, a per-tile figure has nowhere to hide.</para>
         /// </summary>
-        private static void BuildWaterField(Material water)
+        private static void BuildWaterField(Material water, Mesh film)
         {
-            Mesh grid = GridQuad(8);
             var root = new GameObject("WaterFilm");
-            int[] counts = { 2, 4, 5, 4, 2 };   // 17
+            int[] counts = { 3, 4, 5, 4, 3 };   // 19, and every row's parity alternates
+            const float stepX = HexFlats;
+            const float stepZ = HexPoints * 0.75f;
             for (int row = 0; row < counts.Length; row++)
             {
                 int n = counts[row];
-                float z = (row - 2) * 1.0f;
+                float z = (row - 2) * stepZ;
                 for (int i = 0; i < n; i++)
                 {
-                    float x = (i - (n - 1) * 0.5f) * 1.0f;
+                    float x = (i - (n - 1) * 0.5f) * stepX;
                     var q = new GameObject($"TERRAIN_Water_Plane_{row}_{i}");
                     q.transform.SetParent(root.transform, false);
                     q.transform.position = new Vector3(x, 0f, z);
-                    q.AddComponent<MeshFilter>().sharedMesh = grid;
+                    q.AddComponent<MeshFilter>().sharedMesh = film;
                     q.AddComponent<MeshRenderer>().sharedMaterial = water;
                 }
             }
         }
 
-        /// <summary>A 1 m x 1 m horizontal grid, UV 0..1 across it, <paramref name="cells"/> per
-        /// side, with the swell's ceiling padded into its bounds.</summary>
-        private static Mesh GridQuad(int cells)
+        /// <summary>
+        /// The film mesh the census measured: a pointy-top hexagon 1.73 m across the flats and
+        /// 1.998 m point to point, with EXACTLY 33 vertices — one centre and 32 around the rim,
+        /// fanned into 32 triangles.
+        ///
+        /// <para>THE TOPOLOGY IS A CHOICE AND IT IS THE PESSIMISTIC ONE. The hardware line reads
+        /// "33 verts / 0 tris", and the 0 is <c>Mesh.triangles</c> refusing on a non-readable mesh
+        /// rather than a count — so how those 33 vertices are connected cannot be known from here. A
+        /// fan is the COARSEST arrangement of 33 vertices over this outline (one triangle from the
+        /// centre to each rim segment, i.e. spokes about a metre long), so a relief that reads in
+        /// these frames reads at least as well on a mesh that turns out to be a grid. The mistake
+        /// this replaces went the other way: ModBuild 164's harness staged an 8x8 grid because that
+        /// is what the driver was supposed to produce, and it was never produced.</para>
+        ///
+        /// <para>THE BOUNDS ARE PADDED by the swell's CEILING, exactly as the driver pads
+        /// Renderer.localBounds at runtime. Unity culls against those bounds and cannot see a domain
+        /// program, so an unpadded film loses its crests as the camera closes — one eye first, under
+        /// MultiPass. There is no driver in this harness to write the pad, so the mesh carries
+        /// it.</para>
+        /// </summary>
+        private static Mesh HexFilm()
         {
-            var verts = new List<Vector3>((cells + 1) * (cells + 1));
-            var uvs = new List<Vector2>((cells + 1) * (cells + 1));
-            for (int j = 0; j <= cells; j++)
-                for (int i = 0; i <= cells; i++)
+            float rx = HexFlats * 0.5f;      // across the flats  -> x
+            float rz = HexPoints * 0.5f;     // point to point    -> z
+
+            // The six corners of a pointy-top hexagon, in order.
+            var corners = new Vector2[6];
+            for (int i = 0; i < 6; i++)
+            {
+                float a = Mathf.Deg2Rad * (90f + 60f * i);
+                corners[i] = new Vector2(Mathf.Cos(a) * rx / Mathf.Cos(Mathf.Deg2Rad * 30f),
+                                         Mathf.Sin(a) * rz);
+            }
+
+            // 32 rim vertices. EVERY CORNER IS ONE OF THEM, and the remaining 26 are shared out
+            // over the six edges (5,4,4,5,4,4). Spreading 32 points evenly by arc length instead
+            // MISSES the corners — the first render of this sheet came back with hexes whose
+            // outline was visibly scalloped, which is a staging artefact that would have been read
+            // as something the water was doing.
+            var perEdge = new[] { 5, 4, 4, 5, 4, 4 };   // + 6 corners = 32
+            var rim = new List<Vector2>(HexRimVerts);
+            for (int e = 0; e < 6; e++)
+            {
+                rim.Add(corners[e]);
+                for (int k = 1; k <= perEdge[e]; k++)
                 {
-                    float u = i / (float)cells, v = j / (float)cells;
-                    verts.Add(new Vector3(u - 0.5f, 0f, v - 0.5f));
-                    uvs.Add(new Vector2(u, v));
+                    rim.Add(Vector2.Lerp(corners[e], corners[(e + 1) % 6],
+                                         k / (float)(perEdge[e] + 1)));
                 }
-            var tris = new List<int>(cells * cells * 6);
-            for (int j = 0; j < cells; j++)
-                for (int i = 0; i < cells; i++)
-                {
-                    int v0 = j * (cells + 1) + i;
-                    int v1 = v0 + 1, v2 = v0 + cells + 1, v3 = v2 + 1;
-                    tris.Add(v0); tris.Add(v2); tris.Add(v1);
-                    tris.Add(v1); tris.Add(v2); tris.Add(v3);
-                }
-            var m = new Mesh { name = "WaterPreviewGrid" };
+            }
+
+            var verts = new List<Vector3>(HexRimVerts + 1) { Vector3.zero };
+            var uvs = new List<Vector2>(HexRimVerts + 1) { new Vector2(0.5f, 0.5f) };
+            foreach (Vector2 p in rim)
+            {
+                verts.Add(new Vector3(p.x, 0f, p.y));
+                uvs.Add(new Vector2(p.x / (2f * rx) + 0.5f, p.y / (2f * rz) + 0.5f));
+            }
+
+            var tris = new List<int>(HexRimVerts * 3);
+            for (int i = 0; i < HexRimVerts; i++)
+            {
+                tris.Add(0);
+                tris.Add(1 + i);
+                tris.Add(1 + (i + 1) % HexRimVerts);
+            }
+
+            var m = new Mesh { name = "TERRAIN_Water_Plane_preview" };
             m.SetVertices(verts);
             m.SetUVs(0, uvs);
             m.SetTriangles(tris, 0);
@@ -566,10 +750,10 @@ namespace GloomhavenVR
         /// <summary>
         /// A STAND-IN for the game's 'WaterBump' 512x512, which is not on this machine.
         ///
-        /// <para>Encoded the way a plain RGB normal map is — x in R, y in G, z in B, ALPHA 1 —
-        /// so the shader's RG-or-AG unpack (<c>r * a</c>) recovers x under the same expression it
-        /// uses for a DXT5nm import. Getting that wrong here would make the preview disagree with
-        /// the headset for a reason that has nothing to do with the water.</para>
+        /// <para>Encoded the way a plain RGB normal map is — x in R, y in G, z in B, ALPHA 1 — so
+        /// the shader's RG-or-AG unpack (<c>r * a</c>) recovers x under the same expression it uses
+        /// for a DXT5nm import. Getting that wrong here would make the preview disagree with the
+        /// headset for a reason that has nothing to do with the water.</para>
         /// </summary>
         private static Texture2D SynthBump()
         {
@@ -580,9 +764,8 @@ namespace GloomhavenVR
                 wrapMode = TextureWrapMode.Repeat,
                 filterMode = FilterMode.Bilinear,
             };
-            // A tileable height field: three crossing sine trains at integer periods (so the
-            // texture wraps without a seam) at incommensurate directions, differentiated
-            // analytically.
+            // A tileable height field: three crossing sine trains at integer periods (so the texture
+            // wraps without a seam) at incommensurate directions, differentiated analytically.
             float H0(float u, float v) =>
                 Mathf.Sin(2f * Mathf.PI * (3f * u + 1f * v))
                 + 0.7f * Mathf.Sin(2f * Mathf.PI * (-1f * u + 4f * v) + 1.7f)

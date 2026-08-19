@@ -50,15 +50,35 @@ namespace GloomhavenVR.Core;
 /// <i>"Nicht nur 'calm' sondern auch wirklich 3D wellen einbauen"</i>. Four causes of the streaks
 /// are answered by <see cref="TameTilings"/>, <see cref="LayerWeights"/>, <see cref="ScrollRate"/>'s
 /// unit and the shader's own glint; the FLATNESS could not be, because no shading term can give a
-/// sheet relief. So <c>WaterVR</c> now displaces its vertices — vertically, by
-/// <see cref="SwellAmplitude"/>, as a function of world position and time only — and
-/// <see cref="WaterSwellMesh"/> pays the culling hazard that has cost this project a build before:
-/// Unity culls against the MESH's bounds, so the mesh handed to the film is subdivided (a flat quad
-/// has no vertices to wave) and its bounds are padded by exactly the amplitude. A pad is EXACT here
-/// where the earlier case needed an arc sweep, because this displacement is a bounded translation
-/// along one axis rather than a rotation. The tileset's own <c>_addSphericalWaves = 0</c> is still
-/// not read and still not reproduced: this swell is the VR-side relief the user asked for by name,
-/// with its own dial and its own ceiling.</para>
+/// sheet relief. So <c>WaterVR</c> displaces its vertices — vertically, by
+/// <see cref="SwellAmplitude"/>, as a function of world position and time only.</para>
+///
+/// <para><b>AND SINCE MODBUILD 165 THE GEOMETRY IT MOVES COMES FROM THE GPU.</b> ModBuild 164 sent
+/// that displacement to a mesh that had nothing to displace: the census read the film as
+/// <c>'TERRAIN_Water_Plane' 33 verts / 0 tris</c> over a 1.73 x 2.0 m hex — a sample every 0.4 m
+/// for a 1.1 m wave — and the <c>0 tris</c> is <c>Mesh.triangles</c> coming back empty on a mesh
+/// imported without Read/Write, which is also why a CPU subdivision of it could never have worked.
+/// The film is now tessellated in the shader's own HULL and DOMAIN stages, which need no access to
+/// the index buffer at all, at a FIXED factor — a distance-scaled one would subdivide differently
+/// in each MultiPass eye. What remains on this side is the culling hazard that has cost this
+/// project a build before: Unity culls against the renderer's bounds and a domain program is as
+/// invisible to it as a vertex program, so the driver pads <c>Renderer.localBounds</c> by exactly
+/// <see cref="MaxSwellAmplitude"/> on every axis. A pad is EXACT here where the earlier case needed
+/// an arc sweep, because this displacement is a bounded translation along one axis rather than a
+/// rotation. The tileset's own <c>_addSphericalWaves = 0</c> is still not read and still not
+/// reproduced: this swell is the VR-side relief the user asked for by name, with its own dial and
+/// its own ceiling.</para>
+///
+/// <para><b>AND IT IS STANDING WATER, NOT A CURRENT.</b> ModBuild 164's verdict was <i>"Es fließt
+/// noch viel zu schnell! Das ist kein Fluss sondern soll eher eine Pfütze stehendes Wasser
+/// simulieren mit nur minimal Bewegungen"</i> and <i>"Aktuell scheint die Animation bei jedem tile
+/// identisch zu sein"</i>. Both are answered by the shape of the motion rather than by a smaller
+/// number on the old one: the swell is four STANDING components (they rise and fall in place —
+/// <see cref="SwellPeriod"/>, <see cref="SwellDriftSpeed"/>), at irrational wavelength ratios that
+/// <see cref="LatticeMismatch"/> proves cannot repeat on the film lattice, under a slow large-scale
+/// modulation (<see cref="SwellCalmDepth"/>) that leaves part of the pool nearly still; and the two
+/// ripple layers SWAY back and forth (<see cref="RippleSwayPeriodA"/>,
+/// <see cref="RippleDriftShare"/>) instead of scrolling away.</para>
 ///
 /// <para><b>THE HARD REQUIREMENT: NOTHING IN THE REPLACEMENT SHADER MAY DEPEND ON THE VIEW
 /// DIRECTION.</b> The user's words for the defect were <i>"die kopf-gebundene Reflektion"</i> and
@@ -156,6 +176,10 @@ internal static class WaterOwnSurface
     internal const string SwellAmpProperty = "_SwellAmp";
     internal const string SwellWaveProperty = "_SwellWave";
     internal const string SwellSpeedProperty = "_SwellSpeed";
+    internal const string SwellPeriodProperty = "_SwellPeriod";
+    internal const string SwellCalmProperty = "_SwellCalm";
+    internal const string RippleSwayProperty = "_RippleSway";
+    internal const string TessFactorProperty = "_TessFactor";
 
     /// <inheritdoc cref="CommonProperties"/>
     internal static readonly string[] WaterProperties =
@@ -163,7 +187,8 @@ internal static class WaterOwnSurface
         NormalMapProperty, NormalTilingsProperty, LayerWeightsProperty, ScrollAProperty,
         ScrollBProperty, NormalStrengthProperty, ProcNormalProperty, LightDirProperty,
         ShimmerProperty, WaveShadeProperty, SmoothnessProperty,
-        SwellAmpProperty, SwellWaveProperty, SwellSpeedProperty,
+        SwellAmpProperty, SwellWaveProperty, SwellSpeedProperty, SwellPeriodProperty,
+        SwellCalmProperty, RippleSwayProperty, TessFactorProperty,
     };
 
     // --- the names the GAME's material carries these values under. Three of them happen to be
@@ -276,27 +301,144 @@ internal static class WaterOwnSurface
     /// </summary>
     internal const float AnisoTame = 0.70f;
 
-    /// <summary>The swell's wavelength in world units at <c>[Water] WaveScale</c> 1. Chosen
-    /// against the pool the report is about: 17 hexes about a metre across, so 1.1 m puts four or
-    /// five crests across the water — few enough to read as a swell rather than as corrugation,
-    /// many enough that the surface is plainly not flat from a seat at the table. It also sets the
-    /// STEEPNESS with the amplitude: 4.5 cm over 1.1 m is a slope of 14 degrees at the crest,
-    /// which is a shallow wave (height over length 1:24) and not a chop.</summary>
-    internal const float SwellWavelength = 1.1f;
+    /// <summary>
+    /// The LONGEST swell component's wavelength in world units at <c>[Water] WaveScale</c> 1. The
+    /// other three are irrational fractions of it (see <see cref="SwellRatios"/>).
+    ///
+    /// <para>RE-BASED FROM 1.1 m, AND THE OLD VALUE IS HALF OF WHY EVERY TILE LOOKED THE SAME. The
+    /// game lays these films on a lattice of <see cref="TileLatticeX"/> x <see cref="TileLatticeZ"/>
+    /// metres (hardware census: <c>TERRAIN_Water_Plane</c> local bounds size (1.73, 0, 1.998)). A
+    /// single 1.1 m train is 1.573 lattice steps across and 1.816 along, i.e. within 6% of
+    /// repeating on the lattice in one axis and 18% in the other — over the two or three tiles the
+    /// eye takes in at once, that IS a repeat. 2.4 m is longer than either lattice vector, so the
+    /// primary component spans more than one hex and cannot be read as a per-tile figure at all,
+    /// and <see cref="LatticeMismatch"/> measures what the four of them together leave.</para>
+    /// </summary>
+    internal const float SwellWavelength = 2.4f;
 
-    /// <summary>The swell's phase speed in world units per second at <c>[Water] WaveScale</c> 1
-    /// and <c>[Water] RippleSpeed</c> 1. Note that the shipped <c>RippleSpeed</c> is 0.5, so the
-    /// surface actually runs at half of this: one crest every 11 seconds, which is the "langsam,
-    /// seichte Wellen" of the report in a number.</summary>
-    internal const float SwellSpeed = 0.20f;
+    /// <summary>
+    /// The ONLY net translation left in the geometry, in world units per second at
+    /// <c>[Water] RippleSpeed</c> 1.
+    ///
+    /// <para>RE-BASED FROM 0.20, WHICH WAS A PHASE SPEED AND IS NOW A DRIFT. Through ModBuild 164
+    /// the swell was two TRAVELLING trains and 0.2 m/s was how fast the whole pattern crossed the
+    /// pool — the user's verdict was <i>"Es fließt noch viel zu schnell! Das ist kein Fluss sondern
+    /// soll eher eine Pfütze stehendes Wasser simulieren"</i>. The components are STANDING now
+    /// (they rise and fall in place), and this is the trace of real translation left on top, so
+    /// that their nodes are not nailed to fixed world positions forever. 2 cm/s is 1.2 m a minute
+    /// across a 5 m pool, which is a drift you can only see by looking for it.</para>
+    /// </summary>
+    internal const float SwellDriftSpeed = 0.02f;
+
+    /// <summary>
+    /// How long the LONGEST swell component takes to rise and fall once, in seconds, at
+    /// <c>[Water] RippleSpeed</c> 1. The shorter components scale as the square root of their
+    /// wavelength ratio — deep-water dispersion reduced to its shape.
+    ///
+    /// <para>1.1 s IS THE PHYSICAL ANSWER FOR THIS WAVE, which is why the dial and not the constant
+    /// carries the "nur minimal Bewegungen" ruling. A 2.4 m deep-water wave has a period of
+    /// sqrt(2 pi L / g) = 1.24 s; at the dial's own 1.0 this shader is therefore real water, and the
+    /// shipped <c>[Water] RippleSpeed</c> of 0.12 stretches it to about 9 s, which is a puddle. That
+    /// split means the dial is a statement anyone can check ("a twelfth of real water's rate")
+    /// rather than a number chosen against a photograph, and turning it up gives something
+    /// recognisable rather than something arbitrary.</para>
+    /// </summary>
+    internal const float SwellPeriod = 1.1f;
+
+    /// <summary>How far the quiet parts of the pool drop below full amplitude — 0 = the same
+    /// everywhere, 1 = dead still wherever the two very long modulation waves cancel. This is the
+    /// term that answers <i>"Es soll sich nicht auf jeden tile exakt gleichen was passiert"</i>
+    /// most directly, and it does it as a property of the continuous world-space field rather than
+    /// per quad: a per-quad seed would put a step in the height at every tile seam.</summary>
+    internal const float SwellCalmDepth = 0.75f;
+
+    /// <summary>The four swell components' wavelengths, as fractions of
+    /// <see cref="SwellWavelength"/>. Irrational and mutually incommensurate on purpose —
+    /// 1, 1/phi, sqrt(2)-1, 2-sqrt(3) — so the sum has no finite period in any direction and the
+    /// field genuinely never repeats rather than repeating on a cycle longer than the pool.
+    /// MIRRORED IN THE SHADER (WaterVR.cginc): the wire test reads both and fails on drift.</summary>
+    internal static readonly float[] SwellRatios = { 1f, 0.618034f, 0.414214f, 0.267949f };
+
+    /// <summary>The four swell components' directions, in degrees. None is axis-aligned, no two
+    /// are 90 degrees apart, and none belongs to the hex lattice's own 60-degree family — so no
+    /// pair can conspire into a corrugation and none runs along a row of tiles. MIRRORED IN THE
+    /// SHADER as unit vectors (WaterVR.cginc); the wire test reads both and fails on drift.</summary>
+    internal static readonly float[] SwellDirections = { 17f, 103f, 61f, 148f };
+
+    /// <summary>The measured tile lattice the films are laid out on, in world units: the hardware
+    /// census reads <c>TERRAIN_Water_Plane</c>'s local bounds as size (1.73, 0, 1.998).
+    /// <see cref="LatticeMismatch"/> is what keeps the swell from repeating on it.</summary>
+    internal const float TileLatticeX = 1.73f;
+
+    /// <inheritdoc cref="TileLatticeX"/>
+    internal const float TileLatticeZ = 1.998f;
+
+    /// <summary>
+    /// The ripple layers' SWAY periods in seconds — layer A, then layer B. Deliberately not a ratio
+    /// of small whole numbers: two layers that reversed together would read as the whole pool
+    /// twitching at one instant.
+    ///
+    /// <para>THE SPEED DIAL DOES NOT TOUCH THESE. A sway's speed is its RATE, which
+    /// <c>[Water] RippleSpeed</c> already scales; the period is its rhythm, and dividing that by
+    /// the dial as well would have squared the effect — the first draft did exactly that and the
+    /// preview log came back with a swell bobbing once every 75 seconds, i.e. a frozen pool that
+    /// every number in the file claimed was moving. What the dial changes is how far the texture
+    /// gets in those 13 seconds.</para>
+    /// </summary>
+    internal const float RippleSwayPeriodA = 13f;
+
+    /// <inheritdoc cref="RippleSwayPeriodA"/>
+    internal const float RippleSwayPeriodB = 17f;
+
+    /// <summary>What share of a ripple layer's resolved rate is still a genuine one-way drift, the
+    /// rest being a sway that reverses and nets to nothing. A quarter, because a pattern that only
+    /// ever retraces its own path reads as a video being rewound — and a quarter of the shipped
+    /// rate is a creep of about 2 cm/s, which is not a flow by any reading.</summary>
+    internal const float RippleDriftShare = 0.25f;
+
+    /// <summary>
+    /// How many ways the GPU splits each authored edge of the film's mesh. FIXED, never scaled by
+    /// the distance to the camera.
+    ///
+    /// <para>THE DISTANCE RAMP IS DISQUALIFIED HERE, and it is worth writing down because it is
+    /// what every tessellation tutorial does. Under MULTIPASS the two eyes are separate passes
+    /// about 6.4 cm apart, so a factor computed from the camera would subdivide the same patch to
+    /// different densities per eye and sample different crest heights — stereo rivalry along every
+    /// silhouette, which is the class of defect this module exists to remove. A constant costs more
+    /// triangles far away and is the only version that is safe.</para>
+    ///
+    /// <para>THE COST IS STATED, NOT ASSUMED. The census reads the film at 33 vertices over a
+    /// 1.73 x 2.0 m hex — roughly 32 triangles and an edge near 0.47 m — and a factor of 4 makes
+    /// that 0.12 m for SIXTEEN times the triangles: one film becomes ~510 and the report's pool of
+    /// 17 becomes ~8700, which is one small prop's worth for the whole pool, on a PC GPU rendering
+    /// two eyes at 90 Hz. No new vertex data is uploaded for any of it — the tessellator reads the
+    /// authored mesh and the driver uploads nothing.</para>
+    ///
+    /// <para>AND THE HONEST CAVEAT RUNS THE OTHER WAY. The offscreen sheet was diffed with the
+    /// tessellated and untessellated SubShaders forced in turn at the shipped amplitude, and they
+    /// differ on 0.31% of the pixels of the waterline frame and 0.02% of the grazing one. That is
+    /// because the fragment takes its normal from the ANALYTIC gradient rather than from the mesh,
+    /// so extra vertices buy the SILHOUETTE and the true height against the bed — nothing else. At
+    /// a 3.6 cm amplitude that is a thin band at the water's edge. It is still worth having: the
+    /// edge is exactly where "flache Oberfläche" was judged, and the amplitude is a dial the user
+    /// can raise. But nobody should expect this number to transform a photograph.</para>
+    /// </summary>
+    internal const float TessellationFactor = 4f;
+
+    /// <summary>Ceiling on <see cref="TessellationFactor"/>, mirrored by the shader's own Range and
+    /// by a clamp inside its patch-constant function. 8 ways per edge is 64 triangles per authored
+    /// one, which on this film is already past the point where more of them change the
+    /// silhouette.</summary>
+    internal const float MaxTessellationFactor = 8f;
 
     /// <summary>
     /// Ceiling on the swell's peak amplitude in world units, and it is a COLLISION limit rather
     /// than a taste one. The hardware FLOOR CENSUS reads the film at <c>y[0.0..0.0]</c> with
     /// <c>TERRAIN_Crypt_Water_02_Base</c> directly beneath it at <c>y[-0.34..-0.09]</c> — a 9 cm
     /// gap. The wave is symmetric about the authored plane, so a trough reaches minus this much;
-    /// 6 cm leaves 3 cm of clearance at the worst dial setting and the shipped default uses
-    /// three quarters of it. A film that dipped through its own basin bed would z-fight with the stone,
+    /// 6 cm leaves 3 cm of clearance at the worst dial setting, and the shipped default now uses
+    /// well under two thirds of it (3.6 cm on the report's 2.6 m film) because the ruling is "nur minimal
+    /// Bewegungen". A film that dipped through its own basin bed would z-fight with the stone,
     /// which reads as the pool tearing open.
     /// </summary>
     internal const float MaxSwellAmplitude = 0.06f;
@@ -306,52 +448,58 @@ internal static class WaterOwnSurface
     /// against.</summary>
     internal const float FilmToBedGap = 0.09f;
 
-    /// <summary>How long a mesh edge may be, in world units, before the film is subdivided again.
-    /// A 1.6 m swell sampled every 12 cm is 13 segments per wavelength, which is past the point
-    /// where more vertices stop changing the silhouette.</summary>
+    /// <summary>The edge length, in world units, the tessellation is aiming at. The census reads
+    /// the film at 33 vertices over a 1.73 x 2.0 m hex; a planar patch with that many vertices
+    /// carries roughly 32 triangles, i.e. an authored edge near 0.47 m, and
+    /// <see cref="TessellationFactor"/> 4 brings that to 0.12 m — five samples across even the
+    /// SHORTEST of the four swell components and nineteen across the longest. It is a stated TARGET
+    /// rather than an input: the factor is fixed for the stereo reason above, so nothing computes a
+    /// factor from this number, and the census prints both so the claim can be checked against the
+    /// mesh the game actually supplied.</summary>
     internal const float TargetEdgeWU = 0.12f;
 
-    /// <summary>Ceiling on the number of 1-to-4 splits. Three turns a two-triangle quad into an
-    /// 8x8 grid — 128 triangles and 81 vertices where there were 2 and 4 — so the report's pool of
-    /// 17 films costs 2176 triangles in total. The ceiling exists so that a film the game happens
-    /// to author with a fine mesh cannot multiply itself into a frame cost nobody asked for, on a
-    /// Quest 3 whose main thread the perf log already shows blocked ~92% of the frame.</summary>
-    internal const int MaxSubdivisionLevel = 3;
-
-    /// <summary>Ceiling on the triangles ONE film mesh may end up with, whatever the level asks
-    /// for.</summary>
-    internal const int MaxSubdivisionTriangles = 4096;
-
     /// <summary>
-    /// How many 1-to-4 midpoint splits a film mesh of this size and triangle count needs before
-    /// its edges are short enough to carry the swell.
+    /// How far the swell's four components are from repeating on the film lattice, in CYCLES, worst
+    /// case over both lattice vectors and all four components. Bigger is better; 0 would mean the
+    /// field is identical on every tile.
     ///
-    /// <para>THE PROBLEM THIS MEASURES. <c>TERRAIN_Water_Plane</c> is a flat plane with a handful
-    /// of vertices, and a vertex program cannot make a wave out of four corners — so the driver
-    /// hands the film a subdivided copy of the game's own mesh (<c>WaterSwellMesh</c>). This is the
-    /// pure part of that decision, kept here so it can be driven from the wire tests without a
-    /// graphics device.</para>
+    /// <para>WHAT IT COMPUTES. Two neighbouring films differ by a lattice vector v, so component i
+    /// picks up a phase of (d_i . v) / L_i cycles between them. If that is a whole number the
+    /// component looks the same on both tiles. The whole FIELD repeats only if EVERY component
+    /// does, so the distance of the WORST component from a whole number is what says a per-tile
+    /// pattern cannot form — and it is the worst component that has to be far, not the average.</para>
     ///
-    /// <para>The current edge length is estimated as width / sqrt(triangles / 2), i.e. the mesh is
-    /// treated as a roughly square grid of that many triangles. That is exact for the quad this is
-    /// actually given and errs by at most a factor of two — one level — on anything else.</para>
+    /// <para>WHY IT IS A FUNCTION AND NOT A COMMENT. ModBuild 164's single 1.1 m train scored 0.06
+    /// against this lattice and the surface was reported as identical tile for tile. The number is
+    /// therefore a property of the shipped look, it moves whenever the wavelength or a direction is
+    /// retuned, and <c>WaterOwnSurfaceVectors</c> fails the build gate if it drops below a tenth of
+    /// a cycle.</para>
     /// </summary>
-    internal static int SubdivisionLevel(float widthWU, int triangles)
+    /// <param name="wavelength">The longest component's wavelength in world units, i.e. what the
+    /// shader receives in <see cref="SwellWaveProperty"/>.</param>
+    internal static float LatticeMismatch(float wavelength)
     {
-        if (!Finite(widthWU) || widthWU <= 0f || triangles <= 0)
-            return 0;
+        if (!Finite(wavelength) || wavelength <= 0f)
+            return 0f;
 
-        float cells = Mathf.Max(1f, triangles * 0.5f);
-        float edge = widthWU / Mathf.Sqrt(cells);
-        int level = 0;
-        while (level < MaxSubdivisionLevel
-               && edge > TargetEdgeWU
-               && triangles * (1 << (2 * (level + 1))) <= MaxSubdivisionTriangles)
+        float worst = 1f;
+        var lattice = new[] { new Vector2(TileLatticeX, 0f), new Vector2(0f, TileLatticeZ) };
+        foreach (Vector2 v in lattice)
         {
-            level++;
-            edge *= 0.5f;
+            for (int i = 0; i < SwellRatios.Length; i++)
+            {
+                float rad = SwellDirections[i] * Mathf.Deg2Rad;
+                var dir = new Vector2(Mathf.Cos(rad), Mathf.Sin(rad));
+                float len = wavelength * SwellRatios[i];
+                if (len <= 1e-4f)
+                    continue;
+                float cycles = Vector2.Dot(dir, v) / len;
+                // Distance to the NEAREST whole number of cycles, in [0, 0.5].
+                float frac = Mathf.Abs(cycles - Mathf.Round(cycles));
+                worst = Mathf.Min(worst, frac);
+            }
         }
-        return level;
+        return worst;
     }
 
     /// <summary>
@@ -541,8 +689,12 @@ internal static class WaterOwnSurface
     /// <para>WHY IT IS A FRACTION OF THE QUAD RATHER THAN A CONSTANT. The mod's environments are
     /// dioramas at several scales and the same pool can arrive an order of magnitude smaller; a
     /// world constant would be an invisible ripple in one room and a churning sea in another.
-    /// A hex about a metre across at the shipped 2% gives 2 cm, which is the amplitude every
-    /// number in the shader's header is quoted against.</para>
+    /// The report's film measures 2.6 m across its renderer bounds and the shipped dial is 1%, so
+    /// it gets a 3.6 cm peak — 7.2 cm between trough and crest. Summed over the four components
+    /// that is a peak crest slope of 8.6 degrees, against the 19 degrees ModBuild 164's single
+    /// 1.1 m train produced at the same ceiling: "deutlich ruhiger und eher dezent" stated as an
+    /// angle rather than as a preference, and still relief that is plainly visible at the
+    /// waterline. It is the amplitude every number in the shader's header is quoted against.</para>
     ///
     /// <para>AND IT IS CAPPED TWICE. <see cref="MaxSwellAmplitude"/> is the collision limit
     /// against the basin bed 9 cm below the film; the quad width is what makes the dial mean the

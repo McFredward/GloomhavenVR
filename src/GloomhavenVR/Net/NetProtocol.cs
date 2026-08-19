@@ -416,7 +416,90 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 164;
+    public const ushort ModBuild = 165;
+    // Build 165: STANDING WATER, AND THE GEOMETRY IS FINALLY THERE.
+    // ***** THE BUNDLE CHANGED — 67,163,699 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
+    //
+    // User, on 164: "Schon deutlich besser! Allerdings: a) Es fließt noch viel zu schnell! Das ist
+    // kein Fluss sondern soll eher eine Pfütze stehendes Wasser simulieren mit nur minimal
+    // Bewegungen. b) Aktuell scheint die Animation bei jedem tile identisch zu sein, bring mehr
+    // randomness rein! ... Aber auch deutlich ruhiger und eher dezent."
+    //
+    // ── THE LINE THAT HID A ROUND, AND IT WAS A PRINTING ORDER ─────────────────────────────────
+    // 164's census printed `MESH SWAP: no film mesh handled yet [built 0 mesh(es)]`, which reads as
+    // a diagnosis and was not one: `Adopt()` called the census BEFORE `Apply()`, and the line is
+    // capped to one emission per material, so that field could only ever print its own INITIALISER.
+    // It could not have said anything else whatever the swap did. Fixed by ordering; and every
+    // refusal in this module now names its reason and its consequence for what the player sees.
+    //
+    // What IS real from the same census: `FILM MESH: 33 verts / 0 tris`. **A mesh with vertices and
+    // zero triangles is the non-readable signature** — `vertexCount` comes from the header,
+    // `triangles` returns empty when Read/Write is off, which it is for every imported game asset.
+    // So `Core/WaterSwellMesh.cs`'s CPU subdivision could only ever refuse, on every film, forever.
+    // **The file is deleted.** The census now reads `mesh.isReadable` FIRST and only asks for a
+    // triangle count when it is allowed to.
+    //
+    // ── GPU TESSELLATION, AND THE FACTOR IS FIXED ON PURPOSE ───────────────────────────────────
+    // `#pragma hull` / `#pragma domain` at target 4.6 subdivides the game's own hex on the GPU and
+    // needs no CPU access to the index buffer at all. Two SubShaders (LOD 300 tessellated, LOD 100
+    // plain) share one `WaterVR.cginc`, so the preview can force either through `Shader.maximumLOD`
+    // and PROVE the geometry rather than assert it.
+    //   * THE TESSELLATION FACTOR IS FIXED, NOT DISTANCE-BASED, and that is not a preference: a
+    //     camera-derived factor subdivides the same patch differently in each MultiPass eye and
+    //     samples different crest heights — stereo rivalry through the GEOMETRY instead of the
+    //     shading. A wire test greps the patch-constant function for `Camera`/`distance(`/`length(`.
+    //   * The culling pad survives the deletion, moved to `Renderer.localBounds` — which works on a
+    //     non-readable mesh, clones nothing and is exactly reversible. Displacement still happens
+    //     after culling, so the amplitude CEILING (not the current dial) is still what pads it.
+    //
+    // ── (b) WHY EVERY TILE LOOKED THE SAME — one coordinate ────────────────────────────────────
+    // The shader keyed its ripple and its swell off `v.uv + object world ORIGIN`. That is not a
+    // world position: on a tile grid it is identical per tile by construction, and the resolved
+    // ripple repeated every 1.92 m against a 1.998 m tile pitch, so it also latched onto the
+    // lattice. It now uses the interpolated WORLD XZ everywhere — which also fixes a real
+    // inconsistency, since the vertex program already displaced from world XZ while the fragment
+    // shaded from `uv+org`, i.e. light and relief were keyed off different coordinates.
+    //   * IRREGULARITY WITHOUT SEAMS: four standing components at wavelength ratios 1, 1/φ, √2−1,
+    //     2−√3 and directions 17/103/61/148°, plus a large-scale calm modulation (two 10 m/16 m
+    //     crossing waves) that leaves part of the pool nearly still. **No per-quad seed** — that
+    //     would draw a visible discontinuity at every tile seam; the irregularity is a property of
+    //     the continuous world-space field.
+    //   * `LatticeMismatch(λ)` is a new pure function scoring the worst phase shift across the
+    //     measured 1.73 × 1.998 m film lattice. The shipped set scores **0.156** cycles against
+    //     ModBuild 164's single train at **0.022**. The census prints the live value and a wire test
+    //     fails below 0.10 — the repetition is now a NUMBER, not an impression.
+    //
+    // ── (a) A PUDDLE HAS NO CURRENT ───────────────────────────────────────────────────────────
+    // The swell is now four STANDING components — `sin(k(d·p − vt)+φ)·cos(ωt+ψ)`, crests rising and
+    // falling in place — and the ripple no longer scrolls: it is mostly a sway that reverses and
+    // nets to zero, with 25 % residual drift. Defaults re-based: RippleSpeed 0.5 → 0.12,
+    // Shimmer 0.10 → 0.05, SwellHeight 0.045 → 0.014 (peak 3.6 cm, crest slope 19° → 8.6°),
+    // SwellWavelength 1.1 → 2.4 m. `_WaveShade` deliberately stays at 0.35: nothing writes it, and
+    // muting the light as well would calm the same surface three times over.
+    //
+    // ── WHAT THE FRAMES SAY, AND WHAT THEY CANNOT ─────────────────────────────────────────────
+    // Over the same 4.5 s the 164 reference changes 23.15 % of pixels and the shipped default
+    // 6.73 %. In the wide shot the reference shows unmistakable regular diagonal corrugation at
+    // roughly tile pitch — the reported defect, reproduced from the same harness — and the shipped
+    // one has none.
+    //   * THE PREVIEW HAD BEEN LYING ABOUT THE MESH. It staged its own 8×8 subdivided grids, which
+    //     is precisely why a mesh swap that never happened stayed invisible for a whole round. It
+    //     now stages a 33-vertex hex fan at the measured 1.73 × 1.998 m, 19 of them on the real hex
+    //     lattice. Two further silent-nothings in the instrument itself were found and fixed: an
+    //     unlit shader lookup that returned null in batch mode, and a far wall rotated 180° — i.e.
+    //     BACKFACE-CULLED in every sheet this file had ever produced.
+    //   * TESSELLATION EARNS LESS THAN EXPECTED IN A STILL: tessellated vs not differs on 0.31 % of
+    //     the eye-level frame and 0.02 % of the grazing one, because the fragment already takes its
+    //     normal from the analytic gradient. Extra vertices buy the SILHOUETTE and the true height
+    //     against the bed — at 3.6 cm a thin band at the water's edge. Still the right mechanism
+    //     (the edge is where "flache Oberfläche" is judged, and the amplitude is a dial), but it
+    //     will not transform a photograph.
+    //   * THE SHIPPED DEFAULT MAY BE TOO QUIET, said plainly: in these frames the pool reads as a
+    //     smooth sheet with a broad gradient. The stand-in bump is much weaker than the game's real
+    //     `WaterBump` and the staged mesh is the coarsest plausible reading of "33 verts", so both
+    //     caveats point the same way — it should read livelier on hardware than in the sheet. If it
+    //     does not, `[Water] SwellHeight` up and `[Water] WaveScale` down, never more shimmer.
+    //
     // Build 164: THE WATER HAS A SURFACE NOW, AND IT IS CALM.
     // ***** THE BUNDLE CHANGED — 67,150,300 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
     //
@@ -453,12 +536,11 @@ internal static class NetProtocol
     //     authored tint and only waves move it.
     //
     // ── THE SURFACE IS REAL GEOMETRY NOW ───────────────────────────────────────────────────────
-    // Shading alone cannot make a plane look like it has a shape, and the film is a 2-triangle quad:
-    // four corners cannot carry a wave. So `Core/WaterSwellMesh.cs` midpoint-subdivides the game's
-    // OWN mesh (every new vertex lies on an existing edge, so the footprint, the UVs and the vertex
-    // colours are unchanged whatever the outline), welds and caches it per source mesh, and the
-    // driver restores the authored mesh on release/prune/config-flip/uninstall exactly as it
-    // restores the material array. A 1 m quad goes 2 tris → 128; 17 films 34 → 2176 tris.
+    // Shading alone cannot make a plane look like it has a shape, and the film is a coarse hex whose
+    // handful of corners cannot carry a wave. `Core/WaterSwellMesh.cs` midpoint-subdivided the
+    // game's own mesh on the CPU. **THAT FILE IS DELETED IN ModBuild 165** — the game's meshes are
+    // imported without Read/Write, so `mesh.triangles` comes back EMPTY and the subdivision could
+    // only ever refuse. GPU tessellation replaced it; see build 165's note.
     //   * THE VERTEX PROGRAM MOVES `wp.y` ONLY, from `GhvrSwell(worldXZ, t)` — two travelling
     //     trains with deep-water dispersion — and the FRAGMENT TAKES ITS NORMAL FROM THE ANALYTIC
     //     DERIVATIVE OF THE SAME FUNCTION, so the light and the relief cannot disagree. Relief lit

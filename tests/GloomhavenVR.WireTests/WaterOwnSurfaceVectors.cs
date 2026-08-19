@@ -39,12 +39,29 @@
 //   1b. THE DISPLACEMENT OUTRUNNING ITS BOUNDS. Since ModBuild 164 the film DOES displace — the
 //      ruling was "Nicht nur 'calm' sondern auch wirklich 3D wellen einbauen. Aktuell waren es nur
 //      weiße streifen auf einer flachen Oberfläche", and no shading term can give a sheet relief.
-//      Unity culls a renderer against its MESH's bounds, so displaced geometry vanishes as you
-//      approach and, under MultiPass, vanishes in ONE EYE FIRST; this project has already lost a
-//      build to that. The hazard is now PAID rather than avoided, and checks 2b and 2c pin the
-//      three things that make the payment exact: the displacement is vertical and a function of
-//      world position and time only, its amplitude is capped by a declared Range that the mesh
-//      bounds were padded for, and that cap clears the basin bed 9 cm under the film.
+//      Unity culls a renderer against its BOUNDS and cannot see a vertex program — nor a domain
+//      one — so displaced geometry vanishes as you approach and, under MultiPass, vanishes in ONE
+//      EYE FIRST; this project has already lost a build to that. Checks 2b and 2f pin the three
+//      things that make the payment exact: the displacement is vertical and a function of world
+//      position and time only, its amplitude is capped by a declared Range, and Renderer.localBounds
+//      is padded by that same cap and reset on release.
+//
+//   1c. THE GEOMETRY NOT ARRIVING AT ALL, WHICH IS WHAT MODBUILD 164 SHIPPED. That build got its
+//      vertices by swapping in a subdivided COPY of the film's mesh; the game imports its meshes
+//      without Read/Write, so the copy could never be built, and the census's own words for it were
+//      "MESH SWAP: no film mesh handled yet" — an intention, printed before the code that would
+//      have set it had ever run. The subdivision is now the shader's own hull/domain pair, which
+//      needs no CPU access to anything, and check 2c pins that the stages are declared AND that
+//      their factor is a plain uniform: a distance-scaled factor subdivides differently in each
+//      MultiPass eye, which is the stereo defect arriving through the geometry instead of the
+//      shading.
+//
+//   1d. THE FIELD REPEATING ON THE TILE LATTICE. "Aktuell scheint die Animation bei jedem tile
+//      identisch zu sein." The films sit on a measured 1.73 x 1.998 m lattice and ModBuild 164 ran
+//      a single 1.1 m wave, which is within 6% of repeating on it. Check 2e pins
+//      WaterOwnSurface.LatticeMismatch — the distance of the WORST of the four components from
+//      repeating — above a tenth of a cycle, and check 2d pins that the shader's own table and the
+//      C# one that number is computed from are the same field.
 //
 //   2. THE BLEND GOING ADDITIVE. Overlay exposes its blend factors AS PROPERTIES, and the driver
 //      writes them. `Blend One One` is additive: it would lay the film's colour ON TOP of the stone
@@ -143,7 +160,10 @@ internal static class WaterOwnSurfaceVectors
         ShaderDeclaresProperties(
             t, WaterOwnSurface.FilmShaderName, waterPath, WaterOwnSurface.WaterProperties);
         WaterShaderDisplacementIsBounded(t, waterPath);
-        SwellMeshIsSubdividedAndPadded(t, repoRoot);
+        TessellationIsFixedAndFactored(t, waterPath);
+        SwellTableMatchesTheShader(t, waterPath);
+        SwellCannotRepeatOnTheTileLattice(t);
+        DisplacedBoundsArePaddedAndGivenBack(t, repoRoot);
         RenderStateIsNotAdditive(t);
         FilmColourIsTheTilesets(t);
         NeverBrighterSweep(t);
@@ -183,7 +203,12 @@ internal static class WaterOwnSurfaceVectors
         if (shaderPath == null)
             return;
 
-        string text = File.ReadAllText(shaderPath);
+        // THE SWEEP FOLLOWS THE #includes. Since ModBuild 165 WaterVR's whole program lives in
+        // WaterVR.cginc — the .shader is two SubShaders that include it, one tessellated and one
+        // not — so a lint that only read the .shader would be reading the property table and
+        // nothing else. Every hull, domain, vertex and fragment stage is inside the include, and
+        // that is exactly where a view vector would be added.
+        string text = ExpandedShaderSource(shaderPath);
         var found = new List<string>();
         foreach (string line in text.Split('\n'))
         {
@@ -239,7 +264,7 @@ internal static class WaterOwnSurfaceVectors
         if (shaderPath == null)
             return;
 
-        string text = File.ReadAllText(shaderPath);
+        string text = ExpandedShaderSource(shaderPath);
 
         // THE DISPLACEMENT ITSELF. World position in, world Y out — written literally so that a
         // horizontal term (which would slide the ripple's own coordinate under it) or a term built
@@ -294,62 +319,268 @@ internal static class WaterOwnSurfaceVectors
     }
 
     // ---------------------------------------------------------------------------------------
-    //  2c. THE MESH THE SWELL NEEDS, and the bounds pad that keeps it from being culled.
+    //  2c. THE GEOMETRY THE SWELL NEEDS COMES FROM THE GPU, AND ITS FACTOR IS NOT THE CAMERA'S.
     // ---------------------------------------------------------------------------------------
-    private static void SwellMeshIsSubdividedAndPadded(Harness t, string repoRoot)
+    //  THE FAILURE THIS REPLACES. ModBuild 164 got its geometry by handing the film a SUBDIVIDED
+    //  COPY of its own mesh, and the copy was never built once: the game imports its meshes without
+    //  Read/Write, so there was no index buffer to subdivide, and the whole round shipped a
+    //  displacement shader with nothing to displace. The census said "MESH SWAP: no film mesh
+    //  handled yet" and that read as a timing note.
+    //
+    //  The subdivision is now the shader's own hull/domain pair, which needs no CPU access to
+    //  anything — and the ONE property of it that can silently re-open the stereo defect is the
+    //  tessellation FACTOR, because every tutorial computes it from the distance to the camera.
+    //  Under MultiPass that is a different mesh in each eye.
+    private static void TessellationIsFixedAndFactored(Harness t, string? shaderPath)
     {
-        // A 1 m film quad with two triangles is the case the whole feature exists for: four
-        // corners cannot carry a wave.
-        int level = WaterOwnSurface.SubdivisionLevel(1f, 2);
-        t.True(level > 0,
-            "a 1 m two-triangle water quad must be subdivided (level " + level + "). A vertex "
-            + "program cannot make a wave out of four corners, so a level of 0 here is a flat "
-            + "pool with a displacement shader on it — which looks exactly like the shader not "
-            + "shipping at all.");
-        t.True(level <= WaterOwnSurface.MaxSubdivisionLevel,
-            $"the subdivision level must respect the {WaterOwnSurface.MaxSubdivisionLevel} ceiling, got {level}");
+        if (shaderPath == null)
+            return;
+        string text = ExpandedShaderSource(shaderPath);
 
-        // ...and the resulting edge is at or under the target, which is what the level MEANS.
-        float edge = 1f / (float)Math.Sqrt(2 * Math.Pow(4, level) / 2);
-        t.True(edge <= WaterOwnSurface.TargetEdgeWU + 1e-4f || level == WaterOwnSurface.MaxSubdivisionLevel,
-            $"level {level} leaves an edge of {edge:0.###} world units against a target of "
-            + $"{WaterOwnSurface.TargetEdgeWU:0.###}");
+        // THE STAGES EXIST. A shader that quietly lost its #pragma hull would compile, draw, and
+        // look exactly like ModBuild 164 — relief in the maths and none on screen.
+        foreach (string stage in new[] { "#pragma hull", "#pragma domain", "#pragma target 4.6" })
+        {
+            t.True(text.IndexOf(stage, StringComparison.Ordinal) >= 0,
+                $"'{WaterOwnSurface.FilmShaderName}' must declare '{stage}'. The film's own mesh is "
+                + "33 vertices over a 1.73 x 2.0 m hex (hardware census), which samples the swell "
+                + "about every 0.4 m; without the tessellator the displacement is present in the "
+                + "maths and invisible on screen, which is precisely what ModBuild 164 shipped.");
+        }
 
-        // A mesh that is ALREADY fine is left alone: this is a Quest 3 and the subdivision is a
-        // cost, not a virtue.
-        t.Equal(0, WaterOwnSurface.SubdivisionLevel(1f, 512),
-            "a film that already carries 512 triangles over a metre must be left as authored — "
-            + "subdividing it would multiply a cost for a sampling rate it already has");
-        t.Equal(0, WaterOwnSurface.SubdivisionLevel(0f, 2),
-            "a degenerate width must yield no subdivision rather than a division by zero");
-        t.Equal(0, WaterOwnSurface.SubdivisionLevel(float.NaN, 2),
-            "a non-finite width must yield no subdivision");
+        // THE FACTOR READS NOTHING BUT THE UNIFORM. This is the check that matters: a
+        // distance-scaled factor is a view dependency in the GEOMETRY, so the two MultiPass eyes
+        // would subdivide the same patch differently and sample different crest heights — stereo
+        // rivalry along every silhouette, which is the class of defect this module exists to
+        // remove. (The camera-position spellings themselves are already banned by check 2; this
+        // states the reason in the tessellation's own terms so a reader of the failure knows why a
+        // "distance-based LOD" cannot simply be added.)
+        Match pc = Regex.Match(
+            text, @"GhvrPatchConstant\s*\([^)]*\)\s*\{(?<body>.*?)\n\s*\}", RegexOptions.Singleline);
+        t.True(pc.Success,
+            $"'{WaterOwnSurface.FilmShaderName}' must have a patch-constant function named "
+            + "GhvrPatchConstant — it is the one place a tessellation factor can be computed, so it "
+            + "is the one place this lint can watch.");
+        if (pc.Success)
+        {
+            string body = pc.Groups["body"].Value;
+            t.True(body.IndexOf(WaterOwnSurface.TessFactorProperty, StringComparison.Ordinal) >= 0,
+                "the patch-constant function must take its factor from "
+                + WaterOwnSurface.TessFactorProperty + ", which is a uniform");
+            foreach (string term in new[] { "Camera", "distance(", "length(", "UnityObjectToClipPos" })
+            {
+                t.True(body.IndexOf(term, StringComparison.Ordinal) < 0,
+                    $"the patch-constant function contains '{term}'. A tessellation factor that "
+                    + "depends on where the camera is subdivides the same patch DIFFERENTLY IN EACH "
+                    + "MULTIPASS EYE — the two eyes are separate passes 6.4 cm apart — so the crest "
+                    + "heights they sample differ and every silhouette becomes stereo-rivalrous. "
+                    + "That is the same class of defect as the head-bound reflection this whole "
+                    + "module exists to remove. The factor must stay a plain uniform.");
+            }
+        }
 
-        // THE TRIANGLE CEILING holds whatever the edge length asks for.
-        int big = WaterOwnSurface.SubdivisionLevel(20f, 2000);
-        t.True(2000 * (1 << (2 * big)) <= WaterOwnSurface.MaxSubdivisionTriangles,
-            $"the subdivision must never take one film past {WaterOwnSurface.MaxSubdivisionTriangles} "
-            + $"triangles; level {big} on a 2000-triangle mesh would be "
-            + $"{2000 * (1 << (2 * big))}");
+        // AND THE CEILING IS THE SAME NUMBER ON BOTH SIDES. The driver clamps, the shader's Range
+        // clamps, and the patch-constant function clamps again; all three have to agree or the
+        // triangle budget printed in the census is not the one being drawn.
+        Match range = Regex.Match(
+            text,
+            @"(?m)^\s*" + Regex.Escape(WaterOwnSurface.TessFactorProperty)
+            + @"\s*\(.*Range\(\s*1\s*,\s*(?<max>[0-9.]+)\s*\)");
+        t.True(range.Success,
+            $"'{WaterOwnSurface.FilmShaderName}' must declare {WaterOwnSurface.TessFactorProperty} "
+            + "as a Range starting at 1 — a factor below 1 is an undefined tessellation and a bare "
+            + "Float is a dial with no ceiling on a headset that is already GPU-bound.");
+        if (range.Success)
+        {
+            float max = float.Parse(range.Groups["max"].Value,
+                                    System.Globalization.CultureInfo.InvariantCulture);
+            t.True(Math.Abs(max - WaterOwnSurface.MaxTessellationFactor) < 1e-6f,
+                $"the shader's {WaterOwnSurface.TessFactorProperty} Range tops out at {max:0.#} but "
+                + $"the driver clamps to {WaterOwnSurface.MaxTessellationFactor:0.#}");
+        }
 
-        // AND THE PAD IS IN THE SOURCE, tied to the ceiling rather than to a number somebody typed.
-        // Reading the file is the only way to assert this without a live Mesh, which no test
-        // harness on this machine can build.
+        t.True(WaterOwnSurface.TessellationFactor >= 2f
+               && WaterOwnSurface.TessellationFactor <= WaterOwnSurface.MaxTessellationFactor,
+            $"the shipped tessellation factor {WaterOwnSurface.TessellationFactor:0.#} must be at "
+            + "least 2 (a factor of 1 subdivides nothing at all, which is ModBuild 164) and no more "
+            + $"than the {WaterOwnSurface.MaxTessellationFactor:0.#} ceiling");
+
+        // THE TARGET EDGE IS A CLAIM ABOUT THE MEASURED MESH, so it is checked against the measured
+        // mesh: 33 vertices over the census's 1.73 x 1.998 m hex. A planar patch with V vertices
+        // carries about 2V-2 triangles at the low end and rather fewer as a fan; 32 is taken because
+        // it is the CONSERVATIVE reading (fewer triangles means a longer authored edge, so a
+        // tessellation factor that satisfies this bound satisfies the real mesh too).
+        const float AuthoredTriangles = 32f;
+        float authoredEdge = Mathf.Sqrt(
+            2f * WaterOwnSurface.TileLatticeX * WaterOwnSurface.TileLatticeZ / AuthoredTriangles);
+        float tessellated = authoredEdge / WaterOwnSurface.TessellationFactor;
+        t.True(tessellated <= WaterOwnSurface.TargetEdgeWU + 1e-3f,
+            $"the shipped factor leaves an edge of {tessellated:0.###} world units on the film the "
+            + $"census measured, against the {WaterOwnSurface.TargetEdgeWU:0.###} target. Below "
+            + "that the swell is sampled too coarsely to have a silhouette, which is the ModBuild "
+            + "164 look.");
+
+        // AND THE FALLBACK SUBSHADER STILL DRAWS WATER. A device without shader model 4.6 must get
+        // the same wave at a coarser sampling, never a missing pass — an unreachable SubShader list
+        // is a magenta pool.
+        t.True(Regex.Matches(text, @"(?m)^\s*SubShader\b").Count >= 2,
+            $"'{WaterOwnSurface.FilmShaderName}' must declare a second, non-tessellated SubShader. "
+            + "A shader whose only SubShader needs shader model 4.6 draws NOTHING on a device that "
+            + "lacks it, and 'the pool disappeared' is a worse outcome than 'the pool is flatter'.");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    //  2d. THE SWELL'S TABLE IS THE SAME ON BOTH SIDES OF THE FENCE.
+    // ---------------------------------------------------------------------------------------
+    //  The shader carries the four components' directions and wavelength ratios as literals; C#
+    //  carries them so LatticeMismatch can compute what they leave, and so the census can print it.
+    //  A number tuned on one side only would make the log's LATTICE MISMATCH a statement about a
+    //  surface nobody is looking at.
+    private static void SwellTableMatchesTheShader(Harness t, string? shaderPath)
+    {
+        if (shaderPath == null)
+            return;
+        string text = ExpandedShaderSource(shaderPath);
+
+        MatchCollection calls = Regex.Matches(
+            text,
+            @"GhvrStanding\(p,\s*t,\s*float2\(\s*(?<dx>-?[0-9.]+),\s*(?<dy>-?[0-9.]+)\),\s*"
+            + @"L\s*\*\s*(?<ratio>[0-9.]+)");
+        t.Equal(WaterOwnSurface.SwellRatios.Length, calls.Count,
+            $"the shader must sum exactly {WaterOwnSurface.SwellRatios.Length} standing components "
+            + $"(found {calls.Count}). Fewer is a field with fewer ways to avoid the tile lattice; "
+            + "the C# table is what the census's LATTICE MISMATCH number is computed from, so the "
+            + "two must be the same field.");
+        if (calls.Count != WaterOwnSurface.SwellRatios.Length)
+            return;
+
+        for (int i = 0; i < calls.Count; i++)
+        {
+            float dx = ParseF(calls[i].Groups["dx"].Value);
+            float dy = ParseF(calls[i].Groups["dy"].Value);
+            float ratio = ParseF(calls[i].Groups["ratio"].Value);
+            float rad = WaterOwnSurface.SwellDirections[i] * Mathf.Deg2Rad;
+            t.True(Math.Abs(dx - Mathf.Cos(rad)) < 5e-4f && Math.Abs(dy - Mathf.Sin(rad)) < 5e-4f,
+                $"swell component {i}: the shader points ({dx:0.####},{dy:0.####}) but "
+                + $"WaterOwnSurface.SwellDirections says {WaterOwnSurface.SwellDirections[i]:0.#} "
+                + $"degrees = ({Mathf.Cos(rad):0.####},{Mathf.Sin(rad):0.####})");
+            t.True(Math.Abs(ratio - WaterOwnSurface.SwellRatios[i]) < 5e-4f,
+                $"swell component {i}: the shader scales the wavelength by {ratio:0.#####} but "
+                + $"WaterOwnSurface.SwellRatios says {WaterOwnSurface.SwellRatios[i]:0.#####}");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    //  2e. THE FIELD CANNOT DRAW THE SAME FIGURE ON EVERY TILE.
+    // ---------------------------------------------------------------------------------------
+    //  User, verbatim, on ModBuild 164: "Aktuell scheint die Animation bei jedem tile identisch zu
+    //  sein, bring mehr randomness rein! Es soll sich nicht auf jeden tile exakt gleichen was
+    //  passiert." The films sit on a 1.73 x 1.998 m lattice, so a component whose wavelength
+    //  divides a lattice vector along its own direction looks IDENTICAL on neighbouring tiles.
+    //  LatticeMismatch measures the worst of the four; this pins that it stays far from zero, and
+    //  it pins it as a NUMBER rather than as a promise about irrational ratios, because a retune of
+    //  the wavelength is exactly how the promise would quietly stop holding.
+    private static void SwellCannotRepeatOnTheTileLattice(Harness t)
+    {
+        float shipped = WaterOwnSurface.LatticeMismatch(WaterOwnSurface.SwellWavelength);
+        t.True(shipped >= 0.10f,
+            $"the shipped swell scores {shipped:0.###} cycles of lattice mismatch, under the 0.10 "
+            + "floor. That is the worst of the four components against the "
+            + $"{WaterOwnSurface.TileLatticeX:0.##} x {WaterOwnSurface.TileLatticeZ:0.###} m film "
+            + "lattice: at 0 the whole field repeats tile for tile, which is the reported defect. "
+            + "Move a wavelength or a direction until it is back above 0.10 — and note that this "
+            + "cannot be fixed with a per-quad random phase, which would put a step in the surface "
+            + "at every tile seam.");
+
+        // ...AND THE OLD VALUE FAILS IT. Without this the floor could be met by a table that never
+        // had the problem, and the check would be asserting nothing about the bug it is named for.
+        float old = WaterOwnSurface.LatticeMismatch(1.1f);
+        t.True(old < shipped,
+            $"ModBuild 164's 1.1 m swell must score WORSE than the shipped one (it scores "
+            + $"{old:0.###} against {shipped:0.###}). If it does not, this check is not measuring "
+            + "the thing the user reported.");
+
+        // THE DIAL CAN MOVE THE WAVELENGTH, AND SOME SETTINGS REALLY ARE WORSE. That is stated as a
+        // measurement rather than wished away: the mismatch is the MINIMUM over four components and
+        // two lattice vectors, so eight chances to land near a whole cycle, and no fixed set of
+        // ratios can keep all of them far away at every scale. What CAN be pinned is that the
+        // typical setting is comfortable and the SHIPPED one is deliberately good — and this is why
+        // the census prints the live number rather than a claim.
+        var swept = new List<float>();
+        for (int i = 0; i <= 200; i++)
+        {
+            float scale = 0.25f + i * (4f - 0.25f) / 200f;
+            swept.Add(WaterOwnSurface.LatticeMismatch(WaterOwnSurface.SwellWavelength * scale));
+        }
+        swept.Sort();
+        float median = swept[swept.Count / 2];
+        t.True(median >= 0.05f,
+            $"the median [Water] WaveScale setting scores {median:0.###} cycles of lattice "
+            + "mismatch, under the 0.05 floor. Half the dial handing the user a field that nearly "
+            + "repeats tile for tile is a component table whose ratios are not incommensurate "
+            + "enough, whatever the shipped default happens to score.");
+
+        // ...and the SHIPPED scale is the best of the settings a user actually types. If a retune
+        // ever made 1.0 an unlucky one, this is where it is caught rather than on hardware.
+        foreach (float scale in new[] { 0.5f, 0.75f, 1.25f, 1.5f, 2f, 3f, 4f })
+        {
+            float m = WaterOwnSurface.LatticeMismatch(WaterOwnSurface.SwellWavelength * scale);
+            t.True(shipped >= m || m >= 0.10f,
+                $"[Water] WaveScale {scale:0.##} scores {m:0.###} against the shipped 1.0's "
+                + $"{shipped:0.###}. The shipped default must be at least as good as any round "
+                + "setting that beats the 0.10 floor — it is the one the user will actually see.");
+        }
+
+        t.True(WaterOwnSurface.LatticeMismatch(0f) == 0f
+               && WaterOwnSurface.LatticeMismatch(float.NaN) == 0f,
+            "a degenerate wavelength must report the WORST mismatch (0) rather than a comfortable "
+            + "number — this value goes into the hardware log and a refusal must never read as a "
+            + "pass");
+    }
+
+    // ---------------------------------------------------------------------------------------
+    //  2f. THE BOUNDS PAD, which is all that is left of the mesh path — and it is the load-bearing
+    //      part, because culling cannot see a domain program any more than a vertex one.
+    // ---------------------------------------------------------------------------------------
+    private static void DisplacedBoundsArePaddedAndGivenBack(Harness t, string repoRoot)
+    {
         string path = Path.Combine(
-            repoRoot, "src", "GloomhavenVR", "Core", "WaterSwellMesh.cs");
-        t.True(File.Exists(path), $"WaterSwellMesh.cs exists at '{path}'");
+            repoRoot, "src", "GloomhavenVR", "Core", "WaterTerrainVR.cs");
+        t.True(File.Exists(path), $"WaterTerrainVR.cs exists at '{path}'");
         if (!File.Exists(path))
             return;
         string src = File.ReadAllText(path);
+
+        // Reading the source is the only way to assert this without a live Renderer, which no test
+        // harness on this machine can build.
         t.True(src.Contains("WaterOwnSurface.MaxSwellAmplitude / scale"),
-            "WaterSwellMesh must derive its bounds pad from WaterOwnSurface.MaxSwellAmplitude — "
-            + "the CEILING and not the amplitude currently in force, because a dial raised "
-            + "mid-scene would otherwise outrun bounds baked for a lower one, and the symptom is "
-            + "the water vanishing as you lean in (one eye first, under MultiPass).");
-        t.True(Regex.IsMatch(src, @"b\.Expand\(\s*pad\s*\*\s*2f\s*\)"),
-            "WaterSwellMesh must expand the built mesh's bounds by twice the pad, because "
+            "the driver must derive its bounds pad from WaterOwnSurface.MaxSwellAmplitude — the "
+            + "CEILING and not the amplitude currently in force, because a dial raised mid-scene "
+            + "would otherwise outrun bounds baked for a lower one, and the symptom is the water "
+            + "vanishing as you lean in (one eye first, under MultiPass).");
+        t.True(Regex.IsMatch(src, @"padded\.Expand\(\s*pad\s*\*\s*2f\s*\)"),
+            "the driver must expand the film's local bounds by TWICE the pad, because "
             + "Bounds.Expand grows the SIZE and the pad is per side. Half a pad is a surface whose "
             + "crests are culled exactly when they are highest.");
+        t.True(Regex.IsMatch(src, @"r\.localBounds\s*=\s*padded"),
+            "the pad must be written to Renderer.localBounds. ModBuild 164 wrote it onto a "
+            + "SUBDIVIDED COPY of the mesh instead, and the copy was never built because the game's "
+            + "meshes are imported without Read/Write — so the bounds were never padded either, and "
+            + "the only reason nobody saw the water vanish is that it was never displaced far "
+            + "enough to leave them.");
+        t.True(src.Contains("ResetLocalBounds()"),
+            "every path that stops wanting the swell must hand the renderer's authored bounds back "
+            + "with Renderer.ResetLocalBounds(). A bounds override that outlived the mod would be a "
+            + "change to the game's own renderer that the game has no way to undo.");
+
+        // AND THE CENSUS MUST REPORT THE MESH'S READABILITY BEFORE ITS TRIANGLE COUNT. This is the
+        // whole lesson of the round: "33 verts / 0 tris" was Mesh.triangles refusing, and it was
+        // read as a mesh with no triangles.
+        t.True(src.Contains("mesh.isReadable"),
+            "the census must read and print Mesh.isReadable for the film. ModBuild 164's line said "
+            + "'33 verts / 0 tris', which is not a mesh without triangles — it is Mesh.triangles "
+            + "returning empty on a non-readable mesh — and a whole hardware round was spent on the "
+            + "hypothesis that number produced.");
     }
 
     // ---------------------------------------------------------------------------------------
@@ -849,6 +1080,37 @@ internal static class WaterOwnSurfaceVectors
         }
         return null;
     }
+
+    /// <summary>
+    /// A .shader's own text with every <c>#include "X.cginc"</c> it names from its own directory
+    /// pasted in.
+    ///
+    /// <para>WHY. Since ModBuild 165 WaterVR's entire program — the four stages, the swell, the
+    /// ripple, the light — lives in WaterVR.cginc, and the .shader is a property table plus two
+    /// SubShaders that include it. Every source lint in this file would otherwise be reading the
+    /// property table and calling it a sweep of the shader. Only the shader's OWN directory is
+    /// followed: UnityCG.cginc and the rest of the engine's own includes are not ours and are not
+    /// what a regression would be added to.</para>
+    /// </summary>
+    private static string ExpandedShaderSource(string shaderPath)
+    {
+        string text = File.ReadAllText(shaderPath);
+        string dir = Path.GetDirectoryName(shaderPath) ?? ".";
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Match m in Regex.Matches(text, "#include\\s+\"(?<f>[^\"]+\\.cginc)\""))
+        {
+            string name = m.Groups["f"].Value;
+            if (!seen.Add(name))
+                continue;
+            string p = Path.Combine(dir, name);
+            if (File.Exists(p))
+                text += "\n" + File.ReadAllText(p);
+        }
+        return text;
+    }
+
+    private static float ParseF(string s) =>
+        float.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
 
     private static bool Near(float a, float b, float eps = 1e-5f) => Math.Abs(a - b) < eps;
 
