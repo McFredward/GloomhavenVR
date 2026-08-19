@@ -40,18 +40,20 @@ namespace GloomhavenVR.Core;
 /// <c>_Color_Tint</c> = RGBA(0.195, 0.311, 0.131, 0.737),
 /// <c>_DetailOpacityBaseNormalStr</c> = (5.00, 5.00, 0.00, 0.00), <c>_Smoothness</c> = 0.754,
 /// render queue 2900. <b>Two scrolling normal layers at different tilings and speeds are the whole
-/// of its motion.</b> Every one of those values is READ OFF THE GAME MATERIAL at runtime and fed to
+/// of its motion.</b> Its LOOK values are READ OFF THE GAME MATERIAL at runtime and fed to
 /// <c>GloomhavenVR/WaterVR</c>; the constants in this file are the measured fallbacks for a tileset
-/// whose material does not declare one of them, never a look chosen here.</para>
+/// whose material does not declare one of them, never a look chosen here. Its three SPEED values
+/// are, since ModBuild 166, deliberately not read at all — see
+/// <see cref="ForbiddenTranslationProperties"/>, and the ruling below.</para>
 ///
 /// <para>AND SINCE MODBUILD 164 THE GEOMETRY MOVES. Reproducing the tileset exactly was tried and
 /// the hardware verdict was <i>"Statt langsam, seichte Wellen sehe ich extrem schnelle (und viele)
 /// hektische weiße Streifen die auf der FLACHEN Oberfläche vorbeisausen"</i>, then
-/// <i>"Nicht nur 'calm' sondern auch wirklich 3D wellen einbauen"</i>. Four causes of the streaks
-/// are answered by <see cref="TameTilings"/>, <see cref="LayerWeights"/>, <see cref="ScrollRate"/>'s
-/// unit and the shader's own glint; the FLATNESS could not be, because no shading term can give a
-/// sheet relief. So <c>WaterVR</c> displaces its vertices — vertically, by
-/// <see cref="SwellAmplitude"/>, as a function of world position and time only.</para>
+/// <i>"Nicht nur 'calm' sondern auch wirklich 3D wellen einbauen"</i>. Three causes of the streaks
+/// are answered by <see cref="TameTilings"/>, <see cref="LayerWeights"/> and the shader's own
+/// glint; the FLATNESS could not be, because no shading term can give a sheet relief. So
+/// <c>WaterVR</c> displaces its vertices — vertically, by <see cref="SwellAmplitude"/>, as a
+/// function of world position and time only.</para>
 ///
 /// <para><b>AND SINCE MODBUILD 165 THE GEOMETRY IT MOVES COMES FROM THE GPU.</b> ModBuild 164 sent
 /// that displacement to a mesh that had nothing to displace: the census read the film as
@@ -69,16 +71,29 @@ namespace GloomhavenVR.Core;
 /// reproduced: this swell is the VR-side relief the user asked for by name, with its own dial and
 /// its own ceiling.</para>
 ///
-/// <para><b>AND IT IS STANDING WATER, NOT A CURRENT.</b> ModBuild 164's verdict was <i>"Es fließt
-/// noch viel zu schnell! Das ist kein Fluss sondern soll eher eine Pfütze stehendes Wasser
-/// simulieren mit nur minimal Bewegungen"</i> and <i>"Aktuell scheint die Animation bei jedem tile
-/// identisch zu sein"</i>. Both are answered by the shape of the motion rather than by a smaller
-/// number on the old one: the swell is four STANDING components (they rise and fall in place —
-/// <see cref="SwellPeriod"/>, <see cref="SwellDriftSpeed"/>), at irrational wavelength ratios that
-/// <see cref="LatticeMismatch"/> proves cannot repeat on the film lattice, under a slow large-scale
-/// modulation (<see cref="SwellCalmDepth"/>) that leaves part of the pool nearly still; and the two
-/// ripple layers SWAY back and forth (<see cref="RippleSwayPeriodA"/>,
-/// <see cref="RippleDriftShare"/>) instead of scrolling away.</para>
+/// <para><b>AND SINCE MODBUILD 166 NOTHING ON THE SURFACE TRANSLATES AT ALL. THAT IS A USER RULING,
+/// NOT A TUNING CHOICE.</b> ModBuild 164 was <i>"Es fließt noch viel zu schnell! Das ist kein Fluss
+/// sondern soll eher eine Pfütze stehendes Wasser simulieren"</i>. ModBuild 165 answered it by
+/// making most of the motion a SWAY that reverses and nets to zero, keeping a residual drift, and
+/// the verdict on THAT was <i>"Immer noch viel zu hektisch und es fließt jetzt einmal in die eine
+/// Richtung, stoppt kurz und fließt dann wieder in die andere. Erscheint nicht mehr immersiv. Ich
+/// will außerdem so gut wie KEIN fließen, es ist kein Fluss sondern eine Pfütze. Die animationen
+/// sollen sehr dezent und random sein!"</i></para>
+///
+/// <para>The sway was the integrator's own design instruction and it was wrong twice over: netting
+/// to zero over a cycle is not the same as not moving, and a pattern that reverses reads as MORE
+/// artificial than a steady drift, because nothing on real water does it. So the translation is not
+/// tuned down — it is DELETED. There is no <c>_SwellSpeed</c>, no <c>_WaterUVAnimSpeed*</c> and no
+/// <c>ScrollRate</c> anywhere in this feature (<see cref="ForbiddenTranslationProperties"/>), which
+/// means there is no dial to raise and no zero for a later edit to make non-zero. What moves
+/// instead: the swell is six STANDING components rising and falling in place at six incommensurate
+/// periods (<see cref="SwellRatios"/>, <see cref="ResolvedSwellPeriod"/>) whose spatial phase
+/// contains no clock; the ripple is sampled at fixed frames of the world plane and CROSSFADED
+/// (<see cref="RippleFadeRatios"/>); and a large-scale bloom of three long standing modulations
+/// (<see cref="SwellBloomRatios"/>, <see cref="SwellCalmDepth"/>) makes a different part of the
+/// pool the lively one every few minutes without any travelling front. <see cref="SwellHeightAt"/>
+/// is the C# mirror the wire test cross-correlates to prove the field's net translation is exactly
+/// zero — the claim is measured, not asserted.</para>
 ///
 /// <para><b>THE HARD REQUIREMENT: NOTHING IN THE REPLACEMENT SHADER MAY DEPEND ON THE VIEW
 /// DIRECTION.</b> The user's words for the defect were <i>"die kopf-gebundene Reflektion"</i> and
@@ -94,10 +109,11 @@ namespace GloomhavenVR.Core;
 /// an environment sample and fails the build gate on a hit — the shader is defended by a test, not
 /// by this paragraph.</para>
 ///
-/// <para>SO WHERE DOES THE SPARKLE COME FROM? THE SCROLLING NORMALS. A fixed light direction dotted
-/// against the animated normal gives highlights that are born on the crests, travel with them and
-/// break up as the two layers slide past each other — moving light that is identical in both eyes
-/// because the eye is not in the expression. The direction comes from the scene's own main
+/// <para>SO WHERE DOES THE SPARKLE COME FROM, NOW THAT NOTHING SCROLLS? THE SWELL'S OWN SLOPE. A
+/// fixed light direction dotted against the analytic gradient of the standing wave gives highlights
+/// that are born where a crest rises and fade where it falls — light that changes IN PLACE rather
+/// than sliding, which is what a puddle under a lamp does, and which is identical in both eyes
+/// because the eye is not in the expression. The ripple's crossfade breaks them up further. The direction comes from the scene's own main
 /// directional light when there is one and from <see cref="DefaultLightLocal"/> when there is not;
 /// <see cref="TryBuildLightDirection"/> decides and says which, and the census prints it.</para>
 ///
@@ -162,11 +178,16 @@ internal static class WaterOwnSurface
     };
 
     // --- properties only GloomhavenVR/WaterVR declares: the animation itself.
+    //
+    //     AND THREE OF THEM ARE GONE SINCE MODBUILD 166, WHICH IS THE POINT OF THIS ROUND.
+    //     `_WaterUVAnimSpeedA`, `_WaterUVAnimSpeedB` and `_SwellSpeed` were the three names a SPEED
+    //     could be written under, and the ruling on ModBuild 165 was that the pattern must not
+    //     travel at all — see <see cref="RippleFadeRatios"/>. They are DELETED rather than written
+    //     as zero: a zeroed dial is one edit away from being raised, and a property that no longer
+    //     exists is not.
     internal const string NormalMapProperty = "_Normal_Map";
     internal const string NormalTilingsProperty = "_NormalTilings";
     internal const string LayerWeightsProperty = "_LayerWeights";
-    internal const string ScrollAProperty = "_WaterUVAnimSpeedA";
-    internal const string ScrollBProperty = "_WaterUVAnimSpeedB";
     internal const string NormalStrengthProperty = "_NormalStrength";
     internal const string ProcNormalProperty = "_ProcNormal";
     internal const string LightDirProperty = "_LightDir";
@@ -175,27 +196,43 @@ internal static class WaterOwnSurface
     internal const string SmoothnessProperty = "_Smoothness";
     internal const string SwellAmpProperty = "_SwellAmp";
     internal const string SwellWaveProperty = "_SwellWave";
-    internal const string SwellSpeedProperty = "_SwellSpeed";
     internal const string SwellPeriodProperty = "_SwellPeriod";
     internal const string SwellCalmProperty = "_SwellCalm";
-    internal const string RippleSwayProperty = "_RippleSway";
+    internal const string RippleFadeProperty = "_RippleFade";
     internal const string TessFactorProperty = "_TessFactor";
 
     /// <inheritdoc cref="CommonProperties"/>
     internal static readonly string[] WaterProperties =
     {
-        NormalMapProperty, NormalTilingsProperty, LayerWeightsProperty, ScrollAProperty,
-        ScrollBProperty, NormalStrengthProperty, ProcNormalProperty, LightDirProperty,
+        NormalMapProperty, NormalTilingsProperty, LayerWeightsProperty,
+        NormalStrengthProperty, ProcNormalProperty, LightDirProperty,
         ShimmerProperty, WaveShadeProperty, SmoothnessProperty,
-        SwellAmpProperty, SwellWaveProperty, SwellSpeedProperty, SwellPeriodProperty,
-        SwellCalmProperty, RippleSwayProperty, TessFactorProperty,
+        SwellAmpProperty, SwellWaveProperty, SwellPeriodProperty,
+        SwellCalmProperty, RippleFadeProperty, TessFactorProperty,
+    };
+
+    /// <summary>Property names that MUST NOT appear in the film shader at all, with the reason.
+    /// Every one of them is a SPEED — a term that moves the pattern bodily across the pool — and
+    /// the standing user ruling is that the water has none. The wire test sweeps the shader source
+    /// for each, so re-declaring one fails the build gate rather than a seventh photograph.</summary>
+    internal static readonly string[] ForbiddenTranslationProperties =
+    {
+        "_WaterUVAnimSpeedA", "_WaterUVAnimSpeedB", "_SwellSpeed", "_RippleSway",
+        "_WaterNoiseSpeed",
     };
 
     // --- the names the GAME's material carries these values under. Three of them happen to be
-    //     spelled the same on both sides (_Normal_Map, _NormalTilings, _Smoothness); the two
-    //     scroll vectors are read from the game under the same names and written RESOLVED (see
-    //     ScrollRate). Every name here was printed by the hardware census, so none is guessed.
-    internal const string GameNoiseSpeedProperty = "_WaterNoiseSpeed";
+    //     spelled the same on both sides (_Normal_Map, _NormalTilings, _Smoothness). Every name
+    //     here was printed by the hardware census, so none is guessed.
+    //
+    //     `_WaterUVAnimSpeedA/B` AND `_WaterNoiseSpeed` ARE NO LONGER READ, and this is the one
+    //     place in the file where a value the tileset authored is deliberately dropped. They are
+    //     SCROLL RATES, in texture repeats or world units per second, and there is no longer a
+    //     coordinate in the shader that scrolls. The only way to keep using them would be to
+    //     re-purpose a rate as a crossfade rate, which is a translation dial under a new name and
+    //     exactly the sort of edit that would bring the flow back. So the tileset's motion is not
+    //     reproduced; the tileset's LOOK — its normal map, its tilings, its tint, its smoothness —
+    //     still is.
     internal const string GameNormalStrengthProperty = "_DetailOpacityBaseNormalStr";
     internal const string GameTintProperty = "_Color_Tint";
 
@@ -203,9 +240,6 @@ internal static class WaterOwnSurface
     //     declare one of them. Source: the WATER SURFACE census of
     //     TERRAIN_GEN_WaterPlane_Crypt_Mat on VFX/Water_Shd_Trans.
     internal static readonly Vector4 AuthoredTilings = new(0.14f, 6.00f, -0.12f, -0.20f);
-    internal static readonly Vector4 AuthoredSpeedA = new(1.00f, 1.00f, 0.60f, 0f);
-    internal static readonly Vector4 AuthoredSpeedB = new(0.50f, 1.00f, 1.00f, 0f);
-    internal static readonly Vector4 AuthoredNoiseSpeed = new(1.00f, 1.00f, 1.00f, 0f);
     internal static readonly Vector4 AuthoredNormalStrength = new(5.00f, 5.00f, 0f, 0f);
     internal const float AuthoredSmoothness = 0.754f;
 
@@ -312,23 +346,9 @@ internal static class WaterOwnSurface
     /// repeating on the lattice in one axis and 18% in the other — over the two or three tiles the
     /// eye takes in at once, that IS a repeat. 2.4 m is longer than either lattice vector, so the
     /// primary component spans more than one hex and cannot be read as a per-tile figure at all,
-    /// and <see cref="LatticeMismatch"/> measures what the four of them together leave.</para>
+    /// and <see cref="LatticeMismatch"/> measures what the six of them together leave.</para>
     /// </summary>
     internal const float SwellWavelength = 2.4f;
-
-    /// <summary>
-    /// The ONLY net translation left in the geometry, in world units per second at
-    /// <c>[Water] RippleSpeed</c> 1.
-    ///
-    /// <para>RE-BASED FROM 0.20, WHICH WAS A PHASE SPEED AND IS NOW A DRIFT. Through ModBuild 164
-    /// the swell was two TRAVELLING trains and 0.2 m/s was how fast the whole pattern crossed the
-    /// pool — the user's verdict was <i>"Es fließt noch viel zu schnell! Das ist kein Fluss sondern
-    /// soll eher eine Pfütze stehendes Wasser simulieren"</i>. The components are STANDING now
-    /// (they rise and fall in place), and this is the trace of real translation left on top, so
-    /// that their nodes are not nailed to fixed world positions forever. 2 cm/s is 1.2 m a minute
-    /// across a 5 m pool, which is a drift you can only see by looking for it.</para>
-    /// </summary>
-    internal const float SwellDriftSpeed = 0.02f;
 
     /// <summary>
     /// How long the LONGEST swell component takes to rise and fall once, in seconds, at
@@ -338,32 +358,96 @@ internal static class WaterOwnSurface
     /// <para>1.1 s IS THE PHYSICAL ANSWER FOR THIS WAVE, which is why the dial and not the constant
     /// carries the "nur minimal Bewegungen" ruling. A 2.4 m deep-water wave has a period of
     /// sqrt(2 pi L / g) = 1.24 s; at the dial's own 1.0 this shader is therefore real water, and the
-    /// shipped <c>[Water] RippleSpeed</c> of 0.12 stretches it to about 9 s, which is a puddle. That
-    /// split means the dial is a statement anyone can check ("a twelfth of real water's rate")
-    /// rather than a number chosen against a photograph, and turning it up gives something
-    /// recognisable rather than something arbitrary.</para>
+    /// shipped <c>[Water] RippleSpeed</c> of 0.035 stretches it to 31 s, which is a puddle. That split
+    /// means the dial is a statement anyone can check ("a thirtieth of real water's rate") rather
+    /// than a number chosen against a photograph, and turning it up gives something recognisable
+    /// rather than something arbitrary. RE-BASED FROM 0.12 FOR MODBUILD 166: nine seconds was still
+    /// judged "viel zu hektisch", and the ruling asked for a large factor rather than a nudge.</para>
     /// </summary>
     internal const float SwellPeriod = 1.1f;
 
     /// <summary>How far the quiet parts of the pool drop below full amplitude — 0 = the same
-    /// everywhere, 1 = dead still wherever the two very long modulation waves cancel. This is the
-    /// term that answers <i>"Es soll sich nicht auf jeden tile exakt gleichen was passiert"</i>
-    /// most directly, and it does it as a property of the continuous world-space field rather than
-    /// per quad: a per-quad seed would put a step in the height at every tile seam.</summary>
+    /// everywhere, 1 = dead still wherever the three very long standing modulations cancel. This is
+    /// the term that answers <i>"Die animationen sollen sehr dezent und random sein"</i> most
+    /// directly, and it does it as a property of the continuous world-space field rather than per
+    /// quad: a per-quad seed would put a step in the height at every tile seam.</summary>
     internal const float SwellCalmDepth = 0.75f;
 
-    /// <summary>The four swell components' wavelengths, as fractions of
+    /// <summary>The six swell components' wavelengths, as fractions of
     /// <see cref="SwellWavelength"/>. Irrational and mutually incommensurate on purpose —
-    /// 1, 1/phi, sqrt(2)-1, 2-sqrt(3) — so the sum has no finite period in any direction and the
-    /// field genuinely never repeats rather than repeating on a cycle longer than the pool.
-    /// MIRRORED IN THE SHADER (WaterVR.cginc): the wire test reads both and fails on drift.</summary>
-    internal static readonly float[] SwellRatios = { 1f, 0.618034f, 0.414214f, 0.267949f };
+    /// 1, 1/phi, sqrt(2)-1, 2-sqrt(3), sqrt(3)-1, 2sqrt(2)-2 — so the sum has no finite period in
+    /// any direction and the field genuinely never repeats rather than repeating on a cycle longer
+    /// than the pool.
+    ///
+    /// <para>SIX SINCE MODBUILD 166, AND THE REASON IS TEMPORAL. Each component's bob period is the
+    /// square root of its wavelength ratio (deep-water dispersion), so six wavelengths are six
+    /// mutually incommensurate RATES; with four the sum still had a legible envelope — a few
+    /// seconds of activity, then a lull — and <i>"die animationen sollen sehr dezent und random
+    /// sein"</i> rules a rhythm out. Six also divides the same peak amplitude over more crests, so
+    /// each one is individually gentler. The two added ones were picked by an exhaustive sweep against
+    /// <see cref="LatticeMismatch"/> — every candidate ratio of that irrational family against every
+    /// whole-degree direction at least 13 degrees from all the others, keeping only pairs that leave
+    /// the mismatch at or above 0.145 cycles at <c>[Water] WaveScale</c> 1, a median of at least
+    /// 0.055 over the whole dial, and no round dial setting scoring better than the shipped one. The
+    /// winner leaves the mismatch at exactly the 0.156 the four-component table scored, i.e. neither
+    /// new component is ever the worst one.</para>
+    ///
+    /// <para>MIRRORED IN THE SHADER (WaterVR.cginc): the wire test reads both and fails on
+    /// drift.</para></summary>
+    internal static readonly float[] SwellRatios =
+        { 1f, 0.618034f, 0.414214f, 0.267949f, 0.732051f, 0.828427f };
 
-    /// <summary>The four swell components' directions, in degrees. None is axis-aligned, no two
-    /// are 90 degrees apart, and none belongs to the hex lattice's own 60-degree family — so no
-    /// pair can conspire into a corrugation and none runs along a row of tiles. MIRRORED IN THE
-    /// SHADER as unit vectors (WaterVR.cginc); the wire test reads both and fails on drift.</summary>
-    internal static readonly float[] SwellDirections = { 17f, 103f, 61f, 148f };
+    /// <summary>The six swell components' directions, in degrees. None is axis-aligned, no two are
+    /// 90 degrees apart, no two are within 13 degrees of each other, and none belongs to the hex
+    /// lattice's own 60-degree family — so no pair can conspire into a corrugation and none runs
+    /// along a row of tiles. MIRRORED IN THE SHADER as unit vectors (WaterVR.cginc); the wire test
+    /// reads both and fails on drift.</summary>
+    internal static readonly float[] SwellDirections = { 17f, 103f, 61f, 148f, 47f, 164f };
+
+    /// <summary>The six swell components' relative amplitudes: the wavelength ratio raised to 1.25,
+    /// normalised by <see cref="SwellAmplitudeSum"/> so the six together peak at exactly the
+    /// amplitude <see cref="SwellAmplitude"/> returns. The exponent is above 1, so the SHORT
+    /// components are gentler in slope as well as in height (slope goes as ratio^0.25) and the
+    /// longest wave carries the shape rather than competing with the detail.
+    /// MIRRORED IN THE SHADER (WaterVR.cginc).</summary>
+    internal static readonly float[] SwellAmplitudes =
+        { 1f, 0.547981f, 0.332300f, 0.192781f, 0.677137f, 0.790347f };
+
+    /// <inheritdoc cref="SwellAmplitudes"/>
+    internal const float SwellAmplitudeSum = 3.540547f;
+
+    /// <summary>
+    /// The three ripple CROSSFADE periods, as multiples of the swell's own resolved period — so
+    /// <c>[Water] RippleSpeed</c> 0 freezes the ripple as well as the geometry, and there is one
+    /// clock over the whole surface rather than a rhythm running under a motionless swell.
+    ///
+    /// <para>THIS IS WHAT REPLACED THE SCROLL, AND IT IS A USER RULING RATHER THAN A TUNING CHOICE.
+    /// Up to ModBuild 165 each normal layer was OFFSET by a rate times the clock — a one-way drift
+    /// plus a sway that reversed — and the verdict was <i>"es fließt jetzt einmal in die eine
+    /// Richtung, stoppt kurz und fließt dann wieder in die andere. Erscheint nicht mehr immersiv.
+    /// Ich will außerdem so gut wie KEIN fließen, es ist kein Fluss sondern eine Pfütze."</i> The
+    /// sway was the integrator's own design instruction and it was wrong: netting to zero over a
+    /// cycle is not the same as not moving, and a reversing pattern reads as MORE artificial than a
+    /// steady drift, because nothing on water does it.</para>
+    ///
+    /// <para>So the ripple's coordinate is now a FIXED function of world position, sampled in three
+    /// fixed frames of the plane, and only the WEIGHTS of the three move. Features fade in and out
+    /// where they are. THE THREE RATIOS ARE THE FIRST THREE POWERS OF phi — 1.618, 2.618, 4.236 —
+    /// so every pairwise ratio is itself a power of the most irrational number there is, which is
+    /// the strongest available statement that the three cycles never come back into step. (The
+    /// first draft used 1.618 / 2.414 / 3.732 and the wire test caught it: 2.414/1.618 is 1.492,
+    /// within half a percent of three halves, i.e. a pair that beats every third cycle.) At the
+    /// shipped dial they resolve to 51, 82 and 133 seconds — long enough that the mix is "barely
+    /// moving" by construction and not by taste. The census prints all three.</para>
+    /// </summary>
+    internal static readonly float[] RippleFadeRatios = { 1.618034f, 2.618034f, 4.236068f };
+
+    /// <summary>The three BLOOM periods — the large-scale envelope that decides which part of the
+    /// pool is lively — again as multiples of the swell's own resolved period, so one dial moves
+    /// everything. They resolve to 97, 148 and 229 seconds at the shipped dial: a disturbance that
+    /// swells and decays in one place over a couple of minutes and then in another, which is what
+    /// "random" looks like on standing water. MIRRORED IN THE SHADER (GhvrSwellBloom).</summary>
+    internal static readonly float[] SwellBloomRatios = { 3.1f, 4.7f, 7.3f };
 
     /// <summary>The measured tile lattice the films are laid out on, in world units: the hardware
     /// census reads <c>TERRAIN_Water_Plane</c>'s local bounds as size (1.73, 0, 1.998).
@@ -372,29 +456,6 @@ internal static class WaterOwnSurface
 
     /// <inheritdoc cref="TileLatticeX"/>
     internal const float TileLatticeZ = 1.998f;
-
-    /// <summary>
-    /// The ripple layers' SWAY periods in seconds — layer A, then layer B. Deliberately not a ratio
-    /// of small whole numbers: two layers that reversed together would read as the whole pool
-    /// twitching at one instant.
-    ///
-    /// <para>THE SPEED DIAL DOES NOT TOUCH THESE. A sway's speed is its RATE, which
-    /// <c>[Water] RippleSpeed</c> already scales; the period is its rhythm, and dividing that by
-    /// the dial as well would have squared the effect — the first draft did exactly that and the
-    /// preview log came back with a swell bobbing once every 75 seconds, i.e. a frozen pool that
-    /// every number in the file claimed was moving. What the dial changes is how far the texture
-    /// gets in those 13 seconds.</para>
-    /// </summary>
-    internal const float RippleSwayPeriodA = 13f;
-
-    /// <inheritdoc cref="RippleSwayPeriodA"/>
-    internal const float RippleSwayPeriodB = 17f;
-
-    /// <summary>What share of a ripple layer's resolved rate is still a genuine one-way drift, the
-    /// rest being a sway that reverses and nets to nothing. A quarter, because a pattern that only
-    /// ever retraces its own path reads as a video being rewound — and a quarter of the shipped
-    /// rate is a creep of about 2 cm/s, which is not a flow by any reading.</summary>
-    internal const float RippleDriftShare = 0.25f;
 
     /// <summary>
     /// How many ways the GPU splits each authored edge of the film's mesh. FIXED, never scaled by
@@ -419,7 +480,7 @@ internal static class WaterOwnSurface
     /// differ on 0.31% of the pixels of the waterline frame and 0.02% of the grazing one. That is
     /// because the fragment takes its normal from the ANALYTIC gradient rather than from the mesh,
     /// so extra vertices buy the SILHOUETTE and the true height against the bed — nothing else. At
-    /// a 3.6 cm amplitude that is a thin band at the water's edge. It is still worth having: the
+    /// a 1.3 cm amplitude that is a thin band at the water's edge. It is still worth having: the
     /// edge is exactly where "flache Oberfläche" was judged, and the amplitude is a dial the user
     /// can raise. But nobody should expect this number to transform a photograph.</para>
     /// </summary>
@@ -437,8 +498,8 @@ internal static class WaterOwnSurface
     /// <c>TERRAIN_Crypt_Water_02_Base</c> directly beneath it at <c>y[-0.34..-0.09]</c> — a 9 cm
     /// gap. The wave is symmetric about the authored plane, so a trough reaches minus this much;
     /// 6 cm leaves 3 cm of clearance at the worst dial setting, and the shipped default now uses
-    /// well under two thirds of it (3.6 cm on the report's 2.6 m film) because the ruling is "nur minimal
-    /// Bewegungen". A film that dipped through its own basin bed would z-fight with the stone,
+    /// barely a fifth of it (1.3 cm on the report's 2.6 m film) because the ruling on ModBuild 165's
+    /// 3.6 cm was still "viel zu hektisch". A film that dipped through its own basin bed would z-fight with the stone,
     /// which reads as the pool tearing open.
     /// </summary>
     internal const float MaxSwellAmplitude = 0.06f;
@@ -459,8 +520,8 @@ internal static class WaterOwnSurface
     internal const float TargetEdgeWU = 0.12f;
 
     /// <summary>
-    /// How far the swell's four components are from repeating on the film lattice, in CYCLES, worst
-    /// case over both lattice vectors and all four components. Bigger is better; 0 would mean the
+    /// How far the swell's six components are from repeating on the film lattice, in CYCLES, worst
+    /// case over both lattice vectors and all six components. Bigger is better; 0 would mean the
     /// field is identical on every tile.
     ///
     /// <para>WHAT IT COMPUTES. Two neighbouring films differ by a lattice vector v, so component i
@@ -548,66 +609,160 @@ internal static class WaterOwnSurface
     }
 
     /// <summary>
-    /// One normal layer's DRIFT RATE, in WORLD UNITS per second, from the game material's own
-    /// authored speed vector.
+    /// The swell's BOB PERIOD in seconds — how long the longest component takes to rise and fall
+    /// once — and, through <see cref="RippleFadeRatios"/> and <see cref="SwellBloomRatios"/>, the
+    /// clock every other cycle on the surface is a multiple of.
     ///
-    /// <para>THE UNIT IS THE FIX. Through ModBuild 163 this number was handed to a shader that
-    /// added it to a coordinate AFTER the tiling, i.e. it meant texture repeats per second — so
-    /// the speed on screen was rate divided by tiling, and layer A's 0.60 over a tiling of 0.14
-    /// was 4.3 WORLD UNITS per second across a 1 m hex, with layer B at 5.0. That is the report's
-    /// "extrem schnelle ... hektische weiße Streifen die ... vorbeisausen", and it was produced by
-    /// a unit, not by a value. The shader now drifts the WORLD coordinate and tiles afterwards, so
-    /// the same 0.60 means 0.60 world units per second whatever the tiling is, and the census
-    /// prints it in those units.</para>
+    /// <para>THERE IS NO `ScrollRate` ANY MORE, AND THIS FUNCTION IS WHAT STANDS WHERE IT STOOD.
+    /// Up to ModBuild 165 the tileset's authored <c>_WaterUVAnimSpeedA/B</c> were resolved here
+    /// into world units per second and handed to the shader, which offset the ripple's sampling
+    /// coordinate by rate times the clock. That is a translation, the user has now rejected it
+    /// three times (<i>"es ist kein Fluss sondern eine Pfütze"</i>), and the function is deleted
+    /// with the properties it fed. Nothing in the surface has a rate any more; everything has a
+    /// PERIOD, and a period cannot move a pattern.</para>
     ///
-    /// <para>THIS IS THE ONE GUESS IN THE WHOLE FEATURE AND IT IS MADE HERE ON PURPOSE — in a pure
-    /// function, with a wire vector on it and a log line that prints what it resolved to and from
-    /// what — rather than inside HLSL where nothing could check it. The census reads
-    /// <c>_WaterUVAnimSpeedA = (1.00, 1.00, 0.60, 0.00)</c> and
-    /// <c>_WaterUVAnimSpeedB = (0.50, 1.00, 1.00, 0.00)</c>. <c>.xy</c> is unambiguously the per-axis
-    /// rate; <c>.z</c> is a per-layer multiplier in every Amplify water graph that spells a speed
-    /// this way, but the game's shaders ship COMPILED inside <c>always_loaded_base*</c> and there is
-    /// no install on the build machine to open them with, so it cannot be read, only inferred.
-    /// <c>.w</c> is 0 on both layers and is not used.</para>
+    /// <para>WHY THE DIAL DIVIDES. <c>[Water] RippleSpeed</c> is the one number a human moves, and
+    /// "faster water" has to mean "shorter cycles" now that it cannot mean "quicker current". At
+    /// the dial's own 1.0 the 2.4 m swell bobs in 1.1 s, which is what a real deep-water wave that
+    /// long does (sqrt(2 pi L / g) = 1.24 s); the shipped 0.035 stretches that to 31 s, i.e. about a
+    /// thirtieth of real water. That split is what makes the default a statement anyone can check
+    /// rather than a number chosen against a photograph.</para>
     ///
-    /// <para>The inference is bounded rather than blind: taking <c>.z</c> as a multiplier changes
-    /// layer A's rate by 40% and layer B's not at all, so it moves how FAST the water runs and
-    /// never what it looks like. A <c>.z</c> of zero is refused (treated as 1) because a tileset
-    /// that meant "no motion" would have authored <c>.xy</c> at zero, and a layer frozen by a
-    /// component nobody can read would look exactly like this shader failing.</para>
+    /// <para>AND THE PERIOD SCALES AS sqrt(WAVELENGTH), not linearly — deep-water dispersion, the
+    /// same rule the six components are spaced by. A longer swell is a slower one, which is what
+    /// stops <c>[Water] WaveScale</c> from turning a lazy roll into a fast one.</para>
     ///
-    /// <para>And the absolute rate is the one thing that cannot be settled offline, which is why
-    /// <c>[Water] RippleSpeed</c> exists at all — it is the dial that closes the gap if the water
-    /// reads as a conveyor belt or as a photograph.</para>
-    ///
-    /// <para>A NOTE ON THE FREQUENCY-SCRUB CLASS, because this function looks like it. The rate
-    /// returned here is multiplied by the shared clock inside the shader, and this project has a
-    /// standing rule that a STRENGTH may never scale a frequency that is then multiplied by
-    /// <c>_Time</c> — the signature of that bug is a term that is correct at t=0 and drifts
-    /// further wrong the longer the scene runs, because changing the multiplier teleports the
-    /// phase. Nothing here is that: every factor is a CONSTANT for the life of a scene (the
-    /// tileset's authored numbers) or a value only a human moves (<c>[Water] RippleSpeed</c>).
-    /// Turning the dial does jump the pattern once, which is what a phase change looks like and is
-    /// the accepted cost of a tuning dial; nothing varies it per frame, so there is no drift to
-    /// accumulate.</para>
+    /// <para>A NOTE ON THE FREQUENCY-SCRUB CLASS, because this function looks like it. The value
+    /// returned here becomes a divisor of the shared clock inside the shader, and this project has
+    /// a standing rule that a STRENGTH may never scale a frequency that is then multiplied by
+    /// <c>_Time</c> — the signature of that bug is a term that is correct at t=0 and drifts further
+    /// wrong the longer the scene runs, because changing the multiplier teleports the phase.
+    /// Nothing here is that: both factors are constants for the life of a scene, or values only a
+    /// human moves. Turning a dial does jump the pattern once, which is what a phase change looks
+    /// like and is the accepted cost of a tuning dial; nothing varies it per frame, so there is no
+    /// drift to accumulate.</para>
     /// </summary>
-    /// <param name="authored">The layer's authored <c>_WaterUVAnimSpeed*</c>.</param>
-    /// <param name="noise">The material's <c>_WaterNoiseSpeed</c>, whose <c>.x</c> is the shared
-    /// clock scale over both layers (authored 1.00, i.e. the identity on the report's tileset).</param>
-    /// <param name="dial"><c>[Water] RippleSpeed</c>.</param>
-    /// <returns><c>(rateX, rateZ, 0, 0)</c> in WORLD UNITS per second, ready to be written straight
-    /// into the shader's own <c>_WaterUVAnimSpeed*</c>. The shader multiplies it by the clock, adds
-    /// it to the world coordinate and tiles the sum, so this function is the ONLY place the
-    /// interpretation lives.</returns>
-    internal static Vector4 ScrollRate(Vector4 authored, Vector4 noise, float dial)
+    /// <param name="waveScale"><c>[Water] WaveScale</c>.</param>
+    /// <param name="dial"><c>[Water] RippleSpeed</c>. Clamped away from zero rather than
+    /// special-cased: 0 gives a period a hundred times the shipped one, so the surface holds still
+    /// with its relief intact instead of flattening.</param>
+    internal static float ResolvedSwellPeriod(float waveScale, float dial)
     {
-        float layer = Positive(authored.z) ? authored.z : 1f;
-        float clock = Positive(noise.x) ? noise.x : 1f;
+        float s = Positive(waveScale) ? waveScale : 1f;
         float d = Finite(dial) ? Mathf.Max(dial, 0f) : 1f;
-        float k = layer * clock * d;
-        float u = Finite(authored.x) ? authored.x * k : 0f;
-        float v = Finite(authored.y) ? authored.y * k : 0f;
-        return new Vector4(u, v, 0f, 0f);
+        return SwellPeriod * Mathf.Sqrt(Mathf.Max(s, 0.01f)) / Mathf.Max(d, 0.01f);
+    }
+
+    /// <summary>The three ripple crossfade periods in seconds, from the resolved swell period.
+    /// Written straight into <see cref="RippleFadeProperty"/>; the census prints all three, so
+    /// "too fast" is a number in the next log.</summary>
+    internal static Vector4 ResolvedFadePeriods(float swellPeriod)
+    {
+        float p = Finite(swellPeriod) ? Mathf.Max(swellPeriod, 0.5f) : SwellPeriod;
+        return new Vector4(p * RippleFadeRatios[0], p * RippleFadeRatios[1],
+                           p * RippleFadeRatios[2], 0f);
+    }
+
+    /// <summary>The six components' authored SPATIAL phases, mirrored from WaterVR.cginc call by
+    /// call — arbitrary irrational-looking constants whose only job is that the six do not start
+    /// life aligned. Internal because the wire test's translation measurement needs them: an
+    /// untranslated field's projection lands on exactly these angles, and the difference from them
+    /// IS the distance the pattern has moved. <c>SwellTableMatchesTheShader</c> pins them against
+    /// the shader's own call list, so there is one table and not two.</summary>
+    internal static readonly float[] SwellSpatialPhases =
+        { 0.000f, 2.399f, 4.113f, 1.071f, 5.602f, 3.246f };
+
+    /// <summary>The six components' authored TEMPORAL phases. <inheritdoc
+    /// cref="SwellSpatialPhases"/></summary>
+    internal static readonly float[] SwellTemporalPhases =
+        { 0.000f, 1.777f, 3.412f, 5.108f, 2.483f, 0.914f };
+
+    /// <summary>The bloom's three modulation directions in degrees, wavelength multiples of the
+    /// swell's own, and spatial phases — mirrored from <c>GhvrSwellBloom</c> and internal for the
+    /// same reason as <see cref="SwellSpatialPhases"/>.</summary>
+    internal static readonly float[] BloomDirections = { 37f, 126f, 72f };
+
+    /// <inheritdoc cref="BloomDirections"/>
+    internal static readonly float[] BloomWavelengthScales = { 4.1f, 6.7f, 9.3f };
+
+    /// <inheritdoc cref="BloomDirections"/>
+    internal static readonly float[] BloomSpatialPhases = { 0f, 1.3f, 3.7f };
+    private static readonly float[] BloomTemporalPhases = { 0f, 2.1f, 4.3f };
+
+    /// <summary>
+    /// THE SWELL'S HEIGHT FIELD, IN C#, EVALUATED EXACTLY AS THE SHADER EVALUATES IT — the same six
+    /// standing components, the same three-component bloom, the same normalisation.
+    ///
+    /// <para>WHY A SECOND COPY EXISTS AT ALL, when this file's whole discipline is one expression
+    /// per fact. Because the ruling of ModBuild 166 is a claim about the field's BEHAVIOUR OVER
+    /// TIME — "it must not translate, at all, in any direction, ever" — and no source lint can
+    /// prove that. A regex can see that the string <c>drift</c> is gone; it cannot see that a
+    /// plausible-looking new term moves the pattern 3 cm a minute. So
+    /// <c>WaterOwnSurfaceVectors.PatternNeverTranslates</c> samples this function on a grid at two
+    /// instants and cross-correlates the two — the same measurement the offscreen harness makes on
+    /// the rendered pixels — and fails the build unless the best match is at exactly zero offset.
+    /// The test also runs a deliberately drifted copy of the same field and requires the
+    /// measurement to FIND that one, so a check that could never fail is not mistaken for a pass.
+    /// <c>SwellTableMatchesTheShader</c> is what keeps this copy and the HLSL one the same field.
+    /// </para>
+    /// </summary>
+    /// <param name="x">World X.</param>
+    /// <param name="z">World Z.</param>
+    /// <param name="t">Seconds on the shared clock.</param>
+    /// <param name="wavelength">The longest component's wavelength, i.e.
+    /// <see cref="SwellWaveProperty"/>.</param>
+    /// <param name="period">The longest component's bob period, i.e.
+    /// <see cref="SwellPeriodProperty"/>.</param>
+    /// <param name="amp">Peak displacement, i.e. <see cref="SwellAmpProperty"/>.</param>
+    /// <param name="calmDepth"><see cref="SwellCalmProperty"/>.</param>
+    /// <remarks>The phase tables below are mirrored from the shader call by call. They are
+    /// arbitrary irrational-looking constants whose only job is that the six components do not
+    /// start life aligned; nothing reads them but this mirror and the shader.</remarks>
+    internal static float SwellHeightAt(
+        float x, float z, float t, float wavelength, float period, float amp, float calmDepth)
+    {
+        const float Tau = 6.2831853f;
+        float L = Mathf.Max(wavelength, 0.15f);
+        float T = Mathf.Max(period, 0.5f);
+
+        float s = 0f;
+        for (int i = 0; i < SwellRatios.Length; i++)
+        {
+            float rad = SwellDirections[i] * Mathf.Deg2Rad;
+            float dx = Mathf.Cos(rad), dy = Mathf.Sin(rad);
+            float k = Tau / Mathf.Max(L * SwellRatios[i], 0.05f);
+            float w = Tau / Mathf.Max(T * Mathf.Sqrt(SwellRatios[i]), 0.25f);
+            // THE SPATIAL PHASE HAS NO `t` IN IT. That single fact is what the wire test measures,
+            // and it is written here in the same shape the shader writes it so a reader can see
+            // that the two agree.
+            float sp = k * (dx * x + dy * z) + SwellSpatialPhases[i];
+            s += SwellAmplitudes[i] / SwellAmplitudeSum
+                 * Mathf.Sin(sp) * Mathf.Cos(w * t + SwellTemporalPhases[i]);
+        }
+        return amp * SwellBloomAt(x, z, t, L, T, calmDepth) * s;
+    }
+
+    /// <summary>The bloom envelope, mirrored from <c>GhvrSwellBloom</c>: three long crossing
+    /// STANDING modulations, so the lively part of the pool changes place by fading rather than by
+    /// travelling. Bounded in [1 - calmDepth, 1], never above 1, because the peak amplitude is what
+    /// the renderer's bounds were padded for.</summary>
+    internal static float SwellBloomAt(
+        float x, float z, float t, float wavelength, float period, float calmDepth)
+    {
+        const float Tau = 6.2831853f;
+        float T = Mathf.Max(period, 0.5f);
+        float m = 0f;
+        for (int i = 0; i < 3; i++)
+        {
+            float rad = BloomDirections[i] * Mathf.Deg2Rad;
+            float k = Tau / Mathf.Max(wavelength * BloomWavelengthScales[i], 0.2f);
+            float q = k * (Mathf.Cos(rad) * x + Mathf.Sin(rad) * z) + BloomSpatialPhases[i];
+            float b = Mathf.Cos(Tau * t / (T * SwellBloomRatios[i]) + BloomTemporalPhases[i]);
+            m += Mathf.Sin(q) * b;
+        }
+        m /= 3f;
+        float calm = Mathf.Clamp01(calmDepth);
+        return 1f - calm * (0.5f - 0.5f * m);
     }
 
     /// <summary>
@@ -689,12 +844,14 @@ internal static class WaterOwnSurface
     /// <para>WHY IT IS A FRACTION OF THE QUAD RATHER THAN A CONSTANT. The mod's environments are
     /// dioramas at several scales and the same pool can arrive an order of magnitude smaller; a
     /// world constant would be an invisible ripple in one room and a churning sea in another.
-    /// The report's film measures 2.6 m across its renderer bounds and the shipped dial is 1%, so
-    /// it gets a 3.6 cm peak — 7.2 cm between trough and crest. Summed over the four components
-    /// that is a peak crest slope of 8.6 degrees, against the 19 degrees ModBuild 164's single
-    /// 1.1 m train produced at the same ceiling: "deutlich ruhiger und eher dezent" stated as an
-    /// angle rather than as a preference, and still relief that is plainly visible at the
-    /// waterline. It is the amplitude every number in the shader's header is quoted against.</para>
+    /// The report's film measures 2.6 m across its renderer bounds and the shipped dial is 0.5%, so
+    /// it gets a 1.3 cm peak — 2.6 cm between trough and crest. Summed over the six components that
+    /// is a peak crest slope of 2.9 degrees, against ModBuild 165's 8.6 and ModBuild 164's 19:
+    /// "viel zu hektisch" answered as an angle rather than as a preference, and still relief that is
+    /// legible at the waterline where the verdict on flatness was formed. RE-BASED FROM 0.014 — the
+    /// ruling asked for the amplitudes to come down by a large factor, not a nudge, and a third is
+    /// what that means here. It is the amplitude every number in the shader's header is quoted
+    /// against.</para>
     ///
     /// <para>AND IT IS CAPPED TWICE. <see cref="MaxSwellAmplitude"/> is the collision limit
     /// against the basin bed 9 cm below the film; the quad width is what makes the dial mean the

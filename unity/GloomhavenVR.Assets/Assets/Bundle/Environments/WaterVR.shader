@@ -48,6 +48,17 @@
 //  exists to remove. _TessFactor is a uniform and the patch-constant function reads nothing else.
 //
 // ============================================================================
+//  AND NOTHING IN IT TRANSLATES — WHICH IS WHY TWO PROPERTIES ARE MISSING
+// ============================================================================
+//  ModBuild 165's verdict was "es fließt jetzt einmal in die eine Richtung, stoppt kurz und fließt
+//  dann wieder in die andere ... Ich will außerdem so gut wie KEIN fließen, es ist kein Fluss
+//  sondern eine Pfütze". Three properties carried that motion — _WaterUVAnimSpeedA,
+//  _WaterUVAnimSpeedB and _SwellSpeed — and all three are DELETED from the table below rather than
+//  defaulted to zero, so there is no name a driver can write a speed into and no dial a later edit
+//  can raise. What replaces them is _RippleFade, which carries three crossfade PERIODS and no rate
+//  at all. WaterVR.cginc's header is the full motion model.
+//
+// ============================================================================
 //  WHERE THE LOOK COMES FROM
 // ============================================================================
 //  Every number below is either measured off the game's own material by the hardware census, or
@@ -55,9 +66,14 @@
 //  pin. The census read these off TERRAIN_GEN_WaterPlane_Crypt_Mat on VFX/Water_Shd_Trans:
 //
 //      _Normal_Map 'WaterBump' 512x512      _NormalTilings (0.14, 6.00, -0.12, -0.20)
-//      _WaterUVAnimSpeedA (1, 1, 0.6, 0)    _WaterUVAnimSpeedB (0.5, 1, 1, 0)
-//      _WaterNoiseSpeed (1, 1, 1, 0)        _Color_Tint RGBA(0.195, 0.311, 0.131, 0.737)
+//      _Color_Tint RGBA(0.195, 0.311, 0.131, 0.737)
 //      _DetailOpacityBaseNormalStr (5,5,0,0)  _Smoothness 0.754   renderQueue 2900
+//
+//  The census also read _WaterUVAnimSpeedA/B and _WaterNoiseSpeed off that material. They are no
+//  longer read: they are SCROLL RATES, and this shader has no coordinate that scrolls, so the only
+//  thing they could be turned into is a re-purposed speed dial one rename away from being a flow
+//  again. Ignoring the tileset's own value is not something this module does lightly and it is not
+//  done anywhere else in the file — see Core/WaterOwnSurface.cs for the whole reasoning.
 //
 //  This file's defaults are the RESOLVED forms of those values at the shipped dials, so a material
 //  built without a driver looks like the shipped water rather than like nothing.
@@ -89,17 +105,19 @@ Shader "GloomhavenVR/WaterVR"
         // to each layer's own frequency (WaterOwnSurface.LayerWeights), so the coarse layer carries
         // the shape and the fine one is detail on top of it.
         _LayerWeights ("Layer amplitude weights (A in x, B in y)", Vector) = (0.145,0.855,0,0)
-        // RESOLVED drift rates in WORLD UNITS PER SECOND — and since ModBuild 165 that is a PEAK
-        // SWAY SPEED rather than a translation rate, because standing water has no net drift. See
-        // GhvrRippleOffset. These defaults are the resolution of the measured values at the shipped
-        // [Water] RippleSpeed 0.12: A 0.6 x 0.12 = 0.072, B (0.5, 1.0) x 0.12 = (0.06, 0.12).
-        _WaterUVAnimSpeedA ("Layer A rate (peak WORLD UNITS/s in xy)", Vector) = (0.072,0.072,0,0)
-        _WaterUVAnimSpeedB ("Layer B rate (peak WORLD UNITS/s in xy)", Vector) = (0.060,0.120,0,0)
-        // x = layer A's sway period in SECONDS, y = layer B's, z = the share of the rate that is
-        // still a genuine one-way drift. 13 and 17 are deliberately not a ratio of small whole
-        // numbers: two layers that reversed together would read as the whole pool twitching.
-        _RippleSway ("Ripple sway: A period s (x), B period s (y), drift share (z)", Vector)
-            = (13,17,0.25,0)
+        // THE RIPPLE HAS NO RATE ANY MORE, AND THAT IS A USER RULING RATHER THAN A TUNING CHOICE.
+        // ModBuild 165 declared _WaterUVAnimSpeedA/B here — resolved drift rates in world units per
+        // second — and the verdict on the result was "Ich will außerdem so gut wie KEIN fließen, es
+        // ist kein Fluss sondern eine Pfütze". Both properties are DELETED rather than defaulted to
+        // zero, so there is no name left for a driver to write a speed into and no dial for a later
+        // edit to raise. The normal map is now sampled at THREE FIXED FRAMES of the world XZ plane
+        // and the three are crossfaded; see GhvrRippleUV and GhvrFadeWeights in WaterVR.cginc.
+        //
+        // The three CROSSFADE PERIODS in seconds, x/y/z. They are the only clock the ripple has, and
+        // they are the first three powers of phi (1.618 / 2.618 / 4.236) times the swell's own period, so [Water]
+        // RippleSpeed 0 freezes the ripple as well as the geometry. These defaults are the
+        // resolution at the shipped dial, where the swell's period is 31 s.
+        _RippleFade ("Ripple crossfade periods in seconds (x, y, z)", Vector) = (51,82,133,0)
         _NormalStrength ("Ripple strength (from _DetailOpacityBaseNormalStr)", Range(0,8)) = 0.5
         // 0 = sample _Normal_Map. 1 = the analytic fallback, used ONLY when the driver could not
         // read a normal map off the game material at all. It is a property rather than a keyword so
@@ -110,29 +128,32 @@ Shader "GloomhavenVR/WaterVR"
         // _SwellAmp is a PEAK displacement, so the surface travels +/- this much about its authored
         // plane. The driver derives it from each film quad's OWN width ([Water] SwellHeight is a
         // fraction of that width), so a diorama at a different scale gets the same-looking wave —
-        // 3.6 cm on the report's 2.6 m-wide film at the shipped dial. The Range caps it well inside
-        // the 9 cm the census measured between the film (y 0.0) and the basin bed below it
+        // 1.3 cm on the report's 2.6 m-wide film at the shipped dial, down from ModBuild 165's
+        // 3.6 cm because that build was still called "viel zu hektisch". The Range caps it well
+        // inside the 9 cm the census measured between the film (y 0.0) and the basin bed below it
         // (y[-0.34..-0.09]), so a trough can never punch through the bed, and the SAME number is
         // what the driver pads Renderer.localBounds by. 0 = a flat film.
-        _SwellAmp ("Swell amplitude (world units, peak)", Range(0,0.06)) = 0.036
-        // The LONGEST component's wavelength; the other three are irrational fractions of it
-        // (1/phi, sqrt(2)-1, 2-sqrt(3)). 2.4 m is longer than either tile-lattice vector
-        // (1.73 x 1.998 m), so the primary swell spans more than one hex and cannot be read as a
-        // per-tile figure however the tiles are laid out.
+        _SwellAmp ("Swell amplitude (world units, peak)", Range(0,0.06)) = 0.013
+        // The LONGEST component's wavelength; the other five are irrational fractions of it
+        // (1/phi, sqrt(2)-1, 2-sqrt(3), sqrt(3)-1, 2sqrt(2)-2). 2.4 m is longer than either
+        // tile-lattice vector (1.73 x 1.998 m), so the primary swell spans more than one hex and
+        // cannot be read as a per-tile figure however the tiles are laid out.
         _SwellWave ("Swell wavelength of the longest component (world units)", Float) = 2.4
-        // THE ONLY NET TRANSLATION LEFT IN THE GEOMETRY, in world units per second. Standing water
-        // has none; a trace keeps the standing components' nodes from being nailed to fixed world
-        // positions. 2 cm/s is 1.2 m a minute across a 5 m pool.
-        _SwellSpeed ("Swell trace drift (world units/s)", Float) = 0.02
+        // THERE IS NO _SwellSpeed. ModBuild 165 declared one — a "trace drift" of 2 cm/s, the only
+        // net translation left in the geometry — and the ruling on it was that the pattern must not
+        // travel at all, in any direction, ever. It is deleted rather than defaulted to zero so no
+        // dial and no future edit can bring it back; the components are STANDING and their spatial
+        // phase contains no clock (GhvrStanding in WaterVR.cginc).
+        //
         // How long the LONGEST component takes to rise and fall once, in seconds. The shorter
-        // components scale as sqrt(their wavelength ratio), so at 9 s they run 9.0 / 7.1 / 5.8 /
-        // 4.7 s. This is the number "es fließt noch viel zu schnell" is about and the census prints
-        // all four.
-        _SwellPeriod ("Swell period of the longest component (seconds)", Float) = 9
+        // components scale as sqrt(their wavelength ratio), so at 31 s they run 31 / 28 / 27 / 24 /
+        // 20 / 16 s — six incommensurate rates, which is what leaves the sum with no beat. This is
+        // the number "viel zu hektisch" is about and the census prints all six.
+        _SwellPeriod ("Swell period of the longest component (seconds)", Float) = 31
         // How far the QUIET parts of the pool drop below full amplitude, 0 = the same everywhere and
-        // 1 = dead still in the troughs of the modulation. This is the term that answers "es soll
-        // sich nicht auf jeden tile exakt gleichen was passiert" — see GhvrSwellCalm.
-        _SwellCalm ("Large-scale calm depth (0 = uniform, 1 = some of the pool still)", Range(0,1))
+        // 1 = dead still where the three long standing modulations cancel. This is the term that
+        // answers "die animationen sollen sehr dezent und random sein" — see GhvrSwellBloom.
+        _SwellCalm ("Bloom depth (0 = uniform, 1 = some of the pool still)", Range(0,1))
             = 0.75
 
         // ---- the geometry the swell is sampled on ----
@@ -145,12 +166,15 @@ Shader "GloomhavenVR/WaterVR"
         // ---- the light, and it is the only direction in this shader ----
         // SURFACE-LOCAL: x along U, y along V, z along the surface normal.
         _LightDir ("Direction TOWARD the light (surface-local)", Vector) = (0.34,0.22,0.91,0)
-        _Shimmer ("Glint strength", Range(0,2)) = 0.05
+        _Shimmer ("Glint strength", Range(0,2)) = 0.03
         // HOW DEEPLY THE WAVES SHADE THE BODY. Nothing writes this at runtime, so the number here
-        // IS the shipped one. It stays at ModBuild 164's 0.35 deliberately: the amplitude below
-        // already dropped by 40% and the speed by five, and muting the light as well would be
-        // calming the same surface three times over — the ruling is that the water be quiet, not
-        // that its relief be hidden.
+        // IS the shipped one. It stays at ModBuild 164's 0.35 deliberately, and this round is the
+        // second time that has been the right call: the amplitude has dropped again and the period
+        // has trebled, so the surface changes far more slowly, and turning the CONTRAST down as well
+        // would only make the relief harder to see. It would also make the harness's change-rate
+        // measurement look better without the water actually being calmer, which is measuring the
+        // instrument rather than the surface. The ruling is that the water be still, not that its
+        // relief be hidden.
         _WaveShade ("Wave body shading depth", Range(0,1)) = 0.35
         _Smoothness ("Glint tightness — the tileset's own _Smoothness", Range(0,1)) = 0.754
 

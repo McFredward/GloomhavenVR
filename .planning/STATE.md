@@ -126,8 +126,29 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 165** (**BUNDLE CHANGED — 67,163,699 bytes, must be REINSTALLED**) — standing water,
-  and the geometry is finally there.
+- **ModBuild 166** (**BUNDLE CHANGED — 67,167,091 bytes, must be REINSTALLED**) — nothing on the
+  water translates, and it is measured.
+  * **"Nets to zero over time" is not "does not move".** ModBuild 165 shipped a sway that reversed —
+    an integrator instruction — and the user described it back verbatim: *"es fließt einmal in die
+    eine Richtung, stoppt kurz und fließt dann wieder in die andere. Erscheint nicht mehr immersiv."*
+    A pattern that runs one way and back reads as **more** artificial than a steady drift, because
+    nothing in nature does it.
+  * **Deleted, not zeroed.** The three speed properties are gone from the shader table and from C#,
+    and a wire test sweeps both shaders and the driver for any reappearance. A user ruling stated
+    three times gets removed from the design space, not given a default of 0.
+  * **The spatial phase now contains no clock at all** — that is what makes travel impossible rather
+    than merely unlikely. Six standing components, ripple crossfaded between three fixed ROTATED
+    frames (rotations, not offsets, so a crossfade cannot read as a smeared slide).
+  * **A second flow nobody had noticed:** 165's "calm modulation" was `sin(k·d·p + ωt)` — a
+    travelling envelope at 2.1 cm/s. Now three standing modulations that fade in place.
+  * **Measured, not asserted.** Orthographic overhead station where a pixel offset IS a world
+    displacement: net translation over 4.5 s — reference **(−19.17, −19.17) cm**, shipped **(0,0)**;
+    change rate 52.88 % of pixels vs **0.00 %**. The wire test converts phase to **metres** and
+    requires a deliberately drifted control field to be *found*, so it cannot pass vacuously.
+  * **Cross-correlation is the wrong tool inside a wire test** — a standing wave returns inverted so
+    the peak wanders. Projection onto each component's own sine/cosine is the right one.
+
+- **ModBuild 165** (bundle 67,163,699 bytes) — standing water, and the geometry is finally there.
   * **A log line hid a whole round, and it was a printing ORDER.** 164 printed `MESH SWAP: no film
     mesh handled yet`, which reads as a diagnosis and was not one: the census ran *before* `Apply()`
     and is capped to one emission, so that field could only print its own initialiser. **A line that

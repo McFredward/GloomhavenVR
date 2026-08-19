@@ -416,7 +416,74 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 165;
+    public const ushort ModBuild = 166;
+    // Build 166: NOTHING ON THE WATER TRANSLATES, AND IT IS MEASURED.
+    // ***** THE BUNDLE CHANGED — 67,167,091 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
+    //
+    // User, on 165: "Immer noch viel zu hektisch und es fließt jetzt einmal in die eine Richtung,
+    // stoppt kurz und fließt dann wieder in die andere. Erscheint nicht mehr immersiv. Ich will
+    // außerdem so gut wie KEIN fließen, es ist kein Fluss sondern eine Pfütze. Die animationen
+    // sollen sehr dezent und random sein!"
+    //
+    // HE IS DESCRIBING EXACTLY WHAT ModBuild 165 SHIPPED, and it came from an integrator
+    // instruction: "a sway that reverses and nets to zero". NETTING TO ZERO OVER TIME IS NOT THE
+    // SAME AS NOT MOVING. A pattern that runs one way, pauses and runs back reads as MORE
+    // artificial than a steady drift, because nothing in nature does it. The design error was
+    // mine, not the shader's.
+    //
+    // ── THE RULE, AND IT IS ABSOLUTE ───────────────────────────────────────────────────────────
+    // THE PATTERN DOES NOT TRANSLATE. Not a drift, not a sway, not a slow return, not a residual
+    // percentage. The terms are DELETED, not zeroed: `_SwellSpeed`, `_WaterUVAnimSpeedA` and
+    // `_WaterUVAnimSpeedB` are gone from the shader's property table, `ScrollRate` and the three
+    // authored speed vectors are gone from C#, and the driver no longer reads them from the
+    // tileset at all. `ForbiddenTranslationProperties` names every one of them and a wire test
+    // sweeps both shaders and the driver for any reappearance — so no dial and no later edit can
+    // bring it back. This is a user ruling, not a tuning choice, and the source says so.
+    //
+    // ── WHAT MOVES INSTEAD: EVERYTHING IN PLACE ────────────────────────────────────────────────
+    //   * HEIGHT: six standing components `sin(k·d·p + φ)·cos(ωt + ψ)` — the SPATIAL phase contains
+    //     no clock at all, which is what makes travel impossible rather than merely unlikely. Six,
+    //     not four, so there is no legible envelope; wavelength ratios 1, 1/φ, √2−1, 2−√3, √3−1,
+    //     2√2−2. The two new ones were found by an exhaustive sweep and leave `LatticeMismatch` at
+    //     exactly 0.156, i.e. neither is ever the worst offender against the 1.73 × 1.998 m lattice.
+    //   * RIPPLE: no scroll. Each tiling layer is sampled at THREE FIXED FRAMES of the world XZ
+    //     plane (rotated 23/67/138° — rotations, not offsets, so a crossfade can never read as a
+    //     smeared slide) and crossfaded by weights that always sum to exactly 1, on 51/82/133 s.
+    //     Layer B takes the same weights cyclically permuted so the two never fade in lockstep.
+    //   * BLOOM: 165's calm modulation was `sin(k·d·p + ωt)` — a TRAVELLING envelope at 2.1 cm/s,
+    //     i.e. a second flow nobody had noticed. It is now three long STANDING modulations breathing
+    //     at 97/148/229 s: the lively part of the pool changes place by fading, never by sweeping.
+    //   * AMPLITUDES DOWN BY A LARGE FACTOR, not a nudge: SwellHeight 0.014 → 0.005 (peak 3.6 cm →
+    //     1.3 cm, crest slope 8.6° → 2.9°), RippleSpeed 0.12 → 0.035 (bob period 9 s → 31 s),
+    //     Shimmer 0.05 → 0.03. `_WaveShade` deliberately stays at 0.35 — cutting contrast would
+    //     improve the change-rate number without the water actually being calmer.
+    //
+    // ── IT IS MEASURED, NOT ASSERTED ───────────────────────────────────────────────────────────
+    // From a new ORTHOGRAPHIC overhead station where a pixel offset IS a world displacement
+    // (4.2 mm/px), cross-correlating a frame against a later one:
+    //     NET TRANSLATION over 4.5 s   ref165 (−19.17, −19.17) cm   shipped (0, 0) cm
+    //     CHANGE RATE over 4.5 s       ref165 52.88 % of pixels     shipped 0.00 %
+    //     mean |ΔL| over 4.5 s         ref165 1.769/255             shipped 0.112/255  (16×)
+    // The shipped column's 0→10 s figure is ONE PIXEL — 4 mm, the measurement floor, not a drift.
+    //   * THE WIRE TEST PINS IT IN METRES: `PatternNeverTranslates` projects the C# mirror of the
+    //     height field onto each component's own sine/cosine with a Hann window and converts the
+    //     phase to metres; worst displacement over a 400 s sweep is under 5 mm. A control field
+    //     deliberately drifted at 5 cm/s must be FOUND to within 1 cm, so the check cannot pass
+    //     vacuously, and a "not frozen" check requires real motion in place. Cross-correlation was
+    //     tried inside the wire test first and abandoned — a standing wave returns inverted, so the
+    //     correlation peak wanders; that is written down where the next reader will need it.
+    //   * THE REFERENCE COLUMN NEEDED ITS OWN FILE. Because this round DELETED the translation
+    //     terms instead of zeroing them, no dial setting can reproduce the 165 look — so
+    //     `Assets/Editor/WaterVRRef165.shader` is a frozen copy, deliberately OUTSIDE
+    //     `Assets/Bundle/` so the packer can never ship it (verified: it appears nowhere in the
+    //     bundle log). Comparisons against a build the user rejected are worth having.
+    //
+    // ── THE RISK, STATED ───────────────────────────────────────────────────────────────────────
+    // 0.112/255 over 4.5 s is very close to nothing, and the pool may now read as DEAD. That is the
+    // deliberate side to err on after three consecutive "zu hektisch" reports. The next stop is
+    // pre-measured and in the sheet: `[Water] RippleSpeed 0.06`, `SwellHeight 0.009`, `Shimmer 0.05`
+    // — 3× the motion of the default and still 5× calmer than 165. It is one edit in the headset.
+    //
     // Build 165: STANDING WATER, AND THE GEOMETRY IS FINALLY THERE.
     // ***** THE BUNDLE CHANGED — 67,163,699 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
     //

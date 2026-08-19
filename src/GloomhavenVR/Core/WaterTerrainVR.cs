@@ -348,16 +348,17 @@ internal static class WaterTerrainVR
     //     GloomhavenVR/WaterVR. Every one of these names was printed by the hardware WATER SURFACE
     //     census of TERRAIN_GEN_WaterPlane_Crypt_Mat, so none is guessed from a shader nobody can
     //     open. What is read is what the tileset authored; what is written is derived from it and
-    //     from nothing else (WaterOwnSurface.ScrollRate / NormalStrength), and the OWN SURFACE
+    //     from nothing else (WaterOwnSurface.TameTilings / NormalStrength), and the OWN SURFACE
     //     block prints the derivation so a reader of the log can check it against these numbers.
+    //
+    //     THE TILESET'S THREE SPEED VECTORS ARE NO LONGER AMONG THEM. _WaterUVAnimSpeedA/B and
+    //     _WaterNoiseSpeed were read here through ModBuild 165 and resolved into scroll rates; the
+    //     standing ruling is that the film has no current at all, so there is nothing left for a
+    //     rate to drive. See WaterOwnSurface.ForbiddenTranslationProperties.
     private static readonly int NormalMapId =
         Shader.PropertyToID(WaterOwnSurface.NormalMapProperty);
     private static readonly int NormalTilingsId =
         Shader.PropertyToID(WaterOwnSurface.NormalTilingsProperty);
-    private static readonly int SpeedAId = Shader.PropertyToID(WaterOwnSurface.ScrollAProperty);
-    private static readonly int SpeedBId = Shader.PropertyToID(WaterOwnSurface.ScrollBProperty);
-    private static readonly int NoiseSpeedId =
-        Shader.PropertyToID(WaterOwnSurface.GameNoiseSpeedProperty);
     private static readonly int NormalStrengthId =
         Shader.PropertyToID(WaterOwnSurface.GameNormalStrengthProperty);
     private static readonly int SmoothnessId =
@@ -563,11 +564,10 @@ internal static class WaterTerrainVR
         /// retune.</summary>
         internal static ConfigEntry<bool>? OwnSurface;
 
-        /// <summary>Multiplier on how fast the mod's own water film scrolls its two normal layers.
-        /// The rates come from the tileset's own <c>_WaterUVAnimSpeedA/B</c>; this is the dial that
-        /// exists because the game's shaders ship COMPILED and the exact convention behind those
-        /// numbers cannot be read offline (see
-        /// <see cref="WaterOwnSurface.ScrollRate"/>).</summary>
+        /// <summary>Multiplier on how fast the mod's own water film CHANGES — nothing on it
+        /// travels. It divides the swell's bob period and, through that, the ripple's crossfade
+        /// cycles and the bloom's, so one dial moves the whole surface's clock and 0 freezes all of
+        /// it (see <see cref="WaterOwnSurface.ResolvedSwellPeriod"/>).</summary>
         internal static ConfigEntry<float>? RippleSpeed;
 
         /// <summary>How strong the moving glints on the mod's own water film are. Zero leaves the
@@ -693,45 +693,48 @@ internal static class WaterTerrainVR
                 + "sheet with a reflection that swung with your head, which no dial could switch "
                 + "off. That can only come from a texture or a constant compiled INSIDE the game's "
                 + "shader, and replacing the whole shader removes it. WHAT THE MOD'S OWN WATER IS: "
-                + "the game's own normal map, scrolled as TWO layers at the game's own two tilings "
-                + "and two speeds, which is the whole of the animation the real water had. The "
-                + "glints come from those moving ripples lit by a FIXED light direction — never "
-                + "from the view direction, which is the one thing this shader may not contain, "
-                + "because a highlight computed from where your eye is slides across the water as "
-                + "you turn your head (that is the original defect) and is a different image in "
-                + "each eye. AND THE SURFACE ACTUALLY HAS RELIEF: the graphics card subdivides "
-                + "each water hex on the fly and a slow swell moves the result, because no shading "
-                + "term can make a flat sheet three-dimensional and 'weiße Streifen auf einer "
-                + "flachen Oberfläche' was the verdict on trying. IT IS STANDING WATER, NOT A "
-                + "CURRENT: the waves rise and fall in place rather than travelling, four of them "
-                + "at wavelengths that share no common measure, under a very slow modulation that "
-                + "leaves part of the pool nearly still — which is what 'eine Pfütze stehendes "
-                + "Wasser mit nur minimal Bewegungen' means and why the same figure does not "
-                + "appear on every tile. Tune it with [Water] SwellHeight (how high), [Water] "
-                + "WaveScale (how big), [Water] RippleSpeed (how fast) and [Water] Shimmer (how "
-                + "much sparkle). The basin bed "
+                + "the game's own normal map at the game's own two tilings, sampled at fixed "
+                + "places on the world and blended between three fixed patterns that fade in and "
+                + "out. The glints come from the moving surface lit by a FIXED light direction — "
+                + "never from the view direction, which is the one thing this shader may not "
+                + "contain, because a highlight computed from where your eye is slides across the "
+                + "water as you turn your head (that is the original defect) and is a different "
+                + "image in each eye. AND THE SURFACE ACTUALLY HAS RELIEF: the graphics card "
+                + "subdivides each water hex on the fly and a slow swell moves the result, because "
+                + "no shading term can make a flat sheet three-dimensional and 'weiße Streifen auf "
+                + "einer flachen Oberfläche' was the verdict on trying. AND NOTHING ON IT FLOWS, "
+                + "IN ANY DIRECTION, EVER: the waves rise and fall exactly where they are, six of "
+                + "them at rates that share no common measure so there is no rhythm to notice, and "
+                + "a very slow bloom leaves a different part of the pool nearly still every few "
+                + "minutes. That is what 'es ist kein Fluss sondern eine Pfütze' means, and it is "
+                + "also why the same figure does not appear on every tile. Tune it with [Water] "
+                + "SwellHeight (how high), [Water] WaveScale (how big), [Water] RippleSpeed (how "
+                + "slowly it changes) and [Water] Shimmer (how much sparkle). The basin bed "
                 + "and rim under the water are NOT replaced — they are opaque ground, not a film, "
                 + "and keep the ordinary retune. OFF puts the game's own water shader back "
                 + "immediately and hands [Water] BodyOnly, ShoreFoam and DepthFade back their "
                 + "meaning.");
-            RippleSpeed = config.Bind("Water", "RippleSpeed", 0.12f,
+            RippleSpeed = config.Bind("Water", "RippleSpeed", 0.035f,
                 new ConfigDescription(
-                    "How fast the water moves, as a multiple of the shipped rate. ONE dial over "
-                    + "everything that moves: it shortens the swell's bobbing period, multiplies "
-                    + "its trace drift, and scales both ripple layers' sway. THE DEFAULT IS "
-                    + "0.12, and that is a re-base rather than a preference. The ruling on "
-                    + "ModBuild 164 was 'Es fließt noch viel zu schnell! Das ist kein Fluss "
-                    + "sondern soll eher eine Pfütze stehendes Wasser simulieren mit nur minimal "
-                    + "Bewegungen' — at the old default the ripple resolved to 0.25-0.50 world "
-                    + "units per second, which over a 1.7 m tile is a visible current. It is now "
-                    + "about 7 cm/s at its fastest, and three quarters of even that is a SWAY that "
-                    + "reverses and nets to zero, because standing water has no current at all. "
-                    + "The census prints the resolved rates, the swell's four bob periods in "
-                    + "seconds and how far the pattern actually travels in a minute, so 'too fast' "
-                    + "is a number in the log rather than an argument. 0 freezes the surface with "
-                    + "its relief intact — it does not flatten it.",
+                    "How fast the water CHANGES, as a multiple of the shipped rate. NOTHING ON "
+                    + "THIS SURFACE MOVES FROM PLACE TO PLACE, so this dial cannot make it flow "
+                    + "faster: it is one clock over every cycle there is. It divides the swell's "
+                    + "bobbing period, and the ripple's three crossfade cycles and the bloom's "
+                    + "three are fixed multiples of that period, so 0 freezes the entire surface "
+                    + "at once with its relief intact rather than leaving something still ticking "
+                    + "under a motionless wave. THE DEFAULT IS 0.035, DOWN FROM 0.12, and that is "
+                    + "a ruling rather than a preference: the verdict on ModBuild 165 was 'Immer "
+                    + "noch viel zu hektisch ... Ich will außerdem so gut wie KEIN fließen, es ist "
+                    + "kein Fluss sondern eine Pfütze. Die animationen sollen sehr dezent und "
+                    + "random sein!' The swell now rises and falls once every 31 seconds instead "
+                    + "of 9, and the ripple's crossfades run on 51, 82 and 133 seconds. At 1.0 the "
+                    + "swell would bob about once a second, which is what real water of this "
+                    + "wavelength does — the shipped setting is a thirtieth of that. The census "
+                    + "prints the resolved drift (which reads 0.000 by construction), all six bob "
+                    + "periods and all three crossfade periods, so 'too fast' is a number in the "
+                    + "log rather than an argument.",
                     new AcceptableValueRange<float>(0f, 3f)));
-            Shimmer = config.Bind("Water", "Shimmer", 0.05f,
+            Shimmer = config.Bind("Water", "Shimmer", 0.03f,
                 new ConfigDescription(
                     "How strong the moving glints on the mod's own water film are. They are made "
                     + "by the moving surface turning toward a FIXED light, so they are born on a "
@@ -746,7 +749,9 @@ internal static class WaterTerrainVR
                     + "0.05: the standing brief is 'deutlich ruhiger und eher dezent', and a "
                     + "puddle in a crypt is not a sparkling one. 0 removes the highlights and "
                     + "keeps the wave shading. Raise it if the pool looks dead; lower it if the "
-                    + "sparkle is busy.",
+                    + "sparkle is busy. RE-BASED AGAIN FOR MODBUILD 166, to 0.03, with everything "
+                    + "else on the surface: a glint is a change of brightness, and the whole "
+                    + "round is about the surface changing less.",
                     new AcceptableValueRange<float>(0f, 2f)));
             WaveScale = config.Bind("Water", "WaveScale", 1f,
                 new ConfigDescription(
@@ -760,28 +765,33 @@ internal static class WaterTerrainVR
                     + "it for a choppier one, but the census's LATTICE MISMATCH number is what "
                     + "says whether a setting has walked back into repeating tile for tile. It "
                     + "does not change how fast the water moves: the bob periods are set by "
-                    + "[Water] RippleSpeed and scale with the wavelength, so the water keeps its "
-                    + "character. The census prints the resolved wavelengths in metres.",
+                    + "[Water] RippleSpeed and scale with the SQUARE ROOT of the wavelength — "
+                    + "deep-water dispersion — so a longer swell is automatically a lazier one and "
+                    + "the water keeps its character. The census prints all six resolved "
+                    + "wavelengths in metres.",
                     new AcceptableValueRange<float>(0.25f, 4f)));
-            SwellHeight = config.Bind("Water", "SwellHeight", 0.014f,
+            SwellHeight = config.Bind("Water", "SwellHeight", 0.005f,
                 new ConfigDescription(
                     "How HIGH the swell lifts the water, as a fraction of one water quad's own "
-                    + "width — so the report's 2.6 m film gets a 3.6 cm peak at the default, and a "
+                    + "width — so the report's 2.6 m film gets a 1.3 cm peak at the default, and a "
                     + "diorama at another scale gets a wave that looks the same rather than one "
                     + "that is invisible or enormous. THIS IS REAL GEOMETRY, not shading: the film "
                     + "is subdivided by the shader's own tessellator and the resulting vertices "
                     + "actually move, which is what makes the surface read as three-dimensional at "
                     + "a grazing angle instead of as stripes painted on a flat sheet. RE-BASED "
-                    + "FROM 0.045, which clamped straight to the 6 cm ceiling and, over that "
-                    + "build's 1.1 m wavelength, made a crest slope of 19 degrees. The four "
-                    + "components together now come to 8.6 degrees at the default — less than half "
-                    + "the steepness, which is 'deutlich ruhiger und eher dezent' as an angle, and "
-                    + "still relief you can plainly see at the waterline. The wave is a function of "
-                    + "world position and "
-                    + "time only, so it is identical in both eyes. 0 makes the film flat again, "
-                    + "which is also the A/B for whether the relief is worth its triangles. The "
-                    + "ceiling is set by the 9 cm the census measured between the water and the "
-                    + "basin bed underneath it: a trough may never dip through its own pool floor.",
+                    + "TWICE. ModBuild 164 ran 0.045, which clamped straight to the 6 cm ceiling "
+                    + "and over that build's 1.1 m wavelength made a crest slope of 19 degrees; "
+                    + "ModBuild 165's 0.014 brought that to 8.6 degrees and was still judged 'viel "
+                    + "zu hektisch'. The six components together now come to 2.9 degrees at the "
+                    + "default — a third of the steepness again — which is what 'so gut wie KEIN "
+                    + "fließen ... sehr dezent' means as an angle, and still relief you can see at "
+                    + "the waterline where flatness was judged. The wave is a function of world "
+                    + "position and time only, so it is identical in both eyes, and it does not "
+                    + "travel: the crests rise and fall where they are. 0 makes the film flat "
+                    + "again, which is also the A/B for whether the relief is worth its triangles. "
+                    + "The ceiling is set by the 9 cm the census measured between the water and "
+                    + "the basin bed underneath it: a trough may never dip through its own pool "
+                    + "floor.",
                     new AcceptableValueRange<float>(0f, 0.05f)));
             DebugPaint = config.Bind("Water", "DebugPaint", false,
                 "DIAGNOSTIC — paints every water renderer this mod has taken over in a flat, "
@@ -1240,16 +1250,16 @@ internal static class WaterTerrainVR
             WaterConfig.OwnSurface == null || WaterConfig.OwnSurface.Value;
 
         private static float WantedRippleSpeed =>
-            WaterConfig.RippleSpeed != null ? WaterConfig.RippleSpeed.Value : 0.12f;
+            WaterConfig.RippleSpeed != null ? WaterConfig.RippleSpeed.Value : 0.035f;
 
         private static float WantedShimmer =>
-            WaterConfig.Shimmer != null ? WaterConfig.Shimmer.Value : 0.05f;
+            WaterConfig.Shimmer != null ? WaterConfig.Shimmer.Value : 0.03f;
 
         private static float WantedWaveScale =>
             WaterConfig.WaveScale != null ? WaterConfig.WaveScale.Value : 1f;
 
         private static float WantedSwellHeight =>
-            WaterConfig.SwellHeight != null ? WaterConfig.SwellHeight.Value : 0.014f;
+            WaterConfig.SwellHeight != null ? WaterConfig.SwellHeight.Value : 0.005f;
 
         /// <summary>Is the film actually drawing on the mod's own shader right now? The dial ANDed
         /// with the shader having been reached — never the dial alone. Four rounds have ended with
@@ -2092,15 +2102,6 @@ internal static class WaterTerrainVR
                 ? shared.GetVector(NormalTilingsId)
                 : WaterOwnSurface.AuthoredTilings;
 
-            bool haveA = shared.HasProperty(SpeedAId);
-            bool haveB = shared.HasProperty(SpeedBId);
-            bool haveNoise = shared.HasProperty(NoiseSpeedId);
-            Vector4 speedA = haveA ? shared.GetVector(SpeedAId) : WaterOwnSurface.AuthoredSpeedA;
-            Vector4 speedB = haveB ? shared.GetVector(SpeedBId) : WaterOwnSurface.AuthoredSpeedB;
-            Vector4 noise = haveNoise
-                ? shared.GetVector(NoiseSpeedId)
-                : WaterOwnSurface.AuthoredNoiseSpeed;
-
             bool haveStr = shared.HasProperty(NormalStrengthId);
             Vector4 strVec = haveStr
                 ? shared.GetVector(NormalStrengthId)
@@ -2113,8 +2114,6 @@ internal static class WaterTerrainVR
 
             float dial = WantedRippleSpeed;
             float waveScale = WantedWaveScale;
-            Vector4 rateA = WaterOwnSurface.ScrollRate(speedA, noise, dial);
-            Vector4 rateB = WaterOwnSurface.ScrollRate(speedB, noise, dial);
             float strength = WaterOwnSurface.NormalStrength(strVec);
 
             // THE TILINGS ARE RESOLVED, NOT PASSED THROUGH. The authored (0.14, 6.00) is 43:1
@@ -2133,32 +2132,25 @@ internal static class WaterTerrainVR
             float amp = WaterOwnSurface.SwellAmplitude(o.FilmWidthWU, WantedSwellHeight);
             float swellWave = WaterOwnSurface.SwellWavelength * waveScale;
 
-            // THE SPEED DIAL DIVIDES THE SWELL'S PERIOD AND MULTIPLIES ITS DRIFT, which is what
-            // makes "faster" mean the same thing for a standing wave as it did for a travelling
-            // one. It is clamped away from zero rather than special-cased: [Water] RippleSpeed 0
-            // gives a period a hundred times the shipped one and a drift of exactly zero, so the
-            // surface holds still with its relief intact instead of flattening.
+            // THE SPEED DIAL DIVIDES ONE PERIOD AND EVERY OTHER CYCLE IS A MULTIPLE OF IT. There
+            // is no rate left on this surface to multiply — the ruling of ModBuild 165 was that the
+            // pattern must not travel at all — so "faster" can only mean "shorter cycles", and the
+            // ripple's crossfades and the bloom's breathing are both derived from the swell's own
+            // period so that ONE dial moves the whole clock. [Water] RippleSpeed 0 therefore
+            // freezes everything at once, with the relief intact, instead of leaving a slow pulse
+            // running under a motionless swell.
             //
             // THE PERIOD SCALES AS sqrt(WAVELENGTH), not linearly — deep-water dispersion, the same
-            // rule the four components are spaced by. A longer swell is a slower one, which is what
+            // rule the six components are spaced by. A longer swell is a slower one, which is what
             // stops [Water] WaveScale from turning a lazy ocean roll into a fast one.
-            //
-            // AND THE DIAL DOES NOT ALSO DIVIDE THE RIPPLE'S SWAY PERIOD. It already scales the
-            // ripple's RATE, which is its speed; dividing the rhythm as well squares the effect,
-            // and the first draft of this build did exactly that — the preview log came back with
-            // a swell bobbing once every 75 seconds while every number in the file said 9.
-            float speedDial = Mathf.Max(dial, 0f);
-            float swellDrift = WaterOwnSurface.SwellDriftSpeed * waveScale * speedDial;
-            float swellPeriod = WaterOwnSurface.SwellPeriod * Mathf.Sqrt(Mathf.Max(waveScale, 0.01f))
-                                / Mathf.Max(speedDial, 0.01f);
+            float swellPeriod = WaterOwnSurface.ResolvedSwellPeriod(waveScale, dial);
+            Vector4 fadePeriods = WaterOwnSurface.ResolvedFadePeriods(swellPeriod);
             float tess = Mathf.Clamp(WaterOwnSurface.TessellationFactor, 1f,
                                      WaterOwnSurface.MaxTessellationFactor);
 
             inst.SetTexture(WaterOwnSurface.NormalMapProperty, bump);
             inst.SetVector(WaterOwnSurface.NormalTilingsProperty, resolved);
             inst.SetVector(WaterOwnSurface.LayerWeightsProperty, weights);
-            inst.SetVector(WaterOwnSurface.ScrollAProperty, rateA);
-            inst.SetVector(WaterOwnSurface.ScrollBProperty, rateB);
             inst.SetFloat(WaterOwnSurface.NormalStrengthProperty, strength);
             inst.SetFloat(WaterOwnSurface.ProcNormalProperty, bump != null ? 0f : 1f);
             inst.SetFloat(WaterOwnSurface.SmoothnessProperty, Mathf.Clamp01(smoothness));
@@ -2166,13 +2158,9 @@ internal static class WaterTerrainVR
             inst.SetVector(WaterOwnSurface.LightDirProperty, _lightLocal);
             inst.SetFloat(WaterOwnSurface.SwellAmpProperty, amp);
             inst.SetFloat(WaterOwnSurface.SwellWaveProperty, swellWave);
-            inst.SetFloat(WaterOwnSurface.SwellSpeedProperty, swellDrift);
             inst.SetFloat(WaterOwnSurface.SwellPeriodProperty, swellPeriod);
             inst.SetFloat(WaterOwnSurface.SwellCalmProperty, WaterOwnSurface.SwellCalmDepth);
-            inst.SetVector(WaterOwnSurface.RippleSwayProperty, new Vector4(
-                WaterOwnSurface.RippleSwayPeriodA,
-                WaterOwnSurface.RippleSwayPeriodB,
-                WaterOwnSurface.RippleDriftShare, 0f));
+            inst.SetVector(WaterOwnSurface.RippleFadeProperty, fadePeriods);
             inst.SetFloat(WaterOwnSurface.TessFactorProperty, tess);
 
             _animNote =
@@ -2190,33 +2178,19 @@ internal static class WaterTerrainVR
                 + ", [Water] WaveScale " + waveScale.ToString("0.###") + ")"
                 + "; layer weights A " + weights.x.ToString("0.###")
                 + " / B " + weights.y.ToString("0.###")
-                + "; _WaterUVAnimSpeedA " + (haveA ? "READ " : "DEFAULTED ") + Fmt(speedA)
-                + " -> " + rateA.x.ToString("0.###") + "," + rateA.y.ToString("0.###")
-                + " WORLD UNITS/s PEAK"
-                + "; _WaterUVAnimSpeedB " + (haveB ? "READ " : "DEFAULTED ") + Fmt(speedB)
-                + " -> " + rateB.x.ToString("0.###") + "," + rateB.y.ToString("0.###")
-                + " WORLD UNITS/s PEAK"
-                + " (x _WaterNoiseSpeed.x " + (haveNoise ? "READ " : "DEFAULTED ")
-                + noise.x.ToString("0.###")
-                + " x [Water] RippleSpeed " + dial.ToString("0.###") + ")"
-                // THE RIPPLE DOES NOT SCROLL ANY MORE, so the rate above no longer means what it
-                // meant in ModBuild 164 and the line has to say so: most of it is a SWAY that
-                // reverses and nets to nothing, which is what "kein Fluss" requires. The two
-                // numbers a reader wants are how far the texture actually travels before it comes
-                // back, and how much of it never comes back.
-                + "; RIPPLE MOTION: " + (WaterOwnSurface.RippleDriftShare * 100f).ToString("0")
-                + "% of that rate is a one-way drift ("
-                + (rateA.x * WaterOwnSurface.RippleDriftShare).ToString("0.####")
-                + " world units/s on layer A, i.e. "
-                + (rateA.x * WaterOwnSurface.RippleDriftShare * 60f).ToString("0.##")
-                + " m a minute) and the rest SWAYS back and forth with periods "
-                + WaterOwnSurface.RippleSwayPeriodA.ToString("0.#")
-                + " s and "
-                + WaterOwnSurface.RippleSwayPeriodB.ToString("0.#")
-                + " s over +/-"
-                + (rateA.x * (1f - WaterOwnSurface.RippleDriftShare)
-                   * WaterOwnSurface.RippleSwayPeriodA / (2f * Mathf.PI)).ToString("0.###")
-                + " world units, netting exactly zero — standing water has no current"
+                // THE RESOLVED DRIFT, FIRST, AND IT IS A CONSTANT ZERO BY CONSTRUCTION. The user
+                // has now rejected a flow three times, so the number he is judging goes at the head
+                // of the line rather than buried in it. It is not a value this code computed and
+                // then found to be small: there is no rate property left on the shader, no scroll
+                // term left in it and no time in any sampling coordinate, so this is the ONLY
+                // number this term can print. If a future log ever shows anything else here,
+                // something has re-declared a speed.
+                + "; RESOLVED DRIFT 0.000 world units/s (0.00 m a minute) — NOTHING ON THIS SURFACE "
+                + "TRANSLATES: _WaterUVAnimSpeedA/B and _SwellSpeed were DELETED rather than zeroed, "
+                + "the ripple is sampled at fixed frames of the world plane and CROSSFADED with "
+                + "periods " + fadePeriods.x.ToString("0.#") + " / " + fadePeriods.y.ToString("0.#")
+                + " / " + fadePeriods.z.ToString("0.#")
+                + " s, and the swell's spatial phase contains no clock"
                 + "; SWELL amplitude " + amp.ToString("0.####") + " world units (quad width "
                 + o.FilmWidthWU.ToString("0.###") + " x [Water] SwellHeight "
                 + WantedSwellHeight.ToString("0.###") + ", ceiling "
@@ -2227,21 +2201,19 @@ internal static class WaterTerrainVR
                 // numbers the ruling is about — how slow, and how far it is from repeating on the
                 // tile lattice — are printed, because "es fließt noch viel zu schnell" and "bei
                 // jedem tile identisch" must be answerable from this line next time.
-                + ", 4 STANDING components at " + swellWave.ToString("0.##") + " / "
-                + (swellWave * WaterOwnSurface.SwellRatios[1]).ToString("0.##") + " / "
-                + (swellWave * WaterOwnSurface.SwellRatios[2]).ToString("0.##") + " / "
-                + (swellWave * WaterOwnSurface.SwellRatios[3]).ToString("0.##")
-                + " world units, rising and falling once every " + swellPeriod.ToString("0.#")
-                + " / " + (swellPeriod * 0.786f).ToString("0.#")
-                + " / " + (swellPeriod * 0.644f).ToString("0.#")
-                + " / " + (swellPeriod * 0.518f).ToString("0.#")
-                + " s IN PLACE (they do not travel — the only bodily motion is a "
-                + swellDrift.ToString("0.###") + " world units/s trace drift, "
-                + (swellDrift * 60f).ToString("0.##") + " m a minute), under a large-scale calm "
-                + "modulation of " + (WaterOwnSurface.SwellCalmDepth * 100f).ToString("0")
-                + "% so part of the pool is nearly still at any instant"
+                + ", " + WaterOwnSurface.SwellRatios.Length + " STANDING components at "
+                + SwellWaves(swellWave) + " world units, rising and falling once every "
+                + BobPeriods(swellPeriod)
+                + " s IN PLACE — they do not travel, and the six rates share no common measure, so "
+                + "the sum has no beat a player could learn; under a BLOOM of "
+                + (WaterOwnSurface.SwellCalmDepth * 100f).ToString("0")
+                + "% breathing on " + (swellPeriod * WaterOwnSurface.SwellBloomRatios[0]).ToString("0")
+                + " / " + (swellPeriod * WaterOwnSurface.SwellBloomRatios[1]).ToString("0")
+                + " / " + (swellPeriod * WaterOwnSurface.SwellBloomRatios[2]).ToString("0")
+                + " s, so a different part of the pool is the lively one every few minutes and it "
+                + "gets there by fading rather than by travelling"
                 + "; LATTICE MISMATCH " + WaterOwnSurface.LatticeMismatch(swellWave).ToString("0.###")
-                + " cycles — the WORST of the four components against the "
+                + " cycles — the WORST of the six components against the "
                 + WaterOwnSurface.TileLatticeX.ToString("0.##") + " x "
                 + WaterOwnSurface.TileLatticeZ.ToString("0.##")
                 + " m film lattice, i.e. how far the field is from drawing the same figure on "
@@ -2288,6 +2260,35 @@ internal static class WaterTerrainVR
         {
             float a = Mathf.Abs(tiling);
             return a > 1e-4f ? (1f / a).ToString("0.##") : "inf";
+        }
+
+        /// <summary>The six swell components' wavelengths, from the longest. Printed in full
+        /// because "how big are the waves" is a question the log has had to answer at every round,
+        /// and one number for six components is a claim rather than a measurement.</summary>
+        private static string SwellWaves(float longest) =>
+            Series(longest, WaterOwnSurface.SwellRatios, "0.##");
+
+        /// <summary>The six bob periods, from the longest — the ratios are the square roots of the
+        /// wavelength ratios (deep-water dispersion). This is the line "viel zu hektisch" is about,
+        /// so the whole set is printed rather than the first of them.</summary>
+        private static string BobPeriods(float longest)
+        {
+            var sqrt = new float[WaterOwnSurface.SwellRatios.Length];
+            for (int i = 0; i < sqrt.Length; i++)
+                sqrt[i] = Mathf.Sqrt(WaterOwnSurface.SwellRatios[i]);
+            return Series(longest, sqrt, "0.#");
+        }
+
+        private static string Series(float scale, float[] ratios, string format)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < ratios.Length; i++)
+            {
+                if (i > 0)
+                    sb.Append(" / ");
+                sb.Append((scale * ratios[i]).ToString(format));
+            }
+            return sb.ToString();
         }
 
         /// <summary>

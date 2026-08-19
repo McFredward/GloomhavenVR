@@ -167,7 +167,9 @@ internal static class WaterOwnSurfaceVectors
         RenderStateIsNotAdditive(t);
         FilmColourIsTheTilesets(t);
         NeverBrighterSweep(t);
-        ScrollRateIsTheTilesets(t);
+        PatternNeverTranslates(t);
+        NoTranslationTermSurvives(t, waterPath, repoRoot);
+        SpeedDialIsOneClock(t);
         TilingsAreTamedAndWeighted(t);
         SwellAmplitudeIsScaledAndCapped(t);
         NormalStrengthIsBounded(t);
@@ -445,7 +447,8 @@ internal static class WaterOwnSurfaceVectors
         MatchCollection calls = Regex.Matches(
             text,
             @"GhvrStanding\(p,\s*t,\s*float2\(\s*(?<dx>-?[0-9.]+),\s*(?<dy>-?[0-9.]+)\),\s*"
-            + @"L\s*\*\s*(?<ratio>[0-9.]+)");
+            + @"L\s*\*\s*(?<ratio>[0-9.]+),\s*"
+            + @"T\s*\*\s*(?<period>[0-9.]+),\s*(?<amp>[0-9.]+)\s*/\s*GHVR_SWELL_ASUM");
         t.Equal(WaterOwnSurface.SwellRatios.Length, calls.Count,
             $"the shader must sum exactly {WaterOwnSurface.SwellRatios.Length} standing components "
             + $"(found {calls.Count}). Fewer is a field with fewer ways to avoid the tile lattice; "
@@ -467,7 +470,43 @@ internal static class WaterOwnSurfaceVectors
             t.True(Math.Abs(ratio - WaterOwnSurface.SwellRatios[i]) < 5e-4f,
                 $"swell component {i}: the shader scales the wavelength by {ratio:0.#####} but "
                 + $"WaterOwnSurface.SwellRatios says {WaterOwnSurface.SwellRatios[i]:0.#####}");
+
+            // THE PERIOD AND THE AMPLITUDE ARE PART OF THE SAME TABLE, and since ModBuild 166 the
+            // C# copy is not only read by the census — WaterOwnSurface.SwellHeightAt EVALUATES it,
+            // and PatternNeverTranslates measures that evaluation to prove the field does not
+            // travel. A mirror that had drifted would make that measurement a statement about a
+            // surface nobody is looking at, so every number in the call is checked, not just the
+            // two the lattice arithmetic needs.
+            float period = ParseF(calls[i].Groups["period"].Value);
+            float amp = ParseF(calls[i].Groups["amp"].Value);
+            float wantPeriod = Mathf.Sqrt(WaterOwnSurface.SwellRatios[i]);
+            t.True(Math.Abs(period - wantPeriod) < 5e-4f,
+                $"swell component {i}: the shader scales the period by {period:0.#####} but "
+                + $"deep-water dispersion over WaterOwnSurface.SwellRatios says "
+                + $"sqrt({WaterOwnSurface.SwellRatios[i]:0.#####}) = {wantPeriod:0.#####}. The six "
+                + "bob rates are what leave the sum without a beat; a rounded one is a rhythm.");
+            t.True(Math.Abs(amp - WaterOwnSurface.SwellAmplitudes[i]) < 5e-4f,
+                $"swell component {i}: the shader weights it {amp:0.#####} but "
+                + $"WaterOwnSurface.SwellAmplitudes says "
+                + $"{WaterOwnSurface.SwellAmplitudes[i]:0.#####}");
         }
+
+        // AND THE NORMALISER IS THE SUM OF THAT TABLE. _SwellAmp has to MEAN the peak displacement,
+        // because Renderer.localBounds is padded by it and a surface that outran its own stated
+        // amplitude would be culled at the crests — one eye first, under MultiPass.
+        float sum = 0f;
+        foreach (float a in WaterOwnSurface.SwellAmplitudes)
+            sum += a;
+        t.True(Math.Abs(sum - WaterOwnSurface.SwellAmplitudeSum) < 1e-3f,
+            $"WaterOwnSurface.SwellAmplitudes sums to {sum:0.#####} but SwellAmplitudeSum says "
+            + $"{WaterOwnSurface.SwellAmplitudeSum:0.#####} — the two must agree or the peak "
+            + "displacement is not the number the bounds were padded for");
+        Match asum = Regex.Match(text, @"#define GHVR_SWELL_ASUM\s+(?<v>[0-9.]+)");
+        t.True(asum.Success && Math.Abs(ParseF(asum.Groups["v"].Value)
+                                        - WaterOwnSurface.SwellAmplitudeSum) < 1e-3f,
+            "the shader's GHVR_SWELL_ASUM must be WaterOwnSurface.SwellAmplitudeSum "
+            + $"({WaterOwnSurface.SwellAmplitudeSum:0.#####}); it is what makes |h| <= _SwellAmp an "
+            + "exact bound rather than a hope");
     }
 
     // ---------------------------------------------------------------------------------------
@@ -721,74 +760,414 @@ internal static class WaterOwnSurfaceVectors
     }
 
     // ---------------------------------------------------------------------------------------
-    //  4c. THE ANIMATION comes from the tileset's own speeds, and the dial only scales it.
+    //  4c. THE PATTERN DOES NOT TRANSLATE. AT ALL. IN ANY DIRECTION. EVER.
     // ---------------------------------------------------------------------------------------
-    private static void ScrollRateIsTheTilesets(Harness t)
+    //  THE RULING, verbatim, on ModBuild 165: "Immer noch viel zu hektisch und es fließt jetzt
+    //  einmal in die eine Richtung, stoppt kurz und fließt dann wieder in die andere. Erscheint
+    //  nicht mehr immersiv. Ich will außerdem so gut wie KEIN fließen, es ist kein Fluss sondern
+    //  eine Pfütze."
+    //
+    //  This replaces ScrollRateIsTheTilesets, which pinned that the ripple moved at the rate the
+    //  TILESET authored. That was the right check for four rounds and it is the wrong one now: the
+    //  tileset's rate is a translation, and the user has rejected a translation three times. So the
+    //  scroll is deleted, and what is checked is the OPPOSITE property.
+    //
+    //  IT IS MEASURED RATHER THAN ASSERTED, and that is the whole point of this check. A source
+    //  lint can see that the identifier `drift` is gone; it cannot see that a plausible-looking new
+    //  term moves the field 3 cm a minute. So WaterOwnSurface.SwellHeightAt — the C# mirror of the
+    //  shader's own height field, kept honest by SwellTableMatchesTheShader — is sampled on a grid
+    //  at two instants and the two grids are CROSS-CORRELATED over a range of offsets. For a field
+    //  that does not travel the best match is at exactly zero offset. This is the same measurement
+    //  the offscreen harness makes on the rendered pixels; doing it here as well means a
+    //  re-introduced drift fails the BUILD rather than being noticed in a photograph.
+    private static void PatternNeverTranslates(Harness t)
     {
-        Vector4 noise = WaterOwnSurface.AuthoredNoiseSpeed;
+        // The shipped resolution. Amplitude 1 — this is a test of PHASE and a scale factor cannot
+        // move one.
+        float period = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.035f);
+        const float L = WaterOwnSurface.SwellWavelength;
 
-        // The measured pair, at the shipped dial. These are the numbers the hardware census read
-        // off TERRAIN_GEN_WaterPlane_Crypt_Mat, resolved by the one rule ScrollRate states.
-        Vector4 a = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise, 1f);
-        Vector4 b = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedB, noise, 1f);
-        t.True(Near(a.x, 0.60f) && Near(a.y, 0.60f),
-            $"layer A's authored (1.00, 1.00, 0.60, 0.00) must resolve to 0.60 WORLD UNITS/s on "
-            + $"both axes, got ({a.x:0.###},{a.y:0.###}). If this changed, the water is no longer "
-            + "moving at the rate the tileset authored and the only symptom is a pool that looks "
-            + "wrong.");
-        t.True(Near(b.x, 0.50f) && Near(b.y, 1.00f),
-            $"layer B's authored (0.50, 1.00, 1.00, 0.00) must resolve to (0.50, 1.00) world "
-            + $"units/s, got ({b.x:0.###},{b.y:0.###})");
+        // A SWEEP OF INSTANTS, not one. A drift is a phase that GROWS with the clock, so a single
+        // sample could be caught at the moment it happens to be small; a minute of them cannot.
+        float worst = 0f;
+        float worstAt = 0f;
+        int worstComp = 0;
+        foreach (float clock in new[] { 0f, 3.7f, 11f, 29f, 61f, 137f, 400f })
+        {
+            for (int i = 0; i < WaterOwnSurface.SwellRatios.Length; i++)
+            {
+                float d = ComponentDisplacement(clock, period, i, 0f);
+                if (Math.Abs(d) > Math.Abs(worst))
+                {
+                    worst = d;
+                    worstAt = clock;
+                    worstComp = i;
+                }
+            }
+        }
 
-        // THE TWO LAYERS MUST NOT AGREE. Two normal layers scrolling at the same rate over the
-        // same tiling are one layer: the interference that makes the crests break up and the
-        // glints travel is the DIFFERENCE between them, and a change that collapsed the two would
-        // read as "the water moves but looks like a sliding texture".
-        t.True(!(Near(a.x, b.x) && Near(a.y, b.y)),
-            $"the two ripple layers must scroll at DIFFERENT rates — got A ({a.x:0.###},"
-            + $"{a.y:0.###}) and B ({b.x:0.###},{b.y:0.###}). Two layers moving together are one "
-            + "layer, and the whole reason there are two is that their interference is what makes "
-            + "the surface read as water rather than as a scrolling texture.");
+        t.True(Math.Abs(worst) < 0.005f,
+            $"swell component {worstComp} has moved {worst * 100f:0.##} cm along its own direction "
+            + $"by t = {worstAt:0.#} s. IT MUST NOT MOVE AT ALL. The standing ruling on ModBuild "
+            + "165 is 'Ich will außerdem so gut wie KEIN fließen, es ist kein Fluss sondern eine "
+            + "Pfütze' — the pattern may not translate, in any direction, ever. Look for a clock "
+            + "inside a spatial phase: the shipped form is sin(k dot(dir, p) + phi) * cos(w t + "
+            + "psi), and any `t` that has found its way into the first factor is a drift.");
 
-        // THE DIAL IS A PURE SCALE. It may change how fast, never the direction or the ratio.
-        Vector4 half = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise, 0.5f);
-        t.True(Near(half.x, a.x * 0.5f) && Near(half.y, a.y * 0.5f),
-            "[Water] RippleSpeed must scale both axes equally — a dial that changed the RATIO "
-            + "would change the direction the water runs, which is not what it is for");
+        // ...AND THE MEASUREMENT CAN SEE A DRIFT WHEN THERE IS ONE. Without this the check above
+        // could be passing on a projection that resolves nothing, and a test that cannot fail is
+        // not a test. ModBuild 165's own residual was 2.4 mm/s; the control uses 5 cm/s, which is a
+        // flow anybody would call one, and requires it to be found within a millimetre of its true
+        // size rather than merely to register.
+        const float ControlSpeed = 0.05f;
+        const float ControlClock = 8f;
+        float found = 0f;
+        for (int i = 0; i < WaterOwnSurface.SwellRatios.Length; i++)
+        {
+            float shift = ControlSpeed * ControlClock;
+            float d = ComponentDisplacement(ControlClock, period, i, shift);
+            // The projection reads each component's displacement ALONG ITS OWN DIRECTION, so a
+            // shift along +x registers as shift * cos(direction) on component i.
+            float expect = shift * Mathf.Cos(WaterOwnSurface.SwellDirections[i] * Mathf.Deg2Rad);
+            // ...modulo HALF a wavelength. A phase cannot tell a whole cycle from none, and a
+            // standing component's own sign flip costs another half — so the measurement resolves
+            // a displacement only within +/- a quarter wavelength, and the control's expectation
+            // has to be folded the same way. That limit is a property of the quantity, not a
+            // weakness of the projection: a pattern that has moved exactly one wavelength IS the
+            // pattern that has not moved.
+            float lambda = L * WaterOwnSurface.SwellRatios[i];
+            float half = lambda * 0.5f;
+            float wrapped = Mathf.Repeat(expect + half * 0.5f, half) - half * 0.5f;
+            found = Mathf.Max(found, Math.Abs(d - wrapped) < 0.01f ? 1f : 0f);
+            t.True(Math.Abs(d - wrapped) < 0.01f,
+                $"the control field was translated {shift:0.###} world units along +x, which is "
+                + $"{wrapped:0.###} along component {i}'s own direction once folded into its "
+                + $"+/-{half * 0.5f:0.###} range, and the measurement read {d:0.###}. The check "
+                + "above is therefore not measuring translation and its pass means nothing. Fix "
+                + "the projection, not the shader.");
+        }
+        t.True(found > 0f, "the drift control ran at all");
 
-        Vector4 stopped = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise, 0f);
-        t.True(Near(stopped.x, 0f) && Near(stopped.y, 0f),
-            "[Water] RippleSpeed at 0 must freeze the surface exactly, not merely slow it");
+        // THE BLOOM DOES NOT TRAVEL EITHER, and it is the term most likely to smuggle one back:
+        // ModBuild 165 wrote each of its long modulations as sin(k dot(d,p) + w t), which is a
+        // TRAVELLING wave whose envelope of activity swept the pool at w/k. A band of livelier
+        // water crossing the pool is the same flow the ruling forbids, only slower and larger.
+        // IT IS MEASURED IN CYCLES rather than in metres, because these wavelengths are 10 to 22 m
+        // and a centimetre means something completely different there than it does on a 64 cm
+        // ripple. The residual the projection leaves on the shipped field is about 0.003 of a
+        // cycle; ModBuild 165's travelling envelope swept at w/k = 0.021 m/s, which over the same
+        // interval is 0.036 of a cycle — an order of magnitude clear of the floor below.
+        float bloomWorst = 0f, bloomAt = 0f;
+        int bloomComp = 0;
+        foreach (float clock in new[] { 0f, 17f, 53f, 149f, 400f })
+            for (int i = 0; i < 3; i++)
+            {
+                float lambda = L * WaterOwnSurface.BloomWavelengthScales[i];
+                float cycles = BloomDisplacement(clock, period, i) / lambda;
+                if (Math.Abs(cycles) > Math.Abs(bloomWorst))
+                {
+                    bloomWorst = cycles;
+                    bloomAt = clock;
+                    bloomComp = i;
+                }
+            }
+        t.True(Math.Abs(bloomWorst) < 0.01f,
+            $"bloom modulation {bloomComp} has moved {bloomWorst:0.####} of its own wavelength by "
+            + $"t = {bloomAt:0.#} s. Each of the three must be sin(k dot(d,p) + phi) times "
+            + "cos(w t + psi), never sin(k dot(d,p) + w t) — the second form makes the lively part "
+            + "of the pool SWEEP across it, which is a current with a longer wavelength and "
+            + "nothing else.");
 
-        // The shared clock scale multiplies both layers.
-        Vector4 fast = WaterOwnSurface.ScrollRate(
-            WaterOwnSurface.AuthoredSpeedA, new Vector4(2f, 1f, 1f, 0f), 1f);
-        t.True(Near(fast.x, a.x * 2f) && Near(fast.y, a.y * 2f),
-            "_WaterNoiseSpeed.x is the tileset's own shared clock scale and must multiply the rate");
+        // AND THE ENVELOPE STAYS INSIDE ITS BOUND, because the peak amplitude is what the
+        // renderer's bounds were padded for and a bloom above 1 would put the crests outside them.
+        float lo = 1f, hi = 0f;
+        for (int i = 0; i <= 40; i++)
+            for (int j = 0; j <= 40; j++)
+            {
+                float v = WaterOwnSurface.SwellBloomAt(
+                    i * 0.31f, j * 0.29f, i * 1.7f + j * 0.4f, L, period,
+                    WaterOwnSurface.SwellCalmDepth);
+                lo = Mathf.Min(lo, v);
+                hi = Mathf.Max(hi, v);
+            }
+        t.True(hi <= 1f + 1e-5f && lo >= 1f - WaterOwnSurface.SwellCalmDepth - 1e-5f,
+            $"the bloom envelope swept [{lo:0.####}, {hi:0.####}], outside its declared "
+            + $"[{1f - WaterOwnSurface.SwellCalmDepth:0.###}, 1]. Above 1 it would carry the swell "
+            + "past the amplitude Renderer.localBounds was padded for, and culling cannot see a "
+            + "domain program.");
 
-        // REFUSALS, and every one of them keeps the water MOVING. A layer frozen by a component
-        // nobody can read, or by a garbage dial, would look exactly like this shader failing.
-        Vector4 zeroZ = WaterOwnSurface.ScrollRate(new Vector4(1f, 1f, 0f, 0f), noise, 1f);
-        t.True(Near(zeroZ.x, 1f) && Near(zeroZ.y, 1f),
-            "a .z of zero must be treated as 1 rather than freezing the layer — a tileset that "
-            + "meant 'no motion' would have authored .xy at zero, and a layer stopped by a "
-            + "component whose meaning cannot be read from a compiled shader is indistinguishable "
-            + "from a bug");
-        Vector4 nanDial = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise,
-                                                    float.NaN);
-        t.True(Near(nanDial.x, a.x) && Near(nanDial.y, a.y),
-            "a non-finite [Water] RippleSpeed must fall back to 1, not to NaN — a NaN scroll rate "
-            + "is a surface nobody can predict");
-        Vector4 negDial = WaterOwnSurface.ScrollRate(WaterOwnSurface.AuthoredSpeedA, noise, -3f);
-        t.True(Near(negDial.x, 0f) && Near(negDial.y, 0f),
-            "a negative [Water] RippleSpeed must clamp to 0, never run the water backwards at "
-            + "three times speed");
+        // AND THE SURFACE IS NOT FROZEN EITHER. "Kein Fluss" is not "kein Wasser": if the swell
+        // stopped changing altogether the pool would be a painted sheet, and every measurement
+        // above would still pass. So the height at one point must actually move over a minute.
+        float pLo = float.MaxValue, pHi = float.MinValue;
+        for (int i = 0; i <= 240; i++)
+        {
+            float h = WaterOwnSurface.SwellHeightAt(
+                1.13f, 0.71f, i * 0.5f, L, period, 1f, WaterOwnSurface.SwellCalmDepth);
+            pLo = Mathf.Min(pLo, h);
+            pHi = Mathf.Max(pHi, h);
+        }
+        t.True(pHi - pLo > 0.15f,
+            $"over two minutes one point of the pool moved through only {pHi - pLo:0.###} of the "
+            + "peak amplitude. The ruling is that the water be STILL, not that it be dead — a "
+            + "surface that never changes is ModBuild 162's flat sheet arrived at by arithmetic.");
+    }
 
-        // The z/w channels are never written: the shader adds .xy to a UV and reads nothing else.
-        t.True(Near(a.z, 0f) && Near(a.w, 0f),
-            "the resolved scroll rate's z and w must be zero — the shader adds .xy to the tiled UV "
-            + "and reads nothing else, so a stray value there is a silent no-op waiting to be read "
-            + "as a setting");
+    /// <summary>
+    /// HOW FAR ONE STANDING COMPONENT HAS MOVED, in world units along its own direction, measured
+    /// off the field itself.
+    ///
+    /// <para>WHY A PROJECTION AND NOT A CROSS-CORRELATION. The obvious measurement — correlate the
+    /// height field against itself a while later and read off the offset of the best match — is
+    /// AMBIGUOUS on a standing wave, and the first draft of this check drowned in that. A standing
+    /// component passes through zero and returns INVERTED, so half of the six are anti-correlated
+    /// with their own past at any given moment, and a small shift that merely DECORRELATES those
+    /// scores better than no shift at all. The peak wanders a sample or two and the check becomes a
+    /// coin toss. (The offscreen harness still cross-correlates, because it works on RENDERED
+    /// PIXELS whose luminance sits on a large positive pedestal and does not invert.)</para>
+    ///
+    /// <para>WHAT THIS DOES INSTEAD IS EXACT. Translation and standing evolution are distinguishable
+    /// in one line of algebra: evolving in place multiplies a component's spatial pattern by a REAL
+    /// number, and translating it rotates its PHASE. So the field is projected onto that component's
+    /// own sine and cosine, and the angle between the two projections is the phase it has picked up.
+    /// Divided by the wavenumber that is a distance, in metres, which is the number the ruling is
+    /// about — and it is reported that way in the failure message.</para>
+    ///
+    /// <para>The bloom is switched OFF for this (calm depth 0). It is a spatially varying envelope,
+    /// so it spreads each component's spectrum and would leak into the projection; it gets its own
+    /// measurement in <see cref="BloomDisplacement"/>, against its own three modulations.</para>
+    /// </summary>
+    /// <param name="t">Seconds on the shared clock.</param>
+    /// <param name="period">The longest component's bob period.</param>
+    /// <param name="comp">Which of the six components to measure.</param>
+    /// <param name="shift">A deliberate translation along +x, in world units — 0 for the shipped
+    /// field, non-zero for the control that proves this measurement works.</param>
+    private static float ComponentDisplacement(float t, float period, int comp, float shift)
+    {
+        const int N = 160;
+        const float Step = 0.11f;      // 17.6 m across: seven periods of the longest component
+        float lambda = WaterOwnSurface.SwellWavelength * WaterOwnSurface.SwellRatios[comp];
+        float k = 2f * Mathf.PI / lambda;
+        float rad = WaterOwnSurface.SwellDirections[comp] * Mathf.Deg2Rad;
+        float dx = Mathf.Cos(rad), dz = Mathf.Sin(rad);
+
+        // A HANN WINDOW, and it is what makes the projection trustworthy. Six components at
+        // incommensurate wavelengths are not exactly orthogonal over a finite square, so each one
+        // LEAKS into the others' projections — and the loudest component leaking into the quietest
+        // rotates its measured phase by enough to read as a centimetre of movement that is not
+        // there. The window's sidelobes are ~30 dB down, which puts the leak below a tenth of a
+        // millimetre. It is symmetric, so it cannot introduce a phase shift of its own.
+        var win = new float[N];
+        for (int i = 0; i < N; i++)
+            win[i] = 0.5f - 0.5f * Mathf.Cos(2f * Mathf.PI * i / (N - 1f));
+
+        double sinAcc = 0, cosAcc = 0;
+        for (int i = 0; i < N; i++)
+            for (int j = 0; j < N; j++)
+            {
+                float x = i * Step, z = j * Step;
+                float h = WaterOwnSurface.SwellHeightAt(
+                    x - shift, z, t, WaterOwnSurface.SwellWavelength, period, 1f, 0f)
+                    * win[i] * win[j];
+                float phase = k * (dx * x + dz * z);
+                sinAcc += h * Mathf.Sin(phase);
+                cosAcc += h * Mathf.Cos(phase);
+            }
+
+        // The authored spatial phase is the answer when nothing has moved; the DIFFERENCE from it
+        // is the displacement. Taken modulo pi because the standing factor cos(w t + psi) is
+        // negative half the time and a sign flip is not a movement.
+        float measured = Mathf.Atan2((float)cosAcc, (float)sinAcc);
+        float authored = WaterOwnSurface.SwellSpatialPhases[comp];
+        float delta = Mathf.Repeat(measured - authored + Mathf.PI * 0.5f, Mathf.PI)
+                      - Mathf.PI * 0.5f;
+        return -delta / k;
+    }
+
+    /// <inheritdoc cref="ComponentDisplacement"/>
+    private static float BloomDisplacement(float t, float period, int comp)
+    {
+        const int N = 160;
+        const float Step = 0.65f;      // 104 m across: several periods of even the longest bloom
+
+        float lambda = WaterOwnSurface.SwellWavelength
+                       * WaterOwnSurface.BloomWavelengthScales[comp];
+        float k = 2f * Mathf.PI / lambda;
+        float rad = WaterOwnSurface.BloomDirections[comp] * Mathf.Deg2Rad;
+        float dx = Mathf.Cos(rad), dz = Mathf.Sin(rad);
+
+        var win = new float[N];
+        for (int i = 0; i < N; i++)
+            win[i] = 0.5f - 0.5f * Mathf.Cos(2f * Mathf.PI * i / (N - 1f));
+
+        double sinAcc = 0, cosAcc = 0;
+        for (int i = 0; i < N; i++)
+            for (int j = 0; j < N; j++)
+            {
+                float x = i * Step, z = j * Step;
+                // The envelope's mean is 1 - calm/2 and carries no shape; subtracting it leaves the
+                // three modulations alone.
+                float v = WaterOwnSurface.SwellBloomAt(
+                              x, z, t, WaterOwnSurface.SwellWavelength, period,
+                              WaterOwnSurface.SwellCalmDepth)
+                          - (1f - WaterOwnSurface.SwellCalmDepth * 0.5f);
+                v *= win[i] * win[j];
+                float phase = k * (dx * x + dz * z);
+                sinAcc += v * Mathf.Sin(phase);
+                cosAcc += v * Mathf.Cos(phase);
+            }
+
+        float measured = Mathf.Atan2((float)cosAcc, (float)sinAcc);
+        float delta = Mathf.Repeat(
+                          measured - WaterOwnSurface.BloomSpatialPhases[comp] + Mathf.PI * 0.5f,
+                          Mathf.PI)
+                      - Mathf.PI * 0.5f;
+        return -delta / k;
+    }
+
+    // ---------------------------------------------------------------------------------------
+    //  4c-bis. AND NO NAME A SPEED COULD BE WRITTEN UNDER SURVIVES ANYWHERE.
+    // ---------------------------------------------------------------------------------------
+    //  The measurement above proves the FIELD does not travel. This proves there is nowhere left to
+    //  put a translation back: the ruling was that the term be deleted rather than zeroed, so that
+    //  no dial and no future edit can raise it. Three shipped property names carried the old motion
+    //  and every one of them is swept out of both shaders' source and out of the driver.
+    private static void NoTranslationTermSurvives(Harness t, string? shaderPath, string repoRoot)
+    {
+        if (shaderPath != null)
+        {
+            string text = ShaderCodeOnly(shaderPath);
+            foreach (string name in WaterOwnSurface.ForbiddenTranslationProperties)
+            {
+                t.True(text.IndexOf(name, StringComparison.Ordinal) < 0,
+                    $"'{WaterOwnSurface.FilmShaderName}' mentions '{name}'. That is one of the "
+                    + "names a SPEED was written under up to ModBuild 165, and the standing ruling "
+                    + "is 'so gut wie KEIN fließen, es ist kein Fluss sondern eine Pfütze'. The "
+                    + "term was deleted rather than set to zero precisely so that re-declaring it "
+                    + "is a deliberate act that fails this gate, not a number somebody nudges.");
+            }
+
+            // THE SPATIAL PHASE, WRITTEN OUT. This is the one line the whole ruling lives on: up to
+            // ModBuild 165 it read `k * (dot(dir, p) - drift * t) + spatialPhase`, and a `t` inside
+            // it is a translation whatever it is called. Pinning the literal text is cruder than
+            // pinning behaviour and it is the right complement to it — the measurement above says
+            // the field does not move, and this says the expression cannot be edited into moving
+            // without the diff being obvious.
+            t.True(Regex.IsMatch(text, @"float sp = k \* dot\(dir, p\) \+ spatialPhase;"),
+                $"'{WaterOwnSurface.FilmShaderName}' must compute each standing component's "
+                + "spatial phase as exactly `k * dot(dir, p) + spatialPhase` — no clock, no drift, "
+                + "no offset that grows with time. The temporal factor is the SEPARATE cos(w t + "
+                + "psi), which is what makes the component stand rather than travel.");
+
+            // AND THE RIPPLE'S SAMPLING COORDINATE TAKES NO CLOCK EITHER. A signature with no time
+            // parameter is a stronger statement than any regex over the body: there is nothing in
+            // scope for a drift to be built from.
+            t.True(Regex.IsMatch(
+                       text,
+                       @"float2 GhvrRippleUV \(float2 p, float2 tiling, float2 cs, float2 ofs\)"),
+                $"'{WaterOwnSurface.FilmShaderName}' must build the ripple's sampling coordinate in "
+                + "GhvrRippleUV(p, tiling, cs, ofs) — a function with NO time parameter, so the "
+                + "coordinate the normal map is read at cannot depend on the clock. ModBuild 165's "
+                + "GhvrRippleOffset(rate, period, tiling, t) is what this replaces.");
+            t.True(text.IndexOf("GhvrRippleOffset", StringComparison.Ordinal) < 0,
+                $"'{WaterOwnSurface.FilmShaderName}' still declares GhvrRippleOffset, which is "
+                + "ModBuild 165's drift-plus-sway. It must be gone, not called with zero.");
+        }
+
+        // ...AND THE DRIVER HAS NOTHING LEFT TO RESOLVE A RATE WITH.
+        string src = Path.Combine(repoRoot, "src", "GloomhavenVR", "Core", "WaterTerrainVR.cs");
+        if (File.Exists(src))
+        {
+            // Comments are NOT stripped here: the driver's forbidden-name check already looks for
+            // a property WRITE rather than a mention, which is the same distinction made the other
+            // way round.
+            string driver = File.ReadAllText(src);
+            foreach (string name in WaterOwnSurface.ForbiddenTranslationProperties)
+            {
+                // The name may still appear in PROSE — the file has to be able to say what was
+                // deleted and why — so only a real property write is a failure.
+                t.True(!Regex.IsMatch(driver, @"Set(Vector|Float)\([^)]*" + Regex.Escape(name)),
+                    $"WaterTerrainVR writes '{name}' onto a material. Nothing on the film may "
+                    + "carry a speed: the ruling is that the pattern does not translate at all.");
+            }
+            t.True(driver.IndexOf("WaterOwnSurface.ScrollRate", StringComparison.Ordinal) < 0,
+                "WaterTerrainVR still calls WaterOwnSurface.ScrollRate. That function resolved the "
+                + "tileset's authored scroll speeds into world units per second and it is deleted "
+                + "with the properties it fed.");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    //  4c-ter. ONE DIAL, ONE CLOCK — and 0 means STILL, not FLAT.
+    // ---------------------------------------------------------------------------------------
+    private static void SpeedDialIsOneClock(Harness t)
+    {
+        float shipped = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.035f);
+        t.True(shipped > 25f && shipped < 40f,
+            $"the shipped [Water] RippleSpeed must give the longest swell component a bob period "
+            + $"around 31 s (got {shipped:0.#}). ModBuild 165 shipped 9 s and the verdict was "
+            + "'immer noch viel zu hektisch'; the ruling asked for a large factor rather than a "
+            + "nudge.");
+
+        // FAR SLOWER THAN THE BUILD THAT WAS REJECTED, stated as a ratio rather than as a hope.
+        float m165 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.12f);
+        t.True(shipped >= m165 * 2.5f,
+            $"the shipped bob period {shipped:0.#} s must be at least two and a half times "
+            + $"ModBuild 165's {m165:0.#} s — 'viel zu hektisch' was said of that one");
+
+        // THE DIAL IS ONE CLOCK. Everything else on the surface is a fixed multiple of the swell's
+        // period, so nothing can be left ticking under a frozen wave — which is exactly what the
+        // first draft of ModBuild 165 did, and the preview log caught it.
+        Vector4 fade = WaterOwnSurface.ResolvedFadePeriods(shipped);
+        t.True(Mathf.Abs(fade.x - shipped * WaterOwnSurface.RippleFadeRatios[0]) < 1e-3f
+               && Mathf.Abs(fade.y - shipped * WaterOwnSurface.RippleFadeRatios[1]) < 1e-3f
+               && Mathf.Abs(fade.z - shipped * WaterOwnSurface.RippleFadeRatios[2]) < 1e-3f,
+            "the ripple's three crossfade periods must be fixed multiples of the swell's own "
+            + "period, so [Water] RippleSpeed moves the whole surface's clock at once");
+        t.True(fade.x > shipped && fade.y > fade.x && fade.z > fade.y,
+            $"the crossfade periods {fade.x:0.#}/{fade.y:0.#}/{fade.z:0.#} s must be strictly "
+            + "increasing and all LONGER than the swell's own period. The ripple is the fine "
+            + "detail: if it changed faster than the wave carrying it, the surface would read as "
+            + "busy however slow the geometry was.");
+
+        // ...AND THEY MUST NOT SHARE A COMMON MEASURE. Three cycles at a rational ratio have a
+        // beat, and a beat is a rhythm — "die animationen sollen sehr dezent und random sein".
+        for (int i = 0; i < WaterOwnSurface.RippleFadeRatios.Length; i++)
+            for (int j = i + 1; j < WaterOwnSurface.RippleFadeRatios.Length; j++)
+            {
+                float ratio = WaterOwnSurface.RippleFadeRatios[j]
+                              / WaterOwnSurface.RippleFadeRatios[i];
+                bool nearSimple = false;
+                for (int p = 1; p <= 4 && !nearSimple; p++)
+                    for (int q = 1; q <= 4; q++)
+                        if (Math.Abs(ratio - (float)p / q) < 0.02f)
+                            nearSimple = true;
+                t.True(!nearSimple,
+                    $"crossfade periods {i} and {j} are in a ratio of {ratio:0.###}, which is "
+                    + "within 2% of a ratio of small whole numbers. Three cycles that come back "
+                    + "into step give the pool a rhythm, and a rhythm is the opposite of "
+                    + "'random'.");
+            }
+
+        // ZERO MEANS STILL, NOT FLAT. The relief is the amplitude and the clock is the period; a
+        // dial at 0 must stop the second without touching the first, or "freeze the water" would
+        // silently mean "delete the waves".
+        float frozen = WaterOwnSurface.ResolvedSwellPeriod(1f, 0f);
+        t.True(frozen >= shipped * 3f,
+            $"[Water] RippleSpeed 0 must give a period far longer than the shipped one (got "
+            + $"{frozen:0.#} s against {shipped:0.#} s), so the surface holds still WITH ITS "
+            + "RELIEF rather than flattening");
+
+        // AND A BIGGER WAVE IS A SLOWER ONE — deep-water dispersion, so [Water] WaveScale cannot
+        // turn a lazy roll into a fast one.
+        t.True(WaterOwnSurface.ResolvedSwellPeriod(4f, 0.035f)
+               > WaterOwnSurface.ResolvedSwellPeriod(1f, 0.035f),
+            "the swell's period must grow with [Water] WaveScale (as its square root), or a longer "
+            + "wave would run at the same rate and read as a faster current");
+
+        float nan = WaterOwnSurface.ResolvedSwellPeriod(float.NaN, float.NaN);
+        t.True(!float.IsNaN(nan) && !float.IsInfinity(nan) && nan > 0f,
+            $"a non-finite dial or scale must still give a usable period, got {nan}");
     }
 
     // ---------------------------------------------------------------------------------------
@@ -1092,6 +1471,19 @@ internal static class WaterOwnSurfaceVectors
     /// followed: UnityCG.cginc and the rest of the engine's own includes are not ours and are not
     /// what a regression would be added to.</para>
     /// </summary>
+    /// <summary>
+    /// <see cref="ExpandedShaderSource"/> with every <c>//</c> comment stripped — the CODE and
+    /// nothing else.
+    ///
+    /// <para>WHY IT IS NEEDED. The checks that sweep for a FORBIDDEN name have to be able to
+    /// distinguish a declaration from a sentence about a declaration, and since ModBuild 166 the
+    /// shader's header explains at length which three properties were deleted and why. A lint that
+    /// could not tell the two apart would force the file to stop naming what it removed, which is
+    /// the opposite of what the comment discipline here is for.</para>
+    /// </summary>
+    private static string ShaderCodeOnly(string shaderPath) =>
+        Regex.Replace(ExpandedShaderSource(shaderPath), @"//[^\n]*", string.Empty);
+
     private static string ExpandedShaderSource(string shaderPath)
     {
         string text = File.ReadAllText(shaderPath);
