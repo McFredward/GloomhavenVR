@@ -10,6 +10,15 @@ namespace GloomhavenVR.WorldUI;
 internal static partial class ModalFallback
 {
     /// <summary>
+    /// <summary>Angle between neighbours on the map room's window arc, degrees. ~34° puts a
+    /// reading-distance window's edges at roughly a shoulder's turn from its neighbour's — close
+    /// enough to take in together, far enough not to overlap.</summary>
+    private const float ArcStepDegrees = 34f;
+
+    /// <summary>How far around the arc the layout may reach on either side, degrees. Past ~85° a
+    /// window is beside the player rather than in front, which is the opposite of an overview.</summary>
+    private const float MaxArcHalfDegrees = 85f;
+
     /// Item 2: lateral+vertical stagger (real meters) between successive floated windows so a
     /// secondary window opened FROM the primary spawns OVERLAPPING but not perfectly coincident
     /// with it — the user can then grab and separate them. Scaled by the diorama scale + capped.
@@ -21,6 +30,9 @@ internal static partial class ModalFallback
     /// along the gaze, so a sub-menu opened from the pause menu sits clearly in the FOREGROUND of
     /// its parent (nearer → among the equal-order modal hosts it also depth-sorts in front).
     /// Scaled by the diorama scale like the lateral/vertical stagger.
+    ///
+    /// <para>ModBuild 181: in the 3D map room neither this nor the lateral stagger applies — the
+    /// windows are laid out on an ARC instead (see <see cref="ArcStepDegrees"/>).</para>
     /// </summary>
     private const float SecondaryForegroundMeters = 0.14f;
 
@@ -557,7 +569,31 @@ internal static partial class ModalFallback
             // every other family keeps the shared reading distance.
             pos = headPos + fwd * ((levelMessage ? LevelMessageDistanceMeters : WindowDistanceMeters)
                                    * scale);
-            if (staggerIndex > 0)
+            // THE MAP ROOM ARRANGES, IT DOES NOT STACK (ModBuild 181). User: "Ich möchte das die
+            // Fenster die zu beginn spawnen im Halbkreis um einen gespawned werden, so dass man
+            // alle direkt perfekt im Überblick hat." The stagger below is a right+down nudge that
+            // deliberately OVERLAPS a secondary onto its parent — correct at a scenario table where
+            // one window answers another, and wrong in a room where several independent windows
+            // (merchant, temple, quest log) stand open at once and all of them must be readable
+            // without moving anything.
+            //
+            // So in the map room the stack index becomes an ANGLE on an arc at the same reading
+            // distance, alternating right and left of the gaze so the first window stays centred
+            // and the set grows symmetrically: 0°, +A, -A, +2A, -2A … The vertical drop and the
+            // pull-forward are dropped with it — every card on the arc is equally near and equally
+            // upright, which is what "perfekt im Überblick" means.
+            if (staggerIndex > 0 && MapRoom.MapRoomDriver.Active)
+            {
+                int step = (staggerIndex + 1) / 2;
+                float sign = (staggerIndex % 2) == 1 ? 1f : -1f;
+                float angle = Mathf.Min(step * ArcStepDegrees, MaxArcHalfDegrees) * sign;
+                Vector3 flatFwd = new Vector3(fwd.x, 0f, fwd.z);
+                if (flatFwd.sqrMagnitude < 1e-6f)
+                    flatFwd = Vector3.forward;
+                Vector3 dir = Quaternion.AngleAxis(angle, Vector3.up) * flatFwd.normalized;
+                pos = headPos + dir * (WindowDistanceMeters * scale);
+            }
+            else if (staggerIndex > 0)
             {
                 float step = SecondaryStaggerMeters * scale;
                 pos += h.right * (step * staggerIndex) - Vector3.up * (step * staggerIndex);

@@ -416,7 +416,71 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 180;
+    public const ushort ModBuild = 181;
+    // Build 181: A HOVER IS NOT A WINDOW, A PARENT IS NOT ITS CHILDREN, AND THE CAPS FACED THE MAP.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // (Item 1 of his list is CLOSED: "Ich kann mich mit dem joystick bewegen … klappt jetzt.")
+    //
+    // ── (2) EVERY MOUSEOVER BECAME A WINDOW — MY OWN 180 REGRESSION ──────────────────────────
+    // 180 made every floated window in the map room STICKY so the merchant and the temple could
+    // stand open together. That is right for windows the player OPENS and wrong for windows the
+    // pointer merely TOUCHES: the game's quest-preview popup and its local tooltips open and close
+    // with the hover, so sticky turned each one into a permanent panel and they piled up. Treating
+    // "floated" as ONE category was the mistake — a card that follows a hover is a different kind
+    // of thing from a window that waits for you.
+    //
+    // HOVER CARDS are now their own class, matched by COMPONENT (UIQuestPreviewPopup, and
+    // UILocalTooltip which is the base every local tooltip uses — it even carries its own optional
+    // UIWindow, which is how these reached the window path at all). A hover card gets NO grab bar,
+    // NO X and NO stickiness, and its pose is written every tick: seated with its BOTTOM on the
+    // hovered icon so the symbol stays visible under it, billboarded to the head and flattened to
+    // the horizon so it stays upright. Pose, not parent — the map rebuilds its icons on every
+    // InitMap and a host parented into that hierarchy would be destroyed with them mid-frame.
+    //
+    // ── (4) THE CHARACTER SCREEN IS ONE SCREEN ──────────────────────────────────────────────
+    // 'Campaign Adventure Party Assembly Variant' carries 'Campaign Party Assembly Character
+    // Display' carries 'Party Display UI' — a NEST of UIWindows. The catch-all floated each one
+    // separately and scattered a single screen across the room. In the map room the PARENT now
+    // wins: a window with an OPEN ancestor window is not eligible, because that ancestor's float
+    // already renders this subtree inside its own host. Level-triggered like every other rule here
+    // (OpenWindows is rebuilt each tick), so the child re-appears by itself when the ancestor
+    // closes, and a child floated FIRST releases by itself when the ancestor opens.
+    //
+    // ── (3) THE CAPS WERE FACING THE MAP, AND THE ICONS Z-FOUGHT ────────────────────────────
+    // seat.Rotation is the yaw that makes the player FACE the map centre, so applied to the rail
+    // root its +Z runs seat → MAP, not seat → player. 179 and 180 both had that backwards, in the
+    // comments and in the maths, so the faces aimed away and tilted the wrong way — his screenshot
+    // is a row of caps leaning over with their backs out. The face direction is (0, sin, -cos) and
+    // the cap's +Z is its negation; local +X then comes out as world +X, so the row also stops
+    // being mirrored, and +Z is "into the table", which is the press-travel direction.
+    //
+    // AND THE SYMBOL FLICKER WAS Z-FIGHTING. GetRoundCap(d, h) puts the disc's front face at
+    // exactly -h/2, and 180 placed the sprite face at exactly -depth/2 — COPLANAR with an opaque,
+    // depth-writing surface. Sprites do not write depth but they do depth-TEST, so every icon pixel
+    // was a coin flip against the cap it sits on, resolved differently per eye and per frame. Glow,
+    // face, icon and badge now stand 0.8 mm (real) apart, off the disc and off each other.
+    //
+    // ── (5, PART) THE WINDOWS ARRANGE THEMSELVES, AND THE SEAT FACES THE MAP THE RIGHT WAY UP ─
+    // The stagger was a right+down nudge that deliberately OVERLAPS a secondary onto its parent —
+    // correct at a scenario table where one window answers another, wrong in a room where several
+    // independent windows stand open at once. In the map room the stack index becomes an ANGLE on
+    // an arc at the same reading distance, alternating right and left so the first window stays
+    // centred and the set grows symmetrically (0°, +34°, -34°, +68° …, capped at 85°).
+    //
+    // THE SEAT: TrySolveSeat asked the orbit camera for its focal DIFF, which is zero whenever the
+    // camera sits on its focus — so on hardware it kept falling back to world -Z, an arbitrary edge
+    // with nothing to do with how the map is authored to be read. The camera's own ROTATION is
+    // never degenerate, and its forward IS the direction the flat game reads the map from (logged
+    // at euler (80, 90, 0), i.e. from the map's -X side). The seat is now on the opposite side of
+    // the centre from that forward. Still DIRECTION ONLY — no position, no height, no FOV; test #8
+    // is not being repeated.
+    //
+    // ── NOT IN THIS BUILD, and both are his: ────────────────────────────────────────────────
+    // the multiplayer SPAWN RING in the map room, and syncing icon highlighting + mouseovers
+    // between peers ("aber nur in diesem Modus, der 2D Modus bleibt wie er ist"). The sync needs a
+    // wire record of its own and belongs in a build where it is the subject, not a tail item.
+    //
     // Build 180: THE CHARACTER WAS BEING DRAWN TWICE, AND 179's EXCLUSION WAS TOO WIDE.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

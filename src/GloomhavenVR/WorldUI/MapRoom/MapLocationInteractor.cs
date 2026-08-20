@@ -83,6 +83,36 @@ internal sealed class MapLocationInteractor
     internal int RegisteredCount => _locations.Count;
 
     /// <summary>
+    /// Where a hover card belongs right now: the world point just above the hovered icon, or null
+    /// while nothing is hovered. Read by <c>ModalFallback</c> to fly the game's own preview popup
+    /// over the symbol instead of floating it as a movable window (user ruling: <i>"Bei Mouseovers
+    /// über ein Symbol soll es über dem Symbol entsprechend fliegen ohne ein separates Fenster zu
+    /// sein das man verschieben kann (immer zum Kopf gedreht) und nur solange der Mouseover
+    /// anhält."</i>).
+    ///
+    /// <para>The lift is taken off the icon's own collider so a large location marker is not
+    /// covered by its own card, plus a fixed real-metre gap carried by the rig scale.</para>
+    /// </summary>
+    internal bool TryHoverAnchor(out Vector3 world)
+    {
+        world = default;
+        MapLocation? loc = _hover;
+        if (loc == null)
+            return false;
+        float scale = Rig.RigTarget.Current != null
+            ? Mathf.Max(Rig.RigTarget.Current.lossyScale.x, 0.0001f)
+            : 1f;
+        BoxCollider? box = HitBoxOf(loc);
+        float top = box != null ? box.bounds.max.y : loc.transform.position.y;
+        world = new Vector3(loc.transform.position.x, top + HoverCardLiftMeters * scale,
+                            loc.transform.position.z);
+        return true;
+    }
+
+    /// <summary>Gap between the hovered icon's top and the bottom of its hover card, real metres.</summary>
+    private const float HoverCardLiftMeters = 0.045f;
+
+    /// <summary>
     /// Per-frame upkeep while the map room stands. Rescans on the cadence, keeps the pick mask on
     /// both hands, resolves the hovered location from the shared ray pick and dispatches a click
     /// on the trigger edge.

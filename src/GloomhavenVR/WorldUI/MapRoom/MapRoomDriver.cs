@@ -96,6 +96,16 @@ internal static class MapRoomDriver
     /// of sweeping the scene.</summary>
     internal static global::MapChoreographer? Choreographer => _choreo;
 
+    /// <summary>The world point a hover card should fly at — just above the hovered location icon —
+    /// or false while nothing is hovered. See <see cref="MapLocationInteractor.TryHoverAnchor"/>.</summary>
+    internal static bool TryHoverAnchor(out Vector3 world)
+    {
+        if (Active)
+            return Locations.TryHoverAnchor(out world);
+        world = default;
+        return false;
+    }
+
     /// <summary>
     /// Evaluate the mode predicate. Called once per frame from <c>VRRigDriver.UpdateBody</c>
     /// BEFORE the rig kind is resolved, because the rig kind depends on the answer.
@@ -219,6 +229,28 @@ internal static class MapRoomDriver
                 side = diff;
                 sideSource = $"CameraController.m_CameraToFocalTargetDiff {diff} (DIRECTION ONLY — "
                              + "no position, no height, no FOV: that is test #8's mistake)";
+            }
+            else if (cc.m_Camera != null)
+            {
+                // ModBuild 181 — SECOND SOURCE, AND IT IS THE ONE THAT USUALLY ANSWERS. User: "Der
+                // Spawnpunkt soll auch direkt vor dem Tisch sein, so dass man ihn richtig rum
+                // direkt sehen kann." The focal DIFF is zero whenever the orbit camera happens to
+                // sit on its focus, so on hardware this solve kept landing on the world -Z
+                // fallback — an arbitrary edge that has nothing to do with how the map is authored
+                // to be read. The camera's own ROTATION is never degenerate: its forward IS the
+                // direction the flat game looks at the map from (logged at euler (80, 90, 0), i.e.
+                // reading the map from its -X side), so the player belongs on the opposite side of
+                // the centre from where that forward points. Still DIRECTION ONLY — no position,
+                // no height, no FOV. That remains test #8's mistake and this does not repeat it.
+                Vector3 fwd = cc.m_Camera.transform.forward;
+                var flat = new Vector3(fwd.x, 0f, fwd.z);
+                if (flat.sqrMagnitude > 1e-6f)
+                {
+                    side = -flat;
+                    sideSource = $"the map camera's own FORWARD {fwd} negated (DIRECTION ONLY) — the "
+                                 + "focal diff was degenerate, and this is the direction the flat game "
+                                 + "reads the map from, so the seat is on the side it is authored for";
+                }
             }
         }
         return MapRoomSeat.Solve(Parchment.WorldBounds, side, out seat);

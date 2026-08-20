@@ -126,6 +126,34 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 181** (bundle UNCHANGED — plugin DLL only) — a hover is not a window, a parent is not
+  its children, and the caps faced the map. *(His item 1 closed: the joystick works.)*
+  * **(2) Every mouseover became a window — my own 180 regression.** 180 made every map-room float
+    sticky so merchant+temple could coexist. Right for windows you OPEN, wrong for windows the
+    pointer TOUCHES: the quest-preview popup and local tooltips open/close with the hover, so
+    sticky made each one permanent and they piled up. **Treating "floated" as one category was the
+    mistake.** HOVER CARDS are now their own class (matched by `UIQuestPreviewPopup` /
+    `UILocalTooltip`): no grab bar, no X, not sticky, and the pose written every tick — bottom
+    seated on the hovered icon, billboarded, flattened to the horizon. **Pose, not parent**: the
+    map rebuilds its icons on every `InitMap`.
+  * **(4) The character screen is one screen.** `Campaign Adventure Party Assembly Variant` →
+    `Campaign Party Assembly Character Display` → `Party Display UI ` is a **nest** of UIWindows and
+    the catch-all floated each separately. In the map room the **parent wins**: a window with an
+    OPEN ancestor window is not eligible. Level-triggered, so it reverses by itself either way.
+  * **(3) The caps faced the map, and the icons z-fought.** `seat.Rotation` makes the player FACE
+    the map, so the rail root's **+Z runs seat → map**, not toward the player — 179 and 180 both had
+    it backwards in comment *and* maths. Face dir is now `(0, sin, −cos)`; local +X falls out as
+    world +X so the row also stops being mirrored. **The symbol flicker was z-fighting:**
+    `GetRoundCap(d,h)` puts the front face at exactly −h/2 and 180 placed the sprite at exactly
+    −depth/2 — coplanar with an opaque depth-writing surface. Now 0.8 mm apart, layer by layer.
+  * **(5, part)** Map-room windows spawn on an **arc** (0°, ±34°, ±68°, capped 85°) instead of the
+    overlap-stagger. And the seat: `TrySolveSeat` asked for the orbit camera's focal **diff**, which
+    is zero when the camera sits on its focus — hence the world −Z fallback on hardware. It now
+    falls back to the camera's **forward**, which is how the flat game reads the map (euler
+    (80,90,0) ⇒ the −X side). Direction only; test #8 not repeated.
+  * **Not in this build (both his):** the MP **spawn ring** in the map room, and syncing icon
+    highlight + mouseovers between peers (3D mode only). The sync needs its own wire record.
+
 - **ModBuild 180** (bundle UNCHANGED — plugin DLL only) — the character was drawn twice, and 179's
   exclusion was too wide. Six reports, five proven causes, one instrument.
   * **(1) The flicker was a 3D rig on the mod layer.** 179 ended the `overrideSorting` write war

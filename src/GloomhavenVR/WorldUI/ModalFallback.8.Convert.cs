@@ -335,6 +335,11 @@ internal static partial class ModalFallback
             // to reopen the showcase: a worse deadlock than the one being fixed. Matched by
             // COMPONENT (provable from code) rather than by the unprovable ID.
             bool isRewardShowcase = window.GetComponent<UICampaignRewardWindow>() != null;
+            // ModBuild 181: a hover card gets NO grab handle and NO X. It is not a window the
+            // player owns — it flies over the symbol under the pointer and leaves with it, so a
+            // drag bar would be a handle on something that is about to disappear, and an X would
+            // offer to close what the hover already closes. See IsMapRoomHoverCard.
+            bool isHoverCard = IsMapRoomHoverCard(window);
             var grab = new GrabbableModal();
             // TRANSPARENCY ROUND: the per-menu coplanar DEPTH MASK that used to be requested here
             // (gated to the ESC/Options family + confirmations + results) is gone. Its job was
@@ -346,7 +351,8 @@ internal static partial class ModalFallback
             // (CanvasConversion.8.Order.cs): HUD it is in front of is painted first and covered,
             // HUD it is behind is painted after it and covers it, and nothing writes depth, so a
             // transparent menu pixel shows whatever is genuinely behind it.
-            grab.Build(panel, extraScale, name);
+            if (!isHoverCard)
+                grab.Build(panel, extraScale, name);
             // Item 3c + MP test ("Kontrolle übergeben" had no X): a small mod-drawn X (top-right
             // of the host, mod layer 27, poke+laser clickable) closes THIS window through the
             // game's own Escape/Hide path. RULE (user): EVERY floated window must be closable
@@ -366,7 +372,7 @@ internal static partial class ModalFallback
             // ALSO EXCLUDED (user ruling 2026-08-02): scripted tutorial/level-message windows
             // — the player MUST engage with a tutorial hint (its own dismiss button or the
             // action it demands); an X let them skip instruction chains and strand triggers.
-            if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg)
+            if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg && !isHoverCard)
                 ModalCloseButton.Attach(panel, window);
             else
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
@@ -394,6 +400,7 @@ internal static partial class ModalFallback
                 // single-window discipline (open the merchant, the temple disappears) is wrong for
                 // a room where the windows are objects on a table. See MapRoomParallel.
                 Sticky = NonBlockingMenus.Contains(window.ID) || MapRoomParallel(window),
+                HoverCard = isHoverCard,
                 WindowCanvasGroup = window.GetComponent<CanvasGroup>(),
                 // Item 6 (empty-shell fix): cache the window's own Canvas so ReassertStickyVisible can
                 // re-enable it after a `_disableCanvas` UIWindow disables it on its hide-fade complete.

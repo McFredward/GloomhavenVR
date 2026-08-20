@@ -257,6 +257,23 @@ internal static partial class ModalFallback
         // docked its row, a host carries its root) is owned elsewhere this instant.
         if (IsAdoptedByConversion(window))
             return false;
+        // ModBuild 181 — THE PARENT WINS IN THE MAP ROOM. User, on the character screen: "das Menu
+        // [ist] jetzt in mehrere Elemente unterteilt die jeweils ein eigenes Fenster bekommen. Das
+        // soll nicht sein — es soll … alles direkt in dem Fenster das für die Character UI
+        // zuständig ist angezeigt werden." The party/character screen is a nest of UIWindows
+        // ('Campaign Adventure Party Assembly Variant' carrying 'Campaign Party Assembly Character
+        // Display' carrying 'Party Display UI'), and floating each one separately scatters a single
+        // screen across the room. An open ANCESTOR window already renders this subtree inside its
+        // own host, so a second float of the child is a duplicate, not a window.
+        //
+        // Level-triggered, like every other rule here: OpenWindows is rebuilt from scratch each
+        // tick, so when the ancestor closes the child becomes eligible again by itself — and a
+        // child that was floated FIRST releases by itself the moment the ancestor opens, because
+        // it stops being re-added. Map-room scoped: in a scenario the flat screen composites
+        // whatever the mod does not float, so nesting there is not a visual problem and the rule
+        // would be a behaviour change with no report behind it.
+        if (MapRoom.MapRoomDriver.Active && HasOpenAncestorWindow(window))
+            return false;
         // Never float world-space UI: the generic float is a screen-space→world
         // conversion; a genuinely world-space window is already visible in VR.
         var rect = window.transform as RectTransform;
@@ -368,6 +385,25 @@ internal static partial class ModalFallback
 
     /// <summary>Is the window root inside (or above) any live CanvasConversion target —
     /// i.e. some surface already physicalizes part of it this instant?</summary>
+    /// <summary>
+    /// Does an OPEN <c>UIWindow</c> sit above this one in the hierarchy? Walks parents only — the
+    /// child is inside the ancestor's subtree by construction, so the ancestor's float already
+    /// renders it. See the call site for why this is map-room scoped.
+    /// </summary>
+    private static bool HasOpenAncestorWindow(UIWindow window)
+    {
+        Transform? t = window.transform.parent;
+        while (t != null)
+        {
+            var above = t.GetComponent<UIWindow>();
+            if (above != null && !ReferenceEquals(above, window)
+                && (above.IsOpen || ContainsWindow(OpenWindows, above)))
+                return true;
+            t = t.parent;
+        }
+        return false;
+    }
+
     private static bool IsAdoptedByConversion(UIWindow window)
     {
         Transform root = window.transform;

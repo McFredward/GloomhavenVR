@@ -294,19 +294,24 @@ internal sealed class MapButtonRail
         _root = new GameObject("GloomhavenVR.MapButtonRail");
         _root.transform.SetPositionAndRotation(origin, seat.Rotation);
 
-        // THE CAP FRAME, and its handedness matters (ModBuild 180). The face normal is tilted up
-        // from "facing the player" by CapTiltDegrees, so the row reads as a console panel rather
-        // than a fence. Composed in the rail's own frame, whose +Z points back out at the player
-        // (seat.Rotation faces the map centre FROM the seat, so its -Z looks at the map).
+        // THE CAP FRAME (ModBuild 181 — "Die Buttons sind verdreht", and they were).
         //
-        // The cap's own -Z is aimed at the player, NOT its +Z, because a SpriteRenderer's front
-        // face is its -Z: the default camera looks along +Z and sees a sprite placed in front of
-        // it, i.e. from the sprite's -Z side. 179 used LookRotation(faceDir), putting +Z at the
-        // player — the icons only stayed visible at all because Sprites/Default is Cull Off, and
-        // they were MIRRORED. The travel then also runs the right way: +Z is "into the socket".
+        // THE RAIL'S +Z POINTS AT THE MAP, NOT AT THE PLAYER. seat.Rotation is the yaw that makes
+        // the player FACE the map centre from the seat, so applied to this root its forward runs
+        // seat → map. 179 and 180 both had that backwards in their comments and in their maths, so
+        // the faces were aimed away from the player and tilted the wrong way; his screenshot shows
+        // a row of caps leaning over with their backs out.
+        //
+        // So the visible face must look toward -Z (out at the player) and UP by CapTiltDegrees:
+        //     faceDir = (0, sin, -cos)
+        // A SpriteRenderer's front is its OWN -Z (the default camera looks along +Z and sees a
+        // sprite from the sprite's -Z side), so the cap's -Z must BE faceDir, i.e. its +Z is
+        // -faceDir = (0, -sin, cos). That also makes local +X come out as world +X — the caps lay
+        // out left-to-right as read, instead of mirrored — and makes +Z "into the table", which is
+        // exactly the press-travel direction.
         float tilt = CapTiltDegrees * Mathf.Deg2Rad;
-        var faceLocalDir = new Vector3(0f, Mathf.Sin(tilt), Mathf.Cos(tilt));
-        Quaternion capLocalRot = Quaternion.LookRotation(-faceLocalDir, Vector3.up);
+        var capForward = new Vector3(0f, -Mathf.Sin(tilt), Mathf.Cos(tilt));
+        Quaternion capLocalRot = Quaternion.LookRotation(capForward, Vector3.up);
 
         float cap = CapSizeMeters * _scale;
         float gap = CapGapMeters * _scale;
@@ -393,21 +398,25 @@ internal sealed class MapButtonRail
         body.AddComponent<MeshRenderer>().sharedMaterial = LitMaterial(ButtonTuning.CapWellColor * 1.6f);
         c.Body = body.transform;
 
-        // Order back to front along the face normal (-Z is the viewer side): glow behind the face
-        // so it reads as light spilling around the cap, then the face, then the icon, then the
-        // badge on top.
-        float z = -depth * 0.5f;
+        // PROUD OF THE DISC, NOT ON IT (ModBuild 181 — "die Symbole flackern darauf").
+        // GetRoundCap(diameter, height) puts the disc's front face at exactly -height/2, and 180
+        // placed the sprite face at exactly -depth/2 — COPLANAR with an opaque, depth-writing
+        // surface. Sprites do not write depth but they do depth-TEST, so every pixel of the icon
+        // was a coin flip against the cap it sits on, resolved differently per eye and per frame.
+        // That is the flicker. Each layer now stands a clear step off the disc, and off each
+        // other, in real millimetres carried by the rig scale.
+        float step = 0.0008f * _scale;          // 0.8 mm real between layers
+        float front = -depth * 0.5f;            // the disc's own front plane
         c.Glow = c.HighlightImage != null
-            ? MakeSprite(body.transform, "Glow", z + 0.0015f * _scale, cap * GlowFraction, -1)
+            ? MakeSprite(body.transform, "Glow", front - step * 0.5f, cap * GlowFraction, -1)
             : null;
-        c.Face = NativeButtonSkin.CreateFace(body.transform, new Vector2(cap, cap), z, 0);
+        c.Face = NativeButtonSkin.CreateFace(body.transform, new Vector2(cap, cap), front - step, 0);
         if (c.IconImage != null)
-            c.Icon = MakeSprite(body.transform, "Icon", z - 0.001f * _scale, c.IconWorldSize, 1);
+            c.Icon = MakeSprite(body.transform, "Icon", front - step * 2f, c.IconWorldSize, 1);
         if (c.NotificationImage != null || c.NotificationGo != null)
         {
-            c.Badge = MakeSprite(body.transform, "Badge", z - 0.002f * _scale, cap * BadgeFraction, 2);
-            c.Badge.transform.localPosition = new Vector3(cap * 0.34f, cap * 0.34f,
-                                                          z - 0.002f * _scale);
+            c.Badge = MakeSprite(body.transform, "Badge", front - step * 3f, cap * BadgeFraction, 2);
+            c.Badge.transform.localPosition = new Vector3(cap * 0.34f, cap * 0.34f, front - step * 3f);
         }
 
         if (c.IconImage == null)
@@ -416,7 +425,7 @@ internal sealed class MapButtonRail
             // is not localized, and that is stated here rather than hidden.
             var textGo = new GameObject("Fallback");
             textGo.transform.SetParent(body.transform, worldPositionStays: false);
-            textGo.transform.localPosition = new Vector3(0f, 0f, z - 0.001f * _scale);
+            textGo.transform.localPosition = new Vector3(0f, 0f, front - step * 2f);
             TextMeshPro label = textGo.AddComponent<TextMeshPro>();
             label.text = button.GuildmasterMode.ToString();
             label.fontSize = cap * 8f;

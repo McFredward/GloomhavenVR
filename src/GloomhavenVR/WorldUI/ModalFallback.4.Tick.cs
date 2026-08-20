@@ -289,6 +289,60 @@ internal static partial class ModalFallback
         }
     }
 
+    /// <summary>
+    /// Fly every hover card over the symbol the pointer is on, billboarded to the head, for
+    /// exactly as long as the hover lasts (user ruling — see <see cref="IsMapRoomHoverCard"/>).
+    ///
+    /// <para>POSE, NOT PARENT. The card is not parented to the icon: the icon is a game object the
+    /// map rebuilds on every <c>InitMap</c>, and a host parented into that hierarchy would be torn
+    /// down with it mid-frame. Writing the pose each tick costs two transform writes and survives
+    /// the map being rebuilt underneath it.</para>
+    ///
+    /// <para>The yaw follows the same convention as the spawn placer: a world-space canvas's FRONT
+    /// is its -forward, so the host's forward points AWAY from the head. Flattened to the horizon,
+    /// so a card read from above stays upright instead of lying back at the gaze angle.</para>
+    ///
+    /// <para>No anchor (the pointer left the icon while the game still has the popup open for a
+    /// frame or two) leaves the card exactly where it was — it is about to be closed anyway, and
+    /// snapping it to a fallback spot on the way out would be a visible jump.</para>
+    /// </summary>
+    private static void TickHoverCards()
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!wp.HoverCard || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+                continue;
+            if (!MapRoom.MapRoomDriver.TryHoverAnchor(out Vector3 anchor))
+                continue;
+
+            Transform host = wp.Panel.HostGo.transform;
+            Camera? head = Rig.VRRigDriver.HeadCamera;
+            if (head != null)
+            {
+                Vector3 flat = anchor - head.transform.position;
+                flat.y = 0f;
+                if (flat.sqrMagnitude > 1e-6f)
+                    host.rotation = Quaternion.LookRotation(flat.normalized, Vector3.up);
+            }
+            // Seat the card's BOTTOM at the anchor, so the symbol it describes stays visible under
+            // it rather than being covered by its own card.
+            float halfHeight = HoverCardHalfHeight(wp);
+            host.position = anchor + Vector3.up * halfHeight;
+        }
+    }
+
+    /// <summary>Half the card's world height, for seating its bottom edge on the hover anchor.</summary>
+    private static float HoverCardHalfHeight(WindowPanel wp)
+    {
+        RectTransform? rect = wp.Panel.HostGo != null
+            ? wp.Panel.HostGo.transform as RectTransform
+            : null;
+        if (rect == null)
+            return 0f;
+        return rect.rect.height * 0.5f * Mathf.Abs(rect.lossyScale.y);
+    }
+
     private static bool IsFallbackWindow(UIWindowID id)
     {
         // ConfirmationBox is normally physicalized by DialogSurface — it needs the
@@ -606,8 +660,13 @@ internal static partial class ModalFallback
         // 5. Sub-item B: the game-owned host follows its mod-owned grab frame every tick
         //    (static while ungripped; moved/scaled by the shared PanelGrabHandle while a hand
         //    grips the bar). Every floated modal is grabbable now, Sieg/Niederlage included.
+        //    A HOVER CARD has no grab frame at all (ModBuild 181) — TickHoverCards owns its pose.
         for (int i = 0; i < Converted.Count; i++)
-            Converted[i].Grab?.Tick();
+        {
+            if (!Converted[i].HoverCard)
+                Converted[i].Grab?.Tick();
+        }
+        TickHoverCards();
 
         // 5a-scroll. User #12: thumbstick-Y scrolls the Sieg/Niederlage results window's
         //    scroll area while a laser/poke hovers ANYWHERE on the floated window — the

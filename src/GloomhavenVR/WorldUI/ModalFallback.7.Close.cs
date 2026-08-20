@@ -534,7 +534,35 @@ internal static partial class ModalFallback
     internal static bool MapRoomParallel(UIWindow window) =>
         window != null
         && MapRoom.MapRoomDriver.Active
-        && !ConfirmationFamily.Contains(window.ID);
+        && !ConfirmationFamily.Contains(window.ID)
+        // ModBuild 181: a hover card is not a window the player opened — it must vanish with the
+        // hover, so it is never sticky. See IsMapRoomHoverCard.
+        && !IsMapRoomHoverCard(window);
+
+    /// <summary>
+    /// A HOVER CARD, not a window (ModBuild 181). User ruling, verbatim: <i>"JEDES mouseover
+    /// bekommt nun ein eigenes Fenster, das ist zu viel. … Bei Mouseovers über ein Symbol soll es
+    /// über dem Symbol entsprechend fliegen ohne ein separates Fenster zu sein das man verschieben
+    /// kann (immer zum Kopf gedreht) und nur solange der Mouseover anhält."</i>
+    ///
+    /// <para>ModBuild 180 made every floated window in the map room STICKY so the merchant and the
+    /// temple could stand open together. That was right for windows the player OPENS and wrong for
+    /// windows the pointer merely TOUCHES: the game's quest-preview popup and its tooltips open and
+    /// close with the hover, so sticky turned each one into a permanent panel and they piled up.
+    /// The mistake was treating "floated" as one category — a card that follows a hover is a
+    /// different kind of thing from a window that waits for you.</para>
+    ///
+    /// <para>Matched by COMPONENT, never by name: <c>UIQuestPreviewPopup</c> is the map's own
+    /// location preview, and <c>UILocalTooltip</c> is the base every local tooltip in the game uses
+    /// (it even carries an optional <c>UIWindow</c> of its own, which is exactly how these ended up
+    /// in the window path at all).</para>
+    /// </summary>
+    internal static bool IsMapRoomHoverCard(UIWindow window) =>
+        window != null
+        && MapRoom.MapRoomDriver.Active
+        && (window.GetComponent<UIQuestPreviewPopup>() != null
+            || window.GetComponentInParent<UILocalTooltip>() != null
+            || window.GetComponentInChildren<UILocalTooltip>(true) != null);
 
     /// <summary>The windows the map room's parallel rule must NOT relax — see
     /// <see cref="MapRoomParallel"/>.</summary>
