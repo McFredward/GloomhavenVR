@@ -126,7 +126,42 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 172** (**BUNDLE CHANGED — 70,218,494 bytes, must be REINSTALLED**) — the glove gets its
+- **ModBuild 173** (bundle UNCHANGED — plugin DLL only) — amplitude cannot buy past a temporal
+  floor, and **ModBuild 170's explanation was wrong**.
+  * **First: the mechanism is alive.** The displacement field was evaluated at *t* and *t+dt* off
+    the C# mirror the wire test pins against the shader — 0.75 mm in the first second, 7.9 mm in
+    ten. Nothing is stuck at t=0 and 172's census reports exactly what 170 intended. So it is
+    perception, not a bug, and only one of those is worth tuning.
+  * **ROOT CAUSE, and it overturns 170.** That round claimed the perceived quantity is the *product*
+    amplitude × steepness × frequency and traded frequency for amplitude. Its own successor
+    disproves it:
+
+    | build | fastest component | max Δh in 1 s | verdict |
+    |---|---|---|---|
+    | 166 | 16.3 s = 0.0615 Hz | 1.04 mm | "Sehr gut … nur noch etwas zu schnell" |
+    | 167 | 32.5 s = 0.0307 Hz | 0.52 mm | "gerne noch langsamer" |
+    | 169 | 65.1 s = 0.0154 Hz | 0.27 mm | **frozen** |
+    | 172 | 45.9 s = 0.0218 Hz | 0.75 mm | **still frozen** |
+
+    172 moves the surface **44 % more per second** than 167 at 1.4× its normal rate — and 167 was
+    visible while 172 is not. No product of amplitude and frequency can be the judged quantity.
+    What sorts the four cleanly is **temporal frequency alone**, and it is a *floor*: human temporal
+    contrast sensitivity is band-pass, and below ~0.03 Hz a luminance modulation is not perceived as
+    change whatever its size. This surface is forbidden to translate, so it has **no optic flow at
+    all** — that slow shading modulation is the only carrier.
+  * **Ships:** `SwellSpeed` 0.0124 → **0.0175** = 167's own clock, the slowest he has ever confirmed
+    seeing move ("gerne noch langsamer" presupposes something to slow). 170's doubled `SwellHeight`
+    stays, so it is 167's tempo at twice the relief — 5.79° slope, 3.11 mm/s, 0.758 °/s.
+  * **`VisibleFastestPeriodSeconds = 35 s`**, in the measured gap between 172's 45.9 (frozen) and
+    167's 32.5 (seen), placed against the floor. The wire test asserts the shipped value is under
+    it, **that the floor reproduces all four remembered verdicts** (every SEEN build one side, every
+    FROZEN build the other), and that the clock is no slower than 167's. **Proven to fire**: at
+    169's values four checks fail, at 172's two.
+  * **The old period bound was deleted, not loosened.** It asserted the clock must be *slower* than
+    167's because "gerne noch langsamer" seemed to stand — and obeying it produced 169 and then 172.
+    A test that encodes a superseded request keeps steering builds into it.
+
+- **ModBuild 172** (bundle 70,218,494 bytes) — the glove gets its
   own bake.
   * The same three-map set the arcane hand arrived with, now for the leather glove: re-baked 2048²
     base colour, 2048² **normal map**, displacement. The FBX is byte-identical to the one 171

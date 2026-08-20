@@ -416,7 +416,68 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 172;
+    public const ushort ModBuild = 173;
+    // Build 173: AMPLITUDE CANNOT BUY PAST A TEMPORAL FLOOR — ModBuild 170's explanation was wrong.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // User: "Die Wasseranimation steht immer noch still - wieso plötzlich?"
+    //
+    // ── 1. THE MECHANISM IS ALIVE, SO IT IS NOT A BUG ──────────────────────────────────────────
+    // First, because a frozen surface has two possible causes and only one of them is worth tuning:
+    // the field was evaluated over a 2.6 m quad at t and t+dt, off the C# mirror the wire test pins
+    // against the shader. It genuinely moves — 0.75 mm of displacement in the first second, 7.9 mm
+    // in ten. Nothing is stuck at t=0, no clock is dead, and the 172 census reports exactly the
+    // values ModBuild 170 intended: 0.537 deg/s, 2.20 mm/s, 5.8 degrees of crest slope, tessellated
+    // SubShader live, 17 of 17 films swapped.
+    //
+    // ── 2. AND MODBUILD 170'S EXPLANATION IS WRONG, BY ITS OWN SUCCESSOR'S NUMBERS ─────────────
+    // That round argued the perceived quantity is the PRODUCT amplitude x steepness x frequency, and
+    // therefore traded frequency for amplitude: the swell got its own slower clock and twice the
+    // height. Put the four builds side by side with the displacement actually delivered per second
+    // of looking — the timescale on which a person decides whether a thing moves:
+    //
+    //     build   fastest component      max dh in 1 s   verdict
+    //     166      16.3 s = 0.0615 Hz        1.04 mm     "Sehr gut ... nur noch etwas zu schnell"
+    //     167      32.5 s = 0.0307 Hz        0.52 mm     "gerne noch langsamer"
+    //     169      65.1 s = 0.0154 Hz        0.27 mm     "komplett freezed"
+    //     172      45.9 s = 0.0218 Hz        0.75 mm     "steht immer noch still"
+    //
+    // ModBuild 172 moves the surface 44 % MORE per second than 167 did, at 1.4x its normal rate —
+    // and 167 was visible while 172 is not. So no product of amplitude and frequency can be what is
+    // being judged: a build can beat a visible one on every such measure and still read as stone.
+    // What sorts the four cleanly is the TEMPORAL FREQUENCY alone (seen 0.0615 / 0.0307 Hz, frozen
+    // 0.0218 / 0.0154 Hz), and it behaves as a FLOOR rather than a trade-off — human temporal
+    // contrast sensitivity is band-pass, and below roughly a thirtieth of a hertz a luminance
+    // modulation is not perceived as change whatever its size. This surface has no second cue to
+    // fall back on: it is forbidden to translate ("es ist kein Fluss sondern eine Pfütze"), so there
+    // is no optic flow in it at all and that slow shading modulation is the only carrier.
+    //
+    // ── 3. WHAT SHIPS ─────────────────────────────────────────────────────────────────────────
+    // WaterSettings.SwellSpeed 0.0124 -> 0.0175, which is ModBuild 167's own clock: the SLOWEST
+    // setting the user has ever confirmed seeing move, since "gerne noch langsamer" presupposes
+    // there was something to slow. Fastest component 32.5 s = 0.0307 Hz. The doubled SwellHeight
+    // from 170 STAYS, so this is 167's tempo at twice its relief — 5.79 degrees of crest slope,
+    // 3.11 mm/s, 0.758 deg/s, exactly double 167's rate. Amplitude is the axis he has never called
+    // hectic, and it is where every future "calmer" has to be answered.
+    //
+    // ── 4. THE GATE THAT WOULD HAVE STOPPED BOTH ──────────────────────────────────────────────
+    // WaterOwnSurface.VisibleFastestPeriodSeconds = 35 s, placed inside the measured gap between
+    // 172's 45.9 s (frozen) and 167's 32.5 s (seen), and against the floor rather than mid-band: a
+    // slightly brisk build costs a sentence and a frozen one has now cost two rounds. The wire test
+    // asserts three things — that the shipped swell's fastest component is under it, that the floor
+    // REPRODUCES all four remembered verdicts (every SEEN build on one side, every FROZEN build on
+    // the other, so the constant is the boundary it claims to be), and that the shipped clock is no
+    // slower than 167's. PROVEN TO FIRE: rebuilt at 169's values it fails four checks, at 172's two.
+    //
+    // The rate functions from 170 stay — they are the right way to say how STRONG the motion is once
+    // it is fast enough to be seen at all — but the census now leads with the frequency and says
+    // which side of the floor the build is on, because that is the number that decides the verdict.
+    //
+    // AND THE OLD PERIOD BOUND WAS DELETED RATHER THAN LOOSENED. SpeedDialIsOneClock asserted the
+    // shipped clock must be SLOWER than 167's, because his "gerne noch langsamer" seemed to stand.
+    // Obeying it produced 169 and then 172. 167's clock is the FLOOR, not a starting point, and a
+    // test that encodes a superseded request will keep steering builds into it.
+    //
     // Build 172: THE GLOVE GETS ITS OWN BAKE.
     // ***** THE BUNDLE CHANGED — 70,218,494 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
     //

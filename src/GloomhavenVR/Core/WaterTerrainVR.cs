@@ -448,11 +448,22 @@ internal static class WaterTerrainVR
         /// rotation — under the threshold at which anything reads as moving — and the verdict was
         /// "gar keine Animation beim Wasser mehr! Komplett stillstehend/freezed".</para>
         ///
-        /// <para>0.0124 puts the longest component at 89 s. That is still 1.4x SLOWER than ModBuild
-        /// 167, the build he asked to slow down again, so his request stands; it is 2.8x slower than
-        /// the 166 he called good. What buys the visibility back is <see cref="SwellHeight"/>, on
-        /// the axis he has never once objected to. See <c>WaterOwnSurface.PeakNormalRate</c> for the
-        /// measured band and why neither axis could do this alone.</para>
+        /// <para>RE-BASED FOR ModBuild 173, from 0.0124, and the reason is a correction rather than
+        /// a preference. ModBuild 170 set 0.0124 believing that what an eye judges is the PRODUCT
+        /// amplitude x steepness x frequency, and so bought visibility back with height while
+        /// letting the clock stay slow. ModBuild 172 disproved it: at 0.0124 the surface moves 44 %
+        /// MORE per second than ModBuild 167 did, and 167 was visible while 172 was reported as
+        /// standing still. Temporal frequency has a FLOOR that amplitude cannot buy past — see
+        /// <c>WaterOwnSurface.VisibleFastestPeriodSeconds</c> for the four measured builds that
+        /// bracket it.</para>
+        ///
+        /// <para>0.0175 is ModBuild 167's own value: the SLOWEST setting the user has ever confirmed
+        /// seeing move ("gerne noch langsamer" presupposes there was something to slow). Its fastest
+        /// component runs 32.5 s = 0.031 Hz, inside the floor with margin. The doubled
+        /// <see cref="SwellHeight"/> from 170 STAYS — it is what makes this read as gentle relief
+        /// rather than as a twitch, and it is not the axis he has ever called hectic. Any further
+        /// "calmer" must be answered with height, wavelength or shimmer; walking this number down
+        /// again has now cost two rounds.</para>
         /// </summary>
         internal const float SwellSpeed = WaterOwnSurface.ShippedSwellSpeed;
 
@@ -1675,17 +1686,27 @@ internal static class WaterTerrainVR
             float vert = WaterOwnSurface.PeakVerticalSpeed(amp, swellPeriod) * 1000f;
             float slope = WaterOwnSurface.PeakCrestSlope(amp, swellWave) * Mathf.Rad2Deg;
 
+            // THE FREQUENCY IS THE VERDICT, and the rate is only how strong it is once it is fast
+            // enough to be seen. ModBuild 172 shipped a higher rate than a build the user could
+            // see and was still reported as standing still; what sorted the four builds was this
+            // number alone.
+            float fastest = WaterOwnSurface.FastestSwellPeriod(swellPeriod);
             string verdict =
-                rate <= WaterOwnSurface.FrozenNormalRateDeg
-                    ? "AT OR UNDER THE RATE THE USER REPORTED AS FROZEN — this build is broken "
-                      + "however good its periods look"
-                    : rate >= WaterOwnSurface.BriskNormalRateDeg
-                        ? "AT OR OVER the rate he called good-but-slightly-fast — expect 'zu schnell'"
-                        : "inside the band, "
-                          + (rate / WaterOwnSurface.FrozenNormalRateDeg).ToString("0.0")
-                          + "x the frozen rate and "
-                          + (100f * rate / WaterOwnSurface.BriskNormalRateDeg).ToString("0")
-                          + "% of the brisk one";
+                fastest > WaterOwnSurface.VisibleFastestPeriodSeconds
+                    ? "OVER THE VISIBILITY FLOOR — the fastest component takes "
+                      + fastest.ToString("0.#") + " s (" + (1f / fastest).ToString("0.0000")
+                      + " Hz) where the floor is "
+                      + WaterOwnSurface.VisibleFastestPeriodSeconds.ToString("0.#")
+                      + " s. THIS BUILD WILL BE REPORTED AS FROZEN however strong its rate is; "
+                      + "amplitude cannot buy past a temporal floor and ModBuild 172 proved it"
+                    : "fastest component " + fastest.ToString("0.#") + " s ("
+                      + (1f / fastest).ToString("0.0000") + " Hz), inside the visibility floor of "
+                      + WaterOwnSurface.VisibleFastestPeriodSeconds.ToString("0.#") + " s"
+                      + (rate >= WaterOwnSurface.BriskNormalRateDeg
+                             ? "; rate is at or over the one he called good-but-slightly-fast"
+                             : "; rate is "
+                               + (100f * rate / WaterOwnSurface.BriskNormalRateDeg).ToString("0")
+                               + "% of the brisk one");
 
             var sb = new System.Text.StringBuilder(420);
             sb.Append("HOW FAST IT ACTUALLY MOVES (periods are not perception — the eye follows the "
@@ -1697,12 +1718,15 @@ internal static class WaterTerrainVR
               .Append(". CALIBRATION, from the user's own verdicts rather than from taste [");
             for (int i = 0; i < WaterOwnSurface.MotionVerdicts.Length; i++)
             {
-                (int build, float _, float _, float r, string words) =
+                (int build, float h, float d, float r, bool seen, string words) =
                     WaterOwnSurface.MotionVerdicts[i];
                 if (i > 0)
                     sb.Append("; ");
-                sb.Append("MB").Append(build).Append(' ').Append(r.ToString("0.00"))
-                  .Append(" deg/s = '").Append(words).Append('\'');
+                sb.Append("MB").Append(build).Append(' ')
+                  .Append(WaterOwnSurface.FastestSwellPeriod(
+                              WaterOwnSurface.ResolvedSwellPeriod(1f, d)).ToString("0.#"))
+                  .Append(" s at ").Append(r.ToString("0.00")).Append(" deg/s = ")
+                  .Append(seen ? "SEEN" : "FROZEN").Append(" '").Append(words).Append('\'');
             }
             sb.Append("]. THE TWO CLOCKS ARE SEPARATE as of ModBuild 170: WaterSettings.SwellSpeed ")
               .Append(WantedSwellSpeed.ToString("0.#####"))

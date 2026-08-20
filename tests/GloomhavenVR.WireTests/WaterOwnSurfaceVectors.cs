@@ -1138,7 +1138,7 @@ internal static class WaterOwnSurfaceVectors
     {
         // 1. THE TABLE IS TRUE. Each remembered verdict is recomputed from the dials that produced
         //    it; a drift here means the band below is being measured against fiction.
-        foreach ((int build, float height, float dial, float rate, string words)
+        foreach ((int build, float height, float dial, float rate, bool seen, string words)
                  in WaterOwnSurface.MotionVerdicts)
         {
             float recomputed = WaterOwnSurface.VerdictRateDeg(height, dial);
@@ -1147,9 +1147,37 @@ internal static class WaterOwnSurfaceVectors
                 + $"dials (SwellHeight {height}, rate {dial}) now compute {recomputed:0.000}. The "
                 + "calibration table and the maths have drifted apart, so every band below is "
                 + "being judged against a number nobody measured.");
+
+            // AND THE FLOOR MUST SORT THE TABLE. Every build the user could SEE has to fall on the
+            // visible side of VisibleFastestPeriodSeconds and every build he called frozen on the
+            // other — otherwise the constant is not the boundary it claims to be, and the gate
+            // below is measuring against a line drawn somewhere else.
+            float fastest = WaterOwnSurface.FastestSwellPeriod(
+                WaterOwnSurface.ResolvedSwellPeriod(1f, dial));
+            t.True(seen == (fastest <= WaterOwnSurface.VisibleFastestPeriodSeconds),
+                $"ModBuild {build}'s fastest swell component runs {fastest:0.#} s "
+                + $"({1f / fastest:0.0000} Hz) and the user {(seen ? "COULD" : "could NOT")} see it "
+                + $"move ('{words}'), but VisibleFastestPeriodSeconds is "
+                + $"{WaterOwnSurface.VisibleFastestPeriodSeconds:0.#} s, which sorts it the other "
+                + "way. The floor has to reproduce every verdict it was derived from.");
         }
 
-        // 2. THE TWO ENDS OF THE BAND ARE THE TWO BUILDS. Stated as an identity rather than as
+        // 2. THE SHIPPED SWELL IS ON THE VISIBLE SIDE OF THE FLOOR. THIS IS THE CHECK THAT WOULD
+        //    HAVE STOPPED BOTH FROZEN BUILDS, and neither of the rate bounds below can do it:
+        //    ModBuild 172 cleared every one of them — 2.8x the frozen rate, 44 % more displacement
+        //    per second than a build the user could see — and was still reported as standing still.
+        //    Temporal frequency has a floor that amplitude cannot buy past.
+        float shippedFastest = WaterOwnSurface.FastestSwellPeriod(
+            WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSwellDial));
+        t.True(shippedFastest <= WaterOwnSurface.VisibleFastestPeriodSeconds,
+            $"the shipped swell's FASTEST component takes {shippedFastest:0.#} s "
+            + $"({1f / shippedFastest:0.0000} Hz), over the "
+            + $"{WaterOwnSurface.VisibleFastestPeriodSeconds:0.#} s visibility floor. A surface "
+            + "this slow is reported as frozen however strong its rate is — ModBuild 169 (65.1 s) "
+            + "and ModBuild 172 (45.9 s) both were. Answer a 'calmer' request with SwellHeight, "
+            + "WaveScale or Shimmer; do not walk this clock down again.");
+
+        // 3. THE TWO ENDS OF THE RATE BAND ARE THE TWO BUILDS. Stated as an identity rather than as
         //    literals, so a re-based component table moves the band with it.
         t.True(Mathf.Abs(WaterOwnSurface.FrozenNormalRateDeg
                          - WaterOwnSurface.VerdictRateDeg(0.005f, 0.00875f)) < 0.01f,
@@ -1161,7 +1189,7 @@ internal static class WaterOwnSurfaceVectors
             "BriskNormalRateDeg must BE ModBuild 166's rate — 'Sehr gut! ... nur finde ich es "
             + "immer noch schnell'.");
 
-        // 3. THE SHIPPED LOOK IS STRICTLY INSIDE IT, with real margin on both sides.
+        // 4. THE SHIPPED LOOK IS STRICTLY INSIDE THE RATE BAND TOO.
         float amp = WaterOwnSurface.SwellAmplitude(
             WaterOwnSurface.MeasuredQuadWidthWU, WaterOwnSurface.ShippedSwellHeight);
         float period = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSwellDial);
@@ -1179,7 +1207,7 @@ internal static class WaterOwnSurfaceVectors
             + $"under the {WaterOwnSurface.BriskNormalRateDeg:0.00} deg/s of the build he called "
             + "'immer noch schnell'.");
 
-        // 4. THE STEEPNESS STAYS UNDER THE REJECTED ONE. Amplitude is what buys the visibility
+        // 5. THE STEEPNESS STAYS UNDER THE REJECTED ONE. Amplitude is what buys the visibility
         //    back, and it is the axis with a known ceiling: ModBuild 165 ran 8.1 degrees of crest
         //    slope and was called "viel zu hektisch".
         float slope = WaterOwnSurface.PeakCrestSlope(amp, WaterOwnSurface.SwellWavelength)
@@ -1189,7 +1217,7 @@ internal static class WaterOwnSurfaceVectors
             + "which was rejected as hectic. Raising the amplitude is how a slow surface is made "
             + "visible, and this is the wall that stops it becoming choppy instead.");
 
-        // 5. AND THE TROUGH STILL CANNOT DIP THROUGH THE POOL FLOOR — the physical limit that a
+        // 6. AND THE TROUGH STILL CANNOT DIP THROUGH THE POOL FLOOR — the physical limit that a
         //    bigger wave runs at first, measured by the census as a 9 cm gap.
         t.True(amp <= WaterOwnSurface.MaxSwellAmplitude + 1e-6f
                && amp < WaterOwnSurface.FilmToBedGap,
@@ -1202,23 +1230,25 @@ internal static class WaterOwnSurfaceVectors
     {
         float shipped = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSwellDial);
 
-        // BOUNDED FROM BOTH SIDES BY WHAT HE SAID, and that is the change. This check used to have
-        // only an upper bound in spirit — "around 63 s" — and it was quoted against the test's own
-        // stale copy of the dial, so a build at 126 s passed it and was reported as frozen. The
-        // band is now stated as the two BUILDS that bracket it, both by his words:
-        //   ModBuild 167 at 63 s  -> "gerne noch langsamer", so the shipped period must be LONGER
-        //   ModBuild 169 at 126 s -> "komplett stillstehend/freezed", so it must be SHORTER
-        float m167 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.0175f);
-        float m169 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.00875f);
-        t.True(shipped > m167,
-            $"the shipped bob period {shipped:0.#} s must be LONGER than ModBuild 167's {m167:0.#} s "
-            + "— 'Gerne noch langsamer (halbier die Geschwindigkeit der Animation nochmal)' was said "
-            + "of that build, and that request still stands");
-        t.True(shipped < m169,
-            $"the shipped bob period {shipped:0.#} s must be SHORTER than ModBuild 169's {m169:0.#} s "
-            + "— 'gar keine Animation beim Wasser mehr! Komplett stillstehend/freezed' was said of "
-            + "that one. A period is not perception, so this bound is necessary and NOT sufficient; "
-            + "MotionIsInsideTheReportedBand is the check that measures what the eye follows");
+        // BOUNDED FROM BOTH SIDES BY WHAT HE SAID — and the SLOW bound moved at ModBuild 173.
+        //
+        // This block used to assert "slower than ModBuild 167", because 167 is the build he asked to
+        // slow down again and that request seemed to stand. It does not: obeying it produced
+        // ModBuild 169 (126 s) and then ModBuild 172 (89 s), and he reported BOTH as motionless.
+        // 167's own clock is the slowest one he has ever confirmed seeing move, so it is the floor
+        // and not a starting point. The real bound is on FREQUENCY and lives in
+        // MotionIsInsideTheReportedBand; what is left here is the fast side.
+        float m166 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.035f);
+        t.True(shipped >= m166,
+            $"the shipped bob period {shipped:0.#} s must be at least ModBuild 166's {m166:0.#} s — "
+            + "'Sehr gut! ... nur finde ich es immer noch schnell' was said of that one, so nothing "
+            + "faster than it may ship");
+        t.True(shipped <= WaterOwnSurface.ResolvedSwellPeriod(1f, 0.0175f) + 1e-2f,
+            $"the shipped bob period {shipped:0.#} s may not be slower than ModBuild 167's "
+            + $"{WaterOwnSurface.ResolvedSwellPeriod(1f, 0.0175f):0.#} s, the slowest clock the user "
+            + "has ever confirmed seeing move. Slower than this has shipped twice and been reported "
+            + "as frozen twice (169 and 172). Answer a 'calmer' request with amplitude, wavelength "
+            + "or shimmer instead.");
 
         // FAR SLOWER THAN THE BUILD THAT WAS REJECTED, stated as a ratio rather than as a hope.
         float m165 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.12f);
