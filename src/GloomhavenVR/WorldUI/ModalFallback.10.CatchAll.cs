@@ -263,8 +263,17 @@ internal static partial class ModalFallback
             // ONE Warn per window type — the hardware log drives future EXPLICIT
             // enrollment (add the ID/poll, then this line disappears for that window).
             if (CatchAllWarned.Add(window.name))
+            {
                 VRLog.Warn("WorldUI", $"CATCH-ALL: unknown scenario window '{window.name}' " +
                                       $"(ID {window.ID}) floated — enroll it explicitly.");
+                // ModBuild 187 — NAME THE THING BEFORE BINDING IT. Two builds have now guessed at
+                // what the map room's 'Scroll View' is (an ID-less window that floats early and
+                // that the merchant then pours 1998 transforms into, which is why its list reads as
+                // a second merchant window) and both guesses were wrong. A window with no ID is
+                // identified by WHERE IT LIVES and WHAT IS ON IT, so that is printed once per
+                // window type — the next log settles it instead of a third round of inference.
+                LogWindowIdentity(window);
+            }
         }
     }
 
@@ -533,6 +542,50 @@ internal static partial class ModalFallback
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Print WHERE an ID-less catch-all window lives and WHAT is on it — its full transform path,
+    /// the components on its own GameObject, and the nearest ancestor that carries another
+    /// <c>UIWindow</c>. One line per window type, at the moment it is first floated.
+    /// </summary>
+    private static void LogWindowIdentity(UIWindow window)
+    {
+        try
+        {
+            var path = new System.Text.StringBuilder(160);
+            for (Transform? t = window.transform; t != null; t = t.parent)
+            {
+                if (path.Length > 0)
+                    path.Insert(0, '/');
+                path.Insert(0, t.name);
+            }
+            var comps = new System.Text.StringBuilder(160);
+            Component[] own = window.GetComponents<Component>();
+            for (int i = 0; i < own.Length; i++)
+            {
+                if (i > 0)
+                    comps.Append(", ");
+                comps.Append(own[i] != null ? own[i].GetType().Name : "<null>");
+            }
+            string ancestor = "<none>";
+            for (Transform? t = window.transform.parent; t != null; t = t.parent)
+            {
+                var above = t.GetComponent<UIWindow>();
+                if (above == null)
+                    continue;
+                ancestor = $"'{above.name}' (ID {above.ID}, open={above.IsOpen})";
+                break;
+            }
+            var rect = window.transform as RectTransform;
+            VRLog.Info("WorldUI", $"WINDOW IDENTITY '{window.name}' (ID {window.ID}): path {path}; "
+                                  + $"rect {(rect != null ? $"{rect.rect.width:F0}x{rect.rect.height:F0}" : "<none>")}; "
+                                  + $"components [{comps}]; nearest ancestor UIWindow {ancestor}.");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"WINDOW IDENTITY probe threw for '{window.name}': {ex.Message}");
+        }
     }
 
     /// <summary>Is this panel the modal float THIS class made for THIS window?</summary>

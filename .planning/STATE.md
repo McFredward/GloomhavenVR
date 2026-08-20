@@ -126,6 +126,36 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 187** (bundle UNCHANGED — plugin DLL only) — the flicker has a name (a dropped
+  refcount), and the hover card was eating its own beam.
+  * **(1) THE FLICKER: MEASURED AND FIXED.** `RenderTargetProbe` printed it on its first run —
+    `writer camera component enabled-bits 0xD↔0xF`, and bit 1 of
+    `[0:Camera, 1:Beautify, 2:Character3DDisplayManager, 3:Character3DDisplayCameraSettings]` is
+    **Beautify**, a full-screen image effect, going ON/OFF every frame. Graded and ungraded renders
+    alternate in that one texture — which is exactly why the live character flickers and the four
+    portrait sprites beside it do not. **Cause:** `Character3DDisplayManager.Display` early-returns
+    when the character is already shown, **before `showRequests.Add(request)`** — so the refcount
+    drops a reference, and the other requester's `Hide` then finds the set empty and switches
+    Beautify and the model off under a window that still wants them. **The second requester is
+    ours**: the flat game's single-window discipline means the party display and the assembly
+    screen are never open together; the map room's parallel-window ruling means they are. Fixed by
+    a prefix that registers the request before the original runs (idempotent; vanilla-identical
+    with one requester). **Five builds hunted a stereo bug two instruments had already excluded.**
+  * **(mouseover) THE CARD WAS EATING THE BEAM THAT SUMMONED IT.** The 186 log: float → "game
+    reports closed" two ticks later → float, twenty-two times. The card is floated 1.2 m ahead and
+    then flown **onto the icon** — into the ray hovering that icon — and it was converted
+    **pokeable**, so it carried a laser collider. Ray hits card → pick null → hover exits →
+    `HidePreview` closes the popup → card gone → ray reaches icon → repeat. A hover card is a
+    **label**: no grab bar, no X (181), and now no collider and no `GraphicRaycaster`.
+  * **(merchant list) NOT FIXED — deliberately, after two wrong guesses.** 186 read "56 swept
+    transforms vs 1998" as proof the list is a sibling; the 56 is only the FIRST sweep, before the
+    content pools in, so it proves nothing. This round's reflection over `UIShopItemWindow`'s own
+    fields says everything it owns is **inside** its subtree — the opposite. `Scroll View` floats
+    early, before the merchant is pressed, adopts `UI Party Inventory Item Tooltip`, and the
+    merchant then pours 1998 transforms into it. New **`WINDOW IDENTITY`** line prints the full
+    transform path, rect, own components and nearest ancestor `UIWindow` for every ID-less
+    catch-all float. The next log names it; the binding is then one edit.
+
 - **ModBuild 186** (bundle UNCHANGED — plugin DLL only) — one missing set membership, two reports,
   and the flicker turns out not to be a stereo bug at all.
   * **(2)+(3) are one bug: a floated window fell out of `OpenWindows`.** 185 fixed ONE of the two

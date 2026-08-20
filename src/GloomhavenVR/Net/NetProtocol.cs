@@ -416,7 +416,66 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 186;
+    public const ushort ModBuild = 187;
+    // Build 187: THE FLICKER HAS A NAME — A DROPPED REFCOUNT — AND THE HOVER CARD WAS EATING ITS
+    // OWN BEAM.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── (1) THE FLICKER, MEASURED AND FIXED ───────────────────────────────────────────────
+    // RenderTargetProbe printed the answer on its first hardware run:
+    //
+    //   RENDER TARGET ALTERNATION on 'RawImage' (RenderTexture 'Character 3D assembly wide render
+    //   texture', writer 'GUI 3D Camera'): writer camera component enabled-bits 0xD↔0xF
+    //   COMPONENTS: [0:Camera, 1:Beautify, 2:Character3DDisplayManager, 3:Character3DDisplayCameraSettings]
+    //
+    // Bit 1 is BEAUTIFY — a full-screen image effect — going ON, OFF, ON, OFF. Graded and ungraded
+    // renders alternate in that one texture, which is exactly why the LIVE CHARACTER flickers while
+    // the four portrait sprites beside it, same canvas and same sorting order, do not.
+    //
+    // WHY. Character3DDisplayManager keeps a HashSet of show-requests as a refcount. Display()
+    // early-returns when the requested character is ALREADY displayed — and that path returns
+    // BEFORE showRequests.Add(request). Hide() then removes its own request, finds the set empty
+    // and switches Beautify and the model off underneath a window that still wants them. One
+    // requester never trips it; TWO requesters on the same character do, every frame.
+    //
+    // AND THE SECOND REQUESTER IS OURS. The flat game's single-window discipline means the party
+    // display and the party-assembly screen are never open together, so only one can ask. The map
+    // room's whole point is that they ARE (user ruling 180). We created the case, so we make the
+    // manager survive it: a prefix that registers the request before the original runs. HashSet.Add
+    // is idempotent, the original's own Add on the other path becomes a harmless duplicate, and
+    // with a single requester the behaviour is byte-identical to vanilla.
+    //
+    // FIVE BUILDS LOOKED FOR A STEREO BUG THAT TWO INSTRUMENTS SAY IS NOT THERE — PanelFlickerProbe
+    // silent across three sessions (the panel is steady), CameraOrderProbe one order shape with
+    // ZERO cameras between the eye passes (both eyes read the same pixels). The measurement that
+    // finally landed is the one aimed at what he actually pointed at.
+    //
+    // ── (3-of-his-list) THE MOUSEOVER: THE CARD WAS EATING THE BEAM THAT SUMMONED IT ──────
+    // The 186 log shows the popup floating and the game closing it two ticks later, twenty-two
+    // times: float → "game reports closed" → float. The hover card is floated 1.2 m ahead and then
+    // flown ONTO the icon by TickHoverCards — i.e. straight into the ray that is hovering that
+    // icon — and it was converted POKEABLE, so it carried a laser collider. The ray hit the CARD,
+    // MapLocationInteractor's pick went null, the hover exited, UIQuestPopupManager.HidePreview
+    // closed the popup, the card vanished, the ray reached the icon again, and round it went.
+    //
+    // A hover card is a LABEL, not a window. It already had no grab bar and no X (181); it now has
+    // no collider and no GraphicRaycaster either. Nothing about it was ever meant to be clicked.
+    //
+    // ── (2-of-his-list) THE MERCHANT'S LIST: NAME IT BEFORE BINDING IT ────────────────────
+    // NOT FIXED THIS ROUND, DELIBERATELY. Two builds have now guessed at what the map room's
+    // 'Scroll View' is and both guesses were wrong: 186 read "56 transforms swept for the shop
+    // window against 1998 for Scroll View" as proof that the list is a sibling — but the 56 is only
+    // the FIRST sweep, before the content pools in, so it proves nothing. And this round's
+    // reflection over UIShopItemWindow's own fields reported that everything it owns is INSIDE its
+    // subtree, which contradicts the sibling reading outright. 'Scroll View' floats EARLY, before
+    // the merchant is ever pressed, adopts 'UI Party Inventory Item Tooltip', and the merchant then
+    // pours 1998 transforms into it — so it is some shared inventory container, and binding it
+    // without knowing which one would be a third guess.
+    //
+    // So this build prints WINDOW IDENTITY for every ID-less catch-all float: full transform path,
+    // rect, the components on its own GameObject, and the nearest ancestor UIWindow. One line per
+    // window type. The next log names it and the binding is one edit.
+    //
     // Build 186: ONE MISSING SET MEMBERSHIP, TWO REPORTS — AND THE FLICKER IS NOT A STEREO BUG.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

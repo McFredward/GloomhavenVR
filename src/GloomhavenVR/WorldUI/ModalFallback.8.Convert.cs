@@ -229,7 +229,18 @@ internal static partial class ModalFallback
             // the measurement (56 transforms swept for the window against 1998 for the list) and
             // for the bound that stops this from walking up to the full-screen canvas.
             rect = MapRoom.GuildmasterDestinations.PreferredConvertRoot(window, rect);
-            ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
+            // ModBuild 187 — A HOVER CARD MUST NOT BE PICKABLE, AND THAT IS WHY THE MOUSEOVERS
+            // NEVER APPEARED. The card is floated 1.2 m ahead and then flown ONTO the icon by
+            // TickHoverCards — i.e. straight into the beam that is hovering that icon. A pokeable
+            // conversion carries a laser/poke collider, so the ray then hit the CARD instead of the
+            // location, MapLocationInteractor's pick went null, the hover exited, the game hid the
+            // popup (UIQuestPopupManager.HidePreview), the card vanished, the ray reached the icon
+            // again and the whole thing started over. The 186 log is that loop verbatim: float,
+            // two ticks, "game reports closed", float again — 22 rounds of it.
+            // A hover card is a LABEL, not a window: it has no grab bar (181) and no X (181), and
+            // now no collider either. Nothing about it was ever meant to be clicked.
+            bool hoverCardPick = IsMapRoomHoverCard(window);
+            ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: !hoverCardPick,
                 fitContent: fitContent, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
                 useModLayer: true, transparentBackground: transparentBg,
@@ -357,6 +368,14 @@ internal static partial class ModalFallback
             // gate's stillness criterion can never be satisfied and the card stayed render-hidden
             // until the 0.6 s deadline — i.e. for most of its life. See PoseOwnedExternally.
             panel.PoseOwnedExternally = isHoverCard;
+            // ModBuild 187: and no uGUI raycaster either — the same reason the collider is gone.
+            // A card that intercepts the pointer cancels the hover that is showing it.
+            if (isHoverCard && panel.HostGo != null)
+            {
+                var caster = panel.HostGo.GetComponent<GraphicRaycaster>();
+                if (caster != null)
+                    caster.enabled = false;
+            }
             var grab = new GrabbableModal();
             // TRANSPARENCY ROUND: the per-menu coplanar DEPTH MASK that used to be requested here
             // (gated to the ESC/Options family + confirmations + results) is gone. Its job was
