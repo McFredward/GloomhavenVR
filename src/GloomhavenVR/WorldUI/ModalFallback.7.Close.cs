@@ -557,12 +557,21 @@ internal static partial class ModalFallback
     /// (it even carries an optional <c>UIWindow</c> of its own, which is exactly how these ended up
     /// in the window path at all).</para>
     /// </summary>
+    /// <para>THE TEST IS ON THE WINDOW'S OWN GAMEOBJECT (ModBuild 182), and 181's was not. It asked
+    /// <c>GetComponentInParent</c> AND <c>GetComponentInChildren</c>, and the character screen
+    /// CONTAINS tooltips — so the whole character UI was classified as a hover card, flown over
+    /// whatever icon the pointer was on, and stripped of the grab bar and X that made it a window.
+    /// His report: <i>"statt die richtige Info des Symbols anzuzeigen wird über dem Symbol die
+    /// Character UI angezeigt und das verschiebbare Fenster verschwindet dann."</i> Exactly the
+    /// same shape of mistake as ModBuild 179's <c>GetComponentInParent&lt;UIGuildmasterHUD&gt;</c>,
+    /// which caught every window that HUD owned. A containment test answers "is this related to a
+    /// tooltip"; the question is "IS this a tooltip".</para>
+    /// </summary>
     internal static bool IsMapRoomHoverCard(UIWindow window) =>
         window != null
         && MapRoom.MapRoomDriver.Active
         && (window.GetComponent<UIQuestPreviewPopup>() != null
-            || window.GetComponentInParent<UILocalTooltip>() != null
-            || window.GetComponentInChildren<UILocalTooltip>(true) != null);
+            || window.GetComponent<UILocalTooltip>() != null);
 
     /// <summary>The windows the map room's parallel rule must NOT relax — see
     /// <see cref="MapRoomParallel"/>.</summary>

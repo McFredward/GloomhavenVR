@@ -416,7 +416,60 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 181;
+    public const ushort ModBuild = 182;
+    // Build 182: TWO PROVEN FIXES, ONE PROBABLE, AND AN INSTRUMENT INSTEAD OF A FOURTH GUESS.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── (1) THE HOVER CARD CAUGHT THE CHARACTER SCREEN — my 181 regression ──────────────────
+    // "statt die richtige Info des Symbols anzuzeigen wird über dem Symbol die Character UI
+    // angezeigt und das verschiebbare Fenster verschwindet dann." 181 classified a hover card with
+    // GetComponentInParent AND GetComponentInChildren<UILocalTooltip>. The character screen
+    // CONTAINS tooltips, so the whole thing was declared a hover card: flown to the hovered icon,
+    // stripped of its grab bar and its X. A containment test answers "is this related to a
+    // tooltip"; the question is "IS this a tooltip". Now the window's OWN GameObject only.
+    // This is the SAME mistake shape as 179's GetComponentInParent<UIGuildmasterHUD>, which caught
+    // every window that HUD owned. Twice in four builds — the lesson is written down properly now.
+    //
+    // ── (4) THE BUTTONS LIE FLAT AND THE FRAME IS GONE ─────────────────────────────────────
+    // CapTiltDegrees is now measured from the TABLE PLANE and is 0: the caps lie face-up, pressed
+    // from above, as he asked ("sie liegen immer noch nicht flach auf dem Tisch"). The up-hint for
+    // the cap frame moved to the rail's +Z so LookRotation stays well-conditioned at a flat face
+    // (Vector3.up would be parallel to the forward there).
+    // AND THE SQUARE FRAME IS GONE: NativeButtonSkin.CreateFace put the game's 9-sliced UI button
+    // sprite under the icon. On a flat uGUI bar that sprite IS the button; on a physical cap it is
+    // a second button drawn on top of the first. The lit disc is the button now, the icon sits
+    // straight on it at 88 % of the face, and hover/disabled tinting moved onto the disc's own
+    // material — which is where a physical button's state belongs anyway.
+    //
+    // ── (3, PROBABLE) THE MISSING SUBTITLES ARE A 181 REGRESSION ───────────────────────────
+    // 181's "the parent wins" rule refuses to float a window that has an OPEN ancestor window, on
+    // the premise that the ancestor's float already renders it. That premise holds when the child
+    // draws through the parent's canvas and FAILS when the child carries a ROOT Canvas of its own:
+    // a root canvas renders independently, so refusing to float it does not hand it to the parent,
+    // it makes it INVISIBLE. His next report is a story window whose subtitles are missing, which
+    // is exactly what that looks like. The rule now exempts children with their own root canvas.
+    //
+    // ── (2)(3) THE FLICKER: THREE HYPOTHESES DOWN, SO MEASURE IT ───────────────────────────
+    // Falsified so far, each cheaply and each only after shipping:
+    //   1. the per-frame overrideSorting write war — REAL and fixed in 179 (the log fell from
+    //      18,994 repeats to zero), and the flicker survived it, so it was never the whole cause;
+    //   2. the mod-layer sweep dragging the character rig out of its preview camera's sight — the
+    //      very next log says "0 subtree(s) LEFT ALONE": there is not one Renderer inside those
+    //      windows, so 180's skip never fired and the theory was empty;
+    //   3. the distance sort thrashing between near-equal panels — it already carries a
+    //      hysteresis-gated adjacent swap, by design, for exactly that reason.
+    // A fourth guess is not worth a hardware round. What is missing is not an idea but a
+    // MEASUREMENT: nobody has established whether the two EYES disagree inside one frame (stereo
+    // rivalry — something written between the eye passes) or whether successive FRAMES alternate
+    // (a write war). Those have disjoint causes and disjoint fixes, and one log line separates them.
+    //
+    // New WorldUI/PanelFlickerProbe samples every floated panel at BOTH MultiPass eye passes
+    // (Camera.onPreRender fires once per eye) and compares field by field — canvas enabled,
+    // sortingOrder, overrideSorting, renderMode, worldCamera, layer, host active/pose, and the
+    // adopted children's enabled/order/override. Pass 0 vs pass 1 in one frame ⇒ STEREO RIVALRY;
+    // an A-B-A-B ladder across frames ⇒ TEMPORAL ALTERNATION. Each verdict names the panel AND the
+    // field. One line per panel per field per session; armed only while floated panels exist.
+    //
     // Build 181: A HOVER IS NOT A WINDOW, A PARENT IS NOT ITS CHILDREN, AND THE CAPS FACED THE MAP.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

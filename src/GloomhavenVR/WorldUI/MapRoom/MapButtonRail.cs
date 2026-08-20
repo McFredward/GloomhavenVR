@@ -87,12 +87,19 @@ internal sealed class MapButtonRail
     /// <summary>Rail height above the tabletop plane — just clear of the surface.</summary>
     private const float RailLiftMeters = 0.006f;
 
-    /// <summary>Tilt of the cap faces up from vertical, degrees. 35° reads as a console panel:
-    /// legible from a standing player's eye height and pressable from above.</summary>
-    private const float CapTiltDegrees = 35f;
+    /// <summary>
+    /// Tilt of the cap faces above the TABLE PLANE, degrees. 0 = lying flat, face straight up.
+    ///
+    /// <para>User ruling (ModBuild 182): <i>"sie liegen immer noch nicht flach auf dem Tisch"</i>.
+    /// 179–181 stood them up at 35° from vertical, reading them as a console panel; he wants
+    /// buttons lying ON the table, pressed from above. Kept as a named constant rather than
+    /// inlined because it is the one number a later round is likely to want back.</para>
+    /// </summary>
+    private const float CapTiltDegrees = 0f;
 
-    /// <summary>Fraction of the cap the game's own icon occupies on the face.</summary>
-    private const float IconFraction = 0.66f;
+    /// <summary>Fraction of the cap the game's own icon occupies on the face. Nearly the whole top:
+    /// with the sampled button frame gone (see BuildCap) the icon IS the button's face.</summary>
+    private const float IconFraction = 0.88f;
 
     /// <summary>The glow quad's size relative to the cap — the game's highlight art overspills its
     /// button, and a glow clipped to the face would not read as the same effect.</summary>
@@ -137,7 +144,8 @@ internal sealed class MapButtonRail
         internal Image? NotificationImage;
 
         // The world-side copies.
-        internal SpriteRenderer? Face;
+        internal MeshRenderer? BodyRenderer;
+        internal Color BodyBaseColor = Color.white;
         internal SpriteRenderer? Icon;
         internal SpriteRenderer? Glow;
         internal SpriteRenderer? Badge;
@@ -309,9 +317,15 @@ internal sealed class MapButtonRail
         // -faceDir = (0, -sin, cos). That also makes local +X come out as world +X — the caps lay
         // out left-to-right as read, instead of mirrored — and makes +Z "into the table", which is
         // exactly the press-travel direction.
+        // At CapTiltDegrees = 0 the face points straight UP, so the cap's forward is straight DOWN
+        // and Vector3.up would be a degenerate up-hint for LookRotation. The hint is therefore the
+        // rail's own +Z (away from the player), which becomes the icon's "up" on the table — the
+        // reading orientation for someone standing at this edge — and stays well-conditioned at
+        // every tilt from flat to upright.
         float tilt = CapTiltDegrees * Mathf.Deg2Rad;
-        var capForward = new Vector3(0f, -Mathf.Sin(tilt), Mathf.Cos(tilt));
-        Quaternion capLocalRot = Quaternion.LookRotation(capForward, Vector3.up);
+        var capForward = new Vector3(0f, -Mathf.Cos(tilt), Mathf.Sin(tilt));
+        var capUpHint = new Vector3(0f, Mathf.Sin(tilt), Mathf.Cos(tilt));
+        Quaternion capLocalRot = Quaternion.LookRotation(capForward, capUpHint);
 
         float cap = CapSizeMeters * _scale;
         float gap = CapGapMeters * _scale;
@@ -395,8 +409,14 @@ internal sealed class MapButtonRail
         body.transform.SetParent(go.transform, worldPositionStays: false);
         body.transform.localPosition = Vector3.zero;
         body.AddComponent<MeshFilter>().sharedMesh = Cards.CardMesh.GetRoundCap(cap, depth);
-        body.AddComponent<MeshRenderer>().sharedMaterial = LitMaterial(ButtonTuning.CapWellColor * 1.6f);
+        var bodyRenderer = body.AddComponent<MeshRenderer>();
+        // Its OWN material instance (NewKeycapMaterial returns a fresh one per call), so each cap
+        // can be tinted for hover/disabled without a MaterialPropertyBlock and without touching a
+        // shared asset. Released with the rail.
+        bodyRenderer.sharedMaterial = LitMaterial(ButtonTuning.CapWellColor * 1.6f);
         c.Body = body.transform;
+        c.BodyRenderer = bodyRenderer;
+        c.BodyBaseColor = bodyRenderer.sharedMaterial.color;
 
         // PROUD OF THE DISC, NOT ON IT (ModBuild 181 — "die Symbole flackern darauf").
         // GetRoundCap(diameter, height) puts the disc's front face at exactly -height/2, and 180
@@ -410,7 +430,12 @@ internal sealed class MapButtonRail
         c.Glow = c.HighlightImage != null
             ? MakeSprite(body.transform, "Glow", front - step * 0.5f, cap * GlowFraction, -1)
             : null;
-        c.Face = NativeButtonSkin.CreateFace(body.transform, new Vector2(cap, cap), front - step, 0);
+        // NO SAMPLED BUTTON FRAME (ModBuild 182). NativeButtonSkin.CreateFace put the game's
+        // 9-sliced UI button sprite under the icon — on a flat uGUI bar that IS the button, but on
+        // a physical cap it is a second button drawn on top of the first: "die Symbole haben nun
+        // einen viereckigen Rahmen statt direkt auf dem button zu sitzen". The cap's own lit disc
+        // is the button now, and the icon sits straight on it; hover/disabled tinting moved to the
+        // disc's material (SampleState), which is where a physical button's state belongs anyway.
         if (c.IconImage != null)
             c.Icon = MakeSprite(body.transform, "Icon", front - step * 2f, c.IconWorldSize, 1);
         if (c.NotificationImage != null || c.NotificationGo != null)
@@ -582,12 +607,16 @@ internal sealed class MapButtonRail
                 }
             }
 
-            if (c.Face != null)
+            // The CAP ITSELF carries the state now that there is no sprite frame: dimmed when the
+            // game would refuse it, warmed when the laser or a fingertip is on it.
+            if (c.BodyRenderer != null && c.BodyRenderer.sharedMaterial != null)
             {
-                NativeButtonSkin.Apply(c.Face,
-                    !live ? NativeButtonSkin.FaceState.Disabled
-                    : c.Hovered ? NativeButtonSkin.FaceState.Accent
-                    : NativeButtonSkin.FaceState.Idle);
+                Color want = !live ? c.BodyBaseColor * 0.45f
+                           : c.Hovered ? Color.Lerp(c.BodyBaseColor, NativeButtonSkin.LabelColor, 0.45f)
+                           : c.BodyBaseColor;
+                want.a = c.BodyBaseColor.a;
+                if (c.BodyRenderer.sharedMaterial.color != want)
+                    c.BodyRenderer.sharedMaterial.color = want;
             }
             if (c.Fallback != null)
             {

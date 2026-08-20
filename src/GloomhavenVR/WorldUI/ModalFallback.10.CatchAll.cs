@@ -392,6 +392,17 @@ internal static partial class ModalFallback
     /// </summary>
     private static bool HasOpenAncestorWindow(UIWindow window)
     {
+        // ONLY IF THE ANCESTOR ACTUALLY RENDERS IT (ModBuild 182). The rule's whole premise is
+        // "the parent's float already shows this subtree" — which is true when the child draws
+        // through the parent's canvas, and FALSE when the child carries a ROOT Canvas of its own.
+        // A root canvas renders independently (its own renderMode, its own camera), so suppressing
+        // it does not hand it to the parent, it makes it INVISIBLE. 181 shipped without this test
+        // and his very next report is a story window whose subtitles are missing — which is
+        // exactly what an independently-rooted child looks like once you refuse to float it.
+        var own = window.GetComponent<Canvas>();
+        if (own != null && own.isRootCanvas)
+            return false;
+
         Transform? t = window.transform.parent;
         while (t != null)
         {

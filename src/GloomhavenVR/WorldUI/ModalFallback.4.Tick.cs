@@ -667,6 +667,10 @@ internal static partial class ModalFallback
                 Converted[i].Grab?.Tick();
         }
         TickHoverCards();
+        // The flicker instrument (ModBuild 182): armed exactly while floated panels exist, so it
+        // costs nothing in a scenario with none and nothing in the menu. See PanelFlickerProbe for
+        // why the next round needs a measurement rather than a fourth hypothesis.
+        PanelFlickerProbe.Sync(Converted.Count > 0);
 
         // 5a-scroll. User #12: thumbstick-Y scrolls the Sieg/Niederlage results window's
         //    scroll area while a laser/poke hovers ANYWHERE on the floated window — the

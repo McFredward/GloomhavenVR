@@ -126,6 +126,30 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 182** (bundle UNCHANGED — plugin DLL only) — two proven fixes, one probable, and an
+  instrument instead of a fourth guess.
+  * **(1) The hover card caught the character screen — my 181 regression.** 181 classified with
+    `GetComponentInParent` **and** `GetComponentInChildren<UILocalTooltip>`; the character screen
+    *contains* tooltips, so the whole thing became a hover card — flown to the hovered icon,
+    stripped of grab bar and X. **A containment test answers "is this related to a tooltip"; the
+    question is "IS this a tooltip".** Own GameObject only now. **Same mistake shape as 179's
+    `GetComponentInParent<UIGuildmasterHUD>`** — twice in four builds, see
+    [[containment-is-not-identity]].
+  * **(4) Buttons lie flat, frame gone.** `CapTiltDegrees` is measured from the **table plane** and
+    is 0; the up-hint moved to the rail's +Z so `LookRotation` stays conditioned at a flat face.
+    `NativeButtonSkin.CreateFace` removed — on a uGUI bar that 9-slice sprite *is* the button, on a
+    physical cap it is a second button on top of the first. Tinting moved to the disc's material.
+  * **(3, probable) The missing subtitles are a 181 regression.** "The parent wins" assumed the
+    child draws through the parent's canvas. **False when the child carries a ROOT canvas** — then
+    refusing to float it makes it invisible rather than handing it over. Now exempted.
+  * **(2)(3) The flicker: three hypotheses falsified, so measure it.** (i) the `overrideSorting`
+    write war — real, fixed at 179, flicker survived; (ii) the mod-layer sweep dragging the
+    character rig — the next log says **`0 subtree(s) LEFT ALONE`**, there is not one `Renderer` in
+    those windows, so 180's skip never fired; (iii) distance-sort thrash — the pass already has
+    hysteresis by design. New `WorldUI/PanelFlickerProbe` samples every floated panel at **both**
+    MultiPass eye passes and compares field by field: pass 0 vs pass 1 ⇒ **stereo rivalry**;
+    A-B-A-B across frames ⇒ **temporal write war**. Names the panel *and* the field.
+
 - **ModBuild 181** (bundle UNCHANGED — plugin DLL only) — a hover is not a window, a parent is not
   its children, and the caps faced the map. *(His item 1 closed: the joystick works.)*
   * **(2) Every mouseover became a window — my own 180 regression.** 180 made every map-room float
