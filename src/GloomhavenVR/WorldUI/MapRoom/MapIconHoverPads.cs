@@ -243,8 +243,22 @@ internal sealed class MapIconHoverPads
     {
         Vector3 ds = decal.lossyScale;
         float inflate = loc != null && loc.IsHighlighted ? HighlightedNodeScaleFactor : 1f;
-        float sx = Mathf.Abs(ds.x) / inflate;
-        float sz = Mathf.Abs(ds.z) / inflate;
+        // ModBuild 189 — THE PAD IS THE DRAWN ICON, SO IT TAKES THE SIZE DIAL TOO. The user asked
+        // for the map symbols to be enlargeable ("Die Symbole auf der Map sind sehr klein"), and
+        // MapIconLayer now multiplies each drawn quad by [MapRoom] IconScale — or by
+        // GloomhavenIconScale for the capital. This class's whole contract is "the pad is exactly
+        // the quad MapIconLayer draws" (see the class doc), and it derives the footprint
+        // INDEPENDENTLY from decal.lossyScale — so without this multiply the two silently disagree
+        // the moment a dial leaves 1.0, and pointing at a symbol you can plainly see would miss it
+        // again. That is the bug ModBuild 188 fixed, and re-introducing it through a size slider
+        // would be a poor trade.
+        //
+        // ScaleForDrawnQuad is the layer's own published number — asking it, rather than reading
+        // the two config entries here, means the capital test and the clamp cannot drift apart
+        // between the drawn icon and the thing you point at.
+        float dial = MapIconLayer.ScaleForDrawnQuad(decal);
+        float sx = Mathf.Abs(ds.x) * dial / inflate;
+        float sz = Mathf.Abs(ds.z) * dial / inflate;
         float thickness = Mathf.Max(Mathf.Min(sx, sz) * PadThicknessFraction, MinPadEdgeWorld);
         return new Vector3(sx, thickness, sz);
     }

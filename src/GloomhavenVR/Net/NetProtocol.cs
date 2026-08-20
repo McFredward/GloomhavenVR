@@ -416,7 +416,111 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 188;
+    public const ushort ModBuild = 189;
+    // Build 189: THE PHOTOGRAPH WAS THE ANSWER ALL ALONG — IT IS UNDERSAMPLING, NOT FLICKER.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── THE ICONS DREW THROUGH EVERYTHING: ONE CAMERA EVENT ───────────────────────────────
+    // "Ich sehe die Symbole auf der map durch die mouseovers durch. Wie immer soll alles die
+    // Perspektive respektieren." MapIconLayer attached its command buffer at
+    // CameraEvent.AfterForwardAlpha — after every transparent thing the head camera draws, floated
+    // windows included. The panels write NO DEPTH by design ("no panel writes depth, so every
+    // transparent pixel shows what is behind it"), and a surface that writes no depth can only ever
+    // cover something by being PAINTED AFTER it. With the icons painted last, no window could ever
+    // cover them, in any frame, at any pose. Now BeforeForwardAlpha: after all forward-OPAQUE
+    // geometry (the parchment is already in colour and in depth, so the icons still sit on it and
+    // the relief still cannot swallow them) and before the transparent queue that carries the
+    // panels.
+    //
+    // ALSO CORRECTED: the class doc claimed _mat.renderQueue = 4000 decided the particle overlap.
+    // It decides nothing here — a material's render queue is INERT for a CommandBuffer.DrawMesh,
+    // which is issued at the camera event and never entered into the camera's sorted queues. The
+    // camera event was doing all of the work, alone. The assignment stays (zero behaviour delta);
+    // the comment now says what is true.
+    //
+    // ZWrite stays OFF deliberately: the icons sit 0.10 world units — 0.5 mm real at 198 units/m —
+    // above an opaque, depth-writing parchment, so "a panel behind the icons" is not a reachable
+    // pose, and an alpha-blended quad writing depth would punch its fully transparent corners into
+    // the depth buffer. WATCH ITEM: painting before the transparent queue means that queue's other
+    // occupants (the map's wind/cloud particles) can now paint over the icons. That IS the correct
+    // perspective, but it is the mechanism behind the old "dicke Schlieren" report, whose remedy
+    // ([WorldUI] MapWindOpacity) the room does not apply. Rather than guess, the layer now COUNTS
+    // how many such systems sit on a layer this head camera renders and prints the number.
+    //
+    // ── TWO SIZE DIALS FOR THE MAP SYMBOLS, 3D ROOM ONLY ──────────────────────────────────
+    // [MapRoom] IconScale and [MapRoom] GloomhavenIconScale, 0.5-4, default 1.0 (so this build
+    // changes nothing until he turns one). Debug > Erweitert > Bild & Welt, folded out only while
+    // the 3D map is on. Live: the layer refills its draw list every frame.
+    // THE CAPITAL IS IDENTIFIED BY THE GAME'S OWN CLASSIFICATION, not by name or art:
+    // MapLocation.Init sets MapLocationType = Headquarters from the location state's own type, and
+    // MapChoreographer.HeadquartersLocation is m_Villages.SingleOrDefault(...Headquarters) — a
+    // uniqueness claim the game itself relies on. Survives translation and re-authored art.
+    // AND THE HOVER PADS TAKE THE SAME NUMBER. MapIconHoverPads exists to be "exactly the quad
+    // MapIconLayer draws" but derives its footprint independently, so a dial off 1.0 would have
+    // silently un-matched them and reproduced the ModBuild-188 bug — point at a symbol you can
+    // plainly see and miss it. Both now read MapIconLayer.ScaleForDrawnQuad, so the drawn icon and
+    // the thing you point at come from ONE number.
+    //
+    // ── THE "FLICKER" IS UNDERSAMPLING, AND HIS PHOTOGRAPH SAID SO IN ROUND ONE ───────────
+    // Eight rounds of state probes all came back clean, and they were all correct: panel state
+    // steady (PanelFlickerProbe, three sessions), both eyes reading the same pixels
+    // (CameraOrderProbe, zero cameras between the eye passes), and 0 alternations in 3665 ticks
+    // across the image, its texture, its writer camera and the display manager (RenderTargetProbe).
+    // Every one of those measures C# STATE. None of them looks at PIXELS.
+    //
+    // .planning/debug/flackern.jpg — 3840x2160, delivered in round one — carries its own reference
+    // column, one head pose, one frame:
+    //   * LEFT party list, portrait card drawn ~287x180 mirror px: CLEAN. Text crisp.
+    //   * MIDDLE mercenary chooser, SAME portrait art family drawn ~144x64 — twice the
+    //     minification: every thumbnail carries a regular diagonal cross-hatch. That is a moiré
+    //     beat between the source texel grid and the screen grid.
+    //   * RIGHT character sheet: GLYPH DROPOUT — "H LDE DIE 2 E", "esundheit", "Fertigkei s ar en",
+    //     every tens digit missing from the stat column.
+    // Same frame, same pose, same canvas family; the only variable is how many source texels land
+    // per rendered pixel. That is the definition of undersampling, and it is invisible to every
+    // state probe ever written. I read this image in round one and took the smearing for a phone
+    // photo of a moving stereo image.
+    //
+    // TWO FRAMINGS DIE WITH IT. (1) "The story picture is a RenderTexture too" — it is not:
+    // StoryImageViewer holds a plain UnityEngine.UI.Image fed by Addressables. So RenderTargetProbe,
+    // which enumerates only RawImages whose texture is a RenderTexture, was STRUCTURALLY INCAPABLE
+    // of seeing half of what he reported, and had been since round 6. (2) "The RT is severely
+    // minified" — it is the LEAST minified of the affected surfaces (~1113x999 rendered for a
+    // 1400x1024 target, about 1.26x).
+    //
+    // THE FIX IS THE PROJECT'S OWN, NEVER WIRED HERE. CardFaceMipBake — already shipped, already
+    // accepted, in service for card faces, tooltips and the initiative track against this exact
+    // complaint — was never called for floated windows. It now is, GATED ON THE MEASURED NUMBER:
+    // a mipless Sprite/Texture2D at or above 1.35x measured minification, at most 4 bake attempts
+    // per scan, refusals cached, originals restored on release/stand-down/shutdown. No new dial (it
+    // rides [WorldUI] PanelMipBake), and a RenderTexture is never touched.
+    //
+    // NEW WorldUI/PanelSamplingProbe measures, per graphic on every floated panel, source texels
+    // against rendered pixels — through the LEFT EYE'S OWN projection, not the wider mono frustum,
+    // and as edge lengths so a window yawed on the map-room arc reports its foreshortened size. It
+    // names the worst first and quotes a REFERENCE graphic on the same canvas at the same distance,
+    // so the log carries its own control. It also prints authored uGUI px per rendered px per
+    // panel, which is the number that decides the TEXT half: an SDF font atlas is not a mip-bake
+    // candidate, so if glyph dropout survives, the answer is more authored pixels per rendered
+    // pixel — a panel-scale change, not a texture change.
+    //
+    // RenderTargetProbe grew the five sampling properties it never had (filterMode, useMipMap,
+    // autoGenerateMips, mipmapCount, anisoLevel) and a CONTENT probe: one Graphics.Blit per tick
+    // into a mod-owned 32x32 pulled back with AsyncGPUReadback — no ReadPixels, no stall, because a
+    // probe that changes the frame timing of what it measures is worthless. It reports bit-identical
+    // frames, exact A-B-A alternations and luma reversals, deduped per RenderTexture.
+    //
+    // THE SPLIT OUTCOME IS THE EXPERIMENT, and it is stated in advance: the bake reaches thumbnails,
+    // frames and bars; it cannot reach the RenderTexture and it cannot reach text. Thumbnails clean
+    // + character render still flickering + glyph dropout still present CONFIRMS the mechanism and
+    // scopes the remainder to two named surfaces. All three going quiet means the mechanism was
+    // misread. Nothing changing means minification was never it.
+    //
+    // NOT SHIPPED, DELIBERATELY: the RT is rendered with msaa=1 and allowMSAA=False, i.e. zero
+    // anti-aliasing, then shown at ~1:1 — the strongest remaining candidate for the character render
+    // specifically. Acting on it in the same build would have confounded the split above, and it
+    // needs a Release/recreate of a RenderTexture the game holds. The census now measures it.
+    //
     // Build 188: THE INSTRUMENT WAS WRONG, THE ANCHOR WAS IN THE WRONG FRAME, AND THE MERCHANT'S
     // LIST WAS A FRAGMENT OF A CLOSED SCREEN.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.

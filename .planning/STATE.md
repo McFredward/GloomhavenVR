@@ -126,6 +126,51 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 189** (bundle UNCHANGED — plugin DLL only) — the photograph was the answer all along:
+  it is **undersampling**, not flicker. *(Two workers, isolated worktrees, split file ownership.)*
+  * **Icons drew through everything — one camera event.** `MapIconLayer` attached its command
+    buffer at `AfterForwardAlpha`, after every transparent thing including floated windows. Panels
+    write **no depth** by design, and a surface that writes no depth can only cover something by
+    being **painted after** it — so no window could ever cover an icon, in any pose. Now
+    `BeforeForwardAlpha`. **Also corrected:** the class doc claimed `renderQueue = 4000` decided the
+    particle overlap — a material queue is **inert for a `CommandBuffer.DrawMesh`**; the camera
+    event was doing all the work alone. **Watch item:** the transparent queue's other occupants
+    (wind/cloud particles) can now paint over icons — correct perspective, but the mechanism behind
+    the old "dicke Schlieren"; the layer now **counts** those systems instead of guessing.
+  * **Two size dials, 3D room only.** `[MapRoom] IconScale` / `GloomhavenIconScale`, 0.5–4, default
+    1.0. The capital is identified by **the game's own classification** (`MapLocationType =
+    Headquarters`; `HeadquartersLocation` is a `SingleOrDefault` the game itself relies on), not by
+    name or art. **`MapIconHoverPads` now takes the same number** via
+    `MapIconLayer.ScaleForDrawnQuad` — it derives its footprint independently, so a dial off 1.0
+    would have silently reproduced the 188 bug (point at a visible symbol, miss it).
+  * **THE FLICKER IS UNDERSAMPLING — and `flackern.jpg`, delivered in round ONE, is its own
+    control.** One frame, one head pose, three windows: the **left** party list (portrait ~287×180
+    mirror px) is clean; the **middle** mercenary chooser, *same portrait art family* at ~144×64 —
+    twice the minification — carries a regular diagonal **cross-hatch (moiré)**; the **right**
+    character sheet shows **glyph dropout** ("H LDE DIE 2 E", "esundheit", every tens digit gone).
+    The only variable is source texels per rendered pixel. **Invisible to every state probe ever
+    written** — which is why eight rounds of clean results were all correct and all useless.
+    **Two framings die:** the story picture is a plain `Image` fed by Addressables, **not** an RT —
+    so `RenderTargetProbe` was *structurally incapable* of seeing half the report since round 6;
+    and the RT is the **least** minified affected surface (~1.26×), so "severe RT minification" is
+    unsupported.
+    **Fix = the project's own remedy, never wired here:** `CardFaceMipBake` (shipped and accepted
+    for cards/tooltips/initiative track) is now called for floated windows, **gated on measured
+    minification ≥ 1.35×**, ≤4 attempts per scan, refusals cached, originals restored. No new dial.
+    New `PanelSamplingProbe` measures texels vs rendered pixels **through the left eye's own
+    projection**, as edge lengths (so an arc-yawed window reports foreshortened), worst-first, with
+    a **REFERENCE** graphic on the same canvas at the same distance — the log carries its own
+    control. It also prints authored px per rendered px, the number that decides the **text** half
+    (an SDF atlas is not a bake candidate; if dropout survives, the answer is panel scale).
+    `RenderTargetProbe` gained the five sampling properties it never had plus a **CONTENT** probe
+    (`AsyncGPUReadback` on a 32×32 blit — no `ReadPixels`, no stall).
+    **The split outcome is the experiment, stated in advance:** thumbnails clean + character render
+    still flickering + dropout still present **confirms** the mechanism and scopes the rest to two
+    named surfaces. All three quiet = mechanism misread. Nothing changing = minification was never it.
+    **Not shipped deliberately:** the RT renders at `msaa=1` / `allowMSAA=False` and is shown ~1:1 —
+    the strongest remaining candidate for the character render; acting on it now would confound the
+    split. The census measures it.
+
 - **ModBuild 188** (bundle UNCHANGED — plugin DLL only) — the instrument was wrong, the anchor was
   in the wrong frame, and the merchant's list was a fragment of a closed screen. *(Two dedicated
   workers, user-requested, on isolated worktrees with split file ownership.)*

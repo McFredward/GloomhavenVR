@@ -762,6 +762,14 @@ internal static class ConfigCatalog
                     return ConfigTopic.System;
                 case "Dev":
                     return ConfigTopic.Diagnostics;
+                case "MapRoom":
+                    // The 3D map room's own dials file with the SWITCH that turns the room on —
+                    // [Rig] Experimental3DMap, which the "Rig" case below sends to Visual as well.
+                    // A player who just found that switch is then on the same page as the dials
+                    // that tune what it turned on, which is the whole complaint the per-board page
+                    // was rearranged for. (They also FOLD OUT under it: VROptionsTab's
+                    // DependentSections hides the whole [MapRoom] section while the switch is off.)
+                    return ConfigTopic.Visual;
                 case "Hands":
                     return ConfigTopic.Hands;
                 case "Compat":
@@ -834,6 +842,14 @@ internal static class ConfigCatalog
     /// </summary>
     private static int Pinned(string section, string key)
     {
+        // [MapRoom] contributes only two entries, which is below MinClusterSize — FoldSmallGroups
+        // therefore sweeps them into the topic's "Allgemein" collector, where they would sit
+        // alphabetically among ~20 unrelated rows. Pinning floats both to the TOP of that group, so
+        // "im Debugmenu eine Option ... das ich sie größer machen kann" is the first thing on the
+        // page rather than something to be hunted for. Two entries do not justify inventing a
+        // third to earn a heading.
+        if (section == "MapRoom")
+            return key == "IconScale" ? 0 : 1;
         if (section == "Perf")
         {
             return key switch

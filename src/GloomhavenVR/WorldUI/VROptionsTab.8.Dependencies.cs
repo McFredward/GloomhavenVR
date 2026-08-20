@@ -189,6 +189,13 @@ internal static partial class VROptionsTab
         // The whole grab family — pick radius, stretch gesture, held pose, held info — tunes a
         // grab that GrabFigures=false removes outright.
         ["FigureGrab"] = new("FigureGrab", "GrabFigures", On),
+        // Both [MapRoom] dials size icons drawn by MapIconLayer, and that layer only exists while
+        // the 3D map room stands (MapRoomDriver.TickActive, which never runs with the switch off:
+        // "if (Plugin.Experimental3DMap == null || !Plugin.Experimental3DMap.Value)" is the mode
+        // predicate's first line). Both bound descriptions say so in their first sentence — "WHILE
+        // YOU STAND IN THE 3D MAP ROOM", "The flat 2D map is NOT affected" — so this is the
+        // truly-inert case the class doc reserves section rules for, not an arguable one.
+        ["MapRoom"] = new("Rig", "Experimental3DMap", On),
     };
 
     /// <summary>Ids of every entry that gates other rows — the rebuild-on-edit trigger set.</summary>

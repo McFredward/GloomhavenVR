@@ -81,6 +81,24 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<bool> Experimental3DMap = null!;
 
     /// <summary>
+    /// [MapRoom] Size factor for the campaign map's LOCATION ICONS in the 3D map room
+    /// (<c>WorldUI.MapRoom.MapIconLayer</c>). 1 = the size the icons shipped at. Read live on every
+    /// icon tick, so a step in the options pane shows on the next frame with no reload. The flat
+    /// map's own icon draw (<c>FlatScreenStereo.3.Map.DrawMapIcons</c>) never reads it — "Nur in
+    /// der 3D Umgebung", by construction rather than by a guard.
+    /// </summary>
+    internal static ConfigEntry<float> MapIconScale = null!;
+
+    /// <summary>
+    /// [MapRoom] Size factor for the GLOOMHAVEN icon alone — the capital's own marker, identified
+    /// by the game's classification <c>MapLocation.MapLocationType == Headquarters</c> and not by
+    /// any name or texture (the reasoning is in <c>MapIconLayer.IsCapital</c>). Overrides
+    /// <see cref="MapIconScale"/> for that one icon; both default to 1, so nothing changes until a
+    /// dial is turned.
+    /// </summary>
+    internal static ConfigEntry<float> MapGloomhavenIconScale = null!;
+
+    /// <summary>
     /// [Rig] Demeo-style world tilt (degrees, 0-60) — FEATURE PARKED (user ruling 2026-08:
     /// "macht zu viele Probleme, vorerst entfernen"). The entry stays bound so a tuned value
     /// survives in the .cfg, but the runtime clamps the effective tilt to 0
@@ -312,6 +330,41 @@ public class Plugin : BaseUnityPlugin
             "map below the player, black flat window); this one anchors to the PARCHMENT'S own " +
             "bounds, which is what that note was warning about. Everything is written to the " +
             "log — look for MAP ROOM ENGAGED and MAP SCENE REPORT.");
+        // ---- [MapRoom] the 3D map room's own dials --------------------------------------------
+        // Bound in the MAIN config file next to [Rig] Experimental3DMap, which is the switch that
+        // decides whether these do anything at all — a player who found that switch is one section
+        // away from the two dials that tune what it turned on.
+        MapIconScale = Config.Bind(
+            "MapRoom", "IconScale", Defaults.MapIconScale,
+            new ConfigDescription(
+                "SIZE of the location icons on the campaign map WHILE YOU STAND IN THE 3D MAP ROOM "
+                + "([Rig] Experimental3DMap) — the village, scenario, boss and store markers on the "
+                + "parchment. Range 0.5-4, default 1 = the size they have always had, so nothing "
+                + "changes until you move this; the floor is there because an icon scaled to "
+                + "nothing is a scenario you can no longer point at. The factor multiplies each "
+                + "icon's authored footprint, so every icon keeps its own proportions and its own "
+                + "place on the map: it is a zoom of the marker, not a re-layout of the map. The "
+                + "flat 2D map is NOT affected — this dial exists only on the room's draw path. "
+                + "Applies live: the icon layer refills its draw list every frame, so the icons "
+                + "resize as you step the value, no restart and no leaving the map. The Gloomhaven "
+                + "marker has its own dial ([MapRoom] GloomhavenIconScale) and ignores this one. "
+                + "NOTE: the invisible HOVER PAD you point at is still built at the icon's AUTHORED "
+                + "size, so at a factor far from 1 the sensitive area and the drawn picture no "
+                + "longer coincide.",
+                new AcceptableValueRange<float>(0.5f, 4f)));
+        MapGloomhavenIconScale = Config.Bind(
+            "MapRoom", "GloomhavenIconScale", Defaults.MapGloomhavenIconScale,
+            new ConfigDescription(
+                "SIZE of the GLOOMHAVEN marker alone in the 3D map room — the capital city, the one "
+                + "location the party always returns to. Range 0.5-4, default 1 = the size it has "
+                + "always had. Separate from [MapRoom] IconScale because the capital's icon is "
+                + "authored much larger than a village pin and rarely wants the same factor; where "
+                + "they disagree, this one wins for that single icon. It is picked out by the "
+                + "GAME'S OWN classification of that location (its headquarters type), not by its "
+                + "name or its artwork, so this keeps working in any language and after any art "
+                + "update; there is exactly one such location per map. Applies live, 3D map room "
+                + "only, flat map unaffected. Same hover-pad note as above.",
+                new AcceptableValueRange<float>(0.5f, 4f)));
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
             new ConfigDescription(

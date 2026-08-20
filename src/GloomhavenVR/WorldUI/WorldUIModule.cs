@@ -102,6 +102,13 @@ internal sealed class WorldUIModule : IVRModule
             _driverGo = null;
         }
 
+        // ModBuild 189: BEFORE ReleaseAll, because the sampling probe restores its mip-baked
+        // graphics through each panel's Target and the release is what sends those Targets home.
+        // It also drains any AsyncGPUReadback still in flight and frees the mod-owned 32x32
+        // downsample target — the uninstall discipline this codebase holds every RenderTexture to.
+        // See RenderTargetProbe.Shutdown and PanelSamplingProbe.
+        RenderTargetProbe.Shutdown();
+
         CanvasConversion.ReleaseAll();
         WorldUIAssets.Reset();
         NativeButtonSkin.Reset();

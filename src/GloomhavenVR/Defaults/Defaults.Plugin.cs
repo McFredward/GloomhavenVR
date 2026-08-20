@@ -28,6 +28,10 @@ internal static partial class Defaults
     // main menu. The menu rig is unconditional (Rig/VRRigDriver.cs).
     internal const bool SpawnInCircle = true;                                // => [Rig] SpawnInCircle
     internal const bool Experimental3DMap = false;                           // => [Rig] Experimental3DMap
+    // Both map-room icon dials ship at 1 on purpose: 1 reproduces the pre-dial draw matrix
+    // exactly, so the build that introduces them changes nothing until a slider is moved.
+    internal const float MapIconScale = 1f;                                  // => [MapRoom] IconScale
+    internal const float MapGloomhavenIconScale = 1f;                        // => [MapRoom] GloomhavenIconScale
     internal const float WorldTiltDegrees = 0f;                              // => [Rig] WorldTiltDegrees
     internal const float MaskedReaimHeadRate = 30f;                          // => [Rig] MaskedReaimHeadRate
     internal const float MaskedReaimGain = 0.15f;                            // => [Rig] MaskedReaimGain

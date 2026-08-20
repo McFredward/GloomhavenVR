@@ -185,6 +185,15 @@ internal static partial class Loc
             ["Rig/Experimental3DMap"] =
                 Pair("3D campaign map (experimental)", "3D-Kampagnenkarte (experimentell)"),
 
+            // ---- [MapRoom] — the 3D map room's own dials -------------------------------------
+            // Named "Karte 3D: …" so the two rows read as one pair and sort together wherever the
+            // catalog puts them (they are pinned to the top of the Bild-&-Welt collector, see
+            // ConfigCatalog.Pinned). "Symbole" is the word the user himself used.
+            ["MapRoom/IconScale"] =
+                Pair("3D map: icon size", "Karte 3D: Symbolgröße"),
+            ["MapRoom/GloomhavenIconScale"] =
+                Pair("3D map: Gloomhaven icon size", "Karte 3D: Größe Gloomhaven-Symbol"),
+
             // ---- [FigureGrab] — grabbing miniatures -----------------------------------------
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),
             ["FigureGrab/PickRadiusMillimeters"] =
