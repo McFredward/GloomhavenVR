@@ -416,7 +416,81 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 183;
+    public const ushort ModBuild = 184;
+    // Build 184: THREE REPORTS, ONE ANCESTOR — AND A FUSE THAT COUNTED THE WRONG THING.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── (1) THE MOUSEOVERS: TWO CAUSES, BOTH MEASURED, NEITHER GUESSED ────────────────────
+    // "Mouseover funktioniert nach wie vor nicht." The 183 log answers this twice over, and both
+    // answers are in lines I wrote myself and had not read as a pair.
+    //
+    // 1a — THE CHURN FUSE COUNTED THE HOVER CARDS. Line 835: "CATCH-ALL FUSE: window 'UI Quest
+    // Preview Popup' re-floated 4× in 60s — a cycling HUD banner, not a waiting decision;
+    // suppressed for this session". The fuse's own premise, written into its doc comment, is
+    // "decisions open once and wait" — and a hover card is the one floated thing that is not a
+    // decision at all. It floats once per hover BY DESIGN. Four hovers with the laser and the
+    // popup was suppressed for the WHOLE session; everything after that in the log is a player
+    // waving at icons that can no longer answer. Hover cards are now exempt from both the count
+    // and the verdict. A genuinely cycling HUD banner is still capped exactly as before.
+    //
+    // 1b — AND EVEN BEFORE THE FUSE BLEW, THE CARD WAS NEVER SHOWN. Every MODAL DIAG line for that
+    // popup reads canvas.enabled=False, and the draw-order line labels it "(hidden: reveal gate)".
+    // The reveal gate holds a window render-hidden until its pose has held STILL for
+    // RevealStableFrames consecutive checks — and TickHoverCards rewrites a hover card's position
+    // and rotation EVERY frame, from a head-relative direction, because that is how it flies over
+    // the icon. The stillness counter therefore resets every frame and can never be reached: the
+    // card only ever became visible at the 0.6 s deadline, by which time the hover is over. The
+    // gate now skips criterion 3 for a host whose pose is owned by someone else's per-frame writer
+    // (ConvertedPanel.PoseOwnedExternally). Treatment and the content fit still gate it, so the
+    // card is still never seen untreated — what is dropped is a test this host cannot answer.
+    //
+    // 1c — and the arc no longer counts hover cards, so a mouseover stops re-arranging the room.
+    //
+    // ── (3) THE MERCHANT'S OWN WINDOW: A PARENT THAT WAS NEVER GOING TO FLOAT ─────────────
+    // "Der Händler und co sollte ein separates Fenster sein das spawned inklusive des jeweiligen
+    // Hintergrunds (zB vom Händler)." The five destinations — merchant, temple, trainer,
+    // enchantress, town records — are each a UIWindow of their own AND a serialized child of
+    // UIGuildmasterHUD. The HUD's window is open for as long as the bar is on screen and is
+    // permanently refused by the catch-all (its VR surface is the table caps). 181's "parent wins"
+    // rule asked only whether an ANCESTOR was OPEN, so it refused every destination window on
+    // account of a parent that was never going to be floated — and 182's root-canvas exemption
+    // then let the destination's INNER scroll view through instead. The log is exactly that shape:
+    // 'Scroll View' floated, the shop window never did, the merchant arrived as bare rows.
+    //
+    // THE RULE NOW ASKS THE RIGHT QUESTION: an ancestor wins only if it will ACTUALLY BE FLOATED
+    // (already carried this tick, or open and catch-all-eligible). The root-canvas exemption is
+    // gone with it — a child canvas inside a floated host is ADOPTED by the conversion, so it was
+    // only ever needed while the ancestor did not float, which is now answered at its cause.
+    //
+    // THE BACKGROUND TRAVELS. The destination art is one shared UIGuildmasterBanner living in the
+    // HUD, not in the window — so floating the window alone still left the backdrop in a flat HUD
+    // nothing renders in VR. The game itself already makes the move for the temple
+    // (banner.SetParent(TempleWindow.transform), sibling 1); the mod now makes the same move for
+    // whichever destination is floated and hands it back on release — and only if it is still ours,
+    // because the game takes it back itself on OnReturnToMap and that is a write war worth losing.
+    //
+    // ── (2) WHY THE CHARACTERS WENT DEAD — IT WAS THE MERCHANT ALL ALONG ──────────────────
+    // "Ich kann gar nicht mehr auf einen Character im Character-UI Fenster klicken … zuvor hat es
+    // korrekt geöffnet." Not a click that was lost: the log has seven "uGUI click: 'Adventure
+    // Character Slot'" dispatches with nothing behind them. UIShopItemWindow.EnterShop puts the
+    // party display into SELECTION MODE (NewPartyDisplayUI.EnableSelectionMode → every slot's
+    // buttonsCanvasGroup.interactable = false and EnableSelectCharacter(false)); UITempleWindow
+    // does the same. The ONLY thing that undoes it is the mode's Exit, which UIGuildmasterHUD runs
+    // when ANOTHER mode is selected. He pressed the Merchant cap at log line 994 and never left
+    // the mode — there was no window to leave it from — so the party display stayed disabled for
+    // the remaining ~15 minutes of the session.
+    //
+    // So the X on a destination window no longer merely hides it: it presses the bar's map button,
+    // exactly as a flat player leaves a shop, and the game's own Exit chain runs. Hiding the window
+    // would not have touched the mode. NOT PARALLELISM, and this is worth stating plainly: the
+    // guildmaster modes are a one-at-a-time state machine (UpdateCurrentMode exits the current
+    // before entering the next, and allowSwitchOff is false while a mode is active). Merchant AND
+    // temple together is not something the mod can grant without driving that machine into a state
+    // the game never produces. The sticky/parallel rule stands for every non-guildmaster window.
+    //
+    // A new PARTY SLOTS line reports how many slots are interactable whenever a destination opens
+    // or closes, so the next log proves this rather than arguing it.
+    //
     // Build 183: THE NEW WINDOW BELONGS IN FRONT — AND THE PROBE ANSWERED BY STAYING SILENT.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

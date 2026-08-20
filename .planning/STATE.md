@@ -126,6 +126,46 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 184** (bundle UNCHANGED — plugin DLL only) — three reports, one ancestor, and a fuse
+  that counted the wrong thing.
+  * **(1) The mouseovers had TWO causes, both already in the 183 log.**
+    **(1a) The churn fuse counted hover cards.** Log line 835: `CATCH-ALL FUSE: window 'UI Quest
+    Preview Popup' re-floated 4× in 60s … suppressed for this session`. The fuse's own premise,
+    written in its doc, is *"decisions open once and wait"* — and a hover card is the one floated
+    thing that is not a decision. It floats once per hover **by design**. Four laser sweeps and the
+    popup was dead for the session. Hover cards are exempt from the count and the verdict now.
+    **(1b) Even before the fuse, the card was never shown.** Every `MODAL DIAG` for that popup reads
+    `canvas.enabled=False` and the draw-order line says `(hidden: reveal gate)`. The gate waits for
+    the host pose to hold **still** for `RevealStableFrames` — and `TickHoverCards` rewrites that
+    pose every frame, from a head-relative direction, because that is how the card follows the icon.
+    **A stillness test cannot be satisfied by a host whose pose someone else owns.** New
+    `ConvertedPanel.PoseOwnedExternally` drops criterion 3 only; treatment and fit still gate it.
+    (1c) The arc no longer counts hover cards, so a mouseover stops re-arranging the room.
+  * **(3) The merchant: a parent that was never going to float.** The five destinations (merchant,
+    temple, trainer, enchantress, town records) are each a `UIWindow` **and** a serialized child of
+    `UIGuildmasterHUD`, whose own window is open forever and permanently refused (its VR surface is
+    the table caps). 181's "parent wins" asked only whether an ancestor was **open**, so it refused
+    every destination on account of a parent that would never be floated — and 182's root-canvas
+    exemption then let the destination's **inner scroll view** through instead. Log: `Scroll View`
+    floated, the shop window never did, the merchant arrived as bare rows. **The rule now asks
+    whether the ancestor will ACTUALLY BE FLOATED** (`AncestorWillBeFloated`); the root-canvas
+    exemption is gone with it, because a child canvas inside a floated host is *adopted*.
+    **The background travels**: the destination art is one shared `UIGuildmasterBanner` living in
+    the HUD, so the window alone was never enough — the mod now parks it inside the floated window
+    (sibling 1, the exact move the game makes for the temple) and hands it back on release, only if
+    it is still ours.
+  * **(2) The dead character clicks were the merchant all along.** Seven `uGUI click: 'Adventure
+    Character Slot'` dispatches with nothing behind them. `UIShopItemWindow.EnterShop` puts the
+    party display into **selection mode** (`buttonsCanvasGroup.interactable = false`,
+    `EnableSelectCharacter(false)` on every slot); only the mode's `Exit` undoes it, and that runs
+    only when **another mode is selected**. He pressed the Merchant cap and never left the mode —
+    there was no window to leave it from — so the slots stayed dead for the rest of the session.
+    The X on a destination now **presses the bar's map button** instead of hiding the window, so
+    the game's own Exit chain runs. **Not parallelism**: the guildmaster modes are a one-at-a-time
+    state machine (`UpdateCurrentMode`, `allowSwitchOff=false` while active) — merchant AND temple
+    together cannot be granted without driving it into a state the game never produces. A new
+    `PARTY SLOTS n/m interactable` line makes the next log prove this instead of arguing it.
+
 - **ModBuild 183** (bundle UNCHANGED — plugin DLL only) — the new window belongs in front, and the
   probe answered by staying silent.
   * **(1)+(3) are one number: `staggerIndex = Converted.Count`.** The log shows `stagger=3` on every

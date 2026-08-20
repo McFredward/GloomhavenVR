@@ -748,6 +748,26 @@ internal sealed class MapButtonRail
         }
     }
 
+    /// <summary>
+    /// Press the bar button that carries this mode, if the bar has one. Same dispatch as a
+    /// fingertip press on its cap — the game cannot tell the difference, and every guard it runs
+    /// still runs. Used to LEAVE a guildmaster destination (see <c>GuildmasterDestinations</c>):
+    /// the game's mode machine has no "close", only "switch to another mode", so returning to the
+    /// map IS the close, and it is what runs the destination's own Exit.
+    /// </summary>
+    internal bool PressMode(EGuildmasterMode mode, string source)
+    {
+        for (int i = 0; i < _caps.Count; i++)
+        {
+            UIGuildmasterButton button = _caps[i].Button;
+            if (button == null || button.GuildmasterMode != mode)
+                continue;
+            Press(button, source);
+            return true;
+        }
+        return false;
+    }
+
     // ---- reading the game's privates ---------------------------------------------------------
 
     /// <summary>

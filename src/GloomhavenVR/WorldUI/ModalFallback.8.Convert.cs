@@ -346,6 +346,10 @@ internal static partial class ModalFallback
             // drag bar would be a handle on something that is about to disappear, and an X would
             // offer to close what the hover already closes. See IsMapRoomHoverCard.
             bool isHoverCard = IsMapRoomHoverCard(window);
+            // ModBuild 184: TickHoverCards writes this host's pose EVERY frame, so the reveal
+            // gate's stillness criterion can never be satisfied and the card stayed render-hidden
+            // until the 0.6 s deadline — i.e. for most of its life. See PoseOwnedExternally.
+            panel.PoseOwnedExternally = isHoverCard;
             var grab = new GrabbableModal();
             // TRANSPARENCY ROUND: the per-menu coplanar DEPTH MASK that used to be requested here
             // (gated to the ESC/Options family + confirmations + results) is gone. Its job was

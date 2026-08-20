@@ -107,6 +107,15 @@ internal static class MapRoomDriver
     }
 
     /// <summary>
+    /// Press one of the game's own guildmaster bar buttons by mode, through the table rail's
+    /// single dispatch (<c>ExecuteEvents.pointerClickHandler</c> on the real Toggle). Used by
+    /// <see cref="GuildmasterDestinations.LeaveMode"/> to return to the map, which is what runs
+    /// the game's mode Exit. False when the room is down or the bar carries no such button.
+    /// </summary>
+    internal static bool PressGuildmasterMode(EGuildmasterMode mode, string source) =>
+        Active && Buttons.PressMode(mode, source);
+
+    /// <summary>
     /// Evaluate the mode predicate. Called once per frame from <c>VRRigDriver.UpdateBody</c>
     /// BEFORE the rig kind is resolved, because the rig kind depends on the answer.
     /// </summary>

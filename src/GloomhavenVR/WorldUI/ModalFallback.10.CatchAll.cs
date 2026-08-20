@@ -186,7 +186,17 @@ internal static partial class ModalFallback
             UIWindow window = kv.Key;
             if (window == null || now < kv.Value + CatchAllGraceTicks)
                 continue; // grace: explicit handlers win same-open races
-            if (ChurnSuppressed.Contains(window.name))
+            // ModBuild 184 — THE FUSE MAY NOT COUNT A HOVER CARD. A hover card floats once per
+            // hover; that IS its life cycle, not churn. The 183 hardware log is unambiguous: the
+            // map's quest-preview popup floated four times while he swept the laser across the
+            // icons, and the fuse then suppressed it FOR THE WHOLE SESSION — "Es kommen nun gar
+            // keine Mouseovers mehr", and one build later "Mouseover funktioniert nach wie vor
+            // nicht". The fuse's own premise (see ChurnMaxFloats) is "decisions open once and
+            // wait"; a hover card is the one floated thing that is not a decision at all, so it
+            // is exempt from both the count and the verdict. Nothing else about the fuse changes:
+            // a genuinely cycling HUD banner is still capped after ChurnMaxFloats.
+            bool hoverCard = IsMapRoomHoverCard(window);
+            if (!hoverCard && ChurnSuppressed.Contains(window.name))
                 continue; // fuse blew for this window type — session-suppressed (see ChurnMaxFloats)
             if (!CatchAllEligible(window))
                 continue;
@@ -196,20 +206,23 @@ internal static partial class ModalFallback
             // CHURN FUSE (hotfix): every append below costs a full conversion when the part-4
             // loop floats it. A window type re-floating in a tight loop (show→hide HUD banners)
             // burned ~1000 ms/frame on hardware — cap it and move on.
-            float nowT = Time.unscaledTime;
-            if (!FloatChurn.TryGetValue(window.name, out (int Count, float WindowStart) churn)
-                || nowT - churn.WindowStart > ChurnWindowSeconds)
-                churn = (0, nowT);
-            churn.Count++;
-            FloatChurn[window.name] = churn;
-            if (churn.Count > ChurnMaxFloats)
+            if (!hoverCard)
             {
-                ChurnSuppressed.Add(window.name);
-                VRLog.Warn("WorldUI", $"CATCH-ALL FUSE: window '{window.name}' re-floated " +
-                                      $"{churn.Count}× in {ChurnWindowSeconds:0}s — a cycling HUD " +
-                                      "banner, not a waiting decision; suppressed for this session " +
-                                      "(manual A/X screen chord still reaches it). Exclude it explicitly.");
-                continue;
+                float nowT = Time.unscaledTime;
+                if (!FloatChurn.TryGetValue(window.name, out (int Count, float WindowStart) churn)
+                    || nowT - churn.WindowStart > ChurnWindowSeconds)
+                    churn = (0, nowT);
+                churn.Count++;
+                FloatChurn[window.name] = churn;
+                if (churn.Count > ChurnMaxFloats)
+                {
+                    ChurnSuppressed.Add(window.name);
+                    VRLog.Warn("WorldUI", $"CATCH-ALL FUSE: window '{window.name}' re-floated " +
+                                          $"{churn.Count}× in {ChurnWindowSeconds:0}s — a cycling HUD " +
+                                          "banner, not a waiting decision; suppressed for this session " +
+                                          "(manual A/X screen chord still reaches it). Exclude it explicitly.");
+                    continue;
+                }
             }
 
             OpenWindows.Add(window);
@@ -392,27 +405,64 @@ internal static partial class ModalFallback
     /// </summary>
     private static bool HasOpenAncestorWindow(UIWindow window)
     {
-        // ONLY IF THE ANCESTOR ACTUALLY RENDERS IT (ModBuild 182). The rule's whole premise is
-        // "the parent's float already shows this subtree" — which is true when the child draws
-        // through the parent's canvas, and FALSE when the child carries a ROOT Canvas of its own.
-        // A root canvas renders independently (its own renderMode, its own camera), so suppressing
-        // it does not hand it to the parent, it makes it INVISIBLE. 181 shipped without this test
-        // and his very next report is a story window whose subtitles are missing — which is
-        // exactly what an independently-rooted child looks like once you refuse to float it.
-        var own = window.GetComponent<Canvas>();
-        if (own != null && own.isRootCanvas)
-            return false;
-
         Transform? t = window.transform.parent;
         while (t != null)
         {
             var above = t.GetComponent<UIWindow>();
-            if (above != null && !ReferenceEquals(above, window)
-                && (above.IsOpen || ContainsWindow(OpenWindows, above)))
+            if (above != null && !ReferenceEquals(above, window) && AncestorWillBeFloated(above))
+            {
+                if (AncestorRefusalWarned.Add(window.name))
+                    VRLog.Info("WorldUI", $"MAP ROOM: window '{window.name}' (ID {window.ID}) is NOT " +
+                                          $"floated on its own — its ancestor '{above.name}' " +
+                                          $"(ID {above.ID}) is floated and renders this subtree inside " +
+                                          "its own host. The parent wins (ModBuild 181/184).");
                 return true;
+            }
             t = t.parent;
         }
         return false;
+    }
+
+    /// <summary>Per-child-name latch for the "parent wins" Info line — one per window type.</summary>
+    private static readonly HashSet<string> AncestorRefusalWarned = new();
+
+    /// <summary>
+    /// IS THIS ANCESTOR ACTUALLY GOING TO BE A FLOATED WINDOW? (ModBuild 184.)
+    ///
+    /// <para>181's "parent wins" rule asked only whether an ancestor was OPEN, and 182 patched a
+    /// symptom of that by exempting children with a root Canvas of their own. Both were wrong at
+    /// the same spot: the rule's premise is <i>"the parent's float already renders this subtree"</i>,
+    /// so the question is not whether an ancestor is open but whether it is <b>floated</b>. An
+    /// ancestor that is open and permanently un-floatable suppresses its child and shows it
+    /// NOWHERE — which is exactly what happened to the merchant. <c>UIShopItemWindow</c>,
+    /// <c>UITempleWindow</c>, <c>UITrainerWindow</c>, <c>UINewEnhancementWindow</c> and
+    /// <c>UITownRecordsWindow</c> are all serialized children of <c>UIGuildmasterHUD</c>
+    /// (decompiled UIGuildmasterHUD.cs:76-92), and the HUD's own window is open forever while it
+    /// is on the bar AND permanently refused by <see cref="IsKnownHudWindow"/> — so the shop
+    /// window was refused, and 182's root-canvas exemption then let its INNER scroll view through
+    /// instead. The 183 log shows the result exactly: 'Scroll View' floated, the shop window
+    /// never did, and the merchant appeared as bare content with no frame and no background. His
+    /// report: <i>"Der Händler und co sollte ein separates Fenster sein das spawned inklusive des
+    /// jeweiligen Hintergrunds."</i></para>
+    ///
+    /// <para>THE ROOT-CANVAS EXEMPTION IS GONE WITH IT, and that is a simplification rather than a
+    /// loss: a child canvas inside a floated host is ADOPTED by the conversion
+    /// (CanvasConversion.2.Adopt — the MODAL DIAG lines list the adopted children and their pinned
+    /// sorting order), so once the ancestor genuinely floats, the child renders inside it. The
+    /// exemption only ever mattered while the ancestor did not float, and that case is now
+    /// answered at its cause.</para>
+    ///
+    /// <para>Two ways an ancestor counts: it is already carried this tick (the explicit polls run
+    /// BEFORE the catch-all, so an enrolled ancestor is in <see cref="OpenWindows"/> by now), or
+    /// it is open and the catch-all itself would take it. The second test recurses up the chain —
+    /// bounded by hierarchy depth, and correct by construction: "will anything above me float"
+    /// is exactly the question.</para>
+    /// </summary>
+    private static bool AncestorWillBeFloated(UIWindow above)
+    {
+        if (ContainsWindow(OpenWindows, above))
+            return true;
+        return above.IsOpen && CatchAllEligible(above);
     }
 
     private static bool IsAdoptedByConversion(UIWindow window)
@@ -435,6 +485,7 @@ internal static partial class ModalFallback
     {
         UnknownShown.Clear();
         CatchAllWarned.Clear();
+        AncestorRefusalWarned.Clear();
         HudVerdict.Clear();
         FloatChurn.Clear();
         ChurnSuppressed.Clear();

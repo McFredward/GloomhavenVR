@@ -232,6 +232,8 @@ internal static partial class ModalFallback
         ResetChainPose("module shutdown"); // chain continuity: teardown = rule 1 next time
         _forcedTabs.Clear();
         CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
+        MapRoom.GuildmasterDestinations.Reset(); // hand the borrowed banner back before we vanish
+        _lastArcCount = -1;
         ScreenWanted = false;
         VRModeStateMachine.SetAuxModal(false);
     }
@@ -352,6 +354,35 @@ internal static partial class ModalFallback
     /// </summary>
     /// <summary>Converted-count the arc was last laid out for (change detector).</summary>
     private static int _lastArcCount = -1;
+
+    /// <summary>The floated guildmaster destination window, or null. Newest first — the game only
+    /// ever has one mode active, so a second one can exist for at most the frames one is
+    /// releasing while the next converts.</summary>
+    private static UIWindow? FirstFloatedDestination()
+    {
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.UserClosing || !wp.Panel.IsAlive || wp.Window == null)
+                continue;
+            if (MapRoom.GuildmasterDestinations.IsDestination(wp.Window))
+                return wp.Window;
+        }
+        return null;
+    }
+
+    /// <summary>How many floated windows the arc actually places — hover cards excluded, because
+    /// their pose belongs to the icon they describe and they churn on every mouseover.</summary>
+    private static int ArcWindowCount()
+    {
+        int n = 0;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (!Converted[i].HoverCard)
+                n++;
+        }
+        return n;
+    }
 
     private static void RelayoutMapRoomArc()
     {
@@ -725,14 +756,24 @@ internal static partial class ModalFallback
                 Converted[i].Grab?.Tick();
         }
         TickHoverCards();
+        // ModBuild 184: the merchant/temple/trainer/enchantress/records window carries its shared
+        // background banner while it is floated — the same move the game makes for the temple.
+        // Level-triggered and idempotent; see GuildmasterDestinations for the whole story,
+        // including why closing one of these must press the bar's map button.
+        MapRoom.GuildmasterDestinations.Reconcile(FirstFloatedDestination());
         // ModBuild 183: re-arrange the arc whenever the SET changes — a window opened, closed or
         // was released. Not per frame: the layout is anchored on the player's facing at the moment
         // the set changed, so re-running it every frame would drag every window around with the
         // head, which is precisely what the standing "nothing may re-orient with head movement"
         // ruling forbids.
-        if (Converted.Count != _lastArcCount)
+        // ModBuild 184: count only the windows the arc actually PLACES. A hover card takes no arc
+        // slot (TickHoverCards owns its pose), but it joins and leaves Converted on every single
+        // mouseover — so counting it made the whole room's window layout jump every time the
+        // pointer touched an icon. The set that matters is the set the arc arranges.
+        int arcCount = ArcWindowCount();
+        if (arcCount != _lastArcCount)
         {
-            _lastArcCount = Converted.Count;
+            _lastArcCount = arcCount;
             RelayoutMapRoomArc();
         }
         // The flicker instrument (ModBuild 182): armed exactly while floated panels exist, so it

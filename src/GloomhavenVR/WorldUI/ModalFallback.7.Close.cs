@@ -95,6 +95,16 @@ internal static partial class ModalFallback
         if (wp != null)
             wp.UserClosing = true;
 
+        // ModBuild 184 — A GUILDMASTER DESTINATION IS LEFT, NOT HIDDEN. Merchant, temple, trainer,
+        // enchantress and town records are MODES of UIGuildmasterHUD, and entering one disables the
+        // party display's character slots (EnableSelectionMode). Only the mode's own Exit re-enables
+        // them, and Escape()/Hide() on the window does not run it — which is exactly why "clicking a
+        // character does nothing" survived a whole session after one merchant press. Pressing the
+        // bar's map button runs UpdateCurrentMode → the destination's Exit → DisableSelectionMode,
+        // and the window closes itself on the way; the branches below then simply release the float.
+        // See GuildmasterDestinations.
+        MapRoom.GuildmasterDestinations.LeaveMode(window, "X button");
+
         try
         {
             if (window.IsOpen)

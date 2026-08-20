@@ -412,7 +412,10 @@ internal static partial class CanvasConversion
         // inside RevealDeadline, so the 0.6 s "never stay invisible" bound below is untouched.
         bool fitTrusted = panel.FitVerifyHoldRevealUntil <= 0f || now >= panel.FitVerifyHoldRevealUntil;
         bool fitDone = !panel.FitEnabled || (panel.FitMeasuredOnce && fitTrusted);
-        bool poseStable = panel.RevealPoseStableFrames >= RevealStableFrames;
+        // ModBuild 184: a host whose pose belongs to someone else's per-frame writer can never
+        // satisfy a stillness test — see ConvertedPanel.PoseOwnedExternally for the measurement
+        // that proved it (every hover card stayed canvas.enabled=False until the deadline).
+        bool poseStable = panel.PoseOwnedExternally || panel.RevealPoseStableFrames >= RevealStableFrames;
         bool settled = treated && fitDone && poseStable;
         bool deadline = now >= panel.RevealDeadline;
         if (!settled && !deadline)

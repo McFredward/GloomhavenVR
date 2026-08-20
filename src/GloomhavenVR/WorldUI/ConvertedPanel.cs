@@ -465,6 +465,27 @@ internal sealed class ConvertedPanel
     /// </summary>
     public float RevealDeadline;
 
+    /// <summary>
+    /// THIS HOST'S POSE IS WRITTEN EVERY FRAME BY SOMEONE ELSE (ModBuild 184) — so the reveal
+    /// gate's stillness criterion is meaningless for it and must be skipped.
+    ///
+    /// <para>Set for the map room's HOVER CARDS: <c>ModalFallback.TickHoverCards</c> writes the
+    /// host's position and rotation on every tick so the card flies over the icon under the
+    /// pointer. The gate (see <c>CanvasConversion.TickRevealGate</c>) waits for the host to hold
+    /// still for <c>RevealStableFrames</c> consecutive checks, and a pose that is rewritten every
+    /// frame — from a head-relative direction, no less — resets that counter every frame. The
+    /// counter can therefore NEVER reach its target, and the card only ever became visible at the
+    /// 0.6 s <see cref="RevealDeadline"/>, by which time most hovers are already over. The 183
+    /// hardware log states it plainly: every MODAL DIAG line for 'UI Quest Preview Popup' reads
+    /// <c>canvas.enabled=False</c>, and the draw-order line labels it "(hidden: reveal gate)".</para>
+    ///
+    /// <para>Only criterion 3 is dropped. Treatment (mod layer / backing) and the content fit
+    /// still gate the reveal, so the card is still never seen in its untreated or unfitted state —
+    /// which is the whole point of the gate. What is dropped is a test that asks a question this
+    /// host cannot answer.</para>
+    /// </summary>
+    public bool PoseOwnedExternally;
+
     /// <summary>True once a pose snapshot exists — the first tracked frame has nothing to compare against.</summary>
     public bool RevealHasSnapshot;
 
