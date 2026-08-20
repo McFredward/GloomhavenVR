@@ -126,7 +126,32 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 173** (bundle UNCHANGED — plugin DLL only) — amplitude cannot buy past a temporal
+- **ModBuild 174** (bundle UNCHANGED — plugin DLL only) — **stop tuning; two measurements instead.**
+  * **THE ANOMALY THREE ROUNDS WALKED PAST.** 168 was accepted ("Beide Probleme behoben, top" — one
+    of the two *was* the water animation); 169 was "komplett stillstehend/freezed". Diff the water
+    between them and the entire change is **comment renames**: shader and `.cginc` byte-identical,
+    `WaterOwnSurface` edits are `[Water] X` → `WaterSettings.X` in doc text, and the constants 169
+    froze are 168's config *defaults* to the digit. Identical code cannot give opposite verdicts, so
+    the water tuning was never the variable — and 169/172/173 were three rounds re-tuning a number
+    that was not the cause. **174 changes no water value at all.**
+  * **(A) His config file.** The section was live until 169, and 169's own log proves the file
+    existed (`AnnounceRetiredFile` only prints when it does). If he ever moved `RippleSpeed` or
+    `SwellHeight` — in the file or via the Erweitert menu, which writes to it and which he had
+    plainly been in — then 168's approved water ran on **his** numbers and 169 dropped it to the
+    shipped ones. `AnnounceRetiredFile` now **reads and prints every key=value** beside the shipped
+    constant. Read-only. A difference there is the whole answer, and the fix is to re-base the
+    constants onto his values.
+  * **(B) Which SubShader actually draws.** The census has always claimed "shader level 50, so the
+    TESSELLATED SubShader is the one being drawn" — an inference about *hardware*, which has
+    reported success on every frozen build. Selection also depends on the **LOD ceilings**: anything
+    may lower `Shader.globalMaximumLOD`, and under 300 the LOD 100 fallback is picked silently — the
+    same wave on the game's own 33-vertex hex, i.e. a 2.4 m swell with no vertices to carry it. That
+    surface is flat, hence genuinely motionless, and unreachable by any tuning. `SubShaderInForce`
+    now **measures** both ceilings, the effective one and the pass count.
+  * **Ruled out first:** the field moves (0.75 mm in 1 s, 7.9 mm in 10, off the pinned C# mirror)
+    and the shipped shader's own preview renders at t=0 vs t=450 s differ over 2–17 % of pixels.
+
+- **ModBuild 173** (bundle unchanged) — amplitude cannot buy past a temporal
   floor, and **ModBuild 170's explanation was wrong**.
   * **First: the mechanism is alive.** The displacement field was evaluated at *t* and *t+dt* off
     the C# mirror the wire test pins against the shader — 0.75 mm in the first second, 7.9 mm in

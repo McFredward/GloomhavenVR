@@ -521,15 +521,49 @@ internal static class WaterTerrainVR
                 string path = System.IO.Path.Combine(BepInEx.Paths.ConfigPath,
                                                      "dev.gloomhavenvr.water.cfg");
                 if (!System.IO.File.Exists(path))
+                {
+                    VRLog.Info(Name,
+                        "WATER SURFACE: no legacy dev.gloomhavenvr.water.cfg on disk, so this "
+                        + "machine never carried per-player water tuning and ModBuild 168 ran on "
+                        + "the same numbers that are constants now.");
                     return;
+                }
+
+                // AND WHAT IT SAYS, WHICH IS THE POINT. ModBuild 168 and 169 shipped BIT-IDENTICAL
+                // water — the only difference between them in this whole subsystem is comment
+                // renames — and the verdicts were "Beide Probleme behoben, top" and then "gar keine
+                // Animation ... komplett freezed". Identical code cannot produce opposite results,
+                // so something outside it changed, and the obvious candidate is THIS FILE: it was
+                // live at 168 and 169 is the build that retired the section under it. If it holds
+                // values other than the shipped ones, the water the user approved was never the
+                // water this build draws, and three rounds of tuning were aimed at the wrong
+                // number. Read-only: deleting someone's tuning behind their back is not this
+                // function's business, and neither is quietly adopting it.
+                var found = new List<string>(8);
+                foreach (string raw in System.IO.File.ReadAllLines(path))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line[0] == '#' || line[0] == '[')
+                        continue;
+                    int eq = line.IndexOf('=');
+                    if (eq > 0)
+                        found.Add(line.Substring(0, eq).Trim() + "=" + line.Substring(eq + 1).Trim());
+                }
                 VRLog.Info(Name,
                     "WATER SURFACE: the [Water] config section is RETIRED and " + path + " is "
-                    + "INERT — every value in it (VRFriendlyWater, Smoothness, Opacity, "
-                    + "Reflectivity, BasinSurfaces, LocalProbe, ProbeBrightness, OwnSurface, "
-                    + "RippleSpeed, Shimmer, WaveScale, SwellHeight, and the older HideTerrainWaterInVR "
-                    + "/ ShoreFoam / DebugPaint / BodyOnly / DepthFade) is now a constant in "
-                    + "WaterTerrainVR.WaterSettings at ModBuild 168's accepted values. The file is "
-                    + "harmless and can be deleted.");
+                    + "INERT — nothing in this build reads it. WHAT IT STILL CONTAINS, because "
+                    + "ModBuild 168's water was accepted and 169's identical water was not, and "
+                    + "this file is the only thing that changed under them: ["
+                    + (found.Count == 0 ? "no key=value lines" : string.Join(", ", found.ToArray()))
+                    + "]. COMPARE EACH AGAINST THE SHIPPED CONSTANT on the WATER SURFACE STATE "
+                    + "line — RippleSpeed " + WaterOwnSurface.ShippedRippleSpeed.ToString("0.#####")
+                    + ", SwellHeight " + WaterOwnSurface.ShippedSwellHeight.ToString("0.#####")
+                    + ", WaveScale " + WaterOwnSurface.ShippedWaveScale.ToString("0.###")
+                    + ", Shimmer " + WaterOwnSurface.ShippedShimmer.ToString("0.###")
+                    + ". A DIFFERENCE HERE IS THE ANSWER: it means the surface the user approved "
+                    + "ran on these values and not on the defaults, and the shipped constants "
+                    + "should be re-based onto them rather than tuned further. The file is "
+                    + "otherwise harmless and can be deleted once that is settled.");
             }
             catch { /* diagnostics only — an unreadable config path must never block install */ }
         }
@@ -1654,15 +1688,7 @@ internal static class WaterTerrainVR
                 + "would subdivide differently in each MultiPass eye), so each authored triangle "
                 + "becomes " + (tess * tess).ToString("0") + " and the film's ~"
                 + WaterOwnSurface.TargetEdgeWU.ToString("0.##") + " m target edge is met; "
-                + (SystemInfo.graphicsShaderLevel >= 46
-                    ? "this device reports shader level "
-                      + SystemInfo.graphicsShaderLevel
-                      + ", so the TESSELLATED SubShader is the one being drawn"
-                    : "THIS DEVICE REPORTS SHADER LEVEL " + SystemInfo.graphicsShaderLevel
-                      + ", BELOW THE 46 THE TESSELLATED SubShader NEEDS — the film is drawing on "
-                      + "the LOD 100 fallback, which runs the identical wave on the game's own "
-                      + "33-vertex hex and therefore has almost no visible relief. A report of "
-                      + "'the water is flat again' is THIS LINE and not the shader")
+                + SubShaderInForce(inst)
                 + "; _DetailOpacityBaseNormalStr " + (haveStr ? "READ " : "DEFAULTED ")
                 + Fmt(strVec) + " -> ripple strength " + strength.ToString("0.###")
                 + "; _Smoothness " + (haveSmooth ? "READ " : "DEFAULTED ")
@@ -1737,6 +1763,50 @@ internal static class WaterTerrainVR
                       + "seen — which is how a surface ends up frozen with every printed number "
                       + "moving exactly as intended");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// WHICH SubShader is actually drawing this film — MEASURED, not inferred.
+        ///
+        /// <para>This line used to read the device's shader level and conclude "so the TESSELLATED
+        /// SubShader is the one being drawn". That is an inference about the HARDWARE, and it has
+        /// been reporting success on every frozen build. Whether the LOD 300 SubShader is selected
+        /// depends on the hardware AND on the LOD ceilings, and a ceiling below 300 silently picks
+        /// the LOD 100 fallback instead — which runs the identical wave on the game's own 33-vertex
+        /// hex, i.e. a 2.4 m swell with almost no vertices to carry it. That surface is flat and
+        /// therefore genuinely motionless, and no amount of amplitude or frequency tuning can reach
+        /// it. Three rounds have now been spent tuning a number while this was only assumed.</para>
+        ///
+        /// <para>Both ceilings are read: <c>Shader.globalMaximumLOD</c>, which anything in the
+        /// process may lower (a game quality setting is the obvious candidate), and the shader
+        /// instance's own <c>maximumLOD</c>. The lower of the two decides.</para>
+        /// </summary>
+        private static string SubShaderInForce(Material inst)
+        {
+            int global = Shader.globalMaximumLOD;
+            int local = inst != null && inst.shader != null ? inst.shader.maximumLOD : -1;
+            int effective = local < 0 ? global : Mathf.Min(global, local);
+            bool hardwareOk = SystemInfo.graphicsShaderLevel >= 46;
+            bool tessellated = hardwareOk && effective >= 300;
+
+            string s = "SUBSHADER IN FORCE (measured, not inferred): shader level "
+                       + SystemInfo.graphicsShaderLevel + " (needs 46), Shader.globalMaximumLOD "
+                       + global + ", this shader's maximumLOD "
+                       + (local < 0 ? "unreadable" : local.ToString())
+                       + " -> effective LOD ceiling " + effective + ", passes " 
+                       + (inst != null ? inst.passCount : -1) + " -> ";
+            if (tessellated)
+                return s + "the LOD 300 TESSELLATED SubShader, which is the one that carries the "
+                       + "relief";
+            return s + "THE LOD 100 FALLBACK. The film is drawing WITHOUT tessellation, so the "
+                   + "swell displaces only the game's own 33-vertex hex and the surface is flat and "
+                   + "motionless whatever the periods and amplitudes on this line say. "
+                   + (hardwareOk
+                          ? "The hardware is capable — the LOD CEILING is what excludes it, and "
+                            + "that is set by something else in the process, not by this driver."
+                          : "The hardware cannot run it.")
+                   + " A report of 'the water does not move' is THIS FIELD and nothing else on the "
+                   + "line.";
         }
 
         private static string Fmt(Vector4 v) =>

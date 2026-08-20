@@ -416,7 +416,59 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 173;
+    public const ushort ModBuild = 174;
+    // Build 174: STOP TUNING. Two measurements instead, because 168 and 169 were the same water.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // User, on 173: "Immer noch das gleiche Problem."
+    //
+    // ── THE ANOMALY THAT THREE ROUNDS WALKED PAST ─────────────────────────────────────────────
+    // ModBuild 168 was accepted — "Beide Probleme behoben, top", and one of those two problems WAS
+    // the water animation. ModBuild 169 was "gar keine Animation beim Wasser mehr! Komplett
+    // stillstehend/freezed". Diff the water between them and the entire change is COMMENT RENAMES:
+    // WaterVR.shader and WaterVR.cginc are byte-identical, WaterOwnSurface's only edits are
+    // "[Water] X" -> "WaterSettings.X" in doc text, and the constants 169 froze in code are 168's
+    // config DEFAULTS to the digit (RippleSpeed 0.00875, SwellHeight 0.005, WaveScale 1,
+    // Shimmer 0.03).
+    //
+    // Identical code cannot produce opposite verdicts. So the variable was never the water tuning —
+    // and 169, 172 and 173 were three rounds of re-tuning a number that was not the cause. That is
+    // the mistake this build stops making; it changes NO water value at all.
+    //
+    // TWO CANDIDATES REMAIN, and each is now measured rather than assumed:
+    //
+    //   (A) HIS CONFIG FILE. Until 169 the section was live, and 169's own log proves the file
+    //       existed on his machine (AnnounceRetiredFile only prints when it does). If he had ever
+    //       moved [Water] RippleSpeed or SwellHeight — in the file or through the Erweitert menu,
+    //       which writes to it, and which he had plainly been in since he asked for it to be
+    //       removed — then the water he approved at 168 ran on HIS numbers, and 169 dropped it to
+    //       the shipped ones the moment the section was retired. Every round since has been tuning
+    //       around the wrong baseline.
+    //       -> AnnounceRetiredFile now READS the file and prints every key=value it finds, beside
+    //          the shipped constant for each. Read-only. A difference there is the whole answer,
+    //          and the fix is then to re-base the constants onto his values, not to tune again.
+    //
+    //   (B) WHICH SUBSHADER IS ACTUALLY DRAWING. The census line has always claimed "this device
+    //       reports shader level 50, so the TESSELLATED SubShader is the one being drawn". That is
+    //       an inference about the HARDWARE, and it has reported success on every frozen build.
+    //       Selection depends on the hardware AND on the LOD ceilings: anything in the process may
+    //       lower Shader.globalMaximumLOD, and a ceiling under 300 silently picks the LOD 100
+    //       fallback — the identical wave on the game's own 33-vertex hex, i.e. a 2.4 m swell with
+    //       almost no vertices to carry it. That surface is FLAT, therefore genuinely motionless,
+    //       and no amplitude or frequency can reach it. Exactly the instrument-that-measures-one-
+    //       term failure this project keeps repeating.
+    //       -> SubShaderInForce now reads Shader.globalMaximumLOD, the shader instance's own
+    //          maximumLOD, the effective ceiling and the pass count, and says which SubShader that
+    //          resolves to. If it says LOD 100, that field is the entire bug report.
+    //
+    // WHAT WAS RULED OUT FIRST, so neither of the two is chased on a hunch. The displacement field
+    // was evaluated over a 2.6 m quad at t and t+dt off the C# mirror the wire test pins against
+    // the shader: 0.75 mm in the first second, 7.9 mm in ten. And the SHIPPED shader's own preview
+    // renders at t=0 s and t=450 s differ over 2-17 % of their pixels depending on the setting. The
+    // maths moves and the shader moves. What is not established — and what these two fields settle —
+    // is whether the numbers reaching the GPU are the ones this file thinks it is sending, and
+    // whether the program that would turn them into visible relief is the one being run.
+    //
     // Build 173: AMPLITUDE CANNOT BUY PAST A TEMPORAL FLOOR — ModBuild 170's explanation was wrong.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //
