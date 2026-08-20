@@ -719,6 +719,30 @@ internal struct NestedCanvasRecord
 
     /// <summary>Sorting order re-asserted while adopted (only when <see cref="KeepOverrideSorting"/>).</summary>
     public int OverlaySortingOrder;
+
+    /// <summary>
+    /// CONCEDED (ModBuild 179): the game re-asserts <c>overrideSorting = true</c> on this canvas
+    /// every frame and will not be argued out of it. When set, the adoption stops writing the FLAG
+    /// and owns the NUMBER instead — <c>sortingOrder</c> follows the host's live order, so the
+    /// subtree still draws exactly where the host draws while the game's own writer is left
+    /// satisfied. Implies <see cref="KeepOverrideSorting"/>.
+    ///
+    /// <para>WHY IT EXISTS. The 3D map room's party window carries a tooltip canvas whose game-side
+    /// writer sets the flag in its own per-frame pass. The guard cleared it in LateUpdate, the game
+    /// set it again next Update, and neither won: the canvas's sorting state alternated every
+    /// frame, which in MultiPass means the two eye passes could disagree — the user's report was
+    /// *"flackert stark"* and 18,994 of that session's 20,173 log lines were the guard's own
+    /// re-clear notice. A write war with the game is never won by writing harder.</para>
+    /// </summary>
+    public bool ConcededOverrideSorting;
+
+    /// <summary>The canvas's own sortingOrder at adoption — restored on release for any canvas
+    /// whose order we took over (see <see cref="ConcededOverrideSorting"/>).</summary>
+    public int OriginalSortingOrder;
+
+    /// <summary>Frames this canvas has been caught with the flag flipped back on. Concedes at
+    /// <see cref="CanvasConversion.ConcedeAfterReclears"/>.</summary>
+    public int ReclearCount;
 }
 
 /// <summary>

@@ -126,6 +126,37 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 179** (bundle UNCHANGED — plugin DLL only) — one overflow, one write war, and the
+  table buttons.
+  * **(1)+(2) ONE LINE.** `if (Time.frameCount - _scanFrame >= RescanIntervalFrames)` with
+    `_scanFrame = int.MinValue` **overflows negative**, so the test is false forever (the field is
+    only written inside the branch). `MapLocationInteractor.Rescan` never ran once in 178 — and the
+    feature was **silent** about it, because the "armed" line only printed on a non-empty scan.
+    `MapIconLayer` and `TickPredicate` both special-case the sentinel; this one did not.
+    **(2) falls out of the same line:** `RayInteractor.Mask` starts at
+    `Physics.DefaultRaycastLayers` and the only other writer (`BoardDriver.SyncRayMask`) early-outs
+    without a scenario `Controller`. So the pick hit the table — and `RayGrabDriver` refuses a bar
+    grab whenever the pick is nearer than the bar. In a scenario that test is safe **only because
+    the mask is narrow there**. The map room now owns the mask unconditionally (location layer, or
+    **zero** when there are no icons — the correct value in a room whose only physics targets are
+    those icons).
+  * **(3) The flicker was a per-frame write war, and the log measured it: 18,994 of 20,173 lines**
+    were `MODAL DIAG: adopted canvas … had overrideSorting flipped back ON by the game — re-cleared`.
+    The guard cleared it in LateUpdate; a game writer set it every Update. Neither wins — the
+    canvas re-sorts every frame and the two MultiPass eyes can disagree. **A write war with the
+    game is never won by writing harder.** The adoption now **concedes** after 3 caught frames:
+    stops touching the FLAG, owns the NUMBER (sortingOrder pinned to the host's live draw order).
+  * **(4) Phase 6 shipped** — `WorldUI/MapRoom/MapButtonRail`: `UIGuildmasterHUD`'s bar as physical
+    caps on the table rim, world-fixed. **The look is SAMPLED, not modelled** (user ruling: same
+    symbols *and* same animations): per frame each cap copies the live icon sprite (re-assigned by
+    the game on every `SetMode`), its colour/scale, the `CanvasGroup` alpha, and the highlight
+    graphic under `highlightAnimator` — the object the game `SetActive`s and drives with
+    `LoopAnimator.StartLoop`, whose live alpha and scale *are* the press-me pulse. A copy of an
+    animation drifts; a sample cannot. Press = `ExecuteEvents.pointerClickHandler` on the real
+    `Toggle`; a cap the game would refuse is dimmed with its collider off.
+    `UIGuildmasterHUD` joins `ModalFallback`'s known-HUD list — the log's own churn fuse had already
+    called it *"a cycling HUD banner, not a waiting decision"*.
+
 - **ModBuild 178** (bundle UNCHANGED — plugin DLL only) — the map room gets its UI, its laser and
   its locations.
   * **User on 177:** *"Der Laser funktioniert nicht … das Optionsmenu öffnet sich nicht & die UI

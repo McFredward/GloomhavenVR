@@ -416,7 +416,78 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 178;
+    public const ushort ModBuild = 179;
+    // Build 179: ONE OVERFLOW, ONE WRITE WAR, AND THE TABLE BUTTONS.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // User, testing 178: "Laser ist da, allerdings kann ich mit nichts auf der map damit
+    // interagieren und die Icons reagieren auch nicht bei einem mouseover. Auch physische Berührung
+    // bewirkt nichts. 2) ... kann ich die bar, die man zum greifen benutzt, hier nicht mit dem
+    // Laser greifen wie man das im Szenario kann. 3) Wenn ich einen Character in dem Fenster öffne
+    // flackert der Inhalt des Fensters stark." Plus, on the buttons: "Die Knöpfe sollen die selben
+    // Symbole haben wie die die im Spiel sind (mit auch den selben Animationen, so leuchtet ein
+    // Knopf immer wieder auf wenn er gedrückt werden soll weil der Host ein Spiel ausgewählt hat)."
+    //
+    // ── (1) AND (2) ARE ONE LINE: AN INTEGER OVERFLOW AGAINST A SENTINEL ─────────────────────
+    //     if (Time.frameCount - _scanFrame >= RescanIntervalFrames)   // _scanFrame = int.MinValue
+    // `1000 - int.MinValue` OVERFLOWS to a large NEGATIVE number, so the test is false — on the
+    // first frame and on every frame after, because _scanFrame is only written INSIDE the branch.
+    // MapLocationInteractor.Rescan therefore never ran once in 178. No locations were found, no
+    // pokeables were registered, nothing was hovered, and — the part that surprised me — the whole
+    // feature was SILENT about it, because the "armed" line only printed on a non-empty scan.
+    // MapIconLayer and MapRoomDriver.TickPredicate both special-case the sentinel for exactly this
+    // reason; this one did not. Fixed, and the scan now reports its outcome INCLUDING zero.
+    //
+    // (2) falls out of the same line. RayInteractor.Mask starts at Physics.DefaultRaycastLayers —
+    // nearly every layer — and the only other writer is BoardDriver.SyncRayMask, which narrows it
+    // to the hex-selection layers and early-outs unless a scenario Controller is alive. In the map
+    // room nothing narrowed it, so the physics pick hit the table, the room and the map. And
+    // RayGrabDriver refuses a bar grab whenever that pick is NEARER than the bar ("no grabbing
+    // through objects") — the bars hang low over the table, so the refusal fired on essentially
+    // every attempt. In a scenario the same test is safe ONLY because the mask is narrow there.
+    // A wide-open mask is not a neutral default; it is a promise that everything is a pick target.
+    // The map room now owns the mask unconditionally — the location layer, or ZERO when there are
+    // no icons, which is the correct value in a room whose only physics targets are those icons.
+    //
+    // ── (3) THE FLICKER WAS A PER-FRAME WRITE WAR, AND THE LOG MEASURED IT ───────────────────
+    // 18,994 of that session's 20,173 log lines were one line:
+    //     MODAL DIAG: adopted canvas 'UI Party Inventory Item Tooltip' had overrideSorting flipped
+    //     back ON by the game — re-cleared
+    // CanvasConversion's guard cleared overrideSorting in LateUpdate; a game writer set it again
+    // every Update. Neither side wins: the canvas's sorting state alternates every frame, and in
+    // MultiPass the two eye passes can land on different sides of it. That is what "flackert stark"
+    // looks like. A write war with the game is never won by writing harder — so the adoption now
+    // CONCEDES after 3 caught frames: it stops touching the FLAG and owns the NUMBER instead,
+    // pinning the canvas's sortingOrder to the host's live draw order. The game's writer is left
+    // satisfied, the subtree still draws with its window, and the notice prints ONCE per canvas.
+    //
+    // ── (4) THE TABLE BUTTONS — worldmap-3d.md phase 6 ───────────────────────────────────────
+    // New WorldUI/MapRoom/MapButtonRail: UIGuildmasterHUD's option bar as physical caps on the
+    // table rim, between the player and the map, world-fixed (the 131 ruling — furniture never
+    // follows the head). The set is READ off the live HUD by component type, so a DLC button gets
+    // a cap for free.
+    //
+    // THE LOOK IS SAMPLED, NOT MODELLED, which is his ruling taken literally. Every frame each cap
+    // copies the LIVE values off the game's own graphics: the icon's sprite (the game re-assigns it
+    // from UIInfoTools.GetGuildmasterModeSprite on every SetMode, so reading it once would freeze a
+    // stale symbol), the icon's colour and localScale, the CanvasGroup alpha, and — for the
+    // press-me pulse — the highlight graphic under `highlightAnimator`, the object the game
+    // SetActives and drives with LoopAnimator.StartLoop (UIGuildmasterButton.cs:143-157). Its live
+    // alpha and scale ARE the animation, so copying them reproduces it frame for frame with no
+    // knowledge of the curves. The new-notification tip rides along as a badge. A copy of an
+    // animation drifts from it; a sample cannot.
+    //
+    // A press is ExecuteEvents.pointerClickHandler on the real Toggle — the game's own click path,
+    // so its guards (interactability, its canToggle predicate, whatever it does about MP authority)
+    // still decide. Nothing goes on the wire. A cap the game would refuse is DIMMED and its
+    // collider is OFF, so it never promises a press it cannot deliver.
+    //
+    // AND THE HUD WINDOW STOPS BEING FLOATED. UIGuildmasterHUD joins ModalFallback's known-HUD list.
+    // The log shows why in its own words: it converted, released ("open=True, convertWanted=True")
+    // and re-converted until the churn fuse blew and named it — "a cycling HUD banner, not a
+    // waiting decision". The rail is its VR surface now, exactly as the card fans are
+    // CardsHandManager's.
+    //
     // Build 178: THE MAP ROOM GETS ITS UI, ITS LASER AND ITS LOCATIONS.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

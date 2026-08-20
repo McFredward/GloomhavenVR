@@ -287,10 +287,21 @@ internal static partial class ModalFallback
               || window.GetComponentInParent<CombatLogHandler>() != null
               || window.GetComponentInParent<UINotificationManager>() != null
               || window.GetComponentInParent<PhaseBannerHandler>() != null
+              // ModBuild 179: UIGuildmasterHUD is the campaign map's PERMANENT bar, not a decision.
+              // Floating it produced exactly the failure mode this list exists for — the log shows
+              // it converted, released ("open=True, convertWanted=True") and re-converted until the
+              // churn fuse blew and named it itself: "a cycling HUD banner, not a waiting decision".
+              // Its VR surface is now WorldUI/MapRoom/MapButtonRail, which stands its buttons on the
+              // table as physical caps — the same relationship the card fans have to CardsHandManager
+              // one line above. Unconditional, not map-room-gated: this verdict is CACHED per window
+              // instance below, so a gate that changed with the room would be sticky and wrong half
+              // the time — and on the flat 2D map the screen shows the bar anyway.
+              || window.GetComponentInParent<UIGuildmasterHUD>() != null
               || window.GetComponentInChildren<CardsHandManager>(true) != null
               || window.GetComponentInChildren<CombatLogHandler>(true) != null
               || window.GetComponentInChildren<UINotificationManager>(true) != null
-              || window.GetComponentInChildren<PhaseBannerHandler>(true) != null;
+              || window.GetComponentInChildren<PhaseBannerHandler>(true) != null
+              || window.GetComponentInChildren<UIGuildmasterHUD>(true) != null;
         HudVerdict[window] = hud;
         return hud;
     }

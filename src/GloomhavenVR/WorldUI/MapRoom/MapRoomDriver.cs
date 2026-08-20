@@ -65,6 +65,7 @@ internal static class MapRoomDriver
     private static readonly MapParchment Parchment = new();
     private static readonly MapIconLayer Icons = new();
     private static readonly MapLocationInteractor Locations = new();
+    private static readonly MapButtonRail Buttons = new();
 
     // Facts the rig hands over at build time so the ONE map-room line can state them all together
     // (a diagnostic split across two lines is a diagnostic a log reader has to correlate by hand).
@@ -89,6 +90,11 @@ internal static class MapRoomDriver
 
     /// <summary>The parchment renderer while the room owns one — the bounds the seat came from.</summary>
     internal static MeshRenderer? ParchmentRenderer => Parchment.Renderer;
+
+    /// <summary>The live map choreographer, or null. Exposed so the room's own parts can ask it the
+    /// questions it alone can answer (which parents hold the locations, which map is shown) instead
+    /// of sweeping the scene.</summary>
+    internal static global::MapChoreographer? Choreographer => _choreo;
 
     /// <summary>
     /// Evaluate the mode predicate. Called once per frame from <c>VRRigDriver.UpdateBody</c>
@@ -310,6 +316,10 @@ internal static class MapRoomDriver
         // and losing input for the frames of a world↔city switch would be a worse bug than a
         // hover on an icon whose parchment is being swapped underneath it.
         Locations.Tick();
+        // The guildmaster bar as physical table buttons (phase 6). Same reasoning as above for
+        // running it unconditionally: the buttons are their own GameObjects and do not depend on
+        // the parchment being measurable this frame.
+        Buttons.Tick();
         if (have)
         {
             // The ONE map dump, from the room's own vantage (the flat path calls the same method
@@ -340,6 +350,7 @@ internal static class MapRoomDriver
         Core.Events.VRModeStateMachine.SetModRoom(false);
         _reportPending = false;
         Locations.Release(reason);
+        Buttons.Release(reason);
         Icons.Release(reason);
         Parchment.Release(reason);
         FlatScreenStereo.MapRoomOwnsParchment = false;

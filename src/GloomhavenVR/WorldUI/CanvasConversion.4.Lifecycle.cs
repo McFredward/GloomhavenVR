@@ -42,6 +42,11 @@ internal static partial class CanvasConversion
             {
                 record.Canvas.overrideSorting = record.OriginalOverrideSorting;
                 record.Canvas.worldCamera = record.OriginalWorldCamera;
+                // A conceded canvas is the one whose sortingOrder we took over — hand that back
+                // too, or the game's 2D home would keep a draw order borrowed from a world-space
+                // host that no longer exists.
+                if (record.ConcededOverrideSorting)
+                    record.Canvas.sortingOrder = record.OriginalSortingOrder;
             }
             if (record.AddedRaycaster != null)
                 Object.Destroy(record.AddedRaycaster);
@@ -590,25 +595,76 @@ internal static partial class CanvasConversion
     /// out of the host's dominant order for up to half a second (visible as flicker).
     /// Change-gated writes; only the (few) adopted entries of modal hosts are touched.
     /// </summary>
+    /// <summary>
+    /// How many frames a game writer may win the <c>overrideSorting</c> flag before the adoption
+    /// stops clearing it and takes the sortingOrder instead (see
+    /// <see cref="NestedCanvasRecord.ConcededOverrideSorting"/>). Small: a genuine one-off write
+    /// (a canvas re-enabled, a dropdown opened) is a single frame, while a per-frame writer is
+    /// unmistakable by the third.
+    /// </summary>
+    internal const int ConcedeAfterReclears = 3;
+
     private static void ReassertAdoptedSorting(ConvertedPanel panel)
     {
         for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
         {
-            Canvas nested = panel.AdoptedCanvases[i].Canvas;
+            NestedCanvasRecord rec = panel.AdoptedCanvases[i];
+            Canvas nested = rec.Canvas;
             if (nested == null)
                 continue;
+
+            // CONCEDED: the game owns the flag, we own the number. sortingOrder follows the HOST's
+            // live order (CanvasConversion.8.Order re-sorts it per frame by eye distance), so the
+            // subtree keeps drawing with its window while the game's writer is left alone.
+            if (rec.ConcededOverrideSorting)
+            {
+                if (panel.HostCanvas != null && nested.sortingOrder != panel.HostCanvas.sortingOrder)
+                    nested.sortingOrder = panel.HostCanvas.sortingOrder;
+                if (panel.HostCanvas != null && nested.worldCamera != panel.HostCanvas.worldCamera)
+                    nested.worldCamera = panel.HostCanvas.worldCamera;
+                continue;
+            }
+
             // Task #7: dropdown overlays (list/blocker) KEEP overrideSorting by design —
             // AdoptCanvas re-asserts their top order; clearing it here would re-create
             // the vanishing-dropdown bug this guard must not fight.
-            if (panel.AdoptedCanvases[i].KeepOverrideSorting)
+            if (rec.KeepOverrideSorting)
                 continue;
+
             if (nested.overrideSorting)
             {
+                if (++rec.ReclearCount >= ConcedeAfterReclears)
+                {
+                    // STOP FIGHTING. Neither side wins a per-frame write war; the canvas's sorting
+                    // state just alternates, and in MultiPass the two eye passes can land on
+                    // different sides of it. Take the order instead and leave the flag.
+                    rec.ConcededOverrideSorting = true;
+                    rec.KeepOverrideSorting = true;
+                    if (panel.HostCanvas != null)
+                        nested.sortingOrder = panel.HostCanvas.sortingOrder;
+                    panel.AdoptedCanvases[i] = rec;
+                    VRLog.Info("WorldUI", $"MODAL SORTING CONCEDED: adopted canvas '{nested.name}' in " +
+                                          $"'{panel.HostGo.name}' had overrideSorting flipped back ON by a " +
+                                          $"game writer {rec.ReclearCount} frames running. The mod now owns " +
+                                          "its sortingOrder (which follows the host's live draw order) and " +
+                                          "leaves the FLAG to the game. A per-frame write war has no winner " +
+                                          "— the canvas re-sorts every frame and the two MultiPass eyes can " +
+                                          "disagree, which is what 'flackert stark' looks like. This line is " +
+                                          "printed ONCE per canvas.");
+                    continue;
+                }
                 nested.overrideSorting = false;
-                VRLog.Info("WorldUI", $"MODAL DIAG: adopted canvas '{nested.name}' in " +
-                                      $"'{panel.HostGo.name}' had overrideSorting flipped back ON by the game — " +
-                                      "re-cleared (it was rendering at its own order, out of the host's).");
+                panel.AdoptedCanvases[i] = rec;
+                VRLog.Debug("WorldUI", $"MODAL DIAG: adopted canvas '{nested.name}' in " +
+                                       $"'{panel.HostGo.name}' had overrideSorting flipped back ON by the game — " +
+                                       $"re-cleared ({rec.ReclearCount}/{ConcedeAfterReclears} before conceding).");
             }
+            else if (rec.ReclearCount != 0)
+            {
+                rec.ReclearCount = 0;   // it settled — a one-off write, not a writer
+                panel.AdoptedCanvases[i] = rec;
+            }
+
             if (panel.HostCanvas != null && nested.worldCamera != panel.HostCanvas.worldCamera)
                 nested.worldCamera = panel.HostCanvas.worldCamera;
         }

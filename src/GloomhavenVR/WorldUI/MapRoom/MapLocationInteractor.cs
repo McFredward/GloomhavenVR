@@ -67,6 +67,8 @@ internal sealed class MapLocationInteractor
 
     private readonly List<MapLocation> _locations = new(64);
     private readonly List<MapLocationPoke> _pokes = new(64);
+    private readonly List<MapLocation> _found = new(64);    // rescan scratch, reused
+    private readonly List<MapLocation> _scratch = new(64);  // GetComponentsInChildren sink
 
     private int _scanFrame = int.MinValue;
     private int _maskInForce;
@@ -87,18 +89,27 @@ internal sealed class MapLocationInteractor
     /// </summary>
     internal void Tick()
     {
-        if (Time.frameCount - _scanFrame >= RescanIntervalFrames)
+        // THE `_scanFrame == int.MinValue` TERM IS LOAD-BEARING, NOT DEFENSIVE (ModBuild 179).
+        // Without it the FIRST test is `Time.frameCount - int.MinValue`, which OVERFLOWS to a large
+        // NEGATIVE number — so `>= RescanIntervalFrames` is false and the scan never runs, not once,
+        // for the whole session. That is exactly what shipped in 178: no locations were ever found,
+        // the pick mask was never narrowed, and the feature was silent about all of it.
+        // MapIconLayer and MapRoomDriver.TickPredicate both special-case the sentinel for this
+        // reason; this one did not.
+        if (_scanFrame == int.MinValue || Time.frameCount - _scanFrame >= RescanIntervalFrames)
         {
             _scanFrame = Time.frameCount;
             Rescan();
         }
+
+        // THE MASK IS OWNED UNCONDITIONALLY, INCLUDING WHEN THERE ARE NO LOCATIONS — see ApplyMask.
+        ApplyMask();
+
         if (_locations.Count == 0)
         {
             SetHover(null, "no map locations in the scene");
             return;
         }
-
-        ApplyMask();
 
         // THE HOVER COMES FROM THE SHARED RAY PICK, not from a raycast of this class's own. The
         // pick is already computed once per hand per frame, it already carries the fan/board
@@ -159,11 +170,35 @@ internal sealed class MapLocationInteractor
 
     private void Rescan()
     {
-        MapLocation[] found = Object.FindObjectsOfType<MapLocation>();
+        // TWO ROUTES, THE CHOREOGRAPHER'S FIRST. MapChoreographer instantiates every location under
+        // m_VillagesParent / m_ScenariosParent (decompiled MapChoreographer.cs:601,611,635), which is
+        // the same pair MapIconLayer collects its decals from — so asking the parents directly is
+        // both the cheapest and the most faithful question. FindObjectsOfType is kept as the fallback
+        // for a save/version that parents them elsewhere, exactly as the icon layer does.
+        _found.Clear();
+        global::MapChoreographer? choreo = MapRoomDriver.Choreographer;
+        if (choreo != null)
+        {
+            CollectFrom(choreo.m_VillagesParent);
+            CollectFrom(choreo.m_ScenariosParent);
+        }
+        int fromParents = _found.Count;
+        if (_found.Count == 0)
+        {
+            MapLocation[] sweep = Object.FindObjectsOfType<MapLocation>();
+            for (int i = 0; i < sweep.Length; i++)
+            {
+                if (sweep[i] != null && sweep[i].gameObject.activeInHierarchy)
+                    _found.Add(sweep[i]);
+            }
+        }
 
         // Nothing changed? The common case by far — locations only churn on InitMap.
-        if (found.Length == _locations.Count && SameSet(found))
+        if (_found.Count == _locations.Count && SameSet(_found))
+        {
+            ReportOnce(fromParents);
             return;
+        }
 
         for (int i = 0; i < _pokes.Count; i++)
         {
@@ -177,9 +212,9 @@ internal sealed class MapLocationInteractor
         _locations.Clear();
 
         int mask = 0;
-        for (int i = 0; i < found.Length; i++)
+        for (int i = 0; i < _found.Count; i++)
         {
-            MapLocation loc = found[i];
+            MapLocation loc = _found[i];
             if (loc == null)
                 continue;
             _locations.Add(loc);
@@ -195,31 +230,63 @@ internal sealed class MapLocationInteractor
         }
         _maskInForce = mask;
 
-        // A live hover whose location died with the old map must not be exited through a
-        // destroyed object — drop it silently instead.
-        if (_hover == null)
-            _reported = false;
+        _maskInForce = mask;
+        _reported = false;   // the set changed — say so once more
+        ReportOnce(fromParents);
+    }
 
-        if (!_reported && _locations.Count > 0)
+    private void CollectFrom(GameObject? parent)
+    {
+        if (parent == null)
+            return;
+        parent.GetComponentsInChildren(includeInactive: false, _scratch);
+        for (int i = 0; i < _scratch.Count; i++)
         {
-            _reported = true;
-            VRLog.Info(Scope, $"MAP ROOM location input armed — {_locations.Count} MapLocation(s), "
-                              + $"{_pokes.Count} of them fingertip-pressable, pick mask 0x{mask:X8} "
-                              + "MEASURED off their own gameObject.layer (the game's own selector holds "
-                              + "the same value in a private field, which is why it is measured and not "
-                              + "copied). A click is ExecuteEvents.pointerClickHandler on the real "
-                              + "MapLocation — the same dispatch the game's gamepad path makes — so "
-                              + "IsSelectable() and the game's own click action still decide, and nothing "
-                              + "new goes on the wire.");
+            if (_scratch[i] != null && !_found.Contains(_scratch[i]))
+                _found.Add(_scratch[i]);
         }
     }
 
-    /// <summary>Set comparison, NOT index comparison: <c>FindObjectsOfType</c> gives no order
-    /// guarantee, and comparing by position would tear down and rebuild every adapter on the
-    /// rescan cadence forever. O(n²) over ~30 icons at 4 Hz — free.</summary>
-    private bool SameSet(MapLocation[] found)
+    /// <summary>
+    /// ONE line per scan OUTCOME, and it is emitted for a count of ZERO too. ModBuild 178's scan
+    /// never ran (an int.MinValue overflow) and said nothing about it, so the hardware round could
+    /// only report "nothing happens" — the log has to be able to distinguish "found nothing",
+    /// "found them but the click was refused" and "never looked".
+    /// </summary>
+    private void ReportOnce(int fromParents)
     {
-        for (int i = 0; i < found.Length; i++)
+        if (_reported)
+            return;
+        _reported = true;
+        if (_locations.Count == 0)
+        {
+            VRLog.Warn(Scope, "MAP ROOM location input found NO MapLocation — neither under the "
+                              + "choreographer's Villages/Scenarios parents nor in a scene-wide sweep. "
+                              + "Laser and fingertip have nothing to hover, which is a real gap, not a "
+                              + "quiet success. Pick mask is 0x0 (see the mask line): that is deliberate "
+                              + "and keeps the window grab bars grabbable. If the map visibly HAS icons, "
+                              + "compare against the MAP ROOM icons line — the icon layer counts DECALS "
+                              + "and this counts MapLocation components; a disagreement between the two "
+                              + "numbers is the next thing to chase.");
+            return;
+        }
+        VRLog.Info(Scope, $"MAP ROOM location input armed — {_locations.Count} MapLocation(s) "
+                          + $"({fromParents} via the choreographer's own Villages/Scenarios parents, "
+                          + $"{_locations.Count - fromParents} via the scene-wide fallback), "
+                          + $"{_pokes.Count} of them fingertip-pressable, pick mask 0x{_maskInForce:X8} "
+                          + "MEASURED off their own gameObject.layer (the game's own selector holds the "
+                          + "same value in a private field, which is why it is measured and not copied). "
+                          + "A click is ExecuteEvents.pointerClickHandler on the real MapLocation — the "
+                          + "same dispatch the game's gamepad path makes — so IsSelectable() and the "
+                          + "game's own click action still decide, and nothing new goes on the wire.");
+    }
+
+    /// <summary>Set comparison, NOT index comparison: neither route guarantees an order, and
+    /// comparing by position would tear down and rebuild every adapter on the rescan cadence
+    /// forever. O(n²) over ~30 icons at 4 Hz — free.</summary>
+    private bool SameSet(List<MapLocation> found)
+    {
+        for (int i = 0; i < found.Count; i++)
         {
             if (found[i] == null || !_locations.Contains(found[i]))
                 return false;
@@ -251,10 +318,28 @@ internal sealed class MapLocationInteractor
 
     // ---- picking ----------------------------------------------------------------------------
 
+    /// <summary>
+    /// Own both hands' physics pick mask for as long as the room stands — AND OWN IT EVEN WHEN NO
+    /// LOCATION WAS FOUND, in which case the mask is ZERO.
+    ///
+    /// <para>THIS IS NOT A DETAIL; IT IS WHY THE WINDOW GRAB BARS COULD NOT BE GRABBED (ModBuild
+    /// 179). <c>RayInteractor.Mask</c> starts at <c>Physics.DefaultRaycastLayers</c> — nearly every
+    /// layer — and the only other writer is <c>Board.BoardDriver.SyncRayMask</c>, which narrows it
+    /// to the game's hex-selection layers and returns early unless a scenario <c>Controller</c> is
+    /// alive. In the map room nothing narrowed it, so the pick hit the table, the room and the map
+    /// itself. <c>RayGrabDriver</c> then refuses a bar grab whenever that pick is NEARER than the
+    /// bar ("no grabbing through objects"), and the bars hang low, over the table — so the refusal
+    /// fired on essentially every attempt. In a scenario the same test is safe only BECAUSE the
+    /// mask is narrow there. A wide-open mask is not a neutral default; it is a promise that
+    /// everything in the room is a pick target.</para>
+    ///
+    /// <para>Zero is therefore the correct value when there are no icons: in this room the ONLY
+    /// physics pick targets that mean anything are the location icons. Everything else the player
+    /// points at — window bars, window widgets — is served by <c>RayGrabDriver</c>/<c>RayUguiDriver</c>
+    /// through their own geometric tests, which do not use this mask at all.</para>
+    /// </summary>
     private void ApplyMask()
     {
-        if (_maskInForce == 0)
-            return;
         VRHand? left = VRHands.Left;
         VRHand? right = VRHands.Right;
         if (!_maskTaken)
@@ -262,6 +347,13 @@ internal sealed class MapLocationInteractor
             _maskTaken = true;
             _maskWasLeft = left != null ? left.Ray.Mask.value : Physics.DefaultRaycastLayers;
             _maskWasRight = right != null ? right.Ray.Mask.value : Physics.DefaultRaycastLayers;
+            VRLog.Info(Scope, $"MAP ROOM pick mask TAKEN: 0x{_maskWasLeft:X8}/0x{_maskWasRight:X8} → "
+                              + $"0x{_maskInForce:X8} ({_locations.Count} location icon(s)). A mask of 0 "
+                              + "is CORRECT here and not a failure: the icons are the only physics pick "
+                              + "targets in this room, and window bars/widgets are served by their own "
+                              + "geometric tests. Leaving it at Physics.DefaultRaycastLayers is what made "
+                              + "RayGrabDriver refuse every bar grab in 178 — the pick hit the table in "
+                              + "front of the bar and the 'no grabbing through objects' rule fired.");
         }
         // Re-asserted every frame rather than latched: the hands are rebuilt on a skin change and
         // a fresh RayInteractor starts on Physics.DefaultRaycastLayers. Board.BoardDriver.SyncRayMask

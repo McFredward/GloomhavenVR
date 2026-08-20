@@ -213,7 +213,13 @@ internal static partial class CanvasConversion
             NestedCanvasRecord existing = panel.AdoptedCanvases[i];
             if (!ReferenceEquals(existing.Canvas, nested))
                 continue;
-            if (existing.KeepOverrideSorting)
+            if (existing.ConcededOverrideSorting)
+            {
+                // ModBuild 179: the game owns the flag on this one. Do NOT touch it here either —
+                // this sweep runs every 30 frames and would restart the write war the concession
+                // exists to end. The per-frame guard (ReassertAdoptedSorting) owns the order.
+            }
+            else if (existing.KeepOverrideSorting)
             {
                 // Task #7: a dropdown overlay stays TOP-sorted while it lives.
                 if (!nested.overrideSorting)
@@ -235,6 +241,7 @@ internal static partial class CanvasConversion
         {
             Canvas = nested,
             OriginalOverrideSorting = nested.overrideSorting,
+            OriginalSortingOrder = nested.sortingOrder,
             OriginalWorldCamera = nested.worldCamera,
             KeepOverrideSorting = overlay,
             OverlaySortingOrder = nested.name == DropdownBlockerName
