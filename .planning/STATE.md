@@ -126,8 +126,54 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 188** (bundle UNCHANGED — plugin DLL only) — the instrument was wrong, the anchor was
+  in the wrong frame, and the merchant's list was a fragment of a closed screen. *(Two dedicated
+  workers, user-requested, on isolated worktrees with split file ownership.)*
+  * **RETRACTION — 186's flicker diagnosis was wrong, and my own probe caused it.**
+    `RenderTargetProbe`'s A-B-A test was **inverted against its own doc comment**: it required
+    `now == t-1 && now != t-2`, which is *a transition that then held* — the opposite of a flicker.
+    A value alternating every frame never satisfies `now == t-1`, so the probe was **blind to what
+    it was written to find and loud about what it was written to ignore.** Proof by position in the
+    187 log: the assembly screen opened once and closed once all session, and all six warnings sit
+    on those two frames (SHOWN 4297 → 4305-4307; hidden 4364/4365 → 4367-4369, nothing between).
+    That is one legitimate `beautify.enabled = true` and one legitimate `= false`. **Beautify never
+    flickered; the flicker is still open.** The probe now classifies ALTERNATION / TRANSITION
+    (labelled NOT A FLICKER) / SWEEP, reports every differing field, prints a **baseline every 10 s
+    regardless**, and samples the manager's model count, request count and `isHidden`.
+  * **Still a real defect, kept fixed:** exactly ONE of the four things
+    `Character3DDisplayManager.Hide` does honours the refcount — `isHidden`, `character3D.Hide()`
+    and `HideAll`'s unload fire for **any** requester. First window to close blanks the character
+    out from under a second, and `isHidden = true` stops the async load restoring it. Unreachable
+    in the flat game; created by the map room's parallel windows. Gated, plus a dead-requester
+    sweep and caller attribution with a per-second **rate** verdict.
+  * **Mouseover (a) offset — two frames that were never the same frame.** `TryHoverAnchor` anchored
+    on `loc.transform.position.x/z` at `_boxCollider.bounds.max.y` (the location's height on the 3D
+    relief); the symbol the player SEES is drawn by `MapIconLayer` at the **decal's** x/z on the
+    flat plane `parchment.bounds.max.y + 0.10`. Divergent per icon, horizontally and vertically.
+    **And the game was still driving the same rect**: `UIQuestPreviewPopup.Show` enables
+    `UIFollowMapLocationInsideArea`, which writes pivot `(0.5,0)` and a `localPosition` from
+    `WorldToScreenPoint` of the map camera **the mod freezes** — a screen number inside a world host
+    at 198×. The game disables that component itself on hide; the mod never did. Now it does, and
+    the card seats on its **measured drawn content**.
+  * **Mouseover (b) coverage.** `MapLocation`'s hit box comes from `UIInfoTools.GetLocationConfig`
+    and is **not resized at all when that config is null**, while the art is rescaled independently
+    by `ShouldOverrideLocationScale` (which moves the decal and leaves the collider). Art bigger
+    than box ⇒ you point at the icon you see and hit nothing. New `MapIconHoverPads` builds one thin
+    pad per location on exactly the quad the mod draws, on the location's own layer; **nearest drawn
+    pad wins**, an authored box only decides when no pad is on the ray. Layer theory checked and
+    **falsified** (the fat snapping collider is layer 20, never in our mask). Two *game* limits are
+    now stated per kind in the log rather than papered over.
+  * **Merchant list — named, not inferred.** 187's `WINDOW IDENTITY` census:
+    `Scroll View` is at `…/UI Shop Item Window/UI Shop Inventory Variant/Content/Scroll View`,
+    ancestor `UI Shop Item Window (ID Shop, open=FALSE)`. **The merchant's own inventory, four
+    levels inside the shop window** — not 186's "sibling" (inferred from a first-sweep transform
+    count that proves nothing) and not 187's "party inventory". It floated because the parent-wins
+    rule asked `above.IsOpen` and the shop was **closed**: a fragment of a hidden screen became a
+    window, and stickiness kept it until the merchant's rows poured into it. **One term deleted** —
+    a closed ancestor is the stronger reason to refuse, not the weaker.
+
 - **ModBuild 187** (bundle UNCHANGED — plugin DLL only) — the flicker has a name (a dropped
-  refcount), and the hover card was eating its own beam.
+  refcount), and the hover card was eating its own beam. **(1) RETRACTED at 188 — it did not.)**
   * **(1) THE FLICKER: MEASURED AND FIXED.** `RenderTargetProbe` printed it on its first run —
     `writer camera component enabled-bits 0xD↔0xF`, and bit 1 of
     `[0:Camera, 1:Beautify, 2:Character3DDisplayManager, 3:Character3DDisplayCameraSettings]` is

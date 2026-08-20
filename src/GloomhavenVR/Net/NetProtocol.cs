@@ -416,9 +416,88 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 187;
+    public const ushort ModBuild = 188;
+    // Build 188: THE INSTRUMENT WAS WRONG, THE ANCHOR WAS IN THE WRONG FRAME, AND THE MERCHANT'S
+    // LIST WAS A FRAGMENT OF A CLOSED SCREEN.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── RETRACTION FIRST: BUILD 186's FLICKER DIAGNOSIS WAS WRONG ─────────────────────────
+    // 186 reported that Beautify on the 'GUI 3D Camera' was toggling every few frames and called
+    // that the flicker. 187 patched the refcount on that basis and nothing changed. It did not
+    // change because RenderTargetProbe's A-B-A test was INVERTED AGAINST ITS OWN DOC COMMENT:
+    //
+    //     if (FirstDifference(prev,   now) != null) return;   // requires now == t-1
+    //     if (FirstDifference(before, now) == null) return;   // requires now != t-2
+    //
+    // now == t-1 && now != t-2 is a TRANSITION THAT THEN HELD — the exact opposite of a flicker. A
+    // value that alternates every frame never satisfies now == t-1 at all, so the probe was BLIND
+    // to what it was written to find and LOUD about what it was written to ignore.
+    //
+    // The 187 hardware log settles it by position alone: the assembly screen opened ONCE and closed
+    // ONCE all session, and all six warnings sit on exactly those two frames — SHOWN at 4297 → three
+    // 0xD↔0xF at 4305-4307; hidden at 4364/4365 → three 0xF↔0xD at 4367-4369, nothing in between.
+    // (Three per event because three RawImages sample that one RenderTexture.) That is Display()
+    // setting beautify.enabled = true when the window opened and Hide() clearing it when it closed.
+    // BEAUTIFY NEVER FLICKERED. The sixth round never had a subject, and the flicker is still open.
+    //
+    // The probe now classifies ALTERNATION (now == t-2 && now != t-1 — the real signature, Warn),
+    // TRANSITION (Info, explicitly labelled NOT A FLICKER so no later round can promote one into
+    // evidence again) and SWEEP, reports every differing field rather than the first, and prints a
+    // BASELINE per watched image every 10 s whether or not anything moved. It also samples what no
+    // camera bit can see: the manager's active model count, its show-request count and isHidden.
+    //
+    // ── WHAT IS STILL A REAL DEFECT, AND STAYS FIXED ──────────────────────────────────────
+    // Character3DDisplayManager's refcount is honoured by exactly ONE of the four things Hide()
+    // does. isHidden, character3D.Hide() (SetActive(false) on the models) and HideAll's unload all
+    // fire for ANY requester, so the first window to close blanks the character out of a texture a
+    // second open window is still showing — and leaves isHidden = true, so the async load's
+    // `if (!isHidden) Show()` refuses to put it back. The flat game's single-window discipline makes
+    // this unreachable; the map room's parallel windows create it. Gate added on Hide and HideAll,
+    // plus a dead-requester sweep (a gate that can be held open forever is worse than no gate) and
+    // caller attribution by stack walk with a per-second cadence line that distinguishes "a window
+    // opened" from a flicker RATE. With a single requester every path is byte-identical to vanilla.
+    //
+    // ── THE MOUSEOVER: TWO FRAMES THAT WERE NEVER THE SAME FRAME ──────────────────────────
+    // (a) OFFSET. TryHoverAnchor anchored on loc.transform.position.x/z at _boxCollider.bounds.max.y
+    // — the location's own height on the 3D relief. The symbol the player SEES is drawn by
+    // MapIconLayer as a quad at the DECAL's x/z on the flat plane parchment.bounds.max.y + 0.10.
+    // Two different frames, horizontally and vertically, diverging per icon. Exactly "meist
+    // verschoben und nicht perfekt über dem Symbol".
+    // AND the game was still driving the same rect: UIQuestPreviewPopup.Show enables its
+    // UIFollowMapLocationInsideArea, which every LateUpdate writes pivot (0.5,0) and a localPosition
+    // derived from WorldToScreenPoint of the map camera THE MOD FREEZES — a screen-space number
+    // applied inside a world-space host at 198x scale. The game disables that component itself when
+    // it puts the popup away; the mod never did. Now it does, and the card is seated by its MEASURED
+    // drawn content rather than by its authored root rect.
+    // (b) COVERAGE. MapLocation's hit box is sized from UIInfoTools.GetLocationConfig and is NOT
+    // resized at all when that config is null, while the drawn art is rescaled independently by
+    // GlobalSettings.AdventureLocationMaterialSettings.ShouldOverrideLocationScale — which moves the
+    // decal and leaves the collider alone. Art bigger than box means you point at the icon you see
+    // and hit nothing. So the mod now builds ONE thin pad per location on exactly the quad it draws,
+    // on the location's own layer so the existing measured pick mask sees it, and the nearest drawn
+    // pad wins; an authored box only decides when no pad is on the ray. The layer theory was checked
+    // and FALSIFIED (the fat snapping collider is on layer 20 and was never in our mask).
+    // Two limits are the GAME's and are now stated per kind in the log instead of papered over: a
+    // location with no LocationQuest is not selectable unless it is an available HQ or store, and
+    // UpdateMarkers returns before previewing when HasQuestPreview() is false.
+    //
+    // ── THE MERCHANT'S LIST: A FRAGMENT OF A CLOSED SCREEN ────────────────────────────────
+    // 187's WINDOW IDENTITY census named it instead of inferring it — and both earlier inferences
+    // were wrong (186: "a sibling", from a first-sweep transform count that proves nothing; 187:
+    // "the party inventory"):
+    //     'Scroll View' path Campaign Canvas/UI Guildmaster HUD/UI Shop Item Window/
+    //         UI Shop Inventory Variant/Content/Scroll View
+    //     components [RectTransform, CanvasRenderer, ExtendedScrollRect, CanvasGroup, UIWindow]
+    //     nearest ancestor UIWindow 'UI Shop Item Window' (ID Shop, open=FALSE)
+    // It is the merchant's own inventory, four levels INSIDE the shop window. It floated because the
+    // parent-wins rule asked above.IsOpen and the shop window was CLOSED at that moment — so a
+    // fragment of a hidden screen became a window of its own, a quarter of an hour before the
+    // merchant was opened, and the sticky rule kept it there until the merchant's rows poured into
+    // it. A closed ancestor is the STRONGER reason to refuse, not the weaker one: an open ancestor
+    // at least renders the child somewhere. One term deleted.
+    //
     // Build 187: THE FLICKER HAS A NAME — A DROPPED REFCOUNT — AND THE HOVER CARD WAS EATING ITS
-    // OWN BEAM.
+    // OWN BEAM. (Retracted above: it did not.)
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //
     // ── (1) THE FLICKER, MEASURED AND FIXED ───────────────────────────────────────────────

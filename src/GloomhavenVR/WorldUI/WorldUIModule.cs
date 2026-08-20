@@ -60,9 +60,13 @@ internal sealed class WorldUIModule : IVRModule
         // camera's screen centre and would cancel the laser's hover every frame. Pure early-out,
         // keyed on MapRoomDriver.Active — inert in every other scene.
         VRSession.Harmony?.PatchAll(typeof(Patches.MapLocationSelectorGate));
-        // ModBuild 187: the measured flicker — the game's character-display refcount drops a
-        // reference on its early-return path, and the map room's parallel windows are the first
-        // thing that ever creates a second requester. See Character3DDisplayRefcount.
+        // ModBuild 188: the game's character-display refcount is respected by exactly ONE of the
+        // four things Hide() does — beautify.enabled. isHidden, the model SetActive(false) and
+        // HideAll's unload all fire for any requester, and Display's early-return path never takes
+        // a reference at all. The map room's parallel windows are the first thing that ever creates
+        // a second requester, so we own the repair. NOT the ModBuild 186 flicker diagnosis: that
+        // rested on an inverted A-B-A test and is retracted in the patch header and in
+        // RenderTargetProbe. See Character3DDisplayRefcount.
         VRSession.Harmony?.PatchAll(typeof(Patches.Character3DDisplayRefcount));
 
         VREvents.UiLockChanged += OnUiLock;

@@ -1,53 +1,72 @@
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 using GloomhavenVR.Core;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// THE FLICKER, ROUND 6 — MEASURE THE THING THAT ACTUALLY FLICKERS.
+/// THE FLICKER — THE INSTRUMENT ITSELF WAS WRONG (ModBuild 188), and this is the repair.
 ///
-/// <para>WHAT TWO MEASUREMENTS HAVE ALREADY SETTLED, so that nothing here re-opens them:
-/// <list type="number">
-/// <item><see cref="PanelFlickerProbe"/> ran two full hardware sessions and printed NOTHING —
-/// across every floated panel, the two MultiPass eye passes never disagreed inside a frame and
-/// successive frames never alternated, on canvas enabled, sortingOrder, overrideSorting,
-/// renderMode, worldCamera, layer, host activity or host pose. <b>The panels' own state is
-/// steady.</b></item>
-/// <item><see cref="CameraOrderProbe"/> (ModBuild 185) logged exactly ONE render-order shape for a
-/// whole session: <c>MapCamera[→RT] → UI Camera[→RT] → GUI 3D Camera[→RT] → HeadCamera[Left] →
-/// HeadCamera[Right]</c> — <b>zero cameras between the two eye passes.</b> Every RenderTexture in
-/// the frame is finished before either eye starts, so both eyes sample the same pixels.</item>
+/// <para>WHAT ModBuild 186 BELIEVED IT HAD MEASURED: <c>Beautify</c> on the 'GUI 3D Camera' going
+/// ON, OFF, ON, OFF every few frames, and with it the graded/ungraded render alternating inside
+/// 'Character 3D assembly wide render texture'. ModBuild 187 patched the game's show-request
+/// refcount on that basis and the warnings came back unchanged. They came back because
+/// <b>this probe never detected an alternation in its life</b>. Its own doc said "A-B-A: this tick
+/// matches two ticks ago and differs from the one between"; its code said the opposite:</para>
+///
+/// <code>
+///     string? changed = FirstDifference(prev, now);
+///     if (changed != null) return;          // REQUIRES now == prev  (t-1)
+///     string? swing = FirstDifference(before, now);
+///     if (swing == null) return;            // REQUIRES now != before (t-2)
+/// </code>
+///
+/// <para>now == t-1 and now != t-2 is a <b>TRANSITION that then held</b> — the exact opposite of a
+/// flicker. A value alternating every frame never satisfies <c>now == prev</c> at all, so the old
+/// test was BLIND to the thing it was written to find and LOUD about the thing it was written to
+/// ignore.</para>
+///
+/// <para>AND THE 187 HARDWARE LOG PROVES IT, by position alone. The assembly screen opened once and
+/// closed once in the whole session, and the six warnings sit exactly on those two frames:
+/// <c>UIWindow SHOWN: 'Campaign Adventure Party Assembly Variant'</c> at log line 4297 → three
+/// <c>0xD↔0xF</c> warnings at 4305-4307; <c>UIWindow hidden</c> at 4364/4365 → three
+/// <c>0xF↔0xD</c> warnings at 4367-4369. Nothing in between. (Three warnings per event because
+/// three separate RawImages sample that one RenderTexture — see the three identical CENSUS lines at
+/// 3069-3071.) That is <c>Display()</c> setting <c>beautify.enabled = true</c> when the window
+/// opened and <c>Hide()</c> clearing it when the window closed: one legitimate ON and one
+/// legitimate OFF, correctly reported as such by a test that could only describe them as a flicker.
+/// <b>Beautify is not the flicker, and the sixth round never had a subject.</b></para>
+///
+/// <para>WHAT THIS VERSION MEASURES, and how it says so:
+/// <list type="bullet">
+/// <item><b>ALTERNATION</b> — <c>now == t-2 &amp;&amp; now != t-1</c>: the value left and came back
+/// inside three ticks. This is the flicker signature, and it is what the doc always claimed.</item>
+/// <item><b>TRANSITION</b> — <c>now == t-1 &amp;&amp; now != t-2</c>: it changed once and held. Logged
+/// at Info and labelled NOT A FLICKER, so no future round can promote one into evidence again.</item>
+/// <item><b>SWEEP</b> — three different values in three ticks. Counted, not narrated.</item>
+/// <item>A PERIODIC BASELINE every <see cref="SummaryIntervalSeconds"/> seconds per watched image,
+/// printed whether or not anything moved: ticks sampled, alternations, transitions, sweeps, and the
+/// live values. A silent probe and a probe that never ran must never look the same again.</item>
 /// </list></para>
 ///
-/// <para>TAKEN TOGETHER THOSE TWO RESULTS CHANGE THE QUESTION. If the panel is steady and both eyes
-/// read the same texture, then what he sees cannot be stereo rivalry — <b>it is TEMPORAL, and it
-/// is the same in both eyes.</b> Five builds hunted a one-eye bug that the instruments say is not
-/// there. And his latest report narrows the subject to a single object: <i>"Nur der Teil mit dem
-/// Character flackert, die 4 Charactere in der Character-UI ist nach wie vor ok."</i> The four
-/// portraits are plain sprites; the one that flickers is the live render — a
-/// <c>RawImage</c> sampling <c>'Character 3D assembly render texture'</c>, written by
-/// <c>'GUI 3D Camera'</c>.</para>
+/// <para>IT ALSO WATCHES WHAT NO CAMERA BIT CAN SEE. <c>Character3DDisplayManager.Hide(request)</c>
+/// calls <c>character3D.Hide()</c> — <c>SetActive(false)</c> on the model GameObjects under
+/// <c>character3DHolder</c> — and unlike the <c>beautify.enabled = false</c> line beside it that
+/// call is NOT gated on <c>showRequests.Count == 0</c>. A model switched off under a window that
+/// still wants it drains the character out of the render texture while every component on the
+/// writer camera stays exactly as it was. So each sample now also carries the manager's own state:
+/// how many models are active, how many show-requests are held, and <c>isHidden</c>. If the
+/// character is what blinks, that is where it will show.</para>
 ///
-/// <para>SO THIS PROBE WATCHES EXACTLY THAT, AND IT DOES NOT NEED A RENDER HOOK. Temporal
-/// alternation is visible from Update: sample every RawImage inside a floated panel whose texture
-/// is a RenderTexture, together with the camera that writes it, and report any field that goes
-/// A-B-A across three consecutive ticks — naming the image AND the field. The candidates it can
-/// actually distinguish are all live in the game's own code: <c>Character3DDisplayManager.Display</c>
-/// flips <c>beautify.enabled</c> (a full-screen image effect) and
-/// <c>Character3DDisplayCameraSettings.UpdateCharacter</c> writes <c>_camera.renderingPath</c>,
-/// while <c>Character3D.Show/Hide</c> toggles the model's GameObjects through a
-/// <c>HashSet&lt;Component&gt;</c> of show-requests that two of our floated windows could easily be
-/// fighting over.</para>
-///
-/// <para>AND IT PRINTS A CENSUS THE FIRST TIME IT SEES EACH TARGET, whether or not anything is
-/// wrong: the RenderTexture's size, format, MSAA and sRGB, the camera's clear flags, culling mask,
-/// rendering path and depth, and the full list of Behaviours on that camera with their enabled
-/// state (an image effect hides in exactly that list). A quiet log must still say what the thing
-/// was made of — the alternative is a sixth round that cannot tell "measured and clean" from
-/// "never looked".</para>
+/// <para>WHAT REMAINS SETTLED FROM EARLIER ROUNDS, so nothing here re-opens it:
+/// <see cref="PanelFlickerProbe"/> ran three hardware sessions silent (the floated panels' own
+/// state is steady), and <see cref="CameraOrderProbe"/> logged exactly one camera-order shape for a
+/// whole session with ZERO cameras between the two eye passes (both eyes sample the same pixels).
+/// Whatever the flicker is, it is temporal and identical in both eyes.</para>
 /// </summary>
 internal static class RenderTargetProbe
 {
@@ -57,7 +76,11 @@ internal static class RenderTargetProbe
     /// inside a human "it flickers" and far outside a per-frame cost.</summary>
     private const int RefreshIntervalFrames = 30;
 
-    /// <summary>Reports are latched per image and field, so one finding is one line.</summary>
+    /// <summary>How often each watch prints its baseline, hit or no hit.</summary>
+    private const float SummaryIntervalSeconds = 10f;
+
+    /// <summary>Findings are latched per image, per kind and per field, so one finding is one line;
+    /// the running counts live in the periodic summary instead.</summary>
     private static readonly HashSet<string> Reported = new();
 
     private sealed class Sample
@@ -78,6 +101,13 @@ internal static class RenderTargetProbe
         internal CameraClearFlags CamClear;
         internal int CamMask;
         internal int BehaviourBits;
+
+        // Character3DDisplayManager's own state — the model toggle is invisible to everything above.
+        internal bool MgrValid;
+        internal int ModelChildren;
+        internal int ModelActive;
+        internal int ShowRequests;
+        internal bool IsHidden;
     }
 
     private sealed class Watch
@@ -85,16 +115,34 @@ internal static class RenderTargetProbe
         internal RawImage Image = null!;
         internal Camera? Writer;
         internal Behaviour[] WriterBehaviours = System.Array.Empty<Behaviour>();
+        internal Character3DDisplayManager? Manager;
+        internal Transform? Holder;
         internal readonly Sample[] History = { new(), new(), new() };
         internal int Cursor;
         internal bool CensusDone;
+
+        // Accounting for the periodic baseline.
+        internal int Ticks;
+        internal int Alternations;
+        internal int Transitions;
+        internal int Sweeps;
+        internal float NextSummary;
     }
 
     private static readonly List<Watch> Watches = new(4);
     private static readonly List<RawImage> Scratch = new(16);
     private static readonly StringBuilder Sb = new(512);
+    private static readonly StringBuilder Diff = new(256);
     private static int _refreshFrame = -1;
     private static bool _armed;
+
+    // Reflection into Character3DDisplayManager, resolved once. All three are private fields of a
+    // game type we do not own; if any of them is ever renamed the manager half of the sample simply
+    // stops being taken (MgrValid = false) and the probe carries on measuring the camera half.
+    private static FieldInfo? _holderField;
+    private static FieldInfo? _showRequestsField;
+    private static FieldInfo? _isHiddenField;
+    private static bool _mgrResolved;
 
     /// <summary>Arm/disarm with the floated-window layer, and sample once per tick while armed.</summary>
     internal static void Tick(bool wanted)
@@ -103,6 +151,8 @@ internal static class RenderTargetProbe
         {
             if (_armed)
             {
+                for (int i = 0; i < Watches.Count; i++)
+                    Summarise(Watches[i], "STAND-DOWN");
                 _armed = false;
                 Watches.Clear();
                 _refreshFrame = -1;
@@ -113,14 +163,17 @@ internal static class RenderTargetProbe
         {
             _armed = true;
             _refreshFrame = -1;
-            VRLog.Info(Scope, "RENDER TARGET PROBE armed — watching every RawImage inside a floated "
-                              + "panel whose texture is a RenderTexture, together with the camera that "
-                              + "writes it. It censuses each target once (so the log says what the thing "
-                              + "is made of even when nothing is wrong) and then reports any field that "
-                              + "goes A-B-A across three ticks. This is the TEMPORAL question: "
-                              + "PanelFlickerProbe proved the panels are steady and CameraOrderProbe "
-                              + "proved both eyes read the same texture, so what is left is content that "
-                              + "changes from frame to frame — identically in both eyes.");
+            VRLog.Info(Scope, "RENDER TARGET PROBE armed (ModBuild 188 — the ALTERNATION TEST IS "
+                              + "FIXED). It watches every RawImage inside a floated panel whose texture "
+                              + "is a RenderTexture, together with the camera that writes it AND the "
+                              + "Character3DDisplayManager on that camera (model count, show-request "
+                              + "refcount, isHidden — the model toggle is invisible to the camera's "
+                              + "component bits). A finding is now classified: ALTERNATION = the value "
+                              + "left and CAME BACK inside three ticks (a flicker); TRANSITION = it "
+                              + "changed once and held (NOT a flicker — ModBuild 186's whole case was "
+                              + "six of these, one window opening and one closing). Every watch also "
+                              + "prints a baseline every "
+                              + $"{SummaryIntervalSeconds:F0}s whether or not anything moved.");
         }
 
         if (_refreshFrame == -1 || Time.frameCount - _refreshFrame >= RefreshIntervalFrames)
@@ -150,7 +203,7 @@ internal static class RenderTargetProbe
                     continue;
                 if (Find(img) != null)
                     continue;
-                var watch = new Watch { Image = img };
+                var watch = new Watch { Image = img, NextSummary = Time.unscaledTime + SummaryIntervalSeconds };
                 BindWriter(watch);
                 Watches.Add(watch);
             }
@@ -173,7 +226,8 @@ internal static class RenderTargetProbe
         return null;
     }
 
-    /// <summary>Find the camera that writes this image's RenderTexture, and cache its Behaviours.</summary>
+    /// <summary>Find the camera that writes this image's RenderTexture, and cache its Behaviours and
+    /// (if it carries one) the character-display manager whose private state we also sample.</summary>
     private static void BindWriter(Watch watch)
     {
         var rt = watch.Image.texture as RenderTexture;
@@ -182,13 +236,41 @@ internal static class RenderTargetProbe
         Camera[] all = Object.FindObjectsOfType<Camera>(true);
         for (int i = 0; i < all.Length; i++)
         {
-            if (all[i] != null && ReferenceEquals(all[i].targetTexture, rt))
+            if (all[i] == null || !ReferenceEquals(all[i].targetTexture, rt))
+                continue;
+            watch.Writer = all[i];
+            watch.WriterBehaviours = all[i].GetComponents<Behaviour>();
+            watch.Manager = all[i].GetComponent<Character3DDisplayManager>();
+            if (watch.Manager != null)
             {
-                watch.Writer = all[i];
-                watch.WriterBehaviours = all[i].GetComponents<Behaviour>();
-                return;
+                ResolveManagerFields();
+                watch.Holder = _holderField?.GetValue(watch.Manager) as Transform;
             }
+            return;
         }
+    }
+
+    /// <summary>Resolve the manager's three private fields once, and say so once — including when
+    /// one of them is missing, because a silently half-blind sample is how ModBuild 186 happened.</summary>
+    private static void ResolveManagerFields()
+    {
+        if (_mgrResolved)
+            return;
+        _mgrResolved = true;
+        _holderField = AccessTools.Field(typeof(Character3DDisplayManager), "character3DHolder");
+        _showRequestsField = AccessTools.Field(typeof(Character3DDisplayManager), "showRequests");
+        _isHiddenField = AccessTools.Field(typeof(Character3DDisplayManager), "isHidden");
+        if (_holderField != null && _showRequestsField != null && _isHiddenField != null)
+            return;
+        VRLog.Warn(Scope, "RENDER TARGET PROBE: Character3DDisplayManager's private state is not fully "
+                          + "reflectable — character3DHolder="
+                          + $"{(_holderField != null ? "found" : "MISSING")}, showRequests="
+                          + $"{(_showRequestsField != null ? "found" : "MISSING")}, isHidden="
+                          + $"{(_isHiddenField != null ? "found" : "MISSING")}. The consequence is that "
+                          + "the MODEL half of every sample is dropped (the probe still measures the "
+                          + "RawImage, the RenderTexture and every component on the writer camera), so a "
+                          + "character switched off under a window that still wants it would go "
+                          + "unreported. Nothing else changes and nothing is written.");
     }
 
     private static void SampleAndJudge(Watch watch)
@@ -202,35 +284,88 @@ internal static class RenderTargetProbe
         Sample prev = watch.History[(watch.Cursor + 2) % 3];
         Sample before = watch.History[(watch.Cursor + 1) % 3];
         watch.Cursor = (watch.Cursor + 1) % 3;
+        watch.Ticks++;
 
-        // A-B-A: this tick matches two ticks ago and differs from the one between. A steady value
-        // and a one-off change both fail that test, which is exactly the point — a flicker is an
-        // alternation, not a transition.
-        if (!now.Valid || !prev.Valid || !before.Valid)
-            return;
-        string? changed = FirstDifference(prev, now);
-        if (changed != null)
-            return; // not back where it was — a transition, not an alternation
-        string? swing = FirstDifference(before, now);
-        if (swing == null)
-            return; // nothing moved at all
-        Report(watch, swing);
+        if (now.Valid && prev.Valid && before.Valid)
+        {
+            // THE THREE SHAPES, and the reason this class exists. ModBuild 186 tested for the
+            // second one and called it the first.
+            bool sameAsPrev = Differences(prev, now) == null;
+            bool sameAsBefore = Differences(before, now) == null;
+            if (sameAsBefore && !sameAsPrev)
+            {
+                // now == t-2, now != t-1 — it left and came back. THIS is a flicker.
+                watch.Alternations++;
+                Report(watch, Differences(prev, now)!, alternation: true);
+            }
+            else if (sameAsPrev && !sameAsBefore)
+            {
+                // now == t-1, now != t-2 — one change that held. NOT a flicker.
+                watch.Transitions++;
+                Report(watch, Differences(before, now)!, alternation: false);
+            }
+            else if (!sameAsPrev && !sameAsBefore)
+            {
+                // Three different values in three ticks: a sweep (a fade, a resize). Counted only.
+                watch.Sweeps++;
+            }
+        }
+
+        if (Time.unscaledTime >= watch.NextSummary)
+        {
+            watch.NextSummary = Time.unscaledTime + SummaryIntervalSeconds;
+            Summarise(watch, "BASELINE");
+        }
     }
 
-    /// <summary>One line per image and field — a finding is stated once, not per frame.</summary>
-    private static void Report(Watch w, string field)
+    /// <summary>One line per image, kind and field — a finding is stated once; the counts continue
+    /// in the periodic summary.</summary>
+    private static void Report(Watch w, string field, bool alternation)
     {
-        string key = $"{w.Image.GetInstanceID()}|{field}";
+        string key = $"{w.Image.GetInstanceID()}|{(alternation ? "A" : "T")}|{field}";
         if (!Reported.Add(key))
             return;
         var rt = w.Image.texture as RenderTexture;
-        VRLog.Warn(Scope, $"RENDER TARGET ALTERNATION on '{w.Image.name}' (RenderTexture "
+        string where = $"on '{w.Image.name}' (RenderTexture '{(rt != null ? rt.name : "<none>")}', writer "
+                       + $"'{(w.Writer != null ? w.Writer.name : "<none>")}'): {field}";
+        if (alternation)
+        {
+            VRLog.Warn(Scope, $"RENDER TARGET ALTERNATION {where}. The value LEFT and CAME BACK within "
+                              + "three ticks — this is the flicker signature, not a state change. Both "
+                              + "eyes see the same texture (CameraOrderProbe) and the panel around it is "
+                              + "steady (PanelFlickerProbe), so this field is a live explanation for what "
+                              + "he reports. Alternation #"
+                              + $"{w.Alternations} on this image; see the next BASELINE line for the rate.");
+            return;
+        }
+        VRLog.Info(Scope, $"RENDER TARGET TRANSITION {where}. It changed ONCE and HELD — this is NOT a "
+                          + "flicker and must not be read as one. ModBuild 186's entire case was six lines "
+                          + "of exactly this shape (one window opening, one window closing) reported by an "
+                          + "inverted A-B-A test. Transition #"
+                          + $"{w.Transitions} on this image.");
+    }
+
+    /// <summary>The periodic baseline — printed whether or not anything moved.</summary>
+    private static void Summarise(Watch w, string why)
+    {
+        if (w.Image == null)
+            return;
+        Sample last = w.History[(w.Cursor + 2) % 3];
+        var rt = w.Image.texture as RenderTexture;
+        VRLog.Info(Scope, $"RENDER TARGET {why} '{w.Image.name}' (RenderTexture "
                           + $"'{(rt != null ? rt.name : "<none>")}', writer "
-                          + $"'{(w.Writer != null ? w.Writer.name : "<none>")}'): {field}. "
-                          + "It came BACK to its earlier value, so this is an alternation and not a "
-                          + "transition — the signature of a flicker. Both eyes see the same thing "
-                          + "(CameraOrderProbe) and the panel around it is steady (PanelFlickerProbe), "
-                          + "so this field is the remaining explanation for what he reports.");
+                          + $"'{(w.Writer != null ? w.Writer.name : "<none>")}'): {w.Ticks} ticks sampled, "
+                          + $"{w.Alternations} alternation(s), {w.Transitions} transition(s), {w.Sweeps} "
+                          + "sweep(s). LIVE: image active="
+                          + $"{last.ImageEnabled} alpha={last.Alpha:F2} camera enabled={last.CamEnabled} "
+                          + $"path={last.CamPath} components=[{BehaviourList(w, last)}]"
+                          + (last.MgrValid
+                              ? $" | manager: {last.ModelActive}/{last.ModelChildren} model object(s) active, "
+                                + $"{last.ShowRequests} show-request(s), isHidden={last.IsHidden}"
+                              : " | manager state NOT sampled (no Character3DDisplayManager on the writer, "
+                                + "or its private fields were not reflectable)")
+                          + ". ZERO ALTERNATIONS ON THIS LINE MEANS THIS TARGET WAS MEASURED AND IS "
+                          + "STEADY — it does not mean nothing looked.");
     }
 
     private static void Take(Watch w, Sample s)
@@ -257,7 +392,7 @@ internal static class RenderTargetProbe
         s.CamMask = cam != null ? cam.cullingMask : 0;
 
         // One bit per Behaviour on the writer camera — an image effect toggling on and off
-        // (Character3DDisplayManager flips Beautify.enabled) shows up here and nowhere else.
+        // (Character3DDisplayManager writes beautify.enabled) shows up here and nowhere else.
         int bits = 0;
         for (int i = 0; i < w.WriterBehaviours.Length && i < 32; i++)
         {
@@ -266,28 +401,110 @@ internal static class RenderTargetProbe
                 bits |= 1 << i;
         }
         s.BehaviourBits = bits;
+
+        // The manager's own state. character3D.Show()/Hide() are SetActive() on the models under
+        // character3DHolder and leave every field above untouched, so without this the probe cannot
+        // see the character leave the render texture at all.
+        s.MgrValid = false;
+        s.ModelChildren = 0;
+        s.ModelActive = 0;
+        s.ShowRequests = 0;
+        s.IsHidden = false;
+        if (w.Manager == null)
+            return;
+        if (w.Holder == null && _holderField != null)
+            w.Holder = _holderField.GetValue(w.Manager) as Transform; // pooled in late
+        if (w.Holder == null || _showRequestsField == null || _isHiddenField == null)
+            return;
+        s.MgrValid = true;
+        s.ModelChildren = w.Holder.childCount;
+        for (int i = 0; i < s.ModelChildren; i++)
+        {
+            Transform child = w.Holder.GetChild(i);
+            if (child != null && child.gameObject.activeSelf)
+                s.ModelActive++;
+        }
+        s.ShowRequests = _showRequestsField.GetValue(w.Manager) is ICollection<Component> set ? set.Count : -1;
+        s.IsHidden = _isHiddenField.GetValue(w.Manager) is true;
     }
 
-    private static string? FirstDifference(Sample a, Sample b)
+    /// <summary>Every field that differs between two samples, or null when they are identical. It
+    /// lists ALL of them: naming only the first is how a model toggle hides behind an image effect.</summary>
+    private static string? Differences(Sample a, Sample b)
     {
-        if (a.ImageEnabled != b.ImageEnabled) return $"RawImage active {a.ImageEnabled}↔{b.ImageEnabled}";
-        if (!Mathf.Approximately(a.Alpha, b.Alpha)) return $"CanvasRenderer alpha {a.Alpha:F3}↔{b.Alpha:F3}";
-        if (a.Colour != b.Colour) return $"RawImage colour {a.Colour}↔{b.Colour}";
-        if (a.TextureId != b.TextureId) return $"texture instance {a.TextureId}↔{b.TextureId}";
-        if (a.MaterialId != b.MaterialId) return $"material instance {a.MaterialId}↔{b.MaterialId}";
-        if (a.RtCreated != b.RtCreated) return $"RenderTexture.IsCreated {a.RtCreated}↔{b.RtCreated}";
+        Diff.Length = 0;
+        if (a.ImageEnabled != b.ImageEnabled) Add($"RawImage active {a.ImageEnabled}→{b.ImageEnabled}");
+        if (!Mathf.Approximately(a.Alpha, b.Alpha)) Add($"CanvasRenderer alpha {a.Alpha:F3}→{b.Alpha:F3}");
+        if (a.Colour != b.Colour) Add($"RawImage colour {a.Colour}→{b.Colour}");
+        if (a.TextureId != b.TextureId) Add($"texture instance {a.TextureId}→{b.TextureId}");
+        if (a.MaterialId != b.MaterialId) Add($"material instance {a.MaterialId}→{b.MaterialId}");
+        if (a.RtCreated != b.RtCreated) Add($"RenderTexture.IsCreated {a.RtCreated}→{b.RtCreated}");
         if (a.RtWidth != b.RtWidth || a.RtHeight != b.RtHeight)
-            return $"RenderTexture size {a.RtWidth}x{a.RtHeight}↔{b.RtWidth}x{b.RtHeight}";
-        if (a.CamAlive != b.CamAlive) return $"writer camera exists {a.CamAlive}↔{b.CamAlive}";
-        if (a.CamEnabled != b.CamEnabled) return $"writer camera active {a.CamEnabled}↔{b.CamEnabled}";
-        if (!Mathf.Approximately(a.CamDepth, b.CamDepth)) return $"writer depth {a.CamDepth:F1}↔{b.CamDepth:F1}";
-        if (a.CamPath != b.CamPath) return $"writer renderingPath {a.CamPath}↔{b.CamPath}";
-        if (a.CamClear != b.CamClear) return $"writer clearFlags {a.CamClear}↔{b.CamClear}";
-        if (a.CamMask != b.CamMask) return $"writer cullingMask 0x{a.CamMask:X8}↔0x{b.CamMask:X8}";
-        if (a.BehaviourBits != b.BehaviourBits)
-            return $"writer camera component enabled-bits 0x{a.BehaviourBits:X}↔0x{b.BehaviourBits:X} "
-                   + "(an image effect toggling — see the census line for which component is which bit)";
-        return null;
+            Add($"RenderTexture size {a.RtWidth}x{a.RtHeight}→{b.RtWidth}x{b.RtHeight}");
+        if (a.CamAlive != b.CamAlive) Add($"writer camera exists {a.CamAlive}→{b.CamAlive}");
+        if (a.CamEnabled != b.CamEnabled) Add($"writer camera active {a.CamEnabled}→{b.CamEnabled}");
+        if (!Mathf.Approximately(a.CamDepth, b.CamDepth)) Add($"writer depth {a.CamDepth:F1}→{b.CamDepth:F1}");
+        if (a.CamPath != b.CamPath) Add($"writer renderingPath {a.CamPath}→{b.CamPath}");
+        if (a.CamClear != b.CamClear) Add($"writer clearFlags {a.CamClear}→{b.CamClear}");
+        if (a.CamMask != b.CamMask) Add($"writer cullingMask 0x{a.CamMask:X8}→0x{b.CamMask:X8}");
+        if (a.BehaviourBits != b.BehaviourBits) Add(BitsChanged(a.BehaviourBits, b.BehaviourBits));
+        if (a.MgrValid && b.MgrValid)
+        {
+            if (a.ModelActive != b.ModelActive || a.ModelChildren != b.ModelChildren)
+                Add($"CHARACTER MODELS active {a.ModelActive}/{a.ModelChildren}→"
+                    + $"{b.ModelActive}/{b.ModelChildren} (Character3D.Show/Hide SetActive's the models "
+                    + "under character3DHolder — no component on the writer camera moves when it does)");
+            if (a.ShowRequests != b.ShowRequests)
+                Add($"show-request refcount {a.ShowRequests}→{b.ShowRequests}");
+            if (a.IsHidden != b.IsHidden)
+                Add($"manager isHidden {a.IsHidden}→{b.IsHidden}");
+        }
+        return Diff.Length > 0 ? Diff.ToString() : null;
+    }
+
+    private static void Add(string what)
+    {
+        if (Diff.Length > 0)
+            Diff.Append("; ");
+        Diff.Append(what);
+    }
+
+    /// <summary>Name the components whose enabled flag moved, instead of printing a hex mask the
+    /// reader has to decode against a census line printed thousands of lines earlier.</summary>
+    private static string BitsChanged(int a, int b)
+    {
+        int moved = a ^ b;
+        Sb.Length = 0;
+        Sb.Append("writer component enabled ");
+        bool first = true;
+        for (int i = 0; i < 32; i++)
+        {
+            if ((moved & (1 << i)) == 0)
+                continue;
+            if (!first)
+                Sb.Append(", ");
+            first = false;
+            Sb.Append('#').Append(i).Append(' ')
+              .Append((a & (1 << i)) != 0).Append("→").Append((b & (1 << i)) != 0);
+        }
+        Sb.Append(" (mask 0x").Append(a.ToString("X")).Append("→0x").Append(b.ToString("X")).Append(')');
+        return Sb.ToString();
+    }
+
+    /// <summary>The writer camera's Behaviours with their live enabled state — used by the census
+    /// and repeated in every baseline so a reader never has to scroll back for the bit meanings.</summary>
+    private static string BehaviourList(Watch w, Sample s)
+    {
+        Sb.Length = 0;
+        for (int i = 0; i < w.WriterBehaviours.Length && i < 32; i++)
+        {
+            Behaviour b = w.WriterBehaviours[i];
+            if (i > 0)
+                Sb.Append(", ");
+            Sb.Append(i).Append(':').Append(b != null ? b.GetType().Name : "<null>")
+              .Append((s.BehaviourBits & (1 << i)) != 0 ? "(on)" : "(off)");
+        }
+        return Sb.ToString();
     }
 
     /// <summary>The one-time inventory of a watched target — printed whether or not it misbehaves.</summary>
@@ -298,15 +515,7 @@ internal static class RenderTargetProbe
         w.CensusDone = true;
         var rt = w.Image.texture as RenderTexture;
         Camera? cam = w.Writer;
-        Sb.Length = 0;
-        for (int i = 0; i < w.WriterBehaviours.Length && i < 32; i++)
-        {
-            Behaviour b = w.WriterBehaviours[i];
-            if (i > 0)
-                Sb.Append(", ");
-            Sb.Append(i).Append(':').Append(b != null ? b.GetType().Name : "<null>")
-              .Append(b != null && b.enabled ? "(on)" : "(off)");
-        }
+        string components = BehaviourList(w, s);
         VRLog.Info(Scope, $"RENDER TARGET CENSUS: RawImage '{w.Image.name}' shows RenderTexture "
                           + $"'{(rt != null ? rt.name : "<none>")}' "
                           + $"{s.RtWidth}x{s.RtHeight} fmt={(rt != null ? rt.format.ToString() : "?")} "
@@ -317,7 +526,12 @@ internal static class RenderTargetProbe
                               + $"stereoTarget={cam.stereoTargetEye} allowMSAA={cam.allowMSAA} allowHDR={cam.allowHDR}"
                               : "NO CAMERA TARGETS THIS TEXTURE — it is written by something else (a Blit, a "
                                 + "video player, or a camera that is currently destroyed)")}. "
-                          + $"COMPONENTS ON THE WRITER: [{Sb}]. This line is the baseline: a quiet log "
-                          + "still says what the target was made of.");
+                          + $"COMPONENTS ON THE WRITER: [{components}]. "
+                          + $"MANAGER: {(s.MgrValid ? $"{s.ModelActive}/{s.ModelChildren} model object(s) active, "
+                              + $"{s.ShowRequests} show-request(s), isHidden={s.IsHidden}"
+                              : "none on this camera (or private fields not reflectable)")}. "
+                          + "This line is the baseline: a quiet log still says what the target was made of. "
+                          + "NOTE that several RawImages can share one RenderTexture — the 187 log carried "
+                          + "three identical census lines and therefore reported every finding three times.");
     }
 }

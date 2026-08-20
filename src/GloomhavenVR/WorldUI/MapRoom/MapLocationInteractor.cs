@@ -44,6 +44,19 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// is built from the LIVE locations' own <c>gameObject.layer</c> on every rescan. If the game ever
 /// moves them, this follows; if a scene has none, the mask is not touched at all.</para>
 ///
+/// <para>WHAT IS HOVERED IS WHAT IS DRAWN (ModBuild 188). Up to 187 the hover target was the game's
+/// authored <c>MapLocation._boxCollider</c> — and that collider is not the icon the player sees.
+/// The icon is re-drawn for the head camera by <see cref="MapIconLayer"/> from the DECAL's
+/// transform, onto the parchment's top plane; the collider is authored separately per location
+/// (<c>UIInfoTools.GetLocationConfig</c>), sits at the location's own height, and is left untouched
+/// when the game rescales the icon art (<c>ShouldOverrideLocationScale</c>, decompiled
+/// MapLocation.cs:418-421). Two independent rectangles in two different frames, diverging PER ICON
+/// — which is both halves of the 187 report at once: the icons whose art outgrew their box could
+/// not be hovered at all, and the cards that did appear were anchored on a point that is not where
+/// their symbol is. <see cref="MapIconHoverPads"/> puts a mod-owned hit box on the drawn quad and
+/// this class prefers it (<see cref="PickFrom"/>) and anchors on it
+/// (<see cref="TryHoverAnchor"/>).</para>
+///
 /// <para>LIFECYCLE. Locations are destroyed and respawned wholesale by
 /// <c>MapChoreographer.InitMap</c> (a quest unlock, a city↔world switch, a travel animation), so
 /// nothing may be cached across frames without a re-scan. Same cadence as
@@ -70,6 +83,22 @@ internal sealed class MapLocationInteractor
     private readonly List<MapLocation> _found = new(64);    // rescan scratch, reused
     private readonly List<MapLocation> _scratch = new(64);  // GetComponentsInChildren sink
 
+    /// <summary>The DRAWN icons' own hit boxes — see <see cref="MapIconHoverPads"/> for why the
+    /// game's authored collider is not the same rectangle as the icon the player sees, and why
+    /// that one fact produces both halves of the ModBuild 187 hardware report.</summary>
+    private readonly MapIconHoverPads _pads = new();
+
+    /// <summary>Hit buffer for the pad-preferring pick. Sixteen is far more than the number of
+    /// location colliders any single ray can cross; a full buffer only means the arbitration
+    /// chooses among the first sixteen, which is still a location either way.</summary>
+    private readonly RaycastHit[] _hits = new RaycastHit[16];
+
+    /// <summary>Census of the last scan, for <see cref="ReportOnce"/> (log material only).</summary>
+    private int _withQuest;
+    private int _withPad;
+    private int _withGameBox;
+    private string _kinds = string.Empty;
+
     private int _scanFrame = int.MinValue;
     private int _maskInForce;
     private bool _maskTaken;
@@ -90,8 +119,19 @@ internal sealed class MapLocationInteractor
     /// sein das man verschieben kann (immer zum Kopf gedreht) und nur solange der Mouseover
     /// anhält."</i>).
     ///
-    /// <para>The lift is taken off the icon's own collider so a large location marker is not
-    /// covered by its own card, plus a fixed real-metre gap carried by the rig scale.</para>
+    /// <para>THE ANCHOR IS THE DRAWN ICON, and until ModBuild 188 it was not. The old answer mixed
+    /// two frames that have no reason to agree: <c>loc.transform.position.xz</c> for the horizontal
+    /// and the game hit box's <c>bounds.max.y</c> for the vertical. The icon the player actually
+    /// SEES is neither — <see cref="MapIconLayer"/> re-draws it as a quad at the DECAL's x/z, on the
+    /// parchment's top plane, because a deferred decal contributes nothing to the forward head
+    /// camera. So the card was placed above a point that is offset horizontally by whatever the
+    /// decal's local offset is, and vertically by however far that location's own terrain height is
+    /// from the map's top face. Per icon, differently, which is exactly the report. The pad is
+    /// built ON that quad (<see cref="MapIconHoverPads"/>), so its top face is the icon's top face
+    /// by construction.</para>
+    ///
+    /// <para>Plus a fixed real-metre gap carried by the rig scale, so a large location marker is
+    /// not covered by its own card at any rig scale.</para>
     /// </summary>
     internal bool TryHoverAnchor(out Vector3 world)
     {
@@ -102,10 +142,19 @@ internal sealed class MapLocationInteractor
         float scale = Rig.RigTarget.Current != null
             ? Mathf.Max(Rig.RigTarget.Current.lossyScale.x, 0.0001f)
             : 1f;
+        float lift = HoverCardLiftMeters * scale;
+        if (_pads.TryAnchor(loc, out Vector3 padTop))
+        {
+            world = new Vector3(padTop.x, padTop.y + lift, padTop.z);
+            return true;
+        }
+        // FALLBACK — this location has no drawn-icon pad (no Decalicious type, or its decal has not
+        // been instantiated yet). The game's authored hit box is the only thing left to anchor on;
+        // it is the pre-188 answer, and the pad census line names how many locations are in this
+        // state so a mis-seated card is attributable rather than mysterious.
         BoxCollider? box = HitBoxOf(loc);
         float top = box != null ? box.bounds.max.y : loc.transform.position.y;
-        world = new Vector3(loc.transform.position.x, top + HoverCardLiftMeters * scale,
-                            loc.transform.position.z);
+        world = new Vector3(loc.transform.position.x, top + lift, loc.transform.position.z);
         return true;
     }
 
@@ -135,20 +184,28 @@ internal sealed class MapLocationInteractor
         // THE MASK IS OWNED UNCONDITIONALLY, INCLUDING WHEN THERE ARE NO LOCATIONS — see ApplyMask.
         ApplyMask();
 
+        // The pads follow the icons every frame (the game rescales a highlighted location's mesh,
+        // and the choreographer animates locations in and out) — see MapIconHoverPads.Tick.
+        _pads.Tick(MapRoomDriver.ParchmentRenderer);
+
         if (_locations.Count == 0)
         {
             SetHover(null, "no map locations in the scene");
             return;
         }
 
-        // THE HOVER COMES FROM THE SHARED RAY PICK, not from a raycast of this class's own. The
-        // pick is already computed once per hand per frame, it already carries the fan/board
-        // occluder arbitration every other consumer honours, and using it is also what makes the
-        // BEAM END ON THE ICON: RayInteractor clamps the drawn beam and places the reticle at its
-        // own hit, so a second private raycast would hover a location the beam does not point at.
-        MapLocation? want = PickFrom(VRHands.Primary) ?? PickFrom(OtherHand(VRHands.Primary));
-        SetHover(want, "laser");
+        // THE HOVER RIDES ON THE SHARED PICK'S RAY AND ITS ARBITRATION — same origin, same
+        // direction, same mask, same fan/board occluder limit — but it resolves the hit ITSELF, so
+        // that a location's DRAWN ICON always outranks any authored hit box on the same ray (see
+        // PickFrom). The shared pick keeps deciding what the beam and reticle do, and because the
+        // pads are ordinary colliders on the locations' own layer it clamps the beam on the pad —
+        // i.e. on the icon — for free.
+        MapLocation? want = PickFrom(VRHands.Primary, out string how);
+        if (want == null)
+            want = PickFrom(OtherHand(VRHands.Primary), out how);
+        SetHover(want, "laser", how);
 
+        TickHoverVerdict();
         TickDeselect();
 
         if (_hover == null)
@@ -178,8 +235,12 @@ internal sealed class MapLocationInteractor
         }
         _pokes.Clear();
         _locations.Clear();
+        _pads.Release(reason);
+        MapHoverVerdict.Reset();
         _scanFrame = int.MinValue;
         _reported = false;
+        _hoverFrame = int.MinValue;
+        _verdictDone = false;
 
         if (_maskTaken)
         {
@@ -226,7 +287,13 @@ internal sealed class MapLocationInteractor
         }
 
         // Nothing changed? The common case by far — locations only churn on InitMap.
-        if (_found.Count == _locations.Count && SameSet(_found))
+        // THE PAD TERM IS NOT DEFENSIVE: the parchment can still be resolving when the first scan
+        // runs, and a scan that found its locations then never runs its body again. Without this,
+        // "no parchment on the first scan" would mean "no drawn-icon pads for the whole session",
+        // silently — the same shape of bug as 178's frozen scan cadence.
+        MeshRenderer? parchment = MapRoomDriver.ParchmentRenderer;
+        bool padsMissing = _pads.PadCount == 0 && _found.Count > 0 && parchment != null;
+        if (_found.Count == _locations.Count && SameSet(_found) && !padsMissing)
         {
             ReportOnce(fromParents);
             return;
@@ -242,8 +309,11 @@ internal sealed class MapLocationInteractor
         }
         _pokes.Clear();
         _locations.Clear();
+        _pads.Begin(parchment);
 
         int mask = 0;
+        _withQuest = _withPad = _withGameBox = 0;
+        int villages = 0, scenarios = 0, bosses = 0, hqs = 0, stores = 0, other = 0;
         for (int i = 0; i < _found.Count; i++)
         {
             MapLocation loc = _found[i];
@@ -252,17 +322,40 @@ internal sealed class MapLocationInteractor
             _locations.Add(loc);
             mask |= 1 << loc.gameObject.layer;
 
+            switch (loc.MapLocationType)
+            {
+                case MapLocation.EMapLocationType.Village: villages++; break;
+                case MapLocation.EMapLocationType.Scenario: scenarios++; break;
+                case MapLocation.EMapLocationType.Boss: bosses++; break;
+                case MapLocation.EMapLocationType.Headquarters: hqs++; break;
+                case MapLocation.EMapLocationType.Store: stores++; break;
+                default: other++; break;
+            }
+            if (loc.LocationQuest != null)
+                _withQuest++;
+
+            // The DRAWN icon first (its pad shares the location's layer, so the mask above already
+            // covers it), the game's authored hit box second. The fingertip is registered on
+            // whichever one the laser will prefer, so the two input paths can never point at
+            // different rectangles of the same icon.
+            BoxCollider? pad = _pads.Build(loc);
+            if (pad != null)
+                _withPad++;
             BoxCollider? box = HitBoxOf(loc);
-            if (box == null)
+            if (box != null)
+                _withGameBox++;
+            BoxCollider? pokeBox = pad != null ? pad : box;
+            if (pokeBox == null)
                 continue;
             MapLocationPoke poke = loc.gameObject.AddComponent<MapLocationPoke>();
             poke.Bind(this, loc);
-            VRInteractables.RegisterPokeable(poke, box);
+            VRInteractables.RegisterPokeable(poke, pokeBox);
             _pokes.Add(poke);
         }
         _maskInForce = mask;
+        _kinds = $"{scenarios} Scenario, {villages} Village, {bosses} Boss, {hqs} Headquarters, "
+                 + $"{stores} Store, {other} None";
 
-        _maskInForce = mask;
         _reported = false;   // the set changed — say so once more
         ReportOnce(fromParents);
     }
@@ -311,6 +404,20 @@ internal sealed class MapLocationInteractor
                           + "A click is ExecuteEvents.pointerClickHandler on the real MapLocation — the "
                           + "same dispatch the game's gamepad path makes — so IsSelectable() and the "
                           + "game's own click action still decide, and nothing new goes on the wire.");
+        // THE COVERAGE CENSUS (ModBuild 188). "Some symbols show a mouseover and some do not" is a
+        // PER-KIND claim, so the log has to state, before any hover happens, how many of each kind
+        // there are, how many carry the quest a preview is made of, and how many have a hit target
+        // shaped like the icon the player sees. A hover that produces nothing is then read against
+        // this line instead of against a guess.
+        VRLog.Info(Scope, $"MAP ROOM location census — kinds: {_kinds}. {_withQuest}/{_locations.Count} "
+                          + $"carry a LocationQuest (the thing a preview card is MADE of: with none, the "
+                          + $"game previews only an available Headquarters or Store). {_withPad}/"
+                          + $"{_locations.Count} got a DRAWN-ICON pad and {_withGameBox}/{_locations.Count} "
+                          + $"have the game's own authored hit box; {_pads.NoDecalCount} location(s) had no "
+                          + $"usable decal to measure. Icon plane y={_pads.PlaneY:F2} (parchment top "
+                          + $"{_pads.ParchmentTop:F2} + 0.10), plane resolved={_pads.HavePlane}. The pads are "
+                          + "the hover target and the hover card's anchor: what you see is what you hover, "
+                          + "and the card sits on the icon's own top face.");
     }
 
     /// <summary>Set comparison, NOT index comparison: neither route guarantees an order, and
@@ -400,13 +507,88 @@ internal sealed class MapLocationInteractor
     private static VRHand? OtherHand(VRHand? hand) =>
         hand == null ? null : hand == VRHands.Left ? VRHands.Right : VRHands.Left;
 
-    private static MapLocation? PickFrom(VRHand? hand)
+    /// <summary>Ray length, real metres — the same bound <c>RayInteractor.MaxDistanceMeters</c>
+    /// applies to the shared pick (a private const there, copied as a value so this pick can never
+    /// reach further than the beam the player sees).</summary>
+    private const float MaxPickMeters = 20f;
+
+    /// <summary>
+    /// Which location this hand is pointing at, and HOW it was reached.
+    ///
+    /// <para>THE ARBITRATION IS THE POINT: <b>the nearest DRAWN ICON wins, and an authored hit box
+    /// only decides when no icon is on the ray at all.</b> The two are different rectangles — see
+    /// <see cref="MapIconHoverPads"/> — and the union of them is what gives every icon a hover
+    /// (which the game's authored boxes alone did not), while the ordering is what stops one
+    /// location's oversized box from stealing the hover of the neighbour whose icon the beam is
+    /// actually on. A single nearest-hit query cannot express that, which is why this asks for all
+    /// hits along the ray and chooses, instead of reading <c>pick.HitCollider</c>.</para>
+    ///
+    /// <para>Everything else is taken from the shared pick verbatim so the beam and the hover can
+    /// never disagree: the same origin and direction (the OpenXR aim pose), the same
+    /// <c>Ray.Mask</c>, and the same length — clamped by the hand's own
+    /// <c>SolidOccluderDistance</c>, so a raised card fan or the control board still occludes the
+    /// map exactly as it occludes it for every other consumer.</para>
+    /// </summary>
+    private MapLocation? PickFrom(VRHand? hand, out string how)
     {
+        how = "no hand";
         if (hand == null || !hand.HasPose)
             return null;
-        if (!hand.Ray.TryGetPick(out PickPose pick) || !pick.HasHit || pick.HitCollider == null)
+        if (!hand.Ray.TryGetPick(out PickPose pick))
+        {
+            how = "the ray is stood down";
             return null;
-        return pick.HitCollider.GetComponentInParent<MapLocation>();
+        }
+
+        float limit = Mathf.Min(hand.Ray.SolidOccluderDistance,
+                                MaxPickMeters * Mathf.Max(hand.WorldScale, 0.0001f));
+        int n = Physics.RaycastNonAlloc(pick.Origin, pick.Direction, _hits, limit, hand.Ray.Mask);
+
+        MapLocation? padHit = null, boxHit = null;
+        float padDist = float.PositiveInfinity, boxDist = float.PositiveInfinity;
+        Collider? boxCollider = null;
+        for (int i = 0; i < n; i++)
+        {
+            Collider c = _hits[i].collider;
+            if (c == null)
+                continue;
+            float d = _hits[i].distance;
+            if (_pads.TryLocation(c, out MapLocation padLoc))
+            {
+                if (d < padDist)
+                {
+                    padDist = d;
+                    padHit = padLoc;
+                }
+                continue;
+            }
+            // Anything else on this mask that BELONGS to a location — its authored hit box. This is
+            // a containment question on purpose (the box may hang under the location), and it is
+            // only ever consulted after every pad has lost.
+            MapLocation? owner = c.GetComponentInParent<MapLocation>();
+            if (owner != null && d < boxDist)
+            {
+                boxDist = d;
+                boxHit = owner;
+                boxCollider = c;
+            }
+        }
+
+        if (padHit != null)
+        {
+            how = $"its DRAWN ICON pad at {padDist:F1} world units ({hand.Side} laser)";
+            return padHit;
+        }
+        if (boxHit != null)
+        {
+            how = $"the game's own collider '{boxCollider!.name}' at {boxDist:F1} world units "
+                  + $"({hand.Side} laser) — no drawn-icon pad was on this ray";
+            return boxHit;
+        }
+        how = n > 0
+            ? $"{n} collider(s) on the ray, none of them a location"
+            : "nothing on the ray";
+        return null;
     }
 
     private static VRHand? TriggerEdgeHand()
@@ -426,13 +608,24 @@ internal sealed class MapLocationInteractor
     /// <c>WorldMap</c>. Both halves are guarded — this runs on a scene the game is free to tear
     /// down under us.
     /// </summary>
-    internal void SetHover(MapLocation? want, string why)
+    /// <param name="want">The location to hover, or null to drop the hover.</param>
+    /// <param name="why">What moved the hover (log material).</param>
+    /// <param name="how">WHICH hit target the pointer reached it through — the drawn-icon pad or
+    /// the game's own authored collider. Half of "why did this icon show no card" is "did the pick
+    /// even land, and on what", so it travels WITH the verdict instead of in a second line somebody
+    /// has to correlate. The default is the fingertip path, which has exactly one answer.</param>
+    internal void SetHover(MapLocation? want, string why, string how = "the fingertip")
     {
         if (ReferenceEquals(want, _hover))
             return;
 
         MapLocation? had = _hover;
         _hover = want;
+        // Arm the verdict: WHY this icon did or did not get a card is read a few frames from now,
+        // once the game's own show/hide animation has settled. See MapHoverVerdict.
+        _hoverFrame = want != null ? Time.frameCount : int.MinValue;
+        _hoverHow = how;
+        _verdictDone = false;
 
         try
         {
@@ -460,6 +653,25 @@ internal sealed class MapLocationInteractor
         {
             VRLog.Warn(Scope, $"MapLocation hover enter threw ({why}): {ex.Message}");
         }
+    }
+
+    private int _hoverFrame = int.MinValue;
+    private string _hoverHow = "?";
+    private bool _verdictDone;
+
+    /// <summary>
+    /// Read the verdict for the live hover once the game has had time to answer it — see
+    /// <see cref="MapHoverVerdict"/> for the gate-by-gate reasoning and for why this line exists at
+    /// all. Cheap: one frame comparison per tick until it fires, then nothing.
+    /// </summary>
+    private void TickHoverVerdict()
+    {
+        if (_verdictDone || _hover == null || _hoverFrame == int.MinValue)
+            return;
+        if (Time.frameCount - _hoverFrame < MapHoverVerdict.VerdictDelayFrames)
+            return;
+        _verdictDone = true;
+        MapHoverVerdict.Evaluate(_hover, _hoverHow);
     }
 
     /// <summary>

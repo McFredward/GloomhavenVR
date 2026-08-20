@@ -187,12 +187,22 @@ internal static class GuildmasterDestinations
     /// User: <i>"Alles was den Händler betrifft soll sich in diesem einen Fenster abspielen. Das
     /// betrifft auch die anderen Knöpfe neben dem Händler."</i>
     ///
-    /// <para>185 got the shop's own <c>UIWindow</c> floating (frame, tabs, background) — and its
-    /// item list still came up as a SECOND window. The log settles the hierarchy without guessing:
-    /// the mod-layer sweep moved <b>56</b> transforms for 'UI Shop Item Window' and <b>1998</b> for
-    /// 'Scroll View'. The sweep walks the whole subtree, so 56 cannot contain 1998 — the inventory
-    /// is NOT inside the shop window. It is a sibling that the flat game simply lays out on top of
-    /// it, which is why one screen becomes two floats.</para>
+    /// <para>THE PREMISE THIS WAS BUILT ON WAS WRONG, and the correction matters more than the
+    /// mechanism. ModBuild 186 read "the mod-layer sweep moved 56 transforms for 'UI Shop Item
+    /// Window' and 1998 for 'Scroll View'" as proof that the inventory is a SIBLING of the shop
+    /// window. It is not: 56 is only the FIRST sweep, before the shop's rows pool in, so the
+    /// comparison proves nothing at all. 187's <c>WINDOW IDENTITY</c> census measured it instead of
+    /// inferring it, and the inventory is four levels INSIDE the shop window
+    /// (<c>…/UI Shop Item Window/UI Shop Inventory Variant/Content/Scroll View</c>). The real cause
+    /// of the second merchant window was that it floated while the shop window was CLOSED — see
+    /// <c>ModalFallback.AncestorWillBeFloated</c>, where it is fixed.</para>
+    ///
+    /// <para>WHAT IS KEPT, AND WHY. The common-ancestor rule below is not the merchant fix and no
+    /// longer claims to be — for the shop it correctly finds nothing outside the subtree and returns
+    /// the window unchanged, which the hardware log confirms. It stays because the QUESTION it
+    /// answers is real for this family: a destination whose panel genuinely spans more than its own
+    /// <c>UIWindow</c> would otherwise be floated in pieces, and the rule costs one reflected field
+    /// walk per destination, once.</para>
     ///
     /// <para>So the conversion root moves UP to the nearest common ancestor of the destination
     /// window and everything its own component references. That single change does all of it: the

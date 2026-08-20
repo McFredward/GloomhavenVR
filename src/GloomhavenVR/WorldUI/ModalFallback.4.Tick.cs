@@ -233,6 +233,7 @@ internal static partial class ModalFallback
         _forcedTabs.Clear();
         CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
         MapRoom.GuildmasterDestinations.Reset(); // hand the borrowed banner back before we vanish
+        MapRoom.HoverCardPose.Reset();          // per-card follow/seat state dies with the module
         _lastArcCount = -1;
         ScreenWanted = false;
         VRModeStateMachine.SetAuxModal(false);
@@ -300,9 +301,14 @@ internal static partial class ModalFallback
     /// down with it mid-frame. Writing the pose each tick costs two transform writes and survives
     /// the map being rebuilt underneath it.</para>
     ///
-    /// <para>The yaw follows the same convention as the spawn placer: a world-space canvas's FRONT
-    /// is its -forward, so the host's forward points AWAY from the head. Flattened to the horizon,
-    /// so a card read from above stays upright instead of lying back at the gaze angle.</para>
+    /// <para>THE POSE MATH AND THE TWO WRITERS IT HAS TO WIN AGAINST live in
+    /// <see cref="MapRoom.HoverCardPose"/> (ModBuild 188): the game's own
+    /// <c>UIFollowMapLocationInsideArea</c> is still running on the floated popup and writes both a
+    /// screen-derived <c>localPosition</c> and a fresh PIVOT into the very rect the conversion
+    /// re-parented — a different wrong offset per icon, computed through the map camera this mod
+    /// freezes — and the card's height cannot be taken from its host rect, because a hover card is
+    /// deliberately not content-fit. That file carries the evidence; this loop just walks the
+    /// floated set.</para>
     ///
     /// <para>No anchor (the pointer left the icon while the game still has the popup open for a
     /// frame or two) leaves the card exactly where it was — it is about to be closed anyway, and
@@ -315,22 +321,8 @@ internal static partial class ModalFallback
             WindowPanel wp = Converted[i];
             if (!wp.HoverCard || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
                 continue;
-            if (!MapRoom.MapRoomDriver.TryHoverAnchor(out Vector3 anchor))
-                continue;
-
-            Transform host = wp.Panel.HostGo.transform;
-            Camera? head = Rig.VRRigDriver.HeadCamera;
-            if (head != null)
-            {
-                Vector3 flat = anchor - head.transform.position;
-                flat.y = 0f;
-                if (flat.sqrMagnitude > 1e-6f)
-                    host.rotation = Quaternion.LookRotation(flat.normalized, Vector3.up);
-            }
-            // Seat the card's BOTTOM at the anchor, so the symbol it describes stays visible under
-            // it rather than being covered by its own card.
-            float halfHeight = HoverCardHalfHeight(wp);
-            host.position = anchor + Vector3.up * halfHeight;
+            bool hasAnchor = MapRoom.MapRoomDriver.TryHoverAnchor(out Vector3 anchor);
+            MapRoom.HoverCardPose.Place(wp.Panel, hasAnchor, anchor, Rig.VRRigDriver.HeadCamera);
         }
     }
 
@@ -421,16 +413,11 @@ internal static partial class ModalFallback
         }
     }
 
-    /// <summary>Half the card's world height, for seating its bottom edge on the hover anchor.</summary>
-    private static float HoverCardHalfHeight(WindowPanel wp)
-    {
-        RectTransform? rect = wp.Panel.HostGo != null
-            ? wp.Panel.HostGo.transform as RectTransform
-            : null;
-        if (rect == null)
-            return 0f;
-        return rect.rect.height * 0.5f * Mathf.Abs(rect.lossyScale.y);
-    }
+    // (HoverCardHalfHeight lived here until ModBuild 188. It measured the HOST RECT — the window's
+    // authored root, which for a hover card is never content-fit — and assumed the drawn card was
+    // centred in it, which the game's own follow component was busy making untrue. Both duties moved
+    // into MapRoom.HoverCardPose, which measures what is actually drawn and stands that component
+    // down; the fallback there is this exact rule, kept for the case where nothing can be measured.)
 
     private static bool IsFallbackWindow(UIWindowID id)
     {

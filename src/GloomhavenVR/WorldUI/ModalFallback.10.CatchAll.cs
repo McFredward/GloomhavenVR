@@ -497,15 +497,43 @@ internal static partial class ModalFallback
     ///
     /// <para>Two ways an ancestor counts: it is already carried this tick (the explicit polls run
     /// BEFORE the catch-all, so an enrolled ancestor is in <see cref="OpenWindows"/> by now), or
-    /// it is open and the catch-all itself would take it. The second test recurses up the chain —
-    /// bounded by hierarchy depth, and correct by construction: "will anything above me float"
-    /// is exactly the question.</para>
+    /// the catch-all itself would take it. The second test recurses up the chain — bounded by
+    /// hierarchy depth, and correct by construction: "will anything above me float" is exactly
+    /// the question.</para>
+    ///
+    /// <para>THE ANCESTOR DOES NOT HAVE TO BE OPEN RIGHT NOW (ModBuild 188), and requiring that was
+    /// the whole of the merchant bug. 187's <c>WINDOW IDENTITY</c> census finally named the second
+    /// merchant window instead of inferring it — two earlier rounds inferred it and both were
+    /// wrong:</para>
+    /// <code>
+    /// WINDOW IDENTITY 'Scroll View' (ID None): path Campaign Canvas/UI Guildmaster HUD/
+    ///   UI Shop Item Window/UI Shop Inventory Variant/Content/Scroll View; rect 512x887;
+    ///   components [RectTransform, CanvasRenderer, ExtendedScrollRect, CanvasGroup, UIWindow];
+    ///   nearest ancestor UIWindow 'UI Shop Item Window' (ID Shop, open=False).
+    /// </code>
+    /// <para>It is the merchant's own inventory, four levels INSIDE the shop window — not the
+    /// sibling ModBuild 186 deduced from a transform count, and not the party inventory 187
+    /// suspected. It floated because at that moment the shop window was <b>closed</b>: the rule
+    /// asked <c>above.IsOpen</c>, a closed ancestor did not win, and a fragment of a hidden screen
+    /// was floated as a window of its own — a quarter of an hour before the merchant was ever
+    /// opened. The map room's sticky rule then kept it there forever, so when the merchant finally
+    /// opened its rows poured into that stale float: "die eigentlichen Gegenstände sind in einem
+    /// zweiten Fenster".</para>
+    ///
+    /// <para>A closed ancestor is if anything a STRONGER reason to refuse: an open ancestor at
+    /// least renders the child somewhere, while a closed one means the screen this fragment belongs
+    /// to is not showing at all. The tell is right there in the census — a <c>UIWindow</c> sitting
+    /// on an <c>ExtendedScrollRect</c> is not a window in any sense the player would recognise; the
+    /// game simply reuses the component as a show/hide helper for a scroll area. Dropping the
+    /// <c>IsOpen</c> term costs nothing elsewhere, because an ancestor that is merely un-floatable
+    /// (the permanently-open guildmaster HUD above the shop window) is still refused by
+    /// <see cref="CatchAllEligible"/> and so still does not win.</para>
     /// </summary>
     private static bool AncestorWillBeFloated(UIWindow above)
     {
         if (ContainsWindow(OpenWindows, above))
             return true;
-        return above.IsOpen && CatchAllEligible(above);
+        return CatchAllEligible(above);
     }
 
     private static bool IsAdoptedByConversion(UIWindow window)
