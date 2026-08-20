@@ -374,10 +374,17 @@ internal static class WaterTerrainVR
     /// reported is not a setting, and the standing rule for this menu is that anything whose
     /// OFF-state breaks the experience is removed rather than defaulted.</para>
     ///
-    /// <para>The values are ModBuild 168's verbatim — the build whose water the user accepted —
-    /// so this is a removal of the dials and not a retune. Each one's reasoning lives at its
-    /// field. Changing the look now means changing a number here and shipping a build, which is
-    /// the point: the look is the mod's, not the session's.</para>
+    /// <para>THE VALUES ARE HIS OWN, LIFTED OUT OF HIS <c>dev.gloomhavenvr.water.cfg</c> AT
+    /// ModBuild 175. ModBuild 169 believed it was freezing "ModBuild 168's accepted values" and
+    /// was freezing the shipped DEFAULTS instead — his machine had the section live and tuned a
+    /// long way off them (RippleSpeed 1.0 against 0.00875, SwellHeight 0.045 against 0.005,
+    /// Shimmer 0.35 against 0.03, and five more). So the water he approved was never the water
+    /// this file described, retiring the section dropped it by a factor of 114, and ModBuilds 172
+    /// and 173 re-tuned around a baseline he had never once been looking at.</para>
+    ///
+    /// <para>Changing the look now means changing a number here and shipping a build. That is the
+    /// point of the removal and it still stands — but it also means the numbers have to BE his,
+    /// because nothing else can carry his tuning any more.</para>
     /// </summary>
     internal static class WaterSettings
     {
@@ -390,7 +397,7 @@ internal static class WaterTerrainVR
         /// authors _Smoothness 0.754, which mirrors the skybox sharply — and a skybox is
         /// infinitely far away, so its reflection sweeps with your head. That was the original
         /// report ("kaputter Spiegel", spiegeltiles.jpg).</summary>
-        internal const float Smoothness = 0.08f;
+        internal const float Smoothness = 0.21858f;
 
         /// <summary>Upper bound on the water tint's alpha (the game authors 0.737). Without a
         /// camera depth texture the shader's depth fade pins at its deepest and tints the whole
@@ -400,7 +407,7 @@ internal static class WaterTerrainVR
         /// <summary>Ceiling for every METALLIC and explicit reflection-strength property. The
         /// basin runs Amp_Basic_N_MRAO, and a metallic surface in a scene with no reflection
         /// probe IS a mirror of the skybox. 0 = wet stone rather than chrome.</summary>
-        internal const float Reflectivity = 0f;
+        internal const float Reflectivity = 0.1446353f;
 
         /// <summary>Take the water feature's SOLID geometry into scope as well as the film — the
         /// sunken bed and the rim inside the water's own footprint. Through ModBuild 159 only the
@@ -415,7 +422,7 @@ internal static class WaterTerrainVR
 
         /// <summary>Multiplier on that probe's brightness. 1 = as bright as the room already
         /// is (the scene's own ambient probe times its reflection intensity).</summary>
-        internal const float ProbeBrightness = 1f;
+        internal const float ProbeBrightness = 0.3604062f;
 
         /// <summary>Draw the film with the mod's own shader instead of retuning the game's. Four
         /// rounds of property tuning were read back off the live material and every one landed —
@@ -448,22 +455,12 @@ internal static class WaterTerrainVR
         /// rotation — under the threshold at which anything reads as moving — and the verdict was
         /// "gar keine Animation beim Wasser mehr! Komplett stillstehend/freezed".</para>
         ///
-        /// <para>RE-BASED FOR ModBuild 173, from 0.0124, and the reason is a correction rather than
-        /// a preference. ModBuild 170 set 0.0124 believing that what an eye judges is the PRODUCT
-        /// amplitude x steepness x frequency, and so bought visibility back with height while
-        /// letting the clock stay slow. ModBuild 172 disproved it: at 0.0124 the surface moves 44 %
-        /// MORE per second than ModBuild 167 did, and 167 was visible while 172 was reported as
-        /// standing still. Temporal frequency has a FLOOR that amplitude cannot buy past — see
-        /// <c>WaterOwnSurface.VisibleFastestPeriodSeconds</c> for the four measured builds that
-        /// bracket it.</para>
-        ///
-        /// <para>0.0175 is ModBuild 167's own value: the SLOWEST setting the user has ever confirmed
-        /// seeing move ("gerne noch langsamer" presupposes there was something to slow). Its fastest
-        /// component runs 32.5 s = 0.031 Hz, inside the floor with margin. The doubled
-        /// <see cref="SwellHeight"/> from 170 STAYS — it is what makes this read as gentle relief
-        /// rather than as a twitch, and it is not the axis he has ever called hectic. Any further
-        /// "calmer" must be answered with height, wavelength or shimmer; walking this number down
-        /// again has now cost two rounds.</para>
+        /// <para>HIS OWN VALUE AS OF ModBuild 175. It is 1.0 — the setting at which the swell
+        /// bobs about once a second, which is what real water of this wavelength does, and which
+        /// this file spent six rounds arguing was far too fast. It was what his machine had been
+        /// running all along; ModBuilds 170, 172 and 173 tuned this number against a baseline he
+        /// had never seen. The split from <see cref="RippleSpeed"/> stays because it costs nothing
+        /// and is genuinely two clocks, but both start at his single tuned value.</para>
         /// </summary>
         internal const float SwellSpeed = WaterOwnSurface.ShippedSwellSpeed;
 
@@ -1712,74 +1709,32 @@ internal static class WaterTerrainVR
             float vert = WaterOwnSurface.PeakVerticalSpeed(amp, swellPeriod) * 1000f;
             float slope = WaterOwnSurface.PeakCrestSlope(amp, swellWave) * Mathf.Rad2Deg;
 
-            // THE FREQUENCY IS THE VERDICT, and the rate is only how strong it is once it is fast
-            // enough to be seen. ModBuild 172 shipped a higher rate than a build the user could
-            // see and was still reported as standing still; what sorted the four builds was this
-            // number alone.
-            float fastest = WaterOwnSurface.FastestSwellPeriod(swellPeriod);
-            string verdict =
-                fastest > WaterOwnSurface.VisibleFastestPeriodSeconds
-                    ? "OVER THE VISIBILITY FLOOR — the fastest component takes "
-                      + fastest.ToString("0.#") + " s (" + (1f / fastest).ToString("0.0000")
-                      + " Hz) where the floor is "
-                      + WaterOwnSurface.VisibleFastestPeriodSeconds.ToString("0.#")
-                      + " s. THIS BUILD WILL BE REPORTED AS FROZEN however strong its rate is; "
-                      + "amplitude cannot buy past a temporal floor and ModBuild 172 proved it"
-                    : "fastest component " + fastest.ToString("0.#") + " s ("
-                      + (1f / fastest).ToString("0.0000") + " Hz), inside the visibility floor of "
-                      + WaterOwnSurface.VisibleFastestPeriodSeconds.ToString("0.#") + " s"
-                      + (rate >= WaterOwnSurface.BriskNormalRateDeg
-                             ? "; rate is at or over the one he called good-but-slightly-fast"
-                             : "; rate is "
-                               + (100f * rate / WaterOwnSurface.BriskNormalRateDeg).ToString("0")
-                               + "% of the brisk one");
-
-            var sb = new System.Text.StringBuilder(420);
-            sb.Append("HOW FAST IT ACTUALLY MOVES (periods are not perception — the eye follows the "
-                      + "surface NORMAL, and that rate is amplitude x steepness x frequency, of "
-                      + "which the period is one factor): peak normal rate ")
-              .Append(rate.ToString("0.000")).Append(" deg/s, peak vertical ")
-              .Append(vert.ToString("0.00")).Append(" mm/s, crest slope ")
-              .Append(slope.ToString("0.0")).Append(" deg — ").Append(verdict)
-              .Append(". CALIBRATION, from the user's own verdicts rather than from taste [");
-            for (int i = 0; i < WaterOwnSurface.MotionVerdicts.Length; i++)
-            {
-                (int build, float h, float d, float r, bool seen, string words) =
-                    WaterOwnSurface.MotionVerdicts[i];
-                if (i > 0)
-                    sb.Append("; ");
-                sb.Append("MB").Append(build).Append(' ')
-                  .Append(WaterOwnSurface.FastestSwellPeriod(
-                              WaterOwnSurface.ResolvedSwellPeriod(1f, d)).ToString("0.#"))
-                  .Append(" s at ").Append(r.ToString("0.00")).Append(" deg/s = ")
-                  .Append(seen ? "SEEN" : "FROZEN").Append(" '").Append(words).Append('\'');
-            }
-            sb.Append("]. THE TWO CLOCKS ARE SEPARATE as of ModBuild 170: WaterSettings.SwellSpeed ")
-              .Append(WantedSwellSpeed.ToString("0.#####"))
-              .Append(" drives the relief above, WaterSettings.RippleSpeed ")
-              .Append(WantedRippleSpeed.ToString("0.#####"))
-              .Append(" drives only the crossfades. One number drove both for six rounds, so every "
-                      + "'slower' aimed at the busy detail also slowed the one thing that could be "
-                      + "seen — which is how a surface ends up frozen with every printed number "
-                      + "moving exactly as intended");
-            return sb.ToString();
+            return "HOW STRONG THE MOTION IS (reported, not judged): peak normal rate "
+                   + rate.ToString("0.000") + " deg/s, peak vertical " + vert.ToString("0.00")
+                   + " mm/s, crest slope " + slope.ToString("0.0") + " deg. THESE ARE THE USER'S OWN "
+                   + "NUMBERS: WaterSettings.SwellSpeed " + WantedSwellSpeed.ToString("0.#####")
+                   + " / RippleSpeed " + WantedRippleSpeed.ToString("0.#####") + " / SwellHeight "
+                   + WantedSwellHeight.ToString("0.#####") + " / Shimmer "
+                   + WantedShimmer.ToString("0.###")
+                   + " came out of his own dev.gloomhavenvr.water.cfg at ModBuild 175, because "
+                   + "ModBuild 169 retired that section believing it was freezing the values he had "
+                   + "accepted and froze the shipped DEFAULTS instead — a 114-fold slowdown on his "
+                   + "machine. A calibration band was once derived here from his verdicts and every "
+                   + "attribution in it was wrong for the same reason; it is gone rather than "
+                   + "re-derived. This line says how strong the motion is and does not get to say "
+                   + "whether it is right.";
         }
 
         /// <summary>
         /// WHICH SubShader is actually drawing this film — MEASURED, not inferred.
         ///
         /// <para>This line used to read the device's shader level and conclude "so the TESSELLATED
-        /// SubShader is the one being drawn". That is an inference about the HARDWARE, and it has
-        /// been reporting success on every frozen build. Whether the LOD 300 SubShader is selected
-        /// depends on the hardware AND on the LOD ceilings, and a ceiling below 300 silently picks
-        /// the LOD 100 fallback instead — which runs the identical wave on the game's own 33-vertex
-        /// hex, i.e. a 2.4 m swell with almost no vertices to carry it. That surface is flat and
-        /// therefore genuinely motionless, and no amount of amplitude or frequency tuning can reach
-        /// it. Three rounds have now been spent tuning a number while this was only assumed.</para>
-        ///
-        /// <para>Both ceilings are read: <c>Shader.globalMaximumLOD</c>, which anything in the
-        /// process may lower (a game quality setting is the obvious candidate), and the shader
-        /// instance's own <c>maximumLOD</c>. The lower of the two decides.</para>
+        /// SubShader is the one being drawn". That is an inference about the HARDWARE, and it
+        /// reported success on every frozen build. Selection depends on the hardware AND on the LOD
+        /// ceilings: anything in the process may lower <c>Shader.globalMaximumLOD</c>, and a ceiling
+        /// under 300 silently picks the LOD 100 fallback, which runs the identical wave on the
+        /// game's own 33-vertex hex — a 2.4 m swell with almost no vertices to carry it. That
+        /// surface is flat and therefore genuinely motionless, and no tuning can reach it.</para>
         /// </summary>
         private static string SubShaderInForce(Material inst)
         {
@@ -1793,7 +1748,7 @@ internal static class WaterTerrainVR
                        + SystemInfo.graphicsShaderLevel + " (needs 46), Shader.globalMaximumLOD "
                        + global + ", this shader's maximumLOD "
                        + (local < 0 ? "unreadable" : local.ToString())
-                       + " -> effective LOD ceiling " + effective + ", passes " 
+                       + " -> effective LOD ceiling " + effective + ", passes "
                        + (inst != null ? inst.passCount : -1) + " -> ";
             if (tessellated)
                 return s + "the LOD 300 TESSELLATED SubShader, which is the one that carries the "

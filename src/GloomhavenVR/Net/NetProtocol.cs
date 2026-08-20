@@ -416,7 +416,73 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 174;
+    public const ushort ModBuild = 175;
+    // Build 175: HIS OWN NUMBERS. ModBuild 169 froze the wrong ones and nobody noticed for six builds.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // He sent his dev.gloomhavenvr.water.cfg. It answers everything:
+    //
+    //     key               shipped      his         factor
+    //     RippleSpeed        0.00875     1.0         114x faster
+    //     SwellHeight        0.005       0.045       9x   (clamps to the 60 mm ceiling)
+    //     Shimmer            0.03        0.35        11.7x
+    //     Smoothness         0.08        0.21858     2.7x
+    //     Opacity            0.45        0.2304364   half
+    //     Reflectivity       0           0.1446353   (the shipped default was zero)
+    //     ProbeBrightness    1.0         0.3604062   a third
+    //
+    // ── WHAT ACTUALLY HAPPENED ────────────────────────────────────────────────────────────────
+    // Until ModBuild 169 the [Water] section was live and he had tuned it, through the Erweitert
+    // menu, a long way off the shipped defaults. Every verdict from ModBuild 166 onward was
+    // therefore about HIS numbers, not about the ones this file was re-basing. ModBuild 169 removed
+    // the section at his request, wrote in its header that it was freezing "ModBuild 168's accepted
+    // values" — and froze the DEFAULTS. On his machine that was a 114-fold slowdown, in the same
+    // build, and it is exactly the moment the water stopped moving. ModBuilds 172 and 173 then
+    // re-tuned around a baseline he had never once been looking at, and 174 was spent measuring
+    // whether the shader still animated at all.
+    //
+    // The mistake is mine and it is specific: the section was removed without ever reading what was
+    // in the file it retired. The AnnounceRetiredFile line written in that same build names all
+    // seventeen keys — it was written to warn HIM that his file had gone inert, and it never
+    // occurred to me to ask what it said.
+    //
+    // ── WHAT SHIPS ────────────────────────────────────────────────────────────────────────────
+    // His values, verbatim, as the constants. The standing rule for a dropped cfg is to take it
+    // over rather than re-express it, and it applies here more than anywhere: this is the only
+    // water configuration that has ever been confirmed on hardware, by the person looking at it.
+    // Resolved: swell bobs on 1.10 .. 0.57 s, amplitude 60 mm (clamped down from 117), crest slope
+    // 13.2 deg, peak vertical 411 mm/s, ripple crossfades 1.8 / 2.9 / 4.7 s. Against ModBuild 169's
+    // surface that is roughly five hundred times the normal rate.
+    //
+    // TWO THINGS WORTH KNOWING ABOUT THOSE NUMBERS, because they look alarming next to the history.
+    // The amplitude is ModBuild 164's, and 164 was rejected as "extrem schnelle hektische weiße
+    // Streifen" — but 164 also TRANSLATED at 4.29 wu/s and added the glint into the film's ALPHA, so
+    // a crest went bright and opaque at once. Both were deleted in 165/166 and neither can come
+    // back: the shader has no translation term left and the glint never touches opacity. Shimmer
+    // 0.35 is likewise the pre-165 default, from the era when it was an alpha term; at 0.35 it is
+    // now a broad sheen and not a streak. So this is 164's geometry without the two things that
+    // were actually being complained about.
+    //
+    // ── AND THE CALIBRATION APPARATUS IS DELETED, NOT RE-DERIVED ──────────────────────────────
+    // ModBuilds 170 and 173 built a table pairing his "too fast" and "frozen" verdicts with the
+    // SHIPPED numbers, a deg/s band derived from it, a VisibleFastestPeriodSeconds floor, and wire
+    // gates "proven to fire" against all of it. Every attribution in it was wrong, for the reason
+    // above. A precise instrument calibrated against misattributed data is worse than no instrument:
+    // it agrees with every broken build and it argues back. All of it is gone.
+    //
+    // What is left in the wire test are the bounds that never depended on a verdict — the trough may
+    // not dip through the basin bed (and at his SwellHeight the clamp is load-bearing rather than
+    // theoretical: 117 mm resolved, 60 mm allowed), the swell may not repeat on the tile lattice,
+    // nothing may translate, no term may be view-dependent. The rate figures stay on the census as
+    // REPORTING. They say how strong the motion is; they do not get to say whether it is right,
+    // because the only thing that has ever settled that is him looking at it.
+    //
+    // ── ONE MORE THING IN HIS FILE ────────────────────────────────────────────────────────────
+    // HideTerrainWaterInVR = true, left over from ModBuild 158. That key was retired by his own
+    // ruling ("Einfach ausblenden ist keine Option") and nothing has read it since — but it is a
+    // reminder that a retired key sits in a config file looking exactly as authoritative as a live
+    // one, which is the whole reason AnnounceRetiredFile now prints the file's contents.
+    //
     // Build 174: STOP TUNING. Two measurements instead, because 168 and 169 were the same water.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

@@ -126,7 +126,34 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 174** (bundle UNCHANGED — plugin DLL only) — **stop tuning; two measurements instead.**
+- **ModBuild 175** (bundle UNCHANGED — plugin DLL only) — **his own numbers; 169 froze the wrong
+  ones and nobody noticed for six builds.**
+  * He sent `dev.gloomhavenvr.water.cfg`. Until 169 the `[Water]` section was live and he had tuned
+    it through the Erweitert menu a long way off the defaults: **RippleSpeed 1.0 vs 0.00875 (114×)**,
+    SwellHeight 0.045 vs 0.005 (9×), Shimmer 0.35 vs 0.03 (11.7×), Smoothness 0.21858, Opacity
+    0.2304364, Reflectivity 0.1446353, ProbeBrightness 0.3604062.
+  * **ROOT CAUSE.** Every verdict from 166 on was about **his** numbers, not the ones being
+    re-based. 169 removed the section at his request, wrote in its own header that it was freezing
+    "168's accepted values", and froze the **defaults** — a 114-fold slowdown on his machine, in the
+    same build. That is the moment the water stopped. 172 and 173 then re-tuned around a baseline he
+    had never seen; 174 was spent measuring whether the shader animated at all.
+  * **The mistake is specific and mine:** the section was removed without ever reading the file it
+    retired. `AnnounceRetiredFile`, written in that same build, names all seventeen keys — it exists
+    to warn *him* the file went inert, and it never occurred to me to ask what it said.
+  * **Ships his values verbatim** (standing rule for dropped cfgs; this is the only water
+    configuration ever confirmed on hardware by the person looking at it). Resolved: bob 1.10–0.57 s,
+    amplitude 60 mm (clamped from 117), crest slope 13.2°, peak vertical 411 mm/s, crossfades
+    1.8/2.9/4.7 s — about **500× 169's normal rate**. The amplitude is 164's, but 164 also
+    *translated* at 4.29 wu/s and put the glint in **alpha**; both were deleted in 165/166 and
+    cannot return, so this is 164's geometry without the two things actually complained about.
+  * **The calibration apparatus is deleted, not re-derived** — the verdict table, the deg/s band,
+    `VisibleFastestPeriodSeconds` and the gates "proven to fire" against them. Every attribution was
+    wrong. *A precise instrument calibrated against misattributed data is worse than none: it agrees
+    with every broken build and it argues back.* What remains are bounds that never needed a verdict
+    (basin-bed clamp — load-bearing at his height, 117 mm resolved vs 60 allowed; lattice mismatch;
+    no translation; no view-dependent term). The rate figures stay on the census as **reporting**.
+
+- **ModBuild 174** (bundle unchanged) — stop tuning; two measurements instead.
   * **THE ANOMALY THREE ROUNDS WALKED PAST.** 168 was accepted ("Beide Probleme behoben, top" — one
     of the two *was* the water animation); 169 was "komplett stillstehend/freezed". Diff the water
     between them and the entire change is **comment renames**: shader and `.cginc` byte-identical,
