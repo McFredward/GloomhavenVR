@@ -85,6 +85,11 @@ internal static class BundleShaders
     private static readonly HashSet<string> FoundLogged = new(8);
     private static readonly HashSet<string> MissLogged = new(8);
 
+    /// <summary>One "not yet, no bundle is loaded" line per shader. Deliberately a SEPARATE latch
+    /// from <see cref="MissLogged"/>: a pending miss must not consume the real error's one chance to
+    /// be printed later.</summary>
+    private static readonly HashSet<string> PendingLogged = new(8);
+
     /// <summary>Shaders whose expensive last-resort sweep (<see cref="SweepLoaded"/>) has run. It is
     /// a diagnostic-grade fallback, so it runs at most once per shader per process.</summary>
     private static readonly HashSet<string> Swept = new(8);
@@ -168,6 +173,36 @@ internal static class BundleShaders
             return sh;
         }
 
+        // NOT YET IS NOT A FAILURE, AND IT MUST NOT SHOUT LIKE ONE. The bundle loads
+        // asynchronously (Hands.PREWARM), and several features ask for their shader during install,
+        // which is frames earlier. With no bundle loaded there is nothing for the three mechanisms
+        // to find and a miss carries no information at all — yet this used to burn the once-per-
+        // process ERROR latch and print the full wall, including the sentence "if it lists no bundle
+        // at all the bundle never loaded". The user's ModBuild 169 log opens with two of those, and
+        // twenty lines later the same shader resolves cleanly out of 'gloomhavenvr.bundle'. Reading
+        // them cost real time, twice.
+        //
+        // So the two cases are split by the one fact that distinguishes them — whether ANY bundle is
+        // loaded yet — and only the second is an error:
+        //   * no bundle loaded  -> a short pending line, ONCE, and no latch, so the real answer is
+        //     still allowed to arrive. If the bundle genuinely never loads, no RESOLVED line ever
+        //     follows this one, and the line says exactly that.
+        //   * a bundle IS loaded and the shader still cannot be found -> the full wall, at ERROR.
+        //     That is a stale asset path or a bake that stripped the shader, and it never fixes
+        //     itself.
+        if (LoadedBundleCount() == 0)
+        {
+            if (PendingLogged.Add(shaderName))
+                VRLog.Info(scope, $"BUNDLED SHADER '{shaderName}' not resolved YET — no AssetBundle "
+                                  + "is loaded in this process at all, which is normal this early: "
+                                  + "the bundle loads asynchronously and features ask for their "
+                                  + "shaders while installing. It will be retried on every use. "
+                                  + "EXPECT a 'RESOLVED via ...' line for this shader shortly; if "
+                                  + "none ever appears, the bundle never loaded (wrong Unity editor "
+                                  + "— see scripts/check-bundle-format.sh) and THAT is the fault.");
+            return null;
+        }
+
         if (MissLogged.Add(shaderName))
             VRLog.Error(scope, $"BUNDLED SHADER '{shaderName}' NOT RESOLVED — all three mechanisms "
                                + $"failed: Shader.Find returned null, no loaded AssetBundle holds "
@@ -179,6 +214,18 @@ internal static class BundleShaders
                                + "GloomhavenVR/* shader is loaded, the bake stripped the shader or "
                                + "moved the asset and the path in Core/BundleShaders.cs is stale.");
         return null;
+    }
+
+    /// <summary>How many AssetBundles are loaded in this process. Zero means the async load has not
+    /// landed yet (or never will), which is the one fact that tells a premature ask apart from a
+    /// stale asset path — see the split at the miss site.</summary>
+    private static int LoadedBundleCount()
+    {
+        int n = 0;
+        foreach (AssetBundle b in AssetBundle.GetAllLoadedAssetBundles())
+            if (b != null)
+                n++;
+        return n;
     }
 
     /// <summary>Every loaded <see cref="Shader"/> whose name matches, including ones held alive only

@@ -99,14 +99,25 @@ internal static class WaterOwnSurfaceVectors
     /// (LogOutput.log:1018). Every number this file compares against is measured.</summary>
     private static readonly Color AuthoredTint = new(0.195f, 0.311f, 0.131f, 0.737f);
 
-    /// <summary><c>WaterSettings.Opacity</c>'s shipped default.</summary>
-    private const float DefaultOpacity = 0.45f;
+    /// <summary><c>WaterSettings.Opacity</c>'s shipped value, READ FROM THE SHIPPED CONSTANT.</summary>
+    private const float DefaultOpacity = WaterOwnSurface.ShippedOpacity;
 
-    /// <summary><c>WaterSettings.RippleSpeed</c>'s shipped default — the one number the whole surface's
-    /// tempo hangs off. Re-based 0.12 -> 0.035 -> 0.0175 across three hardware rounds, and every
-    /// check below that quotes a period in seconds quotes it AT THIS DIAL, so a fourth re-base
-    /// changes one constant here rather than a scatter of literals.</summary>
-    private const float ShippedSpeedDial = 0.0175f;
+    /// <summary>
+    /// The shipped SWELL rate — the clock the relief bobs on.
+    ///
+    /// <para>THIS USED TO BE THE TEST'S OWN COPY OF THE NUMBER, AND THAT IS HOW THE FREEZE SHIPPED.
+    /// It read <c>private const float ShippedSpeedDial = 0.0175f</c>. ModBuild 168 halved the real
+    /// dial to 0.00875 and this copy was never touched, so <see cref="SpeedDialIsOneClock"/> went
+    /// on asserting "the shipped bob period is inside 50..80 s" — and passing — while the build
+    /// actually shipped 126 s and the user reported "gar keine Animation ... komplett
+    /// stillstehend/freezed". A gate that keeps its own copy of the value it is gating is not a
+    /// gate. Both now come from <c>WaterOwnSurface</c>, which is where the driver reads them.</para>
+    /// </summary>
+    private const float ShippedSwellDial = WaterOwnSurface.ShippedSwellSpeed;
+
+    /// <summary>The shipped RIPPLE rate — the crossfade clock, separate from the swell's since
+    /// ModBuild 170. <inheritdoc cref="ShippedSwellDial"/></summary>
+    private const float ShippedRippleDial = WaterOwnSurface.ShippedRippleSpeed;
 
     /// <summary>`Shader "GloomhavenVR/Name"` — the name a .shader file DECLARES.</summary>
     private static readonly Regex ShaderDecl = new(
@@ -176,6 +187,7 @@ internal static class WaterOwnSurfaceVectors
         PatternNeverTranslates(t);
         NoTranslationTermSurvives(t, waterPath, repoRoot);
         SpeedDialIsOneClock(t);
+        MotionIsInsideTheReportedBand(t);
         TilingsAreTamedAndWeighted(t);
         SwellAmplitudeIsScaledAndCapped(t);
         NormalStrengthIsBounded(t);
@@ -790,7 +802,7 @@ internal static class WaterOwnSurfaceVectors
     {
         // The shipped resolution. Amplitude 1 — this is a test of PHASE and a scale factor cannot
         // move one.
-        float period = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSpeedDial);
+        float period = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSwellDial);
         const float L = WaterOwnSurface.SwellWavelength;
 
         // A SWEEP OF INSTANTS, not one. A drift is a phase that GROWS with the clock, so a single
@@ -1106,23 +1118,107 @@ internal static class WaterOwnSurfaceVectors
     // ---------------------------------------------------------------------------------------
     //  4c-ter. ONE DIAL, ONE CLOCK — and 0 means STILL, not FLAT.
     // ---------------------------------------------------------------------------------------
+    /// <summary>
+    /// THE CHECK THAT WOULD HAVE CAUGHT THE FREEZE, and the reason it did not exist.
+    ///
+    /// <para>Every water gate in this file measures a PERIOD, and ModBuild 168 and 169 shipped
+    /// periods exactly as designed. The user's verdict was "gar keine Animation beim Wasser mehr!
+    /// Komplett stillstehend/freezed". A period is not perception: the eye follows the surface
+    /// NORMAL, and how fast that turns is amplitude x steepness x frequency. Four rounds of
+    /// "slower" moved only the third factor while the first two sat still, and the product fell
+    /// under the threshold at which anything reads as moving.</para>
+    ///
+    /// <para>So this asserts the PRODUCT, inside a band both of whose ends are the user's own
+    /// words rather than anyone's taste — 0.19 deg/s is the build he called frozen, 0.76 deg/s is
+    /// the build he called good but slightly fast. And it recomputes the whole calibration table
+    /// from its own two dials, so the table can never quietly disagree with the maths that reads
+    /// it.</para>
+    /// </summary>
+    private static void MotionIsInsideTheReportedBand(Harness t)
+    {
+        // 1. THE TABLE IS TRUE. Each remembered verdict is recomputed from the dials that produced
+        //    it; a drift here means the band below is being measured against fiction.
+        foreach ((int build, float height, float dial, float rate, string words)
+                 in WaterOwnSurface.MotionVerdicts)
+        {
+            float recomputed = WaterOwnSurface.VerdictRateDeg(height, dial);
+            t.True(Mathf.Abs(recomputed - rate) < 0.01f,
+                $"ModBuild {build} is remembered at {rate:0.000} deg/s ('{words}') but its own "
+                + $"dials (SwellHeight {height}, rate {dial}) now compute {recomputed:0.000}. The "
+                + "calibration table and the maths have drifted apart, so every band below is "
+                + "being judged against a number nobody measured.");
+        }
+
+        // 2. THE TWO ENDS OF THE BAND ARE THE TWO BUILDS. Stated as an identity rather than as
+        //    literals, so a re-based component table moves the band with it.
+        t.True(Mathf.Abs(WaterOwnSurface.FrozenNormalRateDeg
+                         - WaterOwnSurface.VerdictRateDeg(0.005f, 0.00875f)) < 0.01f,
+            "FrozenNormalRateDeg must BE ModBuild 169's rate — the build the user reported as "
+            + "having no animation at all. A hand-written threshold that has come loose from the "
+            + "build it describes is how this went unnoticed for two rounds.");
+        t.True(Mathf.Abs(WaterOwnSurface.BriskNormalRateDeg
+                         - WaterOwnSurface.VerdictRateDeg(0.005f, 0.035f)) < 0.01f,
+            "BriskNormalRateDeg must BE ModBuild 166's rate — 'Sehr gut! ... nur finde ich es "
+            + "immer noch schnell'.");
+
+        // 3. THE SHIPPED LOOK IS STRICTLY INSIDE IT, with real margin on both sides.
+        float amp = WaterOwnSurface.SwellAmplitude(
+            WaterOwnSurface.MeasuredQuadWidthWU, WaterOwnSurface.ShippedSwellHeight);
+        float period = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSwellDial);
+        float shippedRate =
+            WaterOwnSurface.PeakNormalRate(amp, WaterOwnSurface.SwellWavelength, period)
+            * Mathf.Rad2Deg;
+
+        t.True(shippedRate > WaterOwnSurface.FrozenNormalRateDeg * 2f,
+            $"the shipped surface turns its normal at {shippedRate:0.000} deg/s, which must be at "
+            + $"least twice the {WaterOwnSurface.FrozenNormalRateDeg:0.00} deg/s the user reported "
+            + "as frozen. Below that, the periods can be as slow and elegant as you like and the "
+            + "water does not move.");
+        t.True(shippedRate < WaterOwnSurface.BriskNormalRateDeg,
+            $"the shipped surface turns its normal at {shippedRate:0.000} deg/s, which must stay "
+            + $"under the {WaterOwnSurface.BriskNormalRateDeg:0.00} deg/s of the build he called "
+            + "'immer noch schnell'.");
+
+        // 4. THE STEEPNESS STAYS UNDER THE REJECTED ONE. Amplitude is what buys the visibility
+        //    back, and it is the axis with a known ceiling: ModBuild 165 ran 8.1 degrees of crest
+        //    slope and was called "viel zu hektisch".
+        float slope = WaterOwnSurface.PeakCrestSlope(amp, WaterOwnSurface.SwellWavelength)
+                      * Mathf.Rad2Deg;
+        t.True(slope < 7f,
+            $"the shipped crest slope {slope:0.0} deg must stay clear of ModBuild 165's 8.1 deg, "
+            + "which was rejected as hectic. Raising the amplitude is how a slow surface is made "
+            + "visible, and this is the wall that stops it becoming choppy instead.");
+
+        // 5. AND THE TROUGH STILL CANNOT DIP THROUGH THE POOL FLOOR — the physical limit that a
+        //    bigger wave runs at first, measured by the census as a 9 cm gap.
+        t.True(amp <= WaterOwnSurface.MaxSwellAmplitude + 1e-6f
+               && amp < WaterOwnSurface.FilmToBedGap,
+            $"the shipped amplitude {amp:0.####} wu must stay under both the "
+            + $"{WaterOwnSurface.MaxSwellAmplitude:0.###} ceiling and the "
+            + $"{WaterOwnSurface.FilmToBedGap:0.##} wu gap to the basin bed");
+    }
+
     private static void SpeedDialIsOneClock(Harness t)
     {
-        float shipped = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSpeedDial);
-        t.True(shipped > 50f && shipped < 80f,
-            $"the shipped WaterSettings.RippleSpeed must give the longest swell component a bob period "
-            + $"around 63 s (got {shipped:0.#}). ModBuild 165 shipped 9 s and ModBuild 166 shipped "
-            + "31 s, and the verdict on 31 was 'nur finde ich es immer noch schnell. Mach die "
-            + "animation halb so schnell'.");
+        float shipped = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSwellDial);
 
-        // EXACTLY HALF THE RATE THE LAST ROUND SHIPPED, which is what the ruling asked for and is
-        // the one thing a comment cannot guarantee. Stated as the RELATION between two dial
-        // settings rather than as a literal period, so it survives a change of wavelength.
-        float m166 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.035f);
-        t.True(Mathf.Abs(shipped - m166 * 2f) < 1e-2f,
-            $"the shipped bob period {shipped:0.##} s must be exactly TWICE ModBuild 166's "
-            + $"{m166:0.##} s — 'Mach die animation halb so schnell', and halving a rate is "
-            + "doubling a period");
+        // BOUNDED FROM BOTH SIDES BY WHAT HE SAID, and that is the change. This check used to have
+        // only an upper bound in spirit — "around 63 s" — and it was quoted against the test's own
+        // stale copy of the dial, so a build at 126 s passed it and was reported as frozen. The
+        // band is now stated as the two BUILDS that bracket it, both by his words:
+        //   ModBuild 167 at 63 s  -> "gerne noch langsamer", so the shipped period must be LONGER
+        //   ModBuild 169 at 126 s -> "komplett stillstehend/freezed", so it must be SHORTER
+        float m167 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.0175f);
+        float m169 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.00875f);
+        t.True(shipped > m167,
+            $"the shipped bob period {shipped:0.#} s must be LONGER than ModBuild 167's {m167:0.#} s "
+            + "— 'Gerne noch langsamer (halbier die Geschwindigkeit der Animation nochmal)' was said "
+            + "of that build, and that request still stands");
+        t.True(shipped < m169,
+            $"the shipped bob period {shipped:0.#} s must be SHORTER than ModBuild 169's {m169:0.#} s "
+            + "— 'gar keine Animation beim Wasser mehr! Komplett stillstehend/freezed' was said of "
+            + "that one. A period is not perception, so this bound is necessary and NOT sufficient; "
+            + "MotionIsInsideTheReportedBand is the check that measures what the eye follows");
 
         // FAR SLOWER THAN THE BUILD THAT WAS REJECTED, stated as a ratio rather than as a hope.
         float m165 = WaterOwnSurface.ResolvedSwellPeriod(1f, 0.12f);
@@ -1130,10 +1226,21 @@ internal static class WaterOwnSurfaceVectors
             $"the shipped bob period {shipped:0.#} s must be at least five times ModBuild 165's "
             + $"{m165:0.#} s — 'viel zu hektisch' was said of that one");
 
-        // THE DIAL IS ONE CLOCK. Everything else on the surface is a fixed multiple of the swell's
-        // period, so nothing can be left ticking under a frozen wave — which is exactly what the
-        // first draft of ModBuild 165 did, and the preview log caught it.
-        Vector4 fade = WaterOwnSurface.ResolvedFadePeriods(shipped);
+        // THE RIPPLE HAS ITS OWN CLOCK NOW, AND IT MUST STAY THE SLOWER OF THE TWO. Splitting them
+        // is the ModBuild 170 fix; the direction is the whole point of the split, because the
+        // detail is what he kept asking to slow and the relief is what he needs to be able to see.
+        float rippleClock = WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedRippleDial);
+        t.True(rippleClock > shipped,
+            $"the ripple clock {rippleClock:0.#} s must be SLOWER than the swell's {shipped:0.#} s. "
+            + "One dial drove both for six rounds, so every 'slower' aimed at the busy fine detail "
+            + "also slowed the only thing on this surface whose motion can be followed — which is "
+            + "how it ended up frozen with every printed number moving exactly as intended");
+
+        // THE RIPPLE'S OWN CLOCK IS STILL ONE CLOCK over its three crossfades, so nothing can be
+        // left ticking at a rhythm of its own — which is exactly what the first draft of ModBuild
+        // 165 did, and the preview log caught it.
+        Vector4 fade = WaterOwnSurface.ResolvedFadePeriods(rippleClock);
+        shipped = rippleClock;
         t.True(Mathf.Abs(fade.x - shipped * WaterOwnSurface.RippleFadeRatios[0]) < 1e-3f
                && Mathf.Abs(fade.y - shipped * WaterOwnSurface.RippleFadeRatios[1]) < 1e-3f
                && Mathf.Abs(fade.z - shipped * WaterOwnSurface.RippleFadeRatios[2]) < 1e-3f,
@@ -1182,8 +1289,8 @@ internal static class WaterOwnSurfaceVectors
 
         // AND A BIGGER WAVE IS A SLOWER ONE — deep-water dispersion, so WaterSettings.WaveScale cannot
         // turn a lazy roll into a fast one.
-        t.True(WaterOwnSurface.ResolvedSwellPeriod(4f, ShippedSpeedDial)
-               > WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSpeedDial),
+        t.True(WaterOwnSurface.ResolvedSwellPeriod(4f, ShippedSwellDial)
+               > WaterOwnSurface.ResolvedSwellPeriod(1f, ShippedSwellDial),
             "the swell's period must grow with WaterSettings.WaveScale (as its square root), or a longer "
             + "wave would run at the same rate and read as a faster current");
 

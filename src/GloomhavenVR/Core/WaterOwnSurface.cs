@@ -761,6 +761,183 @@ internal static class WaterOwnSurface
         return amp * SwellBloomAt(x, z, t, L, T, calmDepth) * s;
     }
 
+    // =========================================================================================
+    //  THE SHIPPED LOOK, AS THE ONE COPY OF EACH NUMBER
+    // =========================================================================================
+    //
+    // WHY THESE LIVE HERE AND NOT ONLY IN WaterSettings. The wire test used to keep its OWN
+    // `ShippedSpeedDial = 0.0175f` and quote every period against that. ModBuild 168 halved the
+    // real dial to 0.00875 and the test's copy was never touched — so the check that exists to say
+    // "the shipped bob period is inside 50..80 s" went on passing while the build shipped 126 s,
+    // and the surface the user called "komplett stillstehend/freezed" cleared every gate on its way
+    // out. The instrument was pointed at a number the build did not use.
+    //
+    // WaterSettings (in WaterTerrainVR.cs, which the wire tests cannot compile — it is Unity all the
+    // way down) now forwards to these, so there is exactly one literal per value and the test reads
+    // the same one the driver writes. A re-base changes it here and every band moves with it.
+
+    /// <inheritdoc cref="WaterTerrainVR.WaterSettings.SwellSpeed"/>
+    internal const float ShippedSwellSpeed = 0.0124f;
+
+    /// <inheritdoc cref="WaterTerrainVR.WaterSettings.RippleSpeed"/>
+    internal const float ShippedRippleSpeed = 0.00875f;
+
+    /// <inheritdoc cref="WaterTerrainVR.WaterSettings.SwellHeight"/>
+    internal const float ShippedSwellHeight = 0.010f;
+
+    /// <inheritdoc cref="WaterTerrainVR.WaterSettings.Shimmer"/>
+    internal const float ShippedShimmer = 0.03f;
+
+    /// <inheritdoc cref="WaterTerrainVR.WaterSettings.WaveScale"/>
+    internal const float ShippedWaveScale = 1f;
+
+    /// <inheritdoc cref="WaterTerrainVR.WaterSettings.Opacity"/>
+    internal const float ShippedOpacity = 0.45f;
+
+    /// <summary>The width of one water quad, in world units, as the hardware census measures it on
+    /// <c>TERRAIN_Water_Plane</c>. The amplitude is a fraction of THIS, so it is what the motion
+    /// checks have to resolve the shipped look against.</summary>
+    internal const float MeasuredQuadWidthWU = 2.595f;
+
+    // =========================================================================================
+    //  HOW FAST THE SURFACE ACTUALLY MOVES — the instrument this problem went six rounds without
+    // =========================================================================================
+    //
+    // FOUR ROUNDS OF "TOO FAST" AND THEN "COMPLETELY FROZEN", AND THE REASON IS RIGHT HERE. Every
+    // one of those rounds was judged on the swell's PERIOD, because the period is what the census
+    // printed. The period is not what an eye reports. A wave is seen when its surface NORMAL turns
+    // fast enough to notice, and that rate is a PRODUCT — amplitude x steepness x frequency. The
+    // period is one factor of three. Halving the rate dial halves the product, and it went on being
+    // halved on request while the other two factors sat still, until the product fell under the
+    // threshold of motion perception and the water stopped moving at all. Nothing in the log could
+    // have said so: the numbers on the page all changed exactly as intended.
+    //
+    // Measured against the user's own five verdicts, which is what makes this a calibrated
+    // instrument and not another opinion (<see cref="MotionVerdicts"/>):
+    //
+    //     build   peak vertical   normal rate   crest slope   verdict
+    //     164      49.3 mm/s      12.01 deg/s     13.2 deg    "extrem hektisch"   (also translating)
+    //     165      17.4 mm/s       4.24 deg/s      8.1 deg    "viel zu hektisch"  (also translating)
+    //     166       3.1 mm/s       0.76 deg/s      2.9 deg    "Sehr gut ... nur noch etwas zu schnell"
+    //     167       1.6 mm/s       0.38 deg/s      2.9 deg    "gerne noch langsamer"
+    //     168/169   0.8 mm/s       0.19 deg/s      2.9 deg    "gar keine Animation ... komplett freezed"
+    //
+    // So the target band is bounded from BOTH sides by his own words, and it is narrow: 0.19 deg/s
+    // is provably invisible and 0.76 deg/s is provably good-but-a-touch-fast. That also settles what
+    // "hectic" was: at 164 and 165 the surface still TRANSLATED, and the slope was 13 and 8 degrees.
+    // Slope has not moved since 166 and has never once been the thing he complained about.
+    //
+    // AND IT SETTLES WHY NEITHER AXIS ALONE CAN FIX THIS. Reaching a visible rate by amplitude alone,
+    // at 169's period, needs about 8 degrees of crest slope — exactly ModBuild 165's rejected
+    // steepness. Reaching it by frequency alone means undoing both halvings he asked for. Both have
+    // to move a little, which is what ModBuild 170 does.
+    //
+    // The three functions below are pure, wire-tested, and printed on the census line, so the next
+    // report is a number in a band rather than an adjective.
+
+    /// <summary>The peak VERTICAL speed of the water surface, in metres per second: the sum over the
+    /// six standing components of amplitude x angular frequency. This is how fast the waterline
+    /// visibly rises and falls.</summary>
+    internal static float PeakVerticalSpeed(float amp, float swellPeriod)
+    {
+        const float Tau = 6.2831853f;
+        float T = Mathf.Max(swellPeriod, 0.5f);
+        float a = Finite(amp) ? Mathf.Max(amp, 0f) : 0f;
+        float s = 0f;
+        for (int i = 0; i < SwellRatios.Length; i++)
+        {
+            float ai = a * SwellAmplitudes[i] / SwellAmplitudeSum;
+            float w = Tau / Mathf.Max(T * Mathf.Sqrt(SwellRatios[i]), 0.25f);
+            s += ai * w;
+        }
+        return s;
+    }
+
+    /// <summary>The peak CREST SLOPE of the surface, in radians: <c>atan</c> of the summed
+    /// amplitude x wavenumber. This is the steepness — the axis that made ModBuild 164 (13.2 deg)
+    /// and 165 (8.1 deg) read as hectic, and the one that has not moved since.</summary>
+    internal static float PeakCrestSlope(float amp, float swellWavelength)
+    {
+        const float Tau = 6.2831853f;
+        float L = Mathf.Max(swellWavelength, 0.15f);
+        float a = Finite(amp) ? Mathf.Max(amp, 0f) : 0f;
+        float s = 0f;
+        for (int i = 0; i < SwellRatios.Length; i++)
+        {
+            float ai = a * SwellAmplitudes[i] / SwellAmplitudeSum;
+            float k = Tau / Mathf.Max(L * SwellRatios[i], 0.05f);
+            s += ai * k;
+        }
+        return Mathf.Atan(s);
+    }
+
+    /// <summary>
+    /// The peak rate at which the surface NORMAL turns, in radians per second — amplitude x
+    /// wavenumber x angular frequency, summed over the six components. THIS IS THE ONE THAT MATCHES
+    /// WHAT HE REPORTED, because shading follows the normal and a slow surface is seen through its
+    /// changing shading rather than through its displacement.
+    ///
+    /// <para>Read it against <see cref="MotionVerdicts"/>: below about 0.2 deg/s the surface is
+    /// reported as frozen, and about 0.76 deg/s was "good, only slightly too fast". A build outside
+    /// that band is a defect that can be seen in the log before anyone puts a headset on.</para>
+    /// </summary>
+    internal static float PeakNormalRate(float amp, float swellWavelength, float swellPeriod)
+    {
+        const float Tau = 6.2831853f;
+        float L = Mathf.Max(swellWavelength, 0.15f);
+        float T = Mathf.Max(swellPeriod, 0.5f);
+        float a = Finite(amp) ? Mathf.Max(amp, 0f) : 0f;
+        float s = 0f;
+        for (int i = 0; i < SwellRatios.Length; i++)
+        {
+            float ai = a * SwellAmplitudes[i] / SwellAmplitudeSum;
+            float k = Tau / Mathf.Max(L * SwellRatios[i], 0.05f);
+            float w = Tau / Mathf.Max(T * Mathf.Sqrt(SwellRatios[i]), 0.25f);
+            s += ai * k * w;
+        }
+        return s;
+    }
+
+    /// <summary>The rate, in degrees per second, that the user reported as no animation at all
+    /// ("gar keine Animation beim Wasser mehr ... komplett stillstehend/freezed", ModBuild 169). A
+    /// build at or under this is broken however good its periods look.</summary>
+    internal const float FrozenNormalRateDeg = 0.19f;
+
+    /// <summary>The rate, in degrees per second, that the user reported as right but slightly fast
+    /// ("Sehr gut! ... nur finde ich es immer noch schnell", ModBuild 166). The shipped rate must
+    /// stay under this.</summary>
+    internal const float BriskNormalRateDeg = 0.76f;
+
+    /// <summary>
+    /// The calibration points, so the census can print the band with the build and the words that
+    /// set it. Rate is <see cref="PeakNormalRate"/> in deg/s at that build's shipped swell height
+    /// and rate dial, on a <see cref="MeasuredQuadWidthWU"/> quad.
+    ///
+    /// <para>ONLY THE BUILDS THIS TABLE CAN ACTUALLY REPRODUCE ARE IN IT. ModBuild 164 and 165 were
+    /// also rejected ("extrem hektisch", "viel zu hektisch"), but they ran a different component
+    /// table AND still translated, so a rate computed for them with today's six components would be
+    /// a number with no measurement behind it. Their lesson is kept as prose above — the slope was
+    /// 13 and 8 degrees and the surface flowed — rather than as a fabricated data point. The three
+    /// below all ran the CURRENT table and differ only in the two dials, so the wire test recomputes
+    /// each one and fails if this table and the maths ever drift apart.</para>
+    /// </summary>
+    internal static readonly (int Build, float SwellHeight, float Dial, float RateDeg, string Verdict)[]
+        MotionVerdicts =
+    {
+        (166, 0.005f, 0.035f, 0.758f, "Sehr gut ... nur noch etwas zu schnell"),
+        (167, 0.005f, 0.0175f, 0.379f, "gerne noch langsamer"),
+        (169, 0.005f, 0.00875f, 0.189f, "gar keine Animation mehr, komplett freezed"),
+    };
+
+    /// <summary>The rate of a build described by <see cref="MotionVerdicts"/>, recomputed from its
+    /// two dials so the table can be CHECKED rather than trusted.</summary>
+    internal static float VerdictRateDeg(float swellHeight, float dial)
+    {
+        float amp = SwellAmplitude(MeasuredQuadWidthWU, swellHeight);
+        float period = ResolvedSwellPeriod(1f, dial);
+        return PeakNormalRate(amp, SwellWavelength, period) * 57.29578f;
+    }
+
     /// <summary>The bloom envelope, mirrored from <c>GhvrSwellBloom</c>: three long crossing
     /// STANDING modulations, so the lively part of the pool changes place by fading rather than by
     /// travelling. Bounded in [1 - calmDepth, 1], never above 1, because the peak amplitude is what

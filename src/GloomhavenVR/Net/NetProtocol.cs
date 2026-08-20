@@ -416,7 +416,98 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 169;
+    public const ushort ModBuild = 170;
+    // Build 170: A PERIOD IS NOT PERCEPTION — the water was frozen and every gate was green.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // User: "Lös die Probleme die du gefunden hast. Weiterhin war in meinem neusten Testen gar keine
+    // Animation beim Wasser mehr zu sehen! Komplett stillstehend/freezed."
+    //
+    // ── 1. THE WATER STOPPED MOVING, AND THE ROOT CAUSE IS THE INSTRUMENT ──────────────────────
+    // His ModBuild 169 census is perfect: 17/17 films swapped, WaterVR resolved out of the bundle,
+    // the tessellated SubShader in use, six standing components bobbing on 126/99/81/65/108/114 s.
+    // Every number is exactly what was designed. The surface still does not move, and nothing on
+    // that line could have said so — because every water gate in this project measures a PERIOD.
+    //
+    // AN EYE DOES NOT READ PERIODS. It follows the surface NORMAL, and how fast that turns is a
+    // PRODUCT: amplitude x steepness x frequency. The period is one factor of three. Four rounds of
+    // "slower" moved only that factor, in the same direction, while the other two sat still:
+    //
+    //     build   normal rate   crest slope   verdict
+    //     166      0.758 deg/s    2.9 deg     "Sehr gut ... nur noch etwas zu schnell"
+    //     167      0.379 deg/s    2.9 deg     "gerne noch langsamer"
+    //     169      0.189 deg/s    2.9 deg     "gar keine Animation ... komplett freezed"
+    //
+    // So the band is bounded from BOTH sides by his own words, and it is narrow. 0.19 is provably
+    // invisible; 0.76 is provably good-but-a-touch-fast. That also settles what "hectic" meant back
+    // at 164 and 165: those ran 13.2 and 8.1 degrees of crest slope AND still translated. Slope has
+    // not moved since 166 and has never once been what he complained about.
+    //
+    // AND NEITHER AXIS ALONE COULD FIX IT. Reaching a visible rate by amplitude alone, at 169's
+    // period, needs about 8 degrees of slope — exactly 165's rejected steepness. Reaching it by
+    // frequency alone means undoing both halvings he asked for. Both move a little:
+    //
+    //   * THE TWO CLOCKS ARE SPLIT. One dial drove the swell AND the ripple crossfades AND the
+    //     bloom, which sounded tidy and is the whole reason this took six rounds: every "slower"
+    //     aimed at the busy fine detail also slowed the ONE thing whose motion can be followed.
+    //     WaterSettings.SwellSpeed 0.0124 now drives the relief; WaterSettings.RippleSpeed stays at
+    //     168's 0.00875 and drives only the crossfades (203/329/533 s, unchanged). The bloom stays
+    //     on the swell's clock deliberately — it is minutes long either way, and keeping it there
+    //     means GhvrSwellBloom needs no new property, so THE BUNDLE IS UNTOUCHED.
+    //   * WaterSettings.SwellHeight 0.005 -> 0.010. Crest slope 2.9 -> 5.8 degrees, 28 % under the
+    //     rejected 8.1. This is the half of the fix that speeds nothing up.
+    //
+    // Shipped: longest component bobs every 88.7 s (still 1.4x SLOWER than the 167 he asked to slow
+    // down again, so that request stands), peak vertical 2.20 mm/s, crest slope 5.79 deg, normal
+    // rate 0.537 deg/s = 2.8x the frozen build and 71 % of the brisk one.
+    //
+    // ── 2. WHY THE GATES LET IT THROUGH, WHICH IS THE WORSE HALF ───────────────────────────────
+    // SpeedDialIsOneClock asserts "the shipped bob period is inside 50..80 s". It has been GREEN
+    // through 168 and 169, which shipped 126 s. It kept its own copy of the number:
+    //
+    //     private const float ShippedSpeedDial = 0.0175f;   // never followed 168's halving
+    //
+    // A gate that holds its own copy of the value it is gating is not a gate. Every shipped water
+    // constant now lives ONCE, in WaterOwnSurface (ShippedSwellSpeed / ShippedRippleSpeed /
+    // ShippedSwellHeight / ShippedShimmer / ShippedWaveScale / ShippedOpacity); WaterSettings
+    // forwards to them and the wire test reads the same literal the driver writes.
+    //
+    // The new MotionIsInsideTheReportedBand asserts the PRODUCT rather than the period, against a
+    // band whose two ends are recomputed from the dials of the two builds that define them — so the
+    // threshold cannot come loose from the build it describes, and the calibration table cannot
+    // quietly disagree with the maths that reads it. PROVEN TO FIRE: rebuilding with 169's exact
+    // values (SwellHeight 0.005, SwellSpeed 0.00875) fails three checks, including "turns its normal
+    // at 0.189 deg/s, which must be at least twice the 0.19 the user reported as frozen".
+    //
+    // The census now prints peak normal rate, peak vertical speed, crest slope, a verdict word and
+    // the whole calibration table, so the next report is a number in a band rather than an adjective.
+    //
+    // ── 3. 107 NullReferenceExceptions PER OPTIONS-MENU BUILD ──────────────────────────────────
+    // Attributable thanks to ModBuild 136's restored stack traces: VROptionsTab.StampRow
+    // instantiated an ACTIVE template, so Unity ran Awake on the clone during Instantiate — before
+    // StripForReuse could take the game's scripts off. ButtonSwitch.Awake calls Refresh(isOn), whose
+    // last statement is an unguarded text.SetTextKey(...) on its serialized TextLocalizedListener —
+    // the FIRST name in BinderTypeNames, i.e. a component this method destroys on every row it
+    // stamps. Cloning a row whose listener is already gone hands Refresh a destroyed object.
+    //
+    // The clone is now born INACTIVE (template deactivated for the length of the Instantiate call
+    // and restored in a finally — it is the game's own live object), stripped while inactive, and
+    // only then switched on. ButtonSwitch joined BinderTypeNames: its Awake has never once completed
+    // on one of these rows, so it drives nothing. The binder strip is now DestroyImmediate rather
+    // than Destroy, because ButtonSwitch.OnDestroy touches the same Toggle the bool-row path also
+    // destroys — two deferred destroys in one frame with no ordering guarantee would have traded one
+    // exception storm for another.
+    //
+    // ── 4. TWO ERROR WALLS AT BOOT THAT WERE NOT ERRORS ────────────────────────────────────────
+    // BundleShaders logged the full "NOT RESOLVED — ... loaded AssetBundles [NONE] ... the bundle
+    // never loaded" wall at ERROR for WaterVR and Overlay, twenty lines before the same shader
+    // resolved cleanly out of gloomhavenvr.bundle. The bundle loads asynchronously and features ask
+    // for their shaders while installing, so with no bundle loaded a miss carries no information at
+    // all — yet it burned the once-per-process ERROR latch. Split by the one fact that separates the
+    // two cases: no bundle loaded -> a short pending line on its OWN latch, so the real answer is
+    // still allowed to arrive later; a bundle IS loaded and the shader still cannot be found -> the
+    // full wall, at ERROR, because that is a stale asset path and never fixes itself.
+    //
     // Build 169: THE GLOVE IS SOMEONE'S WORK NOW, AND THE WATER MENU IS GONE.
     // ***** THE BUNDLE CHANGED — 66,607,352 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
     //

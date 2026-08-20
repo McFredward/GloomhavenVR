@@ -112,6 +112,12 @@ internal static partial class VROptionsTab
     private static readonly string[] BinderTypeNames =
     {
         "TextLocalizedListener",
+        // ButtonSwitch's Awake calls Refresh(isOn), which ends in an unguarded
+        // text.SetTextKey(...) on its serialized TextLocalizedListener — the line above, which we
+        // destroy on every row. It has therefore NEVER completed on one of these rows and drives
+        // nothing; the mod supplies the row's visuals and handlers itself. See StampRow, which also
+        // had to start cloning the template INACTIVE so this strip happens before any Awake runs.
+        "ButtonSwitch",
         "UINavigationSelectable",
         "NavigationSelectableWrapper",
         "UISliderController",
@@ -438,7 +444,7 @@ internal static partial class VROptionsTab
             {
                 if (string.Equals(name, BinderTypeNames[i], StringComparison.Ordinal))
                 {
-                    SafeDestroy(component);
+                    SafeDestroyNow(component);
                     break;
                 }
             }
@@ -453,6 +459,38 @@ internal static partial class VROptionsTab
             slider.onValueChanged.RemoveAllListeners();
         foreach (TMP_Dropdown dropdown in root.GetComponentsInChildren<TMP_Dropdown>(true))
             dropdown.onValueChanged.RemoveAllListeners();
+    }
+
+    /// <summary>
+    /// Strip a binder RIGHT NOW rather than at the end of the frame — the difference matters for
+    /// exactly one of them and would have traded one exception storm for another.
+    ///
+    /// <para><c>Object.Destroy</c> defers <c>OnDestroy</c> to the end of the frame, and by then this
+    /// row has also had its native <c>Toggle</c> destroyed (see the bool-row path). <c>ButtonSwitch</c>
+    /// holds a serialized reference to that same toggle and its <c>OnDestroy</c> calls
+    /// <c>toggle.onValueChanged.RemoveAllListeners()</c> unguarded, so with both queued in one frame
+    /// and no ordering guarantee between them it would throw for the same reason its <c>Awake</c>
+    /// already did. Destroying it immediately, while the clone is still inactive and still whole,
+    /// means its <c>OnDestroy</c> runs against a live toggle and finishes.</para>
+    ///
+    /// <para>Iterating a <c>GetComponentsInChildren</c> array while destroying immediately is safe
+    /// here: entries for destroyed components read as null and the caller's loop already skips
+    /// those. Falls back to the deferred destroy if the immediate one is refused.</para>
+    /// </summary>
+    private static void SafeDestroyNow(Component? component)
+    {
+        if (component == null)
+            return;
+        try
+        {
+            UnityEngine.Object.DestroyImmediate(component);
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", $"VR options tab: immediate strip of {component.GetType().Name} "
+                                  + $"refused ({e.Message}) — falling back to a deferred destroy.");
+            SafeDestroy(component);
+        }
     }
 
     private static void SafeDestroy(Component? component)
@@ -1093,6 +1131,26 @@ internal static partial class VROptionsTab
     /// <summary>
     /// Instantiate a template (or a bare row when there is none) and find its parts. The authored
     /// height is deliberately left alone — see the class docs.
+    ///
+    /// <para>THE CLONE IS BORN INACTIVE, AND THAT IS THE WHOLE POINT OF THE DANCE BELOW. Unity runs
+    /// <c>Awake</c> during <c>Instantiate</c> when the source is active, so an active template ran
+    /// the game's own row scripts on the clone BEFORE <see cref="StripForReuse"/> could take them
+    /// off — and one of them threw every single time. <c>ButtonSwitch.Awake</c> calls
+    /// <c>Refresh(isOn)</c>, whose last statement is an UNGUARDED <c>text.SetTextKey(...)</c> on its
+    /// serialized <c>TextLocalizedListener</c> — the first name in <see cref="BinderTypeNames"/>,
+    /// i.e. a component this method destroys on every row it stamps. Cloning a row whose listener
+    /// is already gone hands <c>Refresh</c> a destroyed object and it throws. The user's ModBuild
+    /// 169 log carries <b>107 NullReferenceExceptions from this one line</b>, one per row, every
+    /// time the options tab is built; they were invisible until ModBuild 136 restored stack traces
+    /// and anonymous before that.</para>
+    ///
+    /// <para>So: deactivate the template for the length of the <c>Instantiate</c> call, strip the
+    /// game's binders off the still-inactive clone, and only then switch it on — by which point
+    /// there is no <c>ButtonSwitch</c> left to wake. <c>ButtonSwitch</c> itself joined
+    /// <see cref="BinderTypeNames"/> for that reason: its Awake has never once completed on one of
+    /// these rows, so it drives nothing, and the mod supplies the row's own visuals and handlers.
+    /// The template is put back exactly as it was found — it is the game's own live object, not
+    /// ours to leave switched off.</para>
     /// </summary>
     private static GameObject StampRow(GameObject? template, Transform parent,
                                        out TMP_Text? title, out Transform? option)
@@ -1100,8 +1158,18 @@ internal static partial class VROptionsTab
         GameObject row;
         if (template != null)
         {
-            row = UnityEngine.Object.Instantiate(template, parent);
-            row.SetActive(true);
+            bool templateWasActive = template.activeSelf;
+            if (templateWasActive)
+                template.SetActive(false);
+            try
+            {
+                row = UnityEngine.Object.Instantiate(template, parent);
+            }
+            finally
+            {
+                if (templateWasActive)
+                    template.SetActive(true);
+            }
         }
         else
         {
@@ -1111,6 +1179,7 @@ internal static partial class VROptionsTab
         }
 
         StripForReuse(row);
+        row.SetActive(true);
 
         title = FindPart<TMP_Text>(row.transform, "Title");
         option = row.transform.Find("Option");

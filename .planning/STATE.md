@@ -126,7 +126,41 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 169** (**BUNDLE CHANGED — 66,607,352 bytes, must be REINSTALLED**) — the glove is
+- **ModBuild 170** (bundle UNCHANGED — plugin DLL only) — a period is not perception.
+  * **ROOT CAUSE of "komplett stillstehend/freezed":** every water gate and every census field in
+    this project measures a **period**, and 168/169 shipped periods exactly as designed. The eye
+    follows the surface **normal**, and that rate is a *product* — amplitude × steepness ×
+    frequency. Four rounds of "slower" moved only the frequency while the other two sat still, and
+    the product fell under the threshold of motion perception. His own three verdicts bound the
+    band: `0.189 °/s` = frozen (169), `0.379` = "gerne noch langsamer" (167), `0.758` = "Sehr gut,
+    nur noch etwas zu schnell" (166). Slope has sat at 2.9° through all three and has never been
+    what he complained about — 164/165 were "hektisch" at 13.2° and 8.1° *while translating*.
+  * **Neither axis alone could fix it**, and that is why the fix is two-part: reaching a visible
+    rate by amplitude alone needs ~8° of slope (165's rejected steepness); by frequency alone it
+    means undoing both halvings he asked for. So **the two clocks were split** — `SwellSpeed`
+    0.0124 drives the relief, `RippleSpeed` stays at 168's 0.00875 and drives only the crossfades
+    (203/329/533 s, unchanged) — and **`SwellHeight` doubled to 0.010** (2.9° → 5.8°, 28 % under
+    the rejected 8.1°). Shipped: longest bob 88.7 s (still 1.4× slower than the 167 he asked to
+    slow), 2.20 mm/s, **0.537 °/s** = 2.8× frozen, 71 % of brisk. The bloom stays on the swell's
+    clock so `GhvrSwellBloom` needs no new property — **the bundle is untouched**.
+  * **AND THE GATE WAS POINTED AT THE WRONG NUMBER.** `SpeedDialIsOneClock` asserts "the shipped
+    bob period is inside 50–80 s" and was GREEN through two builds that shipped 126 s, because it
+    kept its own `private const float ShippedSpeedDial = 0.0175f` which never followed 168's
+    halving. *A gate that holds its own copy of the value it is gating is not a gate.* Every
+    shipped water constant now lives once in `WaterOwnSurface`; `WaterSettings` forwards. New
+    `MotionIsInsideTheReportedBand` asserts the **product**, against a band recomputed from the
+    dials of the builds that define it — **proven to fire**: rebuilt at 169's exact values it fails
+    three checks.
+  * **107 NREs per options-menu build** — `StampRow` instantiated an ACTIVE template, so
+    `ButtonSwitch.Awake → Refresh` ran before `StripForReuse`, and its unguarded
+    `text.SetTextKey(...)` hit the `TextLocalizedListener` this method destroys on every row. Clone
+    is born inactive now; `ButtonSwitch` joined the strip list; the strip is `DestroyImmediate`
+    because its `OnDestroy` touches the same Toggle the bool-row path also destroys.
+  * **Two ERROR walls at boot that were not errors** — `BundleShaders` shouted "the bundle never
+    loaded" twenty lines before the shader resolved out of it. Split on whether ANY bundle is
+    loaded: pending gets its own latch, a real miss keeps the wall.
+
+- **ModBuild 169** (bundle 66,607,352 bytes) — the glove is
   someone's work now, and the water menu is gone.
   * **The default hand style stops being AI output.** One artist-authored LEFT-hand FBX arrived
     already on the 19-name rig contract, with hand-painted weights and a matching 2048² atlas, so

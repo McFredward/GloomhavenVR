@@ -395,7 +395,7 @@ internal static class WaterTerrainVR
         /// <summary>Upper bound on the water tint's alpha (the game authors 0.737). Without a
         /// camera depth texture the shader's depth fade pins at its deepest and tints the whole
         /// quad, hiding the floor under the pool.</summary>
-        internal const float Opacity = 0.45f;
+        internal const float Opacity = WaterOwnSurface.ShippedOpacity;
 
         /// <summary>Ceiling for every METALLIC and explicit reflection-strength property. The
         /// basin runs Amp_Basic_N_MRAO, and a metallic surface in a scene with no reflection
@@ -425,17 +425,36 @@ internal static class WaterTerrainVR
         /// INSIDE the game's shader, and replacing the shader is what removes it.</summary>
         internal const bool OwnSurface = true;
 
-        /// <summary>How fast the water CHANGES, as a multiple of the shipped rate. NOTHING ON THIS
-        /// SURFACE MOVES FROM PLACE TO PLACE — this is one clock over every cycle there is, so 0
-        /// would freeze the whole surface at once with its relief intact. A QUARTER of ModBuild
-        /// 166's 0.035, by ruling twice over: "nur finde ich es immer noch schnell. Mach die
-        /// animation halb so schnell" and then "Gerne noch langsamer (halbier die Geschwindigkeit
-        /// der Animation nochmal)". Halving a RATE doubles every PERIOD, and every cycle here is a
-        /// fixed multiple of the swell's own, so the character of the motion is untouched: the
-        /// swell rises and falls once every 126 s, the ripple crossfades on 203 / 329 / 533 s, the
-        /// bloom breathes on 390 / 590 / 918 s. Real water of this wavelength bobs about once a
-        /// second — this is a hundred-and-twentieth of that.</summary>
-        internal const float RippleSpeed = 0.00875f;
+        /// <summary>
+        /// How fast the RIPPLE's crossfades run — the fine detail on the surface, NOT the swell.
+        /// Nothing on this surface moves from place to place, so this can only mean "how often the
+        /// three fixed ripple patterns trade places"; at 0.00875 they do so on 203 / 329 / 533 s.
+        ///
+        /// <para>THIS IS THE DIAL HE KEPT ASKING TO SLOW, and it stays exactly where ModBuild 168
+        /// left it. It used to drive the swell too — see <see cref="SwellSpeed"/> for why that one
+        /// number is the whole reason this took six rounds.</para>
+        /// </summary>
+        internal const float RippleSpeed = WaterOwnSurface.ShippedRippleSpeed;
+
+        /// <summary>
+        /// How fast the SWELL — the 3D relief, the thing that makes the pool read as water rather
+        /// than as a painted sheet — rises and falls. Separate from <see cref="RippleSpeed"/> as of
+        /// ModBuild 170, and the split is the actual fix rather than a refactor.
+        ///
+        /// <para>ONE NUMBER DROVE BOTH CLOCKS FOR SIX ROUNDS. Every "slower" he asked for was aimed
+        /// at the busy fine detail, and every time it also slowed the ONE component whose motion he
+        /// could see. Two halvings later the swell's longest component bobbed once every 126 s at a
+        /// crest slope of 2.9 degrees, which comes to 0.19 degrees per second of surface-normal
+        /// rotation — under the threshold at which anything reads as moving — and the verdict was
+        /// "gar keine Animation beim Wasser mehr! Komplett stillstehend/freezed".</para>
+        ///
+        /// <para>0.0124 puts the longest component at 89 s. That is still 1.4x SLOWER than ModBuild
+        /// 167, the build he asked to slow down again, so his request stands; it is 2.8x slower than
+        /// the 166 he called good. What buys the visibility back is <see cref="SwellHeight"/>, on
+        /// the axis he has never once objected to. See <c>WaterOwnSurface.PeakNormalRate</c> for the
+        /// measured band and why neither axis could do this alone.</para>
+        /// </summary>
+        internal const float SwellSpeed = WaterOwnSurface.ShippedSwellSpeed;
 
         /// <summary>How strong the moving glints are. Made by the moving surface turning toward a
         /// FIXED light, so they are born on a crest and do NOT move when you move your head —
@@ -444,24 +463,35 @@ internal static class WaterTerrainVR
         /// exactly zero), and it never touches the film's opacity: adding the highlight into ALPHA
         /// is what made a crest go bright and opaque at once, i.e. a white streak by
         /// construction.</summary>
-        internal const float Shimmer = 0.03f;
+        internal const float Shimmer = WaterOwnSurface.ShippedShimmer;
 
         /// <summary>How BIG the waves are — one multiplier over the swell's wavelength AND both
         /// ripple layers, so the surface never comes apart into a big wave carrying wrong-sized
         /// detail. 1.0 makes the longest swell component 2.4 m, longer than either side of a water
         /// hex (1.73 x 2.0 m); a component shorter than a tile is what let ModBuild 164's surface
         /// read as the same figure on every tile.</summary>
-        internal const float WaveScale = 1f;
+        internal const float WaveScale = WaterOwnSurface.ShippedWaveScale;
 
-        /// <summary>How HIGH the swell lifts the water, as a fraction of one water quad's own
-        /// width — so a 2.6 m film gets a 1.3 cm peak and a diorama at another scale gets a wave
-        /// that looks the same rather than one that is invisible or enormous. THIS IS REAL
-        /// GEOMETRY: the film is subdivided by the shader's own tessellator and the vertices
-        /// actually move, because "weiße Streifen auf einer flachen Oberfläche" was the verdict on
-        /// trying to fake relief with shading. The six components together come to 2.9 degrees of
-        /// crest slope, and the ceiling is the 9 cm the census measured between the water and the
-        /// basin bed: a trough may never dip through its own pool floor.</summary>
-        internal const float SwellHeight = 0.005f;
+        /// <summary>
+        /// How HIGH the swell lifts the water, as a fraction of one water quad's own width — so a
+        /// 2.6 m film gets a 2.6 cm peak and a diorama at another scale gets a wave that looks the
+        /// same rather than one that is invisible or enormous. THIS IS REAL GEOMETRY: the film is
+        /// subdivided by the shader's own tessellator and the vertices actually move, because
+        /// "weiße Streifen auf einer flachen Oberfläche" was the verdict on trying to fake relief
+        /// with shading.
+        ///
+        /// <para>DOUBLED FOR ModBuild 170, from 0.005, and this is the half of the freeze fix that
+        /// does NOT speed anything up. Crest slope goes 2.9 -> 5.8 degrees. That is the axis he has
+        /// never complained about: the slope has sat at 2.9 degrees through every one of the three
+        /// "too fast" reports since ModBuild 166, and the two builds he DID call hectic ran 13.2 and
+        /// 8.1 degrees while also translating, which was the real complaint. 5.8 leaves a 28 %
+        /// margin under the lower of those two.</para>
+        ///
+        /// <para>The ceiling is unchanged and is the 9 cm the census measured between the water and
+        /// the basin bed: a trough may never dip through its own pool floor. At 2.6 cm the peak is
+        /// well under it.</para>
+        /// </summary>
+        internal const float SwellHeight = WaterOwnSurface.ShippedSwellHeight;
 
         /// <summary>
         /// The config file this module no longer has, announced once if a tester still has it.
@@ -818,6 +848,8 @@ internal static class WaterTerrainVR
         private static bool WantOwnSurface => WaterSettings.OwnSurface;
 
         private static float WantedRippleSpeed => WaterSettings.RippleSpeed;
+
+        private static float WantedSwellSpeed => WaterSettings.SwellSpeed;
 
         private static float WantedShimmer => WaterSettings.Shimmer;
 
@@ -1501,19 +1533,29 @@ internal static class WaterTerrainVR
             float amp = WaterOwnSurface.SwellAmplitude(o.FilmWidthWU, WantedSwellHeight);
             float swellWave = WaterOwnSurface.SwellWavelength * waveScale;
 
-            // THE SPEED DIAL DIVIDES ONE PERIOD AND EVERY OTHER CYCLE IS A MULTIPLE OF IT. There
-            // is no rate left on this surface to multiply — the ruling of ModBuild 165 was that the
-            // pattern must not travel at all — so "faster" can only mean "shorter cycles", and the
-            // ripple's crossfades and the bloom's breathing are both derived from the swell's own
-            // period so that ONE dial moves the whole clock. WaterSettings.RippleSpeed 0 therefore
-            // freezes everything at once, with the relief intact, instead of leaving a slow pulse
-            // running under a motionless swell.
+            // TWO CLOCKS, AND SPLITTING THEM IS THE ModBuild 170 FIX. There is no rate left on this
+            // surface to multiply — the ruling of ModBuild 165 was that the pattern must not travel
+            // at all — so "faster" can only mean "shorter cycles". Until now ONE dial set every
+            // cycle there is, which sounded tidy and was the reason this took six rounds: each time
+            // he asked for the busy fine detail to slow down, the SWELL slowed with it, and the
+            // swell is the only thing on this surface whose motion the eye can actually follow. Two
+            // halvings later it had stopped moving in any perceptible sense — 0.19 degrees per
+            // second of normal rotation — and the report was "komplett stillstehend/freezed".
+            //
+            //   SWELL   -> WaterSettings.SwellSpeed  : the 3D relief, the part that must stay visible
+            //   RIPPLE  -> WaterSettings.RippleSpeed : the crossfades, the part he wanted slow
+            //
+            // The BLOOM stays on the swell's clock deliberately. It is the envelope deciding which
+            // part of the pool is lively, it is measured in whole minutes either way, and keeping it
+            // there means the shader needs no new property — GhvrSwellBloom already derives it from
+            // _SwellPeriod, so this whole split is C#-side and the bundle is untouched.
             //
             // THE PERIOD SCALES AS sqrt(WAVELENGTH), not linearly — deep-water dispersion, the same
             // rule the six components are spaced by. A longer swell is a slower one, which is what
             // stops WaterSettings.WaveScale from turning a lazy ocean roll into a fast one.
-            float swellPeriod = WaterOwnSurface.ResolvedSwellPeriod(waveScale, dial);
-            Vector4 fadePeriods = WaterOwnSurface.ResolvedFadePeriods(swellPeriod);
+            float swellPeriod = WaterOwnSurface.ResolvedSwellPeriod(waveScale, WantedSwellSpeed);
+            Vector4 fadePeriods = WaterOwnSurface.ResolvedFadePeriods(
+                WaterOwnSurface.ResolvedSwellPeriod(waveScale, dial));
             float tess = Mathf.Clamp(WaterOwnSurface.TessellationFactor, 1f,
                                      WaterOwnSurface.MaxTessellationFactor);
 
@@ -1581,6 +1623,14 @@ internal static class WaterTerrainVR
                 + " / " + (swellPeriod * WaterOwnSurface.SwellBloomRatios[2]).ToString("0")
                 + " s, so a different part of the pool is the lively one every few minutes and it "
                 + "gets there by fading rather than by travelling"
+                // HOW FAST IT ACTUALLY MOVES, which is not the period. Six rounds were judged on
+                // periods alone and the last two of them shipped a surface the user called frozen
+                // while every printed number moved exactly as intended. The eye follows the surface
+                // NORMAL, and that rate is amplitude x steepness x frequency — a product of which
+                // the period is one factor. Printed with the band his own five verdicts set, so a
+                // "too fast" or "frozen" report is a number in a range before anyone puts a headset
+                // on. See WaterOwnSurface.PeakNormalRate.
+                + "; " + MotionBand(amp, swellWave, swellPeriod)
                 + "; LATTICE MISMATCH " + WaterOwnSurface.LatticeMismatch(swellWave).ToString("0.###")
                 + " cycles — the WORST of the six components against the "
                 + WaterOwnSurface.TileLatticeX.ToString("0.##") + " x "
@@ -1608,6 +1658,61 @@ internal static class WaterTerrainVR
                 + smoothness.ToString("0.###") + " -> glint exponent "
                 + Mathf.Lerp(1f, 8f, Mathf.Clamp01(smoothness)).ToString("0.#")
                 + "; WaterSettings.Shimmer " + WantedShimmer.ToString("0.###");
+        }
+
+        /// <summary>
+        /// The one measurement that would have caught the freeze before it shipped, with the band
+        /// the user's own verdicts set around it and a plain verdict word for this build.
+        ///
+        /// <para>PERIODS ARE NOT PERCEPTION. Everything above this on the line is a period, and two
+        /// builds running periods exactly as designed were reported as having no animation at all.
+        /// The eye follows the surface NORMAL; how fast that turns is amplitude x steepness x
+        /// frequency, and only the last of those three ever moved. This prints the product.</para>
+        /// </summary>
+        private static string MotionBand(float amp, float swellWave, float swellPeriod)
+        {
+            float rate = WaterOwnSurface.PeakNormalRate(amp, swellWave, swellPeriod) * Mathf.Rad2Deg;
+            float vert = WaterOwnSurface.PeakVerticalSpeed(amp, swellPeriod) * 1000f;
+            float slope = WaterOwnSurface.PeakCrestSlope(amp, swellWave) * Mathf.Rad2Deg;
+
+            string verdict =
+                rate <= WaterOwnSurface.FrozenNormalRateDeg
+                    ? "AT OR UNDER THE RATE THE USER REPORTED AS FROZEN — this build is broken "
+                      + "however good its periods look"
+                    : rate >= WaterOwnSurface.BriskNormalRateDeg
+                        ? "AT OR OVER the rate he called good-but-slightly-fast — expect 'zu schnell'"
+                        : "inside the band, "
+                          + (rate / WaterOwnSurface.FrozenNormalRateDeg).ToString("0.0")
+                          + "x the frozen rate and "
+                          + (100f * rate / WaterOwnSurface.BriskNormalRateDeg).ToString("0")
+                          + "% of the brisk one";
+
+            var sb = new System.Text.StringBuilder(420);
+            sb.Append("HOW FAST IT ACTUALLY MOVES (periods are not perception — the eye follows the "
+                      + "surface NORMAL, and that rate is amplitude x steepness x frequency, of "
+                      + "which the period is one factor): peak normal rate ")
+              .Append(rate.ToString("0.000")).Append(" deg/s, peak vertical ")
+              .Append(vert.ToString("0.00")).Append(" mm/s, crest slope ")
+              .Append(slope.ToString("0.0")).Append(" deg — ").Append(verdict)
+              .Append(". CALIBRATION, from the user's own verdicts rather than from taste [");
+            for (int i = 0; i < WaterOwnSurface.MotionVerdicts.Length; i++)
+            {
+                (int build, float _, float _, float r, string words) =
+                    WaterOwnSurface.MotionVerdicts[i];
+                if (i > 0)
+                    sb.Append("; ");
+                sb.Append("MB").Append(build).Append(' ').Append(r.ToString("0.00"))
+                  .Append(" deg/s = '").Append(words).Append('\'');
+            }
+            sb.Append("]. THE TWO CLOCKS ARE SEPARATE as of ModBuild 170: WaterSettings.SwellSpeed ")
+              .Append(WantedSwellSpeed.ToString("0.#####"))
+              .Append(" drives the relief above, WaterSettings.RippleSpeed ")
+              .Append(WantedRippleSpeed.ToString("0.#####"))
+              .Append(" drives only the crossfades. One number drove both for six rounds, so every "
+                      + "'slower' aimed at the busy detail also slowed the one thing that could be "
+                      + "seen — which is how a surface ends up frozen with every printed number "
+                      + "moving exactly as intended");
+            return sb.ToString();
         }
 
         private static string Fmt(Vector4 v) =>
