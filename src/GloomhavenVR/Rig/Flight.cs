@@ -149,13 +149,13 @@ internal sealed class Flight : MonoBehaviour
         // most wants to fly around and look at the map. Forward/back flight runs here; only STRAFE
         // stands down, because that is the axis AoE really owns (see StrafeAllowed, same rule as
         // the turning contest).
-        // …AND "Menu2D has no scene to fly through" IS EXACTLY THE PREMISE THE 3D MAP ROOM BREAKS.
-        // The map screen owns no Choreographer, so the mode is forced to Menu2D there — but the map
-        // room puts the player at a table in a room, which is a scene and is the whole point of the
-        // feature. The premise is therefore asked as a question (TableInFrontOfPlayer) instead of
-        // being inferred from the mode; the flat 2D menu still answers no and is untouched.
+        // …AND "Menu2D has no scene to fly through" IS NOW EXACT RATHER THAN APPROXIMATE. Since
+        // ModBuild 178 the 3D map room resolves to TableIdle, not Menu2D (VRModeStateMachine's
+        // TableInFrontOfPlayer feeds the composition), so this line no longer stands the player
+        // still in a room that DOES have a scene to fly through. No test is needed here for that:
+        // the mode itself carries the fact, and one mechanism is the point.
         VRMode mode = VRModeStateMachine.CurrentMode;
-        if (mode == VRMode.Menu2D && !VRModeStateMachine.TableInFrontOfPlayer && !RigTarget.IsDevProxy)
+        if (mode == VRMode.Menu2D && !RigTarget.IsDevProxy)
         {
             ReleaseLift();
             return;

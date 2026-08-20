@@ -343,8 +343,8 @@ internal static partial class ModalFallback
                 // loading transition — the scenario-start story box — will not be converted this
                 // tick, so hand it back at once instead of sitting on the frame budget: quiet, and
                 // exactly the pre-round-8 behaviour for that case.
-                : !VRModeStateMachine.ScenarioBoardExists
-                    ? "no scenario board yet — the floated-window path does not run here"
+                : !VRModeStateMachine.TableInFrontOfPlayer
+                    ? "no room to float in yet — the floated-window path does not run here"
                 : !window.IsOpen ? "the game closed it again before it was ever floated"
                 : IsConverted(window) ? "it is already floated"
                 : ContainsWindow(Failed, window) ? "its conversion failed — it belongs to the flat screen now"

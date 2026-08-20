@@ -28,8 +28,8 @@ namespace GloomhavenVR.Rig;
 ///
 /// The suppressions that REMAIN and must not be "finished off" by a later cleanup:
 /// <see cref="VRMode.Menu2D"/> (the flat 2D menu — there is no board in front of you to
-/// turn around; dev-proxy runs exempt, and so is the 3D map room, where there IS one —
-/// <c>VRModeStateMachine.TableInFrontOfPlayer</c>), the world grab (the turn hand is already moving
+/// turn around; dev-proxy runs exempt, and since ModBuild 178 the 3D map room is not Menu2D
+/// at all — there IS a board in front of you there), the world grab (the turn hand is already moving
 /// the player with that drag) and menu scrolling (below — the user's own ruling). Test
 /// #13: turning is ACTIVE in <see cref="VRMode.ModalUI"/> — nothing modal reads the
 /// stick, and the player must keep full diorama movement while a dialog floats.
@@ -110,13 +110,12 @@ internal sealed class SnapTurn : MonoBehaviour
         // sein", 2026-08-11). Neither is board state, so neither is touched by TURN NEVER.
         //
         // …AND ITS REASON — "there is no board in front of the player to turn around at all" — is
-        // now asked rather than inferred. The 3D map room is Menu2D (the map screen owns no
-        // Choreographer) and there IS a board in front of the player there: the map table. Turning
-        // may never be blocked where there is something to turn around; the flat 2D menu still
-        // answers no to TableInFrontOfPlayer, so nothing about the menu changes.
+        // now exact rather than approximate. Since ModBuild 178 the 3D map room resolves to
+        // TableIdle rather than Menu2D (VRModeStateMachine.TableInFrontOfPlayer feeds the
+        // composition), so turning is never blocked where there IS something to turn around, and
+        // Menu2D once again means only the flat 2D menu.
         if (LocalTurnControl.TargetingOwnsStick
-            || (vrMode == VRMode.Menu2D && !VRModeStateMachine.TableInFrontOfPlayer
-                && !RigTarget.IsDevProxy))
+            || (vrMode == VRMode.Menu2D && !RigTarget.IsDevProxy))
         {
             _armed = true; // never fire a stale flick when the stick is handed back
             _scrollGate.Reset(); // …and no stale scroll latch either: this mode owns the stick

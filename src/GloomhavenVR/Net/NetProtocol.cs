@@ -416,7 +416,86 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 177;
+    public const ushort ModBuild = 178;
+    // Build 178: THE MAP ROOM GETS ITS UI, ITS LASER AND ITS LOCATIONS.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // User, testing 177's map room:
+    //   "Der Laser funktioniert nicht - ich kann mit nichts in der map interagieren (physisch, da
+    //    der Laser ja nicht angezeigt wurde), das Optionsmenu öffnet sich nicht & die UI Elemente
+    //    sollten angezeigt werden (die Charactere) in verschiebbaren Fenstern. Auch fehlen die
+    //    Knöpfe auf dem Tisch vollständig bisher."
+    //
+    // ── (a) THE PAUSE MENU AND THE WINDOWS — 177's OWN REASONING WAS WRONG ON A FACT ─────────
+    // His log settles it without a guess:
+    //   [WorldUI] [OptionsToggle] X tap: actuallyOpen=False ... -> OPEN
+    //   [WorldUI] MODAL FALLBACK: window 'UI Map Esc Menu' (ID ESCMenu) opened without a VR
+    //             conversion (scenario=False) → ... while it stays open in a scenario.
+    //   [WorldUI] OPTIONS TAP: pause menu OPENED (X tap) ... (activeInHierarchy=True)
+    // The menu OPENED. It was simply never shown: ModalFallback.Tick gated the whole floated-window
+    // layer on ScenarioBoardExists, and the map screen has no Choreographer.
+    //
+    // ModBuild 177 kept the map room in Menu2D on purpose, arguing that promoting it would take the
+    // flat screen away from the player. THAT ARGUMENT WAS FALSE, and the code said so:
+    //     // FlatScreen.4.Lifecycle.ScreenWanted, first two lines
+    //     if (MapRoom.MapRoomDriver.Active) return false;
+    // The flat screen is switched off in the map room BEFORE the mode is ever consulted — the room
+    // and the flat map render must never both own the parchment. So 177 protected a screen that was
+    // already gone and, in exchange, left a room with no UI in it whatsoever: no pause menu, no
+    // floated windows, nothing to point at. A protected invariant that does not exist costs
+    // everything it was traded for.
+    //
+    // Fix: the map room now resolves to VRMode.TableIdle (ModalUI while a window floats) —
+    // !_inScenario && !_modRoom is the Menu2D condition, and the map room's flow mode is named
+    // explicitly rather than inherited from a stale _flowMode. ModalFallback's own scenario local
+    // became TableInFrontOfPlayer. That one change restores the pause menu, the floated windows,
+    // grab ("Right grab refused — interactor disabled by mode policy (mode=Menu2D)" in his log),
+    // the world tooltips and the pre-convert blackout.
+    //
+    // TWO CONSUMERS, ONE PREDICATE: mode-keyed sites get it through the composition; presence-keyed
+    // sites (ModalFallback, SkyAlternative, Haunt) read TableInFrontOfPlayer. 177's three
+    // locomotion guards therefore go BACK to the plain mode test — the mode now carries the fact
+    // and a second test would be a second mechanism. BoardPick moved the other way: it is entirely
+    // about hex tiles, so it now asks ScenarioBoardExists outright instead of "not Menu2D", which
+    // was only ever an accurate shorthand while those two were complements.
+    //
+    // ── (b) THE LASER WAS NEVER OFF. IT WAS 0.15 mm WIDE. ────────────────────────────────────
+    // RayInteractor sizes the beam and the reticle by ANGLE so they look the same at any rig scale:
+    //     widthMultiplier = Clamp(headDist * BeamWidthAngularFactor, BeamWidthMinMeters,
+    //                                                                BeamWidthMaxMeters)
+    // headDist is a WORLD distance, so the product is world units — but the two bounds are named
+    // …Meters and are real-metre intentions. While the rig scale is ~1 (every scenario diorama,
+    // the only place this had ever run) the two coincide and the bug cannot appear. The map room
+    // seats the player at 198.12 game units per metre: the head sits ~200 world units from what it
+    // points at, the angular width comes out at 0.21 world units, and BeamWidthMaxMeters CLAMPED IT
+    // TO 0.03 — 0.15 mm in perceived size. Drawn every frame, invisible. The reticle clamp did the
+    // same to the hit dot. All four bounds are now multiplied by the rig scale, which is what the
+    // comment above them always promised.
+    //
+    // ── (c) INTERACTING WITH THE MAP — worldmap-3d.md phase 4 ────────────────────────────────
+    // New WorldUI/MapRoom/MapLocationInteractor: laser hover + trigger click + fingertip press on
+    // the campaign map's location icons.
+    //   * NO NEW AUTHORITY. A click is ExecuteEvents.Execute(loc.gameObject, …,
+    //     pointerClickHandler) — the same dispatch the game's own gamepad path makes
+    //     (MapLocation.cs:266-269) into the same handler a mouse click reaches (:278), which calls
+    //     Select() (:660) behind IsSelectable() and the game's own m_OnClickAction. Every rule the
+    //     flat game applies, including whatever it does about MP authority, applies unchanged.
+    //     Nothing goes on the wire.
+    //   * THE LAYER IS MEASURED, NOT COPIED. The game holds the mask in a private readonly field;
+    //     this builds it from the live locations' own gameObject.layer on every rescan.
+    //   * The hover uses the SHARED ray pick, so the beam ends on the icon and the reticle lands
+    //     there — a private second raycast would hover something the beam is not pointing at.
+    //   * MapLocationSelector.Update is prefixed off while the room stands (new
+    //     WorldUI/Patches/MapLocationSelectorGate) and its logic reproduced: it raycasts the FROZEN
+    //     map camera's SCREEN CENTRE, so in VR it holds a hover on an arbitrary spot and would
+    //     cancel ours every frame. Pure early-out on a live predicate, no state, fully reversible.
+    //
+    // ── NOT IN THIS BUILD ────────────────────────────────────────────────────────────────────
+    // The table buttons. Those are the game's UIGuildmasterHUD bar physicalised onto the table rim
+    // (worldmap-3d.md phase 6) — a new button rail with its own skin and tuning, not a gate that
+    // was closed. It is the next build, and it wants a laser that has been CONFIRMED working
+    // underneath it first.
+    //
     // Build 177: THE MAP ROOM IS A ROOM — one false premise, stated in five places.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

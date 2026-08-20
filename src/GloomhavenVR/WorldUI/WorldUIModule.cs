@@ -56,6 +56,10 @@ internal sealed class WorldUIModule : IVRModule
         // Tabs im Optionsmenu durch Kopfbewegungen gehighlighted [...] (wie ein mouseover)".
         VRSession.Harmony?.PatchAll(typeof(Patches.MouseWorldSurfaceCut));
         Patches.SettingsClickExemption.EnsureRegistered(); // user ruling 2026-08-02: settings menu never input-blocked (tutorial InteractabilityManager veto)
+        // ModBuild 178 (3D map room phase 4): the game's own map hover raycasts the frozen map
+        // camera's screen centre and would cancel the laser's hover every frame. Pure early-out,
+        // keyed on MapRoomDriver.Active — inert in every other scene.
+        VRSession.Harmony?.PatchAll(typeof(Patches.MapLocationSelectorGate));
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)

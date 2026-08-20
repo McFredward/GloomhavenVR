@@ -168,8 +168,11 @@ internal static partial class ModalFallback
         }
         UnknownScratch.Clear();
 
-        // Scenario gate: menus/town keep current behavior (the pre-scenario Menu2D mode
-        // auto-shows the full flat screen anyway). Tracking above stays live so a window that
+        // ROOM gate (ModBuild 178 — the caller's local is TableInFrontOfPlayer now): the flat
+        // menu/town keeps current behaviour, because Menu2D auto-shows the full flat screen there
+        // and a floated window would duplicate it. THE 3D MAP ROOM IS THE OPPOSITE CASE and is why
+        // this is no longer a scenario test: the flat screen is off there by construction, so a
+        // window that is not floated is shown NOWHERE. Tracking above stays live so a window that
         // opened during loading floats the moment the scenario settles. The catch-all itself is
         // always on — user ruling 2026-08-11: essential deadlock insurance (its off state
         // restored the ItemCardPicker silent-deadlock class; misbehaving window types are

@@ -64,6 +64,7 @@ internal static class MapRoomDriver
 
     private static readonly MapParchment Parchment = new();
     private static readonly MapIconLayer Icons = new();
+    private static readonly MapLocationInteractor Locations = new();
 
     // Facts the rig hands over at build time so the ONE map-room line can state them all together
     // (a diagnostic split across two lines is a diagnostic a log reader has to correlate by hand).
@@ -304,6 +305,11 @@ internal static class MapRoomDriver
             return;
         bool have = Parchment.Ensure(_choreo);
         Icons.Tick(have ? head : null, Parchment.Renderer, _choreo);
+        // Laser + fingertip on the location icons (phase 4). Runs whether or not the parchment is
+        // momentarily unmeasurable: the icons are their own GameObjects with their own colliders,
+        // and losing input for the frames of a world↔city switch would be a worse bug than a
+        // hover on an icon whose parchment is being swapped underneath it.
+        Locations.Tick();
         if (have)
         {
             // The ONE map dump, from the room's own vantage (the flat path calls the same method
@@ -333,6 +339,7 @@ internal static class MapRoomDriver
         // gated on the same predicate) must stand down with the room rather than one frame after it.
         Core.Events.VRModeStateMachine.SetModRoom(false);
         _reportPending = false;
+        Locations.Release(reason);
         Icons.Release(reason);
         Parchment.Release(reason);
         FlatScreenStereo.MapRoomOwnsParchment = false;

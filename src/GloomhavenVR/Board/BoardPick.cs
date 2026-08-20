@@ -232,8 +232,13 @@ internal static class BoardPick
         // hover highlight stay live under blocking modals — only the CLICK commit is
         // modal-gated, per target, in BoardClickDriver.RequestClick (decision table:
         // WorldUI.ModalFallback.HardCommitLockActive).
-        VRMode mode = VRModeStateMachine.CurrentMode;
-        if (mode == VRMode.Menu2D)
+        // ModBuild 178: ASK FOR THE BOARD, not for "not the menu". This class is entirely about hex
+        // tiles — it raycasts Controller.m_ActiveSelectionRaycastLayer and sets _inScenario below —
+        // so the question it always meant is "does a scenario board exist". While Menu2D was the
+        // exact complement of that, the mode test was an accurate shorthand; it stopped being one
+        // when the 3D map room started resolving to TableIdle. A map table is not a hex board and
+        // must not be picked as one.
+        if (!VRModeStateMachine.ScenarioBoardExists)
             return;
 
         // Verified vs real GH.Runtime.dll (ilspycmd 8.2, 2026-07-15):

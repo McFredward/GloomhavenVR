@@ -340,6 +340,18 @@ internal sealed class RayInteractor : IPickProvider
     // enormously (and doubly so: localScale under an already rig-scaled parent).
     // Angular sizing keeps it a fixed apparent size from the HMD regardless of rig
     // scale or distance. tan(0.45°) ≈ 0.00785, tan(0.06°) ≈ 0.00105.
+    //
+    // THE CLAMPS ARE REAL METRES AND MUST BE MULTIPLIED BY THE RIG SCALE (ModBuild 178 —
+    // "der Laser wurde nicht angezeigt" in the 3D map room). The angular product
+    // headDist × factor is in WORLD units, because headDist is; these four bounds are named
+    // …Meters and are real-metre intentions. While the rig scale is ~1 — every scenario
+    // diorama, which is the only place this had ever run — the two coincide and the bug is
+    // invisible. The map room seats the player at a rig scale of ~198 game units per metre, so
+    // the head sits ~200 world units from what it points at, the angular width comes out at
+    // 0.21 world units, and BeamWidthMaxMeters CLAMPED IT TO 0.03 — a beam 0.15 mm wide in
+    // perceived size, i.e. a laser that is genuinely being drawn and genuinely cannot be seen.
+    // The reticle clamp did the same to the hit dot. Scale the bounds and the whole thing is
+    // exactly what its own comment always promised: a fixed apparent size at any rig scale.
     private const float ReticleAngularFactor = 0.00785f;
     private const float BeamWidthAngularFactor = 0.00105f;
     private const float ReticleMinMeters = 0.003f;
@@ -755,7 +767,10 @@ internal sealed class RayInteractor : IPickProvider
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         float headDist = head != null ? Vector3.Distance(head.transform.position, end) : 1f;
 
-        _laser.widthMultiplier = Mathf.Clamp(headDist * BeamWidthAngularFactor, BeamWidthMinMeters, BeamWidthMaxMeters);
+        // Bounds × scale: the factor product is world units, the named bounds are real metres
+        // (see the const block — this is what made the beam invisible in the 3D map room).
+        _laser.widthMultiplier = Mathf.Clamp(headDist * BeamWidthAngularFactor,
+                                             BeamWidthMinMeters * scale, BeamWidthMaxMeters * scale);
         _laser.SetPosition(0, start);
         _laser.SetPosition(1, end);
 
@@ -766,7 +781,8 @@ internal sealed class RayInteractor : IPickProvider
             _reticle.position = end;
             // localScale sits under the rig-scaled hand — divide the world-space
             // target size by the parent's lossy scale.
-            float worldSize = Mathf.Clamp(headDist * ReticleAngularFactor, ReticleMinMeters, ReticleMaxMeters);
+            float worldSize = Mathf.Clamp(headDist * ReticleAngularFactor,
+                                          ReticleMinMeters * scale, ReticleMaxMeters * scale);
             float parentScale = Mathf.Max(1e-4f, _hand.transform.lossyScale.x);
             _reticle.localScale = Vector3.one * (worldSize / parentScale);
         }

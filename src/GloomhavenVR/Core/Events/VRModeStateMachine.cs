@@ -116,29 +116,39 @@ internal static class VRModeStateMachine
     public static bool ModRoomStands => _modRoom;
 
     /// <summary>
-    /// THE PREMISE THE <see cref="VRMode.Menu2D"/> LOCOMOTION EXCLUSIONS ACTUALLY ASSERT: there is
-    /// something in front of the player to move around. <c>Rig.Flight</c>, <c>Rig.WorldGrab</c> and
-    /// <c>Rig.SnapTurn</c> all stand down in Menu2D, and all three say why in their own words —
-    /// "no table exists", "there is no board in front of you", "no scene to fly through". That is
-    /// true of the FLAT 2D MENU, which is what those guards were written for. It is false in the
-    /// 3D map room, which creates precisely the thing they assume is absent: a table, at a scale,
-    /// with a seat at it. The room inherited the exclusions only because it shares the mode.
+    /// "THE PLAYER IS STANDING AT A TABLE IN A ROOM" — the premise a scenario board used to be
+    /// asked as a proxy for, everywhere in the mod that means *presence* rather than *game state*.
     ///
-    /// <para>WHY THE MODE ITSELF IS NOT CHANGED, and this is the load-bearing decision. Menu2D has
-    /// a dozen other consumers that are right about the map screen — <c>FlatScreen</c>'s show
-    /// policy and its pointer, <c>ModalFallback</c>'s catch-all, <c>CameraInventory</c>,
-    /// <c>ButtonCluster</c>, <c>WorldTooltips</c> — and the map's own 2D UI is how the player
-    /// picks a location and starts a scenario at all. Promoting the map room to a scenario flow
-    /// mode would take the flat screen away from them, which is a far louder regression than the
-    /// one being fixed. So the mode stays what it is and the FALSE PREMISE is corrected where it
-    /// is stated, in the three guards that state it.</para>
+    /// <para>WHY IT EXISTS. The composition above forces <see cref="VRMode.Menu2D"/> wherever no
+    /// Choreographer is alive, and the campaign map screen has none by construction — which is
+    /// exactly why <c>MapRoomDriver</c>'s own gate is a POSITIVE MapChoreographer signal. So the 3D
+    /// map room was Menu2D, and every subsystem that stands down there stood down: flight ("no
+    /// scene to fly through"), world grab ("no table exists"), snap turn ("there is no board in
+    /// front of you"), the environment, the haunt, and — ModBuild 178 — the whole floated-window
+    /// layer. Each of those sentences is TRUE OF THE FLAT 2D MENU and FALSE in the map room, which
+    /// builds precisely the thing they assume is absent. They were never wrong about the menu; they
+    /// were reading the wrong fact.</para>
+    ///
+    /// <para>TWO CONSUMERS, ONE PREDICATE. Sites that key off the MODE (interactor policy,
+    /// <c>ButtonCluster</c>, <c>WorldTooltips</c>, <c>BoardPick</c>, the locomotion guards) get it
+    /// through the composition above — the map room resolves to <see cref="VRMode.TableIdle"/>, or
+    /// <see cref="VRMode.ModalUI"/> while a window floats. Sites that ask about PRESENCE directly
+    /// (<c>ModalFallback</c>, <c>SkyAlternative</c>, <c>Haunt</c>) read this property. There is no
+    /// third mechanism, and nothing asks the question twice.</para>
+    ///
+    /// <para>WHAT IS DELIBERATELY *NOT* AFFECTED: the flat screen. It does not consult the mode at
+    /// all in the map room — <c>FlatScreen.ScreenWanted</c> returns false on
+    /// <c>MapRoomDriver.Active</c> before the mode is ever tested, because the room and the flat
+    /// map render must never both own the parchment. ModBuild 177 assumed the opposite and kept
+    /// the map room in Menu2D to "protect" a screen that was already off; that reasoning was wrong
+    /// on a fact, and the effect was a room with no UI in it at all.</para>
     /// </summary>
     public static bool TableInFrontOfPlayer => ScenarioBoardExists || _modRoom;
 
     /// <summary>
-    /// Push input for <see cref="ModRoomStands"/> (main thread). Deliberately does NOT
-    /// <see cref="Recompute"/>: the effective mode is unchanged by design — see
-    /// <see cref="TableInFrontOfPlayer"/> for why.
+    /// Push input for <see cref="ModRoomStands"/> (main thread), from the room's own
+    /// Engage/StandDown. Recomputes: the map room's effective mode is
+    /// <see cref="VRMode.TableIdle"/>, not <see cref="VRMode.Menu2D"/>.
     /// </summary>
     internal static void SetModRoom(bool standing)
     {
@@ -147,9 +157,10 @@ internal static class VRModeStateMachine
         _modRoom = standing;
         VRLog.Info("Mode", $"Mod room {(standing ? "STANDS" : "gone")} — TableInFrontOfPlayer is now "
                            + $"{TableInFrontOfPlayer} (scenario board: {ScenarioBoardExists}). "
-                           + "Flight, world grab and snap turn read this, not the mode: the effective "
-                           + $"mode stays {CurrentMode} so the flat map screen and its pointer keep "
-                           + "working exactly as before.");
+                           + "The player is in a room of the mod's own, so locomotion, the "
+                           + "environment, the floated-window layer and the interactor policy all "
+                           + "treat it as one.");
+        Recompute();
     }
 
     /// <summary>
@@ -434,9 +445,16 @@ internal static class VRModeStateMachine
     private static void Recompute()
     {
         VRMode effective =
-            !_inScenario ? VRMode.Menu2D :
+            !_inScenario && !_modRoom ? VRMode.Menu2D :
             _modal || _auxModal ? VRMode.ModalUI :
             _targeting ? VRMode.BoardTargeting :
+            // THE MAP ROOM HAS NO FLOW OF ITS OWN. _flowMode is a CARD/TURN state driven by
+            // Choreographer messages; the map screen sends none, so whatever it holds here is a
+            // leftover from the last scenario. Name the map room's mode explicitly instead of
+            // inheriting that: TableIdle is "you are standing at a table, spectating", which is
+            // exactly true here. (It is also what _flowMode resets to on scenario exit, so this
+            // changes no observed value today — it removes the DEPENDENCE on that reset.)
+            !_inScenario ? VRMode.TableIdle :
             _flowMode;
 
         if (effective == CurrentMode)

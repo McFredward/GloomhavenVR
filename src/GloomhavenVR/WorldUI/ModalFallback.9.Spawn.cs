@@ -98,12 +98,17 @@ internal static partial class ModalFallback
     /// Request B: the board/table plane height, world units — the camera orbit focus the whole
     /// panel layout is anchored on (<see cref="PanelLayout.TryGetAnchor"/> uses the same
     /// <c>CameraController.FocusPoint</c> as "table center"; slot heights are measured from it).
-    /// False outside a scenario (no board → no floor to clamp against).
+    /// False outside a room of the mod's own (no board and no map table → no floor to clamp against).
     /// </summary>
     private static bool TryGetBoardPlaneY(out float y)
     {
+        // ModBuild 178: the 3D map room counts too. Its orbit camera IS readable and its focus
+        // point is the map's own centre, i.e. the plane of the parchment the player stands at —
+        // the same relationship the board plane has to a scenario table, so the clamp means the
+        // same thing. (The map rig is scaled, but this is a world-space y and PanelLayout.WorldScale
+        // carries the scale on the other side, so nothing double-counts.)
         CameraController controller = CameraController.s_CameraController;
-        if (controller != null && VRModeStateMachine.ScenarioBoardExists)
+        if (controller != null && VRModeStateMachine.TableInFrontOfPlayer)
         {
             y = controller.FocusPoint.y;
             return true;

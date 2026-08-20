@@ -241,7 +241,8 @@ internal static partial class ModalFallback
         // Test #10: EVERY window transition is logged at Debug — a lock caused by a
         // window this class does not know is then attributable from the log alone.
         VRLog.Debug("WorldUI", $"UIWindow {(e.Shown ? "SHOWN" : "hidden")}: '{e.Window?.name}' " +
-                               $"(ID {e.Id}, scenario={VRModeStateMachine.ScenarioBoardExists}, " +
+                               $"(ID {e.Id}, room={VRModeStateMachine.TableInFrontOfPlayer}, " +
+                               $"scenario={VRModeStateMachine.ScenarioBoardExists}, " +
                                $"mode={VRModeStateMachine.CurrentMode}).");
 
         if (e.Window == null)
@@ -282,8 +283,9 @@ internal static partial class ModalFallback
                                       "while the claim holds; generic fallback resumes if it breaks).");
             else
                 VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened without a " +
-                                      $"VR conversion (scenario={VRModeStateMachine.ScenarioBoardExists}) → " +
-                                      "ModalUI + floating window (or screen) while it stays open in a scenario.");
+                                      $"VR conversion (room={VRModeStateMachine.TableInFrontOfPlayer}, of which " +
+                                      $"scenario board={VRModeStateMachine.ScenarioBoardExists}) → " +
+                                      "ModalUI + floating window (or screen) while it stays open in a room.");
         }
     }
 
@@ -309,7 +311,15 @@ internal static partial class ModalFallback
         // A window the mod switched off must never outlive the reason it was switched off.
         TickPreConvertHide();
 
-        bool inScenario = VRModeStateMachine.ScenarioBoardExists;
+        // "IS THERE A ROOM TO FLOAT A WINDOW IN", not "is a scenario running" (ModBuild 178). The
+        // 3D map room is a room: the flat screen is deliberately OFF there (FlatScreen.ScreenWanted
+        // returns false on MapRoomDriver.Active, so the room and the flat map render never both own
+        // the parchment) — so a window that is not floated here is not shown on a screen instead,
+        // it is shown NOWHERE. That was the whole of the 177 report: the pause menu opened, logged
+        // "opened without a VR conversion (scenario=False)", and the player saw nothing at all.
+        // Every downstream use of this local — the catch-all, the reward showcase, the chain-pose
+        // reset — is about PRESENCE, which is what this predicate names.
+        bool inScenario = VRModeStateMachine.TableInFrontOfPlayer;
 
         // LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): the shared stored
         // window pose is scoped to ONE scenario — outside it there is no chain to continue,

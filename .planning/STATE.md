@@ -126,6 +126,39 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 178** (bundle UNCHANGED — plugin DLL only) — the map room gets its UI, its laser and
+  its locations.
+  * **User on 177:** *"Der Laser funktioniert nicht … das Optionsmenu öffnet sich nicht & die UI
+    Elemente sollten angezeigt werden (die Charactere) in verschiebbaren Fenstern. Auch fehlen die
+    Knöpfe auf dem Tisch vollständig bisher."*
+  * **(a) 177's own reasoning was wrong on a fact.** His log: `[OptionsToggle] X tap … -> OPEN`,
+    then `MODAL FALLBACK: 'UI Map Esc Menu' opened without a VR conversion (scenario=False)`. The
+    menu opened and was never shown — `ModalFallback.Tick` gated the whole floated-window layer on
+    `ScenarioBoardExists`. 177 had kept the map room in `Menu2D` arguing that promoting it would
+    take the flat screen away; but `FlatScreen.ScreenWanted`'s **first two lines** are
+    `if (MapRoom.MapRoomDriver.Active) return false;` — the screen is off there *before* the mode
+    is consulted. **177 protected an invariant that did not exist and paid for it with a room that
+    had no UI in it at all.** Fix: the map room resolves to `TableIdle`/`ModalUI`;
+    `ModalFallback`'s scenario local became `TableInFrontOfPlayer`. 177's three locomotion guards
+    go back to the plain mode test (one mechanism); `BoardPick` moves the other way and now asks
+    `ScenarioBoardExists` outright, because it is entirely about hex tiles.
+  * **(b) The laser was never off — it was 0.15 mm wide.** `RayInteractor` sizes beam and reticle
+    by ANGLE: `Clamp(headDist × factor, …MinMeters, …MaxMeters)`. `headDist` is a **world**
+    distance, so the product is world units, but the bounds are **real-metre** intentions. At rig
+    scale ≈ 1 (every scenario diorama — the only place this had run) they coincide. The map room
+    seats at **198.12** units/m: angular width 0.21 world units, clamped by `BeamWidthMaxMeters` to
+    **0.03**. Drawn every frame, invisible. All four bounds now × rig scale.
+  * **(c) Phase 4 shipped** — `WorldUI/MapRoom/MapLocationInteractor`: laser hover, trigger click,
+    fingertip press on location icons. **No new authority**: the click is
+    `ExecuteEvents.pointerClickHandler` on the real `MapLocation`, the same dispatch the game's own
+    gamepad path makes, so `IsSelectable()` + the game's `m_OnClickAction` still decide and nothing
+    goes on the wire. The layer mask is **measured** off the live icons, not copied from the game's
+    private field. Hover uses the **shared** ray pick so the beam ends on the icon.
+    `MapLocationSelector.Update` is prefixed off while the room stands (it raycasts the frozen map
+    camera's screen centre and would cancel our hover every frame) and its transitions reproduced.
+  * **Not in this build:** the table buttons — that is the `UIGuildmasterHUD` bar physicalised onto
+    the table rim (phase 6), a new rail with its own skin and tuning, not a closed gate.
+
 - **ModBuild 177** (bundle UNCHANGED — plugin DLL only) — the map room is a room.
   * **User:** *"Aktuell ist es einfach nur ein Tisch ohne jegliche Umgebung und ich kann mich auch
     nicht frei Bewegen. … die Bewegung und alles andere soll sich exakt genau so verhalten wie in
