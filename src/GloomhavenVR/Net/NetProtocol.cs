@@ -416,7 +416,45 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 171;
+    public const ushort ModBuild = 172;
+    // Build 172: THE GLOVE GETS ITS OWN BAKE.
+    // ***** THE BUNDLE CHANGED — 70,218,494 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
+    //
+    // User: "Ich hab für die glove hand auch nochmal mehr abgelegt. Bitte pflege das ein (Die fbx
+    // ist dieselbe)."
+    //
+    // The same three-map set the arcane hand arrived with, now for the leather glove: a re-baked
+    // 2048² base colour, a 2048² NORMAL map and a displacement map. The FBX is byte-identical to
+    // the one ModBuild 171 already imported (md5 f77bc534…), so nothing about the rig, the weights
+    // or the mirror changed and import_glove_fbx.py did not need to run — this is a texture round.
+    //
+    // WHAT CHANGED IN THE PIXELS: the old albedo was a GIMP export of a single hand-painted sheet;
+    // this is a proper bake off the same UVs. Rendered before shipping, single-sided, in BoardLit's
+    // exact shading, against the outgoing albedo as a reference column: the skin is warmer and
+    // actually carries knuckle and pore detail where it used to be a flat pale tone, the leather has
+    // grain and stitching instead of a wash, and the brass studs on the strap read as metal. The
+    // studs sit on the strap and the stitching follows the seams, which is the check that matters —
+    // it says the bake is against THIS mesh's UVs and not a re-authored layout.
+    //
+    // The glove is therefore the second set to carry a real normal map (BoardLit has declared
+    // _BumpMap/_NormalStrength and read TANGENT since it was written; nothing supplied one until
+    // 171). Only the AI-generated PLATE gauntlet is still flat-bumped, because nobody ever baked one
+    // for it — and it is also the only set still rendering double-sided, for the same reason: it is
+    // the last shell in this project with holes in it.
+    //
+    // THE DISPLACEMENT MAP IS AGAIN NOT SHIPPED, for the reason given at 171 and worth repeating
+    // rather than quietly repeating the decision: BoardLit has no height, parallax or tessellation
+    // term and the hands are not subdivided, so there is nothing in this pipeline that could read
+    // it. Shipping both sets' would be ~1.7 MB of bundle for no pixel.
+    //
+    // A NOTE ON THE ARTIST'S NAME, since it came up this round. The delivered FBXs embed two
+    // absolute Windows paths — the texture and the source .blend — and those carry a user name. NONE
+    // of it has ever reached the repository: .planning/debug/ is gitignored, and import_glove_fbx.py
+    // exports with path_mode='STRIP' into a freshly built scene, so the shipped rigs contain no
+    // paths at all. Verified by scanning every tracked file under Assets/Bundle/Hands. This round's
+    // three PNGs carry no metadata whatsoever; the albedo they replace had an XMP block whose only
+    // entry was xmp:CreatorTool="GIMP 2.10", and it is now gone with it.
+    //
     // Build 171: THE ARCANE HAND JOINS THE ARTIST PIPELINE, AND THE WRIST ANCHOR IS A CONTRACT.
     // ***** THE BUNDLE CHANGED — 67,859,030 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
     //

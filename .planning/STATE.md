@@ -126,7 +126,28 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 171** (**BUNDLE CHANGED — 67,859,030 bytes, must be REINSTALLED**) — the arcane hand
+- **ModBuild 172** (**BUNDLE CHANGED — 70,218,494 bytes, must be REINSTALLED**) — the glove gets its
+  own bake.
+  * The same three-map set the arcane hand arrived with, now for the leather glove: re-baked 2048²
+    base colour, 2048² **normal map**, displacement. The FBX is byte-identical to the one 171
+    imported (`md5 f77bc534…`), so no rig, weight or mirror work — a texture round, and
+    `import_glove_fbx.py` did not need to run.
+  * Rendered against the outgoing albedo before shipping: skin is warmer and carries knuckle/pore
+    detail where it was a flat pale tone, the leather has grain and stitching, the studs read as
+    brass. **The check that matters is that the studs sit on the strap and the stitching follows the
+    seams** — that says the bake is against *this* mesh's UVs and not a re-authored layout.
+  * Glove is now the second set with a real normal map. Only the AI-generated **Plate** gauntlet is
+    still flat-bumped and still double-sided — it is the last shell in this project with holes in it.
+  * **Displacement again not shipped** (both sets delivered one): `BoardLit` has no height, parallax
+    or tessellation term and the hands are not subdivided, so ~1.7 MB of bundle for no pixel.
+  * **Privacy check** (he asked): the delivered FBXs embed two absolute Windows paths — texture and
+    source `.blend` — carrying a user name. None of it has ever reached the repo: `.planning/debug/`
+    is gitignored and `import_glove_fbx.py` exports `path_mode='STRIP'` from a freshly built scene,
+    so the shipped rigs hold no paths at all. Verified across every tracked file under
+    `Assets/Bundle/Hands`. This round's three PNGs carry no metadata at all; the albedo they replace
+    had an XMP block reading only `xmp:CreatorTool="GIMP 2.10"`.
+
+- **ModBuild 171** (bundle 67,859,030 bytes) — the arcane hand
   joins the artist pipeline, and the wrist anchor turns out to be a contract.
   * A revised **glove** (same mesh and atlas byte for byte; the rig lost its leaf bones and its
     fingertip bones now match their parents' lengths) and a complete new **arcane** set —

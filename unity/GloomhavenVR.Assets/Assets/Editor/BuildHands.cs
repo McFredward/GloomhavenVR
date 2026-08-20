@@ -62,8 +62,9 @@ namespace GloomhavenVR
         // normal: an artist-authored tangent-space normal map, or null for none. BoardLit has
         // always declared _BumpMap and _NormalStrength and read TANGENT in its vertex input; up
         // to ModBuild 170 no hand set supplied one, so every hand rendered on the shader's flat
-        // "bump" default and carried only what the albedo had baked into it. The arcane set now
-        // ships one. The importer is told the texture is a NORMAL MAP (below) — leaving it as a
+        // "bump" default and carried only what the albedo had baked into it. The arcane set brought
+        // the first (171) and the glove followed with a re-baked albedo of its own (172); only the
+        // AI-generated plate gauntlet is still flat-bumped, because nobody ever baked one for it. The importer is told the texture is a NORMAL MAP (below) — leaving it as a
         // plain colour texture is the silent version of this failure: it samples, it looks
         // roughly right, and every slope is wrong.
         //
@@ -74,7 +75,7 @@ namespace GloomhavenVR
         private static readonly (string baseName, string albedo, string normal, bool doubleSided)[]
             HandSets =
         {
-            ("VRHand",       Hands + "/VRHand_albedo.png",       null,                                false),
+            ("VRHand",       Hands + "/VRHand_albedo.png",       Hands + "/VRHand_normal.png",        false),
             ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  null,                                true),
             ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", Hands + "/VRHandArcane_normal.png",  false),
         };

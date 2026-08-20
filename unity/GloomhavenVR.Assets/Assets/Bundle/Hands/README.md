@@ -47,7 +47,7 @@ VR players (`Net.AvatarState.HandStyle`, additive wire-v3 trailing byte):
 
 | Style  | Prefab pair | Source |
 |---|---|---|
-| Glove (default) | `VRHand_L/R.prefab` | **artist-authored** leather glove — mesh, rig, weights and UV atlas all hand-made, delivered as a single LEFT-hand FBX and adopted by `import_glove_fbx.py` (ModBuild 169; replaced the AI-generated `Hand_prepped.glb` + `rig_hand.py` glove) |
+| Glove (default) | `VRHand_L/R.prefab` | **artist-authored** leather glove — mesh, rig, weights and UV atlas all hand-made, delivered as a single LEFT-hand FBX and adopted by `import_glove_fbx.py` (ModBuild 169, replacing the AI-generated `Hand_prepped.glb` + `rig_hand.py` glove; re-baked albedo + normal map at 172) |
 | Plate  | `VRHandPlate_L/R.prefab` | Hunyuan3D plate-armor gauntlet (`hunyuan3d-a22a9142…glb`) |
 | Arcane | `VRHandArcane_L/R.prefab` | **artist-authored** arcane-runes mage glove — same adoption path as the leather one, and the first set to ship a real normal map (ModBuild 171; replaced the Hunyuan3D `hunyuan3d-31b7b393…glb`) |
 
@@ -209,15 +209,19 @@ render single-sided; only Plate (540 boundary / 1072 non-manifold) is still an A
 and keeps `Cull Off`.
 
 **Normal maps.** `BoardLit` has always declared `_BumpMap` / `_NormalStrength` and read
-`TANGENT`, but no hand set supplied a map until the arcane one, so every hand rendered on
-the shader's flat bump default. `BuildHands` binds a set's map when `HandSets` names one
-and forces the texture's importer to `NormalMap` — left as a plain colour texture it
-samples happily and every slope on it is wrong, which is the silent version of this
-failure. Tangents are `CalculateMikk`, so they come from the same UVs the map was baked
-against. The arcane set also delivered a **displacement** map; it is deliberately not
-shipped, because nothing in this pipeline can read it (`BoardLit` has no height, parallax
-or tessellation term and the hands are not subdivided) and it would cost 3.4 MB of bundle
-for no pixel.
+`TANGENT`, but no hand set supplied a map until ModBuild 171, so every hand rendered on
+the shader's flat bump default and carried only what its albedo had baked in. Arcane
+brought the first, the glove followed at 172 with a re-baked albedo of its own; only the
+AI-generated **Plate** gauntlet is still flat-bumped, because nobody ever baked one for it.
+
+`BuildHands` binds a set's map when `HandSets` names one and forces the texture's importer
+to `NormalMap` — left as a plain colour texture it samples happily and every slope on it is
+wrong, which is the silent version of this failure. Tangents are `CalculateMikk`, so they
+come from the same UVs the map was baked against.
+
+Both artist sets also delivered a **displacement** map. Neither is shipped: nothing in this
+pipeline can read one (`BoardLit` has no height, parallax or tessellation term and the hands
+are not subdivided), so they would be ~1.7 MB of bundle for no pixel.
 
 Missing styled prefabs (old bundle) degrade to the Glove pair at runtime; no bundle
 at all still degrades to the procedural hand.
