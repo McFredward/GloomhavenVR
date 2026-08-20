@@ -775,12 +775,21 @@ internal static class SkyAlternative
             return false;
         }
 
-        // SCENARIO-ONLY SCOPE (class doc, second ruling): outside a live scenario board the
-        // feature stands down entirely — the menu keeps the game's default look, exactly like
-        // the original surroundings. Leaving/ending a scenario deactivates on the next tick.
-        // OffBlack keeps that scope too: he asked for an environment choice, and "no environment"
-        // must behave like the other environments — the menu and the world map stay untouched.
-        if (!Events.VRModeStateMachine.ScenarioBoardExists)
+        // ROOM SCOPE (class doc, second ruling): outside a room of the mod's own the feature stands
+        // down entirely — the menu keeps the game's default look, exactly like the original
+        // surroundings. Leaving/ending a scenario deactivates on the next tick. OffBlack keeps that
+        // scope too: he asked for an environment choice, and "no environment" must behave like the
+        // other environments — the flat menu stays untouched.
+        //
+        // AND SINCE ModBuild 177 A ROOM IS NOT ONLY A SCENARIO. The 3D map room stands the player
+        // at a table too, and the user's ruling on it is verbatim: "Die Tisch soll in die gewählte
+        // Umgebung gebracht werden und die Bewegung und alles andere soll sich exakt genau so
+        // verhalten wie in einem Szenario, da soll es keinen Unterschied geben." A table in an
+        // empty void was the whole complaint. TableInFrontOfPlayer is the same predicate the three
+        // locomotion guards ask, which is what makes "no difference" one decision rather than five
+        // — and it is still FALSE in the main menu and on the flat 2D map, so nothing there moves.
+        // The room, the env sound and the haunt figures below all follow from this one line.
+        if (!Events.VRModeStateMachine.TableInFrontOfPlayer)
         {
             Deactivate();
             return false;
@@ -1423,8 +1432,8 @@ internal static class SkyAlternative
             if (!_implausibleWarned)
             {
                 _implausibleWarned = true;
-                VRLog.Warn("Core", $"Sky alternative: REFUSING to place the room — the board measured " +
-                                   $"{extent:F2} world units across over {tileCount} hex tile(s), which at " +
+                VRLog.Warn("Core", $"Sky alternative: REFUSING to place the room — the subject measured " +
+                                   $"{extent:F2} world units across {SubjectPhrase(tileCount)}, which at " +
                                    $"rig scale {rigScale:F2} is a perceived {perceived:F3} m, outside the " +
                                    $"plausible {MinPlausibleBoardMeters:F1}–{MaxPlausibleBoardMeters:F0} m " +
                                    "window. The sky is shown alone and the probe retries; this is the " +
@@ -1502,8 +1511,8 @@ internal static class SkyAlternative
             KickRoomParticles(room);
         }
 
-        VRLog.Info("Core", $"Sky alternative: ROOM placed ({why}) — board {extent:F2} world units across " +
-                           $"over {tileCount} hex tile(s), perceived {perceived:F2} m at rig scale " +
+        VRLog.Info("Core", $"Sky alternative: ROOM placed ({why}) — subject {extent:F2} world units across " +
+                           $"{SubjectPhrase(tileCount)}, perceived {perceived:F2} m at rig scale " +
                            $"{rigScale:F2}. PLAY SPACE = {PlaySpaceToBoardRatio:F1}x the board = " +
                            $"{playWorld:F2} world units, perceived {playWorld / rigScale:F2} m; scale " +
                            $"{roomScale:F3} from an authored play space of {_roomAuthoredPlayExtent:F1} m " +
@@ -1535,6 +1544,11 @@ internal static class SkyAlternative
     private static bool TryMeasureBoardYaw(out Quaternion yaw)
     {
         yaw = Quaternion.identity;
+        if (TryMeasureMapSubject(out _, out _, out _, out Quaternion mapYaw))
+        {
+            yaw = mapYaw;
+            return true;
+        }
         try
         {
             if (!Singleton<ObjectCacheService>.IsInitialized)
@@ -1561,6 +1575,63 @@ internal static class SkyAlternative
     }
 
     /// <summary>
+    /// What <see cref="TryMeasureBoardWorld"/> last measured, for the placement log. The board arm
+    /// states its own tile count (<see cref="SubjectPhrase"/>); this carries the map arm's words.
+    /// </summary>
+    private static string _measuredSubject = "hex tiles";
+
+    /// <summary>How the placement log names the thing the room was built around.</summary>
+    private static string SubjectPhrase(int tileCount) =>
+        tileCount > 0 ? $"over {tileCount} hex tile(s)" : _measuredSubject;
+
+    /// <summary>
+    /// THE 3D MAP ROOM'S SUBJECT — the campaign-map parchment, measured exactly the way the board
+    /// is: a horizontal extent, an underside, a centre and a world yaw. Everything downstream then
+    /// runs unchanged, which is the point: the play space is still
+    /// <see cref="PlaySpaceToBoardRatio"/> subject-widths across, the floor still drops
+    /// <see cref="FloatGapToBoardRatio"/> × the extent below the underside so the subject floats
+    /// like a tabletop diorama, and the plausibility window still applies (the map room seats the
+    /// player at <c>MapRoomSeat.TargetMapWidthMeters</c> = 1.2 perceived metres, comfortably inside
+    /// it). The user's requirement was "no difference" from a scenario, and reusing the arithmetic
+    /// rather than writing a second placement rule is what actually delivers that.
+    ///
+    /// <para>MULTIPLAYER: both readings are pure game-scene state — the renderer's world bounds and
+    /// its transform's yaw — so every client resolves the SAME numbers with nothing on the wire,
+    /// exactly as the board arm does. That is what lets the moon and the light shafts agree between
+    /// peers here too (see <c>_skyYawFromBoard</c>).</para>
+    ///
+    /// <para>False whenever the map room is not standing, so a scenario never reaches this at all.
+    /// Also false while the room stands but the parchment is momentarily unmeasurable (a world↔city
+    /// switch): the caller then simply retries, and an ALREADY PLACED room is never re-seated —
+    /// the ModBuild-131 ruling that re-seating geometry the player stands in reads as a teleport.</para>
+    /// </summary>
+    private static bool TryMeasureMapSubject(out Vector3 center, out float undersideY,
+                                             out float extent, out Quaternion yaw)
+    {
+        center = Vector3.zero;
+        undersideY = 0f;
+        extent = 0f;
+        yaw = Quaternion.identity;
+
+        if (!WorldUI.MapRoom.MapRoomDriver.Active)
+            return false;
+        MeshRenderer? parchment = WorldUI.MapRoom.MapRoomDriver.ParchmentRenderer;
+        if (parchment == null)
+            return false;
+
+        Bounds b = parchment.bounds;
+        float widest = Mathf.Max(b.size.x, b.size.z);
+        if (!(widest > 0.01f) || float.IsInfinity(widest) || float.IsNaN(widest))
+            return false;
+
+        center = b.center;
+        undersideY = b.min.y;
+        extent = widest;
+        yaw = VRRigDriver.YawOnly(parchment.transform.rotation);
+        return true;
+    }
+
+    /// <summary>
     /// The board's world-space measurement (class doc MEASURING THE BOARD). Source: the live
     /// hex tiles in <c>ObjectCacheService</c> — the set the game's own camera and the mod's
     /// spawn-ring seat solver both use. Horizontal extent from the tiles' world positions
@@ -1581,6 +1652,18 @@ internal static class SkyAlternative
         extent = 0f;
         boardYaw = Quaternion.identity;
         tileCount = 0;
+
+        // THE MAP ROOM'S SUBJECT COMES FIRST — and the branch is unambiguous rather than merely
+        // ordered: the two subjects can never coexist. The map room is reached only through a live
+        // MapChoreographer with an open map, and a scenario scene has none; a scenario board is hex
+        // tiles in ObjectCacheService, and the map screen has none of those either. So this is not
+        // a priority, it is a case distinction with two provably disjoint arms.
+        if (TryMeasureMapSubject(out center, out undersideY, out extent, out boardYaw))
+        {
+            _measuredSubject = "measured off the campaign-map parchment's world bounds — the 3D map "
+                               + "room's subject, standing in for the board it does not have";
+            return true;
+        }
 
         try
         {

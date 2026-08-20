@@ -109,6 +109,50 @@ internal static class VRModeStateMachine
     public static bool ScenarioBoardExists => Choreographer.s_Choreographer != null;
 
     /// <summary>
+    /// True while the mod stands the player inside a ROOM OF ITS OWN that is not a scenario board —
+    /// today exactly the 3D map room (<c>WorldUI.MapRoom.MapRoomDriver</c>, which pushes this from
+    /// its Engage/StandDown so <c>Core</c> keeps no reference to <c>WorldUI</c>'s lifetime).
+    /// </summary>
+    public static bool ModRoomStands => _modRoom;
+
+    /// <summary>
+    /// THE PREMISE THE <see cref="VRMode.Menu2D"/> LOCOMOTION EXCLUSIONS ACTUALLY ASSERT: there is
+    /// something in front of the player to move around. <c>Rig.Flight</c>, <c>Rig.WorldGrab</c> and
+    /// <c>Rig.SnapTurn</c> all stand down in Menu2D, and all three say why in their own words —
+    /// "no table exists", "there is no board in front of you", "no scene to fly through". That is
+    /// true of the FLAT 2D MENU, which is what those guards were written for. It is false in the
+    /// 3D map room, which creates precisely the thing they assume is absent: a table, at a scale,
+    /// with a seat at it. The room inherited the exclusions only because it shares the mode.
+    ///
+    /// <para>WHY THE MODE ITSELF IS NOT CHANGED, and this is the load-bearing decision. Menu2D has
+    /// a dozen other consumers that are right about the map screen — <c>FlatScreen</c>'s show
+    /// policy and its pointer, <c>ModalFallback</c>'s catch-all, <c>CameraInventory</c>,
+    /// <c>ButtonCluster</c>, <c>WorldTooltips</c> — and the map's own 2D UI is how the player
+    /// picks a location and starts a scenario at all. Promoting the map room to a scenario flow
+    /// mode would take the flat screen away from them, which is a far louder regression than the
+    /// one being fixed. So the mode stays what it is and the FALSE PREMISE is corrected where it
+    /// is stated, in the three guards that state it.</para>
+    /// </summary>
+    public static bool TableInFrontOfPlayer => ScenarioBoardExists || _modRoom;
+
+    /// <summary>
+    /// Push input for <see cref="ModRoomStands"/> (main thread). Deliberately does NOT
+    /// <see cref="Recompute"/>: the effective mode is unchanged by design — see
+    /// <see cref="TableInFrontOfPlayer"/> for why.
+    /// </summary>
+    internal static void SetModRoom(bool standing)
+    {
+        if (standing == _modRoom)
+            return;
+        _modRoom = standing;
+        VRLog.Info("Mode", $"Mod room {(standing ? "STANDS" : "gone")} — TableInFrontOfPlayer is now "
+                           + $"{TableInFrontOfPlayer} (scenario board: {ScenarioBoardExists}). "
+                           + "Flight, world grab and snap turn read this, not the mode: the effective "
+                           + $"mode stays {CurrentMode} so the flat map screen and its pointer keep "
+                           + "working exactly as before.");
+    }
+
+    /// <summary>
     /// True while the Choreographer sits in one of the <see cref="TargetingStates"/> (the board
     /// is actively waiting for a waypoint/focus/push/pull/tile pick). Additive query for the
     /// fingertip-ping arbitration (BoardClickDriver.SelectionPhaseActive): it exposes the RAW
@@ -220,6 +264,12 @@ internal static class VRModeStateMachine
     private static bool _modal;
     private static bool _auxModal;
     private static bool _attached;
+
+    /// <summary>Backing latch for <see cref="ModRoomStands"/>. NOT cleared by <see cref="Detach"/>
+    /// or by the scenario poll: it is owned by the room that raised it, and that room's own
+    /// StandDown is the only thing that knows when it is gone (a rig teardown, a scene change and
+    /// an MR toggle all route through it).</summary>
+    private static bool _modRoom;
 
     // ---- frozen query/extension surface ----------------------------------------------
 

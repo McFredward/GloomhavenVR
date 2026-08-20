@@ -126,6 +126,39 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 177** (bundle UNCHANGED — plugin DLL only) — the map room is a room.
+  * **User:** *"Aktuell ist es einfach nur ein Tisch ohne jegliche Umgebung und ich kann mich auch
+    nicht frei Bewegen. … die Bewegung und alles andere soll sich exakt genau so verhalten wie in
+    einem Szenario, da soll es keinen Unterschied geben."*
+  * **ROOT CAUSE — one false premise, stated in five places.** `VRModeStateMachine` composes
+    `!inScenario ? Menu2D : …` off `ScenarioBoardExists` (a live `Choreographer`). The campaign map
+    screen has none — which is exactly why `MapRoomDriver`'s own gate is a *positive*
+    `MapChoreographer` signal — so the 3D map room is unavoidably `Menu2D`. Every locomotion
+    subsystem stands down there and each says why in its own comment: *"no scene to fly through"*
+    (`Flight`), *"no table exists"* (`WorldGrab`), *"there is no board in front of you"*
+    (`SnapTurn`). Those sentences are **true of the flat 2D menu and false in the map room**, which
+    builds precisely the thing they assume is absent. The environment was the same premise a fourth
+    time (`SkyAlternative.Tick` returned early on `!ScenarioBoardExists`) and `Haunt` a fifth.
+  * **Fix: ask the premise, don't infer it from the mode.**
+    `VRModeStateMachine.TableInFrontOfPlayer = ScenarioBoardExists || ModRoomStands`, the second
+    term pushed by `MapRoomDriver.Engage`/`StandDown` (Core keeps no handle on WorldUI's lifetime).
+    All five sites read it. **The mode itself is deliberately unchanged** — Menu2D has a dozen
+    consumers that are *right* about the map screen (`FlatScreen`'s show policy and pointer,
+    `ModalFallback`'s catch-all, `CameraInventory`, `ButtonCluster`, `WorldTooltips`), and the flat
+    screen is how the player picks a location at all. Promoting the room to a scenario flow mode
+    would have been the louder regression.
+  * **Environment: a second subject, the same arithmetic.** `TryMeasureBoardWorld`/`…Yaw` gained a
+    first arm measuring the **parchment's world bounds + transform yaw**. Everything downstream is
+    untouched: play space 4.5 × the subject, floor 0.75 × below the underside, the 0.2–20 m
+    plausibility window (the map seats at 1.2 perceived m), the `MinFarWorldUnits` far budget. The
+    two arms are **provably disjoint**: a scenario has no `MapChoreographer`, the map has no tiles.
+  * **MP:** nothing on the wire; both map readings are pure game-scene state, so every client
+    resolves the same numbers — which is what keeps moon and light shafts agreeing between peers.
+  * **Free:** flight, world grab (two-hand zoom of the map), snap turn, comfort vignette, vertical
+    lift, env sound, haunt. Not one needed a map-specific line.
+  * **Not in this build:** no re-seat on a world↔city switch (131's teleport ruling stands);
+    `ElementMood` stays scenario-only (no infused elements on a campaign map).
+
 - **ModBuild 176** (bundle UNCHANGED — plugin DLL only) — the map is a background, not an owner.
   * **ROOT CAUSE (one defect, two symptoms).** The game's camera never had this bug —
     `CameraController.LateUpdate` consumes the wheel only when `IsPointerOverGameObject()` is

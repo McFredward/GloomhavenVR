@@ -30,7 +30,9 @@ namespace GloomhavenVR.Rig;
 /// <see cref="UpdateStickOwnership"/>). World grab runs in EVERY scenario mode —
 /// including <see cref="VRMode.ModalUI"/> since test #13: floating dialogs must not freeze
 /// the diorama (the player reads the story box AND repositions the table). Only
-/// <see cref="VRMode.Menu2D"/> is excluded (no table exists).
+/// <see cref="VRMode.Menu2D"/> is excluded — and the exclusion's reason is now ASKED rather than
+/// assumed (<c>VRModeStateMachine.TableInFrontOfPlayer</c>): "no table exists" is true of the flat
+/// 2D menu but false in the 3D map room, which is also Menu2D and whose whole content is a table.
 ///
 /// MATH (tracking-space anchored, feedback-free): with the rig mapping
 /// <c>world = rigPos + rigRot · (s · t)</c> for a tracking-space point <c>t</c>, anchors
@@ -114,8 +116,13 @@ internal sealed class WorldGrab : MonoBehaviour
         // drag the menu view. The dev proxy stays exempt so grab math is testable flat.
         // Test #13: ModalUI is deliberately NOT excluded anymore — the diorama stays
         // fully manipulable while a dialog floats (see class doc, STICK CONTENTION).
+        // …AND "no table to manipulate" IS A CLAIM ABOUT THE WORLD, not about the mode. The 3D map
+        // room is Menu2D (no Choreographer on the map screen) and DOES have a table — the parchment
+        // the rig was scaled and seated to. Ask the claim directly: TableInFrontOfPlayer is false in
+        // the flat 2D menu, so grabbing air there is still refused exactly as before.
         if (rig == null || !ComfortSettings.IsBound || !ComfortSettings.WorldGrabEnabled.Value
-            || (mode == VRMode.Menu2D && !RigTarget.IsDevProxy))
+            || (mode == VRMode.Menu2D && !VRModeStateMachine.TableInFrontOfPlayer
+                && !RigTarget.IsDevProxy))
         {
             Disengage(rig);
             return;

@@ -416,7 +416,73 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 176;
+    public const ushort ModBuild = 177;
+    // Build 177: THE MAP ROOM IS A ROOM — one false premise, stated in five places.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // User, on his first successful 3D map load:
+    //   "Aktuell ist es einfach nur ein Tisch ohne jegliche Umgebung und ich kann mich auch nicht
+    //    frei Bewegen. Die Tisch soll in die gewählte Umgebung gebracht werden und die Bewegung und
+    //    alles andere soll sich exakt genau so verhalten wie in einem Szenario, da soll es keinen
+    //    Unterschied geben. Der einzige Unterschied soll sein, dass statt des Spielfelds in der
+    //    Mitte nun der Tisch mit der Map ist."
+    //
+    // ── BOTH COMPLAINTS ARE ONE ROOT CAUSE, AND IT IS A PREMISE, NOT A SWITCH ─────────────────
+    // VRModeStateMachine composes the effective mode as `!inScenario ? Menu2D : ...`, and
+    // `inScenario` is ScenarioBoardExists — a live Choreographer. The campaign map screen has none
+    // (that is exactly why MapRoomDriver's own gate is a POSITIVE MapChoreographer signal), so the
+    // 3D map room is, unavoidably, Menu2D. And every locomotion subsystem stands down there, each
+    // explaining itself in its own comment:
+    //   * Rig/Flight.cs      — "Menu2D has no scene to fly through"
+    //   * Rig/WorldGrab.cs   — "Menu2D is excluded (no table exists)"
+    //   * Rig/SnapTurn.cs    — "the flat 2D menu — there is no board in front of you to turn around"
+    // Those three sentences are TRUE OF THE FLAT 2D MENU and false in the map room, which builds
+    // precisely the thing they assume is absent: a table, at a scale, with a seat at it. The room
+    // inherited the exclusions only because it shares the mode. The environment was the same
+    // premise a fourth time — SkyAlternative.Tick returned early on !ScenarioBoardExists, so the
+    // table stood in a void — and Haunt.cs a fifth, on a gate whose own comment says it is "the
+    // same gate the environment itself uses".
+    //
+    // ── THE FIX: ASK THE PREMISE, DO NOT INFER IT FROM THE MODE ───────────────────────────────
+    // VRModeStateMachine.TableInFrontOfPlayer = ScenarioBoardExists || ModRoomStands, where the
+    // second term is pushed by MapRoomDriver.Engage/StandDown (so Core keeps no handle on WorldUI's
+    // lifetime). All five sites now ask THAT. One predicate is what makes "keinen Unterschied" a
+    // single decision instead of five that can drift apart.
+    //
+    // AND THE MODE ITSELF IS DELIBERATELY NOT CHANGED — this is the load-bearing call in the build.
+    // Menu2D has a dozen other consumers that are RIGHT about the map screen: FlatScreen's show
+    // policy and its pointer, ModalFallback's catch-all, CameraInventory, ButtonCluster,
+    // WorldTooltips. Promoting the map room to a scenario flow mode would take the flat screen away
+    // from the player — and the flat screen is how they pick a location and start a scenario at
+    // all. That would have been a far louder regression than the one being fixed. The false premise
+    // is corrected where it is stated, not upstream of everything that was never wrong.
+    //
+    // ── THE ENVIRONMENT: A SECOND SUBJECT, THE SAME ARITHMETIC ────────────────────────────────
+    // SkyAlternative derives the room's ONE placement from the board: horizontal extent, underside,
+    // centre, world yaw. The map room has no hex tiles, so TryMeasureBoardWorld/TryMeasureBoardYaw
+    // gained a first arm that measures the CAMPAIGN-MAP PARCHMENT's world bounds and its transform
+    // yaw instead. Everything downstream is untouched — the play space is still 4.5 subject-widths
+    // across, the floor still drops 0.75 x the extent below the underside so the subject floats like
+    // a tabletop diorama, the plausibility window still applies (the map seats at 1.2 perceived
+    // metres, well inside 0.2-20 m), and the far-plane budget still comes from MinFarWorldUnits.
+    // Reusing the arithmetic rather than writing a second placement rule is what actually delivers
+    // "no difference". The two arms are provably disjoint, not merely ordered: a scenario scene has
+    // no MapChoreographer and the map screen has no tiles.
+    //
+    // MULTIPLAYER: nothing new on the wire, and nothing needed. Both map readings are pure
+    // game-scene state (a renderer's world bounds, a transform's yaw), so every client resolves the
+    // same numbers — which is also what keeps the moon and the light shafts agreeing between peers
+    // here, exactly as the board arm does.
+    //
+    // WHAT COMES FOR FREE, and it is the point: flight, world grab (two-hand zoom of the map!),
+    // snap turn, the comfort vignette, the vertical lift, the env sound, the haunt. Not one of them
+    // needed a map-specific line — they were only ever waiting to be told there is a table here.
+    //
+    // NOT IN THIS BUILD: the map room still does not re-seat on a world<->city switch (the room is
+    // placed once and never re-seated — ModBuild 131's ruling that re-seating geometry the player
+    // stands in reads as a teleport), and ElementMood stays scenario-only (there are no infused
+    // elements on a campaign map).
+    //
     // Build 176: THE MAP IS A BACKGROUND, NOT AN OWNER — and the 3D map was unfindable.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

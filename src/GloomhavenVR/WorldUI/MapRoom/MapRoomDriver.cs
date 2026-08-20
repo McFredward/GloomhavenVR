@@ -266,6 +266,12 @@ internal static class MapRoomDriver
     {
         FlatScreenStereo.MapRoomOwnsParchment = true;
         Active = true;
+        // TELL THE MODE MACHINE THERE IS A TABLE HERE. Not a mode change — a correction to the
+        // premise the three locomotion guards state in their own comments ("no table exists").
+        // Without it the player stands in the room and cannot walk, fly, turn or zoom, because
+        // every one of those subsystems stands down in Menu2D and the map screen IS Menu2D
+        // (no Choreographer ⇒ no scenario). See Core/Events/VRModeStateMachine.TableInFrontOfPlayer.
+        Core.Events.VRModeStateMachine.SetModRoom(true);
         _maskBefore = maskBefore;
         _maskAfter = maskAfter;
         _maskSource = maskSource;
@@ -322,6 +328,10 @@ internal static class MapRoomDriver
         if (!Active)
             return;
         Active = false;
+        // Drop the table premise FIRST, before anything else is released: from this line on the
+        // locomotion guards must read the plain Menu2D rule again, and the environment (which is
+        // gated on the same predicate) must stand down with the room rather than one frame after it.
+        Core.Events.VRModeStateMachine.SetModRoom(false);
         _reportPending = false;
         Icons.Release(reason);
         Parchment.Release(reason);

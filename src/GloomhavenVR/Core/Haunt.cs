@@ -545,7 +545,8 @@ internal static partial class Haunt
     private static bool _forceZeroed;
 
     /// <summary>
-    /// Whether a forced apparition could be seen at all right now: VR running, a scenario board, and
+    /// Whether a forced apparition could be seen at all right now: VR running, a room to haunt (a
+    /// scenario board OR the 3D map room — <c>VRModeStateMachine.TableInFrontOfPlayer</c>), and
     /// one of the two environments that HAS apparitions. It deliberately does NOT include
     /// <see cref="EasterEggs"/> — the switch is a preference the button overrides for as long as its
     /// latch stands (see <see cref="Force"/>); these three are "there is no room to haunt".
@@ -554,7 +555,7 @@ internal static partial class Haunt
     {
         get
         {
-            if (!VRSession.IsRunning || !Events.VRModeStateMachine.ScenarioBoardExists)
+            if (!VRSession.IsRunning || !Events.VRModeStateMachine.TableInFrontOfPlayer)
                 return false;
             SkyStyle style = SkyAlternative.Style.Value;
             return style == SkyStyle.Cellar || style == SkyStyle.SwampNight;
@@ -790,11 +791,13 @@ internal static partial class Haunt
             return;
         }
 
-        // SCENARIO-ONLY SCOPE — the same gate the environment itself uses. Outside a live scenario
-        // board there is no bundled room for an apparition to hang in.
-        if (!Events.VRModeStateMachine.ScenarioBoardExists)
+        // ROOM SCOPE — still literally "the same gate the environment itself uses", which is why
+        // this line moves with it: since ModBuild 177 SkyAlternative.Tick builds its room in the 3D
+        // map room too, so there IS a bundled room to hang an apparition in there. Outside both,
+        // there is not.
+        if (!Events.VRModeStateMachine.TableInFrontOfPlayer)
         {
-            StandDown("no scenario board");
+            StandDown("no scenario board and no mod room");
             return;
         }
 
