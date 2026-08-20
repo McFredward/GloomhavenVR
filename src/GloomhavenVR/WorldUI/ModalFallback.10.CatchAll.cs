@@ -471,10 +471,43 @@ internal static partial class ModalFallback
         IReadOnlyList<ConvertedPanel> panels = CanvasConversion.ActivePanels;
         for (int i = 0; i < panels.Count; i++)
         {
-            RectTransform target = panels[i].Target;
+            ConvertedPanel panel = panels[i];
+            RectTransform target = panel.Target;
             if (target == null)
                 continue;
+            // ModBuild 185 — A WINDOW'S OWN MODAL FLOAT IS NOT "SOMEONE ELSE OWNS IT", AND
+            // COUNTING IT WAS A TWO-TICK CONVERT/RELEASE LOOP.
+            //
+            // This test asks "does some OTHER surface already physicalize this subtree" so the
+            // generic path can stand down. But TryConvertWindow converts the window's OWN
+            // RectTransform, so from the tick after a catch-all float the window matched ITSELF
+            // here. The tick order is: rebuild OpenWindows → TickCatchAll → release loop. So:
+            // tick N floats it; tick N+1 finds it "adopted", does not re-add it, and the release
+            // loop drops every non-sticky window that is not in OpenWindows — released; tick N+2
+            // floats it again. Float, release, float, release, forever, at one full conversion
+            // each. THAT is what the churn fuse was really capping (it is why floating the hidden
+            // hand subtree measured ~1000 ms/frame), and ModBuild 184's exemption of hover cards
+            // from that fuse removed the cap and exposed the loop underneath: the 184 log shows
+            // the quest-preview popup floating and releasing on alternating ticks with
+            // "open=True, convertWanted=True", never once surviving long enough to be revealed.
+            // "Es kommen nun gar keine Mouseovers mehr" — they were being torn down one tick after
+            // they appeared. Sticky windows (the map room's parallel rule) never showed the
+            // symptom because they survive leaving OpenWindows, which is why this went unseen.
+            if (IsOwnModalFloat(panel, window))
+                continue;
             if (ReferenceEquals(target, root) || target.IsChildOf(root) || root.IsChildOf(target))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Is this panel the modal float THIS class made for THIS window?</summary>
+    private static bool IsOwnModalFloat(ConvertedPanel panel, UIWindow window)
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (ReferenceEquals(wp.Panel, panel) && ReferenceEquals(wp.Window, window))
                 return true;
         }
         return false;

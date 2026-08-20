@@ -66,6 +66,11 @@ internal static partial class ModalFallback
             // release path are handled in one place.
             if (window == null || wp.UserClosing || (!window.IsOpen && !wp.Sticky))
                 continue;
+            // ModBuild 185: the map room's character screen is not closable — skip it HERE rather
+            // than letting CloseFloatedWindow refuse it, so the chord walks on to the next window
+            // instead of stopping on one it may not touch.
+            if (IsMapRoomPermanent(window))
+                continue;
             VRLog.Info("WorldUI", $"MODAL ESCAPE CHORD: closing top modal '{window.name}' (ID {window.ID}) — " +
                                   $"non-dominant A/X held {heldSeconds:F1}s.");
             CloseFloatedWindow(window);
@@ -86,6 +91,18 @@ internal static partial class ModalFallback
         if (window == null)
             return;
         string name = window.name;
+
+        // ModBuild 185: the map room's character screen is not closable — see IsMapRoomPermanent
+        // for why closing it SPLIT it rather than closing it. This covers the X, the escape chord
+        // and CloseStickyFloatsExceptEscMenu in one place, because they all route through here.
+        if (IsMapRoomPermanent(window))
+        {
+            VRLog.Info("WorldUI", $"MODAL CLOSE: refused for '{name}' (ID {window.ID}) — the map room's "
+                                  + "character screen has no X and is not closable in this phase (user "
+                                  + "ruling). Closing it would strand its nested character display as a "
+                                  + "separate window, which is the split he reported.");
+            return;
+        }
 
         // Item 6: flag THIS floated window for release regardless of the game's own IsOpen. A sticky
         // reachable menu the game's single-window toggle already hid stays floated in VR until its
@@ -520,6 +537,13 @@ internal static partial class ModalFallback
         !NonBlockingMenus.Contains(window.ID)
         && !MultiplayerRosterMenus.Contains(window.ID)
         && !MapRoomParallel(window)
+        // ModBuild 185: a HOVER CARD is not a decision waiting for an answer, so it may not raise
+        // the ModalUI lock. MapRoomParallel deliberately excludes hover cards (they must never be
+        // sticky), and that exclusion leaked into this test: every single mouseover flipped the
+        // mode machine to ModalUI and gated the card/tray commits off and on again — the 184 log
+        // shows "Modal commit-block ENGAGED"/"RELEASED" pairs on alternating ticks. Non-sticky and
+        // non-blocking are two different properties of the same object.
+        && !IsMapRoomHoverCard(window)
         && !ActionDismissedLevelMessage(window);
 
     /// <summary>
@@ -582,6 +606,38 @@ internal static partial class ModalFallback
         && MapRoom.MapRoomDriver.Active
         && (window.GetComponent<UIQuestPreviewPopup>() != null
             || window.GetComponent<UILocalTooltip>() != null);
+
+    /// <summary>
+    /// THE CHARACTER UI IS THE PHASE, NOT A WINDOW IN IT (ModBuild 185). User ruling, verbatim:
+    /// <i>"Die Characterinfo soll klar an die Character-UI gebunden sein — wenn ich [das] X klicke
+    /// dann trenne ich beides in separate Fenster, soll nicht sein. Das CharacterUI Fenster soll
+    /// gar kein 'x' haben, das soll hier in der Phase nicht schließbar sein."</i>
+    ///
+    /// <para>WHAT THE X ACTUALLY DID, from the 184 log: line 2941 closes 'New Party display'
+    /// (ID PartyPanel); twelve lines later 'Campaign Adventure Party Assembly Variant'
+    /// (ID PartyAssemblyWindow) — until that moment a CHILD rendering inside the party display's
+    /// host, correctly suppressed by the parent-wins rule — becomes eligible and floats as a window
+    /// of its own. Closing the parent did not close the screen; it SPLIT it. That is inherent:
+    /// "the parent wins" can only hold while the parent is there, so a screen whose parts are
+    /// nested windows must not have a parent that can be taken away.</para>
+    ///
+    /// <para>So in the map room this family floats with NO X and is refused by
+    /// <see cref="CloseFloatedWindow"/> and the escape chord alike. Nothing else is affected: in a
+    /// scenario the flat screen composites whatever is not floated, and outside the map room these
+    /// windows keep their X exactly as before. The pause menu remains the way out of the room.</para>
+    /// </summary>
+    internal static bool IsMapRoomPermanent(UIWindow? window) =>
+        window != null
+        && MapRoom.MapRoomDriver.Active
+        && MapRoomPermanentIds.Contains(window.ID);
+
+    /// <summary>The map room's un-closable screen: the party display and the assembly window it
+    /// carries. See <see cref="IsMapRoomPermanent"/>.</summary>
+    private static readonly HashSet<UIWindowID> MapRoomPermanentIds = new()
+    {
+        UIWindowID.PartyPanel,
+        UIWindowID.PartyAssemblyWindow,
+    };
 
     /// <summary>The windows the map room's parallel rule must NOT relax — see
     /// <see cref="MapRoomParallel"/>.</summary>

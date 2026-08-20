@@ -382,13 +382,19 @@ internal static partial class ModalFallback
             // ALSO EXCLUDED (user ruling 2026-08-02): scripted tutorial/level-message windows
             // — the player MUST engage with a tutorial hint (its own dismiss button or the
             // action it demands); an X let them skip instruction chains and strand triggers.
-            if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg && !isHoverCard)
+            // ModBuild 185 — AND THE MAP ROOM'S CHARACTER SCREEN. Closing it did not close the
+            // screen, it SPLIT it: the assembly window nested inside the party display lost its
+            // parent and floated on its own. See IsMapRoomPermanent for the log lines that show it.
+            bool isMapRoomPermanent = IsMapRoomPermanent(window);
+            if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg && !isHoverCard
+                && !isMapRoomPermanent)
                 ModalCloseButton.Attach(panel, window);
             else
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
                                       $"({(isResultsPanel ? "results window — native buttons are the only exit"
                                           : isRewardShowcase ? "reward showcase — native continue is the only exit (its callback releases the message pump)"
                                           : isLevelMsg ? "tutorial/level message — the player must engage, not dismiss (its own button/action is the only exit)"
+                                          : isMapRoomPermanent ? "the map room's character screen — not closable in this phase (user ruling); closing it would split its nested character display into a window of its own"
                                           : "click-through story box")}).");
 
             var wp = new WindowPanel

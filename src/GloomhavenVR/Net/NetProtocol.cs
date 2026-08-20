@@ -416,7 +416,68 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 184;
+    public const ushort ModBuild = 185;
+    // Build 185: THE FUSE WAS HIDING A CONVERT/RELEASE LOOP — AND THE CAMERA ORDER GETS MEASURED.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── (3) THE MOUSEOVERS: 184 REMOVED A BAND-AID AND EXPOSED THE WOUND ──────────────────
+    // 184 exempted hover cards from the churn fuse, which was right — and the 184 log then shows
+    // the popup floating and RELEASING on alternating ticks, with "open=True, convertWanted=True",
+    // never once surviving long enough to be revealed. The fuse had not been protecting against a
+    // misbehaving game window at all. It was capping a loop of the mod's own making.
+    //
+    // THE LOOP. IsAdoptedByConversion asks "does some OTHER surface already physicalize this
+    // subtree" so the generic path can stand down. But TryConvertWindow converts the window's OWN
+    // RectTransform, so from the tick after a catch-all float the window matched ITSELF there. The
+    // tick order is: rebuild OpenWindows → TickCatchAll → release loop. Tick N floats it; tick N+1
+    // calls it "adopted", does not re-add it, and the release loop drops every NON-STICKY window
+    // that is not in OpenWindows; tick N+2 floats it again. One full conversion per tick, forever.
+    // That is what the fuse was really capping — it is why floating the hidden hand subtree once
+    // measured ~1000 ms/frame. Sticky windows never showed it because they survive leaving
+    // OpenWindows, and the map room's parallel rule makes almost everything there sticky; the
+    // hover card is the one non-sticky window in the room, which is why it surfaced here.
+    // A window's own modal float is now excluded from that test.
+    //
+    // AND A HOVER CARD IS NO LONGER A BLOCKING MODAL. MapRoomParallel deliberately excludes hover
+    // cards (they must never be sticky) and that exclusion leaked into IsBlockingWindow, so every
+    // mouseover flipped the mode machine to ModalUI and gated the card/tray commits off and on
+    // again — "Modal commit-block ENGAGED/RELEASED" pairs on alternating ticks in the log.
+    // Non-sticky and non-blocking are two different properties of the same object.
+    //
+    // ── (2) THE X DID NOT CLOSE THE CHARACTER SCREEN, IT SPLIT IT ─────────────────────────
+    // "Das CharacterUI Fenster soll gar kein 'x' haben, das soll hier in der Phase nicht schließbar
+    // sein." The log shows exactly why that is the right rule and not merely a preference: line
+    // 2941 closes 'New Party display' (PartyPanel); twelve lines later 'Campaign Adventure Party
+    // Assembly Variant' (PartyAssemblyWindow) — until then a CHILD rendering inside the party
+    // display's host, correctly suppressed by the parent-wins rule — becomes eligible and floats as
+    // a window of its own. "The parent wins" can only hold while the parent is there, so a screen
+    // whose parts are nested windows must not have a parent that can be taken away. In the map room
+    // that family now floats with NO X and is refused by CloseFloatedWindow and the escape chord
+    // alike. The pause menu remains the way out of the room.
+    //
+    // ── (1) THE FLICKER: THE MEASUREMENT THE SILENCE POINTED AT ───────────────────────────
+    // PanelFlickerProbe printed nothing across two sessions. That retires the panel-state family:
+    // the panels' own state is steady. What flickers are the two things fed by a CAMERA INTO A
+    // RENDERTEXTURE (the live character render, the story picture) while the text beside them, on
+    // the same canvas at the same sorting order, does not.
+    //
+    // New WorldUI/CameraOrderProbe records the per-frame camera render sequence and asks whether
+    // any targetTexture camera draws BETWEEN the head camera's two MultiPass eye passes. If it
+    // does, the left eye samples generation N-1 of that texture and the right eye generation N — a
+    // still image in each eye and a different one between them, which is what a flickering picture
+    // beside steady text looks like. The game's character render is 'GUI 3D Camera' at DEPTH 24
+    // against a head camera at depth 1, i.e. ordered after it: exactly where the interleave would
+    // come from.
+    //
+    // THE CORRECTION IS DATA-DRIVEN, NOT A HUNCH. A camera is hoisted below the head only after it
+    // has been OBSERVED between the passes, and the observation is logged before the correction is
+    // applied — so the log proves the diagnosis rather than merely showing the outcome. The probe
+    // also logs every distinct order SHAPE once, so a quiet log still says what the order was: a
+    // scan that only speaks on a hit cannot be told apart from one that never ran. Safe by
+    // construction: a camera with its own targetTexture composites nothing onto the screen, so its
+    // depth decides only WHEN it draws. Original depths are restored on teardown, and the write
+    // happens in Update, never inside the render loop.
+    //
     // Build 184: THREE REPORTS, ONE ANCESTOR — AND A FUSE THAT COUNTED THE WRONG THING.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

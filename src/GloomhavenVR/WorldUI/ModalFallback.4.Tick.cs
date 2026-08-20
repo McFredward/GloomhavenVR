@@ -780,6 +780,11 @@ internal static partial class ModalFallback
         // costs nothing in a scenario with none and nothing in the menu. See PanelFlickerProbe for
         // why the next round needs a measurement rather than a fourth hypothesis.
         PanelFlickerProbe.Sync(Converted.Count > 0);
+        // ModBuild 185: the measurement PanelFlickerProbe's silence pointed at — see
+        // CameraOrderProbe. Armed on the same condition; TickApply performs any correction the
+        // last judged frame asked for, here in Update and never inside the render loop.
+        CameraOrderProbe.Sync(Converted.Count > 0);
+        CameraOrderProbe.TickApply();
 
         // 5a-scroll. User #12: thumbstick-Y scrolls the Sieg/Niederlage results window's
         //    scroll area while a laser/poke hovers ANYWHERE on the floated window — the

@@ -126,6 +126,40 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 185** (bundle UNCHANGED — plugin DLL only) — the fuse was hiding a convert/release
+  loop, and the camera order finally gets measured.
+  * **(3) The mouseovers: 184 removed a band-aid and exposed the wound.** Exempting hover cards
+    from the churn fuse was right — and the 184 log then shows the popup floating and **releasing
+    on alternating ticks** (`open=True, convertWanted=True`), never surviving long enough to be
+    revealed. **`IsAdoptedByConversion` counted the window's OWN modal float.** `TryConvertWindow`
+    converts the window's own `RectTransform`, so from the tick after a catch-all float the window
+    matched *itself*. Tick order is rebuild `OpenWindows` → `TickCatchAll` → release loop, so:
+    N floats, N+1 calls it "adopted" and does not re-add it, the release loop drops every
+    **non-sticky** window not in `OpenWindows`, N+2 floats it again — **one full conversion per
+    tick, forever.** *That* is what the fuse was really capping (hence the ~1000 ms/frame that
+    motivated it). Sticky windows never showed it, and the map room makes nearly everything sticky
+    — the hover card is the one non-sticky window there.
+    **Also: a hover card is no longer a blocking modal.** `MapRoomParallel` excludes hover cards so
+    they are never sticky, and that exclusion leaked into `IsBlockingWindow` — every mouseover
+    flipped the mode machine to `ModalUI` and gated card commits off and on.
+  * **(2) The X did not close the character screen, it SPLIT it.** Log line 2941 closes
+    `New Party display` (PartyPanel); twelve lines later `Campaign Adventure Party Assembly Variant`
+    (PartyAssemblyWindow) — until then a child rendering inside the party display's host — becomes
+    eligible and floats on its own. **"The parent wins" can only hold while the parent is there**,
+    so a screen whose parts are nested windows must not have a removable parent. That family now
+    floats with **no X** in the map room and is refused by `CloseFloatedWindow` and the escape chord
+    (user: *"das soll hier in der Phase nicht schließbar sein"*). The pause menu is the way out.
+  * **(1) The flicker: the measurement the silence pointed at.** `PanelFlickerProbe` printed nothing
+    across two sessions ⇒ panel state is steady, the whole panel-state family is retired. What
+    flickers are exactly the two things a camera feeds into a **RenderTexture** (live character
+    render, story picture); the text on the same canvas at the same order does not. New
+    `WorldUI/CameraOrderProbe` records the per-frame camera sequence and asks whether a
+    `targetTexture` camera draws **between the two MultiPass eye passes** — if so, one eye samples
+    generation N-1 and the other N. The game's character render is **`GUI 3D Camera` at depth 24**
+    against a head camera at depth 1. **The correction is data-driven**: a camera is hoisted below
+    the head only after it has been *observed* between the passes, and the observation is logged
+    first. Every distinct order shape is logged once, so a quiet log still says what the order was.
+
 - **ModBuild 184** (bundle UNCHANGED — plugin DLL only) — three reports, one ancestor, and a fuse
   that counted the wrong thing.
   * **(1) The mouseovers had TWO causes, both already in the 183 log.**
