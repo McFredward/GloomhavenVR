@@ -296,12 +296,19 @@ internal static partial class ModalFallback
               // one line above. Unconditional, not map-room-gated: this verdict is CACHED per window
               // instance below, so a gate that changed with the room would be sticky and wrong half
               // the time — and on the flat 2D map the screen shows the bar anyway.
-              || window.GetComponentInParent<UIGuildmasterHUD>() != null
+              //
+              // ModBuild 180 — AND THE TEST IS ON THE WINDOW'S OWN GAMEOBJECT, NOT ITS ANCESTRY.
+              // 179 wrote GetComponentInParent here, which is true for every window the HUD OWNS:
+              // shopWindow, templeWindow, trainerWindow, enhancementWindow are all serialized
+              // children of it (decompiled UIGuildmasterHUD.cs:76-92). So pressing Merchant or
+              // Temple opened the game's window and the catch-all then refused to float it — the
+              // hardware log shows "MAP TABLE BUTTON 'Merchant' pressed" with NOTHING after it.
+              // The BAR is the HUD; its windows are not, and only the bar belongs on this list.
+              || window.GetComponent<UIGuildmasterHUD>() != null
               || window.GetComponentInChildren<CardsHandManager>(true) != null
               || window.GetComponentInChildren<CombatLogHandler>(true) != null
               || window.GetComponentInChildren<UINotificationManager>(true) != null
-              || window.GetComponentInChildren<PhaseBannerHandler>(true) != null
-              || window.GetComponentInChildren<UIGuildmasterHUD>(true) != null;
+              || window.GetComponentInChildren<PhaseBannerHandler>(true) != null;
         HudVerdict[window] = hud;
         return hud;
     }

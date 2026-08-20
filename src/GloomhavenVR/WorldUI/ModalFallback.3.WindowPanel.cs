@@ -105,6 +105,10 @@ internal static partial class ModalFallback
         /// </summary>
         public bool Sticky;
 
+        /// <summary>Consecutive frames <c>ReassertStickyVisible</c> had to undo a hide. Zero while
+        /// the window stays where we put it; a rising count is a write war (see that method).</summary>
+        public int StickyFightFrames;
+
         /// <summary>
         /// Item 6: set when the user closes THIS window via its own X / the escape chord. The per-tick
         /// release loop then drops the float even though it is <see cref="Sticky"/> — the ONLY way a

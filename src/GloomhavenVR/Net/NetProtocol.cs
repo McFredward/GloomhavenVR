@@ -416,7 +416,79 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 179;
+    public const ushort ModBuild = 180;
+    // Build 180: THE CHARACTER WAS BEING DRAWN TWICE, AND 179's EXCLUSION WAS TOO WIDE.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // Six reports, all in the 3D map room. Five have a proven cause; one has an instrument.
+    //
+    // ── (1) THE FLICKER: A 3D CHARACTER RIG DRAGGED ONTO THE MOD LAYER ───────────────────────
+    // 179 ended the overrideSorting write war (the log fell from 18,994 repeats to zero) and the
+    // flicker survived it, so the write war was never the whole cause. His earlier screenshot had
+    // the answer all along: the character model rendered LARGE, in the world, in front of its own
+    // window.
+    //
+    // CanvasConversion.ApplyModLayer moves a floated window's ENTIRE subtree onto the mod layer so
+    // the game's UI Camera cannot double-draw it. "Entire" was literal — 2,084 transforms for the
+    // party window. But uGUI draws through CanvasRenderer, which is NOT a Renderer, so any real
+    // Renderer inside a converted window is BY DEFINITION not UI. In the party/character windows
+    // it is the live 3D character rig, which the game renders with its OWN preview camera into a
+    // RenderTexture the panel displays — and that camera culls BY LAYER. Moving the rig therefore
+    // did two things at once: the preview camera stopped seeing its subject, and our head camera
+    // (mask deliberately broad in the map room) started drawing the raw model directly in the
+    // world at the panel's position. Two pictures of one character fighting over the same pixels.
+    // The sweep now WALKS the subtree instead of flattening it and skips any branch whose root
+    // carries a Renderer or a Camera — whole, children included. Such a branch was never visible
+    // to the UI Camera, so leaving it alone costs nothing.
+    //
+    // ── (4)(5)(6) THE GUILDMASTER WINDOWS — 179's EXCLUSION CAUGHT THE WHOLE FAMILY ──────────
+    // 179 put UIGuildmasterHUD on the catch-all's known-HUD list with GetComponentInParent. But
+    // shopWindow, templeWindow, trainerWindow and enhancementWindow are all serialized CHILDREN of
+    // that HUD (decompiled UIGuildmasterHUD.cs:76-92), so the test excluded every one of them. The
+    // log shows it exactly: "MAP TABLE BUTTON 'Merchant' pressed" followed by NOTHING. The window
+    // opened in the flat UI and was refused a float. The test is now on the window's OWN
+    // GameObject: the bar is the HUD, its windows are not.
+    //
+    // AND THE MAP ROOM GETS ITS OWN WINDOW RULE (user: "Anders als in Flat soll es hier möglich
+    // sein mehrere Fenster parallel offen zu haben zB Kirche zum Spenden UND Händler — es soll also
+    // nonblocking sein"; "Die UI Elemente … dürfen NIE [verschwinden]"). While the room stands every
+    // floated window is STICKY (the release loop keeps it when the game's single-window ToggleGroup
+    // hides it behind a sibling) and NON-BLOCKING (it never raises the ModalUI lock). It closes on
+    // its X, on the escape chord, or with the room. The confirmation family is the one carve-out:
+    // a box whose purpose is to be answered first must still block.
+    //
+    // A NEW WRITE WAR WOULD BE THE OBVIOUS WAY FOR THAT TO GO WRONG, so ReassertStickyVisible now
+    // counts consecutive re-shows and warns ONCE at three ("STICKY FIGHT"). Sticky is correct
+    // against an EVENT-driven hide — a ToggleGroup switching modes hides once and we show once. It
+    // is not correct against a per-frame writer, and change-gating the write does not save you
+    // there; only noticing does. 179 taught that one layer up and it is not being re-learned here.
+    //
+    // ── (3) THE BUTTONS ARE PHYSICAL NOW ────────────────────────────────────────────────────
+    // User: "Die Buttons sollen physische 3D buttons sein auch mit einer Drückanimation mit dem
+    // jeweiligen Symbol drauf (das ihre eigene Animation hat)." Each cap is a static SOCKET disc
+    // plus a travelling BODY disc (Cards.CardMesh round caps on the shared lit keycap material, the
+    // same geometry and material path ButtonCluster's keycaps use), with the face, icon, glow and
+    // badge parented UNDER the body so the whole assembly sinks 7 mm into the socket on a press —
+    // fast down, soft back. The cap travels whether or not the game accepts the press: a button
+    // that does not move reads as broken input, and the refusal is already carried by the cap being
+    // dimmed and inert.
+    //
+    // AND THE ICONS WERE MIRRORED. 179 aimed the cap's +Z at the player, but a SpriteRenderer's
+    // front face is its -Z (the default camera looks along +Z and sees a sprite from the sprite's
+    // -Z side). They stayed visible only because Sprites/Default is Cull Off — i.e. they were being
+    // seen from behind. The cap frame is flipped; +Z is now "into the socket", which is also the
+    // travel direction.
+    //
+    // ── (2) THE JOYSTICK: NO PROOF, SO AN INSTRUMENT ────────────────────────────────────────
+    // "Ich kann mich nicht mit dem joystick fortbewegen trotz richtiger Einstellung." The mode is
+    // TableIdle, so the ModBuild-178 gate is not it — and the log says nothing else, because every
+    // early-out in Flight.Update RETURNED IN SILENCE. Only the scroll suppression had a line, and
+    // that line is precisely why THAT class of report has always been solvable in one round.
+    // Flight now reports its idle reason, change-gated: FlightEnabled off, no tracked FlightHand,
+    // the world grab owning the stick, the mode, or LIVE. The next log names the gate instead of
+    // leaving four candidates. Guessing between them and shipping a "fix" is how the water rounds
+    // went wrong; this is the alternative.
+    //
     // Build 179: ONE OVERFLOW, ONE WRITE WAR, AND THE TABLE BUTTONS.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

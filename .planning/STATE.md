@@ -126,6 +126,39 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 180** (bundle UNCHANGED — plugin DLL only) — the character was drawn twice, and 179's
+  exclusion was too wide. Six reports, five proven causes, one instrument.
+  * **(1) The flicker was a 3D rig on the mod layer.** 179 ended the `overrideSorting` write war
+    (18,994 repeats → 0) and the flicker survived, so that was never the whole cause. His earlier
+    screenshot had it: the character model rendered **large, in the world, in front of its window**.
+    `ApplyModLayer` moved the window's *entire* subtree (2,084 transforms) onto the mod layer — but
+    **uGUI draws through `CanvasRenderer`, which is not a `Renderer`**, so any real `Renderer`
+    inside a converted window is by definition not UI. Here it is the live character rig, which the
+    game renders with **its own preview camera into an RT — culling by layer**. The move blinded
+    that camera *and* handed the raw model to our (deliberately broad-masked) head camera. Two
+    pictures of one character over the same pixels. The sweep now **walks** the tree and skips any
+    branch rooted on a `Renderer`/`Camera`, children included.
+  * **(4)(5)(6) 179's HUD exclusion caught the whole family.** `shopWindow`, `templeWindow`,
+    `trainerWindow`, `enhancementWindow` are serialized **children** of `UIGuildmasterHUD`, so
+    `GetComponentInParent` excluded them all: the log shows `MAP TABLE BUTTON 'Merchant' pressed`
+    followed by **nothing**. Now tested on the window's **own** GameObject. Plus the map room's own
+    rule (user: parallel, non-blocking, never self-closing): every floated window there is
+    **sticky** + **non-blocking**, confirmation boxes exempted. `ReassertStickyVisible` gained a
+    **STICKY FIGHT** counter — sticky is right against an *event-driven* hide, wrong against a
+    per-frame writer, and change-gating the write does not save you there (179's lesson, one layer
+    up).
+  * **(3) Physical buttons.** Static socket disc + travelling body disc (`Cards.CardMesh` round
+    caps on the shared lit keycap material), face/icon/glow/badge parented under the body so the
+    assembly sinks 7 mm on a press — fast down, soft back, and it travels whether or not the game
+    accepts. **The icons were mirrored:** 179 aimed the cap's +Z at the player, but a
+    `SpriteRenderer`'s front is its **−Z**; they were only visible because `Sprites/Default` is
+    `Cull Off`. Frame flipped; +Z is now "into the socket".
+  * **(2) The joystick — no proof, so an instrument.** Mode is TableIdle, so 178's gate is not it,
+    and **every early-out in `Flight.Update` returned in silence** (only the scroll suppression had
+    a line — which is exactly why *that* class of report was always solvable in one round). Flight
+    now reports its idle reason, change-gated: FlightEnabled off / no tracked FlightHand / world
+    grab owns the stick / mode / LIVE.
+
 - **ModBuild 179** (bundle UNCHANGED — plugin DLL only) — one overflow, one write war, and the
   table buttons.
   * **(1)+(2) ONE LINE.** `if (Time.frameCount - _scanFrame >= RescanIntervalFrames)` with

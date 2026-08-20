@@ -101,6 +101,25 @@ internal sealed class MapButtonRail
     /// <summary>Badge size relative to the cap, drawn in the upper-right corner.</summary>
     private const float BadgeFraction = 0.26f;
 
+    /// <summary>How far the cap sinks into its socket when pressed, real metres. Deliberately
+    /// generous — at a table the travel is read from a metre away, and a 2 mm dip is invisible
+    /// there. Matches the order of the tray keycaps' authored travel.</summary>
+    private const float TravelMeters = 0.007f;
+
+    /// <summary>Seconds the cap stays down after a press, before it springs back.</summary>
+    private const float PressHoldSeconds = 0.07f;
+
+    /// <summary>Spring-back time constant. Down is fast (a press is instant), up is softer.</summary>
+    private const float PressDownSeconds = 0.02f;
+    private const float PressUpSeconds = 0.11f;
+
+    /// <summary>The socket disc's diameter relative to the cap — the ring of well visible around
+    /// the pressed cap is what makes it read as a button that moves rather than a decal.</summary>
+    private const float SocketFraction = 1.22f;
+
+    /// <summary>Socket depth, real metres.</summary>
+    private const float SocketDepthMeters = 0.010f;
+
     private sealed class Cap
     {
         internal UIGuildmasterButton Button = null!;
@@ -128,6 +147,13 @@ internal sealed class MapButtonRail
         internal float IconWorldSize;
         internal bool Interactable;
         internal bool Hovered;
+
+        /// <summary>The travelling part — the cap body and everything printed on it. The socket
+        /// stays put, which is what makes the travel legible.</summary>
+        internal Transform? Body;
+        internal float PressedUntil;
+        internal float Depth;      // current travel, world units
+        internal float TravelWorld;
     }
 
     private static FieldInfo? _toggleField;
@@ -268,13 +294,19 @@ internal sealed class MapButtonRail
         _root = new GameObject("GloomhavenVR.MapButtonRail");
         _root.transform.SetPositionAndRotation(origin, seat.Rotation);
 
-        // The cap face normal: tilted up from "facing the player" by CapTiltDegrees, so the row
-        // reads as a console panel rather than a fence. Composed in the rail's own frame, whose
-        // +Z already points back out at the player (seat.Rotation faces the map centre FROM the
-        // seat, so its -Z looks at the map).
+        // THE CAP FRAME, and its handedness matters (ModBuild 180). The face normal is tilted up
+        // from "facing the player" by CapTiltDegrees, so the row reads as a console panel rather
+        // than a fence. Composed in the rail's own frame, whose +Z points back out at the player
+        // (seat.Rotation faces the map centre FROM the seat, so its -Z looks at the map).
+        //
+        // The cap's own -Z is aimed at the player, NOT its +Z, because a SpriteRenderer's front
+        // face is its -Z: the default camera looks along +Z and sees a sprite placed in front of
+        // it, i.e. from the sprite's -Z side. 179 used LookRotation(faceDir), putting +Z at the
+        // player — the icons only stayed visible at all because Sprites/Default is Cull Off, and
+        // they were MIRRORED. The travel then also runs the right way: +Z is "into the socket".
         float tilt = CapTiltDegrees * Mathf.Deg2Rad;
         var faceLocalDir = new Vector3(0f, Mathf.Sin(tilt), Mathf.Cos(tilt));
-        Quaternion capLocalRot = Quaternion.LookRotation(faceLocalDir, Vector3.up);
+        Quaternion capLocalRot = Quaternion.LookRotation(-faceLocalDir, Vector3.up);
 
         float cap = CapSizeMeters * _scale;
         float gap = CapGapMeters * _scale;
@@ -329,22 +361,51 @@ internal sealed class MapButtonRail
         col.size = new Vector3(cap, cap, depth);
         col.isTrigger = false;
 
-        var c = new Cap { Button = button, Go = go, Collider = col, IconWorldSize = cap * IconFraction };
+        var c = new Cap
+        {
+            Button = button,
+            Go = go,
+            Collider = col,
+            IconWorldSize = cap * IconFraction,
+            TravelWorld = TravelMeters * _scale,
+        };
         BindGameGraphics(c, button);
 
-        // Order back to front along the face normal (-Z is the viewer side here): glow behind the
-        // face so it reads as light spilling around the cap, then the face, then the icon, then the
+        // THE SOCKET — a static, darker disc a fifth wider than the cap. It never moves, and that
+        // is its whole job: a cap that sinks against nothing reads as a shrinking picture, while a
+        // cap that sinks into a visible well reads as a button. (Same reason ButtonCluster gives
+        // its travelling keycap a base plate.)
+        var socket = new GameObject("Socket");
+        socket.transform.SetParent(go.transform, worldPositionStays: false);
+        socket.transform.localPosition = new Vector3(0f, 0f, SocketDepthMeters * _scale * 0.5f);
+        socket.AddComponent<MeshFilter>().sharedMesh =
+            Cards.CardMesh.GetRoundCap(cap * SocketFraction, SocketDepthMeters * _scale);
+        socket.AddComponent<MeshRenderer>().sharedMaterial = LitMaterial(ButtonTuning.CapWellColor);
+
+        // THE TRAVELLING BODY — the disc plus everything printed on it. Parenting the face, icon,
+        // glow and badge UNDER it is what makes the press animation cost nothing per frame beyond
+        // one localPosition write: the whole assembly moves as one object, exactly as a real
+        // keycap does.
+        var body = new GameObject("Body");
+        body.transform.SetParent(go.transform, worldPositionStays: false);
+        body.transform.localPosition = Vector3.zero;
+        body.AddComponent<MeshFilter>().sharedMesh = Cards.CardMesh.GetRoundCap(cap, depth);
+        body.AddComponent<MeshRenderer>().sharedMaterial = LitMaterial(ButtonTuning.CapWellColor * 1.6f);
+        c.Body = body.transform;
+
+        // Order back to front along the face normal (-Z is the viewer side): glow behind the face
+        // so it reads as light spilling around the cap, then the face, then the icon, then the
         // badge on top.
         float z = -depth * 0.5f;
         c.Glow = c.HighlightImage != null
-            ? MakeSprite(go.transform, "Glow", z + 0.0015f * _scale, cap * GlowFraction, -1)
+            ? MakeSprite(body.transform, "Glow", z + 0.0015f * _scale, cap * GlowFraction, -1)
             : null;
-        c.Face = NativeButtonSkin.CreateFace(go.transform, new Vector2(cap, cap), z, 0);
+        c.Face = NativeButtonSkin.CreateFace(body.transform, new Vector2(cap, cap), z, 0);
         if (c.IconImage != null)
-            c.Icon = MakeSprite(go.transform, "Icon", z - 0.001f * _scale, c.IconWorldSize, 1);
+            c.Icon = MakeSprite(body.transform, "Icon", z - 0.001f * _scale, c.IconWorldSize, 1);
         if (c.NotificationImage != null || c.NotificationGo != null)
         {
-            c.Badge = MakeSprite(go.transform, "Badge", z - 0.002f * _scale, cap * BadgeFraction, 2);
+            c.Badge = MakeSprite(body.transform, "Badge", z - 0.002f * _scale, cap * BadgeFraction, 2);
             c.Badge.transform.localPosition = new Vector3(cap * 0.34f, cap * 0.34f,
                                                           z - 0.002f * _scale);
         }
@@ -354,7 +415,7 @@ internal sealed class MapButtonRail
             // No icon readable — name the button rather than shipping a blank cap. The enum member
             // is not localized, and that is stated here rather than hidden.
             var textGo = new GameObject("Fallback");
-            textGo.transform.SetParent(go.transform, worldPositionStays: false);
+            textGo.transform.SetParent(body.transform, worldPositionStays: false);
             textGo.transform.localPosition = new Vector3(0f, 0f, z - 0.001f * _scale);
             TextMeshPro label = textGo.AddComponent<TextMeshPro>();
             label.text = button.GuildmasterMode.ToString();
@@ -369,6 +430,47 @@ internal sealed class MapButtonRail
         c.Poke.Bind(this, c.Button);
         VRInteractables.RegisterPokeable(c.Poke, col);
         return c;
+    }
+
+    /// <summary>
+    /// A lit, depth-honest material for the cap bodies — the same helper path
+    /// <see cref="ButtonCluster"/> uses for its keycaps, so the table buttons are made of the same
+    /// material as every other physical button in the mod (carved-grain <c>_MainTex</c> × tint when
+    /// the bundle ships it, plain tint otherwise). Depth-writing and LEqual, so a cap is occluded
+    /// by anything genuinely in front of it instead of floating over the room.
+    /// </summary>
+    private static Material LitMaterial(Color color)
+    {
+        Shader? lit = Cards.PlayTray.BoardLitShader();
+        return lit != null
+            ? Cards.PlayTray.NewKeycapMaterial(lit, color)
+            : WorldUIAssets.CreateFlatMaterial(color);
+    }
+
+    /// <summary>
+    /// Drive the press travel. One localPosition write per animating cap and nothing at all once a
+    /// cap is at rest — the whole assembly is parented under the body, so the face, icon, glow and
+    /// badge come along for free.
+    ///
+    /// <para>Down fast, up soft: a press must feel instant, a release must not look like a bounce.
+    /// The hold keeps the cap seated for <see cref="PressHoldSeconds"/> so a press is visible even
+    /// when the trigger is tapped in a single frame.</para>
+    /// </summary>
+    private static void TickTravel(Cap c)
+    {
+        if (c.Body == null)
+            return;
+        bool down = Time.unscaledTime < c.PressedUntil;
+        float target = down ? c.TravelWorld : 0f;
+        if (Mathf.Approximately(c.Depth, target))
+            return;
+        float tau = down ? PressDownSeconds : PressUpSeconds;
+        c.Depth = Mathf.MoveTowards(c.Depth, target,
+                                    c.TravelWorld * Time.unscaledDeltaTime / Mathf.Max(tau, 1e-4f));
+        if (Mathf.Abs(c.Depth - target) < c.TravelWorld * 0.01f)
+            c.Depth = target;
+        // +Z is INTO the socket: the cap's -Z faces the player (see the frame note in Build).
+        c.Body.localPosition = new Vector3(0f, 0f, c.Depth);
     }
 
     private SpriteRenderer MakeSprite(Transform parent, string name, float localZ, float size, int order)
@@ -396,6 +498,8 @@ internal sealed class MapButtonRail
             Cap c = _caps[i];
             if (c.Go == null || c.Button == null)
                 continue;
+
+            TickTravel(c);
 
             float groupAlpha = c.Group != null ? c.Group.alpha : 1f;
             bool live = c.Button.IsActive && c.Toggle != null && c.Toggle.IsInteractable();
@@ -567,6 +671,17 @@ internal sealed class MapButtonRail
     {
         if (button == null)
             return;
+        // THE CAP GOES DOWN WHETHER OR NOT THE GAME ACCEPTS THE PRESS. A button that does not move
+        // when you push it reads as broken input, not as a refusal — and the refusal is already
+        // communicated by the cap being dimmed and inert in the first place.
+        for (int i = 0; i < _caps.Count; i++)
+        {
+            if (ReferenceEquals(_caps[i].Button, button))
+            {
+                _caps[i].PressedUntil = Time.unscaledTime + PressHoldSeconds;
+                break;
+            }
+        }
         Toggle? toggle = ToggleOf(button);
         GameObject target = toggle != null ? toggle.gameObject : button.gameObject;
         if (toggle != null && !toggle.IsInteractable())

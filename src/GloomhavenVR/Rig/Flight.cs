@@ -108,6 +108,34 @@ internal sealed class Flight : MonoBehaviour
 
     private bool _loggedNoDirection;
 
+    /// <summary>The reason stick flight is currently doing nothing, or null while it is live.
+    /// Change-gated — see <see cref="ReportIdle"/>.</summary>
+    private string? _idleReason = "not evaluated yet";
+
+    /// <summary>
+    /// SAY WHY THE STICK DOES NOTHING (ModBuild 180). Every early-out above this point used to
+    /// return in silence, so "Ich kann mich nicht mit dem Joystick fortbewegen trotz richtiger
+    /// Einstellung" produced a log in which flight simply did not appear — indistinguishable from
+    /// a setting being off, a hand not tracked, and the world grab owning the stick. The scroll
+    /// suppression a few lines below already had exactly this line and it is what made THAT class
+    /// of report solvable in one round; the other four gates did not.
+    ///
+    /// <para>Change-gated to one line per transition, so a session in which flight is simply on
+    /// costs one line and a session in which it is refused says which gate refused it.</para>
+    /// </summary>
+    private void ReportIdle(string? reason)
+    {
+        if (reason == _idleReason)
+            return;
+        _idleReason = reason;
+        VRLog.Info("Comfort", reason == null
+            ? "stick flight: LIVE — past every gate; the stick now moves the player."
+            : $"stick flight: doing nothing because {reason}. (Mode {VRModeStateMachine.CurrentMode}, "
+              + $"FlightEnabled={(ComfortSettings.IsBound ? ComfortSettings.FlightEnabled.Value.ToString() : "unbound")}, "
+              + $"FlightHand={(ComfortSettings.IsBound ? ComfortSettings.FlightHand.Value.ToString() : "unbound")}, "
+              + $"TurnHand={(ComfortSettings.IsBound ? ComfortSettings.TurnHand.Value.ToString() : "unbound")}.)");
+    }
+
     private void Awake() => Instance = this;
 
     private void OnDestroy()
@@ -126,11 +154,13 @@ internal sealed class Flight : MonoBehaviour
         Transform? rig = RigTarget.Current;
         if (rig == null || !ComfortSettings.IsBound)
         {
+            ReportIdle(rig == null ? "no rig transform yet" : "ComfortSettings not bound yet");
             ReleaseLift();
             return;
         }
         if (!ComfortSettings.FlightEnabled.Value)
         {
+            ReportIdle("[Comfort] FlightEnabled is OFF in the config");
             ReleaseLift();
             return;
         }
@@ -157,6 +187,7 @@ internal sealed class Flight : MonoBehaviour
         VRMode mode = VRModeStateMachine.CurrentMode;
         if (mode == VRMode.Menu2D && !RigTarget.IsDevProxy)
         {
+            ReportIdle("the mode is Menu2D (the flat 2D menu — no scene to fly through)");
             ReleaseLift();
             return;
         }
@@ -171,11 +202,19 @@ internal sealed class Flight : MonoBehaviour
 
         VRHand? hand = ResolveFlightHand();
         if (hand == null || !hand.HasPose)
+        {
+            ReportIdle($"the [Comfort] FlightHand ({ComfortSettings.FlightHand.Value}) has no tracked pose");
             return;
+        }
         // A hand that is dragging the world is already moving the player with that drag; letting the
         // same hand fly at the same time would apply two locomotion sources to one gesture.
         if (WorldGrab.Instance != null && WorldGrab.Instance.IsHandGrabbing(hand))
+        {
+            ReportIdle($"the {hand.Side} hand is world-grabbing (thumbstick CLICK held) — the drag "
+                       + "already moves the player, so the same stick may not also fly");
             return;
+        }
+        ReportIdle(null); // past every gate: flight is live on this hand
         // MENU SCROLLING OWNS THIS STICK while the same hand is pointing at a live list — see
         // ScrollAllowed for why scrolling wins and why "a menu is open" is deliberately not the test.
         if (!ScrollAllowed(hand))

@@ -236,22 +236,58 @@ internal static partial class ModalFallback
     /// </summary>
     private static void ReassertStickyVisible(WindowPanel wp)
     {
+        bool fought = false;
         CanvasGroup? cg = wp.WindowCanvasGroup;
         if (cg != null)
         {
-            if (cg.alpha < 1f) cg.alpha = 1f;
-            if (!cg.blocksRaycasts) cg.blocksRaycasts = true;
-            if (!cg.interactable) cg.interactable = true;
+            if (cg.alpha < 1f) { cg.alpha = 1f; fought = true; }
+            if (!cg.blocksRaycasts) { cg.blocksRaycasts = true; fought = true; }
+            if (!cg.interactable) { cg.interactable = true; fought = true; }
         }
         // Empty-shell fix: re-enable the window's own Canvas that a `_disableCanvas` UIWindow turned
         // off on its hide-fade complete — otherwise the whole subtree stops rendering (empty shell).
         Canvas? canvas = wp.WindowCanvas;
         if (canvas != null && !canvas.enabled)
+        {
             canvas.enabled = true;
+            fought = true;
+        }
         GameObject go = wp.Window.gameObject;
         if (!go.activeSelf)
+        {
             go.SetActive(true);
+            fought = true;
+        }
+
+        // WAR DETECTOR (ModBuild 180). Re-asserting is correct against an EVENT-driven hide — the
+        // guildmaster bar's ToggleGroup hides the sibling once when you pick another mode, we show
+        // it again once, and it stays. It is NOT correct against a PER-FRAME writer: then the value
+        // alternates every frame, the two MultiPass eyes can sample different sides of it, and the
+        // window flickers instead of staying (the ModBuild-179 overrideSorting lesson, one layer
+        // up). Change-gating the write does not prevent that — only noticing does. So count the
+        // consecutive frames we had to fight and say so ONCE if it becomes a war, rather than
+        // shipping a silent flicker and diagnosing it from a screenshot a round later.
+        if (!fought)
+        {
+            wp.StickyFightFrames = 0;
+            return;
+        }
+        if (++wp.StickyFightFrames == StickyFightWarnFrames)
+        {
+            VRLog.Warn("WorldUI", $"STICKY FIGHT: '{wp.Window.name}' has been re-shown "
+                                  + $"{wp.StickyFightFrames} frames running — something in the game is "
+                                  + "hiding it EVERY frame, not once. That is a write war and neither "
+                                  + "side wins it: expect the window to flicker rather than stay. The "
+                                  + "sticky rule assumes an event-driven hide (a ToggleGroup switching "
+                                  + "modes); if this line appears, that assumption is wrong for this "
+                                  + "window and it needs an exclusion, not a louder re-assert.");
+        }
     }
+
+    /// <summary>Consecutive re-assert frames after which a sticky float is declared a write war.
+    /// Three, for the same reason <c>CanvasConversion.ConcedeAfterReclears</c> uses three: a
+    /// one-off hide is a single frame, a per-frame writer is unmistakable by the third.</summary>
+    private const int StickyFightWarnFrames = 3;
 
     // ---- window gathering helpers (allocation-free) -------------------------------------
 
@@ -473,7 +509,42 @@ internal static partial class ModalFallback
     private static bool IsBlockingWindow(UIWindow window) =>
         !NonBlockingMenus.Contains(window.ID)
         && !MultiplayerRosterMenus.Contains(window.ID)
+        && !MapRoomParallel(window)
         && !ActionDismissedLevelMessage(window);
+
+    /// <summary>
+    /// THE 3D MAP ROOM'S OWN WINDOW RULE (ModBuild 180), user verbatim: <i>"Anders als in Flat soll
+    /// es hier möglich sein mehrere Fenster parallel offen zu haben zB Kirche zum Spenden UND
+    /// Händler — es soll also nonblocking sein und der button öffnet die Fenster nur. (betrifft nur
+    /// die 3D ansicht)"</i>, together with <i>"Die UI Elemente … dürfen NIE [verschwinden] selbst
+    /// wenn ich auf den Händler oder so klicke."</i>
+    ///
+    /// <para>The flat game runs a single-window discipline: opening the merchant hides the temple.
+    /// In a room where the windows are physical objects on a table that is simply wrong — you do
+    /// not put the shop away to look at the temple. So a window opened while the map room stands is
+    /// <b>non-blocking</b> (it never raises the ModalUI lock, so it cannot freeze anything) and
+    /// <b>sticky</b> (the release loop keeps it floated when the game hides it behind a sibling).
+    /// It closes on its X, on the escape chord, or when the room does — never on its own.</para>
+    ///
+    /// <para>THE CONFIRMATION FAMILY IS EXEMPT AND THAT IS DELIBERATE. A confirmation box is the
+    /// one window whose whole purpose is to be answered before anything else happens; making it
+    /// non-blocking would let a second action be committed behind the question it is asking. It is
+    /// the only carve-out, and it is small enough to name.</para>
+    /// </summary>
+    internal static bool MapRoomParallel(UIWindow window) =>
+        window != null
+        && MapRoom.MapRoomDriver.Active
+        && !ConfirmationFamily.Contains(window.ID);
+
+    /// <summary>The windows the map room's parallel rule must NOT relax — see
+    /// <see cref="MapRoomParallel"/>.</summary>
+    private static readonly HashSet<UIWindowID> ConfirmationFamily = new()
+    {
+        UIWindowID.ConfirmationBox,
+        UIWindowID.MainMenuConfirmationBox,
+        UIWindowID.MutiplayerConfirmationBox,
+        UIWindowID.CharacterConfirmationBox,
+    };
 
     /// <summary>
     /// LASER-GATING POLICY HOME (user ruling 2026-08: "Ich möchte, dass der Laser ausnahmslos

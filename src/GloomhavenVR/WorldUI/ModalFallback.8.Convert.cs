@@ -390,7 +390,10 @@ internal static partial class ModalFallback
                 SpawnAnchor = spawnAnchor,
                 // Item 6: reachable menus stay floated in parallel even when the game's single-window
                 // toggle hides a sibling; cache the CanvasGroup used to re-assert their visibility.
-                Sticky = NonBlockingMenus.Contains(window.ID),
+                // ModBuild 180: in the 3D map room EVERY floated window is sticky — the game's
+                // single-window discipline (open the merchant, the temple disappears) is wrong for
+                // a room where the windows are objects on a table. See MapRoomParallel.
+                Sticky = NonBlockingMenus.Contains(window.ID) || MapRoomParallel(window),
                 WindowCanvasGroup = window.GetComponent<CanvasGroup>(),
                 // Item 6 (empty-shell fix): cache the window's own Canvas so ReassertStickyVisible can
                 // re-enable it after a `_disableCanvas` UIWindow disables it on its hide-fade complete.

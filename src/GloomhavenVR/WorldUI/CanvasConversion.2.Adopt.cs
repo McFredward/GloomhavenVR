@@ -382,25 +382,72 @@ internal static partial class CanvasConversion
         if (modLayer == UiLayer)
             return; // no dedicated layer available — the move would not separate us from the UI Camera
 
+        // WALKED, NOT FLATTENED (ModBuild 180), because a foreign 3D subtree must be skipped
+        // WHOLE — see IsForeignRenderSubtree. GetComponentsInChildren hands back a flat list with
+        // no way to stop at a branch, so the sweep descends explicitly.
         TransformScratch.Clear();
-        panel.HostGo.GetComponentsInChildren(includeInactive: true, TransformScratch);
+        TransformScratch.Add(panel.HostGo.transform);
         int moved = 0;
-        for (int i = 0; i < TransformScratch.Count; i++)
+        int skipped = 0;
+        while (TransformScratch.Count > 0)
         {
-            Transform t = TransformScratch[i];
-            if (t == null || t.gameObject.layer == modLayer)
+            int last = TransformScratch.Count - 1;
+            Transform t = TransformScratch[last];
+            TransformScratch.RemoveAt(last);
+            if (t == null)
                 continue;
-            if (!IsRelayered(panel, t))
-                panel.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = t.gameObject.layer });
-            t.gameObject.layer = modLayer;
-            moved++;
+            if (!ReferenceEquals(t, panel.HostGo.transform) && IsForeignRenderSubtree(t))
+            {
+                skipped++;
+                continue; // and NOT its children either — that is the whole point
+            }
+            if (t.gameObject.layer != modLayer)
+            {
+                if (!IsRelayered(panel, t))
+                    panel.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = t.gameObject.layer });
+                t.gameObject.layer = modLayer;
+                moved++;
+            }
+            for (int i = t.childCount - 1; i >= 0; i--)
+                TransformScratch.Add(t.GetChild(i));
         }
         TransformScratch.Clear();
-        if (moved > 0)
+        if (moved > 0 || skipped > 0)
             VRLog.Info("WorldUI", $"MODAL LAYER: moved {moved} transform(s) of '{panel.HostGo.name}' onto the " +
                                   $"dedicated mod layer {modLayer} — only the HMD head camera renders it now, " +
                                   "the game UI Camera can no longer double-draw the world-space modal" +
-                                  (initial ? "." : " (pooled/late children)."));
+                                  (initial ? "." : " (pooled/late children).") +
+                                  (skipped > 0
+                                      ? $" {skipped} subtree(s) LEFT ALONE because they carry a real Renderer "
+                                        + "or Camera — a live 3D model inside a window belongs to the game's own "
+                                        + "preview camera, which culls it BY LAYER."
+                                      : string.Empty));
+    }
+
+    /// <summary>
+    /// Is this transform the root of a subtree the mod-layer sweep must NOT touch?
+    ///
+    /// <para>THE FLICKER THIS ENDS (user, 3D map room: <i>"Wenn ich einen Character in dem Fenster
+    /// öffne flackert der Inhalt des Fensters stark"</i>, with a screenshot showing the character
+    /// model rendered LARGE in front of its own window). uGUI draws through
+    /// <c>CanvasRenderer</c>, which is NOT a <c>Renderer</c> — so any real <c>Renderer</c> inside a
+    /// converted window is by definition NOT part of the UI. In the party/character windows it is
+    /// the live 3D character rig, which the game renders with its OWN preview camera into a
+    /// RenderTexture the panel then displays. That camera culls BY LAYER. Moving the rig onto the
+    /// mod layer therefore did two things at once: the preview camera stopped seeing its subject,
+    /// and our head camera — whose mask is broad in the map room — started drawing the raw model
+    /// directly in the world at the panel's position. Two pictures of the same character fighting
+    /// over the same pixels is exactly what "flackert stark" looks like.</para>
+    ///
+    /// <para>The mod layer exists to hide the floated modal from the game's UI CAMERA. A 3D
+    /// renderer was never visible to that camera in the first place, so leaving it alone costs
+    /// nothing and is the only correct answer. Same for a nested <c>Camera</c>: relayering the
+    /// object a camera sits on is meaningless, and its subtree is its own business.</para>
+    /// </summary>
+    private static bool IsForeignRenderSubtree(Transform t)
+    {
+        GameObject go = t.gameObject;
+        return go.GetComponent<Renderer>() != null || go.GetComponent<Camera>() != null;
     }
 
     private static bool IsRelayered(ConvertedPanel panel, Transform t)
