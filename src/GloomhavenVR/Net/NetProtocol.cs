@@ -416,7 +416,57 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 182;
+    public const ushort ModBuild = 183;
+    // Build 183: THE NEW WINDOW BELONGS IN FRONT — AND THE PROBE ANSWERED BY STAYING SILENT.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── (1) AND (3) ARE ONE NUMBER: staggerIndex = Converted.Count ─────────────────────────
+    // "Wenn ich ein icon/ort andrücke spawned das fenster nicht vor mir sondern so weit neben mir,
+    // dass ich es zuerst nicht bemerkt habe" — and "es kommen nun gar keine Mouseovers mehr".
+    // The log says it outright: every spawn in that session carried stagger=3. 181 put the map
+    // room's arc in the SPAWN path and indexed it by how many windows were already open, so with
+    // three sticky windows standing every fresh one landed at 2×34° = 68° to the side. The hover
+    // cards took the same slot, which is why the mouseovers looked like they had stopped: they were
+    // being drawn 68° away from where he was pointing.
+    //
+    // Placing the arc at spawn could only ever position the NEW window — and the new one is
+    // precisely the one that must be dead ahead. It is the OLD ones that must step aside. So the
+    // arc moved OUT of the spawn path into RelayoutMapRoomArc, which runs whenever the SET changes:
+    // newest at 0°, the rest outward at ±34°, ±68° …, keeping each window's own clamped height so
+    // nothing can be pushed into the table. It never touches a window the player has grabbed
+    // (UserMoved) and never runs per frame — the layout is anchored on the facing at the moment the
+    // set changed, and re-running it every frame would drag every window around with the head,
+    // which the standing "nothing may re-orient with head movement" ruling forbids.
+    //
+    // ── (2) DESELECTION ───────────────────────────────────────────────────────────────────
+    // "Ich will ein bereits ausgewähltes icon/Ort wieder abwählen können indem ich mit Trigger
+    // sonst irgendwo hindrücke. Wird das entsprechende Fenster geschlossen kommt es einem Abwählen
+    // gleich." Both routed through the game's own MapLocation.Deselect — the exact counterpart of
+    // the Select() a click runs, so the same IsSelectable()/m_OnClickAction guards decide and
+    // nothing goes on the wire. Trigger with the ray on no location deselects; the quest popup
+    // going away deselects. The popup test carries a one-second grace: the popup takes frames to
+    // appear, and the absence of a thing that has not arrived yet is not its departure.
+    //
+    // ── (4) THE FLICKER: THE PROBE ANSWERED, AND THE ANSWER IS "NOT HERE" ─────────────────
+    // 182's PanelFlickerProbe armed and printed NOTHING. That is a result, not a miss: across the
+    // whole session neither eye pass disagreed with the other inside a frame, nor did any frame
+    // alternate with its predecessor, on canvas enabled/sortingOrder/overrideSorting/renderMode/
+    // worldCamera/layer/host-active/pose or on any adopted child's enabled/order/override.
+    //
+    // So the panels' own state is STEADY and the flicker is downstream of it — in what is sampled
+    // rather than in what is arranged. That kills the entire family of hypotheses the last four
+    // builds worked through (all of them were about panel state) and points at the one thing the
+    // probe deliberately cannot see: TEXTURE CONTENT. Both things he reports flickering — the live
+    // character render and the story picture — are images fed by a camera into a RenderTexture,
+    // and the text beside them does not flicker. The next measurement is therefore the per-frame
+    // CAMERA RENDER ORDER: if a camera with a targetTexture renders BETWEEN our two MultiPass eye
+    // passes, the two eyes sample different generations of the same RT, which is stereo rivalry in
+    // the texture rather than in the panel. That is one hook and a name list, and it is the next
+    // build's first job — with the panel-state family now excluded by measurement rather than by
+    // argument.
+    //
+    // (5) The buttons are accepted ("erstmal gut") — flat, unframed, and left alone.
+    //
     // Build 182: TWO PROVEN FIXES, ONE PROBABLE, AND AN INSTRUMENT INSTEAD OF A FOURTH GUESS.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

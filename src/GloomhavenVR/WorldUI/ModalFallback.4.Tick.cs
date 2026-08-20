@@ -332,6 +332,64 @@ internal static partial class ModalFallback
         }
     }
 
+    /// <summary>
+    /// Lay the map room's open windows out on an arc around the player, NEWEST DEAD AHEAD
+    /// (ModBuild 183). User: <i>"Ich möchte das die Fenster … im Halbkreis um einen gespawned
+    /// werden, so dass man alle direkt perfekt im Überblick hat"</i> and <i>"Wenn ich ein icon/ort
+    /// andrücke spawned das fenster nicht vor mir sondern so weit neben mir, dass ich es zuerst
+    /// nicht bemerkt habe."</i> Both at once: the thing you just asked for is in front of you, and
+    /// everything already open steps aside rather than being buried behind it.
+    ///
+    /// <para>Slots run 0°, +34°, −34°, +68° … outward from the gaze, so the set stays centred and
+    /// grows symmetrically. Only the HORIZONTAL direction is rewritten — each window keeps the
+    /// height its own spawn clamp gave it, so nothing here can push a window into the table or
+    /// above the eye cap, and the clamp does not have to run again.</para>
+    ///
+    /// <para>NEVER MOVES A WINDOW THE PLAYER OWNS. <c>UserMoved</c> latches on the first grip
+    /// (GrabbableModal), and a window someone deliberately placed is theirs — re-arranging it under
+    /// their hands would be the same class of insult as re-seating a room they stand in. Hover
+    /// cards are skipped too: their pose belongs to the icon they describe.</para>
+    /// </summary>
+    /// <summary>Converted-count the arc was last laid out for (change detector).</summary>
+    private static int _lastArcCount = -1;
+
+    private static void RelayoutMapRoomArc()
+    {
+        if (!MapRoom.MapRoomDriver.Active)
+            return;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (head == null)
+            return;
+        Vector3 headPos = head.transform.position;
+        Vector3 flatFwd = head.transform.forward;
+        flatFwd.y = 0f;
+        if (flatFwd.sqrMagnitude < 1e-6f)
+            flatFwd = Vector3.forward;
+        flatFwd.Normalize();
+        float dist = WindowDistanceMeters * PanelLayout.WorldScale;
+
+        // Newest first: Converted is append-ordered, so walk it backwards.
+        int slot = 0;
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.HoverCard || wp.UserClosing || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+                continue;
+            if (wp.Grab == null || wp.Grab.UserMoved)
+                continue;
+
+            int step = (slot + 1) / 2;
+            float sign = (slot % 2) == 1 ? 1f : -1f;
+            float angle = Mathf.Min(step * ArcStepDegrees, MaxArcHalfDegrees) * sign;
+            slot++;
+
+            Vector3 dir = Quaternion.AngleAxis(angle, Vector3.up) * flatFwd;
+            float keepY = wp.Panel.HostGo.transform.position.y;
+            var pos = new Vector3(headPos.x + dir.x * dist, keepY, headPos.z + dir.z * dist);
+            wp.Grab.PlaceFrameAt(pos, Quaternion.LookRotation(dir, Vector3.up));
+        }
+    }
+
     /// <summary>Half the card's world height, for seating its bottom edge on the hover anchor.</summary>
     private static float HoverCardHalfHeight(WindowPanel wp)
     {
@@ -667,6 +725,16 @@ internal static partial class ModalFallback
                 Converted[i].Grab?.Tick();
         }
         TickHoverCards();
+        // ModBuild 183: re-arrange the arc whenever the SET changes — a window opened, closed or
+        // was released. Not per frame: the layout is anchored on the player's facing at the moment
+        // the set changed, so re-running it every frame would drag every window around with the
+        // head, which is precisely what the standing "nothing may re-orient with head movement"
+        // ruling forbids.
+        if (Converted.Count != _lastArcCount)
+        {
+            _lastArcCount = Converted.Count;
+            RelayoutMapRoomArc();
+        }
         // The flicker instrument (ModBuild 182): armed exactly while floated panels exist, so it
         // costs nothing in a scenario with none and nothing in the menu. See PanelFlickerProbe for
         // why the next round needs a measurement rather than a fourth hypothesis.

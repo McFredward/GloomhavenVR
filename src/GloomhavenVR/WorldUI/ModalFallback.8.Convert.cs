@@ -258,7 +258,13 @@ internal static partial class ModalFallback
             // still rides on top. Item 2: stagger each stacked window so secondaries overlap but
             // do not coincide with the primary.
             float extraScale = DeriveWindowScale(panel);
-            int staggerIndex = Converted.Count;
+            // ModBuild 183: in the map room the NEWEST window always spawns dead ahead and the
+            // older ones are pushed out along the arc afterwards (RelayoutMapRoomArc). 182 gave the
+            // new window the highest index, so with three sticky windows already open every fresh
+            // one landed 68° to the side — "so weit neben mir, dass ich es zuerst nicht bemerkt
+            // habe", and the hover cards went with it, which is why the mouseovers seemed to stop
+            // appearing at all. A hover card never takes an arc slot: TickHoverCards owns its pose.
+            int staggerIndex = MapRoom.MapRoomDriver.Active ? 0 : Converted.Count;
             // Torbogen report: level-message windows (tutorial box / action strip) get the
             // closer, gaze-centered, view-cone-guaranteed placement; every other family keeps
             // the shared 1.2 m spawn unchanged.

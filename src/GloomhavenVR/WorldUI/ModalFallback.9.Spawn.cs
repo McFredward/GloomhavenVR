@@ -582,18 +582,12 @@ internal static partial class ModalFallback
             // and the set grows symmetrically: 0°, +A, -A, +2A, -2A … The vertical drop and the
             // pull-forward are dropped with it — every card on the arc is equally near and equally
             // upright, which is what "perfekt im Überblick" means.
-            if (staggerIndex > 0 && MapRoom.MapRoomDriver.Active)
-            {
-                int step = (staggerIndex + 1) / 2;
-                float sign = (staggerIndex % 2) == 1 ? 1f : -1f;
-                float angle = Mathf.Min(step * ArcStepDegrees, MaxArcHalfDegrees) * sign;
-                Vector3 flatFwd = new Vector3(fwd.x, 0f, fwd.z);
-                if (flatFwd.sqrMagnitude < 1e-6f)
-                    flatFwd = Vector3.forward;
-                Vector3 dir = Quaternion.AngleAxis(angle, Vector3.up) * flatFwd.normalized;
-                pos = headPos + dir * (WindowDistanceMeters * scale);
-            }
-            else if (staggerIndex > 0)
+            // ModBuild 183: the map room's arc moved OUT of the spawn path and into
+            // RelayoutMapRoomArc, which runs after every add/remove. Doing it at spawn could only
+            // ever place the NEW window, and the new one is precisely the one that must be dead
+            // ahead — it was the OLD ones that needed to step aside. Map-room spawns therefore
+            // arrive with staggerIndex 0 and the relayout arranges the set a moment later.
+            if (staggerIndex > 0)
             {
                 float step = SecondaryStaggerMeters * scale;
                 pos += h.right * (step * staggerIndex) - Vector3.up * (step * staggerIndex);

@@ -126,6 +126,30 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 183** (bundle UNCHANGED — plugin DLL only) — the new window belongs in front, and the
+  probe answered by staying silent.
+  * **(1)+(3) are one number: `staggerIndex = Converted.Count`.** The log shows `stagger=3` on every
+    spawn: 181 put the map room's arc in the SPAWN path indexed by how many windows were already
+    open, so with three sticky windows standing every fresh one landed at **68° to the side** — and
+    the hover cards went with it, which is why the mouseovers looked like they had stopped.
+    **Placing the arc at spawn can only ever position the NEW window, and the new one is precisely
+    the one that must be dead ahead.** The arc moved into `RelayoutMapRoomArc`, run whenever the
+    SET changes: newest at 0°, the rest outward, each keeping its own clamped height. Never touches
+    a grabbed window (`UserMoved`), never runs per frame (that would drag windows with the head).
+  * **(2) Deselection**, both routes through the game's own `MapLocation.Deselect`: trigger with
+    the ray on no location, and the quest popup going away. One-second grace on the popup test —
+    the absence of a thing that has not arrived yet is not its departure.
+  * **(4) THE FLICKER — the probe printed NOTHING, and that is the result.** Across the session
+    neither eye pass disagreed inside a frame, nor did frames alternate, on canvas enabled /
+    sortingOrder / overrideSorting / renderMode / worldCamera / layer / host active / pose or any
+    adopted child's state. **The panels' own state is steady; the flicker is downstream of it** —
+    which kills the entire family the last four builds worked through, all of which were about
+    panel state. What flickers are the two things fed by a camera into a **RenderTexture** (live
+    character render, story picture) while the text beside them does not. **Next measurement: the
+    per-frame CAMERA RENDER ORDER** — a camera with a `targetTexture` rendering *between* our two
+    MultiPass eye passes gives the eyes different generations of the same RT.
+  * (5) Buttons accepted ("erstmal gut") — left alone.
+
 - **ModBuild 182** (bundle UNCHANGED — plugin DLL only) — two proven fixes, one probable, and an
   instrument instead of a fourth guess.
   * **(1) The hover card caught the character screen — my 181 regression.** 181 classified with

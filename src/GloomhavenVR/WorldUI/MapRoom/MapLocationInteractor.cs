@@ -149,6 +149,8 @@ internal sealed class MapLocationInteractor
         MapLocation? want = PickFrom(VRHands.Primary) ?? PickFrom(OtherHand(VRHands.Primary));
         SetHover(want, "laser");
 
+        TickDeselect();
+
         if (_hover == null)
             return;
         VRHand? clicking = TriggerEdgeHand();
@@ -460,6 +462,83 @@ internal sealed class MapLocationInteractor
         }
     }
 
+    /// <summary>
+    /// DESELECTION (ModBuild 183). User: <i>"Ich will ein bereits ausgewähltes icon/Ort wieder
+    /// abwählen können indem ich mit Trigger sonst irgendwo hindrücke. Wird das entsprechende
+    /// Fenster geschlossen kommt es einem Abwählen gleich."</i>
+    ///
+    /// <para>Two triggers, both routed through the game's own <c>MapLocation.Deselect</c> — the
+    /// exact counterpart of the <c>Select()</c> a click runs, so it passes the same
+    /// <c>IsSelectable()</c> and <c>m_OnClickAction</c> guards and cannot desynchronise anything:
+    /// <list type="number">
+    /// <item>a trigger pull with the ray on NO location — "press somewhere else";</item>
+    /// <item>the quest popup that the selection opened being gone. Closing that window IS the
+    ///   deselection in his model, so the selection follows the window rather than the window
+    ///   being expected to follow a selection nobody can see.</item>
+    /// </list></para>
+    /// </summary>
+    private void TickDeselect()
+    {
+        if (_selected == null)
+            return;
+
+        // (2) the window that the selection opened has gone. GRACE FIRST: the popup takes a few
+        // frames to come up after the click, and testing it immediately would deselect the location
+        // the same instant it was selected — the classic "the absence of a thing that has not
+        // arrived yet is not its departure".
+        if (Time.unscaledTime - _selectedAt < SelectionGraceSeconds)
+            return;
+        if (!QuestPopupOpen())
+        {
+            Deselect("its quest window was closed — closing that window IS a deselection");
+            return;
+        }
+
+        // (1) a trigger pull that landed on no location at all.
+        VRHand? clicking = TriggerEdgeHand();
+        if (clicking != null && _hover == null)
+            Deselect($"{clicking.Side} trigger pulled with the ray on no location");
+    }
+
+    private void Deselect(string why)
+    {
+        MapLocation? sel = _selected;
+        _selected = null;
+        if (sel == null)
+            return;
+        try
+        {
+            sel.Deselect();
+            VRLog.Info(Scope, $"MAP ROOM location DESELECTED '{sel.name}' — {why}. Routed through the "
+                              + "game's own MapLocation.Deselect, the exact counterpart of the Select() a "
+                              + "click runs, so its guards still decide and nothing goes on the wire.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn(Scope, $"MapLocation.Deselect threw: {ex.Message}");
+        }
+    }
+
+    /// <summary>Is the quest popup a selection opens still up? Cached by type; Unity-null revives
+    /// the lookup after a scene rebuild.</summary>
+    private bool QuestPopupOpen()
+    {
+        if (_questPopup == null)
+            _questPopup = Object.FindObjectOfType<UIQuestPopup>();
+        if (_questPopup == null)
+            return false;
+        // activeInHierarchy, not a UIWindow lookup: UIQuestPopup is a plain MonoBehaviour
+        // (decompiled UIQuestPopup.cs:17) and the game shows/hides the object itself.
+        return _questPopup.gameObject.activeInHierarchy;
+    }
+
+    private MapLocation? _selected;
+    private float _selectedAt;
+    private UIQuestPopup? _questPopup;
+
+    /// <summary>How long after a selection the quest popup is allowed to still be absent.</summary>
+    private const float SelectionGraceSeconds = 1.0f;
+
     /// <summary>Drop the hover only if <paramref name="loc"/> is the one currently held.</summary>
     internal void ClearHoverIf(MapLocation loc, string why)
     {
@@ -500,6 +579,8 @@ internal sealed class MapLocationInteractor
         try
         {
             ExecuteEvents.Execute(loc.gameObject, data, ExecuteEvents.pointerClickHandler);
+            _selected = loc;   // what a later "press somewhere else" deselects
+            _selectedAt = Time.unscaledTime;
             VRLog.Info(Scope, $"MAP ROOM location CLICK on '{loc.name}' ({source}) — dispatched as "
                               + "ExecuteEvents.pointerClickHandler, i.e. exactly a left mouse click. "
                               + "MapLocation.OnPointerClick → Select() decides from here (IsSelectable "
