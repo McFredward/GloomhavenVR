@@ -19,7 +19,8 @@
 //     Standard, which would pink-trap in a bundle). Albedo is the leather-glove base
 //     colour, a loose PNG (VRHand_albedo.png) extracted from the FBX's single embedded
 //     texture and committed next to the FBX — exactly the board's loose-texture pattern.
-//     The FBX embeds no normal map, so the shader's flat "bump" default is used.
+//     A set may also ship a loose tangent-space NORMAL map (the arcane one does); a set
+//     without one uses the shader's flat "bump" default, as all three did up to ModBuild 170.
 //  3. Assembles Assets/Bundle/Hands/VRHand_{L,R}.prefab: the FBX instance under a root
 //     named VRHand_{L,R}, our material bound to the SkinnedMeshRenderer(s). Import
 //     transforms are kept verbatim (the rig was authored to the contract; final device
@@ -38,8 +39,8 @@ namespace GloomhavenVR
     {
         private const string Hands = "Assets/Bundle/Hands";
         private const string ShaderName = "GloomhavenVR/BoardLit"; // self-contained, bundled, baked-lit
-        // Per-set albedo, extracted from each source GLB and committed as a loose PNG
-        // (each L/R pair shares one atlas). No normal maps are used (BoardLit flat bump).
+        // Per-set albedo and optional normal map, committed as loose PNGs (each L/R pair shares
+        // one atlas — the mirrored hand samples the same texels).
         //   VRHand       — leather glove (default style); artist-authored mesh + rig,
         //                  adopted via unity/hand-prep/import_glove_fbx.py
         //   VRHandPlate  — plate-armor gauntlet   (prepare_hand.py + rig_hand.py, Hunyuan3D)
@@ -52,15 +53,30 @@ namespace GloomhavenVR
         // the surface behind it instead. It costs a second shaded fragment over the whole
         // hand, in both eyes, every frame — so it is per set, and set from a MEASUREMENT
         // (unity/hand-prep, boundary + non-manifold edge counts on the shipped rigs):
-        //   VRHand       0 boundary,  0 non-manifold, +298 cm3  -> closed, wound outward
-        //   VRHandPlate  540 boundary, 1072 non-manifold        -> open shell
-        //   VRHandArcane 869 boundary, 1680 non-manifold        -> open shell
-        // A closed, outward-wound shell has no hole to fill, so the glove pays nothing.
-        private static readonly (string baseName, string albedo, bool doubleSided)[] HandSets =
+        //   VRHand       0 boundary,   0 non-manifold, +298 cm3  -> closed, wound outward
+        //   VRHandArcane 0 boundary,   0 non-manifold, +1748 cm3 -> closed, wound outward
+        //   VRHandPlate  540 boundary, 1072 non-manifold         -> open shell
+        // A closed, outward-wound shell has no hole to fill, so it pays nothing. Only the
+        // plate gauntlet is still an AI-generated shell and still needs the repair.
+        //
+        // normal: an artist-authored tangent-space normal map, or null for none. BoardLit has
+        // always declared _BumpMap and _NormalStrength and read TANGENT in its vertex input; up
+        // to ModBuild 170 no hand set supplied one, so every hand rendered on the shader's flat
+        // "bump" default and carried only what the albedo had baked into it. The arcane set now
+        // ships one. The importer is told the texture is a NORMAL MAP (below) — leaving it as a
+        // plain colour texture is the silent version of this failure: it samples, it looks
+        // roughly right, and every slope is wrong.
+        //
+        // The arcane set also delivered a DISPLACEMENT map. It is deliberately NOT shipped:
+        // BoardLit has no height, parallax or tessellation term, and the hands are not
+        // subdivided, so there is nothing in this pipeline that could read it. Adding it would
+        // put 3.4 MB in the bundle for no pixel.
+        private static readonly (string baseName, string albedo, string normal, bool doubleSided)[]
+            HandSets =
         {
-            ("VRHand",       Hands + "/VRHand_albedo.png",       false),
-            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  true),
-            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", true),
+            ("VRHand",       Hands + "/VRHand_albedo.png",       null,                                false),
+            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  null,                                true),
+            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", Hands + "/VRHandArcane_normal.png",  false),
         };
 
         // Every transform name the mod's HandVisuals.MapPrefabRig resolves by name.
@@ -79,10 +95,10 @@ namespace GloomhavenVR
             try
             {
                 AssetDatabase.Refresh();
-                foreach ((string baseName, string albedo, bool doubleSided) in HandSets)
+                foreach ((string baseName, string albedo, string normal, bool doubleSided) in HandSets)
                 {
-                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo, doubleSided);
-                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo, doubleSided);
+                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo, normal, doubleSided);
+                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo, normal, doubleSided);
                 }
                 AssetsBuilder.BuildAll(); // exits the editor (0/1)
             }
@@ -94,13 +110,14 @@ namespace GloomhavenVR
             }
         }
 
-        private static void BuildHand(string fbxName, string rootName, string albedoPath, bool doubleSided)
+        private static void BuildHand(string fbxName, string rootName, string albedoPath,
+                                      string normalPath, bool doubleSided)
         {
             string fbx = $"{Hands}/{fbxName}";
             Debug.Log($"[GloomhavenVR] === building {rootName} from {fbx} ===");
 
             ImportModel(fbx);
-            Material mat = BuildMaterial(rootName, albedoPath, doubleSided);
+            Material mat = BuildMaterial(rootName, albedoPath, normalPath, doubleSided);
             AssemblePrefab(fbx, rootName, mat);
         }
 
@@ -113,6 +130,11 @@ namespace GloomhavenVR
             importer.importCameras = false;
             importer.importLights = false;
             importer.importBlendShapes = false;
+            // TANGENTS: required by any set carrying a normal map — BoardLit reads TANGENT in its
+            // vertex input and builds the world tangent frame from it. Calculated rather than
+            // imported, so it is derived from the SAME UVs the map was baked against whatever the
+            // exporter wrote; a set with no normal map pays nothing for having them.
+            importer.importTangents = ModelImporterTangents.CalculateMikk;
             importer.isReadable = true;        // prefab/bundle mesh access
 
             // Generic rig (NOT None): "None" strips the skin cluster and imports the mesh
@@ -132,7 +154,27 @@ namespace GloomhavenVR
             importer.SaveAndReimport();
         }
 
-        private static Material BuildMaterial(string rootName, string albedoPath, bool doubleSided)
+        /// <summary>Force a texture to import as a tangent-space NORMAL MAP. Unity decides this
+        /// from the .meta, and a normal map left as a plain colour texture is the silent kind of
+        /// wrong: it samples, the hand looks roughly lit, and every slope on it is inverted or
+        /// flattened. Idempotent — only reimports when the setting actually has to change.</summary>
+        private static void ImportAsNormalMap(string path)
+        {
+            var ti = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (ti == null)
+            {
+                Debug.LogWarning($"[GloomhavenVR] no TextureImporter at {path} — normal map skipped.");
+                return;
+            }
+            if (ti.textureType == TextureImporterType.NormalMap)
+                return;
+            ti.textureType = TextureImporterType.NormalMap;
+            ti.SaveAndReimport();
+            Debug.Log($"[GloomhavenVR] {path} re-imported as a NormalMap.");
+        }
+
+        private static Material BuildMaterial(string rootName, string albedoPath, string normalPath,
+                                              bool doubleSided)
         {
             Shader shader = Shader.Find(ShaderName)
                             ?? throw new System.Exception($"Bundled shader '{ShaderName}' not found (compile error?).");
@@ -141,16 +183,29 @@ namespace GloomhavenVR
             if (albedo == null)
                 Debug.LogWarning($"[GloomhavenVR] Albedo not found at {albedoPath} — hand will be an untextured tint.");
 
+            Texture2D normal = null;
+            if (!string.IsNullOrEmpty(normalPath))
+            {
+                ImportAsNormalMap(normalPath);
+                normal = AssetDatabase.LoadAssetAtPath<Texture2D>(normalPath);
+                if (normal == null)
+                    Debug.LogWarning($"[GloomhavenVR] Normal map not found at {normalPath} — the "
+                                     + "hand falls back to BoardLit's flat bump.");
+            }
+
             var mat = new Material(shader) { name = rootName };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);
+            if (normal != null) mat.SetTexture("_BumpMap", normal);
             // DEFECT 2 FIX — Cull Off for the AI-generated shells only; see HandSets for
             // the measurement that decides it per set. 0 = CullMode.Off, 2 = CullMode.Back.
             mat.SetFloat("_Cull", doubleSided ? 0f : 2f);
-            // No normal map is embedded in the FBX; BoardLit's flat "bump" default is used.
+            // A set without a normal map keeps BoardLit's flat "bump" default (see HandSets).
             string matPath = $"{Hands}/{rootName}.mat";
             AssetDatabase.CreateAsset(mat, matPath);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[GloomhavenVR] material written: {matPath} (albedo={(albedo ? "yes" : "none")})");
+            Debug.Log($"[GloomhavenVR] material written: {matPath} "
+                      + $"(albedo={(albedo ? "yes" : "none")}, normal={(normal ? "yes" : "flat")}, "
+                      + $"cull={(doubleSided ? "Off" : "Back")})");
             return mat;
         }
 

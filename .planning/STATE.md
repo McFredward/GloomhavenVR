@@ -126,7 +126,37 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 170** (bundle UNCHANGED — plugin DLL only) — a period is not perception.
+- **ModBuild 171** (**BUNDLE CHANGED — 67,859,030 bytes, must be REINSTALLED**) — the arcane hand
+  joins the artist pipeline, and the wrist anchor turns out to be a contract.
+  * A revised **glove** (same mesh and atlas byte for byte; the rig lost its leaf bones and its
+    fingertip bones now match their parents' lengths) and a complete new **arcane** set —
+    20,654-tri hand-authored mesh, 2048² base colour, 2048² **normal map**, displacement map.
+    `import_glove_fbx.py` drives both sets now (`GLOVE_SRC`/`GLOVE_NAME`). It learned two things:
+    take `Anchor_IndexTip` from `Anchor_Index_Tip.tail` when the export has no leaf bones, and
+    check the **custom-split-normal flag** through the round trip — both artist meshes carry baked
+    split normals and an export setting that drops them ships a smooth hand faceted, silently.
+  * **ROOT CAUSE-CLASS FINDING: the wrist anchor is tuning surface, not decoration.** The delivered
+    arcane rig puts `Anchor_Wrist` **160 mm** from where the shipped one has it, and the wrist HUD
+    hangs off that bone with `[WristHud] Arcane*` tuned *by hand* as offsets **from** it — adopting
+    it verbatim would have moved his watch face 14 cm up the forearm with every tuned number still
+    in the file looking correct. Which placement is right was **measured**, by scanning each mesh's
+    cross-sectional girth for the waist where the hand narrows into the forearm: old arcane bone
+    **79 mm forward** of its own waist, delivered bone **67 mm behind** it, glove 28 mm behind. The
+    two meshes agree on the anatomy to within a millimetre; the two rigs disagree by 145 mm and
+    **neither sits on it**. So there is no correct placement to restore — only the one the tuning is
+    measured against. Snapped back, both numbers printed every run. Consequence documented so nobody
+    "fixes" it: `Anchor_Palm` now reads 25 mm *behind* `Anchor_Wrist`, which is what the shipped rig
+    has always done.
+  * **First real normal map.** `BoardLit` has declared `_BumpMap`/`_NormalStrength` and read
+    `TANGENT` since it was written; no hand set had ever supplied one. `BuildHands` forces the
+    importer to `NormalMap` (a normal map left as a colour texture samples happily and every slope
+    is wrong) and tangents are `CalculateMikk`. The **displacement** map is deliberately not
+    shipped — nothing in this pipeline can read it, so it is 3.4 MB of bundle for no pixel.
+  * **The arcane hand stops paying for holes it no longer has** — 0 boundary / 0 non-manifold,
+    +1748.22 cm³, against the AI shell's 869/1680. `Cull Off` is a repair, not a look; only Plate
+    still needs it.
+
+- **ModBuild 170** (bundle unchanged from 169) — a period is not perception.
   * **ROOT CAUSE of "komplett stillstehend/freezed":** every water gate and every census field in
     this project measures a **period**, and 168/169 shipped periods exactly as designed. The eye
     follows the surface **normal**, and that rate is a *product* — amplitude × steepness ×

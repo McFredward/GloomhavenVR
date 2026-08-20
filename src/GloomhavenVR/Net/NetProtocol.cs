@@ -416,7 +416,71 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 170;
+    public const ushort ModBuild = 171;
+    // Build 171: THE ARCANE HAND JOINS THE ARTIST PIPELINE, AND THE WRIST ANCHOR IS A CONTRACT.
+    // ***** THE BUNDLE CHANGED — 67,859,030 bytes. IT MUST BE REINSTALLED. ***** Nothing on the wire.
+    //
+    // User: "Ich hab dir in .debug/ressources nochmal eine überarbeitete glove hand abgelegt sowie
+    // auch files für die arcane hand. Schau dir die files an und arbeite sie ein."
+    //
+    // ── 1. WHAT ARRIVED ────────────────────────────────────────────────────────────────────────
+    // A revised GLOVE (same mesh and same atlas byte for byte — the change is in the rig: the leaf
+    // bones are gone and the fingertip bones now match their parents' lengths) and a complete new
+    // ARCANE set: a 20,654-triangle hand-authored mesh, a 2048² base colour, a 2048² NORMAL map and
+    // a displacement map. Both FBXs carry the 19-name contract rig with hand-painted weights.
+    //
+    // import_glove_fbx.py drives both sets now (GLOVE_SRC/GLOVE_NAME) rather than only the glove.
+    // Two things it had to learn:
+    //   * NO LEAF BONES. It took Anchor_IndexTip from Blender's `Anchor_Index_Tip_end` leaf, and
+    //     this export has `add_leaf_bones` off. The leaf's head IS the tail of Anchor_Index_Tip, so
+    //     the point was always the same; it now reads whichever is present rather than depending on
+    //     an exporter checkbox.
+    //   * THE ROUND TRIP NOW CHECKS THE SHADING. Both artist meshes carry baked CUSTOM SPLIT
+    //     NORMALS, and an export setting that drops them ships a smooth hand faceted with nothing in
+    //     any log to say so. The written file is re-read and the flag compared, alongside the shell
+    //     and every bone.
+    //
+    // ── 2. THE WRIST ANCHOR, WHICH IS THE PART THAT NEEDED MEASURING ───────────────────────────
+    // The delivered arcane rig puts Anchor_Wrist 160 mm away from where the shipped one has it. That
+    // bone is not decoration: the wrist HUD hangs off it and its pose is tuned PER STYLE BY HAND —
+    // [WristHud] ArcanePitch/Yaw/Roll/OffsetX/Y/Z in dev.gloomhavenvr.hands.cfg are offsets FROM it.
+    // Adopting the delivered placement would have moved the user's watch face 14 cm up his forearm,
+    // silently, with every one of those tuned numbers still in the file looking correct.
+    //
+    // SO WHICH PLACEMENT IS RIGHT? Scanning each mesh's cross-sectional girth from the cuff to the
+    // knuckles finds the waist where the hand narrows into the forearm — a measurement, not an
+    // opinion:
+    //     arcane, as shipped at 170 : waist z = -0.0727, bone at +0.0060  -> 79 mm FORWARD of it
+    //     arcane, as delivered      : waist z = -0.0719, bone at -0.1385  -> 67 mm BEHIND it
+    //     glove, accepted at 169    : waist z = +0.0336, bone at +0.0060  -> 28 mm behind it
+    // The two arcane meshes agree on where the wrist is to within a millimetre. Their two RIGS
+    // disagree about where to put the bone by 145 mm, and NEITHER sits on the anatomy. There is
+    // therefore no correct placement to restore — only the one the user's tuning is measured
+    // against. The bone is snapped back to the outgoing rig's, and both numbers are printed every
+    // run so the choice stays visible.
+    //
+    // A consequence worth writing down, so nobody "fixes" it later: because the old arcane bone sits
+    // up IN THE PALM, Anchor_Palm now reads 25 mm BEHIND Anchor_Wrist along the fingers. That looks
+    // anatomically backwards, it is not new, and correcting it costs the user his HUD placement.
+    //
+    // ── 3. THE FIRST REAL NORMAL MAP, AND ONE LESS FULL-SCREEN COST ────────────────────────────
+    // BoardLit has declared _BumpMap and _NormalStrength and read TANGENT since it was written, but
+    // no hand set had ever supplied a map, so all three rendered on its flat bump default and
+    // carried only what the albedo had baked in. The arcane set now supplies one. BuildHands forces
+    // the texture's importer to NormalMap — left as a plain colour texture it samples happily and
+    // every slope on it is wrong, which is the silent version of this failure — and tangents are
+    // CalculateMikk so they come from the same UVs the map was baked against.
+    //
+    // The DISPLACEMENT map is deliberately NOT shipped. BoardLit has no height, parallax or
+    // tessellation term and the hands are not subdivided, so nothing in this pipeline could read it:
+    // it would be 3.4 MB of bundle for no pixel.
+    //
+    // AND THE ARCANE HAND STOPS PAYING FOR HOLES IT NO LONGER HAS. Measured: 0 boundary edges, 0
+    // non-manifold edges, +1748.22 cm3 signed volume on both hands — closed and wound outward, where
+    // the AI-generated one it replaces had 869 boundary and 1680 non-manifold edges. `Cull Off` is a
+    // repair for a fragmented shell, not a look, and it costs a second shaded fragment over the whole
+    // hand in both eyes every frame. Only the PLATE gauntlet is still an AI shell and still needs it.
+    //
     // Build 170: A PERIOD IS NOT PERCEPTION — the water was frozen and every gate was green.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //
