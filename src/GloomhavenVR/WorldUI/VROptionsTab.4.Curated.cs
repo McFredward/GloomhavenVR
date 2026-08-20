@@ -254,6 +254,13 @@ internal static partial class VROptionsTab
                         // Reality ist der Himmel immer aus."). No dependency-layer entry: a
                         // choice row has no children.
                         new("Sky", "Style", "vr_o_sky"),
+                        // THE 3D CAMPAIGN MAP, put on a curated page at ModBuild 176 because it
+                        // was unreachable in practice: no display name (the menu spaced the raw
+                        // key out to "Experimental 3D Map") and no curated row, so it sat among
+                        // the auto-grouped leftovers under Erweitert and the user asked where it
+                        // was. It sits under the environment choice because it is the same kind
+                        // of decision — which world the player stands in.
+                        new("Rig", "Experimental3DMap", "vr_o_3dmap"),
                         // ELEMENT MOOD — the environment's answer to the element infusions. Sits
                         // directly under the environment choice because that is what it acts on,
                         // and the strength dial folds under the toggle (VROptionsTab.8.Dependencies).

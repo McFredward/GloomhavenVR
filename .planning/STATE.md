@@ -126,7 +126,30 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
-- **ModBuild 175** (bundle UNCHANGED — plugin DLL only) — **his own numbers; 169 froze the wrong
+- **ModBuild 176** (bundle UNCHANGED — plugin DLL only) — the map is a background, not an owner.
+  * **ROOT CAUSE (one defect, two symptoms).** The game's camera never had this bug —
+    `CameraController.LateUpdate` consumes the wheel only when `IsPointerOverGameObject()` is
+    false — but that method is prefix-skipped in VR, so **the mod drives the map's pan and zoom
+    itself** and gated both on `FlatScreenStereo.MapActive`: a **screen-wide** fact used to claim
+    input across the **whole surface**, while a window on top covers only part of it. So
+    `TickStickScroll` returned on `mapActive` before ever looking at what the laser pointed at (no
+    list could be scrolled), and the generic uGUI-drag path is gated on `!mapActive` (no scrollbar
+    could be dragged; the trigger fell through to map-pan).
+  * **The claim is now per pixel**, the same rule the game uses: `PointerOverUiHandler<T>(pixel)` —
+    one `EventSystem.RaycastAll` at the RT pixel, the mechanism `DirectClick`/`TickStickScroll`
+    already share, asking for a **handler** of the gesture rather than any hit (a full-screen
+    backdrop is a raycast target and would kill the map everywhere; scrollbars/sliders/scroll views
+    all implement `IDragHandler`). `TickStickScroll` no longer early-outs on `mapActive`, and
+    `TickMapInput` stands down while `UiScrollFocus.IsScrolling(hand)` — reusing that class's
+    already-written ruling (*scroll wins over ambient claimants*) rather than inventing one.
+  * **Precedent that was one step away:** `MapActive` already excluded scenario/story/encounter
+    overlays "so the map can't be panned behind it" — the same reasoning stopped at the three
+    windows the previous report had named.
+  * **`[Rig] Experimental3DMap` was unfindable** — implemented and documented, but with no display
+    name (menu showed the spaced raw key) and no curated row. Now named in both languages, with a
+    hint, on the curated page under the environment choice. Still defaults to off.
+
+- **ModBuild 175** (bundle unchanged) — **his own numbers; 169 froze the wrong
   ones and nobody noticed for six builds.**
   * He sent `dev.gloomhavenvr.water.cfg`. Until 169 the `[Water]` section was live and he had tuned
     it through the Erweitert menu a long way off the defaults: **RippleSpeed 1.0 vs 0.00875 (114×)**,

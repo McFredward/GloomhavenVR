@@ -177,6 +177,14 @@ internal static partial class Loc
             ["HexHighlight/LogMaterialDump"] = Pair("Log hex material", "Hex-Material ins Log"),
             ["SelectionReady/Enabled"] = Pair("Selection reminder pulse", "Auswahl-Erinnerung"),
 
+            // ---- [Rig] — the world frame ----------------------------------------------------
+            // The 3D campaign map had NO display name, so the menu fell back to spacing the raw
+            // key out to "Experimental 3D Map" and it sat unlabelled among the leftovers under
+            // Erweitert. User, 2026-08-20: "Wo finde ich die Einstellung die 3D map zu sehen wie
+            // du sie implementiert hast statt die 2D Karte?" A feature nobody can find is off.
+            ["Rig/Experimental3DMap"] =
+                Pair("3D campaign map (experimental)", "3D-Kampagnenkarte (experimentell)"),
+
             // ---- [FigureGrab] — grabbing miniatures -----------------------------------------
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),
             ["FigureGrab/PickRadiusMillimeters"] =

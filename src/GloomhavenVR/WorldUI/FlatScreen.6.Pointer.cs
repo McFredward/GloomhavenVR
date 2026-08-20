@@ -89,7 +89,23 @@ internal sealed partial class FlatScreen
         // On the campaign map, a moving held trigger PANS the map (grab-drag) instead of
         // dragging a uGUI widget — see the map-pan block below. Suppress the generic
         // latch→uGUI-drag here so the two gestures never fight.
-        bool mapActive = _stereo.MapActive;
+        //
+        // ...BUT NOT WHERE A WINDOW COVERS THE MAP. User report 2026-08-20, on the 2D campaign
+        // map with the options menu open over it: "Ich kann nicht scrollen im Menu da ich
+        // stattdessen in der Karte dahinter zoome" and "auch der trigger bedient die Karte
+        // dahinter statt das darüberliegende Optionsmenü". Both are the same defect: MapActive is
+        // a SCREEN-WIDE mode, and the options window covers only part of that screen. Claiming the
+        // trigger and the stick for the map across the whole surface means every widget on top of
+        // it is dead — the scrollbar cannot be dragged and the stick cannot scroll the list,
+        // because both paths below are gated on this one flag.
+        //
+        // The map's claim is therefore made PER PIXEL, exactly the way the game's own camera does
+        // it (CameraController.LateUpdate skips the wheel when EventSystem.IsPointerOverGameObject
+        // and the thing under the pointer has no IgnoreMouseScroll). A pixel covered by something
+        // that would HANDLE a drag belongs to that widget; bare map belongs to the map. The stick
+        // is settled the same way one line further down, inside TickStickScroll, which already
+        // resolves the IScrollHandler under the laser and now gets to run on the map too.
+        bool mapActive = _stereo.MapActive && !PointerOverUiHandler<UnityEngine.EventSystems.IDragHandler>(pixel);
 
         // Thumbstick scroll: the pointing hand's stick-Y scrolls the list under the laser,
         // exactly like it does on the world-space panels during a scenario. Placed before
@@ -573,9 +589,70 @@ internal sealed partial class FlatScreen
     ///   stick stands down too, so one gesture owns the widget at a time.
     /// Unscaled time: menus pause the game clock.
     /// </summary>
+    /// <summary>
+    /// Is the flat screen's pixel under the pointer covered by a uGUI element that would HANDLE
+    /// this kind of gesture?
+    ///
+    /// <para>THE MAP IS A BACKGROUND, NOT AN OWNER. <c>FlatScreenStereo.MapActive</c> answers "the
+    /// campaign map is what this screen is showing", which is a screen-wide fact — and the mod then
+    /// used it to hand the trigger and the stick to the map across the entire surface. Any window
+    /// the game opens ON TOP of the map (the options menu, in the report that produced this) is
+    /// then decoration: its scrollbar cannot be dragged and its list cannot be scrolled, because
+    /// both gestures were claimed before anything looked at what the laser was pointing at.</para>
+    ///
+    /// <para>This is the same test the GAME's own camera makes before consuming the wheel —
+    /// <c>CameraController.LateUpdate</c> checks <c>EventSystem.IsPointerOverGameObject()</c> and
+    /// the <c>IgnoreMouseScroll</c> marker under the pointer — restated for a laser that drives a
+    /// virtual mouse. It deliberately asks for a HANDLER of the gesture rather than for any hit at
+    /// all: a full-screen backdrop image is a raycast target and would otherwise disable the map
+    /// everywhere, while a scrollbar, a slider and a scroll view all implement
+    /// <c>IDragHandler</c>.</para>
+    ///
+    /// <para>Uses the same <c>EventSystem.RaycastAll</c>-at-the-RT-pixel mechanism as
+    /// <c>DirectClick</c> and <c>TickStickScroll</c>, so all three can never disagree about what is
+    /// under the laser. Allocation-free on the shared results buffer.</para>
+    /// </summary>
+    private bool PointerOverUiHandler<T>(Vector2 pixel)
+        where T : UnityEngine.EventSystems.IEventSystemHandler
+    {
+        UnityEngine.EventSystems.EventSystem es = UnityEngine.EventSystems.EventSystem.current;
+        if (es == null)
+            return false;
+
+        if (_hitTestData == null || !ReferenceEquals(_hitTestEventSystem, es))
+        {
+            _hitTestEventSystem = es;
+            _hitTestData = new UnityEngine.EventSystems.PointerEventData(es)
+            {
+                pointerId = HitTestPointerId,
+            };
+        }
+        UnityEngine.EventSystems.PointerEventData data = _hitTestData;
+        data.position = pixel;
+        s_raycastResults.Clear();
+        es.RaycastAll(data, s_raycastResults);
+        if (s_raycastResults.Count == 0)
+            return false;
+        return UnityEngine.EventSystems.ExecuteEvents.GetEventHandler<T>(
+                   s_raycastResults[0].gameObject) != null;
+    }
+
+    /// <summary>Pointer id for <see cref="PointerOverUiHandler{T}"/>'s hit-test events. Distinct
+    /// from every delivering pointer so a hit test can never be mistaken for a real press.</summary>
+    private const int HitTestPointerId = -9701;
+
+    private UnityEngine.EventSystems.PointerEventData? _hitTestData;
+    private UnityEngine.EventSystems.EventSystem? _hitTestEventSystem;
+
     private void TickStickScroll(Vector2 pixel, VRHand hand, bool mapActive)
     {
-        if (mapActive || _mapPanGesture || _screenDragActive)
+        // NOTE mapActive IS NO LONGER AN EARLY-OUT. It used to be, and that is why the stick could
+        // not scroll a menu opened over the campaign map: the map claimed the axis across the whole
+        // screen before this method ever looked at what the laser was pointing at. The raycast
+        // below already resolves the IScrollHandler under the pixel, which is a far better answer
+        // than a screen-wide mode — so it runs, and the map only keeps the stick when nothing
+        // scrollable is there (see the `mapActive` bail after the resolution).
+        if (_mapPanGesture || _screenDragActive)
             return;
 
         float y = hand.Thumbstick.y;
@@ -607,6 +684,10 @@ internal sealed partial class FlatScreen
             <UnityEngine.EventSystems.IScrollHandler>(top.gameObject);
         if (target == null)
         {
+            // Nothing scrollable under the laser — the stick keeps its other meanings, and on the
+            // campaign map that means the map's own zoom. This is the ONLY place the map's claim on
+            // the stick is decided now.
+            //
             // Nothing scrollable under the laser — the stick keeps its other meanings.
             // Throttled diagnostic: "I pushed the stick and nothing scrolled" is then
             // answerable from the log alone (which element the laser actually hit).

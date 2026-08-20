@@ -696,6 +696,18 @@ internal static partial class Loc
         ["vr_tt_stop"] = Pair("Switch all test triggers off", "Alle Test-Auslöser ausschalten"),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
+        ["vr_o_3dmap"] = Pair(
+            "EXPERIMENTAL. Stand IN the campaign map instead of viewing it on the flat screen: "
+            + "the map becomes a table-sized parchment you walk around and lean over, and other "
+            + "players see you doing it. Off = the flat 2D map, unchanged in every detail. Built "
+            + "in phases — today it seats you at the parchment; the table, the pressable location "
+            + "icons and the floating signs come later.",
+            "EXPERIMENTELL. Steh IN der Kampagnenkarte, statt sie auf der flachen Leinwand "
+            + "anzusehen: die Karte wird zu einem tischgroßen Pergament, um das du herumgehst und "
+            + "über das du dich beugst; im Mehrspieler seht ihr euch dabei. Aus = die flache "
+            + "2D-Karte, in jedem Detail unverändert. Wird in Phasen gebaut — heute setzt es dich "
+            + "an das Pergament; der Tisch, die drückbaren Ortssymbole und die schwebenden Schilder "
+            + "kommen später."),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),
         // Brett & Karten
         ["vr_o_spawnleft"] = Pair("Board starts on the left", "Brett startet links"),

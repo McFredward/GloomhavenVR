@@ -416,7 +416,60 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 175;
+    public const ushort ModBuild = 176;
+    // Build 176: THE MAP IS A BACKGROUND, NOT AN OWNER — and the 3D map was unfindable.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // User, on the 2D campaign map with the options menu open over it:
+    //   a) "Ich kann nicht scrollen im Menu da ich stattdessen in der Karte dahinter zoome."
+    //   b) "Gleiches gilt dafür wenn ich mit dem laser bei der scrollbar versuche diese zu bedienen
+    //       - auch der trigger bedient die Karte dahinter statt das darüberliegende Optionsmenu."
+    //   c) "Wo finde ich die Einstellung die 3D map zu sehen ... statt die 2D Karte?"
+    //
+    // ── (a) AND (b) ARE ONE DEFECT, IN THIS MOD, NOT IN THE GAME ──────────────────────────────
+    // The game's own camera never had this bug: CameraController.LateUpdate consumes the wheel only
+    // when EventSystem.IsPointerOverGameObject() is false. But that method is prefix-skipped while
+    // VR runs (Rig/CameraControllerPatches), so the MOD drives the campaign map's pan and zoom
+    // itself — and it gated both on FlatScreenStereo.MapActive, which answers "this screen is
+    // showing the campaign map". That is a SCREEN-WIDE fact used to claim input across the whole
+    // surface, while a window opened on top of the map covers only part of it. Every widget on that
+    // window was therefore dead:
+    //   * FlatScreen.6.Pointer TickStickScroll returned immediately on mapActive, before it ever
+    //     looked at what the laser was pointing at -> the stick could never scroll a list. (a)
+    //   * the generic latch->uGUI-drag path is gated on !mapActive, so a scrollbar could not be
+    //     dragged and the trigger fell through to the map-pan gesture instead. (b)
+    //
+    // THE MAP'S CLAIM IS NOW MADE PER PIXEL, which is the same rule the game applies:
+    //   * PointerOverUiHandler<T>(pixel) — one EventSystem.RaycastAll at the RT pixel, the same
+    //     mechanism DirectClick and TickStickScroll already use, so the three can never disagree
+    //     about what is under the laser. It asks for a HANDLER of the gesture rather than for any
+    //     hit at all: a full-screen backdrop image is a raycast target and would otherwise disable
+    //     the map everywhere, while scrollbars, sliders and scroll views all implement IDragHandler.
+    //   * mapActive = MapActive && !PointerOverUiHandler<IDragHandler>(pixel).
+    //   * TickStickScroll no longer takes mapActive as an early-out. It runs, resolves the
+    //     IScrollHandler under the pixel as it always did, and the map only keeps the stick when
+    //     nothing scrollable is there.
+    //   * TickMapInput (the zoom itself) stands down while UiScrollFocus.IsScrolling(hand). That
+    //     class exists to answer "who owns this thumbstick right now" and its ruling was already
+    //     written for the identical contest against stick FLIGHT: scroll wins, because a scroll is a
+    //     deliberate aimed act on a surface the player is pointing at while the other claimant is
+    //     ambient and available again a frame later. Map zoom is ambient in exactly that sense.
+    //     Nothing new is decided here; the existing rule gains the second claimant it always covered
+    //     in spirit.
+    //
+    // Note the precedent this sat next to and did not use: MapActive ALREADY excluded scenario,
+    // story and encounter overlays (IsScenarioOverlayActive, "so the map can't be panned behind
+    // it"). The same reasoning was one step from covering every other window and stopped at the
+    // three the previous report had named.
+    //
+    // ── (c) A FEATURE NOBODY CAN FIND IS OFF ──────────────────────────────────────────────────
+    // [Rig] Experimental3DMap is implemented, documented at length, and default-off — and it had NO
+    // display name, so the menu spaced the raw key out to "Experimental 3D Map", and NO curated row,
+    // so it sat among the auto-grouped leftovers under Erweitert. It now has a name in both
+    // languages ("3D-Kampagnenkarte (experimentell)"), a hover hint, and a row directly under the
+    // environment choice on the curated page — the same kind of decision, which world the player
+    // stands in. The setting itself is untouched and still defaults to off.
+    //
     // Build 175: HIS OWN NUMBERS. ModBuild 169 froze the wrong ones and nobody noticed for six builds.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

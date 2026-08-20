@@ -329,13 +329,26 @@ internal sealed partial class FlatScreenStereo
         return true;
     }
 
-    /// <summary>VR map controls: right-stick Y zooms (FOV). Pan (trigger-drag) is wired separately.</summary>
+    /// <summary>
+    /// VR map controls: right-stick Y zooms (FOV). Pan (trigger-drag) is wired separately.
+    ///
+    /// <para>THE MAP DOES NOT OWN THE STICK WHILE THE LASER IS ON A LIST. User report 2026-08-20,
+    /// options menu open over the 2D campaign map: "Ich kann nicht scrollen im Menu da ich
+    /// stattdessen in der Karte dahinter zoome." The arbiter is
+    /// <see cref="Hands.Interact.UiScrollFocus"/>, and its ruling is already written down for the
+    /// identical contest against stick FLIGHT: <i>scroll wins — a scroll is a deliberate, aimed act
+    /// on a surface the player is pointing at, while the other claimant is ambient and available
+    /// again a frame later.</i> Map zoom is ambient in exactly that sense. Nothing new is decided
+    /// here; the existing rule is applied to the second claimant it always covered in spirit.</para>
+    /// </summary>
     private void TickMapInput()
     {
         if (!_mapBaseCapture)
             return;
         var rh = GloomhavenVR.Hands.VRHands.Right;
         if (rh == null || !rh.HasPose)
+            return;
+        if (GloomhavenVR.Hands.Interact.UiScrollFocus.IsScrolling(rh))
             return;
         if (_mapFov <= 0f)
             _mapFov = MapDefaultFov;
