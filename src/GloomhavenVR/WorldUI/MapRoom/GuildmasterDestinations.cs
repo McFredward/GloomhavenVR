@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using GloomhavenVR.Core;
 using UnityEngine;
@@ -181,6 +182,158 @@ internal static class GuildmasterDestinations
         return pressed;
     }
 
+    /// <summary>
+    /// CONVERT THE PANEL THE FLAT GAME DRAWS AS ONE, NOT THE WINDOW COMPONENT (ModBuild 186).
+    /// User: <i>"Alles was den Händler betrifft soll sich in diesem einen Fenster abspielen. Das
+    /// betrifft auch die anderen Knöpfe neben dem Händler."</i>
+    ///
+    /// <para>185 got the shop's own <c>UIWindow</c> floating (frame, tabs, background) — and its
+    /// item list still came up as a SECOND window. The log settles the hierarchy without guessing:
+    /// the mod-layer sweep moved <b>56</b> transforms for 'UI Shop Item Window' and <b>1998</b> for
+    /// 'Scroll View'. The sweep walks the whole subtree, so 56 cannot contain 1998 — the inventory
+    /// is NOT inside the shop window. It is a sibling that the flat game simply lays out on top of
+    /// it, which is why one screen becomes two floats.</para>
+    ///
+    /// <para>So the conversion root moves UP to the nearest common ancestor of the destination
+    /// window and everything its own component references. That single change does all of it: the
+    /// host now contains both, the flat layout between them is preserved verbatim (nothing is
+    /// re-parented, no anchors are touched), and the inventory stops floating on its own by itself
+    /// — <c>IsAdoptedByConversion</c> sees a live conversion whose target is now its ancestor.</para>
+    ///
+    /// <para>BOUNDED, because "walk up until it fits" would eventually reach the full-screen canvas
+    /// and float the entire UI. The ancestor is accepted only while its rect stays within
+    /// <see cref="MaxAncestorAreaFactor"/> of the window's own, and never when it is the root
+    /// canvas. Both outcomes are logged with the numbers, so the next hardware log says which
+    /// branch ran and why.</para>
+    /// </summary>
+    private const float MaxAncestorAreaFactor = 6f;
+
+    internal static RectTransform PreferredConvertRoot(UIWindow window, RectTransform fallback)
+    {
+        if (!MapRoomDriver.Active || !IsDestination(window))
+            return fallback;
+        if (_rootChoice.TryGetValue(window, out RectTransform? cached))
+            return cached != null ? cached : fallback;
+
+        RectTransform chosen = fallback;
+        string why;
+        MonoBehaviour? owner = DestinationComponent(window);
+        List<Transform> outside = CollectOutsideRoots(owner, window.transform);
+        if (owner == null || outside.Count == 0)
+        {
+            why = "nothing this destination owns lives outside its own subtree — the window itself "
+                  + "is already the whole panel";
+        }
+        else
+        {
+            Transform? common = window.transform;
+            for (int i = 0; i < outside.Count && common != null; i++)
+                common = NearestCommonAncestor(common, outside[i]);
+            var rect = common as RectTransform;
+            var self = window.transform as RectTransform;
+            if (rect == null || self == null)
+            {
+                why = "the common ancestor is not a RectTransform — keeping the window itself";
+            }
+            else if (IsRootCanvas(rect))
+            {
+                why = $"the common ancestor '{rect.name}' IS the root canvas — refusing to float the "
+                      + "entire screen; the inventory keeps its own float for now";
+            }
+            else
+            {
+                float selfArea = Mathf.Abs(self.rect.width * self.rect.height);
+                float upArea = Mathf.Abs(rect.rect.width * rect.rect.height);
+                if (selfArea > 1f && upArea > selfArea * MaxAncestorAreaFactor)
+                {
+                    why = $"the common ancestor '{rect.name}' is {upArea / selfArea:F1}× the window's "
+                          + $"own area (limit {MaxAncestorAreaFactor:F0}×) — too big to be 'the same "
+                          + "panel', so the window itself is kept";
+                }
+                else
+                {
+                    chosen = rect;
+                    why = $"'{rect.name}' is the nearest ancestor containing the window AND the "
+                          + $"{outside.Count} thing(s) it owns outside its own subtree "
+                          + $"({upArea / Mathf.Max(1f, selfArea):F1}× its area) — the flat game draws "
+                          + "them as one panel and now so does VR, with no re-parenting and no "
+                          + "anchor changes";
+                }
+            }
+        }
+        _rootChoice[window] = ReferenceEquals(chosen, fallback) ? null : chosen;
+        VRLog.Info(Scope, $"GUILDMASTER WINDOW: conversion root for '{window.name}' = "
+                          + $"'{chosen.name}' — {why}.");
+        return chosen;
+    }
+
+    private static readonly Dictionary<UIWindow, RectTransform?> _rootChoice = new();
+    private static readonly List<Transform> _outside = new(8);
+
+    /// <summary>The destination MonoBehaviour on this window's own GameObject.</summary>
+    private static MonoBehaviour? DestinationComponent(UIWindow window)
+    {
+        if (window.GetComponent<UIShopItemWindow>() is { } shop) return shop;
+        if (window.GetComponent<UITempleWindow>() is { } temple) return temple;
+        if (window.GetComponent<UITrainerWindow>() is { } trainer) return trainer;
+        if (window.GetComponent<UINewEnhancementWindow>() is { } enh) return enh;
+        if (window.GetComponent<UITownRecordsWindow>() is { } rec) return rec;
+        return null;
+    }
+
+    /// <summary>
+    /// Everything this destination REFERENCES that lives outside its own subtree. Read off the
+    /// component's own fields rather than guessed by name: a serialized reference is the game's own
+    /// statement of "this belongs to me", and it survives a version that renames the objects.
+    /// </summary>
+    private static List<Transform> CollectOutsideRoots(MonoBehaviour? owner, Transform self)
+    {
+        _outside.Clear();
+        if (owner == null)
+            return _outside;
+        const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        FieldInfo[] fields = owner.GetType().GetFields(Flags);
+        for (int i = 0; i < fields.Length; i++)
+        {
+            object? value;
+            try
+            {
+                value = fields[i].GetValue(owner);
+            }
+            catch
+            {
+                continue;
+            }
+            Transform? t = value switch
+            {
+                Component c when c != null => c.transform,
+                GameObject go when go != null => go.transform,
+                _ => null,
+            };
+            if (t == null || t.IsChildOf(self) || self.IsChildOf(t))
+                continue;
+            if (!_outside.Contains(t))
+                _outside.Add(t);
+        }
+        return _outside;
+    }
+
+    private static Transform? NearestCommonAncestor(Transform a, Transform b)
+    {
+        for (Transform? x = a; x != null; x = x.parent)
+        {
+            if (b.IsChildOf(x))
+                return x;
+        }
+        return null;
+    }
+
+    private static bool IsRootCanvas(Transform t)
+    {
+        var canvas = t.GetComponent<Canvas>();
+        return canvas != null && canvas.isRootCanvas;
+    }
+
     /// <summary>Remember the last non-destination mode, so an X returns where the player came from.</summary>
     private static void TrackHomeMode()
     {
@@ -256,6 +409,7 @@ internal static class GuildmasterDestinations
     internal static void Reset()
     {
         ReleaseBanner("module teardown");
+        _rootChoice.Clear();
         _homeMode = EGuildmasterMode.WorldMap;
     }
 }

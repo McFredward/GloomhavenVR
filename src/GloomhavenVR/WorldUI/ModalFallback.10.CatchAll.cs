@@ -196,6 +196,40 @@ internal static partial class ModalFallback
             // is exempt from both the count and the verdict. Nothing else about the fuse changes:
             // a genuinely cycling HUD banner is still capped after ChurnMaxFloats.
             bool hoverCard = IsMapRoomHoverCard(window);
+
+            // ModBuild 186 — A WINDOW WE ARE ALREADY FLOATING IS RE-ADDED UNCONDITIONALLY, AND
+            // THIS IS THE WHOLE OF THE OSCILLATION BUG.
+            //
+            // OpenWindows means "the game windows the VR layer is presenting this tick". A window
+            // this class has floated is in that set BY DEFINITION — yet every exclusion below asks
+            // some form of "is this already handled / not our business", and CONVERTING IT MAKES
+            // SEVERAL OF THEM TRUE:
+            //   * the world-space test ("never float world-space UI — it is already visible in VR")
+            //     matches because OUR conversion put its root canvas in WorldSpace;
+            //   * IsAdoptedByConversion matched because we convert the window's OWN RectTransform
+            //     (fixed separately in 185 — one of the two, which is why the loop survived).
+            // So from the tick after a float the window was ineligible, was not re-added, and the
+            // part-4 release loop dropped every NON-STICKY window missing from OpenWindows. Float,
+            // release, float, release — 1417 log lines of it in the 185 session, and the map's
+            // quest-preview popup never lived long enough to be revealed once: "Mouseover
+            // funktioniert nach wie vor nicht."
+            //
+            // IT ALSO SPLIT THE MERCHANT. A STICKY window survives leaving OpenWindows, so the shop
+            // window stayed floated while silently dropping OUT of the set — and AncestorWillBeFloated
+            // asks exactly that set whether a parent is floated. Its inventory 'Scroll View' therefore
+            // saw no floated ancestor and floated as a second window: "die eigentlichen Gegenstände
+            // sind in einem zweiten Fenster". One missing membership, three reported symptoms.
+            //
+            // Patching the individual tests would leave the next one to be found the same way. The
+            // set is the invariant, so the set is what is repaired here.
+            bool oursAlready = IsFloatedByUs(window);
+            if (oursAlready)
+            {
+                if (!ContainsWindow(OpenWindows, window))
+                    OpenWindows.Add(window);
+                continue;
+            }
+
             if (!hoverCard && ChurnSuppressed.Contains(window.name))
                 continue; // fuse blew for this window type — session-suppressed (see ChurnMaxFloats)
             if (!CatchAllEligible(window))
@@ -508,6 +542,24 @@ internal static partial class ModalFallback
         {
             WindowPanel wp = Converted[i];
             if (ReferenceEquals(wp.Panel, panel) && ReferenceEquals(wp.Window, window))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Does this class currently present this window as a floated VR window? A panel the user is
+    /// closing does NOT count — the X must still be able to drop it (its release is what makes
+    /// this go false, and then the normal eligibility path decides afresh).
+    /// </summary>
+    private static bool IsFloatedByUs(UIWindow window)
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!ReferenceEquals(wp.Window, window) || wp.UserClosing)
+                continue;
+            if (wp.Panel != null && wp.Panel.IsAlive)
                 return true;
         }
         return false;

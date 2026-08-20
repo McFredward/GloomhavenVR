@@ -126,6 +126,41 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 186** (bundle UNCHANGED — plugin DLL only) — one missing set membership, two reports,
+  and the flicker turns out not to be a stereo bug at all.
+  * **(2)+(3) are one bug: a floated window fell out of `OpenWindows`.** 185 fixed ONE of the two
+    exclusions that the mod's own conversion makes true, so the loop survived — 1417 float/release
+    lines. The other is three lines further down the same method: **the world-space test**
+    (*"never float world-space UI — it is already visible in VR"*) matches because **our** conversion
+    put the root canvas in WorldSpace. Patching a second individual test would leave a third, so the
+    repair is on the invariant: `OpenWindows` means "the windows the VR layer is presenting", and a
+    window we float **is in that set by definition** — re-added unconditionally, ahead of every
+    "already handled elsewhere" question. **That is also why the merchant came up twice**: a sticky
+    window survives leaving the set, so the shop window stayed floated while dropping out of it, and
+    `AncestorWillBeFloated` asks exactly that set.
+  * **(3) second half — convert the PANEL, not the window.** The log settles the hierarchy: the
+    mod-layer sweep moved **56** transforms for `UI Shop Item Window` and **1998** for `Scroll View`.
+    The sweep walks the whole subtree, so 56 cannot contain 1998 — **the item list is a sibling, not
+    a child.** A guildmaster destination now converts the nearest common ancestor of its window and
+    everything its own component **references** outside its subtree (read off serialized fields —
+    the game's own statement of ownership). One host, both halves, flat layout verbatim: nothing
+    re-parented, no anchors touched. Bounded: the ancestor is refused if it is the root canvas or
+    >6× the window's area, and both outcomes are logged with the numbers.
+  * **(1) THE FLICKER IS NOT A STEREO BUG — five builds hunted the wrong animal.**
+    `CameraOrderProbe` logged **one** order shape for the whole session:
+    `MapCamera[→RT] → UI Camera[→RT] → GUI 3D Camera[→RT] → Head[Left] → Head[Right]` — **zero
+    cameras between the eye passes.** Every RT is finished before either eye starts, so **both eyes
+    sample the same pixels**; the probe's own correction never fired because there was nothing to
+    correct. With `PanelFlickerProbe` silent across two sessions, the conclusion is forced: the
+    flicker is **temporal and identical in both eyes**. His narrowing confirms the subject — the 4
+    portraits (sprites) are fine, the live render (`RawImage` on
+    `Character 3D assembly render texture`) is not. New `WorldUI/RenderTargetProbe` watches that
+    texture and its writing camera and reports any field going **A-B-A** across three ticks. The
+    game's own code supplies the candidates: `Character3DDisplayManager.Display` flips
+    `beautify.enabled` (a full-screen image effect), `Character3DDisplayCameraSettings` writes
+    `_camera.renderingPath`, and `Character3D.Show/Hide` toggles the model through a
+    `HashSet<Component>` of show-requests two floated windows could be fighting over.
+
 - **ModBuild 185** (bundle UNCHANGED — plugin DLL only) — the fuse was hiding a convert/release
   loop, and the camera order finally gets measured.
   * **(3) The mouseovers: 184 removed a band-aid and exposed the wound.** Exempting hover cards

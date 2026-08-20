@@ -222,6 +222,13 @@ internal static partial class ModalFallback
             // Cap the captured height to the root canvas reference height (~1080) for exactly this
             // full-screen-menu family so every open lands the same compact height — width/scale and
             // all non-menu modals are unaffected (capHeightToCanvas is false for them).
+            // ModBuild 186: a guildmaster destination converts the PANEL the flat game draws as
+            // one, which may sit one level above its UIWindow — the merchant's item list is a
+            // SIBLING of the shop window, not a child of it, so converting the window alone split
+            // the merchant across two floats. See GuildmasterDestinations.PreferredConvertRoot for
+            // the measurement (56 transforms swept for the window against 1998 for the list) and
+            // for the bound that stops this from walking up to the full-screen canvas.
+            rect = MapRoom.GuildmasterDestinations.PreferredConvertRoot(window, rect);
             ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: true,
                 fitContent: fitContent, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics

@@ -785,6 +785,10 @@ internal static partial class ModalFallback
         // last judged frame asked for, here in Update and never inside the render loop.
         CameraOrderProbe.Sync(Converted.Count > 0);
         CameraOrderProbe.TickApply();
+        // ModBuild 186: with the panels proven steady and both eyes proven to read the same
+        // texture, what is left is TEMPORAL content change — measurable from Update, no render
+        // hook needed. See RenderTargetProbe.
+        RenderTargetProbe.Tick(Converted.Count > 0);
 
         // 5a-scroll. User #12: thumbstick-Y scrolls the Sieg/Niederlage results window's
         //    scroll area while a laser/poke hovers ANYWHERE on the floated window — the

@@ -416,7 +416,67 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 185;
+    public const ushort ModBuild = 186;
+    // Build 186: ONE MISSING SET MEMBERSHIP, TWO REPORTS — AND THE FLICKER IS NOT A STEREO BUG.
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── (2)+(3) ARE ONE BUG: A FLOATED WINDOW WAS FALLING OUT OF OpenWindows ──────────────
+    // 185 fixed ONE of the two exclusions that the mod's own conversion makes true, so the loop
+    // survived: 1417 float/release lines in the 185 log, still "open=True, convertWanted=True".
+    // The one I missed is three lines further down in the same method — the world-space test,
+    // "never float world-space UI: a genuinely world-space window is already visible in VR". After
+    // conversion the window's root canvas IS WorldSpace, BECAUSE WE PUT IT THERE. So from the tick
+    // after a float the window was ineligible, was not re-added to OpenWindows, and the release
+    // loop dropped every NON-STICKY window missing from that set. Float, release, float, release.
+    //
+    // Patching a second individual test would only leave the third to be found the same way, so the
+    // repair is on the invariant instead: OpenWindows means "the game windows the VR layer is
+    // presenting this tick", and a window this class is floating is in that set BY DEFINITION. It
+    // is now re-added unconditionally, ahead of every "is this already handled elsewhere" question.
+    //
+    // AND THAT IS ALSO WHY THE MERCHANT CAME UP TWICE. A STICKY window survives leaving
+    // OpenWindows — so the shop window stayed floated while silently dropping out of the set, and
+    // AncestorWillBeFloated asks exactly that set whether a parent is floated. Its inventory saw no
+    // floated ancestor and floated on its own.
+    //
+    // ── (3) AND THE MERCHANT'S SECOND HALF: CONVERT THE PANEL, NOT THE WINDOW ─────────────
+    // "Alles was den Händler betrifft soll sich in diesem einen Fenster abspielen. Das betrifft auch
+    // die anderen Knöpfe neben dem Händler." The log settles the hierarchy without guessing: the
+    // mod-layer sweep moved 56 transforms for 'UI Shop Item Window' and 1998 for 'Scroll View'. The
+    // sweep walks the whole subtree, so 56 cannot contain 1998 — the item list is a SIBLING of the
+    // shop window, not a child. The flat game merely lays it out on top.
+    //
+    // So a guildmaster destination now converts the nearest common ancestor of its window and
+    // everything the destination's OWN COMPONENT references outside its subtree (read off its
+    // serialized fields — the game's own statement of "this belongs to me", which survives a
+    // version that renames the objects). One host, both halves, flat layout preserved verbatim:
+    // nothing is re-parented and no anchor is touched. BOUNDED, because "walk up until it fits"
+    // ends at the full-screen canvas — the ancestor is refused if it is the root canvas or more
+    // than 6x the window's own area, and both outcomes are logged with the numbers.
+    //
+    // ── (1) THE FLICKER IS NOT A STEREO BUG. FIVE BUILDS HUNTED THE WRONG ANIMAL. ─────────
+    // CameraOrderProbe logged ONE render-order shape for the whole session and nothing else:
+    //   MapCamera[→RT] → UI Camera[→RT] → GUI 3D Camera[→RT] → HeadCamera[Left] → HeadCamera[Right]
+    // ZERO cameras between the two eye passes. Every RenderTexture is finished before either eye
+    // starts, so BOTH EYES SAMPLE THE SAME PIXELS. Combined with PanelFlickerProbe's silence across
+    // two sessions (the panel around it is steady), the conclusion is forced: what he sees is
+    // TEMPORAL — the same in both eyes, changing from frame to frame. The interleave hypothesis is
+    // dead, measured, and the probe's own correction never fired because there was nothing to fix.
+    //
+    // His newest line narrows the subject to one object: "Nur der Teil mit dem Character flackert,
+    // die 4 Charactere in der Character-UI ist nach wie vor ok." The four portraits are sprites;
+    // the one that flickers is a RawImage sampling 'Character 3D assembly render texture'. New
+    // WorldUI/RenderTargetProbe watches exactly that — every RawImage in a floated panel whose
+    // texture is a RenderTexture, plus the camera that writes it — and reports any field that goes
+    // A-B-A across three ticks (an alternation, not a transition). It can distinguish the
+    // candidates that are already visible in the game's own code: Character3DDisplayManager.Display
+    // flips beautify.enabled (a full-screen image effect), Character3DDisplayCameraSettings writes
+    // _camera.renderingPath, and Character3D.Show/Hide toggles the model through a HashSet of
+    // show-requests that two floated windows could be fighting over. It censuses each target once
+    // whether or not anything is wrong — RT size/format/MSAA/sRGB, the camera's clear flags, mask,
+    // path and depth, and every Behaviour on that camera with its enabled state — so a quiet log
+    // still says what the thing was made of.
+    //
     // Build 185: THE FUSE WAS HIDING A CONVERT/RELEASE LOOP — AND THE CAMERA ORDER GETS MEASURED.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //
