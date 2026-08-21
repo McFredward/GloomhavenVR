@@ -24,29 +24,84 @@ internal static partial class PanelSupersample
         Camera? head = VRRigDriver.HeadCamera;
         string sampling = SamplingSentence(e, head);
         float ms = e.Captures > 0 ? (float)(e.CaptureMs / e.Captures) : 0f;
+        float sweepMs = e.Sweeps > 0 ? (float)(e.SweepMs / e.Sweeps) : 0f;
+        float contentMs = e.ContentMeasures > 0 ? (float)(e.ContentMs / e.ContentMeasures) : 0f;
+        // READ BACK FROM THE TEXTURE THE EYE ACTUALLY SAMPLES — never from what was requested. The
+        // ModBuild 192 line reported "MSAA 4x" from a local variable while the mip state came from
+        // the target, which is why the mip failure was visible in the log and the MSAA state was
+        // not independently confirmed. Both come from the objects now.
+        RenderTexture shown = DisplayTexture(e);
+        int mips = shown != null ? shown.mipmapCount : 0;
+        int captureAa = e.Rt != null ? e.Rt.antiAliasing : 0;
 
         Sb.Length = 0;
-        Sb.Append("PANEL SUPERSAMPLE '").Append(e.Window).Append("': authored ")
-          .Append(e.Authored.x.ToString("F0")).Append('x').Append(e.Authored.y.ToString("F0"))
-          .Append(" uGUI px -> RT ").Append(e.RtW).Append('x').Append(e.RtH)
-          .Append(" (factor ").Append(e.Factor.ToString("F2")).Append("), MSAA ").Append(e.Msaa)
-          .Append("x, mips ").Append(e.Rt != null ? e.Rt.mipmapCount : 0)
-          .Append(e.Rt != null && e.Rt.mipmapCount > 1 ? " GENERATED after every capture" : " NONE")
-          .Append(", ").Append(e.Rt != null ? e.Rt.filterMode.ToString() : "?")
-          .Append(" aniso ").Append(e.Rt != null ? e.Rt.anisoLevel : 0)
+        Sb.Append("PANEL SUPERSAMPLE '").Append(e.Window).Append("': host rect ")
+          .Append(e.HostRectAtMeasure.width.ToString("F0")).Append('x')
+          .Append(e.HostRectAtMeasure.height.ToString("F0"))
+          .Append(" uGUI px, CAPTURE FRAME ").Append(e.Frame.width.ToString("F0")).Append('x')
+          .Append(e.Frame.height.ToString("F0"))
+          .Append(e.ExpandX > 0.5f || e.ExpandY > 0.5f
+              ? $" (GROWN by {e.ExpandX:F0}x{e.ExpandY:F0} px to cover content drawn outside the host "
+                + $"frame{(e.ExpandClamped ? "; CLAMPED — content IS being cropped" : "")})"
+              : " (= the host rect: no content draws outside it)")
+          .Append(" -> RT ").Append(e.RtW).Append('x').Append(e.RtH)
+          .Append(" (factor ").Append(e.Factor.ToString("F2")).Append("), capture MSAA ")
+          .Append(captureAa)
+          .Append("x -> mipped display target: mips ").Append(mips)
+          .Append(mips > 1 ? " RESOLVED+GENERATED after every capture"
+                           : e.MipFallback ? " NONE (mip target refused; showing the capture target)"
+                                           : " NONE")
+          .Append(", ").Append(shown != null ? shown.filterMode.ToString() : "?")
+          .Append(" aniso ").Append(shown != null ? shown.anisoLevel : 0)
           .Append(", ").Append(Mb(e.VramBytes)).Append(" MB VRAM (session total ")
           .Append(Mb(_vramTotal)).Append(" of ").Append(Mb(MaxTotalVramBytes)).Append(" MB across ")
           .Append(Entries.Count).Append(" panel(s), cap ").Append(MaxPanels).Append("); ")
           .Append(sampling)
           .Append(" CAPTURE: ").Append(e.Captures).Append(" so far, every ")
           .Append(CaptureIntervalFrames).Append(" frame(s), ").Append(ms.ToString("F2"))
-          .Append(" ms CPU submit each. LAYERS: ").Append(e.Relayered.Count)
+          .Append(" ms CPU submit each — which includes SUBMITTING the resolve blit and the mip "
+                  + "generation but not their GPU time, so if frame time regresses in this build "
+                  + "the first suspect is N panels x (one full-target blit + one mip chain) per "
+                  + "frame, and the lever is MaxPanels or CaptureIntervalFrames, not this number. "
+                  + "MOTION (this 10 s window): ").Append(e.MotionFrames)
+          .Append(" frame(s) with a pose/scale/rect change, ").Append(e.GeometryDirtyEvents)
+          .Append(" of them a RESIZE/RESCALE that forced a re-measure; ").Append(e.Reallocations)
+          .Append(" re-allocation(s) since engage, currently ").Append(IsMoving(e) ? "MOVING" : "still")
+          .Append(". LAYERS: ").Append(e.Relayered.Count)
           .Append(" transform(s) on capture layer ").Append(_captureLayer).Append(", ")
+          .Append(e.LateJoiners).Append(" late joiner(s) swept since engage, ").Append(e.Sweeps)
+          .Append(" sweep(s) at ").Append(sweepMs.ToString("F2")).Append(" ms each, ")
+          .Append(e.ContentMeasures).Append(" content measure(s) at ")
+          .Append(contentMs.ToString("F2")).Append(" ms each, ")
           .Append(e.ForeignSkipped).Append(" foreign render subtree(s) LEFT ALONE, ")
           .Append(e.NestedCaptured).Append('/').Append(e.NestedTotal)
           .Append(" nested canvas(es) on the capture layer.");
 
-        Sb.Append(" HOW TO READ THIS LINE. (1) RT texels per rendered pixel is the same quantity "
+        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 193. (0) 'mips' IS THE HEADLINE. ModBuild 192 "
+                  + "read 'mips 1 NONE' on every panel because a render target cannot be "
+                  + "multisampled AND mipmapped, so the whole mip half of this design never ran and "
+                  + "the eye was still minifying an unfiltered texture — invisible while everything "
+                  + "was still, crawling the moment the window or the head moved, which is exactly "
+                  + "what the user reported as 'flackert beim Verschieben'. The capture is now "
+                  + "resolved into a second single-sample target and the chain is generated THERE. "
+                  + "If this field reads anything other than a number well above 1, that fix is not "
+                  + "working and the movement shimmer WILL still be reported. (0b) 'CAPTURE FRAME' "
+                  + "is the second headline: if it reads GROWN, this window draws outside its own "
+                  + "host rect and ModBuild 192 was CROPPING that content away — the growth is the "
+                  + "fix, and its cost is that this window's ON geometry is larger than its OFF "
+                  + "geometry by exactly that many uGUI pixels of transparent margin. If it reads "
+                  + "CLAMPED, content is STILL being cropped and MaxContentExpansion is the dial. "
+                  + "(0c) MOTION is how the next round decides the release case: 'frame(s) with a "
+                  + "pose/scale/rect change' counts drags, 'forced a re-measure' counts the "
+                  + "resize/rescale events that re-derived the frame and the projection, and "
+                  + "'re-allocation(s)' counts how often the render target had to follow. If the "
+                  + "user still reports wrong or missing elements after a release and this line "
+                  + "shows re-measures and re-allocations happening, the frame is NOT the cause and "
+                  + "the next suspect is the layer sweep — read 'late joiner(s)' and the "
+                  + "nested-canvas ratio below. If it shows ZERO motion frames during a session in "
+                  + "which the user definitely dragged a window, this instrument is not seeing the "
+                  + "drag at all and nothing else it says about movement can be trusted. "
+                  + "(1) RT texels per rendered pixel is the same quantity "
                   + "PANEL SAMPLING calls 'panel scale', multiplied by the factor — but it now means "
                   + "something completely different, because the surface being minified is a MIPPED, "
                   + "trilinear, anisotropically filtered texture instead of hundreds of "
@@ -64,7 +119,15 @@ internal static partial class PanelSupersample
                   + "missing, read the LAYERS counts: 'foreign render subtree(s) LEFT ALONE' are real "
                   + "3D Renderers this pass must never move; they are not captured, and if a window "
                   + "shows its character through one of those rather than through a RawImage, that "
-                  + "character will draw in the world in front of the quad instead of inside it. "
+                  + "character will draw in the world in front of the quad instead of inside it. A "
+                  + "HIGH count here (the 192 log shows 'UI Shop Item Window' reaching 44 as items "
+                  + "pool in) means most of that window's art is NOT going through this path at all: "
+                  + "it is neither captured nor band-limited nor supersampled, so it keeps shimmering "
+                  + "however good the rest of the window looks, and it is also excluded from the "
+                  + "CAPTURE FRAME above — deliberately, because framing pixels that are guaranteed "
+                  + "empty would waste the target and pull the frame off the content that IS "
+                  + "captured. Excluding it cannot LOSE it: the head camera still draws it directly "
+                  + "at its true world pose, exactly as before this path existed. "
                   + "(6) 'nested canvas(es) on the capture layer' must read N/N: a nested canvas left "
                   + "behind would be drawn into the eye directly AND be missing from the capture, "
                   + "i.e. one sharp panel with one shimmering sub-panel on top of it. (7) If the "
@@ -72,11 +135,25 @@ internal static partial class PanelSupersample
                   + "animation, that is the known and bounded premultiplied-alpha artifact of "
                   + "compositing a transparent render target with the standard UI blend (derived in "
                   + "full at PanelSupersample.BuildDisplay) — it affects PARTIAL coverage only, is "
-                  + "exact at alpha 0 and 1, and is a one-line change if it matters.");
+                  + "exact at alpha 0 and 1, and is a one-line change if it matters. (8) 'late "
+                  + "joiner(s)' is the ModBuild 193 answer to 'manche Elemente fehlen im Fenster': "
+                  + "every transform counted there arrived on the GAME's UI layer after this panel "
+                  + "was engaged, which for however many frames it took to sweep it meant MISSING "
+                  + "from the capture and drawn straight into the eye at its own sorting order. The "
+                  + "sweep now runs EVERY frame while the window is moving, because that is exactly "
+                  + "when GrabbableModal.ThrottleDiagWhileMoving switches the panel's per-frame "
+                  + "nested-canvas adoption off. A large late-joiner count with the user reporting "
+                  + "the problem GONE confirms the mechanism; a large count with the problem still "
+                  + "present means the sweep is not fast enough and the next step is to hook the "
+                  + "arrivals rather than to poll for them.");
         VRLog.Info(Scope, Sb.ToString());
         Sb.Length = 0;
 
-        WarnOnOverflow(e);
+        // The MOTION counters are per report window on purpose: "this window was dragged in the
+        // last ten seconds" is a decidable statement, "this window has been dragged 4000 times
+        // since it opened" is not. Everything else stays cumulative.
+        e.MotionFrames = 0;
+        e.GeometryDirtyEvents = 0;
     }
 
     /// <summary>
@@ -97,9 +174,15 @@ internal static partial class PanelSupersample
             return "SAMPLING NOT MEASURED (no readable per-eye render target);";
         if (!TryRenderedSize(e.Panel.HostRect, head, eyeW, eyeH, out float pxW, out float pxH))
             return "SAMPLING NOT MEASURED (the window is behind the eye or sub-pixel this scan);";
-        float texelsPerPixel = Mathf.Max(e.RtW / Mathf.Max(pxW, 0.01f), e.RtH / Mathf.Max(pxH, 0.01f));
-        float authoredPerPixel = Mathf.Max(e.Authored.x / Mathf.Max(pxW, 0.01f),
-            e.Authored.y / Mathf.Max(pxH, 0.01f));
+        // Measured against the HOST RECT, not the capture frame, so the number stays directly
+        // comparable with what PANEL SAMPLING reported for the same window before this path existed
+        // — that comparability is the whole point of duplicating the probe's arithmetic here. RT
+        // texels per AUTHORED pixel is the factor by construction (RtW = Frame.width * Factor and
+        // the frame's pixels are the host's pixels), so the texel figure is the authored figure
+        // scaled by the factor whether or not the frame grew past the host rect.
+        float authoredPerPixel = Mathf.Max(e.HostRectAtMeasure.width / Mathf.Max(pxW, 0.01f),
+            e.HostRectAtMeasure.height / Mathf.Max(pxH, 0.01f));
+        float texelsPerPixel = authoredPerPixel * e.Factor;
         return $"drawn into {pxW:F0}x{pxH:F0} rendered px through the LEFT eye of a "
                + $"{eyeW:F0}x{eyeH:F0} per-eye target ({XRSettings.stereoRenderingMode}, viewportScale "
                + $"{XRSettings.renderViewportScale:F2}) = {texelsPerPixel:F2} RT texels per rendered "
@@ -108,33 +191,18 @@ internal static partial class PanelSupersample
                + "rather than point-sampled);";
     }
 
-    /// <summary>
-    /// Does the window paint OUTSIDE its host rect? The capture frames the host rect exactly, so that
-    /// the OFF and ON geometry are identical to the pixel — which means anything drawn proud of the
-    /// frame is cropped. The content fit centres content inside the host by construction
-    /// (<c>ConvertedPanel.FitContentPadding</c>), so this should never fire; if it does, the log says
-    /// so once rather than leaving a mysteriously clipped window.
-    /// </summary>
-    private static void WarnOnOverflow(Entry e)
-    {
-        if (e.OverflowWarned || e.Panel.HostRect == null || e.Panel.Target == null)
-            return;
-        RectTransform host = e.Panel.HostRect;
-        Rect hostRect = host.rect;
-        Rect target = e.Panel.Target.rect;
-        float overflowX = target.width - hostRect.width;
-        float overflowY = target.height - hostRect.height;
-        if (overflowX <= hostRect.width * 0.01f && overflowY <= hostRect.height * 0.01f)
-            return;
-        e.OverflowWarned = true;
-        VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: '{e.Window}' draws content larger than its host frame "
-                          + $"({target.width:F0}x{target.height:F0} vs {hostRect.width:F0}x"
-                          + $"{hostRect.height:F0} uGUI px). THE CONSEQUENCE: the capture frames the "
-                          + "host rect exactly (so that the dial's OFF and ON geometry are identical), "
-                          + "and content outside that frame is CROPPED from the supersampled image — "
-                          + "it was visible before this build and is not now. Switch [WorldUI] "
-                          + "PanelSupersample off if that content matters.");
-    }
+    // THE ModBuild 192 OVERFLOW WARN IS GONE, and deliberately so. It compared the host rect with
+    // `ConvertedPanel.Target.rect` — the game window's own authored rect, which for a full-screen
+    // window is 1920x1080 whether or not anything is drawn out there — latched after one hit, and
+    // then told the reader that the content was being cropped and their only option was to switch
+    // the feature off. All three parts were wrong: the comparison was against the wrong rectangle,
+    // the latch meant the reading could never be re-checked (in the 192 log it fired at engage time
+    // against the PRE-fit 328x1080 host rect and the fit then grew the host to 1920x1080 four
+    // seconds later, which the warn could no longer retract), and there is no longer anything to
+    // switch off — MeasureFrame now grows the capture frame to cover the overspill instead of
+    // cropping it. The live, measured, un-latched replacement is the "CAPTURE FRAME ... GROWN /
+    // CLAMPED" field of the state line above, and the one remaining loss case (the expansion clamp)
+    // warns from MeasureFrame itself, where the numbers actually are.
 
     private static bool TryEyeTarget(out float pxW, out float pxH)
     {

@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Reflection;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands.Interact;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
@@ -32,7 +31,8 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 //
 //     public void EnableTravelOptions(bool show)                                              // :408
 //     {
-//         if (show) travelButton.gameObject.SetActive(!FFSNetwork.IsOnline);
+//         if (!InputManager.GamePadInUse)
+//             travelButton.gameObject.SetActive(!FFSNetwork.IsOnline);
 //         travelOptions.SetActive(flag);
 //     }
 //
@@ -48,197 +48,167 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 // it committed without asking. Both halves of that are wrong, and this class fixes both.
 //
 // MULTIPLAYER: PRESENTATION ONLY, PER CLIENT, NOTHING ON THE WIRE. Everything below moves a
-// GameObject the LOCAL client already owns (the flat HUD's travel-options container) onto a
-// world-space host this client renders, and reproduces — locally — the branch the game itself takes
-// when FFSNetwork.IsOnline. No game state is written, no action is sent, no field the netcode reads
-// is touched, and a remote client's own copy of this class reaches its own decision from its own
-// windows. Two clients in the same room may legitimately show the button at two different places,
-// because they are standing in two different places.
+// GameObject the LOCAL client already owns (the flat HUD's travel-options container) into a window
+// this client has floated for itself, and reproduces — locally — the branch the game itself takes
+// when FFSNetwork.IsOnline. No game state is written (in particular `travelOptions.activeSelf` is
+// only ever READ), no action is sent, no field the netcode reads is touched, and a remote client's
+// own copy of this class parks its own container into its own quest window. Two clients in the same
+// session may legitimately have the button in two different places in their rooms, because they
+// have their windows in two different places. Nothing here is serialized, so no ModBuild handshake
+// term depends on it.
 //
 // ===========================================================================================
-// WHERE THE BUTTON GOES — THE FRAME, NOT THE ARITHMETIC (ModBuild 192)
+// WHERE THE BUTTON GOES — ModBuild 193 IS A DELIBERATE REVERT OF ModBuild 192. DO NOT "FIX" IT BACK.
 // ===========================================================================================
 //
-// USER RULINGS, IN THE ORDER THEY WERE GIVEN. The newest wins; the older ones are recorded so a
-// later round does not "restore" something that was already revised away:
+// THE RULING THAT GOVERNS THIS FILE, verbatim:
 //
-//   190 (asked and answered): "the button in the quest window."
-//   190 (after seeing it):    "Der Bestätigungsknopf ist zu weit weg auf der y-achse. Reduzier da
-//                             gerne den Abstand."  → move it UP, closer to the info cards.
-//   191 (after seeing it):    "Der 'Quest erneut spielen' Button … nun völlig deplaziert, er soll
-//                             zentral UNTER dem Rest angezeigt werden. Außerdem flackert er, für
-//                             einen Frame sieht man ihn an seiner alten position. Von der alten
-//                             Position wollte ich nur das du es etwas mehr nach oben schiebst näher
-//                             an die Infokarten, nun ist es viel zu weit oben und auch auf der
-//                             x-achse verschoben."
+//   "Der 'Quest erneut spielen' Button soll teil des Fensters sein so wie beim aller ersten mal als
+//    du es gemacht hattest. Ich meinte lediglich, das du innerhalb des Fensters den Button etwas
+//    nach oben schiebst. Jetzt hast du den Button komplett vom Fenster getrennt. Mach das
+//    rückgängig."
 //
-// SO THE 190/191 FRAME IS RETIRED BY RULING. It was the QUEST WINDOW: 191 anchored the container to
-// that window's bottom edge and solved the offset from the container's visible-Graphic content
-// union. THE ARITHMETIC WAS RIGHT — its own hardware line proves it:
+// It overrides everything that came after 190. The history, so the next reader can see which of the
+// three earlier answers is being restored and which two are dead:
+//
+//   190  PARKED THE CONTAINER INSIDE THE FLOATED QUEST WINDOW — `SetParent(questWindow.transform)`,
+//        anchorMin = anchorMax = (0.5, 0), pivot = (0.5, 1), anchoredPosition = zero. Zero pins the
+//        CONTAINER'S TOP EDGE to the window's BOTTOM edge, and the container is the flat HUD's
+//        screen-sized bar with the button laid out well inside it, so the button hung far BELOW the
+//        window, out over the table. THIS IS THE MECHANISM THE USER CALLS "beim allerersten mal"
+//        AND WANTS BACK. His complaint about it was ONE thing and only one thing:
+//        "Der Bestätigungsknopf ist zu weit weg auf der y-achse. Reduzier da gerne den Abstand."
+//   191  kept the parenting and solved the offset from the container's VISIBLE-GRAPHIC content, so
+//        the content sat snug just BELOW the window's bottom edge (2 % of the window height,
+//        17.9 mm real). Rejected: "viel zu weit oben und auch auf der x-achse verschoben".
+//   192  DETACHED THE CONTAINER ENTIRELY onto a world host of its own, placed from a census of every
+//        floated window. REJECTED OUTRIGHT by the ruling above; that machinery is gone from this
+//        file, not commented out.
+//
+// SO: THE 190 MECHANISM, WITH 191's MEASUREMENT AIMED AT A NEW TARGET. The arithmetic in 191 was
+// never wrong — its own hardware line proves it solved exactly what it set out to solve:
 //
 //   container : 'Travel Options' rect (x:-256.00, y:0.00, width:512.00, height:0.00)
 //   content   : 2 visible Graphic(s) (1 skipped), union in CONTAINER-LOCAL space
 //               (x:-153.50, y:30.00, width:307.00, height:65.00) (top edge y=95.0, centre x=0.0)
 //   window    : rect (x:-256.00, y:-510.50, width:512.00, height:1021.00), lossyScale 0.1734
 //   applied   : anchoredPosition = (0.00, -115.42)
-//   gap       : 2.0 % of the window's height = 20.4 local units = 3.540 world = 17.9 mm real
 //
-// The button ended up snug under the quest window — CENTRED ON THAT WINDOW. But the quest window
-// is one member of a set that the map room lays out on an ARC around the player, and it is not the
-// middle one: it hangs wherever its arc slot put it, up and to one side. "Centred on the window"
-// and "centred under the rest" are different frames, and the user is asking for the second.
+// What was wrong was the TARGET: 191 put the content's TOP edge one gap BELOW `win.rect.yMin`, i.e.
+// still outside the card. "Innerhalb des Fensters ... etwas nach oben" asks for the content's BOTTOM
+// edge one small INSET ABOVE `win.rect.yMin` — on the card, near its lower edge. One sign, one edge;
+// everything else about the solve is 191's, unchanged.
 //
-// WHAT THIS BUILD SOLVES AGAINST: THE ENSEMBLE, MEASURED WHERE IT ACTUALLY IS.
+// THE ARITHMETIC, STATED ONCE. With `anchorMin = anchorMax = (0.5, 0)` the anchor reference point in
+// the WINDOW'S local space is `(win.rect.center.x, win.rect.yMin)`. With `pivot = (0.5, 1)` the
+// container's local ORIGIN is its pivot point, and `anchoredPosition` is exactly the offset from the
+// anchor reference point to that origin. The container carries identity rotation and unit scale (set
+// at park time), so a point measured at container-local `(x, y)` lands in the window at
+// `(win.rect.center.x + anchoredPosition.x + x, win.rect.yMin + anchoredPosition.y + y)`. Demanding
 //
-//   * The set: every floated modal host that is ALIVE, ACTIVE and ALREADY REVEALED
-//     (<see cref="TryEnsemble"/>). Hover cards are excluded because their pose belongs to the icon
-//     the pointer is on and they churn on every mouseover — the same exclusion the arc's own window
-//     count makes (ModBuild 184). The test used here is POKEABILITY: a floated
-//     window is registered with UguiPokeSurfaces, a hover card is deliberately converted
-//     `pokeable: false` (ModBuild 187), so the registry answers "is this a window the player can
-//     press" without this file having to re-derive what a hover card is.
-//   * The basis: the ensemble's own facing, i.e. the average of the counted hosts' +Z (uGUI renders
-//     its front along −Z, so a host's +Z points AWAY from the viewer). On the arc that average IS
-//     the direction the arc is centred on. `right = up × n` completes it. NOTHING HERE READS THE
-//     HEAD — standing ruling, "nichts darf sich mit der Kopfbewegung neu ausrichten". Each window
-//     is aimed at the spawn gaze of the moment IT spawned and then never moves again, and the
-//     windows are that record; deriving from the windows inherits their anchoring exactly, which is
-//     the only way to be head-free without inventing a room anchor of our own.
-//   * The pose: every counted host's four world corners are projected into (right, up, n). The
-//     button's CONTENT CENTRE is then placed at the lateral MIDPOINT of that spread (this is what
-//     "zentral unter dem Rest" means — centred under the full horizontal extent, not under any one
-//     window and not at the centroid, which an asymmetric set would pull sideways), at the DEPTH
-//     midpoint (so it reads at the group's own reading distance rather than nearer or farther), and
-//     one stated gap below the LOWEST corner in the whole set ("UNTER dem Rest").
-//   * The gap is a FRACTION OF THE ENSEMBLE'S MEASURED HEIGHT, never a pixel or metre count. With
-//     exactly one window that is the window's own height, so the number the user did NOT complain
-//     about in 191 (2 % ≈ 17.9 mm real) is reproduced verbatim; with four it grows with the thing
-//     it is a gap under.
-//   * The SIZE is measured too: the host is scaled to the MEAN of the counted hosts' lossyScale, so
-//     the button's text is drawn at the same physical size as the text of the windows it sits under
-//     — and it inherits any resize the player gave those windows. Parked inside the quest window
-//     (190/191) it inherited that one window's scale; this is the same idea, generalised.
+//     content's BOTTOM edge  ==  win.rect.yMin + inset       →  anchoredPosition.y = inset - content.yMin
+//     content's CENTRE x     ==  win.rect.center.x           →  anchoredPosition.x = -content.center.x
 //
-// WHAT HAPPENS AT EACH COUNT. The arc has five slots (0, +34, −34, +68, −68 from the spawn gaze,
-// filled centre-outward) plus a foreground stagger beyond that, and in the map room the character
-// screen converts first and holds the CENTRE slot for the room's whole life (it is permanent and
-// non-closable by user ruling), so the practical minimum is one and the centre is stable:
-//   1 window  — lateral midpoint, depth midpoint and lowest edge are all that window's, so the
-//               result is "centred under that card", i.e. what 190 asked for, arrived at through
-//               the general rule instead of by anchoring to it.
-//   4 windows — centred under the whole fan (character screen at 0, the others at ±34 / ±68),
-//               below whichever of the four hangs lowest. The extent grows in the arc's discrete
-//               steps as windows open and shrinks again as they close; the button follows, once.
-//   0 windows — there is nothing to be under. The last solved pose is HELD (the button stays where
-//               the player last saw it, which is the only place they could look for it) and, if
-//               there has never been a solve, the container is left untouched in the game's own HUD
-//               and ONE Warn names the consequence. It is never placed from the head.
+// and no term in either is a guess. Against the numbers above that is
+// `anchoredPosition = (0.00, 20.4 - 30.0) = (0.00, -9.6)`, which puts the button's 65 local units of
+// visible content across `win.rect.yMin + 20.4 … + 85.4` — the bottom 8 % of a 1021-unit card, ON
+// the card. Compare 191's -115.4, which is where "hanging below" came from.
 //
-// A WINDOW THE PLAYER DRAGGED AWAY STILL COUNTS — a decision, so it is written down. A grab-moved
-// window keeps its arc slot but its pose is player-owned and may be anywhere. It is counted anyway,
-// because the ruling is "zentral UNTER dem Rest" and a window the player deliberately parked
-// somewhere is emphatically part of what they are looking at; excluding it would put the button
-// under a set that no longer matches the room. The cost is bounded and visible: the button slides
-// once, after the hand lets go, and the placement line names every window the bounds were taken
-// from — so if the next report says "it followed a window I threw aside", the log already says which
-// one, and the fix is a one-line exclusion rather than a re-derivation.
+// IT IS A FIXED POINT, so it converges in ONE step and cannot oscillate: the content union is
+// measured in CONTAINER-LOCAL space, and moving the container moves its children with it, so writing
+// `anchoredPosition` does not change `content.yMin` or `content.center.x`. The solve is re-run every
+// tick anyway — the game re-labels the button between "Reisen" and "Quest erneut spielen"
+// (OnSelectedMapLocation :356) and shows/hides the container (EnableTravelOptions :408-415), and a
+// uGUI layout is not final on the frame of a reparent — but the WRITE IS SKIPPED whenever the answer
+// already stands, so a steady state costs one corner sweep and no transform writes at all.
 //
-// WHY THIS FILE MEASURES THE WINDOWS ITSELF INSTEAD OF ASKING FOR AN AABB. The arc lane offers a
-// world-axis bounding box of the floated set. THE BOTTOM EDGE would be interchangeable with the one
-// computed here — but nothing else would, and the difference is not a preference:
-//   * the arc is a CURVED, YAWED arrangement, so a world-axis box's X/Z centre is only "centred as
-//     the player sees it" when the arc happens to line up with the world axes. What is needed is the
-//     midpoint along the ENSEMBLE'S OWN lateral axis, and that needs the per-window poses;
-//   * the button also has to be ORIENTED, and it may not take that from the head — a Bounds carries
-//     no rotation, so the facing has to come from the windows either way;
-//   * the button is SIZED to the ensemble's mean host scale, which a Bounds does not carry;
-//   * a host still behind its reveal gate is in the world but has never been seen and is still
-//     moving; counting it would place the button against a pose the player never saw.
-// An ORIENTED accessor — centre, facing, half-extents and mean scale — would replace this census
-// wholesale, and this file would rather consume one than own one. Nothing here re-implements the arc
-// walk: no slot index, no angle and no radius is computed, only where hosts already stand.
+// WHY THE INSET IS 2 % OF THE WINDOW'S HEIGHT. It is a FRACTION and not a pixel or millimetre count
+// because the player can resize a floated window, and the thing the eye judges is the button's
+// relationship to the card it sits on, not its absolute distance from an edge. The NUMBER is 191's
+// number: 2 % was the one quantity in 191 the user did not object to (he objected to the direction
+// and to the x-axis, both of which change here). Reusing it means exactly ONE thing differs between
+// the rejected build and this one — which SIDE of `win.rect.yMin` the content sits on — so if the
+// next report still says it is wrong, the disagreement isolates the TARGET and not the magnitude,
+// and a magnitude change is then a one-constant edit against a measured line.
 //
-// A LATER SPAWN MUST NOT STRAND IT, AND IT MUST NOT JITTER. Windows claim an arc slot at SPAWN and
-// never move again — there is no longer any event that says "the ensemble changed pose", so this
-// has to be a POLL. The solve therefore re-runs every tick from where the windows ACTUALLY are, and
-// is applied through a SETTLE GATE: the candidate pose must hold still for
-// <see cref="EnsembleSettleSeconds"/> before it is written. Polling is what makes a later spawn
-// impossible to miss; the gate is what stops a drag from smearing the button across the room. It is
-// legitimate here and not the stillness-gate mistake this project has made before (a gate never
-// opens for state someone else rewrites every frame): a floated window's pose is STATIC unless a
-// hand is on it, so the steady state genuinely stands still. A new window opening moves the button
-// exactly once, a quarter second later; a window being dragged moves it exactly once, on release;
-// and a steady room costs one corner sweep and no writes at all.
+// WHAT PARENTING BUYS, AND WHY 192's HOST COULD NOT BUY IT. Inside the window the container is part
+// of that window in every sense the user means: it moves when the window is grabbed, it scales when
+// the window is resized, it is occluded and released with it, it inherits the window's poke/laser
+// registration (UguiPokeSurfaces registers the window's host; a child of that canvas is hit by the
+// same raycaster) and it inherits the floated modals' exemption from the game's UI lock. 192 had to
+// re-acquire every one of those on a host of its own, and it still did not look like part of the
+// window, because it was not.
 //
 // ===========================================================================================
-// THE ONE-FRAME FLASH AT THE OLD POSITION (ModBuild 192)
+// THE ONE-FRAME FLASH AT THE OLD POSITION — STILL FIXED, WITH A PARENTED CONTAINER
 // ===========================================================================================
 //
 // "Außerdem flackert er, für einen Frame sieht man ihn an seiner alten position."
 //
-// THE CAUSE, from 191's own code path. `Reconcile` parked the container into the quest window and
-// set `anchoredPosition = Vector2.zero` BEFORE solving — and the solve (`AlignFooter`) returned
-// immediately whenever the container was not `activeInHierarchy`, which is exactly its state until
-// the game's `EnableTravelOptions(true)` runs. Zero pins the CONTAINER'S top edge to the window's
-// bottom edge, and the container is the flat HUD bar whose rect is 512x0 with the button laid out
-// 30-95 units above its origin — i.e. zero IS the ModBuild 190 pose, down over the table. The game
-// then showed the container, it drew one frame at that pose, and the next tick's solve moved it up.
+// THE CAUSE, from 191's own code path. `Reconcile` set `anchoredPosition = Vector2.zero` at park
+// time and `AlignFooter` returned immediately while the container was not `activeInHierarchy` —
+// which is its state until the game's `EnableTravelOptions(true)` runs. ZERO IS THE ModBuild 190
+// POSE. So the game showed the container, it drew one frame far below the window, and the next
+// tick's solve moved it up.
 //
-// THE SEAM USED HERE IS "TAKE IT BEFORE IT IS EVER SHOWN" — the second option the round offered,
-// and it needs no patch on EnableTravelOptions and no flag fight. The container is moved onto a
-// WORLD-SPACE HOST of its own (<see cref="CanvasConversion.Convert"/>) as soon as there is an
-// ensemble to place it against, WHICH IS BEFORE THE GAME SHOWS IT, and that host is born
-// RENDER-HIDDEN behind the mod's existing reveal gate — the same gate that already delivers "das
-// Fenster soll direkt an der richtigen Stelle erscheinen" for every floated window. So by the time
-// EnableTravelOptions(true) runs, the object is already ours and already invisible; the game's own
-// call needs no interception, because there is nothing left for it to reveal prematurely.
+// TWO RULES KILL IT HERE, and neither of them is a Harmony patch:
 //
-// WHY NOT PATCH EnableTravelOptions ANYWAY. A prefix/postfix there would have to hold the object
-// down (inactive, or alpha 0 through a CanvasGroup) and hand it back later — i.e. a second owner of
-// a piece of state the game writes, which is the write war this project has already lost once, and
-// a Harmony patch on a method whose only job is SetActive. The conversion already owns a piece of
-// state the game cannot see, so there is nothing to contest. If the flash ever comes back, the
-// placement line below plus the conversion's own "Converted 'MapTravelOptions'" line date the take
-// against the show, and THAT is the measurement that would justify a patch.
-//
-// The same rule covers every LATER show, because the game shows and hides this container repeatedly
-// (EnableTravelOptions, and it re-labels the button between Reisen and 'Quest erneut spielen',
-// which changes the content width): the host's render visibility follows
-// "the container is active AND the content measurement has repeated itself AND the pose has been
-// written", level-triggered. Two agreeing measurements, not one, because a uGUI layout is not final
-// on the frame an object is enabled.
+//   (1) `anchoredPosition` IS NEVER ZEROED. Park sets parent, sibling index, anchors, pivot,
+//       rotation and scale, and deliberately leaves the offset alone until the solve has a
+//       measurement to write. There is no longer any code path in this file that can produce the
+//       190 pose.
+//   (2) THE CONTAINER IS HELD RENDER-DOWN UNTIL A SOLVED POSE IS ON IT. 192 got this by owning a
+//       host that is born render-hidden; a parented container has no host of its own, so the
+//       equivalent is a CanvasGroup ON THE CONTAINER (added by us if it has none), alpha 0 and
+//       blocksRaycasts off. It is set the moment we park — BEFORE the SetParent, so there is not
+//       even a frame of the reparent to see — and it is set again whenever the game has the
+//       container inactive, so the steady hidden state is ALSO alpha 0. That is what makes the rule
+//       total: on the frame the game calls `SetActive(true)`, the alpha is already 0 no matter
+//       whether our tick runs before or after that call, so nothing can be drawn at an unsolved
+//       pose. Alpha goes back up only once the container is active, a pose has been WRITTEN, and the
+//       content measurement has REPEATED ITSELF (two agreeing measurements, because a uGUI layout is
+//       not final on the frame an object is enabled and the game changes the button's label — and
+//       therefore its width — between shows).
 //
 // WHY THIS IS NOT A WRITE WAR — the failure this project has already paid for once. The game owns
-// `travelOptions.activeSelf` and this class NEVER writes it, reads it only as a signal. What this
-// class writes is its OWN host's canvas/renderer enable state through
-// <see cref="CanvasConversion.SetPanelRenderVisible"/>, which nothing in the game can see or
-// contest, and it writes it only on a transition. While the conversion's own reveal gate is still
-// pending, this class does not write visibility at all — the gate owns it, and two owners writing
-// the same flag on alternate frames is precisely the alternation bug.
+// `travelOptions.activeSelf`; this class NEVER writes it and only reads it as a signal. What this
+// class writes is a CanvasGroup that the game does not use: `AdventureMapUIManager` contains no
+// CanvasGroup reference at all (grep it — travelOptions is toggled with SetActive and nothing else),
+// and CanvasConversion's own "force the restored 2D window hidden" path takes a CanvasGroup off the
+// WINDOW ROOT with GetComponent, never off a child. So there is no second writer to alternate with.
+// The write is level-triggered against our own `_hidden` flag, so a steady state writes nothing.
+// A prefix/postfix on `EnableTravelOptions` was deliberately NOT added: it would make us a second
+// owner of a piece of state the game writes every time a location is selected, which is exactly the
+// write war, and it would buy nothing rule (2) does not already give.
+//
+// BOUNDED. If the measurement never repeats itself, the button is revealed anyway after
+// ShowDeadlineSeconds with a Warn: a confirm button that never appears is a worse failure than one
+// that appears a few pixels off for a frame — the same ruling the modal reveal gate carries.
 //
 // ===========================================================================================
-// RESTORE DISCIPLINE, AND WHO HOLDS IT NOW
+// RESTORE DISCIPLINE
 // ===========================================================================================
 //
-// It moved INTO the conversion, which records strictly more than the hand-rolled park did:
-// original parent, sibling index, anchorMin/Max, pivot, anchoredPosition, sizeDelta, localScale,
-// localPosition and localRotation — captured once at Convert, written back verbatim by
-// <see cref="CanvasConversion.Release"/>, which also unregisters the poke surface, restores the
-// game's nested canvases and destroys the host. Release runs on stand-down, on teardown and when
-// the container disappears. OWNERSHIP IS CHECKED FIRST: if the container is no longer parented
-// under our host, the game has taken it back and we log and hand over rather than fight for it.
+// The container's home is recorded ONCE, before the first move: parent, sibling index, anchorMin,
+// anchorMax, pivot, anchoredPosition, localRotation, localScale — plus the CanvasGroup's alpha and
+// blocksRaycasts if it had one, or the fact that we added it. All of it is written back verbatim on
+// unpark, on stand-down and on teardown, and the transform half only WHILE THE OBJECT IS STILL
+// PARENTED UNDER OUR HOST: the game re-parents its own UI freely, and taking an object back from
+// wherever it has since put it is the write war again. THE HOLD IS RELEASED UNCONDITIONALLY though,
+// even when the transform restore is skipped — leaving the game's own button at alpha 0 in its own
+// HUD would be the worst outcome of all.
 //
 // DEGRADES SAFELY: every private member is resolved through AccessTools once. If any is missing —
-// or the conversion refuses — ONE Warn names the consequence (the shortcut stays live / the button
-// stays unreachable) and the class stands completely down. Nothing thrown, nothing on the wire, no
-// rule library touched, no Harmony patch beyond the one prefix that has shipped since 190.
+// or the container/window is not a RectTransform — ONE Warn names the consequence (the shortcut
+// stays live / the button stays unreachable) and the class stands down. Nothing thrown, nothing on
+// the wire, no rule library touched, no Harmony patch beyond the one prefix that has shipped since
+// 190.
 // ---------------------------------------------------------------------------
 
 /// <summary>
-/// Makes the game's own travel confirmation reachable in the 3D map room — centred under the
-/// ensemble of floated windows, derived from where those windows actually are — and switches off
-/// the single-player double-click shortcut that committed without asking. Installed by
-/// <see cref="MapRoomDriver"/>.
+/// Makes the game's own travel confirmation reachable in the 3D map room — parked INSIDE the floated
+/// quest window, in that window's own lower area — and switches off the single-player double-click
+/// shortcut that committed without asking. Installed by <see cref="MapRoomDriver"/>.
 /// </summary>
 internal static class MapTravelConfirm
 {
@@ -247,129 +217,107 @@ internal static class MapTravelConfirm
     private static bool _installed;
     private static bool _resolved;
 
-    /// <summary>The WHOLE feature stands down: no placement AND no shortcut gate. Set only when the
+    /// <summary>The WHOLE feature stands down: no parking AND no shortcut gate. Set only when the
     /// reflection the gate itself needs is missing, because a gate that cannot identify the staged
     /// location must not guess. The consequence — the double-press shortcut comes back — is named
     /// in the Warn that sets it.</summary>
     private static bool _standDown;
 
-    /// <summary>Only the PLACEMENT stands down (the container could not be hosted, or the game took
+    /// <summary>Only the PARKING stands down (the container is not a RectTransform, or the game took
     /// it back). The shortcut gate keeps running, because "travel must not commit by accident" is a
-    /// standing ruling that does not depend on the button being reachable — and with the gate up,
-    /// an unreachable button is a missing convenience rather than an accidental journey. Cleared
-    /// when the room stands down, so re-entering the map room retries.</summary>
-    private static bool _placeStandDown;
+    /// standing ruling that does not depend on the button being reachable — and with the gate up, an
+    /// unreachable button is a missing convenience rather than an accidental journey. Cleared when
+    /// the room stands down, so re-entering the map room retries.</summary>
+    private static bool _parkStandDown;
 
     private static FieldInfo? _locationToTravel;
     private static FieldInfo? _onConfirmCallback;
     private static FieldInfo? _travelOptions;
     private static FieldInfo? _travelButton;
 
-    // ---- the mod-owned world host the container rides ----------------------------------------
-
-    /// <summary>Host name for the conversion. Deliberately NOT the <c>Modal_</c> prefix the floated
-    /// windows use: <see cref="TryEnsemble"/> counts that family, and the button must never be part
-    /// of the set it is solved against.</summary>
-    private const string HostName = "MapTravelOptions";
-
-    /// <summary>The prefix <c>CanvasConversion.Convert</c> gives every floated modal window's host
-    /// (<c>GloomhavenVR.Panel_Modal_…</c>, built in ModalFallback.8.Convert.cs from
-    /// <c>$"Modal_{name}"</c>). This is the census filter — see <see cref="TryEnsemble"/>.</summary>
-    private const string ModalHostPrefix = "GloomhavenVR.Panel_Modal_";
-
-    private static ConvertedPanel? _panel;
-    private static bool _convertWarned;
-    private static bool _reported;
-
-    // ---- the measured placement ---------------------------------------------------------------
+    // ---- the placement constants ---------------------------------------------------------------
 
     /// <summary>
-    /// Gap between the LOWEST edge of the floated-window ensemble and the TOP of the travel
-    /// options' visible content, as a fraction of the ENSEMBLE'S OWN measured height.
-    ///
-    /// <para>A fraction and not a length, because the thing it must look right against is the set
-    /// of cards above it, and that set is not one fixed size. With a single window it is that
-    /// window's height, which reproduces the ModBuild 191 gap exactly (2 % ≈ 17.9 mm real at the
-    /// measured rig scale) — the one number in 191 the user did not object to.</para>
+    /// Distance from the window's BOTTOM EDGE UP TO the travel options' visible content, as a
+    /// fraction of the window's own height. See the class doc for why it is a fraction and why the
+    /// number is 2 %: it is 191's gap, reused unchanged so that the ONLY difference between the
+    /// rejected build and this one is which side of the edge the content sits on.
     /// </summary>
-    private const float GapEnsembleHeights = 0.02f;
+    private const float InsetWindowHeights = 0.02f;
 
     /// <summary>
     /// Alpha below which a Graphic is not counted as visible CONTENT. uGUI bars routinely carry a
-    /// full-width fully transparent Image as a raycast blocker; including one would make the
-    /// measured content the width of the whole HUD bar and centre the button on an invisible
-    /// rectangle. Anything the player can actually see clears this by miles.
+    /// full-width fully transparent Image as a raycast blocker; including one would make the measured
+    /// content the width of the whole HUD bar and put its invisible bottom edge on the inset instead
+    /// of the button's. Anything the player can actually see clears this by miles.
     /// </summary>
     private const float MinVisibleAlpha = 0.02f;
 
-    /// <summary>How far the solved content offset must move before it is written (host-local uGUI
-    /// units). Sub-pixel churn is not worth a transform write, and a rect that is rewritten every
-    /// frame can never satisfy the reveal gate's stillness test.</summary>
-    private const float ContentEpsilonPx = 0.5f;
+    /// <summary>How far the solved offset must move before it is written, and how far a content
+    /// measurement may differ from the previous one and still count as "the same answer"
+    /// (container-local uGUI units). Sub-pixel churn is not worth a transform write, and a rect
+    /// rewritten every frame could never satisfy the two-agreeing-measurements reveal test.</summary>
+    private const float OffsetEpsilon = 0.5f;
 
     /// <summary>
-    /// How long the solved host pose must HOLD STILL before it is applied, seconds. This is the
-    /// anti-jitter cadence, and it is a settle gate on the OUTPUT rather than a timer: a window
-    /// opening or closing changes the answer once and the button follows a quarter second later; a
-    /// window being dragged changes it every frame, so the gate simply never opens until the hand
-    /// lets go. Legitimate here — unlike the stillness gate this project got wrong once — because a
-    /// floated window's pose is STATIC unless a hand is on it, so the steady state genuinely stands
-    /// still.
-    /// </summary>
-    private const float EnsembleSettleSeconds = 0.25f;
-
-    /// <summary>Pose move, in REAL metres, below which the candidate counts as "the same answer"
-    /// (both for the settle gate and for the decision to write). Converted to world units against
-    /// the live rig scale at use, because those are the units transforms are written in.</summary>
-    private const float PoseEpsilonMeters = 0.002f;
-
-    /// <summary>
-    /// Hard bound on how long the button may stay invisible after the game showed it while the
-    /// content measurement refuses to repeat itself. A confirm button that never appears is a
-    /// worse failure than one that appears a frame early — the same ruling the modal reveal gate
-    /// carries ("a window must never stay invisible").
+    /// Hard bound on how long the button may stay held down after the game showed it while the
+    /// content measurement refuses to repeat itself. A confirm button that never appears is a worse
+    /// failure than one that appears a few pixels off for a frame.
     /// </summary>
     private const float ShowDeadlineSeconds = 0.5f;
 
-    /// <summary>Seconds between re-solve log lines. The FIRST placement always logs; after that
-    /// only a materially different answer does, and never more often than this. A line that repeats
-    /// on this cadence forever is the signature of another writer fighting us for the host pose.</summary>
-    private const float PlacementLogIntervalSeconds = 5f;
+    /// <summary>Seconds between re-solve log lines. The FIRST solve always logs; after that only a
+    /// materially different answer does, and never more often than this. A line that repeats on this
+    /// cadence forever is the signature of another writer fighting us for anchoredPosition.</summary>
+    private const float ResolveLogIntervalSeconds = 5f;
 
     /// <summary>Graphic sink for the content sweep — reused, so the per-tick measurement allocates
     /// nothing.</summary>
     private static readonly List<Graphic> ContentGraphics = new(32);
 
-    /// <summary>World-corner scratch for the content sweep and the ensemble census.</summary>
+    /// <summary>World-corner scratch for the same sweep.</summary>
     private static readonly Vector3[] CornerScratch = new Vector3[4];
 
-    // ---- solved state -------------------------------------------------------------------------
+    // ---- the park record (written ONCE, before the first move) ---------------------------------
+
+    private static UIWindow? _host;
+    private static bool _homeRecorded;
+    private static Transform? _optionsHome;
+    private static int _optionsHomeIndex;
+    private static Vector2 _homeAnchorMin;
+    private static Vector2 _homeAnchorMax;
+    private static Vector2 _homePivot;
+    private static Vector2 _homeAnchoredPos;
+    private static Quaternion _homeLocalRotation = Quaternion.identity;
+    private static Vector3 _homeLocalScale = Vector3.one;
+
+    // ---- the hold-down that replaces 192's render-hidden host ----------------------------------
+
+    private static CanvasGroup? _hold;
+    private static bool _holdAdded;
+    private static float _holdHomeAlpha = 1f;
+    private static bool _holdHomeBlocksRaycasts = true;
+    private static bool _hidden;
+
+    // ---- solved state ---------------------------------------------------------------------------
 
     private static Rect _content;
+    private static Rect _lastContent;
     private static bool _contentMeasured;
     private static bool _contentRepeated;
-    private static Rect _lastContent;
     private static bool _contentFallbackLogged;
-
-    private static Vector3 _candidatePos;
-    private static Quaternion _candidateRot = Quaternion.identity;
-    private static float _candidateScale;
-    private static bool _haveCandidate;
-    private static float _candidateStillSince;
-
-    private static Vector3 _appliedPos;
-    private static Quaternion _appliedRot = Quaternion.identity;
-    private static float _appliedScale;
-    private static bool _placed;
+    private static Vector2 _appliedOffset;
+    private static bool _solved;
 
     private static bool _wasActive;
     private static float _activeSince;
     private static bool _revealForcedLogged;
-    private static bool _noEnsembleWarned;
 
-    private static bool _placementLogged;
-    private static float _placementLoggedAt = float.NegativeInfinity;
-    private static Vector3 _loggedPos;
+    private static bool _footerLogged;
+    private static float _footerLoggedAt = float.NegativeInfinity;
+    private static Vector2 _loggedOffset;
+    private static bool _parkWarned;
+    private static bool _reported;
 
     /// <summary>Register the prefix exactly once. Called from the map room's engage path rather
     /// than from WorldUIModule so the two lanes that own that file cannot collide over it.</summary>
@@ -382,23 +330,21 @@ internal static class MapTravelConfirm
         VRLog.Info(Scope, "MAP TRAVEL CONFIRM installed — the single-player 'click the same location "
                           + "twice and go' shortcut is switched off while the 3D map room stands (the "
                           + "game itself switches it off online, so this is its own behaviour and not an "
-                          + "invention), and the game's real Reisen/Abbrechen buttons are moved onto a "
-                          + "world host of their own, centred UNDER the floated windows, so they can be "
-                          + "reached at all. Travel now commits through that button and through nothing "
-                          + "else.");
+                          + "invention), and the game's real Reisen/Abbrechen buttons are parked INSIDE "
+                          + "the floated quest window, in its own lower area, so they can be reached at "
+                          + "all. Travel now commits through that button and through nothing else.");
     }
 
     /// <summary>
-    /// Level-triggered, one call per tick from <see cref="MapRoomDriver"/>. Keeps the game's travel
-    /// options on a mod-owned world host placed centrally under the floated-window ensemble, and
-    /// hands them back otherwise. Idempotent: a steady state costs one corner sweep and no writes.
+    /// Level-triggered, one call per tick from <see cref="MapRoomDriver"/>. Parks the travel options
+    /// inside <paramref name="questWindow"/> while that window is floated, keeps their offset solved
+    /// against the window's own lower edge, and hands them back otherwise. Idempotent: a steady state
+    /// costs one corner sweep and no writes.
     /// </summary>
     /// <param name="questWindow">
-    /// The floated quest window, or null. RETAINED FOR THE CALLER'S SIGNATURE AND FOR THE LOG ONLY.
-    /// Up to ModBuild 191 the button was parented into this window and stood down without it; the
-    /// 192 ruling ("zentral UNTER dem Rest") makes the placement a property of the whole floated
-    /// SET, so binding it to one window's presence would be exactly the defect being fixed. It is
-    /// still printed, because "which window was open when it was placed" is a useful reading.
+    /// The floated quest window, or null. THE PLACEMENT IS A PROPERTY OF THIS WINDOW — user ruling:
+    /// "Der 'Quest erneut spielen' Button soll teil des Fensters sein". Without it there is nothing
+    /// to be part of, so the container goes home.
     /// </param>
     internal static void Reconcile(UIWindow? questWindow)
     {
@@ -410,68 +356,45 @@ internal static class MapTravelConfirm
         AdventureMapUIManager? mgr = Manager();
         GameObject? options = mgr != null ? _travelOptions?.GetValue(mgr) as GameObject : null;
 
-        if (!MapRoomDriver.Active || options == null)
+        if (!MapRoomDriver.Active || questWindow == null || options == null)
         {
-            ReleaseHost(!MapRoomDriver.Active ? "map room stood down"
-                                              : "the game's travel options are gone");
-            // Leaving the room clears a placement stand-down: whatever went wrong was about THIS
-            // visit's objects, and re-entering rebuilds all of them.
+            Unpark(!MapRoomDriver.Active ? "map room stood down"
+                : questWindow == null ? "no quest window is floated"
+                : "the game's travel options are gone");
+            // Leaving the room clears a park stand-down: whatever went wrong was about THIS visit's
+            // objects, and re-entering rebuilds all of them.
             if (!MapRoomDriver.Active)
-                _placeStandDown = false;
+                _parkStandDown = false;
             return;
         }
-        if (_placeStandDown)
+        if (_parkStandDown)
             return;
 
-        // A host whose target died is dropped BEFORE the placeability precondition below, so a
-        // rebuild goes through the same "only when it can be placed" rule a first conversion does.
-        if (_panel != null && (!_panel.IsAlive || _panel.HostGo == null || _panel.HostRect == null))
-            ReleaseHost("the host or its target died");
-
-        // TAKEN BEFORE IT IS EVER SHOWN — the strongest form of the anti-flash rule. The container is
-        // converted as soon as there is an ensemble to place it against, WITHOUT waiting for the game
-        // to show it, so it is already on a render-hidden host of ours by the time
-        // EnableTravelOptions(true) runs and there is no frame in which it is active anywhere else.
-        //
-        // The one thing that must NOT happen is a host brought into existence with no pose: a host is
-        // created unpositioned (identity, i.e. the world origin) and the conversion's reveal gate
-        // will show it at its deadline whether or not anyone placed it. So the ensemble — the only
-        // input the pose genuinely needs — is required first. The button's own height is NOT
-        // required: until it can be measured the solve simply uses zero half-height, which places the
-        // content's centre where its top edge belongs, i.e. half a button too high, and corrects
-        // itself on the first measurement while still render-hidden.
-        if (_panel == null && !TryEnsemble(out _))
+        if (!ReferenceEquals(_host, questWindow))
         {
-            if (options.activeInHierarchy)
-                WarnNoEnsembleOnce();
-            return;
+            Unpark("a different quest window took over");
+            if (!Park(questWindow, options))
+                return;
         }
 
-        if (!EnsureHost(options))
-            return;
-        ConvertedPanel panel = _panel!;
-        // Named once: the null-forgiving read above satisfies the compiler, but the dead-host check
-        // further up compared HostGo against null, so the analyzer now tracks it as nullable here.
-        string hostName = panel.HostGo != null ? panel.HostGo.name : "<destroyed>";
-
-        // OWNERSHIP, FIRST AND EVERY TICK. The game re-parents its own UI freely, and taking an
-        // object back from wherever it has since put it is the write war this project has already
-        // lost once. If it is no longer under our host, hand it over and stand down.
-        if (options.transform.parent != panel.HostRect)
+        // OWNERSHIP, EVERY TICK. The game re-parents its own UI freely, and re-taking an object from
+        // wherever it has since put it is the write war this project has already lost once. If it is
+        // no longer our child, hand it over and stand the parking down for this visit.
+        if (options.transform.parent != questWindow.transform)
         {
-            VRLog.Warn(Scope, $"MAP TRAVEL CONFIRM: '{options.name}' is no longer parented under our "
-                              + $"host '{hostName}' — the game moved it. Releasing the "
-                              + "conversion (which restores its recorded 2D home verbatim) and standing "
-                              + "down for this map-room visit. CONSEQUENCE: the Reisen / 'Quest erneut "
-                              + "spielen' button is unreachable in the room until the room is re-entered; "
-                              + "the double-press shortcut stays switched off, so nothing can commit "
-                              + "travel by accident in the meantime.");
-            ReleaseHost("the game re-parented the travel options");
-            _placeStandDown = true;
+            VRLog.Warn(Scope, $"MAP TRAVEL CONFIRM: '{options.name}' is no longer parented under the "
+                              + $"floated quest window '{questWindow.name}' — the game moved it. Handing "
+                              + "it back (home transform restored verbatim, our hold-down released) and "
+                              + "standing the parking down for this map-room visit. CONSEQUENCE: the "
+                              + "Reisen / 'Quest erneut spielen' button is unreachable in the room until "
+                              + "the room is re-entered; the double-press shortcut stays switched off, so "
+                              + "nothing can commit travel by accident in the meantime.");
+            Unpark("the game re-parented the travel options");
+            _parkStandDown = true;
             return;
         }
 
-        // The game owns activeSelf (EnableTravelOptions → travelOptions.SetActive). We only READ it.
+        // The game owns activeSelf (EnableTravelOptions -> travelOptions.SetActive). We only READ it.
         bool active = options.activeInHierarchy;
         if (active != _wasActive)
         {
@@ -479,221 +402,361 @@ internal static class MapTravelConfirm
             _activeSince = Time.unscaledTime;
             if (active)
             {
-                // A fresh show may carry a different label ("Reisen" vs "Quest erneut spielen"), so
-                // the content measurement starts over: the button stays hidden until two
-                // measurements agree AND the pose has been written for them.
+                // A fresh show may carry a different label ("Reisen" vs "Quest erneut spielen"), which
+                // changes the content width: the agreement test starts over, so the button stays held
+                // down until two measurements agree AND the pose has been written for them.
                 _contentRepeated = false;
                 _revealForcedLogged = false;
             }
         }
 
-        MeasureContent(panel, options);
-        SolveAndPlace(panel, options, mgr, questWindow);
-        TickVisibility(panel, active);
-        KeepClickable(panel);
+        AlignFooter(questWindow, options, mgr);
+        TickVisibility(active);
 
-        if (!_reported && _placed)
+        if (!_reported && _solved)
         {
             _reported = true;
             var btn = mgr != null ? _travelButton?.GetValue(mgr) as Component : null;
-            VRLog.Info(Scope, "MAP TRAVEL CONFIRM: the game's travel options now ride a world host of "
-                              + $"their own ('{hostName}'), placed centrally UNDER the floated "
-                              + "window ensemble rather than inside any one window (user ruling 192: "
-                              + "\"er soll zentral UNTER dem Rest angezeigt werden\"). The button itself "
-                              + $"is '{(btn != null ? btn.name : "<not found>")}' — the SAME ExtendedButton "
-                              + "the flat game uses, so its label (Reisen / Quest erneut spielen), its "
+            VRLog.Info(Scope, "MAP TRAVEL CONFIRM: the game's travel options were moved from "
+                              + $"'{(_optionsHome != null ? _optionsHome.name : "<none>")}' INTO the floated "
+                              + $"quest window '{questWindow.name}' and solved onto that window's own lower "
+                              + "area (user ruling: \"soll teil des Fensters sein … innerhalb des Fensters "
+                              + "den Button etwas nach oben\"). The button itself is "
+                              + $"'{(btn != null ? btn.name : "<not found>")}' — the SAME ExtendedButton the "
+                              + "flat game uses, so its label (Reisen / Quest erneut spielen), its "
                               + "interactable state and every guard behind OnTravelButtonClick are the "
-                              + "game's own. It goes home the moment the room stands down.");
+                              + "game's own. It moves, scales, occludes and goes home with the window.");
         }
     }
 
-    // ---- the world host -----------------------------------------------------------------------
+    /// <summary>Teardown — hand the container back before the room disappears under it.</summary>
+    internal static void Reset() => Unpark("map room teardown");
+
+    // ---- parking and unparking -------------------------------------------------------------------
 
     /// <summary>
-    /// Move the container onto a mod-owned world-space host, once. Returns false when the
-    /// conversion refused, in which case the class stands down and the container is left exactly
-    /// where the game had it.
+    /// Move the container into the window, once. Returns false when it cannot be done, in which case
+    /// the parking stands down and the container is left exactly where the game had it.
     ///
-    /// <para>THE PARAMETERS ARE THE POINT. <c>pokeable: true</c> registers the host with
-    /// <see cref="UguiPokeSurfaces"/> so fingertip and laser press the REAL uGUI button (parked
-    /// inside the quest window it inherited that window's registration; on its own host it needs
-    /// its own). <c>fitContent: false</c> keeps the central content fit off this host: the fit is
-    /// built to re-size a WINDOW around its content, and this container's rect is a 512x0 HUD bar —
-    /// <see cref="MeasureContent"/> does the equivalent job explicitly, and the host rect is set
-    /// from that measurement so the poke plane matches what is drawn. <c>useModLayer: true</c> is
-    /// what arms the RENDER-HIDDEN birth and the reveal gate — the whole answer to the one-frame
-    /// flash — and additionally keeps the game's mono UI camera from double-drawing it.</para>
+    /// <para>ORDER MATTERS: the hold-down goes on BEFORE the reparent, so there is not even a frame
+    /// of the move to see, and <c>anchoredPosition</c> is deliberately NOT written here — zero is the
+    /// ModBuild 190 pose, and writing it is precisely what produced the one-frame flash in 191. The
+    /// offset is written by the first solve that has something to measure, and until then the
+    /// container is alpha 0.</para>
     /// </summary>
-    private static bool EnsureHost(GameObject options)
+    private static bool Park(UIWindow questWindow, GameObject options)
     {
-        if (_panel != null && _panel.IsAlive && _panel.HostGo != null && _panel.HostRect != null)
-            return true;
-        if (_panel != null)
-            ReleaseHost("the host or its target died");
+        if (questWindow.transform is not RectTransform win)
+        {
+            WarnCannotPark($"the quest window '{questWindow.name}' is not a RectTransform");
+            return false;
+        }
         if (options.transform is not RectTransform rect)
         {
-            if (!_convertWarned)
-            {
-                _convertWarned = true;
-                _placeStandDown = true;
-                VRLog.Warn(Scope, $"MAP TRAVEL CONFIRM: '{options.name}' is not a RectTransform, so it "
-                                  + "cannot be moved onto a world canvas — the whole placement stands "
-                                  + "down. CONSEQUENCE: the Reisen / 'Quest erneut spielen' button stays "
-                                  + "unreachable in the 3D map room. The double-press shortcut stays "
-                                  + "switched off, so travel still cannot commit by accident.");
-            }
+            WarnCannotPark($"'{options.name}' is not a RectTransform");
             return false;
         }
 
-        _panel = CanvasConversion.Convert(rect, HostName, pokeable: true, fitContent: false,
-            sortingOrder: ModalFallback.ModalHostSortingOrder, useModLayer: true);
-        if (_panel == null)
+        if (!_homeRecorded)
         {
-            if (!_convertWarned)
-            {
-                _convertWarned = true;
-                _placeStandDown = true;
-                VRLog.Warn(Scope, $"MAP TRAVEL CONFIRM: converting '{options.name}' to a world host "
-                                  + "returned null (target destroyed?) — the whole placement stands down. "
-                                  + "CONSEQUENCE: the Reisen / 'Quest erneut spielen' button stays "
-                                  + "unreachable in the 3D map room. The double-press shortcut stays "
-                                  + "switched off, so travel still cannot commit by accident.");
-            }
-            return false;
+            _homeRecorded = true;
+            _optionsHome = rect.parent;
+            _optionsHomeIndex = rect.GetSiblingIndex();
+            _homeAnchorMin = rect.anchorMin;
+            _homeAnchorMax = rect.anchorMax;
+            _homePivot = rect.pivot;
+            _homeAnchoredPos = rect.anchoredPosition;
+            _homeLocalRotation = rect.localRotation;
+            _homeLocalScale = rect.localScale;
         }
 
+        EnsureHold(options);
+        SetHidden(true);
+
+        _host = questWindow;
+        rect.SetParent(win, worldPositionStays: false);
+        rect.SetAsLastSibling();
+        // THE FRAME THE SOLVE REASONS IN. Bottom-centre anchor with a top-edge pivot, so that
+        // anchoredPosition is a plain offset from (win.rect.center.x, win.rect.yMin) to the
+        // container's own local origin — which is what makes AlignFooter two subtractions and no
+        // matrix work. Every one of these is recorded above and written back verbatim on unpark.
+        rect.anchorMin = new Vector2(0.5f, 0f);
+        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.localRotation = Quaternion.identity;
+        rect.localScale = Vector3.one;
+
+        _solved = false;
         _contentMeasured = false;
         _contentRepeated = false;
-        _haveCandidate = false;
-        _placed = false;
-        _placementLogged = false;
-        _placementLoggedAt = float.NegativeInfinity;
+        _appliedOffset = Vector2.zero;
+        _footerLogged = false;
+        _footerLoggedAt = float.NegativeInfinity;
+        _loggedOffset = Vector2.zero;
         _wasActive = options.activeInHierarchy;
         _activeSince = Time.unscaledTime;
         return true;
     }
 
-    /// <summary>Hand the container back and destroy the host. Safe to call at any time.</summary>
-    private static void ReleaseHost(string why)
+    /// <summary>ONE Warn for "the container cannot be parked at all", naming the consequence.</summary>
+    private static void WarnCannotPark(string why)
     {
-        // The one-per-visit diagnostic latches are cleared even when there is no host to release,
-        // so re-entering the map room re-reports a failure instead of failing silently the second
-        // time. (_reported is deliberately NOT among them: it is a once-per-session description of
-        // the mechanism, not a per-visit measurement.)
-        _noEnsembleWarned = false;
-        _convertWarned = false;
-        _contentFallbackLogged = false;
-        _revealForcedLogged = false;
-        if (_panel == null)
+        _parkStandDown = true;
+        if (_parkWarned)
             return;
-        ConvertedPanel panel = _panel;
-        _panel = null;
-        _contentMeasured = false;
-        _contentRepeated = false;
-        _haveCandidate = false;
-        _placed = false;
-        _placementLogged = false;
-        _placementLoggedAt = float.NegativeInfinity;
-        _wasActive = false;
-        CanvasConversion.Release(panel);
-        VRLog.Info(Scope, $"MAP TRAVEL CONFIRM: travel options handed back to their own home ({why}) — "
-                          + "parent, sibling index, anchors, pivot, anchoredPosition, sizeDelta, local "
-                          + "scale/position/rotation all restored verbatim by CanvasConversion.Release "
-                          + "from the record it captured at Convert, the poke registration dropped and "
-                          + "the host destroyed. Nothing of ours is left on the game's object.");
+        _parkWarned = true;
+        VRLog.Warn(Scope, $"MAP TRAVEL CONFIRM: cannot park the travel options — {why}, so the anchor "
+                          + "arithmetic this class is built on does not apply. The parking stands down. "
+                          + "CONSEQUENCE: the Reisen / 'Quest erneut spielen' button stays unreachable in "
+                          + "the 3D map room. The double-press shortcut stays switched off, so travel "
+                          + "still cannot commit by accident. Nothing throws.");
     }
 
-    /// <summary>Teardown — hand the container back before the room disappears under it.</summary>
-    internal static void Reset() => ReleaseHost("map room teardown");
+    /// <summary>
+    /// Put the container back. The HOLD is always released — leaving the game's own button at alpha 0
+    /// in its own HUD would be the worst outcome available — but the TRANSFORM is restored only while
+    /// the object is still parented under our host, because re-taking it from wherever the game has
+    /// since put it is a write war.
+    /// </summary>
+    private static void Unpark(string why)
+    {
+        if (_host == null && _hold == null)
+        {
+            // Nothing parked. Still clear the one-per-visit diagnostic latches, so a second visit
+            // re-reports a failure instead of failing silently.
+            _contentFallbackLogged = false;
+            _revealForcedLogged = false;
+            _parkWarned = false;
+            return;
+        }
 
-    // ---- what is drawn: the content measurement ------------------------------------------------
+        UIWindow? host = _host;
+        _host = null;
+        ReleaseHold();
+
+        _solved = false;
+        _contentMeasured = false;
+        _contentRepeated = false;
+        _appliedOffset = Vector2.zero;
+        _footerLogged = false;
+        _footerLoggedAt = float.NegativeInfinity;
+        _loggedOffset = Vector2.zero;
+        _wasActive = false;
+        _contentFallbackLogged = false;
+        _revealForcedLogged = false;
+        _parkWarned = false;
+
+        if (!EnsureReflection())
+            return;
+        AdventureMapUIManager? mgr = Manager();
+        if (mgr == null || _travelOptions?.GetValue(mgr) is not GameObject options)
+            return;
+        Transform t = options.transform;
+        // STILL OURS? Unity fake-null covers a destroyed window here as well: a window that no longer
+        // exists cannot be compared against, so the transform restore is skipped and only the hold
+        // release above has run.
+        if (host == null || host.transform == null || t.parent == null
+            || !t.parent.IsChildOf(host.transform))
+            return;
+        if (_optionsHome == null)
+            return;
+
+        t.SetParent(_optionsHome, worldPositionStays: false);
+        t.SetSiblingIndex(Mathf.Clamp(_optionsHomeIndex, 0, Mathf.Max(0, _optionsHome.childCount - 1)));
+        if (t is RectTransform rect)
+        {
+            rect.anchorMin = _homeAnchorMin;
+            rect.anchorMax = _homeAnchorMax;
+            rect.pivot = _homePivot;
+            rect.anchoredPosition = _homeAnchoredPos;
+            rect.localRotation = _homeLocalRotation;
+            rect.localScale = _homeLocalScale;
+        }
+        VRLog.Info(Scope, $"MAP TRAVEL CONFIRM: travel options handed back to their own home ({why}) — "
+                          + "parent, sibling index, anchors, pivot, anchoredPosition, local rotation and "
+                          + "local scale all restored verbatim from the record taken before the first "
+                          + "move, and the hold-down (CanvasGroup alpha / blocksRaycasts) released or "
+                          + "destroyed. Nothing of ours is left on the game's object.");
+    }
+
+    // ---- the hold-down: 192's render-hidden host, done on a parented container --------------------
 
     /// <summary>
-    /// Measure the container's VISIBLE content in HOST-local space, and centre it on the host.
-    ///
-    /// <para>Centring is what makes the placement arithmetic trivial downstream: once the content's
-    /// centre coincides with the host's own origin, the host's world pose IS the content's world
-    /// pose, and <see cref="SolveAndPlace"/> has one frame to reason in instead of two. The host
-    /// rect is then sized to the measured content, so the laser/poke plane covers exactly what the
-    /// player can see and nothing else.</para>
+    /// Make sure there is a CanvasGroup on the container we can hold it down with, and record what it
+    /// looked like before we touched it. If the container has none we ADD one and remember that we
+    /// did, so <see cref="ReleaseHold"/> destroys it again rather than leaving a component behind.
     /// </summary>
-    private static void MeasureContent(ConvertedPanel panel, GameObject options)
+    private static void EnsureHold(GameObject options)
     {
-        // The game hides the whole container (EnableTravelOptions → travelOptions.SetActive). An
-        // inactive subtree has no laid-out rects to measure, so the last measurement simply stands
-        // until it comes back.
+        if (_hold != null && _hold.gameObject == options)
+            return;
+        ReleaseHold();
+        CanvasGroup? cg = options.GetComponent<CanvasGroup>();
+        _holdAdded = cg == null;
+        if (cg == null)
+            cg = options.AddComponent<CanvasGroup>();
+        _hold = cg;
+        _holdHomeAlpha = cg.alpha;
+        _holdHomeBlocksRaycasts = cg.blocksRaycasts;
+        _hidden = false;
+    }
+
+    /// <summary>Level-triggered visibility write on OUR OWN state. The game never reads or writes
+    /// this CanvasGroup (AdventureMapUIManager toggles the container with SetActive and nothing
+    /// else), so there is no second owner to alternate with.</summary>
+    private static void SetHidden(bool hide)
+    {
+        _hidden = hide;
+        if (_hold == null)
+            return;
+        _hold.alpha = hide ? 0f : _holdHomeAlpha;
+        _hold.blocksRaycasts = !hide && _holdHomeBlocksRaycasts;
+    }
+
+    /// <summary>Give the CanvasGroup back exactly as it was found, or destroy the one we added.</summary>
+    private static void ReleaseHold()
+    {
+        CanvasGroup? cg = _hold;
+        bool added = _holdAdded;
+        _hold = null;
+        _holdAdded = false;
+        _hidden = false;
+        if (cg == null)
+            return;
+        if (added)
+        {
+            Object.Destroy(cg);
+            return;
+        }
+        cg.alpha = _holdHomeAlpha;
+        cg.blocksRaycasts = _holdHomeBlocksRaycasts;
+    }
+
+    /// <summary>
+    /// THE ANTI-FLASH GATE. The container is drawn only while the game has it shown AND a repeated
+    /// content measurement has been written to <c>anchoredPosition</c> — so there is no frame in
+    /// which the button is visible at a pose that is not its final one. Whenever the game has it
+    /// hidden the hold goes back ON, which is what makes the rule total: on the frame the game calls
+    /// SetActive(true) the alpha is already 0, whichever order the two run in.
+    ///
+    /// <para>BOUNDED: if the measurement never repeats, the button is shown anyway after
+    /// <see cref="ShowDeadlineSeconds"/> with a Warn.</para>
+    /// </summary>
+    private static void TickVisibility(bool active)
+    {
+        bool ready = _solved && _contentRepeated;
+        if (!ready && active && _solved && Time.unscaledTime - _activeSince >= ShowDeadlineSeconds)
+        {
+            ready = true;
+            if (!_revealForcedLogged)
+            {
+                _revealForcedLogged = true;
+                VRLog.Warn(Scope, "MAP TRAVEL CONFIRM: the travel options are being revealed before the "
+                                  + "content measurement repeated itself (deadline "
+                                  + $"{ShowDeadlineSeconds * 1000f:F0} ms since the game enabled them). "
+                                  + "CONSEQUENCE: the button may sit a few pixels off for a frame or two "
+                                  + "while the uGUI layout finishes, and will then settle. A button that "
+                                  + "never appears would be the worse failure, so visibility wins. If this "
+                                  + "line repeats every single time, the container's layout is being "
+                                  + "re-driven every frame and the measurement can never agree with "
+                                  + "itself — that is the bug to chase, not the deadline.");
+            }
+        }
+        bool wantVisible = active && ready;
+        if (_hidden == wantVisible)
+            SetHidden(!wantVisible);
+    }
+
+    // ---- the measured placement --------------------------------------------------------------------
+
+    /// <summary>
+    /// Slide the parked container so its VISIBLE CONTENT sits ON the quest window, one small inset
+    /// above that window's bottom edge, horizontally centred on it. Solved, not tuned — the class doc
+    /// carries the arithmetic and the ruling this target comes from.
+    /// </summary>
+    private static void AlignFooter(UIWindow host, GameObject options, AdventureMapUIManager? mgr)
+    {
+        if (host == null || options == null)
+            return;
+        // The game hides the whole container (EnableTravelOptions -> travelOptions.SetActive(flag)).
+        // An inactive subtree has no laid-out rects to measure, so the last solved offset simply
+        // stands until it comes back — and the hold-down keeps it invisible meanwhile.
         if (!options.activeInHierarchy)
             return;
-        if (options.transform is not RectTransform rect || panel.HostRect == null)
+        if (options.transform is not RectTransform rect || host.transform is not RectTransform win)
             return;
 
-        bool measured = TryContentBounds(panel.HostRect, rect, out Rect content, out int counted,
-                                         out int skipped);
+        bool measured = TryContentBounds(rect, out Rect content, out int counted, out int skipped);
         if (!measured)
         {
-            // NOTHING VISIBLE TO MEASURE. Fall back to the container's own rect expressed on the
-            // host — the button will be centred on the HUD BAR instead of on itself, i.e. it may
-            // sit off to one side — and say so, because "it drifted sideways" then has a named
-            // cause instead of being a mystery.
-            content = new Rect(rect.anchoredPosition + rect.rect.position, rect.rect.size);
+            // NOTHING VISIBLE TO MEASURE. Fall back to the container's own rect and say so, because
+            // "it went back to hanging below the window" then has a named cause instead of being a
+            // mystery: the container's rect is the flat HUD bar's, 512 x 0 with its origin at the top.
+            content = rect.rect;
             if (!_contentFallbackLogged)
             {
                 _contentFallbackLogged = true;
                 VRLog.Warn(Scope, $"MAP TRAVEL CONFIRM: the travel options container '{options.name}' "
                                   + $"exposed no visible Graphic to measure ({skipped} candidate(s) "
                                   + "skipped as disabled, transparent or zero-sized), so the placement "
-                                  + "falls back to the CONTAINER'S OWN RECT. CONSEQUENCE: the container "
-                                  + "is a 512x0 flat-HUD bar with the button laid out somewhere inside "
-                                  + "it, so the button may appear off-centre and vertically offset from "
-                                  + "where this class reports it. Nothing throws.");
+                                  + "falls back to the CONTAINER'S OWN RECT. CONSEQUENCE: the confirm "
+                                  + "button may appear off-centre and far below where this class reports "
+                                  + "it — that is exactly the ModBuild 190 report — because that rect is "
+                                  + "the flat HUD bar's and the button sits somewhere inside it. Nothing "
+                                  + "throws.");
             }
         }
 
-        Vector2 offset = content.center;
-        if (offset.sqrMagnitude > ContentEpsilonPx * ContentEpsilonPx)
-        {
-            rect.anchoredPosition -= offset;
-            content.center = Vector2.zero;
-        }
+        float inset = InsetWindowHeights * Mathf.Abs(win.rect.height);
+        // THE SOLVE. Content BOTTOM edge to win.rect.yMin + inset (inside the window, near its lower
+        // edge); content CENTRE x to the window's centre. A fixed point: the union is measured in
+        // CONTAINER-LOCAL space, and moving the container moves its children with it, so this
+        // converges in one step and cannot oscillate.
+        var want = new Vector2(-content.center.x, inset - content.yMin);
+        if ((rect.anchoredPosition - want).sqrMagnitude > OffsetEpsilon * OffsetEpsilon)
+            rect.anchoredPosition = want;   // SKIPPED when the answer already stands
+        _appliedOffset = want;
+        _solved = true;
 
-        // The poke/laser plane is the HOST rect: size it to what is drawn. Writing it only on a
-        // real change keeps the reveal gate's rect-stillness test satisfiable.
-        Vector2 want = content.size;
-        if (want.x > 0f && want.y > 0f
-            && (Mathf.Abs(panel.HostRect.rect.width - want.x) > ContentEpsilonPx
-                || Mathf.Abs(panel.HostRect.rect.height - want.y) > ContentEpsilonPx))
-            panel.HostRect.sizeDelta = want;
-
-        // TWO AGREEING MEASUREMENTS, NOT ONE. A uGUI layout is not final on the frame an object is
-        // enabled, and the game re-labels this button between "Reisen" and "Quest erneut spielen",
-        // which changes its width. Requiring the answer to repeat is what stops the reveal from
-        // happening on a half-laid-out rect.
+        // TWO AGREEING MEASUREMENTS, NOT ONE — the reveal test. A uGUI layout is not final on the
+        // frame an object is enabled or reparented, and the game re-labels this button between
+        // "Reisen" and "Quest erneut spielen", which changes its width and therefore its centre.
         bool repeats = _contentMeasured
-                       && Mathf.Abs(content.width - _lastContent.width) <= ContentEpsilonPx
-                       && Mathf.Abs(content.height - _lastContent.height) <= ContentEpsilonPx;
+                       && Mathf.Abs(content.center.x - _lastContent.center.x) <= OffsetEpsilon
+                       && Mathf.Abs(content.yMin - _lastContent.yMin) <= OffsetEpsilon
+                       && Mathf.Abs(content.width - _lastContent.width) <= OffsetEpsilon
+                       && Mathf.Abs(content.height - _lastContent.height) <= OffsetEpsilon;
         _contentRepeated = _contentRepeated || repeats;
         _lastContent = content;
         _content = content;
         _contentMeasured = true;
+
+        bool changed = (want - _loggedOffset).sqrMagnitude > OffsetEpsilon * OffsetEpsilon;
+        if (_footerLogged && (!changed || Time.unscaledTime - _footerLoggedAt < ResolveLogIntervalSeconds))
+            return;
+        _footerLogged = true;
+        _footerLoggedAt = Time.unscaledTime;
+        _loggedOffset = want;
+        LogFooter(host, options, mgr, rect, win, content, counted, skipped, measured, inset, want);
     }
 
     /// <summary>
-    /// The union of the container's ACTIVE, VISIBLE child Graphics' rects, expressed in the HOST's
-    /// local space.
+    /// The union of the container's ACTIVE, VISIBLE child Graphics' rects, expressed in the
+    /// container's own local space.
     ///
     /// <para>GRAPHICS AND NOT RECTTRANSFORMS, deliberately. A uGUI bar is full of layout groups and
     /// empty spacers whose rects are far larger than anything drawn in them; taking every
     /// RectTransform would measure the bar's skeleton, which is the same mistake as measuring the
     /// container. A Graphic is the only component that PAINTS, so the union of the enabled,
-    /// non-transparent, non-degenerate ones is "what the player can see", which is the thing the
-    /// user is judging the position of.</para>
+    /// non-transparent, non-degenerate ones is "what the player can see", which is the thing the user
+    /// is judging the position of.</para>
     ///
-    /// <para>Corner-based, not rect-based: a child may sit several transforms deep, so its rect is
-    /// in ITS parent's space. <c>GetWorldCorners</c> + <c>InverseTransformPoint</c> lands every
-    /// corner in the host's frame with no assumption about the chain between them.</para>
+    /// <para>Corner-based, not rect-based: a child may sit several transforms deep, so its rect is in
+    /// ITS parent's space. <c>GetWorldCorners</c> + <c>InverseTransformPoint</c> lands every corner in
+    /// the container's frame with no assumption about the chain between them.</para>
     /// </summary>
-    private static bool TryContentBounds(RectTransform host, RectTransform container,
-                                         out Rect content, out int counted, out int skipped)
+    private static bool TryContentBounds(RectTransform container, out Rect content,
+                                         out int counted, out int skipped)
     {
         content = default;
         counted = 0;
@@ -719,7 +782,7 @@ internal static class MapTravelConfirm
             rt.GetWorldCorners(CornerScratch);
             for (int c = 0; c < 4; c++)
             {
-                Vector3 p = host.InverseTransformPoint(CornerScratch[c]);
+                Vector3 p = container.InverseTransformPoint(CornerScratch[c]);
                 if (p.x < xMin) xMin = p.x;
                 if (p.x > xMax) xMax = p.x;
                 if (p.y < yMin) yMin = p.y;
@@ -733,411 +796,82 @@ internal static class MapTravelConfirm
         return true;
     }
 
-    // ---- where it goes: the ensemble solve ------------------------------------------------------
-
-    /// <summary>The measured floated-window ensemble, in its own frame.</summary>
-    private struct Ensemble
-    {
-        public int Count;
-        public Vector3 Normal;   // ensemble facing: AWAY from the player (uGUI front is -Z)
-        public Vector3 Right;    // up x normal
-        public float LateralMin, LateralMax;
-        public float DepthMin, DepthMax;
-        public float BottomY, TopY;
-        public float MeanScale;  // mean host lossyScale: world units per uGUI pixel
-        public bool NormalAveraged;
-    }
-
     /// <summary>
-    /// Census of the floated modal windows and their extent in the (right, up, normal) frame their
-    /// own poses define. Returns false when the room has none — see the class doc for what happens
-    /// then (the last pose is held; the head is never consulted).
+    /// THE MEASUREMENT LINE. Every number the placement is derived from, in the frame it was read in,
+    /// plus the resulting inset in three units — window heights (scale-free, the thing the eye
+    /// judges), local units, and real millimetres at the current rig scale. If the next hardware
+    /// report says the button is in the wrong place, this line says WHICH input was wrong; the
+    /// DISPROOF block at the bottom names the two failures apart.
     /// </summary>
-    private static bool TryEnsemble(out Ensemble e)
-    {
-        e = default;
-        IReadOnlyList<ConvertedPanel> panels = CanvasConversion.ActivePanels;
-        Vector3 forwardSum = Vector3.zero;
-        Vector3 lowestForward = Vector3.forward;
-        float lowestY = float.PositiveInfinity;
-        float scaleSum = 0f;
-        int count = 0;
-        for (int i = 0; i < panels.Count; i++)
-        {
-            ConvertedPanel p = panels[i];
-            if (!IsEnsembleMember(p))
-                continue;
-            Transform t = p.HostGo.transform;
-            Vector3 fwd = t.forward;
-            fwd.y = 0f;
-            if (fwd.sqrMagnitude > 1e-6f)
-                forwardSum += fwd.normalized;
-            p.HostRect.GetWorldCorners(CornerScratch);
-            for (int c = 0; c < 4; c++)
-            {
-                if (CornerScratch[c].y < lowestY)
-                {
-                    lowestY = CornerScratch[c].y;
-                    lowestForward = fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector3.forward;
-                }
-            }
-            scaleSum += Mathf.Abs(t.lossyScale.x);
-            count++;
-        }
-        if (count == 0)
-            return false;
-
-        // THE BASIS. On the arc the average of the hosts' +Z is the direction the arc is centred
-        // on — and it contains no head term, only the poses the windows are standing at. If the set
-        // is so spread that the average cancels (two windows facing opposite ways), fall back to the
-        // facing of the host carrying the LOWEST corner: that is the window the button will sit
-        // under, so matching it is the answer that still reads as "under the rest".
-        bool averaged = forwardSum.sqrMagnitude > 1e-4f;
-        Vector3 n = averaged ? forwardSum.normalized : lowestForward;
-        n.y = 0f;
-        if (n.sqrMagnitude < 1e-6f)
-            n = Vector3.forward;
-        n.Normalize();
-        Vector3 right = Vector3.Cross(Vector3.up, n);
-        if (right.sqrMagnitude < 1e-6f)
-            right = Vector3.right;
-        right.Normalize();
-
-        float rMin = float.PositiveInfinity, rMax = float.NegativeInfinity;
-        float dMin = float.PositiveInfinity, dMax = float.NegativeInfinity;
-        float yMin = float.PositiveInfinity, yMax = float.NegativeInfinity;
-        for (int i = 0; i < panels.Count; i++)
-        {
-            ConvertedPanel p = panels[i];
-            if (!IsEnsembleMember(p))
-                continue;
-            p.HostRect.GetWorldCorners(CornerScratch);
-            for (int c = 0; c < 4; c++)
-            {
-                Vector3 w = CornerScratch[c];
-                float r = Vector3.Dot(w, right);
-                float d = Vector3.Dot(w, n);
-                if (r < rMin) rMin = r;
-                if (r > rMax) rMax = r;
-                if (d < dMin) dMin = d;
-                if (d > dMax) dMax = d;
-                if (w.y < yMin) yMin = w.y;
-                if (w.y > yMax) yMax = w.y;
-            }
-        }
-
-        e.Count = count;
-        e.Normal = n;
-        e.Right = right;
-        e.LateralMin = rMin;
-        e.LateralMax = rMax;
-        e.DepthMin = dMin;
-        e.DepthMax = dMax;
-        e.BottomY = yMin;
-        e.TopY = yMax;
-        e.MeanScale = scaleSum / count;
-        e.NormalAveraged = averaged;
-        return true;
-    }
-
-    /// <summary>
-    /// Does this converted panel count as one of "the rest" the button must sit under?
-    ///
-    /// <para>Four conditions, each for a stated reason. It must be a FLOATED MODAL host
-    /// (<see cref="ModalHostPrefix"/>) — surfaces and this class's own host are not windows the
-    /// player reads. It must be ALIVE and ACTIVE. It must be REVEALED: a host still behind the
-    /// conversion's reveal gate is invisible and is very likely still moving, so counting it would
-    /// place the button against a pose the player never saw. And it must be POKEABLE: floated
-    /// windows are registered with <see cref="UguiPokeSurfaces"/>, hover cards are deliberately
-    /// converted <c>pokeable: false</c> (ModBuild 187), and excluding hover cards is not optional —
-    /// their pose belongs to the icon the pointer is on and they join and leave on every single
-    /// mouseover, which would make the button dance across the room (ModBuild 184 made exactly this
-    /// exclusion for the arc itself).</para>
-    /// </summary>
-    private static bool IsEnsembleMember(ConvertedPanel p)
-    {
-        if (p == null || !p.IsAlive || p.HostGo == null || p.HostRect == null || p.HostCanvas == null)
-            return false;
-        if (ReferenceEquals(p, _panel))
-            return false;
-        if (!p.HostGo.activeInHierarchy)
-            return false;
-        if (p.RenderHidden || p.OwnerRenderHidden || p.RevealPending)
-            return false;
-        if (!p.HostGo.name.StartsWith(ModalHostPrefix, System.StringComparison.Ordinal))
-            return false;
-        return UguiPokeSurfaces.Surfaces.Contains(p.HostCanvas);
-    }
-
-    /// <summary>
-    /// Solve the host pose from the ensemble and apply it through the settle gate.
-    ///
-    /// <para>THE ARITHMETIC, stated once. Every counted host's four world corners are projected
-    /// into the orthonormal frame (right, up, n), which reconstructs any world point exactly as
-    /// <c>right·r + up·y + n·d</c>. The button's content — already centred on its host by
-    /// <see cref="MeasureContent"/>, so host centre = content centre — is placed at the LATERAL
-    /// MIDPOINT of the spread, at the DEPTH MIDPOINT, and with its TOP EDGE one gap below the
-    /// lowest corner in the set. Its top edge sits <c>half the measured content height × the host
-    /// scale</c> above its centre, so the height term is
-    /// <c>bottom − gap − halfHeight</c>. No term is a guess and none of them is the head.</para>
-    /// </summary>
-    private static void SolveAndPlace(ConvertedPanel panel, GameObject options,
-                                      AdventureMapUIManager? mgr, UIWindow? questWindow)
-    {
-        if (!TryEnsemble(out Ensemble e))
-        {
-            // NOTHING TO BE UNDER. Hold the last solved pose — the button stays where the player
-            // last saw it, which is the only place they could look for it — and never fall back to
-            // a head-derived spot (standing ruling: nothing may re-orient with head movement).
-            if (!_placed && options.activeInHierarchy)
-                WarnNoEnsembleOnce();
-            return;
-        }
-
-        float scale = e.MeanScale;
-        if (scale <= 1e-6f)
-            scale = Mathf.Abs(panel.HostGo.transform.lossyScale.x);
-        float ensembleHeight = Mathf.Max(0f, e.TopY - e.BottomY);
-        float gap = GapEnsembleHeights * ensembleHeight;
-        // Zero until the container has been shown once and measured: the host is placed with its
-        // CENTRE where the content's TOP edge belongs, which is half a button too high and is
-        // corrected on the first measurement — always while still render-hidden, because the
-        // visibility gate below refuses to show anything before the measurement has repeated itself.
-        float halfHeight = _contentMeasured ? 0.5f * Mathf.Abs(_content.height) * scale : 0f;
-
-        float lateralMid = 0.5f * (e.LateralMin + e.LateralMax);
-        float depthMid = 0.5f * (e.DepthMin + e.DepthMax);
-        Vector3 pos = e.Right * lateralMid
-                      + Vector3.up * (e.BottomY - gap - halfHeight)
-                      + e.Normal * depthMid;
-        // uGUI renders its front along -Z: pointing the host's +Z along the ensemble's own normal
-        // faces the button exactly the way the windows above it face. Upright by construction —
-        // there is no pitch term, and no head term.
-        Quaternion rot = Quaternion.LookRotation(e.Normal, Vector3.up);
-
-        float rigScale = RigScale();
-        float eps = PoseEpsilonMeters * rigScale;
-        bool sameAsCandidate = _haveCandidate
-                               && (pos - _candidatePos).sqrMagnitude <= eps * eps
-                               && Mathf.Abs(scale - _candidateScale) <= 1e-4f * Mathf.Max(1f, scale)
-                               && Quaternion.Angle(rot, _candidateRot) <= 0.5f;
-        if (!sameAsCandidate)
-        {
-            _haveCandidate = true;
-            _candidatePos = pos;
-            _candidateRot = rot;
-            _candidateScale = scale;
-            _candidateStillSince = Time.unscaledTime;
-        }
-        // THE SETTLE GATE IS AN ANTI-JITTER RULE, AND JITTER IS SOMETHING THE PLAYER CAN SEE. While
-        // the host is still RENDER-HIDDEN — the first solve, and every re-show before the reveal —
-        // a correction is invisible by construction, so it is applied at once: that is the same
-        // "correct it while it cannot be seen" principle the conversion's own reveal gate is built
-        // on, and it is what keeps the host from sitting unplaced long enough for that gate's
-        // deadline to expose it.
-        bool immediate = !_placed || panel.RenderHidden;
-        if (!immediate && Time.unscaledTime - _candidateStillSince < EnsembleSettleSeconds)
-            return;
-
-        bool sameAsApplied = _placed
-                             && (pos - _appliedPos).sqrMagnitude <= eps * eps
-                             && Mathf.Abs(scale - _appliedScale) <= 1e-4f * Mathf.Max(1f, scale)
-                             && Quaternion.Angle(rot, _appliedRot) <= 0.5f;
-        if (sameAsApplied)
-            return;
-
-        // PlaceHost multiplies the passed scale by metres-per-pixel; invert that so the host lands
-        // at exactly the ensemble's own mean world-units-per-pixel and the button's text is drawn
-        // the same physical size as the text of the windows above it.
-        float metersPerPixel = Mathf.Max(1e-6f, WorldUIConfig.CanvasScaleMm.Value * 0.001f);
-        CanvasConversion.PlaceHost(panel, pos, rot, scale / metersPerPixel);
-        _appliedPos = pos;
-        _appliedRot = rot;
-        _appliedScale = scale;
-        _placed = true;
-
-        bool changed = (pos - _loggedPos).sqrMagnitude > eps * eps;
-        if (_placementLogged
-            && (!changed || Time.unscaledTime - _placementLoggedAt < PlacementLogIntervalSeconds))
-            return;
-        _placementLogged = true;
-        _placementLoggedAt = Time.unscaledTime;
-        _loggedPos = pos;
-        LogPlacement(panel, options, mgr, questWindow, e, gap, halfHeight, lateralMid, depthMid,
-                     ensembleHeight, scale, rigScale, pos);
-    }
-
-    /// <summary>
-    /// THE MEASUREMENT LINE. Every number the placement is derived from, in the frame it was read
-    /// in, plus the gap in three units — ensemble heights (scale-free, the thing the eye judges),
-    /// world units, and real metres at the current rig scale. If the next hardware report says the
-    /// button is in the wrong place, this line says WHICH input was wrong: the census (wrong set),
-    /// the extent (wrong frame), the content (wrong thing measured) or the applied pose (someone
-    /// else writing it). Those are four different bugs and no other line separates them.
-    /// </summary>
-    private static void LogPlacement(ConvertedPanel panel, GameObject options,
-                                     AdventureMapUIManager? mgr, UIWindow? questWindow, Ensemble e,
-                                     float gap, float halfHeight, float lateralMid, float depthMid,
-                                     float ensembleHeight, float scale, float rigScale, Vector3 pos)
+    private static void LogFooter(UIWindow host, GameObject options, AdventureMapUIManager? mgr,
+                                  RectTransform rect, RectTransform win, Rect content,
+                                  int counted, int skipped, bool measured, float inset, Vector2 want)
     {
         var btn = mgr != null ? _travelButton?.GetValue(mgr) as Component : null;
         string btnWhere = "<not found>";
         if (btn != null)
+        {
+            Vector3 local = rect.InverseTransformPoint(btn.transform.position);
             btnWhere = $"'{btn.name}' active={btn.gameObject.activeInHierarchy} at world "
-                       + $"{btn.transform.position}";
-        string members = EnsembleNames();
-        string questName = questWindow != null ? questWindow.name : "<none floated>";
+                       + $"{btn.transform.position}, i.e. local y={local.y:F1} inside the container";
+        }
+        // RIG SCALE IS NAMED, NOT ASSUMED. The map room runs at ~198 world units per real metre, so a
+        // world length divided by the rig scale is what turns it back into REAL metres — the unit the
+        // user judges "zu weit weg" in. Mixing the two silently has shipped as a bug in this very
+        // file's neighbourhood, so both are printed.
+        float rigScale = RigScale();
+        float insetWorld = inset * Mathf.Abs(win.lossyScale.y);
+        float insetMeters = insetWorld / rigScale;
         // Built as separate locals rather than inlined: a nested interpolated string inside another
         // one is legal C# but it defeats the repo's own source scanners (scripts/patch-inventory.py
         // walks string literals with a single-quote-depth reader), and a tool that mis-parses this
-        // file reports its Harmony patch as unregistered.
-        string normalHow = e.NormalAveraged
-            ? "average of the counted hosts' +Z (the arc's own centre direction)"
-            : "the LOWEST host's +Z — the average cancelled, so the set is not arc-shaped";
-        float gapMeters = gap / Mathf.Max(1e-6f, rigScale);
-        float widthWorld = Mathf.Abs(_content.width) * scale;
+        // file reports its Harmony patch as unregistered. Not worth the saved locals.
+        string contentHow = measured
+            ? $"{counted} visible Graphic(s) counted, {skipped} skipped as disabled/transparent/zero-sized"
+            : "NOT MEASURABLE — the container's own rect is standing in";
+        string holdHow = _hidden ? "HELD DOWN (alpha 0)" : "revealed";
         VRLog.Info(Scope,
-            "MAP TRAVEL CONFIRM placement SOLVED — centred under the ENSEMBLE, not under one window.\n"
-            + $"  census    : {e.Count} floated modal window(s) counted: {members}. Excluded: hover "
-            + "cards (not pokeable — their pose belongs to the icon under the pointer), unrevealed "
-            + "hosts (still moving), and this button's own host. The quest window is "
-            + $"'{questName}' — printed for context ONLY; the placement does not depend on it, which "
-            + "is the whole of user ruling 192.\n"
-            + $"  basis     : normal {e.Normal} = {normalHow}; right {e.Right} = up x normal. NO HEAD "
-            + "TERM — the windows' own poses are the frame, so nothing here re-orients with head "
-            + "movement.\n"
-            + $"  extent    : lateral [{e.LateralMin:F2} .. {e.LateralMax:F2}] world (mid "
-            + $"{lateralMid:F2}), depth [{e.DepthMin:F2} .. {e.DepthMax:F2}] (mid {depthMid:F2}), "
-            + $"height [{e.BottomY:F2} .. {e.TopY:F2}] (span {ensembleHeight:F2}). The button's centre "
-            + "goes to (lateral mid, depth mid); its TOP edge goes one gap below the LOWEST corner.\n"
-            + $"  content   : '{options.name}' visible union {_content} host-local px, centred on its "
-            + $"own host, drawn at {scale:F4} world units per px = {widthWorld:F2} x "
-            + $"{halfHeight * 2f:F2} world units. Button: {btnWhere}.\n"
-            + $"  applied   : host pose {pos}, rotation {panel.HostGo.transform.rotation.eulerAngles}, "
-            + $"lossyScale {panel.HostGo.transform.lossyScale.x:F4} (matched to the ensemble's MEAN, so "
-            + "the label reads at the same physical size as the windows above it).\n"
-            + $"  gap       : {GapEnsembleHeights:P1} of the ensemble's height = {gap:F3} world units = "
-            + $"{gapMeters * 1000f:F1} mm real at rig scale {rigScale:F2} world units per metre. With "
-            + "ONE window this is that window's own height, i.e. exactly the ModBuild 191 gap the user "
-            + "did not object to.\n"
-            + $"  cadence   : re-solved every tick, applied only after the answer holds still for "
-            + $"{EnsembleSettleSeconds:F2} s. A window opening moves the button ONCE; a window being "
-            + "dragged moves it once, on release; a steady room writes nothing.\n"
-            + "  DISPROOF  : if the button is not where this line says, compare in order — (1) 'census' "
-            + "lists a window the player cannot see, or omits one they can ⇒ the member test is wrong; "
-            + "(2) 'extent' disagrees with where the windows visibly are ⇒ the corners were read from "
-            + "the wrong rect; (3) 'content' width/height disagrees with the visible button ⇒ the "
-            + "Graphic union caught something invisible (raise MinVisibleAlpha); (4) all three agree "
-            + "and it is still wrong ⇒ the host pose is being overwritten by another writer, and THIS "
-            + $"LINE WILL REPEAT on its {PlacementLogIntervalSeconds:F0} s cadence.");
-    }
-
-    /// <summary>
-    /// ONE Warn for the "the game wants to show the travel options and there is no floated window
-    /// to put them under" case, naming the consequence. Deliberately not a fallback: placing the
-    /// button from the head would re-orient with head movement, which is a standing ruling against.
-    /// </summary>
-    private static void WarnNoEnsembleOnce()
-    {
-        if (_noEnsembleWarned)
-            return;
-        _noEnsembleWarned = true;
-        VRLog.Warn(Scope, "MAP TRAVEL CONFIRM: the game has the travel options shown but NO floated "
-                          + "modal window is revealed in the room, so there is nothing to centre them "
-                          + "under and no pose can be solved. CONSEQUENCE: the Reisen / 'Quest erneut "
-                          + "spielen' button stays unreachable until a window (normally the quest card) "
-                          + "floats — it is deliberately NOT placed in front of the head, because a "
-                          + "head-derived pose would re-orient with head movement (standing ruling). The "
-                          + "double-press shortcut stays switched off, so nothing can commit travel by "
-                          + "accident meanwhile. The container is left exactly where the game had it.");
-    }
-
-    /// <summary>Host names of the counted ensemble, for the placement line. Allocates only on the
-    /// throttled log path.</summary>
-    private static string EnsembleNames()
-    {
-        var sb = new System.Text.StringBuilder(128);
-        IReadOnlyList<ConvertedPanel> panels = CanvasConversion.ActivePanels;
-        for (int i = 0; i < panels.Count; i++)
-        {
-            if (!IsEnsembleMember(panels[i]))
-                continue;
-            if (sb.Length > 0)
-                sb.Append(", ");
-            sb.Append('\'').Append(panels[i].HostGo.name).Append('\'');
-        }
-        return sb.Length > 0 ? sb.ToString() : "<none>";
-    }
-
-    // ---- when it is drawn: the anti-flash gate --------------------------------------------------
-
-    /// <summary>
-    /// THE ONE-FRAME FLASH FIX. The host renders only while the game has the container shown AND a
-    /// repeated content measurement has been placed at a solved pose — so there is no frame in
-    /// which the button is visible at a pose that is not its final one.
-    ///
-    /// <para>NOT A WRITE WAR. The flag written here belongs to the mod's own host and nothing in
-    /// the game can see it; the game's own <c>travelOptions.activeSelf</c> is never written, only
-    /// read. The write is level-triggered against <see cref="ConvertedPanel.RenderHidden"/>, so a
-    /// steady state writes nothing. And while the conversion's own reveal gate is still pending
-    /// this method keeps its hands off entirely — the gate owns visibility until it opens, and two
-    /// owners writing the same flag on alternate frames is exactly the alternation bug.</para>
-    ///
-    /// <para>BOUNDED. If the measurement never repeats itself, the button is shown anyway after
-    /// <see cref="ShowDeadlineSeconds"/> with a Warn: a confirm button that never appears is worse
-    /// than one that appears a frame early.</para>
-    /// </summary>
-    private static void TickVisibility(ConvertedPanel panel, bool active)
-    {
-        if (panel.RevealPending)
-            return;
-        bool ready = _placed && _contentRepeated;
-        if (!ready && active && Time.unscaledTime - _activeSince >= ShowDeadlineSeconds)
-        {
-            ready = _placed;
-            if (!_revealForcedLogged && _placed)
-            {
-                _revealForcedLogged = true;
-                VRLog.Warn(Scope, "MAP TRAVEL CONFIRM: the travel options are being shown before the "
-                                  + "content measurement repeated itself (deadline "
-                                  + $"{ShowDeadlineSeconds * 1000f:F0} ms since the game enabled them). "
-                                  + "CONSEQUENCE: the button may be centred a few pixels off for a frame "
-                                  + "or two while the uGUI layout finishes, and will then settle. A "
-                                  + "button that never appears would be the worse failure, so visibility "
-                                  + "wins. If this line repeats every time, the container's layout is "
-                                  + "being re-driven every frame and the measurement can never agree "
-                                  + "with itself.");
-            }
-        }
-        bool wantVisible = active && ready;
-        if (panel.RenderHidden == wantVisible)
-            CanvasConversion.SetPanelRenderVisible(panel, wantVisible);
-    }
-
-    /// <summary>
-    /// Keep the confirm button clickable while the game's UI lock is asserted. The lock legitimately
-    /// disables every converted host's raycaster (the CanvasConversion lock mirror, change-gated on
-    /// its own dirty flag), but the travel confirmation is the one surface that must accept input
-    /// while it is up — the same exemption <c>DialogSurface</c> and the floated modals apply. Parked
-    /// inside the quest window (190/191) this came for free from that window's host; on a host of
-    /// its own it has to be re-asserted. Change-gated, and the mirror only writes on a lock
-    /// transition, so the two cannot fight.
-    /// </summary>
-    private static void KeepClickable(ConvertedPanel panel)
-    {
-        if (panel.HostRaycaster != null && !panel.HostRaycaster.enabled)
-            panel.HostRaycaster.enabled = true;
+            $"MAP TRAVEL CONFIRM placement SOLVED — INSIDE the quest window '{host.name}', on its own "
+            + "lower area (ModBuild 193 reverts 192's detached world host by user ruling: \"soll teil "
+            + "des Fensters sein … innerhalb des Fensters den Button etwas nach oben\").\n"
+            + $"  container : '{options.name}' rect {rect.rect} — the flat HUD bar's own rect. Pinning "
+            + "THIS rect's top edge to the window (anchoredPosition = zero) is what ModBuild 190 did "
+            + "and why the button hung far below the card; nothing here ever writes zero.\n"
+            + $"  content   : {contentHow}; union in CONTAINER-LOCAL space {content} (BOTTOM edge "
+            + $"y={content.yMin:F1}, centre x={content.center.x:F1}).\n"
+            + $"  button    : {btnWhere}.\n"
+            + $"  window    : rect {win.rect} (height {Mathf.Abs(win.rect.height):F1}), lossyScale "
+            + $"{win.lossyScale.y:F4} world units per local unit; rig scale {rigScale:F2} world units "
+            + "per REAL metre.\n"
+            + $"  applied   : anchoredPosition = {want} — DERIVED as (-content.center.x, "
+            + "inset - content.yMin), never a tuned pixel count. The container is currently "
+            + $"{holdHow}.\n"
+            + $"  inset     : {InsetWindowHeights:P1} of the window's height = {inset:F1} local units = "
+            + $"{insetWorld:F3} world units = {insetMeters * 1000f:F1} mm real, measured UPWARD from the "
+            + "window's bottom edge to the content's bottom edge — so the button sits ON the card, "
+            + "near its lower edge, for either label (Reisen / Quest erneut spielen) and at any window "
+            + "size, because both terms are re-measured every tick.\n"
+            + "  DISPROOF  : if the button is still wrong, there are exactly two candidates and they "
+            + "are told apart HERE — (1) 'content' DISAGREES with 'button' (the union's bottom edge "
+            + "sits far below the button's own local y) ⇒ the Graphic union caught something the "
+            + "player cannot see, and the inset is being measured from an invisible edge; raise "
+            + "MinVisibleAlpha or exclude the offender. (2) 'content' and 'button' AGREE and the "
+            + "position is still wrong ⇒ anchoredPosition is being overwritten by another writer, and "
+            + $"THIS LINE WILL REPEAT on its {ResolveLogIntervalSeconds:F0} s cadence instead of being "
+            + "printed once. A single line and agreeing numbers mean the solve is doing what it says "
+            + "and only the INSET FRACTION is up for debate.");
     }
 
     /// <summary>World units per real metre at the current rig scale, or 1 when there is no rig.
     /// Named rather than assumed: the user judges distances in real millimetres and the transforms
-    /// are written in world units, and mixing the two silently is a bug class this project has.</summary>
+    /// are written in local uGUI units, and mixing the two silently is a bug class this project
+    /// has.</summary>
     private static float RigScale() =>
         Rig.RigTarget.Current != null
             ? Mathf.Max(Rig.RigTarget.Current.lossyScale.x, 0.0001f)
             : 1f;
 
-    // ---- the shortcut gate (unchanged since ModBuild 190) --------------------------------------
+    // ---- the shortcut gate (unchanged since ModBuild 190) ----------------------------------------
 
     /// <summary>Is this the location the game already has staged for travel? Used by the gate.</summary>
     private static bool IsStagedLocation(AdventureMapUIManager mgr, MapLocation? candidate)
@@ -1213,7 +947,7 @@ internal static class MapTravelConfirm
                                   + "as 'go now'; in VR a second trigger pull on the same icon is far too "
                                   + "easy to produce, and the user reported committing by accident. This "
                                   + "is byte-for-byte the branch the game itself takes online. Travel "
-                                  + "commits through the Reisen button under the floated windows.");
+                                  + "commits through the Reisen button in the quest window.");
             }
             return false;
         }

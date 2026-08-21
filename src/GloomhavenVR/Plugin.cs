@@ -99,6 +99,24 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<float> MapGloomhavenIconScale = null!;
 
     /// <summary>
+    /// [MapRoom] Size factor for the icons on the GLOOMHAVEN CITY map in the 3D map room — the
+    /// shopfronts (merchant, enhancer, temple, trainer) and the City-type quests, i.e. everything
+    /// the room draws while <c>MapChoreographer.cityMap</c> is the active map.
+    ///
+    /// <para>WHY IT EXISTS (user report against ModBuild 192: "Trenne die Größe des Symbole auf der
+    /// Weltkarte und die Symbole auf der Karte für Gloomhaven. Die müssen separat justiert
+    /// werden."). Until this build <see cref="MapIconScale"/> governed every non-capital icon on
+    /// WHICHEVER map was on screen, so one number had to serve two populations authored at
+    /// different sizes. <see cref="MapIconScale"/> keeps its meaning for the world map — a dropped
+    /// .cfg value in this project is always against the newest build, and his tuned 2.30 was
+    /// measured there — and this entry takes the city map. Defaults to 1, so the city icons return
+    /// to their authored size until this dial is turned; that is the separation he asked for, not a
+    /// regression. See <c>MapIconLayer</c>'s class doc for the source that establishes the two
+    /// populations and why they can never overlap in one drawn frame.</para>
+    /// </summary>
+    internal static ConfigEntry<float> MapCityIconScale = null!;
+
+    /// <summary>
     /// [Rig] Demeo-style world tilt (degrees, 0-60) — FEATURE PARKED (user ruling 2026-08:
     /// "macht zu viele Probleme, vorerst entfernen"). The entry stays bound so a tuned value
     /// survives in the .cfg, but the runtime clamps the effective tilt to 0
@@ -333,12 +351,18 @@ public class Plugin : BaseUnityPlugin
         // ---- [MapRoom] the 3D map room's own dials --------------------------------------------
         // Bound in the MAIN config file next to [Rig] Experimental3DMap, which is the switch that
         // decides whether these do anything at all — a player who found that switch is one section
-        // away from the two dials that tune what it turned on.
+        // away from the three dials that tune what it turned on.
+        //
+        // ONE DIAL PER ICON POPULATION (ModBuild 193, user report: "Trenne die Größe des Symbole
+        // auf der Weltkarte und die Symbole auf der Karte für Gloomhaven"). The KEYS and DEFAULTS
+        // of the two that already shipped are untouched — a dropped .cfg value in this project is
+        // always against the newest build, and IconScale's tuned 2.30 was measured on the world
+        // map, so it keeps governing exactly those icons. Only CityIconScale is new.
         MapIconScale = Config.Bind(
             "MapRoom", "IconScale", Defaults.MapIconScale,
             new ConfigDescription(
-                "SIZE of the location icons on the campaign map WHILE YOU STAND IN THE 3D MAP ROOM "
-                + "([Rig] Experimental3DMap) — the village, scenario, boss and store markers on the "
+                "SIZE of the WORLD MAP's location icons WHILE YOU STAND IN THE 3D MAP ROOM "
+                + "([Rig] Experimental3DMap) — the village, scenario and boss markers on the "
                 + "parchment. Range 0.5-4, default 1 = the size they have always had, so nothing "
                 + "changes until you move this; the floor is there because an icon scaled to "
                 + "nothing is a scenario you can no longer point at. The factor multiplies each "
@@ -347,10 +371,10 @@ public class Plugin : BaseUnityPlugin
                 + "flat 2D map is NOT affected — this dial exists only on the room's draw path. "
                 + "Applies live: the icon layer refills its draw list every frame, so the icons "
                 + "resize as you step the value, no restart and no leaving the map. The Gloomhaven "
-                + "marker has its own dial ([MapRoom] GloomhavenIconScale) and ignores this one. "
-                + "NOTE: the invisible HOVER PAD you point at is still built at the icon's AUTHORED "
-                + "size, so at a factor far from 1 the sensitive area and the drawn picture no "
-                + "longer coincide.",
+                + "marker has its own dial ([MapRoom] GloomhavenIconScale) and ignores this one, "
+                + "and so does the whole Gloomhaven CITY map ([MapRoom] CityIconScale). The "
+                + "invisible target area you point at grows WITH the icon: it is built from the "
+                + "same number, so you keep hitting exactly what you see.",
                 new AcceptableValueRange<float>(0.5f, 4f)));
         MapGloomhavenIconScale = Config.Bind(
             "MapRoom", "GloomhavenIconScale", Defaults.MapGloomhavenIconScale,
@@ -364,6 +388,21 @@ public class Plugin : BaseUnityPlugin
                 + "name or its artwork, so this keeps working in any language and after any art "
                 + "update; there is exactly one such location per map. Applies live, 3D map room "
                 + "only, flat map unaffected. Same hover-pad note as above.",
+                new AcceptableValueRange<float>(0.5f, 4f)));
+        MapCityIconScale = Config.Bind(
+            "MapRoom", "CityIconScale", Defaults.MapCityIconScale,
+            new ConfigDescription(
+                "SIZE of the icons on the GLOOMHAVEN CITY map in the 3D map room — the merchant, "
+                + "enhancer, temple and trainer shopfronts and the city's own quests, i.e. "
+                + "everything you see after stepping from the world map into the city. Range "
+                + "0.5-4, default 1 = the size they have always had. SEPARATE from [MapRoom] "
+                + "IconScale, which now governs the WORLD map only: the two maps draw different "
+                + "populations at different authored sizes, and one number could not serve both. "
+                + "The game never shows both maps at once, so exactly one of the two dials is "
+                + "acting at any moment — whichever map you are looking at. The floor is there for "
+                + "the same reason as everywhere else: a shopfront scaled to nothing is a merchant "
+                + "you can no longer point at. Applies live, 3D map room only, flat 2D map "
+                + "unaffected; the invisible target area grows with the icon.",
                 new AcceptableValueRange<float>(0.5f, 4f)));
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,

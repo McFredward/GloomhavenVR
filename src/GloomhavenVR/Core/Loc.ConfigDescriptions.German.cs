@@ -691,30 +691,38 @@ internal static partial class Loc
                 + "hier macht sich an den Maßen des PERGAMENTS fest, wovor jene Notiz gewarnt hat. Alles "
                 + "steht im Log — suche nach MAP ROOM ENGAGED und MAP SCENE REPORT.",
             // ---- [MapRoom] ----
+            // ONE DIAL PER KARTE (ModBuild 193, user: "Trenne die Größe des Symbole auf der Weltkarte
+            // und die Symbole auf der Karte für Gloomhaven. Die müssen separat justiert werden.").
+            // All three texts were also RE-CUT to fit ConfigCatalog.MaxDescriptionChars: the two that
+            // shipped before measured 1062 and 772 characters after whitespace collapse against a 620
+            // clip, i.e. both were being cut off mid-word in the headset — the reader lost exactly the
+            // closing sentences that say the dial applies live and that the hit box grows with the
+            // icon. Collapsed lengths now: IconScale 612, CityIconScale 603, GloomhavenIconScale 616.
             ["MapRoom/IconScale"] =
-                "GRÖSSE der Ortssymbole auf der Kampagnenkarte, SOLANGE DU IM 3D-KARTENRAUM STEHST "
-                + "([Rig] Experimental3DMap) — also der Dorf-, Szenario-, Boss- und Ladenmarker auf dem "
-                + "Pergament. Bereich 0.5-4, Standard 1 = die Größe, die sie immer hatten; es ändert sich "
-                + "also nichts, bis du hier drehst. Die Untergrenze gibt es, weil ein auf nichts "
-                + "geschrumpftes Symbol ein Szenario ist, das du nicht mehr anvisieren kannst. Der Faktor "
-                + "vervielfacht die gezeichnete Fläche jedes Symbols, jedes Symbol behält seine eigenen "
-                + "Proportionen und seinen Platz auf der Karte: es ist eine Vergrößerung des Markers, keine "
-                + "Neuanordnung der Karte. Die flache 2D-Karte ist NICHT betroffen. Wirkt sofort — die "
-                + "Symbolebene baut ihre Zeichenliste jedes Bild neu auf, die Symbole wachsen also beim "
-                + "Verstellen mit, ohne Neustart und ohne die Karte zu verlassen. Das Gloomhaven-Symbol hat "
-                + "einen eigenen Regler und ignoriert diesen. Die unsichtbare Zielfläche zum Anvisieren "
-                + "wächst MIT: sie wird aus derselben Zahl gebaut wie das gezeichnete Symbol, du triffst "
-                + "also weiterhin genau das, was du siehst.",
+                "GRÖSSE der Ortssymbole auf der WELTKARTE, solange du im 3D-Kartenraum stehst "
+                + "([Rig] Experimental3DMap) — die Dorf-, Szenario- und Bossmarker auf dem Pergament. "
+                + "Bereich 0.5-4, Standard 1 = die Größe, die sie immer hatten. Die Untergrenze gibt es, "
+                + "weil ein auf nichts geschrumpftes Symbol ein Szenario ist, das du nicht mehr anvisieren "
+                + "kannst. Der Faktor vergrößert nur den Marker, er ordnet die Karte nicht neu. Getrennt "
+                + "einstellbar von der Stadtkarte ([MapRoom] CityIconScale) und vom Gloomhaven-Marker. "
+                + "Wirkt sofort, ohne Neustart; die flache 2D-Karte bleibt unberührt. Die Zielfläche zum "
+                + "Anvisieren wächst mit.",
+            ["MapRoom/CityIconScale"] =
+                "GRÖSSE der Symbole auf der STADTKARTE VON GLOOMHAVEN im 3D-Kartenraum — Händler, "
+                + "Veredler, Tempel, Trainer und die Aufträge der Stadt, also alles, was du siehst, sobald "
+                + "du von der Weltkarte in die Stadt wechselst. Bereich 0.5-4, Standard 1 = die bisherige "
+                + "Größe. GETRENNT von [MapRoom] IconScale, das jetzt nur noch die Weltkarte regelt: beide "
+                + "Karten zeichnen andere Symbole in anderen Größen, eine Zahl passte nicht für beide. Das "
+                + "Spiel zeigt nie beide Karten gleichzeitig, es wirkt also immer genau einer der beiden "
+                + "Regler. Wirkt sofort, nur im 3D-Kartenraum; die Zielfläche zum Anvisieren wächst mit.",
             ["MapRoom/GloomhavenIconScale"] =
-                "GRÖSSE allein des GLOOMHAVEN-Symbols im 3D-Kartenraum — die Hauptstadt, der eine Ort, zu "
-                + "dem die Gruppe immer zurückkehrt. Bereich 0.5-4, Standard 1 = die Größe, die es immer "
-                + "hatte. Getrennt von [MapRoom] IconScale, weil das Symbol der Hauptstadt deutlich größer "
-                + "gezeichnet ist als eine Dorfnadel und selten denselben Faktor will; wo beide sich "
-                + "widersprechen, gewinnt für dieses eine Symbol dieser Regler. Erkannt wird es über die "
-                + "EIGENE EINSTUFUNG DES SPIELS für diesen Ort (sein Hauptquartier-Typ), nicht über Name "
-                + "oder Grafik — das funktioniert also in jeder Sprache und nach jedem Grafik-Update "
-                + "weiter; pro Karte gibt es genau einen solchen Ort. Wirkt sofort, nur im 3D-Kartenraum, "
-                + "die flache Karte bleibt unberührt. Die Zielfläche zum Anvisieren wächst auch hier mit.",
+                "GRÖSSE allein des GLOOMHAVEN-MARKERS auf der Weltkarte im 3D-Kartenraum — die Hauptstadt, "
+                + "der eine Ort, zu dem die Gruppe immer zurückkehrt. Bereich 0.5-4, Standard 1. Getrennt "
+                + "von [MapRoom] IconScale, weil das Symbol der Hauptstadt deutlich größer gezeichnet ist "
+                + "als eine Dorfnadel; für dieses eine Symbol gewinnt dieser Regler. Erkannt wird es über "
+                + "die EIGENE EINSTUFUNG DES SPIELS (Hauptquartier-Typ), nicht über Name oder Grafik — das "
+                + "hält in jeder Sprache und nach jedem Grafik-Update. Auf der Stadtkarte blendet das Spiel "
+                + "den Marker aus, dort wirkt dieser Regler nicht. Wirkt sofort; die Zielfläche wächst mit.",
             ["Rig/WorldTiltDegrees"] =
                 "ALT — ohne Wirkung (Funktion 2026-08 auf Nutzerwunsch GEPARKT: die Weltneigung machte zu "
                 + "viele Probleme und ist vorerst abgeschaltet; sie kommt eventuell später wieder). Das war "

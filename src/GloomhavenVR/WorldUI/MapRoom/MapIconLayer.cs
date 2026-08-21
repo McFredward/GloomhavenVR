@@ -96,14 +96,57 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///
 /// <para>SIZE DIALS (user report against ModBuild 188: "Die Symbole auf der Map sind sehr klein — kannst
 /// du im Debugmenu eine Option einbauen das ich sie größere machen kann? (Nur in der 3D Umgebung)
-/// — dabei soll die Größe des Gloomhaven-Symbols gesondert eingestellt werden können"). Two live
-/// factors multiply the quad footprint and nothing else: <c>[MapRoom] IconScale</c> for every
-/// location icon and <c>[MapRoom] GloomhavenIconScale</c> for the capital's own icon. They are
-/// read on every tick, so a dial turned in the menu is visible on the next frame without a reload,
-/// and they exist only on this path — the flat map's icon draw
-/// (<c>FlatScreenStereo.3.Map.DrawMapIcons</c>) never sees them. See
-/// <see cref="IsCapital"/> for how the Gloomhaven icon is identified, and
+/// — dabei soll die Größe des Gloomhaven-Symbols gesondert eingestellt werden können"). Live
+/// factors multiply the quad footprint and nothing else. They are read on every tick, so a dial
+/// turned in the menu is visible on the next frame without a reload, and they exist only on this
+/// path — the flat map's icon draw (<c>FlatScreenStereo.3.Map.DrawMapIcons</c>) never sees them.
+/// See <see cref="IsCapital"/> for how the Gloomhaven icon is identified, and
 /// <see cref="ScaleForDrawnQuad"/> for the contract the hover-pad lane needs.</para>
+///
+/// <para>ONE DIAL PER ICON POPULATION — WHY THERE ARE THREE (user report against ModBuild 192:
+/// "Trenne die Größe des Symbole auf der Weltkarte und die Symbole auf der Karte für Gloomhaven.
+/// Die müssen separat justiert werden."). Through ModBuild 192 there were two, and the split was
+/// along the wrong axis: <c>IconScale</c> governed every non-capital icon on WHICHEVER map was on
+/// screen, so his tuned 2.30 applied to the world map's villages AND to the city map's shopfronts,
+/// which are authored at different sizes and want different factors. READ FROM SOURCE, the game
+/// draws exactly two maps and never both:</para>
+/// <list type="bullet">
+///   <item><b>WORLD map</b> — <c>MapChoreographer.worldMap</c> (decompiled MapChoreographer.cs:64),
+///   raised in <c>OpenWorldMap</c> (:3727-3731). Its population is every location whose quest is
+///   not a City quest plus the villages that are not city locations, and — explicitly, at :3854 —
+///   the capital's own <c>HeadquartersLocation</c> marker.</item>
+///   <item><b>CITY map</b> — <c>MapChoreographer.cityMap</c> (:70), raised in <c>OpenCityMap</c>
+///   (:3754-3755). Its population is <c>m_CityLocations</c> (:107 — the Merchant/Enhancer/Temple/
+///   Trainer shopfronts, added at :614/:652/:692) plus the quests of type <c>City</c>
+///   (<c>IsVisibleInMap</c> :3873). The Gloomhaven marker is explicitly HIDDEN here (:3839).</item>
+/// </list>
+/// <para>The two populations cannot overlap in a drawn frame: <c>RefreshShownLocationsByMap</c>
+/// (:3761) calls <c>HideLocation</c> on everything that does not belong to the map on screen, and
+/// <c>HideLocation</c> ends in <c>gameObject.SetActive(false)</c> (decompiled MapLocation.cs:931)
+/// — while this layer collects with <c>includeInactive: false</c> and skips any decal that is not
+/// <c>activeInHierarchy</c>. So "which map is on screen" IS "which population is drawn", and the
+/// dial can be chosen per SURFACE rather than per icon. That is also the only choice that can
+/// classify a decal the fallback sweep found with no <c>MapLocation</c> above it at all.</para>
+/// <list type="number">
+///   <item><c>[MapRoom] IconScale</c> — the WORLD map's general location icons. UNCHANGED KEY,
+///   unchanged default, and its meaning is deliberately kept: the value the user tuned to 2.30 was
+///   measured on the world map (hardware log, ModBuild 192: "IconScale x2.30 hit 37 icon(s)" with
+///   the Headquarters marker present, i.e. the world map), so it keeps governing exactly those
+///   icons. A dropped .cfg value in this project is always against the newest build; repurposing
+///   this key would silently move a hand-tuned number to a different meaning.</item>
+///   <item><c>[MapRoom] GloomhavenIconScale</c> — the capital's own marker, world map only.
+///   Unchanged.</item>
+///   <item><c>[MapRoom] CityIconScale</c> — NEW: every icon drawn while the GLOOMHAVEN CITY map is
+///   on screen. It starts at 1.0, which means the city icons go back to their authored size on the
+///   first boot of this build until he tunes it — that is the point of the report, not a
+///   regression.</item>
+/// </list>
+///
+/// <para>THE PARTY TOKEN TAKES NO DIAL. It is drawn with <c>CommandBuffer.DrawRenderer</c> from the
+/// game's own renderers and their own materials (see <see cref="Tick"/>), not as a quad with a
+/// footprint this layer computes — there is no factor to multiply. Scaling it would mean writing to
+/// a game transform, which this class never does. The census line states its draw count so the
+/// number is never mistaken for an icon that a dial failed to reach.</para>
 ///
 /// <para>TEARDOWN: <see cref="Release"/> detaches the buffer from whatever camera holds it and
 /// destroys the mesh and material. Nothing is ever left on a game object — the decals themselves
@@ -137,7 +180,7 @@ internal sealed class MapIconLayer
     /// log carries the number the ZWrite argument rests on instead of a claim.</summary>
     private const float WorldUnitsPerMetre = 198f;
 
-    /// <summary>Hard floor/ceiling for both size dials, applied on TOP of the bind-site
+    /// <summary>Hard floor/ceiling for ALL THREE size dials, applied on TOP of the bind-site
     /// <c>AcceptableValueRange</c>. Belt and braces: a hand-edited .cfg can carry a value BepInEx
     /// never clamped (it clamps what it parses, not what a later hand-edit puts back), and a factor
     /// of 0 would erase every location marker on the map — i.e. remove the only way to pick a
@@ -196,6 +239,81 @@ internal sealed class MapIconLayer
 
     private const float CensusMinIntervalSeconds = 0.5f;
 
+    /// <summary>
+    /// WHICH OF THE GAME'S TWO CAMPAIGN MAPS IS ON SCREEN — the axis the size dials are split
+    /// along (see the class doc). <c>Unknown</c> is a real, reachable state: the choreographer has
+    /// not been found yet, or both map GameObjects are down mid-transition
+    /// (<c>MapChoreographer.OpenCityMap</c> deactivates one before activating the other).
+    /// </summary>
+    internal enum MapSurface
+    {
+        Unknown,
+        World,
+        City,
+    }
+
+    /// <summary>
+    /// The surface resolved for <see cref="_surfaceFrame"/>, and whether one has been resolved at
+    /// all. Two fields rather than a sentinel frame number, the same reason
+    /// <see cref="_censusPrinted"/> is its own flag: every int is a frame count some real frame
+    /// has, so a sentinel would silently swallow one unlucky frame. Nothing here ever does
+    /// arithmetic on the frame number — only <c>==</c> — so there is no overflow to get wrong.
+    /// </summary>
+    private static bool _surfaceResolved;
+
+    /// <inheritdoc cref="_surfaceResolved"/>
+    private static int _surfaceFrame;
+
+    /// <inheritdoc cref="_surfaceResolved"/>
+    private static MapSurface _surface = MapSurface.Unknown;
+
+    /// <summary>
+    /// The map currently on screen, resolved AT MOST ONCE PER FRAME and shared by everything that
+    /// needs it in that frame.
+    ///
+    /// <para>WHY IT IS CACHED PER FRAME AND NOT PER CALL. <see cref="ScaleForDrawnQuad"/> is called
+    /// once per hover pad per frame by <c>MapIconHoverPads.PosePad</c> — three or four dozen calls
+    /// in a frame — and every one of them must return the SAME answer as the one the draw loop
+    /// used, or a pad and its icon would be sized from different maps for one frame during a
+    /// world↔city switch. One resolution per frame makes that impossible by construction rather
+    /// than by call ordering, which is the part that would otherwise be fragile: the pads and the
+    /// icon layer are ticked from two different places in <c>MapRoomDriver.TickActive</c>.</para>
+    ///
+    /// <para><see cref="Tick"/> seeds it from the choreographer it was HANDED (authoritative, and
+    /// it runs first); a caller that arrives in a frame Tick did not run in resolves it from
+    /// <c>MapRoomDriver.Choreographer</c> instead. Never throws — a failure resolves to
+    /// <c>Unknown</c>, which the dial choice treats as the world map, i.e. exactly the behaviour
+    /// that shipped before this split existed.</para>
+    /// </summary>
+    internal static MapSurface CurrentSurface =>
+        _surfaceResolved && _surfaceFrame == Time.frameCount
+            ? _surface
+            : ResolveSurface(MapRoomDriver.Choreographer);
+
+    /// <summary>Resolve and latch the surface for THIS frame. See <see cref="CurrentSurface"/>.</summary>
+    private static MapSurface ResolveSurface(global::MapChoreographer? choreo)
+    {
+        MapSurface s;
+        try
+        {
+            // The mod's single source of truth for "which map is up" — the same call
+            // MapParchment.Acquire makes to decide which parchment to override, so the icon dial
+            // and the parchment can never disagree about which map the player is looking at.
+            GameObject? active = MapParchment.ResolveActiveMapGo(choreo, out bool isCity);
+            s = active == null ? MapSurface.Unknown : isCity ? MapSurface.City : MapSurface.World;
+        }
+        catch (System.Exception)
+        {
+            // Degrade, never throw: this is reached from a per-frame Update path, and an unguarded
+            // exception in one of those starves VR input for the whole rig.
+            s = MapSurface.Unknown;
+        }
+        _surface = s;
+        _surfaceFrame = Time.frameCount;
+        _surfaceResolved = true;
+        return s;
+    }
+
     /// <summary>Icons drawn on the most recent rebuild (diagnostics).</summary>
     internal int DrawnCount { get; private set; }
 
@@ -214,14 +332,38 @@ internal sealed class MapIconLayer
     /// rectangle. This method is the one number that lane needs to multiply by; nothing inside this
     /// class calls it (the draw loop reads both dials once per tick instead of once per icon).</para>
     ///
+    /// <para>IT ANSWERS FOR THE MAP THAT IS ON SCREEN. Since ModBuild 193 the dial depends on the
+    /// SURFACE as well as on the icon (class doc, "one dial per icon population"), so a pad built
+    /// while the world map is up and a pad built while the city map is up get different numbers
+    /// from the same code. The surface comes from <see cref="CurrentSurface"/>, which is resolved
+    /// once per frame and shared with the draw loop — so the pad and the quad it shadows are
+    /// guaranteed to have used the same map, the same dial and the same clamp, which is the whole
+    /// point of this method existing instead of the pad lane reading the config entries itself.</para>
+    ///
     /// <para>See <see cref="IsCapital"/> for the Gloomhaven identification and
     /// <see cref="ClampScale"/> for the floor.</para>
     /// </summary>
-    internal static float ScaleForDrawnQuad(Component? decal)
+    internal static float ScaleForDrawnQuad(Component? decal) =>
+        ScaleFor(CurrentSurface, IsCapital(OwnerOf(decal)));
+
+    /// <summary>
+    /// THE DIAL CHOICE, in one place so the draw loop and the hover pads cannot drift apart.
+    ///
+    /// <para>On the CITY map every drawn icon takes <c>[MapRoom] CityIconScale</c> — including,
+    /// hypothetically, the capital's marker, which the game hides there
+    /// (MapChoreographer.cs:3839) but which would be a city icon if it ever appeared. On the WORLD
+    /// map the capital takes its own dial and everything else takes <c>[MapRoom] IconScale</c>.
+    /// <c>Unknown</c> is folded into the world case: it is what a missing choreographer or a
+    /// mid-transition frame produces, and treating it as the world map reproduces exactly what
+    /// shipped before the split.</para>
+    /// </summary>
+    private static float ScaleFor(MapSurface surface, bool isCapital)
     {
-        ConfigEntry<float>? entry = IsCapital(OwnerOf(decal))
-            ? Plugin.MapGloomhavenIconScale
-            : Plugin.MapIconScale;
+        ConfigEntry<float>? entry = surface == MapSurface.City
+            ? Plugin.MapCityIconScale
+            : isCapital
+                ? Plugin.MapGloomhavenIconScale
+                : Plugin.MapIconScale;
         return ClampScale(entry != null ? entry.Value : 1f);
     }
 
@@ -251,17 +393,27 @@ internal sealed class MapIconLayer
         _cmd!.Clear();
         Rescan(choreo);
 
-        // Read ONCE per tick, not once per icon: both dials are live (a menu step must show on the
-        // next frame with no reload) but they must not be able to change value halfway through a
-        // buffer refill, which would put two different sizes in one frame's recording.
-        float generalScale = ClampScale(Plugin.MapIconScale != null ? Plugin.MapIconScale.Value : 1f);
-        float capitalScale = ClampScale(Plugin.MapGloomhavenIconScale != null
-            ? Plugin.MapGloomhavenIconScale.Value
-            : 1f);
+        // WHICH MAP, resolved from the choreographer we were HANDED and latched for this frame, so
+        // the hover pads that pose later in the same frame read the identical answer (see
+        // CurrentSurface). Done before the dials are read: the surface decides which of them the
+        // icons will actually take.
+        MapSurface surface = ResolveSurface(choreo);
+        bool cityMapShown = surface == MapSurface.City;
+
+        // Read ONCE per tick, not once per icon: all three dials are live (a menu step must show on
+        // the next frame with no reload) but they must not be able to change value halfway through a
+        // buffer refill, which would put two different sizes in one frame's recording. All three are
+        // read even though at most two can hit anything this frame — the census line reports the
+        // idle one's VALUE too, so "the dial is at 2.30 and hit nothing" is distinguishable from
+        // "the dial is at 1.00", which is the difference between a wrong map and a wrong dial.
+        float worldScale = ScaleFor(MapSurface.World, isCapital: false);
+        float capitalScale = ScaleFor(MapSurface.World, isCapital: true);
+        float cityScale = ScaleFor(MapSurface.City, isCapital: false);
 
         float planeY = parchment.bounds.max.y + IconLiftWorld;
         int drawn = 0;
         int capitalHits = 0;
+        int cityHits = 0;
         int ownerless = 0;
         for (int i = 0; i < _decals.Count; i++)
         {
@@ -279,10 +431,16 @@ internal sealed class MapIconLayer
             // exists, so a flag latched at scan time could be stale for the icon's whole life.
             global::MapLocation? owner = _decalOwners[i];
             bool isCapital = IsCapital(owner);
-            float f = isCapital ? capitalScale : generalScale;
-            if (isCapital)
+            // Surface first, capital second — the same order ScaleFor uses, and the reason the two
+            // cannot disagree is that this IS the same decision written twice for speed: the loop
+            // must not pay a config read per icon, so it selects between three numbers it already
+            // holds. Any change here belongs in ScaleFor as well or the hover pads drift.
+            float f = cityMapShown ? cityScale : isCapital ? capitalScale : worldScale;
+            if (cityMapShown)
+                cityHits++;
+            else if (isCapital)
                 capitalHits++;
-            else if (owner == null)
+            if (owner == null)
                 ownerless++;
 
             Transform dt = d.transform;
@@ -323,7 +481,8 @@ internal sealed class MapIconLayer
 
         DrawnCount = drawn;
         TokenDrawCount = tokenDraws;
-        LogCensus(drawn, tokenDraws, capitalHits, ownerless, planeY, generalScale, capitalScale);
+        LogCensus(drawn, tokenDraws, capitalHits, cityHits, ownerless, planeY,
+                  surface, worldScale, capitalScale, cityScale);
     }
 
     /// <summary>
@@ -334,16 +493,28 @@ internal sealed class MapIconLayer
     /// icon, which makes "the scan ran and the map genuinely has no icons yet" and "the scan never
     /// ran / found nothing it could read" the same silence in the log. Those are opposite bugs and
     /// the line now names which one it is.</para>
+    ///
+    /// <para>EVERY DIAL IS NAMED EVERY TIME, WITH ITS VALUE AND ITS HIT COUNT, AND SO IS THE MAP ON
+    /// SCREEN. With one dial per icon population (class doc) at most two of the three can hit
+    /// anything in a given frame, so a dial reading "hit 0" is the NORMAL state of the other map's
+    /// dial — and "this dial does nothing" and "there is nothing for this dial to do" are opposite
+    /// bugs that only this line separates. The rule for reading it: a zero-hit dial is FINE when
+    /// the surface named at the front of the line is not the surface that dial governs, and is a
+    /// REAL FAULT when it is.</para>
     /// </summary>
-    private void LogCensus(int drawn, int tokenDraws, int capitalHits, int ownerless, float planeY,
-                           float generalScale, float capitalScale)
+    private void LogCensus(int drawn, int tokenDraws, int capitalHits, int cityHits, int ownerless,
+                           float planeY, MapSurface surface,
+                           float worldScale, float capitalScale, float cityScale)
     {
         int signature = drawn * 397
                         ^ tokenDraws * 31
                         ^ capitalHits * 7
+                        ^ cityHits * 11
                         ^ ownerless * 3
-                        ^ generalScale.GetHashCode()
-                        ^ capitalScale.GetHashCode();
+                        ^ (int)surface * 1021
+                        ^ worldScale.GetHashCode()
+                        ^ capitalScale.GetHashCode()
+                        ^ cityScale.GetHashCode();
         if (_censusPrinted && signature == _censusSignature)
             return;
         float now = Time.unscaledTime;
@@ -353,26 +524,48 @@ internal sealed class MapIconLayer
         _censusPrinted = true;
         _censusNextAllowed = now + CensusMinIntervalSeconds;
 
-        int generalHits = drawn - capitalHits;
+        int worldHits = drawn - capitalHits - cityHits;
+        string shown = surface switch
+        {
+            MapSurface.City => "CITY (Gloomhaven)",
+            MapSurface.World => "WORLD",
+            _ => "UNKNOWN — no MapChoreographer, or both map objects are down mid-transition; the "
+                 + "world map's dials are used, which is what shipped before the split",
+        };
+        bool city = surface == MapSurface.City;
         VRLog.Info(Scope,
             $"MAP ROOM icons: {drawn} location icon(s) + {tokenDraws} party-token submesh draw(s) queued "
             + $"for the head camera at y={planeY:F2} ({IconLiftWorld:F2} above the parchment top), drawn at "
             + $"{IconEvent}. Footprint = decal lossyScale.xz at the decal's own yaw, times the size dial. "
-            + $"SIZE: [MapRoom] IconScale x{generalScale:F2} hit {generalHits} icon(s); "
-            + $"[MapRoom] GloomhavenIconScale x{capitalScale:F2} hit {capitalHits} icon(s) "
-            + "(the location whose MapLocation.MapLocationType is Headquarters — exactly one exists per map, "
-            + "see MapChoreographer.HeadquartersLocation). "
-            + $"{ownerless} drawn icon(s) had NO owning MapLocation and took the general dial."
+            + $"MAP SHOWN: {shown} (MapChoreographer.worldMap/cityMap, whichever is activeInHierarchy — the "
+            + "same test MapParchment uses to pick the parchment, so the two cannot disagree). "
+            + "SIZE — one dial per icon population, ALL THREE listed every time so a zero is readable: "
+            + $"[MapRoom] IconScale x{worldScale:F2} hit {worldHits} icon(s) (world map, everything but the "
+            + $"capital); [MapRoom] GloomhavenIconScale x{capitalScale:F2} hit {capitalHits} icon(s) (world "
+            + "map, the location whose MapLocation.MapLocationType is Headquarters — exactly one exists per "
+            + $"map, see MapChoreographer.HeadquartersLocation); [MapRoom] CityIconScale x{cityScale:F2} hit "
+            + $"{cityHits} icon(s) (city map, ALL of its icons: the shopfronts in m_CityLocations plus the "
+            + "City-type quests). "
+            + $"{ownerless} drawn icon(s) had NO owning MapLocation; they take the dial of the map on screen. "
+            + "The party token takes NO dial — it is drawn from the game's own renderers, not as a quad with "
+            + "a footprint we compute. "
+            + "HOW TO READ A ZERO: "
+            + (city
+                ? "the CITY map is up, so IconScale and GloomhavenIconScale hitting 0 is CORRECT and expected "
+                  + "(their population is deactivated, MapChoreographer.RefreshShownLocationsByMap → "
+                  + "MapLocation.HideLocation → SetActive(false)); CityIconScale at 0 with drawn>0 would be "
+                  + "the real fault."
+                : "the WORLD map is up, so CityIconScale hitting 0 is CORRECT and expected (the city "
+                  + "shopfronts are deactivated); IconScale at 0 with drawn>0 would be the real fault. "
+                  + "GloomhavenIconScale at 0 means the capital's own location object is inactive right now — "
+                  + "the separate Gloomhaven dial has nothing to act on and this report says so rather than "
+                  + "leaving it to be guessed.")
             + (drawn == 0
-                ? " ZERO ICONS is a real state, not a silent scan: the decal scan RAN this tick and found "
-                  + "nothing it could draw. Either the map has no active locations yet (fresh campaign, "
+                ? " ZERO ICONS ALTOGETHER is a real state, not a silent scan: the decal scan RAN this tick and "
+                  + "found nothing it could draw. Either the map has no active locations yet (fresh campaign, "
                   + "mid-InitMap) or every decal's CurrentMaterial carried no texture — the two are told "
                   + "apart by the MAP ROOM location input line, which counts MapLocation components."
-                : capitalHits == 0
-                    ? " NO Headquarters icon among them — expected on the CITY map and while the capital's "
-                      + "own location object is inactive; on the world map its absence means the separate "
-                      + "Gloomhaven dial has nothing to act on and the report should say so."
-                    : string.Empty));
+                : string.Empty));
     }
 
     /// <summary>
@@ -451,8 +644,10 @@ internal sealed class MapIconLayer
         return visible;
     }
 
-    /// <summary>Both size dials, clamped in code as well as at the bind site — see
-    /// <see cref="MinIconScale"/> for why the floor is not optional.</summary>
+    /// <summary>Every size dial, clamped in code as well as at the bind site — see
+    /// <see cref="MinIconScale"/> for why the floor is not optional. The floor is what keeps the
+    /// standing ruling true for the new city dial too: its minimum shrinks the shopfront icons, it
+    /// can never erase them, so no value of any of these dials can make the merchant unreachable.</summary>
     private static float ClampScale(float v) =>
         float.IsNaN(v) ? 1f : Mathf.Clamp(v, MinIconScale, MaxIconScale);
 
@@ -517,6 +712,12 @@ internal sealed class MapIconLayer
         _censusSignature = 0;
         _censusPrinted = false;
         _censusNextAllowed = 0f;
+        // The surface latch is STATIC (the hover pads share it), so it outlives this instance and
+        // must be invalidated here or a pad posed on the first frame of the NEXT map room could be
+        // sized from the map of the last one. Clearing the flag, not the value: the next reader
+        // re-resolves from the live choreographer.
+        _surfaceResolved = false;
+        _surface = MapSurface.Unknown;
         DrawnCount = 0;
         TokenDrawCount = 0;
         if (had)

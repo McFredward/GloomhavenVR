@@ -10,16 +10,29 @@ namespace GloomhavenVR.WorldUI;
 
 internal static partial class ModalFallback
 {
+    // TOMBSTONE — ArcStepDegrees (34f) and MaxArcHalfDegrees (85f), removed in ModBuild 193.
+    //
+    // They were the map room's window arc: neighbours 34° apart, the layout reaching to ±85°, which
+    // produced the five fixed seats 0°, ±34°, ±68°. BOTH NUMBERS WERE GUESSES AND BOTH WERE WRONG,
+    // and the user reported the consequence of the second one:
+    //
+    //   "Neue Fenster spawnen irgendwo an der Seite wo man sie nicht sieht - sie sollen IM
+    //    SICHTFELD spawnen, möglichst so das sie nicht mit einem anderen Fenster überlappen, aber
+    //    IM SICHTFELD."
+    //
+    // 34° was a guess about how wide a window is. It is not: the hardware log's own MODAL WINDOW
+    // SIZE lines measure the party roster at 0.29 m (≈14° at reading distance) and a full-width
+    // 1920 px window at 1.00 m (≈45°), so the step was simultaneously twice too wide for the
+    // narrow family and far too narrow for the wide one. 85° was a guess about the headset. A
+    // Quest 3 over Virtual Desktop shows roughly ±55° monocular and less binocularly, so the fourth
+    // window — placed at 68° by ModBuild 192, in that build's own log — was off the display.
+    //
+    // BOTH ARE NOW MEASURED AT RUNTIME instead of assumed: the usable cone off the head camera's
+    // projection matrix, the window's width off the half-size the placement already carries. See
+    // the ModBuild 193 header in ModalFallback.4.Tick.cs. Do not reintroduce a fixed step or a
+    // fixed half-angle here — the whole point is that neither number is knowable at compile time.
+
     /// <summary>
-    /// <summary>Angle between neighbours on the map room's window arc, degrees. ~34° puts a
-    /// reading-distance window's edges at roughly a shoulder's turn from its neighbour's — close
-    /// enough to take in together, far enough not to overlap.</summary>
-    private const float ArcStepDegrees = 34f;
-
-    /// <summary>How far around the arc the layout may reach on either side, degrees. Past ~85° a
-    /// window is beside the player rather than in front, which is the opposite of an overview.</summary>
-    private const float MaxArcHalfDegrees = 85f;
-
     /// Item 2: lateral+vertical stagger (real meters) between successive floated windows so a
     /// secondary window opened FROM the primary spawns OVERLAPPING but not perfectly coincident
     /// with it — the user can then grab and separate them. Scaled by the diorama scale + capped.
@@ -32,8 +45,11 @@ internal static partial class ModalFallback
     /// its parent (nearer → among the equal-order modal hosts it also depth-sorts in front).
     /// Scaled by the diorama scale like the lateral/vertical stagger.
     ///
-    /// <para>ModBuild 181: in the 3D map room neither this nor the lateral stagger applies — the
-    /// windows are laid out on an ARC instead (see <see cref="ArcStepDegrees"/>).</para>
+    /// <para>ModBuild 181/193: in the 3D map room neither this nor the lateral stagger applies —
+    /// windows are seated on angular reservations packed inside the headset's measured field of
+    /// view instead (see <see cref="TryClaimArcSlot"/>), and when the cone is full the remedy is a
+    /// depth pull with NO vertical term. The magnitude of that pull is
+    /// <see cref="OverlapDepthStepMeters"/>, deliberately a separate constant from this one.</para>
     /// </summary>
     private const float SecondaryForegroundMeters = 0.14f;
 
@@ -50,6 +66,12 @@ internal static partial class ModalFallback
     /// (was 25°, which still landed a window ~0.5 m×scale below eye, i.e. down at the board).
     /// </summary>
     private const float MaxSpawnPitchDeg = 15f;
+
+    /// <summary>How far a map-room window's final azimuth may drift from the angle it reserved
+    /// before the hard cone clamp pulls it back, degrees. 1° is below anything the eye can judge at
+    /// reading distance (~2 cm of lateral shift), so the clamp only ever fires on a real swing and
+    /// never on float noise — and when it does fire it says so on the MODAL SPAWN CLAMP line.</summary>
+    private const float MapConeDriftToleranceDeg = 1f;
 
     /// <summary>Request B: distance factor applied when the steep-gaze pitch clamp engages —
     /// the window is PULLED TOWARD THE HEAD so it stays near where the player is looking
@@ -529,6 +551,23 @@ internal static partial class ModalFallback
         /// the slot the re-placed window is sitting in.
         /// </summary>
         public int ArcSlot;
+
+        /// <summary>
+        /// True when the MAP ROOM'S CONE decided this placement — which is NOT the same question as
+        /// "does it hold a reservation" (<see cref="ArcSlot"/> ≥ 0). A ninth window in a room whose
+        /// registry is full is placed by the cone and holds nothing, and it must still be treated as
+        /// cone-governed on the replay: it must keep the box test switched off (the reservation, not
+        /// a measurement, is what deconflicts a map-room window) and it must still be pulled back
+        /// into the cone by the hard clamp. Deriving that from ArcSlot ≥ 0 got it wrong for exactly
+        /// that window — the one case where being wrong means a window the player cannot see, i.e.
+        /// the reported bug.
+        /// </summary>
+        public bool ArcGoverned;
+
+        /// <summary>The claimed azimuth, degrees from <see cref="HeadForward"/>, + = right. Stored
+        /// so the replay can re-apply the hard cone clamp against the SAME angle the spawn claimed
+        /// rather than re-deriving it from a registry that may have been narrowed since.</summary>
+        public float ArcYawDeg;
     }
 
     /// <summary>
@@ -571,13 +610,13 @@ internal static partial class ModalFallback
         bool levelMessage = false, SpawnAnchor? replay = null)
     {
         Vector3 headPos, fwd;
-        // The map room's claimed arc slot for this spawn (−1 = not arc-placed). See the slot
-        // registry in ModalFallback.4.Tick.cs for the ruling and the choice rule.
+        // The map room's claimed angular reservation for this spawn (−1 = not arc-placed). See the
+        // ModBuild 193 header in ModalFallback.4.Tick.cs for the ruling and the packing rule.
         int arcSlot = -1;
         float arcYawDeg = 0f;
         string arcWhy = "";
-        bool arcPlaced = false;   // holds a real arc slot → the slot, not a box test, deconflicts it
-        bool arcGoverned = false; // the map room's arc decided this placement (slot or overflow)
+        bool arcPlaced = false;   // holds a reservation → the reservation, not a box test, deconflicts it
+        bool arcGoverned = false; // the map room's cone decided this placement
         if (replay.HasValue)
         {
             // Replay: the placement inputs are frozen, only the geometry changed.
@@ -589,12 +628,20 @@ internal static partial class ModalFallback
             levelMessage = a.LevelMessage;
             pos = a.RawPos;
             // The arc angle is already inside RawPos; carry the FACT so the overlap resolve stays
-            // off and the log can still name the slot (see SpawnAnchor.ArcSlot).
+            // off and the log can still name the reservation (see SpawnAnchor.ArcSlot).
             arcSlot = a.ArcSlot;
             arcPlaced = arcSlot >= 0;
-            arcGoverned = arcPlaced;
-            arcYawDeg = ArcSlotAngleDeg(arcSlot);
-            arcWhy = "replayed against the final fitted geometry — the slot is unchanged";
+            arcGoverned = a.ArcGoverned;
+            arcYawDeg = a.ArcYawDeg;
+            arcWhy = "replayed against the final fitted geometry — the ANGLE is unchanged";
+            // AND THE RESERVED WIDTH IS RE-MEASURED, DOWNWARD ONLY. This call is the one moment the
+            // window's FINAL fitted size exists while it is still render-hidden, and the claim it
+            // made at spawn was sized from the PRE-fit host rect (the party roster claims ~45° and
+            // fits to ~14°). Narrowing here frees that angle for LATER windows. It cannot move this
+            // window — RawPos is untouched above — and it cannot move any other: nothing but this
+            // one registry entry's width is written. Widening is refused inside NarrowArcClaim.
+            if (arcPlaced && NarrowArcClaim(arcSlot, halfSize, out string narrowNote))
+                arcWhy += ", and its " + narrowNote;
         }
         else
         {
@@ -637,41 +684,60 @@ internal static partial class ModalFallback
             //    ihre Position nicht verändern. Spawne die Fenster so, das alle im Sichtfeld passen
             //    aber einmal gespawned sind sie fix."
             //
-            // The index is now a CLAIM on a free slot, chosen nearest the centre, so a new window
-            // lands as close to the gaze as the free space allows and NOTHING already standing is
-            // touched — 181's defect and 183's defect are both answered, by the registry in
-            // ModalFallback.4.Tick.cs.
+            // The index is now a CLAIM on a free ANGULAR INTERVAL, chosen nearest the centre, so a
+            // new window lands as close to the gaze as the free space allows and NOTHING already
+            // standing is touched — 181's defect and 183's defect are both answered, by the
+            // registry in ModalFallback.4.Tick.cs.
             //
-            // THE SLOT IS A YAW AND NOTHING ELSE. The raw pose is the ordinary gaze-following spawn
-            // above, ROTATED ABOUT WORLD UP by the slot's angle — so every other property of the
-            // placement is untouched and keeps producing exactly what it produced before: the same
-            // reading distance, the same downward gaze bias, and therefore the same HEIGHT out of
-            // ClampSpawnPose (steep-gaze flatten + board-top floor + eye cap), which is the height
-            // ModBuild 183's relayout preserved per window rather than computing. Rotating about
-            // world up cannot introduce pitch or roll, so the yaw-only ruling (ModBuild 189) is
-            // untouched and the Upright guard below still reports 0.0/0.0.
-            if (TryClaimArcSlot(self, levelMessage, out arcSlot, out arcYawDeg,
-                    out int arcStagger, out arcWhy))
+            // AND SINCE ModBuild 193 THE INTERVAL IS MEASURED, NOT ASSUMED: how wide the window is
+            // (2·atan(halfSize.x / distance), both world units — halfSize arrives in world units
+            // and so does WindowDistanceMeters × scale) and how wide the readable cone is (off the
+            // headset's own projection matrix). ModBuild 192's fixed 0°, ±34°, ±68° put the fourth
+            // window at 68°, off the side of the display, which is the report this answers:
+            // "Neue Fenster spawnen irgendwo an der Seite wo man sie nicht sieht - sie sollen IM
+            // SICHTFELD spawnen, möglichst so das sie nicht mit einem anderen Fenster überlappen,
+            // aber IM SICHTFELD." In view is unconditional; not overlapping is "möglichst".
+            //
+            // THE SLOT IS STILL A YAW, AND THE ONLY OTHER TERM IS A DEPTH. The raw pose is the
+            // ordinary gaze-following spawn above, ROTATED ABOUT WORLD UP by the claimed angle — so
+            // every other property of the placement is untouched and keeps producing exactly what
+            // it produced before: the same reading distance, the same downward gaze bias, and
+            // therefore the same HEIGHT out of ClampSpawnPose (steep-gaze flatten + board-top floor
+            // + eye cap). Rotating about world up cannot introduce pitch or roll, so the yaw-only
+            // ruling (ModBuild 189) is untouched and the Upright guard below still reports 0.0/0.0.
+            //
+            // A window that had to OVERLAP (the cone was full) additionally gets pulled toward the
+            // head along the FLATTENED forward so it draws in front of what it covers. That vector
+            // has y = 0, so THE HEIGHT IS STILL BIT-FOR-BIT ModBuild 192's, and it is a direction,
+            // not a rotation, so pitch and roll are still zero. ModBuild 192's right+down stagger
+            // is deliberately GONE: down is where the control board is, and ClampSpawnPose's
+            // board-top floor would have put two windows back on the same height.
+            if (TryClaimArcSlot(self, levelMessage, halfSize, scale, out arcSlot, out arcYawDeg,
+                    out int arcOverlapRank, out float arcPullWorld, out arcWhy))
             {
                 arcGoverned = true;
                 arcPlaced = arcSlot >= 0;
-                staggerIndex = arcStagger;
-                Vector3 flatFwd = fwd;
-                flatFwd.y = 0f;
-                if (flatFwd.sqrMagnitude < 1e-6f)
-                    flatFwd = Vector3.forward;
-                flatFwd.Normalize();
+                staggerIndex = arcOverlapRank;
                 pos = headPos + Quaternion.AngleAxis(arcYawDeg, Vector3.up)
                     * (fwd * (WindowDistanceMeters * scale));
-                if (arcStagger > 0)
+                if (arcPullWorld > 0f)
                 {
-                    // Overflow (the arc is full): the SAME right+down+foreground offset a stacked
-                    // secondary gets at a scenario table, but measured in the flattened frame so it
-                    // cannot re-introduce a pitch into the placement direction.
-                    Vector3 flatRight = Vector3.Cross(Vector3.up, flatFwd);
-                    float step = SecondaryStaggerMeters * scale;
-                    pos += flatRight * (step * arcStagger) - Vector3.up * (step * arcStagger);
-                    pos -= flatFwd * (SecondaryForegroundMeters * scale * arcStagger);
+                    // PULL ALONG THE WINDOW'S OWN FLATTENED RADIAL, not along the raw gaze. Write
+                    // the offset as u·d with u the (rotated) unit direction: its horizontal part is
+                    // flatU·(h·d) with h = cos(gaze pitch). Subtracting p·flatU leaves
+                    // flatU·(h·d − p) — the SAME flatU, so the claimed AZIMUTH is preserved exactly
+                    // — and leaves the y term untouched, so the height is bit-for-bit ModBuild
+                    // 192's. Pulling along the unrotated gaze forward would have done neither.
+                    Vector3 radial = Quaternion.AngleAxis(arcYawDeg, Vector3.up) * fwd;
+                    radial.y = 0f;
+                    float horizontal = radial.magnitude * (WindowDistanceMeters * scale);
+                    if (radial.sqrMagnitude > 1e-6f && horizontal > 1e-4f)
+                    {
+                        // Never past 60% of the horizontal reach: a steep gaze makes `horizontal`
+                        // small, and an unbounded pull there would drag the window through the
+                        // player and out the other side.
+                        pos -= radial.normalized * Mathf.Min(arcPullWorld, horizontal * 0.6f);
+                    }
                 }
             }
             else if (staggerIndex > 0)
@@ -700,6 +766,8 @@ internal static partial class ModalFallback
             StaggerIndex = staggerIndex,
             LevelMessage = levelMessage,
             ArcSlot = arcSlot,
+            ArcGoverned = arcGoverned,
+            ArcYawDeg = arcYawDeg,
         };
         float maxPitchDeg = levelMessage ? LevelMsgMaxSpawnPitchDeg : MaxSpawnPitchDeg;
         string? clampReason = ClampSpawnPose(headPos, fwd, ref pos, scale, halfSize, maxPitchDeg);
@@ -709,17 +777,62 @@ internal static partial class ModalFallback
         // frame). Staggered secondaries deliberately overlap their parent window (item 2/3b),
         // so they only avoid the board.
         //
-        // AND AN ARC-PLACED WINDOW ONLY AVOIDS THE BOARD TOO — because on the arc the SLOT is what
-        // deconflicts, and it does so by reservation rather than by measurement. Letting the box
-        // test swing an arc window up to ±30° would make its final angle a function of the
-        // geometry of the windows already standing, i.e. exactly the coupling this whole change
-        // removes: the same window would land somewhere else depending on what else happened to be
-        // open, and two neighbours 34° apart DO overlap at reading distance (a full-width window is
-        // ~45° across), so the swing would fire on nearly every second spawn. ModBuild 183 had the
-        // same property for a different reason — the relayout ran after the resolve and overwrote
-        // whatever it decided — so this is not a behaviour change, only an honest one.
+        // AND A CONE-PLACED WINDOW ONLY AVOIDS THE BOARD TOO — because in the map room the
+        // RESERVATION is what deconflicts, and it does so by reservation rather than by
+        // measurement. Letting the box test swing a map-room window up to ±30° would make its final
+        // angle a function of the geometry of the windows already standing, i.e. exactly the
+        // coupling this whole change removes: the same window would land somewhere else depending
+        // on what else happened to be open, and neighbours DO overlap at reading distance whenever
+        // the cone is full (a full-width window is ~45° across), so the swing would fire on nearly
+        // every second spawn. ModBuild 183 had the same property for a different reason — the
+        // relayout ran after the resolve and overwrote whatever it decided.
+        //
+        // THE GATE IS arcGoverned, NOT arcPlaced (ModBuild 193). They differ for exactly one
+        // window: the one that opens when the registry is already full, which the cone still places
+        // but which holds no reservation. Gating on arcPlaced let the box test swing THAT window up
+        // to ±30° — off the side of the display, in a room that by definition already has eight
+        // windows competing for the cone. That is the reported bug, in the one case where it is
+        // least excusable.
         string? overlapNote = ResolveSpawnOverlap(headPos, ref pos, scale, halfSize, self,
-            includeModals: !arcPlaced && staggerIndex == 0);
+            includeModals: !arcGoverned && staggerIndex == 0);
+
+        // THE HARD CONE CLAMP — "IM SICHTFELD" IS UNCONDITIONAL, AND THIS IS WHERE THAT IS ENFORCED
+        // RATHER THAN INTENDED. Everything above is a SOFT clamp optimising for board clearance:
+        // ClampSpawnPose flattens a steep gaze and floors the window above the board top, and
+        // ResolveSpawnOverlap may still swing a window laterally to clear the board. Any of them can
+        // move the window off the azimuth the reservation chose — and the reservation is the only
+        // thing that knows about the headset's field of view. So the LAST word belongs to the
+        // reservation: the head→window direction is rotated about WORLD UP back to the claimed
+        // azimuth, keeping the horizontal distance and the height (both already clamped) exactly as
+        // they are. It is a yaw and nothing else, so it cannot introduce pitch or roll and the
+        // Upright guard below still reports 0.0/0.0.
+        //
+        // WHY RESTORING THE CLAIMED ANGLE AND NOT MERELY CLAMPING TO THE CONE EDGE: two windows
+        // clamped to the same edge would land on the SAME angle, which is the ±85° aliasing defect
+        // this whole line of work exists to remove. Claimed angles are distinct by construction, so
+        // restoring them cannot alias anything. This is the same shape of rule as the level-message
+        // view cone below, applied to the family that actually reported the fault.
+        string? mapConeNote = null;
+        if (arcGoverned && !levelMessage)
+        {
+            Vector3 offset = pos - headPos;
+            Vector3 flatOffset = new Vector3(offset.x, 0f, offset.z);
+            Vector3 flatGaze = new Vector3(fwd.x, 0f, fwd.z);
+            if (flatOffset.sqrMagnitude > 1e-6f && flatGaze.sqrMagnitude > 1e-6f)
+            {
+                float actual = Vector3.SignedAngle(flatGaze, flatOffset, Vector3.up);
+                float drift = Mathf.DeltaAngle(arcYawDeg, actual);
+                if (Mathf.Abs(drift) > MapConeDriftToleranceDeg)
+                {
+                    Vector3 corrected = Quaternion.AngleAxis(-drift, Vector3.up) * flatOffset;
+                    pos = new Vector3(headPos.x + corrected.x, pos.y, headPos.z + corrected.z);
+                    mapConeNote = $"a soft clamp had swung it to {actual:F0}° from the spawn gaze, "
+                                  + $"{drift:F0}° off the {arcYawDeg:F0}° it reserved — rotated back "
+                                  + "about world up (height and distance untouched) so it stays "
+                                  + "inside the measured field of view, which is unconditional";
+                }
+            }
+        }
 
         // LEVEL-MESSAGE VIEW-CONE (user requirement, torbogen report): the tutorial window must
         // ALWAYS spawn inside the CURRENT view. The soft clamps above optimize for board
@@ -803,6 +916,12 @@ internal static partial class ModalFallback
                               (viewConeNote == null
                                   ? ""
                                   : $" VIEW-CONE: {viewConeNote}.") +
+                              // The map room's hard cone clamp. Silent when it did not fire, which
+                              // is the normal case — a line that appears means a soft clamp tried
+                              // to move a window off its reserved azimuth and was overruled.
+                              (mapConeNote == null
+                                  ? ""
+                                  : $" MAP-CONE: {mapConeNote}.") +
                               $" boardPlaneY={(haveBoard ? by.ToString("F2") : "n/a")}, " +
                               $"boardTopClear={BoardTopClearanceMeters:F2}m+halfH{halfSize.y:F2} " +
                               $"(window-bottom floorY={(haveBoard ? boardTopFloorY.ToString("F2") : "n/a")}, " +
@@ -810,41 +929,69 @@ internal static partial class ModalFallback
                               $"dist={distanceMeters:F2}m{(levelMessage ? " (level-message)" : "")}, " +
                               $"scale={scale:F2}, stagger={staggerIndex}.");
 
-        // THE SLOT LINE — HOW TO READ IT, AND HOW IT ANSWERS "A WINDOW STILL MOVED".
-        // The slot and the angle say WHERE on the arc this window was seated and WHY that seat was
-        // free; the occupancy says how much room is left before the overflow rule takes over; the
-        // pose is where it ended up after the board/eye clamps. Exactly TWO of these lines per
-        // window per open are legitimate, and they are distinguishable:
-        //   1. the spawn itself — 'claimed arc slot N';
+        // THE SLOT LINE — HOW TO READ IT, AND WHAT EACH READING MEANS.
+        //
+        // "A WINDOW I COULD NOT SEE" IS ANSWERABLE OFF THIS ONE LINE, which is the whole reason it
+        // carries the numbers it does. Read it left to right:
+        //   * cone ±X° — the usable half-cone DERIVED from this headset's projection matrix, with
+        //     the comfort margin already applied. The MAP ROOM WINDOW SLOTS line (once per session)
+        //     says where X came from and what it was before the margin.
+        //   * width W° — how wide THIS window is in angle, measured from its own half-size and its
+        //     own distance. Compare W/2 against the cone: a window whose |angle| + W/2 exceeds the
+        //     cone is one the geometry could not fit, and the line says so in words.
+        //   * angle A° — where it was seated, + = right. |A| + W/2 ≤ cone means IT IS IN VIEW. If a
+        //     window was invisible and this inequality holds, the cone is over-estimated (raise the
+        //     comfort margin) — NOT the packer.
+        //   * overlaps N° with '…' — how far it intrudes on its worst neighbour. 0 means it is
+        //     clear of everything. A non-zero number is the user's own accepted trade: "IM
+        //     SICHTFELD" beats "nicht überlappen", and the reason it was taken is in the same line.
+        //   * occupancy — how many reservations are held and where they are, so the next window's
+        //     choice can be replayed by hand from the log.
+        //
+        // AND HOW IT ANSWERS "A WINDOW STILL MOVED". Exactly TWO of these lines per window per open
+        // are legitimate, and they are distinguishable:
+        //   1. the spawn itself — 'claimed reservation N';
         //   2. AT MOST one more carrying 'replayed against the final fitted geometry', the
         //      pre-reveal re-place (TickPoseRePlace), which happens while the window is still
         //      render-hidden and therefore cannot be seen as movement. Its companion line is
-        //      'MODAL POSE RE-PLACE'.
+        //      'MODAL POSE RE-PLACE'. That line may also report the reservation being NARROWED —
+        //      that changes no pose at all, only how much angle later windows see as taken.
         // A THIRD line for the same panel means something re-placed a VISIBLE window and is the
         // bug: the only remaining caller that can produce one is the presence-regain refloat
         // (RefloatOpenWindows — it prints nothing else, so a doff/don is the thing to ask about).
         // A window that visibly moves with NO second line at all was moved by something that does
         // not go through ComputeHmdPose: the player's own grab (look for 'grabbed - its pose is now
         // PLAYER-OWNED'), or a new writer that must be found and stopped. And a window that moves
-        // WHENEVER ANOTHER WINDOW OPENS OR CLOSES, with no line of its own, is this exact bug
+        // WHENEVER ANOTHER WINDOW OPENS OR CLOSES, with no line of its own, is ModBuild 183's bug
         // returning — a per-set relayout has been re-introduced somewhere.
         if (arcGoverned)
         {
-            CountArcClaims(out int slotsUsed, out int overflowUsed);
+            CountArcClaims(out int claimsClean, out int claimsOverlapping);
+            float logHalfAngle = arcSlot >= 0
+                ? ArcClaimHalfWidthDeg(arcSlot)
+                : HalfAngleDeg(halfSize.x, WindowDistanceMeters * scale);
+            float logCone = UsableHalfConeDeg();
+            float logReach = Mathf.Abs(arcYawDeg) + logHalfAngle;
             VRLog.Info("WorldUI", "MAP ROOM WINDOW SLOT: "
                                   + $"'{(self != null ? PanelLogName(self) : "<panel>")}' "
                                   + (arcSlot < 0
-                                      ? "placed WITHOUT a claim"
-                                      : arcSlot < ArcSlotCount
-                                          ? $"claimed arc slot {arcSlot} ({arcYawDeg:F0}° from the spawn gaze, "
-                                            + $"+ = right)"
-                                          : $"claimed overflow stack {arcSlot - ArcSlotCount + 1} (centred, "
-                                            + "staggered in front)")
-                                  + $" — {arcWhy}. Occupancy now {slotsUsed}/{ArcSlotCount} arc slots "
-                                  + $"({ArcSlotCount - slotsUsed} free) + {overflowUsed} overflow. Pose "
+                                      ? "placed WITHOUT a reservation"
+                                      : $"claimed reservation {arcSlot}")
+                                  + $" at {arcYawDeg:F0}° from the spawn gaze (+ = right), "
+                                  + $"width {logHalfAngle * 2f:F0}°, so it reaches to "
+                                  + $"{logReach:F0}° — cone ±{logCone:F1}° ⇒ "
+                                  + (logReach <= logCone + 0.5f
+                                      ? "IN VIEW"
+                                      : $"OVER THE EDGE by {logReach - logCone:F0}° (the window is "
+                                        + "wider than the cone; it is centred as far as it can be)")
+                                  + $". {arcWhy}. Occupancy now {claimsClean + claimsOverlapping}/"
+                                  + $"{MaxWindowClaims} reservations ({claimsClean} clear of "
+                                  + $"everything, {claimsOverlapping} overlapping): "
+                                  + $"[{ArcOccupancyText()}]. Pose "
                                   + $"({pos.x:F2},{pos.y:F2},{pos.z:F2}) world units at "
-                                  + $"{distanceMeters:F2} m × scale {scale:F2}, yaw {rot.eulerAngles.y:F1}°. "
-                                  + "After the one pre-reveal re-place this window is never posed "
+                                  + $"{distanceMeters:F2} m × scale {scale:F2}, yaw {rot.eulerAngles.y:F1}°"
+                                  + (staggerIndex > 0 ? $", depth generation {staggerIndex}" : "")
+                                  + ". After the one pre-reveal re-place this window is never posed "
                                   + "again while it floats: opening or closing any other window "
                                   + "moves nothing (user ruling), and only the player's own grab "
                                   + "can move it.");

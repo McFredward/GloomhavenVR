@@ -186,13 +186,23 @@ internal static partial class Loc
                 Pair("3D campaign map (experimental)", "3D-Kampagnenkarte (experimentell)"),
 
             // ---- [MapRoom] — the 3D map room's own dials -------------------------------------
-            // Named "Karte 3D: …" so the two rows read as one pair and sort together wherever the
-            // catalog puts them (they are pinned to the top of the Bild-&-Welt collector, see
+            // Named "Karte 3D: …" so the three rows read as one family and sort together wherever
+            // the catalog puts them (they are pinned to the top of the Bild-&-Welt collector, see
             // ConfigCatalog.Pinned). "Symbole" is the word the user himself used.
+            //
+            // EACH NAME SAYS WHICH MAP, because that is now the whole distinction (ModBuild 193,
+            // user: "Trenne die Größe des Symbole auf der Weltkarte und die Symbole auf der Karte
+            // für Gloomhaven. Die müssen separat justiert werden."). Before the split the general
+            // dial was called plain "Symbolgröße", which was honest while it governed every map;
+            // with two maps that name would be the reason he turned the wrong one. The rows must be
+            // tellable apart FROM THE CAPTION ALONE — a player reading only the row list has to see
+            // Weltkarte vs Stadtkarte without opening a tooltip.
             ["MapRoom/IconScale"] =
-                Pair("3D map: icon size", "Karte 3D: Symbolgröße"),
+                Pair("3D map: world map icons", "Karte 3D: Symbole Weltkarte"),
+            ["MapRoom/CityIconScale"] =
+                Pair("3D map: city map icons", "Karte 3D: Symbole Stadtkarte"),
             ["MapRoom/GloomhavenIconScale"] =
-                Pair("3D map: Gloomhaven icon size", "Karte 3D: Größe Gloomhaven-Symbol"),
+                Pair("3D map: Gloomhaven marker", "Karte 3D: Gloomhaven-Marker"),
             // THE MAP ROOM'S CARD HAND (ModBuild ~188). Its config KEY lives in the [WorldUI]
             // section — it is bound on worldui's file by the code that owns it — but the FEATURE
             // is the 3D map room's, so it is named here with its two siblings and carries the

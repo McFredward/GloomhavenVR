@@ -4,6 +4,7 @@ using GloomhavenVR.Core.Events;
 using Script.GUI.Popups;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -234,15 +235,15 @@ internal static partial class ModalFallback
         CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
         MapRoom.GuildmasterDestinations.Reset(); // hand the borrowed banner back before we vanish
         MapRoom.HoverCardPose.Reset();          // per-card follow/seat state dies with the module
-        // Every window has just been released, so every arc slot is free by definition. Clearing
-        // the registry here (rather than letting the sweep do it) means a fresh session never
-        // inherits a claim held by a panel from the previous one.
+        // Every window has just been released, so every reserved angle is free by definition.
+        // Clearing the registry here (rather than letting the sweep do it) means a fresh session
+        // never inherits a claim held by a panel from the previous one.
         for (int i = 0; i < _arcClaims.Length; i++)
-        {
-            _arcClaims[i] = null;
-            _arcClaimNames[i] = null;
-        }
-        _arcGeometryLogged = false; // re-state the arc geometry once per session
+            _arcClaims[i] = default;
+        _arcGeometryLogged = false;         // re-state the room geometry once per session
+        _usableHalfConeDeg = float.NaN;     // and re-measure the headset's cone from scratch
+        _coneSource = "not measured yet";
+        _coneFallbackWarned = false;
         ScreenWanted = false;
         VRModeStateMachine.SetAuxModal(false);
     }
@@ -388,12 +389,15 @@ internal static partial class ModalFallback
     // closing the temple moved it back. The change detector was the ARC COUNT
     // (ArcWindowCount() != _lastArcCount), so every open and every close fired it.
     //
-    // WHAT PART OF 183 SURVIVES. The arc GEOMETRY was never the complaint — it was asked for
+    // WHAT PART OF 183 SURVIVES. The arc SHAPE was never the complaint — it was asked for
     // ("Ich möchte das die Fenster … im Halbkreis um einen gespawned werden, so dass man alle
-    // direkt perfekt im Überblick hat") and it is what keeps the whole set in the field of view,
-    // which this ruling repeats. So the angles (0, ±34°, ±68°), the constant reading distance and
-    // the yaw-only facing are kept BIT FOR BIT; what changes is who decides them and when. The
-    // decision moves from "recompute the ensemble on every event" to "claim one slot at spawn":
+    // direkt perfekt im Überblick hat"), which this ruling repeats. What changes here is who
+    // decides the angle and when: from "recompute the ensemble on every event" to "claim one seat
+    // at spawn". (183's literal ANGLES — 0, ±34°, ±68° — were carried over bit for bit by
+    // ModBuild 192 and are GONE as of ModBuild 193: ±68° is outside the headset's field of view
+    // and was the cause of the next report. See the ModBuild 193 header below; the reservation
+    // model described here is untouched by that change.) The reading distance and the yaw-only
+    // facing ARE kept bit for bit.
     //
     //   * a window CLAIMS the free slot nearest the centre the moment it is placed
     //     (ComputeHmdPose, part 9 — the one placement authority, so the claim rides through the
@@ -407,7 +411,7 @@ internal static partial class ModalFallback
     //
     // WHY A REGISTRY AND NOT A FIELD ON WindowPanel: WindowPanel lives in part 3, which this lane
     // does not own. The array IS the claim — slot i is occupied by the panel stored at i — so the
-    // "which slot does this window hold" question is answered by a five-entry scan and there is no
+    // "which angle does this window hold" question is answered by one short scan and there is no
     // second copy of the truth to fall out of sync with the first.
     //
     // A WINDOW THE PLAYER HAS MOVED KEEPS ITS SLOT, deliberately. GrabbableModal.UserMoved latches
@@ -417,7 +421,8 @@ internal static partial class ModalFallback
     // slot of a carried-off window would let the NEXT window spawn on the angle it vacated — and
     // since an arc spawn deliberately does no modal-vs-modal box test (the slot is what
     // deconflicts), a window the player only NUDGED would then have a fresh one materialise on top
-    // of it. Holding the claim costs one seat out of five and cannot superimpose anything; that is
+    // of it. Holding the claim costs one seat of the room's capacity and cannot superimpose
+    // anything on the window the player carried off; that is
     // the safer side of the trade, and the player who moved one window can move the next.
     //
     // MULTIPLAYER: nothing here goes on the wire, and nothing may. Which windows a client has open,
@@ -425,206 +430,874 @@ internal static partial class ModalFallback
     // own head pose at its own spawn moments, and two clients in the same map room legitimately see
     // their own arrangement. No NetProtocol record, no ModBuild-relevant wire change.
 
+    // ---- ModBuild 193: THE SLOTS ARE DERIVED FROM THE FIELD OF VIEW, NOT FROM A FIXED STEP ----
+    //
+    // USER REPORT (item 4, verbatim):
+    //
+    //   "Neue Fenster spawnen irgendwo an der Seite wo man sie nicht sieht - sie sollen IM
+    //    SICHTFELD spawnen, möglichst so das sie nicht mit einem anderen Fenster überlappen, aber
+    //    IM SICHTFELD."
+    //
+    // THE MEASUREMENT THAT NAMES THE CAUSE. ModBuild 192's reservation was right — windows stopped
+    // moving and that half of the ruling is settled — but its five seats were hard-coded at
+    // 0°, ±34°, ±68° from the spawn gaze, and its own hardware log shows the fourth window taking
+    // one of the outer ones:
+    //
+    //   "'GloomhavenVR.Panel_Modal_UI Shop Item Window' claimed arc slot 3 (68° from the spawn
+    //    gaze, + = right) — the free slot NEAREST THE CENTRE (3 of 5 were taken)"
+    //
+    // A Quest 3 over Virtual Desktop shows roughly 110° horizontally, i.e. about ±55° monocular and
+    // rather less than that with BOTH eyes; a window centred at 68° is past the edge of the display
+    // entirely. That is precisely "irgendwo an der Seite wo man sie nicht sieht", and it was not a
+    // tuning miss — the number 34 was a guess about window width and 85 was a guess about the
+    // headset, and neither was ever measured against the hardware.
+    //
+    // WHAT REPLACES THEM. Two measurements, both taken at runtime, neither hard-coded:
+    //
+    //   1. THE USABLE CONE comes off the head camera's own PROJECTION MATRIX (see
+    //      <see cref="UsableHalfConeDeg"/>). Not <c>Camera.fieldOfView</c>: that field is VERTICAL,
+    //      and in XR it is not even the camera's own — the XR runtime overrides the projection per
+    //      eye with an ASYMMETRIC frustum that no single fov/aspect pair can express. Converting
+    //      "vertical fov × aspect" would additionally be wrong in the one direction that matters
+    //      here, because a per-eye target of 3072x3264 has aspect 0.94 and would report a
+    //      horizontal field NARROWER than the vertical one.
+    //   2. THE WINDOW'S OWN ANGULAR WIDTH is 2 · atan(halfWidth / distance) from the two numbers
+    //      the placement already carries: the world half-size handed to ComputeHmdPose and the
+    //      reading distance WindowDistanceMeters × scale. BOTH ARE WORLD UNITS (the map room's
+    //      diorama scale is ~198 world units per real metre), and the ratio is dimensionless, so
+    //      the angle is correct without either of them being converted — that is the whole reason
+    //      it is computed as a ratio and not from the metre constant alone. Mixing the two has
+    //      shipped as a bug in this repo before (a bound named "…Meters" clamped against a
+    //      world-unit product).
+    //
+    // Slots are then PACKED: a window reserves the angular INTERVAL it actually covers, and the
+    // next one takes the interval nearest the centre that is free. Nothing is spaced at 34° because
+    // nothing is 34° wide — the hardware log's own MODAL WINDOW SIZE lines measure the party roster
+    // at 0.29 m (≈14° at reading distance) and a full-width 1920 px window at 1.00 m (≈45°). The
+    // fixed step both wasted the room three narrow windows needed AND pushed the fourth outside the
+    // display; measuring removes both faults with one change.
+    //
+    // THE PRIORITY ORDER IS THE USER'S, AND IT IS NOT SYMMETRIC. "IM SICHTFELD" is stated twice and
+    // unconditionally; "möglichst so das sie nicht mit einem anderen Fenster überlappen" is
+    // explicitly qualified. So:
+    //
+    //      (a) IN THE CONE — ALWAYS. A window's centre is clamped to ±(cone − ownHalfWidth) so its
+    //          EDGES, not merely its centre, are inside the readable cone. This clamp is absolute.
+    //      (b) NOT OVERLAPPING — IF POSSIBLE. When no free interval remains inside the cone the
+    //          window is placed INSIDE THE CONE ANYWAY and overlaps, and the log says by how many
+    //          degrees. It is NEVER parked outside the cone to avoid an overlap.
+    //
+    // AND THE ARITHMETIC SAYS THAT WILL HAPPEN. A full-width window is 1.00 m across at 1.2 m
+    // (legibility 1.25 × ModalTargetWidthMeters 0.80), i.e. 2·atan(0.50/1.20) = 45.2°. Two of those
+    // side by side need 45.2° of centre separation, and a ±34° comfort cone only offers
+    // ±(34 − 22.6) = ±11.4° of centre travel — 22.8° in total. TWO FULL-WIDTH WINDOWS CANNOT BOTH
+    // BE INSIDE THE CONE AND NON-OVERLAPPING AT THE READING DISTANCE. This is not a defect in the
+    // packer, it is the geometry, and the user has already ruled which side of it to take.
+    //
+    // WHAT WAS REJECTED. Pushing the second window further away DOES buy the angle (1.00 m at 1.8 m
+    // is 2·atan(0.50/1.80) = 31.0°, which fits twice inside ±34°), but it costs 33% of the window's
+    // apparent size — and the reading distance is a tuned, accepted value that this lane does not
+    // own (WindowDistanceMeters lives in ModalFallback.1.Core.cs). Trading away legibility the user
+    // approved, to buy a non-overlap he called optional, is the wrong way round. Rejected.
+    //
+    // WHAT WAS CHOSEN WHEN THE CONE IS FULL — SPREAD + DEPTH, AND NO VERTICAL TERM:
+    //   * SPREAD: the overlapping window takes the in-cone angle that maximises its distance from
+    //     every existing window's centre. Two 45° windows whose centres are 22° apart still show
+    //     ~22° of each other; concentric ones show nothing of the one behind.
+    //   * DEPTH: it is pulled toward the head by <see cref="OverlapDepthStepMeters"/> per overlap
+    //     generation, floored at <see cref="MinOverlapDistanceMeters"/>. Nearer means it draws in
+    //     front (CanvasConversion.8.Order rewrites the sorting order every frame from the measured
+    //     eye distance), so the newest window is the readable one and the older one is only
+    //     partially covered — and the pull is along the window's own FLATTENED radial, whose y is
+    //     zero, so it changes the distance and NOTHING ELSE. The step is deliberately SMALL (4 cm,
+    //     not the scenario table's 14 cm): a nearer window is an angularly WIDER window, so a big
+    //     pull feeds the overlap it is trying to remedy. That is measured, not asserted — see the
+    //     constant's own doc for the four-generation simulation that forced the number down.
+    //   * NO VERTICAL STAGGER, deliberately, and this is a DEPARTURE from ModBuild 192's overflow
+    //     branch, which nudged down by SecondaryStaggerMeters. Down is where the control board is —
+    //     the reason MaxSpawnPitchDeg exists at all — so ClampSpawnPose's board-top floor would
+    //     catch the nudge and put two windows back on the SAME height, which is the aliasing the
+    //     old ±85° clamp was condemned for. Removing it also keeps ModBuild 192's stated invariant
+    //     literally true: "the raw pose is the ordinary gaze spawn ROTATED ABOUT WORLD UP, so
+    //     distance, downward gaze bias and therefore HEIGHT out of ClampSpawnPose are bit-for-bit
+    //     what they were". A yaw about world up preserves y, and a pull along a y-zero vector
+    //     preserves y, so EVERY window this file places — overlapping or not — still has
+    //     bit-for-bit ModBuild 192's height. Pitch and roll stay zero by construction and are still
+    //     measured and printed by <see cref="Upright"/> on every single spawn.
+    //
+    // WHAT IS NOT TOUCHED, BECAUSE IT IS ALREADY RIGHT (and each of these was a shipped defect):
+    //   * ModBuild 181 — "so weit neben mir, dass ich es zuerst nicht bemerkt habe": the allocator
+    //     still fills CENTRE-OUTWARD. It does not index by "how many are open"; it searches for the
+    //     free interval with the smallest |angle|.
+    //   * ModBuild 183 — re-posing the whole set on every add/remove: NOTHING here ever writes a
+    //     standing window's pose. A claim is made once, at spawn, and held for the window's life;
+    //     a release frees an interval and moves nothing.
+    //   * The old ±85° clamp aliased slot 6 and slot 8 onto one angle. There is no clamp that can
+    //     alias two windows here: the centre clamp is a bound on ONE window's own centre, and two
+    //     windows that both hit the bound are separated by the spread search, which maximises the
+    //     distance between centres and can never return an existing centre while any other point
+    //     in the range scores higher.
+    //   * The MAP ROOM'S CENTRE is taken by the character screen, which converts first and by user
+    //     ruling is permanent and non-closable. It therefore claims at 0° with an empty registry
+    //     and keeps 0° forever; every later window is packed AROUND it, which is exactly what the
+    //     centre-outward search does with a claim already sitting on 0°.
+    //   * Hover cards never claim (TickHoverCards owns their pose), level messages never claim
+    //     (chain-continuity ruling), the error box never claims (nothing would release it).
+    //
+    // MULTIPLAYER: unchanged and still nothing on the wire. Where a window stands is derived from
+    // THIS client's head pose at THIS client's spawn moment and from THIS client's headset
+    // projection matrix — two players with different headsets legitimately get different cones and
+    // different angles. There is no shared state, no NetProtocol record, and nothing here that a
+    // remote peer could disagree with.
+
     /// <summary>
-    /// How many DISTINCT slots the arc has: the centre plus one step each way until
-    /// <see cref="MaxArcHalfDegrees"/> is passed, i.e. <c>1 + 2 × floor(85 / 34) = 5</c> at the
-    /// shipped angles → 0°, ±34°, ±68°.
+    /// How many windows the map room may seat at once. There are no longer FIXED slots — a claim is
+    /// an angular interval, and how many fit depends on how wide the windows actually are — so this
+    /// is a capacity bound on the registry and nothing more. Eight is already a room with eight
+    /// open windows; past it a window is still placed (in the cone, overlapping) but holds no claim,
+    /// and the log says so instead of pretending otherwise.
+    /// </summary>
+    private const int MaxWindowClaims = 8;
+
+    /// <summary>
+    /// THE COMFORT MARGIN, and why it is a fraction of a MEASURED cone rather than a constant.
+    /// The derived binocular half-angle is where a window's edge would be exactly ON the edge of
+    /// what both eyes can see — readable only by turning the eyes to the limit, through the part of
+    /// the lens with the worst blur and distortion. 0.80 keeps the outer fifth of the field free,
+    /// so a window that the packer calls "in view" is one that can be READ without the head moving.
+    /// It is one number, in one place, and the log prints both the raw cone and the margined one so
+    /// the next round can move it on evidence rather than on another guess.
+    /// </summary>
+    private const float ViewConeComfortFraction = 0.80f;
+
+    /// <summary>Used ONLY when no projection matrix can be read at all (see
+    /// <see cref="UsableHalfConeDeg"/>, which Warns when it falls this far). 35° is the margined
+    /// value a Quest-class headset produces, so the fallback fails toward the hardware in hand
+    /// rather than toward the ±68° that caused the report.</summary>
+    private const float FallbackUsableHalfConeDeg = 35f;
+
+    /// <summary>Sanity floor on the DERIVED cone. A projection matrix that reports a 5° or a 90°
+    /// half-field is a matrix we have misread or a camera that is not the headset's; clamping keeps
+    /// one bad read from stacking every window on 0° or scattering them behind the player, and the
+    /// clamp is reported on the geometry line when it engages.</summary>
+    private const float MinUsableHalfConeDeg = 20f;
+
+    /// <summary>Upper sanity bound on the derived cone — see <see cref="MinUsableHalfConeDeg"/>.</summary>
+    private const float MaxUsableHalfConeDeg = 55f;
+
+    /// <summary>Breathing room between two neighbouring windows' edges, degrees. Zero would let two
+    /// windows touch exactly, which reads as one wide window with a seam; 2° at reading distance is
+    /// a visible gap of about 4 cm.</summary>
+    private const float NeighbourGapDegrees = 2f;
+
+    /// <summary>
+    /// How much CLOSER to the head each overlap generation is pulled, real metres (scaled by the
+    /// diorama scale at use). Its ONLY job is to break the depth tie: CanvasConversion.8.Order
+    /// rewrites every floated panel's sorting order each frame from its MEASURED eye distance, so
+    /// two windows at the identical distance sort arbitrarily and can flicker, while any consistent
+    /// separation makes the newest one draw in front. 4 cm at reading distance is ~8 world units at
+    /// the map room's ~198 scale — orders of magnitude above that measurement's noise.
     ///
-    /// <para>THE OLD CODE HAD NO SUCH BOUND AND THAT WAS A LATENT COLLISION: it clamped the angle
-    /// with <c>Mathf.Min(step × 34, 85)</c>, so the sixth window sat at +85° and the seventh at
-    /// −85°, the eighth at +85° again — i.e. exactly ON TOP of the sixth. Here the capacity is the
-    /// number of slots that genuinely exist, and everything past it is handled explicitly by the
-    /// overflow rule below instead of silently coinciding.</para>
+    /// <para>WHY IT IS SMALL, which is not a taste call but a correction. It was 0.14 m (the
+    /// scenario table's <see cref="SecondaryForegroundMeters"/>) in the first cut of this change,
+    /// and simulating the packer against it showed the fault: pulling a window NEARER makes it
+    /// ANGULARLY WIDER, which shrinks the cone room left for it, which forces more overlap, which
+    /// pulls the next one nearer still. Four generations of 0.14 m turned a 45° window into a 71°
+    /// one that no longer fitted the cone at all — the remedy re-creating the reported bug. At
+    /// 0.04 m the same four generations cost under 2° of width in total and the geometry stays
+    /// where the measurement put it.</para>
     /// </summary>
-    private const int ArcSlotCount = 5;
+    private const float OverlapDepthStepMeters = 0.04f;
+
+    /// <summary>Floor on the pulled-in reading distance, real metres. The depth ladder may spend at
+    /// most <c>WindowDistanceMeters − this</c> in total, so a deep stack cannot walk the newest
+    /// window to arm's length, where a 1 m panel is both unreadable and physically in the way of
+    /// the control board. 0.90 m allows seven generations before it binds, i.e. more than the
+    /// registry can hold.</summary>
+    private const float MinOverlapDistanceMeters = 0.90f;
 
     /// <summary>
-    /// WHAT HAPPENS WHEN THE ARC IS FULL. A sixth window may not vanish and may not land exactly on
-    /// top of a fifth, so it falls back to the SAME treatment a stacked secondary gets at a
-    /// scenario table (<see cref="SecondaryStaggerMeters"/> / <see cref="SecondaryForegroundMeters"/>):
-    /// dead centre, nudged right+down and pulled toward the head, so it stands clearly in the
-    /// FOREGROUND of the centre window rather than merging with it — visible, readable, grabbable,
-    /// and separable by hand. Each overflow window takes its own stagger index, so overflow windows
-    /// never coincide with each other either. Four of them is already an eight-window room; past
-    /// that the last index is reused and the log says so rather than pretending otherwise.
+    /// ONE CLAIM: the angular interval a floated window has reserved, in degrees from ITS OWN spawn
+    /// gaze, + = right. <see cref="ArcClaim.Panel"/> null = the entry is free. Written ONLY by
+    /// <see cref="TryClaimArcSlot"/> (spawn / presence-regain refloat), narrowed once by
+    /// <see cref="NarrowArcClaim"/> (the pre-reveal re-place, which may only SHRINK it), and cleared
+    /// by <see cref="ReleaseFinishedArcSlots"/> (the window stopped floating) or by Detach.
     /// </summary>
-    private const int ArcOverflowCapacity = 4;
+    private struct ArcClaim
+    {
+        /// <summary>The claiming panel. Null = free. The array IS the claim — there is no second
+        /// copy of this truth anywhere to fall out of sync with.</summary>
+        public ConvertedPanel? Panel;
 
-    /// <summary>
-    /// THE CLAIM ITSELF. Index &lt; <see cref="ArcSlotCount"/> = a real arc slot (angle from
-    /// <see cref="ArcSlotAngleDeg"/>); index ≥ that = an overflow stack index. Null = free.
-    /// Written ONLY by <see cref="TryClaimArcSlot"/> (spawn / presence-regain refloat) and
-    /// <see cref="ReleaseFinishedArcSlots"/> (a window stopped floating / the room ended).
-    /// </summary>
-    private static readonly ConvertedPanel?[] _arcClaims =
-        new ConvertedPanel?[ArcSlotCount + ArcOverflowCapacity];
+        /// <summary>Log name, kept separately because the RELEASE line has to name the window after
+        /// its host has already been destroyed.</summary>
+        public string? Name;
 
-    /// <summary>Log name of the panel holding each claim — kept separately because the RELEASE line
-    /// has to name the window AFTER its host has already been destroyed.</summary>
-    private static readonly string?[] _arcClaimNames = new string?[ArcSlotCount + ArcOverflowCapacity];
+        /// <summary>Centre of the reserved interval, degrees from the spawn gaze, + = right.</summary>
+        public float CentreDeg;
+
+        /// <summary>Half the window's angular width at the distance it was placed at, degrees. The
+        /// reserved interval is <c>CentreDeg ± HalfWidthDeg</c>.</summary>
+        public float HalfWidthDeg;
+
+        /// <summary>Reading distance this claim was measured at, WORLD units (already scaled).
+        /// Kept so <see cref="NarrowArcClaim"/> can re-measure the same window's angular width from
+        /// its final fitted size without re-deriving the placement.</summary>
+        public float DistanceWorld;
+
+        /// <summary>0 = the window got a free interval. ≥1 = it is the k-th window that had to
+        /// overlap, which is also its depth-ladder index.</summary>
+        public int OverlapRank;
+
+        /// <summary>Worst overlap with any neighbour at claim time, degrees (0 = none). Printed on
+        /// the spawn line so "these two are on top of each other" is answerable from the log.</summary>
+        public float OverlapDeg;
+    }
+
+    /// <summary>THE CLAIM REGISTRY. See <see cref="ArcClaim"/>.</summary>
+    private static readonly ArcClaim[] _arcClaims = new ArcClaim[MaxWindowClaims];
+
+    /// <summary>Spawn-only scratch for the candidate angles the packer tests (one per standing
+    /// claim edge, plus dead centre). Static because this path runs a handful of times per session
+    /// on the Unity main thread and a per-spawn allocation would be pure litter.</summary>
+    private static readonly float[] _arcCandidates = new float[1 + 2 * MaxWindowClaims];
 
     /// <summary>One-time geometry report (see <see cref="LogArcGeometryOnce"/>).</summary>
     private static bool _arcGeometryLogged;
 
+    /// <summary>The derived, margined half-cone in degrees, or NaN until it has been read. Cached
+    /// because a headset's projection does not change within a session; left NaN on failure so a
+    /// later spawn (by which time the rig may exist) retries instead of freezing a fallback.</summary>
+    private static float _usableHalfConeDeg = float.NaN;
+
+    /// <summary>Where <see cref="_usableHalfConeDeg"/> came from, and the raw numbers behind it —
+    /// printed verbatim on the geometry line so the cone is auditable from the log alone.</summary>
+    private static string _coneSource = "not measured yet";
+
+    /// <summary>True once the "no projection matrix at all" Warn has fired (once per session).</summary>
+    private static bool _coneFallbackWarned;
+
     /// <summary>
-    /// The angle of arc slot <paramref name="slot"/> in degrees, measured from the spawn gaze,
-    /// + = right. IDENTICAL to ModBuild 183's sequence (0°, +34°, −34°, +68°, −68°) so a room laid
-    /// out by the old relayout and one laid out by the slot claims look the same; only the timing
-    /// of the decision changed. Out-of-range (overflow) slots answer 0° — they are centred and
-    /// staggered instead, see <see cref="ArcOverflowCapacity"/>.
+    /// The horizontal half-angles of one projection matrix, degrees, measured from its own optical
+    /// axis. Returns false for anything that does not look like a perspective projection.
+    ///
+    /// <para>THE DERIVATION, so a reader does not have to trust it. Unity's projection has
+    /// <c>m00 = 2n/(r−l)</c> and <c>m02 = (r+l)/(r−l)</c>, and a view-space point projects to
+    /// <c>ndc.x = m00·(x/−z) − m02</c>. Setting ndc.x = +1 gives the right edge at
+    /// <c>tan = (1 + m02)/m00</c>, and ndc.x = −1 gives the left edge at <c>tan = (1 − m02)/m00</c>.
+    /// Substituting the two definitions back reduces those to <c>r/n</c> and <c>−l/n</c>, which is
+    /// the identity that makes this valid for an ASYMMETRIC frustum — i.e. for every XR eye, where
+    /// the two sides genuinely differ and a single "field of view" number does not exist.</para>
     /// </summary>
-    private static float ArcSlotAngleDeg(int slot)
+    private static bool TryProjectionHalfAngles(Matrix4x4 p, out float leftDeg, out float rightDeg)
     {
-        if (slot < 0 || slot >= ArcSlotCount)
-            return 0f;
-        int step = (slot + 1) / 2;
-        float sign = (slot % 2) == 1 ? 1f : -1f;
-        return step * ArcStepDegrees * sign;
+        leftDeg = 0f;
+        rightDeg = 0f;
+        float m00 = p.m00;
+        float m02 = p.m02;
+        if (float.IsNaN(m00) || float.IsInfinity(m00) || float.IsNaN(m02) || float.IsInfinity(m02))
+            return false;
+        if (m00 <= 1e-4f)
+            return false; // orthographic, zeroed, or simply not a matrix we understand
+        float tanRight = (1f + m02) / m00;
+        float tanLeft = (1f - m02) / m00;
+        if (tanRight <= 1e-4f || tanLeft <= 1e-4f)
+            return false;
+        rightDeg = Mathf.Atan(tanRight) * Mathf.Rad2Deg;
+        leftDeg = Mathf.Atan(tanLeft) * Mathf.Rad2Deg;
+        return rightDeg > 1f && leftDeg > 1f && rightDeg < 89f && leftDeg < 89f;
     }
 
-    /// <summary>How many arc slots and overflow stacks are currently claimed.</summary>
-    private static void CountArcClaims(out int slotsUsed, out int overflowUsed)
+    /// <summary>
+    /// THE USABLE HALF-CONE, DERIVED — degrees each side of the spawn gaze inside which a window
+    /// may be placed. Measured once per session and cached; never a hard-coded 55.
+    ///
+    /// <para>THE LADDER, best source first, and the log always names which rung answered:
+    /// <list type="number">
+    /// <item>BOTH STEREO PROJECTION MATRICES (<c>Camera.GetStereoProjectionMatrix</c>). This is the
+    /// authority in XR: the runtime writes these per eye and they carry the real asymmetric
+    /// frustum, whereas <c>Camera.projectionMatrix</c> read outside rendering is the mono one and
+    /// <c>Camera.fieldOfView</c> is a VERTICAL number the runtime has overridden anyway. The cone
+    /// taken is the BINOCULAR OVERLAP — for each side, the SMALLER of the two eyes' extents —
+    /// because a window only one eye can see is not a window that can be read: it is monocular, it
+    /// sits where the other eye's nose occlusion begins, and this mod renders MultiPass, where
+    /// exactly that region is where stereo disagreements have shipped as bugs before.</item>
+    /// <item>THE MONO PROJECTION MATRIX, for the flat-screen case and for an XR session that has not
+    /// produced eye matrices yet. Same arithmetic, one frustum.</item>
+    /// <item>VERTICAL FOV × ASPECT, with a Warn. Stated last on purpose: on a per-eye 3072x3264
+    /// target the aspect is 0.94, so this rung reports a horizontal field NARROWER than the
+    /// vertical one, which is wrong for every headset. It is here only so that a camera with a
+    /// custom projection we cannot parse still yields a number in the right decade.</item>
+    /// <item><see cref="FallbackUsableHalfConeDeg"/>, with a Warn naming the consequence.</item>
+    /// </list></para>
+    ///
+    /// <para>Never throws: the whole read is wrapped, because this is reached from the spawn path
+    /// and an unguarded exception on that path starves VR input.</para>
+    /// </summary>
+    private static float UsableHalfConeDeg()
     {
-        slotsUsed = 0;
-        overflowUsed = 0;
+        if (!float.IsNaN(_usableHalfConeDeg))
+            return _usableHalfConeDeg;
+
+        float rawHalf = float.NaN;
+        string source = "no head camera";
+        try
+        {
+            Camera? head = CanvasConversion.WorldCamera;
+            if (head != null)
+            {
+                source = "no parsable projection";
+                if (XRSettings.isDeviceActive)
+                {
+                    Matrix4x4 lp = head.GetStereoProjectionMatrix(Camera.StereoscopicEye.Left);
+                    Matrix4x4 rp = head.GetStereoProjectionMatrix(Camera.StereoscopicEye.Right);
+                    if (TryProjectionHalfAngles(lp, out float lL, out float lR)
+                        && TryProjectionHalfAngles(rp, out float rL, out float rR))
+                    {
+                        // Binocular overlap: a direction is seen by BOTH eyes only within the
+                        // narrower of the two eyes' extents on that side. The cone handed to the
+                        // packer is symmetric, so it takes the tighter of the two sides.
+                        float bothLeft = Mathf.Min(lL, rL);
+                        float bothRight = Mathf.Min(lR, rR);
+                        rawHalf = Mathf.Min(bothLeft, bothRight);
+                        source = $"the STEREO projection matrices (the XR authority): left eye "
+                                 + $"{lL:F1}° left / {lR:F1}° right, right eye {rL:F1}° left / "
+                                 + $"{rR:F1}° right, i.e. monocular half-fields; binocular overlap "
+                                 + $"{bothLeft:F1}° left and {bothRight:F1}° right, symmetric raw "
+                                 + $"half-cone {rawHalf:F1}°";
+                    }
+                }
+                if (float.IsNaN(rawHalf)
+                    && TryProjectionHalfAngles(head.projectionMatrix, out float mL, out float mR))
+                {
+                    rawHalf = Mathf.Min(mL, mR);
+                    source = $"the MONO projection matrix ({mL:F1}° left / {mR:F1}° right) — no "
+                             + "usable stereo eye matrices were available";
+                }
+                if (float.IsNaN(rawHalf) && head.fieldOfView > 1f && head.aspect > 0.01f)
+                {
+                    rawHalf = Mathf.Atan(Mathf.Tan(head.fieldOfView * 0.5f * Mathf.Deg2Rad)
+                                         * head.aspect) * Mathf.Rad2Deg;
+                    source = $"vertical fieldOfView {head.fieldOfView:F1}° × aspect "
+                             + $"{head.aspect:F2} — LAST RESORT, this is not a reliable horizontal "
+                             + "field on a headset";
+                    VRLog.Warn("WorldUI", "MAP ROOM WINDOW SLOTS: no projection matrix could be "
+                                          + "parsed, so the usable field of view was estimated from "
+                                          + $"vertical fieldOfView {head.fieldOfView:F1}° × aspect "
+                                          + $"{head.aspect:F2} = {rawHalf:F1}° half-cone. On a "
+                                          + "per-eye 3072x3264 target the aspect is below 1, so "
+                                          + "this UNDER-reports the horizontal field and windows "
+                                          + "will be packed more tightly than they need to be — "
+                                          + "they stay readable and in view, they just overlap "
+                                          + "sooner. Reported once.");
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            // House rule for an engine read on a hot path: never propagate, name it once.
+            source = $"unreadable ({ex.GetType().Name})";
+            rawHalf = float.NaN;
+        }
+
+        if (float.IsNaN(rawHalf))
+        {
+            if (!_coneFallbackWarned)
+            {
+                _coneFallbackWarned = true;
+                VRLog.Warn("WorldUI", "MAP ROOM WINDOW SLOTS: the headset's field of view could NOT "
+                                      + "be read (no head camera, or no projection matrix this code "
+                                      + $"understands — {source}). Falling back to the stated "
+                                      + $"constant {FallbackUsableHalfConeDeg:F0}° half-cone, which "
+                                      + "is the margined value a Quest-class headset produces. "
+                                      + "Windows still spawn in front of the player and are still "
+                                      + "packed by their measured width; only the cone WIDTH is a "
+                                      + "guess this session, so on a much wider headset the room "
+                                      + "will be packed more tightly than it needs to be. If the "
+                                      + "head camera appears later this is retried.");
+            }
+            // Deliberately NOT cached: leaving it NaN means the next spawn re-reads, so a session
+            // that simply started before the rig existed recovers by itself.
+            _coneSource = $"the FALLBACK constant (could not measure: {source})";
+            return FallbackUsableHalfConeDeg;
+        }
+
+        float margined = rawHalf * ViewConeComfortFraction;
+        float clamped = Mathf.Clamp(margined, MinUsableHalfConeDeg, MaxUsableHalfConeDeg);
+        _coneSource = $"{source}; × comfort margin {ViewConeComfortFraction:F2} = {margined:F1}°"
+                      + (Mathf.Abs(clamped - margined) > 0.05f
+                          ? $"; CLAMPED to {clamped:F1}° by the [{MinUsableHalfConeDeg:F0}°,"
+                            + $"{MaxUsableHalfConeDeg:F0}°] sanity bounds — the raw read looks "
+                            + "wrong, check that the head camera really is the headset's"
+                          : "");
+        _usableHalfConeDeg = clamped;
+        return clamped;
+    }
+
+    /// <summary>The centre angle of claim <paramref name="slot"/>, degrees from its spawn gaze, or
+    /// 0 for a free / out-of-range index (the replay path and the release line both ask).</summary>
+    private static float ArcClaimAngleDeg(int slot) =>
+        slot >= 0 && slot < _arcClaims.Length ? _arcClaims[slot].CentreDeg : 0f;
+
+    /// <summary>The reserved half-width of claim <paramref name="slot"/> in degrees, or 0 for a
+    /// free / out-of-range index. The spawn line prints it so "how wide was it, and did that fit"
+    /// is answerable without re-deriving anything.</summary>
+    private static float ArcClaimHalfWidthDeg(int slot) =>
+        slot >= 0 && slot < _arcClaims.Length ? _arcClaims[slot].HalfWidthDeg : 0f;
+
+    /// <summary>How many claims are held, split by whether they had to overlap.</summary>
+    private static void CountArcClaims(out int clean, out int overlapping)
+    {
+        clean = 0;
+        overlapping = 0;
         for (int i = 0; i < _arcClaims.Length; i++)
         {
-            if (_arcClaims[i] == null)
+            if (_arcClaims[i].Panel == null)
                 continue;
-            if (i < ArcSlotCount)
-                slotsUsed++;
+            if (_arcClaims[i].OverlapRank > 0)
+                overlapping++;
             else
-                overflowUsed++;
+                clean++;
         }
     }
 
+    /// <summary>The reserved intervals, "centre±half 'name'", for the log lines. Answers "what else
+    /// was standing when this window chose its angle" without a second capture.</summary>
+    private static string ArcOccupancyText()
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null)
+                continue;
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append(_arcClaims[i].CentreDeg.ToString("F0")).Append("°±")
+              .Append(_arcClaims[i].HalfWidthDeg.ToString("F0")).Append("° '")
+              .Append(_arcClaims[i].Name ?? "?").Append('\'');
+        }
+        return sb.Length == 0 ? "(none)" : sb.ToString();
+    }
+
     /// <summary>
-    /// States the arc's geometry ONCE per session, so a hardware log can be read without having to
-    /// know the constants: how many slots exist, at which angles, and what the capacity means. If a
-    /// future edit changes <see cref="ArcStepDegrees"/> / <see cref="MaxArcHalfDegrees"/> without
-    /// changing <see cref="ArcSlotCount"/>, the mismatch is named here rather than showing up as two
-    /// windows quietly sharing an angle.
+    /// States the room's geometry ONCE per session, so a hardware log can be read without knowing
+    /// any constant: where the cone came from, how wide it is raw and after the margin, what the
+    /// packing rule is, and what happens when it is full. Called from the first claim, i.e. once
+    /// the head camera exists — deriving it earlier would only record a fallback.
     /// </summary>
     private static void LogArcGeometryOnce()
     {
         if (_arcGeometryLogged)
             return;
+        float cone = UsableHalfConeDeg();
+        if (float.IsNaN(_usableHalfConeDeg))
+            return; // still on the fallback: say nothing yet, retry when the rig is up
         _arcGeometryLogged = true;
-        var sb = new System.Text.StringBuilder();
-        for (int i = 0; i < ArcSlotCount; i++)
-            sb.Append(i == 0 ? "" : ", ").Append(i).Append(':').Append(ArcSlotAngleDeg(i).ToString("F0")).Append('°');
-        int derived = 1 + 2 * Mathf.FloorToInt(MaxArcHalfDegrees / ArcStepDegrees);
-        VRLog.Info("WorldUI", $"MAP ROOM WINDOW SLOTS: the arc has {ArcSlotCount} slots [{sb}] at "
-                              + $"{WindowDistanceMeters:F2} m reading distance, plus {ArcOverflowCapacity} "
-                              + "overflow stacks in front of the centre. A window claims ONE slot when it "
-                              + "spawns and keeps it until it stops floating; opening or closing a window "
-                              + "never moves any other window (user ruling: 'einmal gespawned sind sie fix')."
-                              + (derived == ArcSlotCount
-                                  ? ""
-                                  : $" WARNING: the step/half-angle constants ({ArcStepDegrees:F0}°/"
-                                    + $"{MaxArcHalfDegrees:F0}°) imply {derived} distinct slots, not "
-                                    + $"{ArcSlotCount} — slots would share angles or be wasted. Fix "
-                                    + "ArcSlotCount."));
+        float legibility = WindowLegibilityLive();
+        float fullWidthDeg = 2f * Mathf.Atan2(ModalTargetWidthMeters * legibility * 0.5f,
+            WindowDistanceMeters) * Mathf.Rad2Deg;
+        int fullWidthFit = fullWidthDeg > 0.1f
+            ? Mathf.Max(1, Mathf.FloorToInt((2f * cone + NeighbourGapDegrees)
+                                            / (fullWidthDeg + NeighbourGapDegrees)))
+            : 0;
+        VRLog.Info("WorldUI", "MAP ROOM WINDOW SLOTS: the usable half-cone is "
+                              + $"±{cone:F1}° from the spawn gaze, derived from {_coneSource}. "
+                              + "HOW TO READ THIS: a window may be placed anywhere its EDGES stay "
+                              + $"inside ±{cone:F1}°; windows are packed by their own measured "
+                              + "angular width (2·atan(halfWidth/distance), both WORLD units) and "
+                              + $"kept {NeighbourGapDegrees:F0}° apart, and the free interval "
+                              + "NEAREST THE CENTRE wins. For scale: a full-width 1920 px window is "
+                              + $"{ModalTargetWidthMeters * legibility:F2} m across at the "
+                              + $"{WindowDistanceMeters:F2} m reading distance = {fullWidthDeg:F0}° "
+                              + $"of view, so at most {fullWidthFit} of THOSE fit side by side — "
+                              + "narrower windows (the party roster measures ~0.29 m ≈ 14°) fit "
+                              + "several more. WHEN THE CONE IS FULL the next window is placed IN "
+                              + "THE CONE ANYWAY and overlaps (user ruling: 'sie sollen IM "
+                              + "SICHTFELD spawnen, möglichst so das sie nicht mit einem anderen "
+                              + "Fenster überlappen, aber IM SICHTFELD') — spread to the in-cone "
+                              + "angle furthest from every neighbour and pulled "
+                              + $"{OverlapDepthStepMeters:F2} m nearer per generation so it draws "
+                              + $"in front, never nearer than {MinOverlapDistanceMeters:F2} m. "
+                              + $"Capacity {MaxWindowClaims} reservations. A window claims ONCE at "
+                              + "spawn and keeps its angle until it stops floating; opening or "
+                              + "closing a window never moves any other window (user ruling: "
+                              + "'einmal gespawned sind sie fix').");
     }
 
     /// <summary>
-    /// Claim (or re-find) this panel's arc slot. Called from <see cref="ComputeHmdPose"/>, i.e. at
-    /// spawn and at presence-regain refloat, and NEVER per frame.
+    /// The half angular width, in degrees, of a window <paramref name="halfWidthWorld"/> world units
+    /// wide (half-extent) seen from <paramref name="distanceWorld"/> world units away.
     ///
-    /// <para>THE CHOICE RULE — FREE SLOT NEAREST THE CENTRE, right side first. The slot indices are
-    /// already ordered centre-outward (0°, +34°, −34°, +68°, −68°), so "first free index" IS
-    /// "nearest the centre", and the tie between the two sides of a step is broken to the right,
-    /// which is the side ModBuild 183 filled first. Why this rule and not "always dead ahead":
-    /// dead ahead is only free for the FIRST window, and taking it from a window already standing
-    /// there is the move the ruling forbids. Why not "next index after the last one used": that
-    /// wastes the middle — close the centre window and every future window would sit off to the
-    /// side with a hole where the player is looking. Nearest-to-centre re-uses freed central space
-    /// immediately and keeps the ensemble symmetric and inside the field of view, which is the
-    /// other half of the same ruling ("so das alle im Sichtfeld passen").</para>
+    /// <para>BOTH ARGUMENTS ARE WORLD UNITS AND THE RATIO IS DIMENSIONLESS. That is the point: the
+    /// map room's diorama scale is ~198 world units per real metre, and this repo has already
+    /// shipped a bug where a bound named "…Meters" was compared against a world-unit product. The
+    /// angle is taken from the ratio precisely so that neither operand has to be converted, and
+    /// both callers pass the scaled pair.</para>
+    /// </summary>
+    private static float HalfAngleDeg(float halfWidthWorld, float distanceWorld)
+    {
+        if (distanceWorld <= 1e-4f || halfWidthWorld <= 0f)
+            return 0f;
+        return Mathf.Atan2(halfWidthWorld, distanceWorld) * Mathf.Rad2Deg;
+    }
+
+    /// <summary>
+    /// The half-width to reserve for a window whose measured half-size is unusable (no host rect
+    /// yet): the widest a window is allowed to be, i.e. the board-relative target
+    /// <c>ModalTargetWidthMeters × legibility</c>. Over-reserving is the SAFE direction — it can
+    /// only push the NEXT window further out or into overlap, never this one out of the cone.
+    /// </summary>
+    private static float FallbackHalfWidthWorld(float scale) =>
+        ModalTargetWidthMeters * WindowLegibilityLive() * 0.5f * scale;
+
+    /// <summary>True when a window of half-width <paramref name="halfAngle"/> centred on
+    /// <paramref name="centreDeg"/> is inside the cone AND clear of every standing claim.</summary>
+    private static bool ArcAngleIsFree(float centreDeg, float halfAngle, float centreLimit)
+    {
+        if (Mathf.Abs(centreDeg) > centreLimit + 1e-3f)
+            return false;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null)
+                continue;
+            float needed = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees;
+            if (Mathf.Abs(centreDeg - _arcClaims[i].CentreDeg) < needed - 1e-3f)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>The worst overlap in degrees between a window of half-width
+    /// <paramref name="halfAngle"/> at <paramref name="centreDeg"/> and any standing claim (0 = it
+    /// is clear of all of them), plus the name of the window it overlaps most.</summary>
+    private static float ArcWorstOverlapDeg(float centreDeg, float halfAngle, out string withName)
+    {
+        float worst = 0f;
+        withName = "";
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null)
+                continue;
+            float ov = (_arcClaims[i].HalfWidthDeg + halfAngle)
+                       - Mathf.Abs(centreDeg - _arcClaims[i].CentreDeg);
+            if (ov > worst)
+            {
+                worst = ov;
+                withName = _arcClaims[i].Name ?? "?";
+            }
+        }
+        return worst;
+    }
+
+    /// <summary>How far toward the head an overlap generation is pulled, WORLD units. Floored at
+    /// <see cref="MinOverlapDistanceMeters"/> so a deep stack cannot arrive at the player's
+    /// nose.</summary>
+    private static float OverlapPullWorld(int overlapRank, float scale)
+    {
+        if (overlapRank <= 0)
+            return 0f;
+        float pull = OverlapDepthStepMeters * overlapRank;                 // real metres
+        float maxPull = Mathf.Max(0f, WindowDistanceMeters - MinOverlapDistanceMeters);
+        return Mathf.Min(pull, maxPull) * Mathf.Max(scale, 0f);            // → world units
+    }
+
+    /// <summary>
+    /// The in-cone angle FURTHEST from every standing claim's centre — the overlap remedy. Sampled
+    /// rather than solved because the objective (maximise the minimum distance to a set of points
+    /// on a bounded interval) has its optimum at an endpoint or a midpoint, and a ~1°-resolution
+    /// sweep finds it to within half a degree, which is far below anything the eye can judge; it
+    /// runs once per spawn, never per frame. Ties go to the angle nearest the centre, so a room
+    /// with nothing standing still answers 0°.
+    /// </summary>
+    private static float SpreadAngleDeg(float centreLimit)
+    {
+        if (centreLimit <= 0.5f)
+            return 0f;
+        int samples = Mathf.Clamp(Mathf.CeilToInt(centreLimit * 2f) + 1, 3, 241);
+        float best = 0f;
+        float bestScore = -1f;
+        for (int s = 0; s < samples; s++)
+        {
+            float a = Mathf.Lerp(-centreLimit, centreLimit, s / (float)(samples - 1));
+            float score = float.MaxValue;
+            bool any = false;
+            for (int i = 0; i < _arcClaims.Length; i++)
+            {
+                if (_arcClaims[i].Panel == null)
+                    continue;
+                any = true;
+                score = Mathf.Min(score, Mathf.Abs(a - _arcClaims[i].CentreDeg));
+            }
+            if (!any)
+                return 0f;
+            // Larger separation wins; then nearer the centre; then RIGHT, which is the side every
+            // build since 183 has filled first. Without that last clause the ±limit tie would be
+            // settled by which end the sweep started at, i.e. always left, for no reason.
+            bool tied = Mathf.Abs(score - bestScore) <= 0.01f;
+            bool better = score > bestScore + 0.01f
+                          || (tied && Mathf.Abs(a) < Mathf.Abs(best) - 1e-3f)
+                          || (tied && Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(best)) <= 1e-3f
+                              && a > best);
+            if (better)
+            {
+                bestScore = score;
+                best = a;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>The first free registry index, or −1 when all <see cref="MaxWindowClaims"/> are
+    /// held.</summary>
+    private static int FirstFreeClaimIndex()
+    {
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null)
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Claim (or re-find) this window's angular interval. Called from <see cref="ComputeHmdPose"/>,
+    /// i.e. at spawn and at presence-regain refloat, and NEVER per frame.
+    ///
+    /// <para>THE CHOICE RULE — THE FREE INTERVAL NEAREST THE CENTRE. The candidate angles are dead
+    /// centre plus, for every standing claim, the two angles that put this window exactly against
+    /// that claim's left and right edge (their centre ± their half-width ± own half-width ± gap).
+    /// One of those is always the optimum: the nearest-to-centre feasible position is either 0°
+    /// itself or flush against something, so testing 1 + 2N angles finds it exactly, with no
+    /// stepping and no search tolerance. The smallest |angle| that is inside the cone and clear of
+    /// everything wins; a tie between the two sides goes RIGHT, which is the side ModBuild 183 and
+    /// 192 both filled first. Why not "the next index after the last one used": that wastes the
+    /// middle — close the centre window and every later one would sit off to the side with a hole
+    /// where the player is looking. Why not "always dead ahead": dead ahead is only free for the
+    /// first window, and taking it from a window already standing there is the move the ruling
+    /// forbids.</para>
+    ///
+    /// <para>WHEN NOTHING FITS — the user's priority, not ours. The window is placed INSIDE THE
+    /// CONE and allowed to overlap: the angle chosen is the one that maximises the distance to
+    /// every standing centre (so each window still shows a readable strip of itself), and the
+    /// window is pulled <see cref="OverlapDepthStepMeters"/> nearer per overlap generation so it
+    /// draws in FRONT of what it covers. It is never pushed outside the cone to avoid an overlap —
+    /// that is the exact fault being fixed.</para>
     ///
     /// <para>EXCLUSIONS. Outside the map room there is no arc (a scenario table stacks its
-    /// secondaries instead — item 2/3b). A HOVER CARD never claims: <c>TickHoverCards</c> owns its
-    /// pose, and it joins and leaves <see cref="Converted"/> on every single mouseover, so a claim
-    /// would churn the whole registry for something that is not a window. A LEVEL MESSAGE never
-    /// claims: its pose is governed by the chain-continuity ruling. The global error box never
-    /// claims: it is not a <see cref="Converted"/> window, so nothing would ever release it.</para>
+    /// secondaries instead). A HOVER CARD never claims: <c>TickHoverCards</c> owns its pose, and it
+    /// joins and leaves <see cref="Converted"/> on every mouseover, so a claim would churn the
+    /// registry for something that is not a window. A LEVEL MESSAGE never claims (chain-continuity
+    /// ruling). The global error box never claims: it is not a <see cref="Converted"/> window, so
+    /// nothing would ever release it.</para>
     /// </summary>
-    /// <param name="slot">The claimed index, or −1 when the arc AND the overflow are both full
-    /// (last-resort placement, see <paramref name="staggerIndex"/>).</param>
+    /// <param name="halfSizeWorld">The window's half-extent in WORLD units, as handed to the
+    /// placement. x is the half-WIDTH; only x is read here.</param>
+    /// <param name="scale">Diorama scale (world units per real metre) at this spawn.</param>
+    /// <param name="slot">The claimed registry index, or −1 when the registry is full.</param>
     /// <param name="yawDeg">Degrees to rotate the spawn gaze by, + = right.</param>
-    /// <param name="staggerIndex">0 for a real arc slot; ≥1 for an overflow stack (the existing
-    /// right+down+foreground stagger).</param>
+    /// <param name="overlapRank">0 = it got a free interval; ≥1 = the k-th overlapping window,
+    /// which is also its depth-ladder index.</param>
+    /// <param name="foregroundPullWorld">World units to pull the window toward the head along the
+    /// FLATTENED forward (y = 0, so the placement's height is untouched). 0 unless overlapping.</param>
     /// <param name="why">Human-readable reason for the log line.</param>
-    /// <returns>true when the map room's arc governs this placement.</returns>
+    /// <returns>true when the map room's cone governs this placement.</returns>
     private static bool TryClaimArcSlot(ConvertedPanel? panel, bool levelMessage,
-        out int slot, out float yawDeg, out int staggerIndex, out string why)
+        Vector2 halfSizeWorld, float scale,
+        out int slot, out float yawDeg, out int overlapRank, out float foregroundPullWorld,
+        out string why)
     {
         slot = -1;
         yawDeg = 0f;
-        staggerIndex = 0;
+        overlapRank = 0;
+        foregroundPullWorld = 0f;
         why = "";
         if (panel == null || levelMessage || !MapRoom.MapRoomDriver.Active)
             return false;
         if (ReferenceEquals(panel, _errorPanel))
-            return false; // not a Converted window — no release path would ever free its slot
+            return false; // not a Converted window — no release path would ever free its claim
         if (IsHoverCardPanel(panel))
             return false; // TickHoverCards owns its pose (and it churns on every mouseover)
 
         LogArcGeometryOnce();
 
         // Already holds one? Presence-regain refloat re-places an EXISTING float, and it must land
-        // back on its own slot rather than take a second one (and rather than pile every
+        // back on its own angle rather than take a second claim (and rather than pile every
         // non-grabbed window dead ahead, which is what it did while the relayout owned the arc).
         for (int i = 0; i < _arcClaims.Length; i++)
         {
-            if (!ReferenceEquals(_arcClaims[i], panel))
+            if (!ReferenceEquals(_arcClaims[i].Panel, panel))
                 continue;
             slot = i;
-            yawDeg = ArcSlotAngleDeg(i);
-            staggerIndex = i < ArcSlotCount ? 0 : i - ArcSlotCount + 1;
-            why = "re-uses the slot it already claimed (a refloat must not take a second one)";
+            yawDeg = _arcClaims[i].CentreDeg;
+            overlapRank = _arcClaims[i].OverlapRank;
+            foregroundPullWorld = OverlapPullWorld(overlapRank, scale);
+            why = $"re-uses the interval it already claimed ({yawDeg:F0}°±"
+                  + $"{_arcClaims[i].HalfWidthDeg:F0}°) — a refloat must not take a second one";
             return true;
         }
 
-        CountArcClaims(out int slotsUsed, out int overflowUsed);
-        for (int i = 0; i < ArcSlotCount; i++)
+        float cone = UsableHalfConeDeg();
+        float nominalDist = WindowDistanceMeters * scale;  // WORLD units, both operands scaled
+        float halfWidthWorld = halfSizeWorld.x > 1e-4f
+            ? halfSizeWorld.x
+            : FallbackHalfWidthWorld(scale);
+        float halfAngle = HalfAngleDeg(halfWidthWorld, nominalDist);
+        CountArcClaims(out int cleanBefore, out int overlapBefore);
+        string standing = ArcOccupancyText();
+
+        // ---- (a) IN THE CONE, ALWAYS: the centre bound that keeps the window's EDGES inside.
+        float centreLimit = cone - halfAngle;
+        bool widerThanCone = centreLimit < 0f;
+        if (widerThanCone)
+            centreLimit = 0f;
+
+        // ---- (b) NOT OVERLAPPING, IF POSSIBLE: the nearest-to-centre free interval.
+        int candidateCount = 0;
+        _arcCandidates[candidateCount++] = 0f;
+        for (int i = 0; i < _arcClaims.Length && candidateCount + 1 < _arcCandidates.Length; i++)
         {
-            if (_arcClaims[i] != null)
+            if (_arcClaims[i].Panel == null)
                 continue;
-            slot = i;
-            yawDeg = ArcSlotAngleDeg(i);
-            staggerIndex = 0;
-            why = slotsUsed == 0
-                ? "the arc was empty, so the centre slot was free"
-                : $"the free slot NEAREST THE CENTRE ({slotsUsed} of {ArcSlotCount} were taken); "
-                  + "the windows already standing were not touched";
-            _arcClaims[i] = panel;
-            _arcClaimNames[i] = PanelLogName(panel);
+            float edge = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees;
+            _arcCandidates[candidateCount++] = _arcClaims[i].CentreDeg + edge;
+            _arcCandidates[candidateCount++] = _arcClaims[i].CentreDeg - edge;
+        }
+        bool haveFree = false;
+        float bestFree = 0f;
+        for (int c = 0; c < candidateCount; c++)
+        {
+            float a = _arcCandidates[c];
+            if (!ArcAngleIsFree(a, halfAngle, centreLimit))
+                continue;
+            // Nearest the centre wins; a tie between the two sides of a step goes RIGHT (+).
+            if (!haveFree
+                || Mathf.Abs(a) < Mathf.Abs(bestFree) - 1e-3f
+                || (Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(bestFree)) <= 1e-3f && a > bestFree))
+            {
+                haveFree = true;
+                bestFree = a;
+            }
+        }
+
+        if (haveFree)
+        {
+            yawDeg = bestFree;
+            overlapRank = 0;
+            foregroundPullWorld = 0f;
+            why = cleanBefore + overlapBefore == 0
+                ? $"the room was empty, so it took dead centre; the window is {halfAngle * 2f:F0}° "
+                  + $"wide and the usable cone is ±{cone:F1}°"
+                : $"the FREE interval NEAREST THE CENTRE ({halfAngle * 2f:F0}°-wide window, "
+                  + $"reserving {yawDeg:F0}°±{halfAngle:F0}° inside the ±{cone:F1}° cone with a "
+                  + $"{NeighbourGapDegrees:F0}° gap) — it does NOT overlap anything, and the "
+                  + $"windows already standing [{standing}] were not touched";
+        }
+        else
+        {
+            // ---- THE CONE IS FULL. In view wins; overlap is the price, and it is stated.
+            overlapRank = overlapBefore + 1;
+            foregroundPullWorld = OverlapPullWorld(overlapRank, scale);
+            float pulledDist = nominalDist - foregroundPullWorld;
+            // The pull makes the window ANGULARLY WIDER (it is nearer), so the cone bound and the
+            // reserved interval are both re-measured at the distance it will actually hang at —
+            // otherwise "in the cone" would be checked against a size the window no longer has.
+            halfAngle = HalfAngleDeg(halfWidthWorld, pulledDist);
+            widerThanCone = cone - halfAngle < 0f;
+            centreLimit = Mathf.Max(0f, cone - halfAngle);
+            yawDeg = SpreadAngleDeg(centreLimit);
+            float pullMeters = foregroundPullWorld / Mathf.Max(scale, 1e-4f);
+            float pulledMeters = pulledDist / Mathf.Max(scale, 1e-4f);
+            why = $"NO free interval is left inside the cone (±{cone:F1}°) — this window is "
+                  + $"{halfAngle * 2f:F0}° wide and the standing set is [{standing}]. IT IS PLACED "
+                  + "IN THE CONE ANYWAY AND OVERLAPS, which is the user's stated priority ('sie "
+                  + "sollen IM SICHTFELD spawnen, möglichst so das sie nicht mit einem anderen "
+                  + "Fenster überlappen, aber IM SICHTFELD'): spread to the in-cone angle furthest "
+                  + $"from every neighbour and pulled {pullMeters:F2} m nearer (overlap generation "
+                  + $"{overlapRank}, reading distance {pulledMeters:F2} m) so it draws IN FRONT of "
+                  + "what it covers instead of merging with it";
+        }
+
+        if (widerThanCone)
+        {
+            why += $". NOTE: this window is WIDER than the whole usable cone ({halfAngle * 2f:F0}° "
+                   + $"vs ±{cone:F1}°), so it is centred and its edges hang over by "
+                   + $"{halfAngle - cone:F0}° each side no matter where it is put — nothing can be "
+                   + "done about that from here; it has to be narrower or further away";
+        }
+
+        float overlapDeg = ArcWorstOverlapDeg(yawDeg, halfAngle, out string overlapWith);
+        if (overlapDeg > 0.5f)
+            why += $". MEASURED: it overlaps '{overlapWith}' by {overlapDeg:F0}° of the "
+                   + $"{halfAngle * 2f:F0}° it spans";
+        else if (overlapRank > 0)
+            why += $". MEASURED: it does NOT actually overlap anything after all — it only failed "
+                   + $"to keep the full {NeighbourGapDegrees:F0}° breathing gap, so it was routed "
+                   + "through the overlap rule and carries its depth offset. The windows are edge "
+                   + "to edge, not on top of each other";
+
+        int free = FirstFreeClaimIndex();
+        if (free < 0)
+        {
+            // Registry full: still placed, still in the cone, but holding no reservation — so a
+            // later window may land on the same angle, and the log says so rather than quietly
+            // aliasing two windows onto one position.
+            slot = -1;
+            why += $". THE REGISTRY IS FULL ({MaxWindowClaims} reservations) — this window holds "
+                   + "NONE, so a later window may land on the same angle. It is still in view and "
+                   + "grabbable; close a window to free a reservation";
             return true;
         }
-        for (int i = ArcSlotCount; i < _arcClaims.Length; i++)
+
+        slot = free;
+        _arcClaims[free] = new ArcClaim
         {
-            if (_arcClaims[i] != null)
-                continue;
-            slot = i;
-            yawDeg = 0f;
-            staggerIndex = i - ArcSlotCount + 1;
-            why = $"ALL {ArcSlotCount} arc slots are occupied — overflow stack {staggerIndex}: "
-                  + "placed centred but nudged right/down and pulled toward the head, so it stands "
-                  + "in front of the centre window instead of merging with it";
-            _arcClaims[i] = panel;
-            _arcClaimNames[i] = PanelLogName(panel);
-            return true;
-        }
-        // Nine floated windows in one room. Place it on the last overflow offset rather than
-        // dropping it somewhere unreachable, and say plainly that it may coincide with another.
-        slot = -1;
-        yawDeg = 0f;
-        staggerIndex = ArcOverflowCapacity;
-        why = $"the arc ({ArcSlotCount} slots) AND the overflow ({ArcOverflowCapacity} stacks) are "
-              + $"both full ({slotsUsed}+{overflowUsed} claims) — placed on the LAST overflow offset "
-              + "WITHOUT a claim, so it may coincide with the window already there. It is still in "
-              + "view and grabbable; close a window to free a slot";
+            Panel = panel,
+            Name = PanelLogName(panel),
+            CentreDeg = yawDeg,
+            HalfWidthDeg = halfAngle,
+            DistanceWorld = nominalDist - foregroundPullWorld,
+            OverlapRank = overlapRank,
+            OverlapDeg = overlapDeg,
+        };
+        return true;
+    }
+
+    /// <summary>
+    /// SHRINK a standing claim to the window's FINAL fitted width. It never moves the claim and
+    /// never widens it.
+    ///
+    /// <para>WHY THIS EXISTS. A window is placed the instant it converts, i.e. BEFORE the content
+    /// fit runs — so the width the claim was measured from is the PRE-fit host rect, typically the
+    /// whole captured 1920x1080 window. The hardware log makes the size of that error concrete: the
+    /// party roster claims as a full-width 1.00 m window (≈45°) and then fits to 328x1080 px =
+    /// 0.29 m (≈14°). Left alone, that window would reserve three times the angle it occupies for
+    /// its whole life and force every later window into overlap for nothing.</para>
+    ///
+    /// <para>WHY SHRINKING IS SAFE AND MOVING WOULD NOT BE. This runs on the pre-reveal re-place,
+    /// which replays the SAME stored spawn inputs against the final geometry — the window's own
+    /// pose is unchanged by this call (the centre is not touched) and no other window is read, let
+    /// alone written. All that changes is how much room LATER windows see as taken. Widening is
+    /// refused for the same reason: a claim that grew could swallow the interval a neighbour is
+    /// already standing in, and the log would then describe a room that does not exist.</para>
+    /// </summary>
+    private static bool NarrowArcClaim(int slot, Vector2 halfSizeWorld, out string note)
+    {
+        note = "";
+        if (slot < 0 || slot >= _arcClaims.Length || _arcClaims[slot].Panel == null)
+            return false;
+        if (halfSizeWorld.x <= 1e-4f)
+            return false;
+        float dist = _arcClaims[slot].DistanceWorld;
+        if (dist <= 1e-4f)
+            return false;
+        float fitted = HalfAngleDeg(halfSizeWorld.x, dist);
+        float held = _arcClaims[slot].HalfWidthDeg;
+        if (fitted >= held - 0.5f)
+            return false; // same size, or the fit made it wider — never widen a standing claim
+        _arcClaims[slot].HalfWidthDeg = fitted;
+        note = $"reservation NARROWED from ±{held:F0}° to ±{fitted:F0}° now that the content fit is "
+               + "final (it was claimed from the pre-fit rect); its own pose did not move and no "
+               + "other window was touched — the freed angle is simply available to the next window";
         return true;
     }
 
@@ -648,13 +1321,13 @@ internal static partial class ModalFallback
         panel.HostGo != null ? panel.HostGo.name : "<panel>";
 
     /// <summary>
-    /// Free the slots of windows that have stopped floating, and NOTHING ELSE — no window is
+    /// Free the reservations of windows that have stopped floating, and NOTHING ELSE — no window is
     /// re-posed here, which is the whole point of the ruling: "ohne explizite Bewegung vom User,
     /// sollen sie ihre Position nicht verändern" covers a CLOSE just as much as an open.
     ///
-    /// <para>Run from <see cref="Tick"/> between the release loop and the convert loop, so a slot
-    /// freed by a window closing this tick is available to a window opening in the SAME tick.
-    /// Membership in <see cref="Converted"/> is the liveness test rather than
+    /// <para>Run from <see cref="Tick"/> between the release loop and the convert loop, so an
+    /// interval freed by a window closing this tick is available to a window opening in the SAME
+    /// tick. Membership in <see cref="Converted"/> is the liveness test rather than
     /// <see cref="ConvertedPanel.IsAlive"/>, because <c>CanvasConversion.Release</c> deliberately
     /// leaves the panel's target alive (it hands the game window back to its 2D home) — a released
     /// window is one that has left <see cref="Converted"/>, and that list is the authority.</para>
@@ -663,30 +1336,30 @@ internal static partial class ModalFallback
     {
         for (int i = 0; i < _arcClaims.Length; i++)
         {
-            ConvertedPanel? claimed = _arcClaims[i];
+            ConvertedPanel? claimed = _arcClaims[i].Panel;
             if (claimed == null || ContainsPanel(claimed))
                 continue;
             // Deliberately NOT gated on MapRoomDriver.Active. A claim is released by the window
             // ceasing to float and by nothing else — so leaving and re-entering the room (or the
-            // room signal flickering for a frame) can never orphan a slot that a standing window
-            // still occupies, and a window that IS released while the room is gone still frees its
-            // seat. Module shutdown clears the whole registry in Detach().
-            string name = _arcClaimNames[i] ?? "<window>";
-            _arcClaims[i] = null;
-            _arcClaimNames[i] = null;
-            CountArcClaims(out int slotsUsed, out int overflowUsed);
-            VRLog.Info("WorldUI", $"MAP ROOM WINDOW SLOT RELEASED: '{name}' gave up "
-                                  + (i < ArcSlotCount
-                                      ? $"arc slot {i} ({ArcSlotAngleDeg(i):F0}° from its spawn gaze)"
-                                      : $"overflow stack {i - ArcSlotCount + 1}")
-                                  + " — it is no longer floated (the player closed it, the game "
-                                  + "released it, or the room ended). "
-                                  + $"{slotsUsed}/{ArcSlotCount} arc slots now occupied, "
-                                  + $"{ArcSlotCount - slotsUsed} free, {overflowUsed} overflow. "
-                                  + "NOTHING WAS MOVED: every window still standing keeps the exact "
-                                  + "pose it claimed at spawn (user ruling). The freed slot goes to "
-                                  + "the next window that opens — which may be this same window "
-                                  + "re-opened, at a different angle, and that is expected.");
+            // room signal flickering for a frame) can never orphan a reservation that a standing
+            // window still occupies, and a window that IS released while the room is gone still
+            // frees its interval. Module shutdown clears the whole registry in Detach().
+            string name = _arcClaims[i].Name ?? "<window>";
+            float centre = _arcClaims[i].CentreDeg;
+            float half = _arcClaims[i].HalfWidthDeg;
+            _arcClaims[i] = default;
+            CountArcClaims(out int clean, out int overlapping);
+            VRLog.Info("WorldUI", $"MAP ROOM WINDOW SLOT RELEASED: '{name}' gave up the interval "
+                                  + $"{centre:F0}°±{half:F0}° from its spawn gaze (+ = right) — it "
+                                  + "is no longer floated (the player closed it, the game released "
+                                  + "it, or the room ended). "
+                                  + $"{clean + overlapping}/{MaxWindowClaims} reservations still "
+                                  + $"held ({clean} clear of everything, {overlapping} overlapping): "
+                                  + $"[{ArcOccupancyText()}]. NOTHING WAS MOVED: every window still "
+                                  + "standing keeps the exact pose it claimed at spawn (user "
+                                  + "ruling). The freed angle goes to the next window that opens — "
+                                  + "which may be this same window re-opened, at a different angle, "
+                                  + "and that is expected.");
         }
     }
 
@@ -703,16 +1376,20 @@ internal static partial class ModalFallback
 
     // ---- what the arc looks like from outside (for the travel-confirm lane) -------------------
 
-    /// <summary>How many arc slots exist in total (see <see cref="ArcSlotCount"/>).</summary>
-    internal static int FloatedArcSlotCapacity => ArcSlotCount;
+    /// <summary>How many windows the room can seat at once (see <see cref="MaxWindowClaims"/>).
+    /// NOT a count of fixed angles — since ModBuild 193 a seat is an angular INTERVAL sized from
+    /// the window's own measured width, so how many actually fit side by side depends on how wide
+    /// they are; this is the registry's capacity and nothing more.</summary>
+    internal static int FloatedArcSlotCapacity => MaxWindowClaims;
 
-    /// <summary>How many arc slots are claimed right now (overflow stacks not counted).</summary>
+    /// <summary>How many reservations are held right now, overlapping ones included — i.e. how
+    /// many floated map-room windows currently own an angle.</summary>
     internal static int FloatedArcSlotsOccupied
     {
         get
         {
-            CountArcClaims(out int slotsUsed, out _);
-            return slotsUsed;
+            CountArcClaims(out int clean, out int overlapping);
+            return clean + overlapping;
         }
     }
 

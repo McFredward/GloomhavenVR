@@ -245,17 +245,29 @@ internal sealed class MapIconHoverPads
         float inflate = loc != null && loc.IsHighlighted ? HighlightedNodeScaleFactor : 1f;
         // ModBuild 189 — THE PAD IS THE DRAWN ICON, SO IT TAKES THE SIZE DIAL TOO. The user asked
         // for the map symbols to be enlargeable ("Die Symbole auf der Map sind sehr klein"), and
-        // MapIconLayer now multiplies each drawn quad by [MapRoom] IconScale — or by
-        // GloomhavenIconScale for the capital. This class's whole contract is "the pad is exactly
-        // the quad MapIconLayer draws" (see the class doc), and it derives the footprint
-        // INDEPENDENTLY from decal.lossyScale — so without this multiply the two silently disagree
-        // the moment a dial leaves 1.0, and pointing at a symbol you can plainly see would miss it
-        // again. That is the bug ModBuild 188 fixed, and re-introducing it through a size slider
-        // would be a poor trade.
+        // MapIconLayer multiplies each drawn quad by a size dial. This class's whole contract is
+        // "the pad is exactly the quad MapIconLayer draws" (see the class doc), and it derives the
+        // footprint INDEPENDENTLY from decal.lossyScale — so without this multiply the two silently
+        // disagree the moment a dial leaves 1.0, and pointing at a symbol you can plainly see would
+        // miss it again. That is the bug ModBuild 188 fixed, and re-introducing it through a size
+        // slider would be a poor trade.
         //
-        // ScaleForDrawnQuad is the layer's own published number — asking it, rather than reading
-        // the two config entries here, means the capital test and the clamp cannot drift apart
-        // between the drawn icon and the thing you point at.
+        // ModBuild 193 — AND IT STILL TAKES THE RIGHT ONE AFTER THE SPLIT. There are now THREE
+        // dials, one per icon population: [MapRoom] IconScale (world map), GloomhavenIconScale (the
+        // capital's marker) and the new CityIconScale (everything on the Gloomhaven city map). That
+        // is precisely the change that could have re-opened the ModBuild 188 bug — art rescaled by
+        // a dial the hit box does not know about — and the reason it cannot is that NOTHING ABOUT
+        // THE DIAL CHOICE IS WRITTEN HERE. This line asks MapIconLayer.ScaleForDrawnQuad, which
+        // resolves surface + capital + clamp through the SAME MapIconLayer.ScaleFor the draw loop
+        // selects with, off a map-surface answer that is latched ONCE PER FRAME and shared between
+        // the two lanes (MapIconLayer.CurrentSurface). So a pad and the quad it shadows cannot even
+        // be sized from different maps for one frame of a world↔city switch, let alone from
+        // different dials — and a fourth dial added tomorrow reaches the pads with no edit here.
+        //
+        // Re-asked EVERY FRAME from PosePad, not cached at Build time: the dial is live (a step in
+        // the options pane resizes the icons on the next frame) and the map underneath can change
+        // without the pads being rebuilt, so a cached factor is a hit box for a size the icon no
+        // longer has.
         float dial = MapIconLayer.ScaleForDrawnQuad(decal);
         float sx = Mathf.Abs(ds.x) * dial / inflate;
         float sz = Mathf.Abs(ds.z) * dial / inflate;

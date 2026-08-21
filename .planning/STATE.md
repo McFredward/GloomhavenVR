@@ -126,6 +126,91 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 193** (bundle UNCHANGED — plugin DLL only) — a render texture cannot be both
+  multisampled and mipmapped, and `Create()` does not say so. *(Five workers, isolated worktrees.)*
+  **Nothing on the wire.**
+  * **THE FLICKER IS SOLVED — user: *"Durchbruch beim Flackern!"*** `[WorldUI] PanelSupersample`
+    ended it. **The aliasing account is confirmed** and undersampled *rasterization* was the cause.
+    But 192 shipped **half** the fix and its own falsifier said so twice (`mips 1 NONE`,
+    "mipmapCount=1 — NO mip chain"). **ROOT CAUSE: an RT cannot be multisampled AND mipmapped.**
+    `Create()` returned **true** and silently dropped the mip request, so the "could not be created"
+    stand-down never fired; `GenerateMips()` on an MSAA target is a no-op for the same reason. The win
+    was MSAA + 1:1 rasterization alone, with the eye still minifying an **unfiltered** texture at up
+    to 2.29 texels/px. **That is exactly the movement signature** — unfiltered minification is
+    position-dependent, so it is frozen and invisible when still and crawls the instant anything
+    moves. Fixed with **two targets**: MSAA capture → `Blit` resolve into a single-sample mipmapped
+    target where `GenerateMips()` actually works. `CreateMipRt` **rejects its own result** unless
+    `mipmapCount > 1`, so a silent failure cannot recur.
+  * **THE MISSING ELEMENTS: a LOG-SPAM FIX was gating the canvas adoption.**
+    `GrabbableModal.ThrottleDiagWhileMoving` clears `ConvertedPanel.Diagnostic` while the host pose
+    changes — but `Diagnostic` is *also* what makes `CanvasConversion.Tick` run `AdoptNestedCanvases`
+    every frame. With it off, adoption fell to a 30-frame schedule and the capture-layer sweep ran on
+    15, so a nested canvas born **during a drag** sat on the game's UI layer for tens of frames:
+    **missing from the capture AND drawn straight into the eye**. Both halves of the report from one
+    cause. The sweep now runs every frame while moving and 30 frames after.
+  * **The crop was real and its own warn measured the wrong rect** (it compared against the game
+    window's *authored* 1920x1080 rect and it **latched**, so it could not retract when the fit grew
+    the host). The capture frame is now the **union of the host rect and the measured drawn content**
+    — a world-space canvas does not clip at its root rect, so that overspill IS visible in the OFF
+    path. The promise weakens honestly to "ON shows MORE, never less".
+  * **The cap was set from a misread.** 14.0 MB vs a 95.3 MB total was comparing the **engage-time**
+    per-panel figure with the **post-fit** total; the log's own missing link is the re-allocation to
+    1920x1080 at 81.7 MB. `MaxPanels` 2 → **8**, per-panel 96 → 128 MB, session 256 → 384 MB, and
+    MSAA now steps down against **remaining session headroom** too — before, a window that would have
+    fitted at 2x was refused outright and the message blamed `MaxPanels` for a budget decision.
+  * **One more one-frame defect, found by reading the ordering rather than guessing:**
+    `orthographicSize` is a **world-unit** quantity from `host.lossyScale`, so a two-hand resize
+    landing after our LateTick framed the *previous* frame's size inside an already-correct quad.
+    `SyncProjection` now runs again from the capture camera's own `onPreCull`.
+  * **THE RING IS NOT A 3D MODEL.** Every item visual is a uGUI `Image` + `Sprite`; the 192 log
+    reports 'New Party display' with 2970 transforms and **zero** foreign render subtrees. The
+    rotation comes from `ObjectPool.cs:468` reparenting with **`worldPositionStays: true`** and
+    `resetLocalRotation` defaulting **false** (`:415`, `:481-483`) with **no item-card caller asking**.
+    Under a flat screen canvas a preserved WORLD rotation is a zero LOCAL rotation; under a
+    world-space host **yawed to face the player** it becomes a local rotation the size of that yaw.
+    **And the cure existed unused:** `flatten2D` has been opt-in since test #21 and only five
+    docked-card surfaces ever passed it — **100 `MODAL LAYER` lines and ZERO `Flattened` lines** in
+    the log. Every floated window now takes it, via a **resumable** ≤400-transform/frame discovery
+    walk with everything known re-asserted **every** frame unbudgeted. Foreign render subtrees are
+    skipped whole and **named** ([[containment-is-not-identity]] / the character-drawn-twice revert).
+  * **A NEAR-MISS BETWEEN TWO LANES.** `PanelSupersample.Eligible` refused any panel with
+    `FlattenEnabled` — so routing the floated family through the existing flag would have **silently
+    switched supersampling off for the exact two panels the breakthrough runs on.** Caught before it
+    shipped. The refusal was then verified **false** (the capture camera is `Target`'s *sibling*
+    under `HostRect`, unreachable by a walk seeded at `Target`) **and dead** (no panel ever had both
+    flags) and removed; four comments in three files corrected at integration.
+  * **WINDOWS SPAWNED OUTSIDE THE FOV.** The 192 log names it: the shop window claimed **68°**. The
+    cone is now read from `Camera.GetStereoProjectionMatrix` — **not** `fieldOfView`, which is
+    *vertical*, and whose aspect conversion would fail in the direction that matters (a 3072x3264
+    per-eye target has aspect 0.94 and would report a **narrower** horizontal field than vertical).
+    Binocular overlap × 0.80 comfort ⇒ ~±34° on this rig. Packing is by **angular width**, not a
+    fixed step, and the clamp puts the window's **edges** in the cone.
+    **The arithmetic he must see:** a full window is 0.80 m × 1.25 = 1.00 m, i.e. **45.2°** at 1.20 m,
+    against **22.8°** of available travel — **two full-width windows cannot both be in the cone and
+    non-overlapping.** In-view wins (his explicit priority); overflow overlaps with a 4 cm/generation
+    depth pull. The 1.8 m alternative would hold two (31.0° each) at **33 % of apparent size** —
+    flagged, not taken.
+    Two self-corrections on the lane's own evidence: the depth step started at the table's 0.14 m and
+    a four-generation simulation showed **the remedy re-creating the bug** (nearer ⇒ angularly wider,
+    45° → 71°, no longer fits at all); and 192's vertical stagger is **removed** because down is where
+    the board is, so the board-top floor would put two windows back on the **same height** — the ±85°
+    aliasing defect in another coordinate.
+  * **THE TRAVEL BUTTON GOES BACK INTO THE WINDOW** (a deliberate revert of 192; 192's world host and
+    census are deleted, not commented out). 190's mechanism + 191's measurement, target changed to put
+    the content's **bottom** edge *inside* the window: the bottom **8 %** of the card. **The inset
+    deliberately reuses 191's gap magnitude** — the one quantity he did not object to — so exactly one
+    thing differs from the rejected build: which side of `win.rect.yMin` the content sits on. The
+    one-frame flash stays dead *totally*: `anchoredPosition = zero` (which IS the 190 pose) exists
+    nowhere in the file, and a `CanvasGroup` is pulled to alpha 0 **before** the reparent, so tick
+    order against the game's `SetActive` no longer matters.
+  * **THREE ICON POPULATIONS, NOT TWO.** `worldMap` and `cityMap` are never both active, and the HQ
+    marker is explicitly hidden on the city map. New `[MapRoom] CityIconScale`; **`IconScale` keeps
+    its key and meaning** so his tuned 2.30 does not silently change what it governs.
+    **Expect one visible change:** the city map's icons drop to 1.0. The hover pads cannot drift apart
+    from the art (same accessor, surface latched once per frame). Both existing German map-room
+    descriptions were **over the 620-char clip** (1062 and 772) and were losing their closing
+    sentences; re-cut to 612/603/616.
+
 - **ModBuild 192** (bundle UNCHANGED — plugin DLL only) — the map room stopped having its own card
   hand, the windows stopped moving, and the eye probe was blind for a reason worth remembering.
   *(Six workers, isolated worktrees.)* **Nothing on the wire; one observable MP change.**

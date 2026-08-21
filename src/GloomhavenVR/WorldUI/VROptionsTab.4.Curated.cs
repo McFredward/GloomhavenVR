@@ -300,6 +300,35 @@ internal static partial class VROptionsTab
                         // Empty caption key: the localized name and the German description
                         // carry the row (see the window block above for the full argument).
                         new("WorldUI", "MapRoomHand", ""),
+                        // THE MAP ROOM'S THREE ICON-SIZE DIALS, on a curated page for the first
+                        // time at ModBuild 193. They were bound at 189 and reachable only through
+                        // the raw catalog, where [MapRoom] is too small a section to earn a heading
+                        // and gets swept into the "Allgemein" collector (ConfigCatalog.Pinned floats
+                        // them to the top of it, which is a rescue, not a home).
+                        //
+                        // A CURATED ROW IS WHAT THE REPORT NEEDS, not just a nicety. The user asked
+                        // to be able to "separat justieren" the world map's symbols and the
+                        // Gloomhaven city map's symbols — which means comparing two numbers against
+                        // one map at a time. Three dials that only meet at the top of a grab-bag of
+                        // unrelated rows cannot be compared; three consecutive rows directly under
+                        // the switch that builds the room can. They sit under [Rig] Experimental3DMap
+                        // and [WorldUI] MapRoomHand for the same reason those two are adjacent: they
+                        // are properties OF the world that switch chooses, and the whole [MapRoom]
+                        // section folds under it (VROptionsTab.8.Dependencies, DependentSections),
+                        // so on a flat-map install these rows are simply not on screen.
+                        //
+                        // World map first, then city map, then the single Gloomhaven marker: that is
+                        // the order the player meets them in (you stand on the world map, you step
+                        // into the city, and the marker is the door between the two).
+                        //
+                        // Empty caption keys: the localized names in Loc.ConfigNames say which map
+                        // each row is ("Karte 3D: Symbole Weltkarte" / "… Stadtkarte" / "…
+                        // Gloomhaven-Marker") and the German descriptions carry the tooltip — see
+                        // the window block above for the full argument for not writing a second
+                        // copy of the same words here.
+                        new("MapRoom", "IconScale", ""),
+                        new("MapRoom", "CityIconScale", ""),
+                        new("MapRoom", "GloomhavenIconScale", ""),
                         // ELEMENT MOOD — the environment's answer to the element infusions. Sits
                         // directly under the environment choice because that is what it acts on,
                         // and the strength dial folds under the toggle (VROptionsTab.8.Dependencies).

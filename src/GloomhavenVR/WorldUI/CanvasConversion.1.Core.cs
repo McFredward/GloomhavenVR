@@ -84,6 +84,20 @@ internal static partial class CanvasConversion
     /// ever registering as a poke surface.
     /// <paramref name="flatten2D"/> (test #21, opt-in per surface): neutralize the
     /// game's real 3D styling inside the subtree — see <see cref="FlattenSubtree"/>.
+    /// <paramref name="flattenWindow"/> (ModBuild 193, the WINDOW FLATNESS GUARANTEE): the same
+    /// clamp, but owned by the panel's own <see cref="PanelFlattenDriver"/> instead of the central
+    /// <c>LateTick</c>, with a budgeted resumable discovery walk and a per-window census. EVERY
+    /// window <c>ModalFallback</c> floats passes this. It is a SEPARATE parameter from
+    /// <paramref name="flatten2D"/> and not a synonym: <c>PanelSupersample.Eligible</c> refuses any
+    /// panel carrying <see cref="ConvertedPanel.FlattenEnabled"/>, so routing the floated family
+    /// through the old flag would have switched supersampling off for the very family it runs on.
+    /// RESOLVED AT INTEGRATION (ModBuild 193): that refusal was checked against the merged code and
+    /// REMOVED — the hazard it named was false (the capture camera is <c>Target</c>'s SIBLING under
+    /// <c>HostRect</c>, unreachable by a walk seeded at <c>Target</c>) and the clause was dead
+    /// anyway, since no panel has ever carried both <c>useModLayer</c> and <c>flatten2D</c>. The two
+    /// flags could now be merged back into one; they are kept separate only because the drivers
+    /// differ (budgeted per-host walk vs the central LateTick).
+    /// See <see cref="ConvertedPanel.FlattenWindowGuarantee"/>.
     /// <paramref name="sortingOrder"/> is the host's conversion TIER, kept as
     /// <see cref="ConvertedPanel.BaseSortingOrder"/> (default 0; the modal/at-hand family passes
     /// <c>ModalFallback.ModalHostSortingOrder</c>). It is NOT the draw order: since the
@@ -109,7 +123,7 @@ internal static partial class CanvasConversion
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
         bool transparentBackground = false, bool fitOneShot = false, bool capHeightToCanvas = false,
-        bool keepBackgroundHidden = false)
+        bool keepBackgroundHidden = false, bool flattenWindow = false)
     {
         if (target == null)
         {
@@ -245,19 +259,49 @@ internal static partial class CanvasConversion
         // subtree must carry a WORKING clipper or scrolled-out content renders past the window.
         EnsureScrollClipping(panel);
 
-        if (flatten2D)
+        // 2D FLATTEN — one clamp, two owners.
+        //
+        // flatten2D (test #21) is the ORIGINAL opt-in: the per-frame re-assert is driven centrally
+        // from CanvasConversion.LateTick, gated on ConvertedPanel.FlattenEnabled.
+        //
+        // flattenWindow (ModBuild 193) is the WINDOW FLATNESS GUARANTEE, which every window
+        // ModalFallback floats now takes. It gets its own per-host driver instead of the central
+        // LateTick for one concrete reason, read from source and not assumed: PanelSupersample's
+        // eligibility list refuses any panel with FlattenEnabled set (PanelSupersample.1.Core.cs,
+        // second bullet), and the ModBuild 192 hardware log shows supersampling LIVE on exactly the
+        // floated family ('New Party display', 'Quest Log Manager'). Reusing the old flag here would
+        // have silently switched that feature off in the same build. Two flags, two drivers, both
+        // features alive. AT INTEGRATION the PanelSupersample lane checked that clause and REMOVED
+        // it: the hazard was false and it was dead code. The two flags may now be merged; they are
+        // still separate only because the DRIVERS differ, not because either feature refuses the
+        // other.
+        //
+        // BOTH run an INITIAL COMPLETE pass right here, because the subtree converts ALREADY tilted
+        // (the game bakes 3D styling into its 2D UI, and ObjectPool.SpawnCard reparents pooled
+        // cards with worldPositionStays:true — verified ObjectPool.cs:468, resetLocalRotation
+        // defaults false at :415/:481-483 — so under a world-ROTATED host the preserved WORLD
+        // rotation lands as a large LOCAL rotation). It has to be flat on the first frame anyone
+        // could see it, not one discovery cycle later.
+        if (flatten2D || flattenWindow)
         {
-            // Test #21: initial pass now (the subtree converts already tilted);
-            // per-frame re-assert runs from LateTick — the game rewrites these.
-            // The sweep's growth log stays muted for the initial pass (the line
-            // below reports the starting count).
-            panel.FlattenEnabled = true;
-            panel.FlattenLogNextFrame = int.MaxValue;
-            FlattenSubtree(panel);
+            panel.FlattenEnabled = flatten2D;
+            panel.FlattenWindowGuarantee = flattenWindow;
+            panel.FlattenLogNextFrame = int.MaxValue; // mute the growth line for the initial pass
+            RunFlattenPass(panel, completeCycle: true);
             panel.FlattenLoggedCount = panel.Flattened.Count;
             panel.FlattenLogNextFrame = Time.frameCount + CanvasSweepIntervalFrames;
-            VRLog.Info("WorldUI", $"Flattened {panel.Flattened.Count} transform(s) in '{name}' " +
-                                  "(local rotation → identity, local z → 0; x/y animations untouched).");
+            if (flattenWindow)
+            {
+                // UNCONDITIONAL, EVEN WITH NOTHING TO REPORT. A window that found zero 3D still
+                // prints its census, so a quiet log can never be read as "nothing looked".
+                LogFlattenCensus(panel, force: true);
+                AttachFlattenDriver(panel);
+            }
+            else
+            {
+                VRLog.Info("WorldUI", $"Flattened {panel.Flattened.Count} transform(s) in '{name}' " +
+                                      "(local rotation → identity, local z → 0; x/y animations untouched).");
+            }
         }
 
         if (pokeable)

@@ -416,7 +416,212 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 192;
+    public const ushort ModBuild = 193;
+    // Build 193: A RENDER TEXTURE CANNOT BE BOTH MULTISAMPLED AND MIPMAPPED, AND Create() DOES NOT
+    // SAY SO. (Five workers, isolated worktrees.)
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    // Nothing on the wire.
+    //
+    // ── THE FLICKER IS SOLVED, AND 192 SHIPPED THE FIX AT HALF STRENGTH ───────────────────
+    // User, after ten rounds: "Durchbruch beim Flackern! Die Option 'Fenster scharf zeichnen' hat das
+    // Flackern beendet. Allerdings tritt das flackern dann noch auf während dessen man das Fenster
+    // verschiebt. Wenn man es dann mit in der Bewegung loslässt, werden manche Elemente nicht richtig
+    // dargestellt oder andere fehlen im Fenster."
+    // THE AI ACCOUNT IS CONFIRMED: undersampled RASTERIZATION, which no texture mip bake could ever
+    // reach. What 192 actually delivered was only HALF of the designed fix, and its own falsifier
+    // said so twice — every state line read `MSAA 4x, mips 1 NONE` and the class warned
+    // "mipmapCount=1 — NO mip chain ... the eye minifies it unfiltered and the shimmer this path
+    // exists to remove will still be there."
+    // ROOT CAUSE: **A RenderTexture CANNOT be multisampled AND mipmapped.** `CreateRt` asked for both
+    // on one target; `Create()` returned TRUE and silently dropped the mip request, so the existing
+    // "could not be created at any MSAA level" stand-down never fired. `GenerateMips()` on a
+    // multisampled target is a no-op for the same reason, so the onPostRender call did nothing
+    // either. The accepted win was therefore MSAA + 1:1 rasterization ALONE, with the eye still
+    // minifying an UNFILTERED texture at up to 2.29 RT texels per rendered pixel.
+    // THAT IS EXACTLY THE MOVEMENT SIGNATURE. Unfiltered minification is position-dependent: with
+    // head and window still the alias pattern is FROZEN and invisible; the instant either moves it
+    // crawls. "Es flackert beim Verschieben" is the same defect the whole round has been chasing,
+    // observed through its own remaining half.
+    // FIX: TWO TARGETS. The camera renders into a multisampled, stencil-carrying capture target
+    // (`useMipMap = false`, deliberately); in the capture camera's own onPostRender a
+    // `Graphics.Blit` resolves it into a single-sample, depth-free, MIPMAPPED target and
+    // `GenerateMips()` runs THERE; the RawImage shows the mipped one. `CreateMipRt` REJECTS ITS OWN
+    // RESULT unless `mipmapCount > 1`, so a silent failure cannot recur, and the state line prints
+    // the count read back off the texture the eye actually samples.
+    //
+    // ── THE MISSING ELEMENTS: A LOG-SPAM FIX WAS GATING THE CANVAS ADOPTION ───────────────
+    // `GrabbableModal.ThrottleDiagWhileMoving` clears `ConvertedPanel.Diagnostic` for up to a second
+    // at a time WHILE THE HOST POSE IS CHANGING — a deliberate log-spam remedy. But `Diagnostic` is
+    // ALSO what makes `CanvasConversion.Tick` run `AdoptNestedCanvases` and `ReassertAdoptedSorting`
+    // every frame; with it off, adoption falls back to a 30-frame schedule, and the capture-layer
+    // sweep ran on 15. So a nested canvas or pooled child BORN DURING A DRAG sat on the game's UI
+    // layer for tens of frames: **missing from the capture** (the capture camera's mask is the
+    // capture layer alone) and simultaneously drawn straight into the eye at its own sorting order.
+    // That is both halves of the report, from one cause. The capture-layer sweep now runs every frame
+    // while the window is moving and for 30 frames after.
+    //
+    // ── THE CROP WAS REAL, AND ITS OWN WARN WAS MEASURING THE WRONG RECT ──────────────────
+    // 192 warned that 'New Party display' "draws content larger than its host frame (1920x1080 vs
+    // 328x1080)" and cropped it. The capture frame is now the UNION of the host rect and the MEASURED
+    // drawn content: a world-space uGUI canvas does not clip at its root rect, so that overspill IS
+    // drawn and IS visible in the OFF path, and refusing to supersample such a panel would have
+    // disqualified one of the two panels the breakthrough runs on. The promise weakens honestly from
+    // "OFF and ON geometry are identical" to "identical whenever content fits the host rect — which
+    // is the normal case — and otherwise ON shows MORE, never less". The measurement walk carries the
+    // clip rect DOWN and honours enabled RectMask2D/Mask ancestors (without that, one ScrollRect's
+    // off-viewport content inflates the target by an order of magnitude) and is deliberately biased
+    // to OVER-measure: over-measuring costs VRAM, under-measuring crops.
+    // AND THE 192 WARN ITSELF IS DELETED: it compared the host rect against the game window's
+    // AUTHORED rect (1920x1080 whether or not anything is drawn out there) and it LATCHED, so when
+    // the fit grew the host to 1920x1080 four seconds later it could not retract.
+    //
+    // ── THE CAP WAS SET FROM A MISREAD, AND THE ARITHMETIC RECONCILES EXACTLY ─────────────
+    // 192 refused 3 eligible windows at `MaxPanels = 2`. The apparent contradiction (14.0 MB per
+    // panel vs a 95.3 MB session total) was comparing the ENGAGE-TIME per-panel figure (pre-fit
+    // 328x1080) with the POST-FIT total: the log's own missing link is "re-allocated 'New Party
+    // display' to 1920x1080 ... 81.7 MB". `_vramTotal` was right throughout. With the split targets a
+    // full 1920x1080 MSAA4 window costs 89.7 MB. New caps: MaxPanels 2 -> 8, per-panel 96 -> 128 MB
+    // (96 no longer clears the largest real window, and a cap a real window cannot fit under is an
+    // outage, not a cap), session 256 -> 384 MB. MSAA now steps down against the REMAINING SESSION
+    // HEADROOM as well as the per-panel cap — before, a window that would have fitted at 2x or 1x was
+    // refused outright once the session filled, and the message then blamed MaxPanels for a budget
+    // decision.
+    //
+    // ── ONE MORE ONE-FRAME DEFECT, FOUND BY READING THE ORDERING RATHER THAN GUESSING ─────
+    // Frame ordering is NOT the bug: the capture camera is a child of the host so it reads the final
+    // world matrix at render time, and SyncDisplayPose runs in onPreCull once per frame, so both
+    // MultiPass eyes get one pose. BUT `orthographicSize` is a WORLD-UNIT quantity derived from
+    // `host.lossyScale`, and if a two-hand resize lands after our LateTick the camera framed the
+    // PREVIOUS frame's world size while rendering at the new one — the captured image zooms by the
+    // scale ratio for that frame inside a quad that is already correct. A literal "manche Elemente
+    // nicht richtig dargestellt". `SyncProjection` now runs again from the capture camera's own
+    // onPreCull, the last instant before it culls, after every LateUpdate whoever won. That is "own
+    // the number, don't win the write war" applied where it is guaranteed to win.
+    //
+    // ── THE RING IS NOT A 3D MODEL, AND NO FLOATED WINDOW HAD EVER BEEN FLATTENED ─────────
+    // User: "Der Ring von der Magierin guckt 3D aus dem Fenster raus ... Prüfe bei den Fenstern die
+    // man spawnen kann alle Elemente die darauf liegen, dass sie flach auf dem Fenster angezeigt
+    // werden." Every item visual in this game is a uGUI Image + Sprite
+    // (UIPartyCharacterEquippementSlot.slotIcon <- UIInfoTools.GetItemMiniSprite:1581 <-
+    // ItemConfigUI.miniIcon); a ring is an ordinary SmallItem with no Ring slot in CItem.cs:40 and
+    // nothing ring-specific anywhere. The 192 log agrees: 'New Party display' reports 2970 transforms
+    // moved and ZERO foreign render subtrees.
+    // THE ROTATION'S ORIGIN, READ FROM SOURCE: `ObjectPool.cs:468` reparents pooled cards with
+    // `SetParent(parent)` — i.e. worldPositionStays TRUE — and resets local rotation only on request
+    // (`resetLocalRotation` defaults FALSE, :415/:481-483; local z is always zeroed at :484-486,
+    // rotation is not), and NO item-card caller asks. Under a flat screen-space canvas a preserved
+    // WORLD rotation is a zero LOCAL rotation; under a world-space host YAWED TO FACE THE PLAYER it
+    // becomes a local rotation the size of that yaw. That is "guckt 3D aus dem Fenster raus", exactly.
+    // AND THE MOD HAD THE CURE ALL ALONG, UNUSED: `flatten2D` has been an opt-in since test #21 and
+    // only FIVE docked-card surfaces ever passed it. `ModalFallback.8.Convert.cs:243` did not, so NO
+    // floated window had ever been flattened — 100 MODAL LAYER lines and ZERO Flattened lines in the
+    // log, and two comments in the tree already said so. Every floated window now takes the clamp.
+    // COST: a RESUMABLE discovery walk, <= 400 transforms/frame, so the cost is flat and identical
+    // for a 50-transform card and a 2700-transform window; everything already known is re-asserted
+    // EVERY frame, unbudgeted, so nothing made flat can be seen tilted for even one tick. "Full
+    // rescan every N frames" was rejected: it only trades the average for a spike.
+    // FOREIGN RENDER SUBTREES ARE SKIPPED WHOLE, counted and NAMED — flattening one would move the
+    // model relative to the preview camera that renders it, which is the same mistake as relayering
+    // it in a different coordinate ("CanvasRenderer is not a Renderer": that shipped and was
+    // reverted, having drawn the character twice). The shop window grows to 44 of them as items pool
+    // in; capture is the right long-term answer and is out of scope here.
+    //
+    // ── A NEAR-MISS BETWEEN TWO LANES, AND ITS RESOLUTION ─────────────────────────────────
+    // `PanelSupersample.Eligible` refused any panel with `ConvertedPanel.FlattenEnabled` set. Routing
+    // the floated family through the existing `flatten2D` flag would therefore have SILENTLY SWITCHED
+    // SUPERSAMPLING OFF for 'New Party display' and 'Quest Log Manager' — the exact two panels the
+    // breakthrough runs on. Caught before it shipped; the window family got its own flag.
+    // THEN THE REFUSAL ITSELF WAS CHECKED AND REMOVED: the hazard its doc comment named ("would drag
+    // the capture camera, a child of the host, onto the panel plane") is FALSE — the capture camera
+    // is parented to `HostRect` and carries no RectTransform, while the flatten walk is seeded at
+    // `Target`, its SIBLING. It was also dead code, since `useModLayer:true` is passed only by
+    // ModalFallback and `flatten2D:true` only by the docked-card surfaces, so no panel ever had both.
+    // Four comments in three files that asserted the refusal are corrected at integration.
+    //
+    // ── WINDOWS SPAWNED OUTSIDE THE FIELD OF VIEW, AND THE CONE IS NOW MEASURED ───────────
+    // User: "Neue Fenster spawnen irgendwo an der Seite wo man sie nicht sieht - sie sollen IM
+    // SICHTFELD spawnen, möglichst so das sie nicht mit einem anderen Fenster überlappen, aber IM
+    // SICHTFELD." The 192 log names it: the shop window claimed slot 3 at **68°** from the spawn
+    // gaze. A Quest 3 through Virtual Desktop shows roughly +/-55°, so it was behind the display edge.
+    // THE CONE IS NOW READ FROM `Camera.GetStereoProjectionMatrix`, not `fieldOfView`: fieldOfView is
+    // VERTICAL, XR overrides the projection per eye with an ASYMMETRIC frustum no single fov/aspect
+    // pair expresses, and converting vertical x aspect would fail in the direction that matters — a
+    // 3072x3264 per-eye target has aspect 0.94 and would report a NARROWER horizontal field than
+    // vertical. From one matrix, tanRight = (1+m02)/m00 and tanLeft = (1-m02)/m00, which reduce to
+    // r/n and -l/n and are therefore valid for an asymmetric frustum. The cone taken is the BINOCULAR
+    // OVERLAP (a window one eye cannot see cannot be read), times a 0.80 comfort fraction, clamped to
+    // [20°, 55°] with the clamp reported. Expected on this rig: raw ~+/-42°, margined ~+/-34°.
+    // PACKING IS BY ANGULAR WIDTH, not a fixed step: a claim reserves centre +/- halfWidth, candidates
+    // are dead centre plus the angles flush against each standing claim's edges, and the smallest
+    // |angle| wins. The hard clamp is |centre| <= cone - ownHalfWidth, i.e. the EDGES are in the cone.
+    // THE ARITHMETIC HE SHOULD SEE: a full window is ModalTargetWidthMeters 0.80 x legibility 1.25 =
+    // 1.00 m, which at 1.20 m is 2*atan(0.50/1.20) = 45.2°. Two of those need 45.2° of separation and
+    // a +/-34° cone offers 22.8° of travel. **Two full-width windows cannot both be in the cone and
+    // non-overlapping.** His priority was explicit — in view is the requirement, non-overlap is
+    // "möglichst" — so the overflow goes IN the cone and overlaps, with a 4 cm-per-generation depth
+    // pull so it draws in front. The 1.8 m alternative WOULD hold two (31.0° each) but costs 33% of
+    // apparent size on a distance he tuned; flagged to him rather than taken.
+    // TWO CORRECTIONS THE LANE MADE ON ITS OWN EVIDENCE: the depth step started at the scenario
+    // table's 0.14 m, and simulating four generations showed the REMEDY RE-CREATING THE BUG — nearer
+    // means angularly wider, so a 45° window became 71° and no longer fitted the cone at all; at
+    // 0.04 m the same four generations cost under 2°. And 192's vertical stagger is REMOVED: down is
+    // where the board is, so ClampSpawnPose's board-top floor would put two windows back on the SAME
+    // height, which is the +/-85° aliasing defect returning in another coordinate.
+    // TWO REAL DEFECTS FOUND WHILE CHECKING: `ResolveSpawnOverlap` was gated on "holds a reservation"
+    // rather than "the cone decided this", so the one window that differs got a +/-30° lateral swing
+    // in a room that by definition already has eight windows competing for the cone; and the
+    // board-avoidance swing could move a cone-placed window off its reserved azimuth. A hard cone
+    // clamp is now the last positional step — >1° drift is rotated back about world up, yaw only,
+    // height untouched, and it prints MAP-CONE when it fires.
+    //
+    // ── THE TRAVEL BUTTON GOES BACK INTO THE WINDOW (a deliberate revert of 192) ──────────
+    // User: "Der 'Quest erneut spielen' Button soll teil des Fensters sein so wie beim aller ersten
+    // mal als du es gemacht hattest. Ich meinte lediglich, das du innerhalb des Fensters den Button
+    // etwas nach oben schiebst. Jetzt hast du den Button komplett vom Fenster getrennt. Mach das
+    // rückgängig." 192's world host and floated-window census are DELETED, not commented out.
+    // The mechanism is 190's (parented into the quest window) and the measurement is 191's (the
+    // visible-Graphic union in container-local space); only the TARGET changed:
+    //     ap.y = inset - content.yMin      (content BOTTOM edge inside the window)
+    //     ap.x = -content.center.x
+    //     inset = 2% of window height
+    // Against 191's own hardware line that puts the button in the bottom 8% OF the card instead of
+    // 115 units below it. THE INSET DELIBERATELY REUSES 191's GAP MAGNITUDE — the one quantity in 191
+    // he did not object to — so exactly ONE thing differs between the rejected build and this one:
+    // which side of `win.rect.yMin` the content sits on. If it still reads wrong, the disproof
+    // isolates the TARGET, not the number.
+    // THE ONE-FRAME FLASH STAYS DEAD, TOTALLY: `anchoredPosition = Vector2.zero` (which IS the 190
+    // pose, and was 191's bug) no longer exists anywhere in the file, and a CanvasGroup on the
+    // container is pulled to alpha 0 BEFORE the SetParent — so it does not matter whether our tick
+    // runs before or after the game's SetActive(true). Not a write war: the game toggles the
+    // container with SetActive and references no CanvasGroup anywhere in AdventureMapUIManager.
+    // KEPT FROM 192: the ownership check (the game moved the container ⇒ hand it back and stand down
+    // for the visit), which 190/191 lacked and which would otherwise keep writing to a foreign object.
+    //
+    // ── THREE ICON POPULATIONS, NOT TWO ───────────────────────────────────────────────────
+    // User: "Trenne die Größe des Symbole auf der Weltkarte und die Symbole auf der Karte für
+    // Gloomhaven. Die müssen separat justiert werden." Read from source: MapChoreographer holds
+    // `worldMap` (:64) and `cityMap` (:70), toggled with SetActive in OpenWorldMap (:3727-3731) and
+    // OpenCityMap (:3754-3755) — NEVER both. World map = villages/scenarios/bosses (IsVisibleInMap
+    // :3875-3882) plus exactly ONE Headquarters marker (:3854, uniqueness at :204); city map =
+    // m_CityLocations (:107) shown at :3780-3830, with the HQ explicitly hidden (:3839). The
+    // populations cannot overlap in a drawn frame because HideLocation ends in SetActive(false)
+    // (MapLocation.cs:931) and the icon layer collects with includeInactive:false — which is why the
+    // 192 log reads 37 icons + HQ on one map and 11 icons + no HQ on the other.
+    // So: NEW `[MapRoom] CityIconScale` (1.0, 0.5-4). `[MapRoom] IconScale` KEEPS ITS KEY AND ITS
+    // MEANING (world map, everything but the capital) so his tuned 2.30 does not silently change what
+    // it governs — a dropped cfg is always against the newest build. EXPECT ONE VISIBLE CHANGE: the
+    // city map's icons drop back to 1.0, because they were riding his 2.30 through the shared dial.
+    // The party token takes NO dial and cannot: it is drawn via CommandBuffer.DrawRenderer from the
+    // game's own renderers, not as a quad with a footprint this layer computes.
+    // THE HOVER PADS CANNOT DRIFT APART FROM THE ART: the pad lane still asks
+    // `MapIconLayer.ScaleForDrawnQuad`, and the current surface is resolved ONCE PER FRAME and
+    // latched, so a pad and the quad it shadows cannot be sized from different maps even during a
+    // world<->city switch. (Art rescaled while the hit box was not has shipped here before.)
+    // ALSO FIXED: both pre-existing German map-room descriptions were OVER the 620-char tooltip clip
+    // (1062 and 772) and were losing exactly their closing sentences — the ones saying the dial
+    // applies live and that the hit box grows with the icon. All three re-cut to 612/603/616.
+    // Note for the reader of build 190's entry: its heading "TWO SIZE DIALS FOR THE MAP SYMBOLS" and
+    // the five-slot arc description at the top of this file are both superseded here.
     // Build 192: THE MAP ROOM STOPPED HAVING ITS OWN CARD HAND, THE WINDOWS STOPPED MOVING, AND THE
     // EYE PROBE WAS BLIND FOR A REASON WORTH REMEMBERING. (Six workers, isolated worktrees.)
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

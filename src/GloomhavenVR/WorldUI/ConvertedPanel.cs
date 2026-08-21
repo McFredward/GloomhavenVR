@@ -218,6 +218,110 @@ internal sealed class ConvertedPanel
     /// <summary>Earliest frame for the next growth re-log (pooling adds entries one by one).</summary>
     public int FlattenLogNextFrame;
 
+    // ---- WINDOW FLATNESS GUARANTEE (ModBuild 193; user report 3) -----------------------
+    /// <summary>
+    /// THE FLOATED-WINDOW FAMILY'S OWN FLATTEN OPT-IN — set by
+    /// <see cref="CanvasConversion.Convert"/> <c>flattenWindow</c>, which every window
+    /// <c>ModalFallback</c> floats now passes. Deliberately a DIFFERENT field from
+    /// <see cref="FlattenEnabled"/>, and the reason is not cosmetic:
+    /// <c>PanelSupersample.Eligible</c> refuses any panel with <see cref="FlattenEnabled"/> set
+    /// (PanelSupersample.1.Core.cs, the second bullet of its eligibility list), so re-using that
+    /// flag for the floated family would have switched the whole supersampling feature off in the
+    /// same build that turned flattening on — the ModBuild 192 log shows it live on
+    /// 'New Party display' and 'Quest Log Manager'. Two opt-ins, two drivers, no collision; see
+    /// <c>CanvasConversion.PanelFlattenDriver</c> for the cadence. RESOLVED AT INTEGRATION
+    /// (ModBuild 193): the refusal was verified false and REMOVED, so this field is no longer
+    /// load-bearing for that reason — it now only selects WHICH DRIVER runs the clamp.
+    /// </summary>
+    public bool FlattenWindowGuarantee;
+
+    /// <summary>
+    /// THE RESUMABLE WALK. The discovery scan does NOT restart from the root every frame and does
+    /// NOT run to completion in one frame: it pops a fixed budget of transforms per frame and keeps
+    /// the rest here for the next one (<c>CanvasConversion.FlattenWalkBudgetPerFrame</c>). A window
+    /// is therefore fully re-examined every <c>ceil(size / budget)</c> frames at a FLAT cost, rather
+    /// than costing nothing for nine frames and a 2700-transform spike on the tenth. Entries can go
+    /// Unity-null between frames (pooled children are destroyed mid-walk); the pop null-checks.
+    /// </summary>
+    public readonly List<Transform> FlattenWalk = new(64);
+
+    /// <summary>Running counters for the walk cycle IN PROGRESS; published to the
+    /// <c>FlattenLast*</c> fields (which the census reads) only when a cycle completes, so the
+    /// census never reports half a window.</summary>
+    public int FlattenCycleVisited, FlattenCycleForeign, FlattenCyclePlain3D, FlattenCycleFrames;
+
+    /// <summary>First foreign / plain-3D name seen during the cycle in progress.</summary>
+    public string? FlattenCycleForeignSample, FlattenCyclePlain3DSample;
+
+    /// <summary>Transforms walked by the last COMPLETE cycle.</summary>
+    public int FlattenLastVisited;
+
+    /// <summary>Frames the last COMPLETE cycle took — i.e. the worst-case latency, in frames,
+    /// between a newly pooled child arriving tilted and this sweep finding it.</summary>
+    public int FlattenLastCycleFrames;
+
+    /// <summary>Foreign render subtrees (a real <c>Renderer</c> or <c>Camera</c>) the last rescan
+    /// refused to descend into — case (2), left EXACTLY as the game has them.</summary>
+    public int FlattenLastForeign;
+
+    /// <summary>Of the transforms the last rescan FLATTENED, how many carried a nested
+    /// <c>Canvas</c> — case (3). Counted on the flattened set only (a <c>GetComponent</c> per
+    /// tilted transform is free; one per visited transform over a 2700-transform window is not).
+    /// </summary>
+    public int FlattenLastNestedCanvas;
+
+    /// <summary>
+    /// Transforms inside the window that carry real 3D (rotation / local z) but are NOT
+    /// <c>RectTransform</c>s and are not foreign render roots — plain <c>Transform</c> holders
+    /// inside a uGUI tree. They are COUNTED AND NAMED, never written: the flatten contract has
+    /// always been RectTransform-only (test #21) and widening it silently would put this sweep in
+    /// charge of objects whose pose is somebody else's meaning. If the user's report survives a
+    /// build in which every other number here is zero, THIS number is where to look next.
+    /// </summary>
+    public int FlattenLastPlain3D;
+
+    /// <summary>Name of the first such plain 3D-posed transform (see <see cref="FlattenLastPlain3D"/>).</summary>
+    public string? FlattenPlain3DSample;
+
+    /// <summary>Of the recorded set: how many were caught carrying a local ROTATION only.</summary>
+    public int FlattenRotationCount;
+
+    /// <summary>Of the recorded set: how many were caught carrying a local Z offset only.</summary>
+    public int FlattenZCount;
+
+    /// <summary>Of the recorded set: how many carried BOTH a rotation and a z offset.</summary>
+    public int FlattenBothCount;
+
+    /// <summary>Writes the last per-frame re-assert pass had to make (0 = the game is not fighting
+    /// us on this window; a steady non-zero number names a live writer).</summary>
+    public int FlattenReasserts;
+
+    /// <summary>Total re-assert writes since conversion (the write-war evidence in the census).</summary>
+    public int FlattenReassertTotal;
+
+    /// <summary>Stopwatch ticks spent in the budgeted discovery walk since conversion (census
+    /// reports the per-FRAME mean, which is the number that has to fit in the frame budget).</summary>
+    public long FlattenScanTicks;
+
+    /// <summary>Frames in which the discovery walk ran (divisor for <see cref="FlattenScanTicks"/>).</summary>
+    public int FlattenScanRuns;
+
+    /// <summary>Stopwatch ticks spent in per-frame re-assert passes since conversion.</summary>
+    public long FlattenReassertTicks;
+
+    /// <summary>Per-frame re-assert passes run since conversion.</summary>
+    public int FlattenReassertRuns;
+
+    /// <summary>Earliest frame the per-window census line may be re-printed.</summary>
+    public int FlattenCensusNextFrame;
+
+    /// <summary>Last census payload, so an unchanged window re-prints on the slow heartbeat only.</summary>
+    public string? FlattenCensusLast;
+
+    /// <summary>Name of the first foreign render subtree the last rescan refused — so the log names
+    /// the thing the user is looking at instead of only counting it.</summary>
+    public string? FlattenForeignSample;
+
     // ---- re-fit churn damping (test #17; see FitHostToContent) -------------------------
     /// <summary>Time of the last APPLIED fit (shrink/re-center rate limit).</summary>
     public float FitLastApplied;

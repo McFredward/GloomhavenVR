@@ -103,6 +103,75 @@ internal static partial class ModalFallback
         UIWindowID.CharacterConfirmationBox,
     };
 
+    /// <summary>
+    /// THE WINDOW FLATNESS GUARANTEE (ModBuild 193) — why every window this method floats now
+    /// converts with <c>flattenWindow: true</c>.
+    ///
+    /// <para>USER RULING, verbatim (2026-08, report item 3): <i>"Der Ring von der Magierin guckt 3D
+    /// aus dem Fenster raus, liegt also nicht flach auf dem Fenster. Prüfe bei den Fenstern die man
+    /// spawnen kann alle Elemente die darauf liegen, dass sie flach auf dem Fenster angezeigt werden
+    /// so ausgerichtet wie es das Fenster selber auch ist."</i> This is deliberately NOT a fix for
+    /// one ring: what is asked for is a property of the class of spawnable windows, so the opt-in is
+    /// passed unconditionally here rather than to a list of window IDs.</para>
+    ///
+    /// <para>WHAT WAS TRUE BEFORE, read from source: <c>CanvasConversion.Convert</c> has taken a
+    /// <c>flatten2D</c> opt-in since test #21 (CanvasConversion.1.Core.cs:109) and THIS call site
+    /// never passed it. Only five surfaces did — <c>CombatLogSurface</c>, <c>PropInfoSurface</c>
+    /// (Surfaces/PropInfoSurface.cs:157), <c>StatPanelSurface</c> (:488 and :602) and
+    /// <c>EnemyRevealSurface</c> (:295). Two comments already in the tree say so in as many words
+    /// (WorldUI/TooltipOnWindow.cs:149-151 and WorldUI/WorldUIModule.cs:277-279), and the ModBuild
+    /// 192 hardware log confirms it by silence: it contains 100 <c>MODAL LAYER</c> lines and not one
+    /// <c>Flattened</c> line. So inside a floated window only the tooltip family was ever clamped
+    /// (<c>TooltipOnWindow.LateTick</c>); everything else rode in with whatever 3D pose it had.</para>
+    ///
+    /// <para>WHY THE POSE IS THERE AT ALL — read from the decompiled game, not inferred.
+    /// <c>ObjectPool.SpawnCard</c> reparents a pooled card with <c>SetParent(parent)</c>
+    /// (ObjectPool.cs:468), i.e. <c>worldPositionStays: true</c>, and resets local rotation only
+    /// when the caller asks (<c>resetLocalRotation</c> defaults to false, :415 and :481-483); local
+    /// z is always zeroed (:484-486) but rotation is not. No item-card caller passes it — including
+    /// <c>UIPartyItemInventoryTooltip.cs:165</c>, which is the equipment/inventory/merchant item
+    /// card, and <c>UIItemScenario.cs:136</c> and <c>TwoHandItemUI.cs:69</c>, which are not tooltips
+    /// and are therefore outside <c>TooltipOnWindow</c>'s reach. Under a flat, unrotated
+    /// screen-space canvas a preserved WORLD rotation is a zero LOCAL rotation and nobody ever
+    /// noticed. Under a world-space host that has been YAWED to face the player, the same preserved
+    /// world rotation lands as a LOCAL rotation the size of that yaw — which is precisely
+    /// "guckt 3D aus dem Fenster raus".</para>
+    ///
+    /// <para>NOT A GAME-SIDE PATCH, AND NOT A WRITE WAR. Rotation and local z are the two components
+    /// no game writer re-asserts per frame: the GUIAnimator tween family has a MOVE_LOCAL channel
+    /// that writes a full <c>localPosition</c> including z (LeanTweenGuiAnimationSettingMove.cs:53)
+    /// but has no rotate channel at all. So the clamp is a single writer, in LateUpdate, writing a
+    /// value nobody writes differently in the same frame — it cannot alternate, which is the
+    /// specific failure ("flackert stark", the two MultiPass eyes disagreeing) this project has
+    /// shipped before and must not ship again. The census line names the count of re-asserts per
+    /// frame so a second writer would be visible in the log rather than on the user's face.</para>
+    ///
+    /// <para>MULTIPLAYER: nothing here goes on the wire, and nothing here may. Local rotation and
+    /// local z of a local uGUI transform are LOCAL PRESENTATION of a window the remote seat does not
+    /// have open, in a coordinate system (a world-space host placed in front of THIS player's HMD)
+    /// that does not exist on the other machine. There is no game state to sync and no
+    /// <c>NetProtocol</c> change; the guarantee is compatible with multiplayer by having nothing to
+    /// do with it.</para>
+    ///
+    /// <para>WHAT "FLAT" MEANS HERE, AND THE ONE THING THAT CHOICE COSTS. The clamp writes local
+    /// rotation to full IDENTITY, not merely "no pitch/yaw". Strictly, a rotation about the local Z
+    /// axis is a roll IN the window plane and does not stick out of it, so a decorative in-plane
+    /// tilt (a diagonal banner) is straightened by this pass even though it was never the
+    /// complaint. That is deliberate and it is the user's own wording — <i>"so ausgerichtet wie es
+    /// das Fenster selber auch ist"</i>, oriented the way the window itself is, which is identity —
+    /// and it keeps this sweep agreeing with the two flatteners already in the tree on what flat
+    /// means (<c>WorldTooltips.FlattenSubtree</c>, <c>TooltipOnWindow.Flatten</c>; the epsilons are
+    /// mirrored across all three for exactly that reason). If a straightened in-plane tilt is ever
+    /// reported as a regression, the change is one condition in <c>CanvasConversion.RunFlattenPass</c>
+    /// — clamp only the X/Y components of the local rotation — and it must then be made in all
+    /// three places at once.</para>
+    ///
+    /// <para>INPUT: the clamp only ever removes rotation and z, never x/y. A uGUI raycast tests a
+    /// graphic's own rect, so pulling an element back into the window plane moves it TOWARDS the
+    /// laser/poke plane the host registers, never away from it — the elements that were hardest to
+    /// hit were the ones sticking out. Nothing re-orients with head movement and nothing touches
+    /// turning: the host's own pose is never read or written by this pass.</para>
+    /// </summary>
     private static bool TryConvertWindow(UIWindow window)
     {
         string name = window.name;
@@ -249,7 +318,12 @@ internal static partial class ModalFallback
                 // not — the one-shot fit already hugs their compact box). Issue 5: keep the backing
                 // disabled on release for the full-screen-menu family only.
                 fitOneShot: oneShotFit, capHeightToCanvas: fullScreenMenu,
-                keepBackgroundHidden: fullScreenMenu);
+                keepBackgroundHidden: fullScreenMenu,
+                // THE WINDOW FLATNESS GUARANTEE (ModBuild 193) — see the block above TryConvertWindow.
+                // Unconditional: EVERY window this path floats, with no per-ID whitelist, because
+                // the user's ruling is about spawnable windows as a class and a whitelist would
+                // reproduce the exact failure it is meant to end (a window nobody thought of).
+                flattenWindow: true);
 
             if (escMenuWidthHug)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is the ESC menu — one-shot " +

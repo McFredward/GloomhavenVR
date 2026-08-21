@@ -28,10 +28,24 @@ internal static partial class Defaults
     // main menu. The menu rig is unconditional (Rig/VRRigDriver.cs).
     internal const bool SpawnInCircle = true;                                // => [Rig] SpawnInCircle
     internal const bool Experimental3DMap = false;                           // => [Rig] Experimental3DMap
-    // Both map-room icon dials ship at 1 on purpose: 1 reproduces the pre-dial draw matrix
+    // All THREE map-room icon dials ship at 1 on purpose: 1 reproduces the pre-dial draw matrix
     // exactly, so the build that introduces them changes nothing until a slider is moved.
+    //
+    // ONE DIAL PER ICON POPULATION THE ROOM CAN DRAW (user report against ModBuild 192: "Trenne
+    // die Größe des Symbole auf der Weltkarte und die Symbole auf der Karte für Gloomhaven. Die
+    // müssen separat justiert werden."). MapChoreographer toggles exactly two map GameObjects,
+    // worldMap and cityMap (decompiled MapChoreographer.cs:64/:70, switched in OpenWorldMap
+    // :3727-3731 and OpenCityMap :3754-3755), and hides every location that does not belong to
+    // the one on screen (RefreshShownLocationsByMap :3761 → MapLocation.HideLocation :931
+    // SetActive(false)). So the drawn icons are always exactly one map's population:
+    //   IconScale           — the WORLD map's location icons (villages, scenarios, bosses)
+    //   GloomhavenIconScale — the capital's own marker, WORLD map only (hidden on the city map
+    //                         at MapChoreographer.cs:3839)
+    //   CityIconScale       — the GLOOMHAVEN CITY map's icons (the stores in m_CityLocations
+    //                         :107 plus the City-type quests, MapChoreographer.cs:3873)
     internal const float MapIconScale = 1f;                                  // => [MapRoom] IconScale
     internal const float MapGloomhavenIconScale = 1f;                        // => [MapRoom] GloomhavenIconScale
+    internal const float MapCityIconScale = 1f;                              // => [MapRoom] CityIconScale
     internal const float WorldTiltDegrees = 0f;                              // => [Rig] WorldTiltDegrees
     internal const float MaskedReaimHeadRate = 30f;                          // => [Rig] MaskedReaimHeadRate
     internal const float MaskedReaimGain = 0.15f;                            // => [Rig] MaskedReaimGain

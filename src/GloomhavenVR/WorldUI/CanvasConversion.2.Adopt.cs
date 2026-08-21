@@ -555,7 +555,7 @@ internal static partial class CanvasConversion
         }
     }
 
-    // ---- 2D flatten (test #21) ------------------------------------------------------------
+    // ---- 2D flatten (test #21) + THE WINDOW FLATNESS GUARANTEE (ModBuild 193) --------------
 
     /// <summary>Local rotation counts as 3D beyond this angle (degrees) off identity.</summary>
     private const float FlattenAngleEpsilon = 0.05f;
@@ -563,8 +563,41 @@ internal static partial class CanvasConversion
     /// <summary>Local z counts as 3D beyond this many uGUI pixels.</summary>
     private const float FlattenZEpsilon = 0.01f;
 
-    // Scratch buffer (flatten sweep only; reused, no per-call allocations).
-    private static readonly List<RectTransform> RectScratch = new(64);
+    /// <summary>
+    /// THE COST BOUND, AND IT IS THE ONLY ONE — transforms the DISCOVERY walk may pop per frame per
+    /// panel. What is bounded is a per-frame budget, not a period, and that choice is the whole
+    /// design:
+    ///
+    /// <para>A full <c>GetComponentsInChildren</c> rescan every frame is what the old sweep did, and
+    /// on the surfaces it ran on (tens of transforms) it was free. The floated windows are three
+    /// orders of magnitude away — the ModBuild 192 log measured 'New Party display' at 2700
+    /// transforms and 'UI Shop Item Window' at 2114 — so that shape had to go. The obvious
+    /// replacement, "full rescan every N frames", trades the average for a SPIKE: nine cheap frames
+    /// and one that walks 2700 transforms, which on a 13.9 ms budget is a periodic hitch and exactly
+    /// the kind of thing that reads as stutter in a headset.</para>
+    ///
+    /// <para>So the walk is RESUMABLE instead (<see cref="ConvertedPanel.FlattenWalk"/>): every
+    /// frame pops at most this many transforms and keeps the rest for the next frame. The cost is
+    /// FLAT and identical for a 50-transform card and a 2700-transform window; only the time to come
+    /// all the way round differs, and that number is measured and printed per window
+    /// (<c>FlattenLastCycleFrames</c>). At 400 a 2700-transform window is fully re-examined every 7
+    /// frames (~95 ms at 72 Hz) — and note this is the DISCOVERY latency for something new only.
+    /// Everything already known is re-asserted EVERY frame, so nothing that has been made flat can
+    /// go 3D and stay that way for even one tick.</para>
+    ///
+    /// <para>THIS IS THE DIAL. If the printed cost is too high, lower it (slower discovery, cheaper
+    /// frames); if the printed discovery latency shows a pooled card visibly tilted before it is
+    /// caught, raise it. Both readings come out of the census line below.</para>
+    /// </summary>
+    private const int FlattenWalkBudgetPerFrame = 400;
+
+    /// <summary>Minimum frames between two census lines for one window (~0.8 s at 72 Hz). The
+    /// census is CHANGE-GATED on its counts, so a settled window prints nothing; this only stops a
+    /// window whose pooled content is churning from printing every frame.</summary>
+    private const int FlattenCensusIntervalFrames = 60;
+
+    // Scratch buffer (census key assembly only; reused, no per-call allocations).
+    private static readonly System.Text.StringBuilder FlattenCensusScratch = new(320);
 
     /// <summary>
     /// Test #21: neutralize REAL 3D inside a converted subtree. The combat log's
@@ -592,53 +625,226 @@ internal static partial class CanvasConversion
     ///   localPosition incl. z per frame (verified LeanTweenGuiAnimationSettingMove:
     ///   <c>Target.localPosition = value</c>; the banner intro plays it) — though
     ///   NO rotation channel exists (no ...SettingRotate subclass).
-    /// So the sweep re-runs every frame from <see cref="LateTick"/> (LateUpdate —
-    /// after the game's Update-time tween writers): one GetComponentsInChildren
-    /// scan; writes are change-gated, and already-flat transforms cost only the
-    /// two reads. The record lookup runs only for transforms actually tilted this
-    /// frame.
+    /// - and (ModBuild 193, the mechanism behind the WINDOW report) <c>ObjectPool</c>'s
+    ///   card path reparents with <c>SetParent(parent)</c> — <c>worldPositionStays:
+    ///   true</c> — at ObjectPool.cs:468, and resets local rotation only when the caller
+    ///   asks (<c>resetLocalRotation</c> defaults false, :415 / :481-483; local z IS
+    ///   always zeroed at :484-486, rotation is not). No item-card caller asks. Under a
+    ///   flat screen-space canvas the preserved WORLD rotation is a zero LOCAL rotation
+    ///   and nobody ever saw it; under a world-space host YAWED to face the player it
+    ///   lands as a local rotation the size of that yaw.
+    ///
+    /// THE SWEEP THIS FEEDS (rewritten in ModBuild 193, see
+    /// <see cref="RunFlattenPass"/>): a per-frame unbudgeted RE-ASSERT of everything
+    /// already known — which is what makes "the values come back live" harmless — plus a
+    /// budgeted, resumable DISCOVERY walk for transforms nobody has seen yet. The old
+    /// shape was a full <c>GetComponentsInChildren</c> every frame, which was free on the
+    /// surfaces it ran on (tens of transforms) and is not free on a floated window (2700).
+    /// The walk is now explicit rather than component-list based for the same reason
+    /// <see cref="ApplyModLayer"/>'s is: a foreign render subtree must be skipped WHOLE.
+    ///
+    /// TWO OWNERS, ONE CLAMP. This method is the entry point for the test-#21 opt-in
+    /// family (<c>flatten2D</c>), driven centrally from <see cref="LateTick"/>. The
+    /// floated-window family (<c>flattenWindow</c>) runs the identical pass from its own
+    /// <see cref="PanelFlattenDriver"/> — see <see cref="DriveWindowFlatten"/> for why the
+    /// two are separate. No panel is ever in both.
     /// </summary>
-    private static void FlattenSubtree(ConvertedPanel panel)
+    private static void FlattenSubtree(ConvertedPanel panel) => RunFlattenPass(panel);
+
+    /// <summary>
+    /// THE WINDOW FLATNESS GUARANTEE, per-frame entry point — called from
+    /// <see cref="PanelFlattenDriver"/>'s LateUpdate, which rides on the panel's own host
+    /// GameObject. Every gate here is a safety property, not a preference:
+    /// <list type="bullet">
+    /// <item>NOT <see cref="ConvertedPanel.FlattenEnabled"/> — that family is already swept by
+    /// <c>CanvasConversion.LateTick</c> and must not be swept twice in one frame.</item>
+    /// <item>STILL IN <see cref="Active"/> — <c>Release</c> removes the panel from the registry
+    /// (CanvasConversion.4.Lifecycle.cs:15) BEFORE it restores every recorded rotation/z
+    /// (:115-124) and only then destroys the host. Unity would still run this LateUpdate in the
+    /// SAME frame, on a host whose <c>Destroy</c> is only queued — without this gate the sweep
+    /// would re-flatten and re-record everything the release had just handed back, and the host
+    /// would then be destroyed with those records inside it. That is a permanent, silent loss of
+    /// the game's own styling for the rest of the session. "Only while it is still ours" is
+    /// exactly this line.</item>
+    /// </list>
+    /// </summary>
+    internal static void DriveWindowFlatten(ConvertedPanel? panel)
+    {
+        if (panel == null || !panel.FlattenWindowGuarantee || panel.FlattenEnabled || !panel.IsAlive)
+            return;
+        bool ours = false;
+        for (int i = 0; i < Active.Count; i++)
+        {
+            if (ReferenceEquals(Active[i], panel))
+            {
+                ours = true;
+                break;
+            }
+        }
+        if (!ours)
+            return;
+        RunFlattenPass(panel);
+        LogFlattenCensus(panel, force: false);
+    }
+
+    /// <summary>
+    /// One flatten pass. Two halves with two different costs, and the split IS the cost bound:
+    ///
+    /// <para>(A) THE RE-ASSERT, EVERY CALL, UNBUDGETED. Walk the RECORDED set only — the transforms
+    /// this panel has already caught carrying 3D — and write rotation → identity / z → 0 wherever
+    /// the value has come back. This is the "the values come back live" half. It is O(records),
+    /// which is a handful, never the subtree size, and it is why nothing that has been made flat can
+    /// be seen tilted for even one frame.</para>
+    ///
+    /// <para>(B) THE DISCOVERY WALK, BUDGETED AND RESUMABLE. Look for transforms nobody has seen yet
+    /// (pooled children, lazily populated rows), at most
+    /// <see cref="FlattenWalkBudgetPerFrame"/> transforms per frame, resuming where the last frame
+    /// stopped. See that constant for why a per-frame budget and not a period. A completed cycle
+    /// also PRUNES: a record whose transform died is dropped, and a record whose transform the game
+    /// has moved OUT of this window is RESTORED first and then dropped.</para>
+    ///
+    /// <para><paramref name="completeCycle"/> ignores the budget and runs the walk all the way
+    /// round in this call. Used once, from <see cref="Convert"/>: a subtree converts ALREADY tilted,
+    /// and it has to be flat on the first frame anybody could see it, not seven frames later.</para>
+    /// </summary>
+    private static void RunFlattenPass(ConvertedPanel panel, bool completeCycle = false)
     {
         if (panel.Target == null)
             return;
 
-        RectScratch.Clear();
-        panel.Target.GetComponentsInChildren(includeInactive: true, RectScratch);
-        for (int i = 0; i < RectScratch.Count; i++)
+        // ---- (A) re-assert the known set ---------------------------------------------------
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        int reasserts = 0;
+        for (int i = 0; i < panel.Flattened.Count; i++)
         {
-            RectTransform rect = RectScratch[i];
-            // The root's own pose is Convert's business (flattened there, restored
-            // whole by Release) — the sweep owns strictly the subtree below it.
-            if (rect == null || ReferenceEquals(rect, panel.Target))
+            Transform tf = panel.Flattened[i].Transform;
+            if (tf == null)
+                continue; // pruned at cycle end; never allocate a removal on the per-frame path
+            Vector3 pos = tf.localPosition;
+            Quaternion rot = tf.localRotation;
+            if (Quaternion.Angle(rot, Quaternion.identity) > FlattenAngleEpsilon)
+            {
+                tf.localRotation = Quaternion.identity;
+                reasserts++;
+            }
+            if (Mathf.Abs(pos.z) > FlattenZEpsilon)
+            {
+                tf.localPosition = new Vector3(pos.x, pos.y, 0f);
+                reasserts++;
+            }
+        }
+        panel.FlattenReasserts = reasserts;
+        panel.FlattenReassertTotal += reasserts;
+        panel.FlattenReassertTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        panel.FlattenReassertRuns++;
+
+        // ---- (B) budgeted, resumable discovery walk ------------------------------------------
+        t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (panel.FlattenWalk.Count == 0)
+        {
+            // Start of a cycle: seed at the root and zero the cycle accumulators.
+            panel.FlattenWalk.Add(panel.Target);
+            panel.FlattenCycleVisited = 0;
+            panel.FlattenCycleForeign = 0;
+            panel.FlattenCyclePlain3D = 0;
+            panel.FlattenCycleFrames = 0;
+            panel.FlattenCycleForeignSample = null;
+            panel.FlattenCyclePlain3DSample = null;
+        }
+        panel.FlattenCycleFrames++;
+
+        int budget = completeCycle ? int.MaxValue : FlattenWalkBudgetPerFrame;
+        while (budget-- > 0 && panel.FlattenWalk.Count > 0)
+        {
+            int last = panel.FlattenWalk.Count - 1;
+            Transform t = panel.FlattenWalk[last];
+            panel.FlattenWalk.RemoveAt(last);
+            if (t == null)
+                continue; // destroyed between two frames of this cycle — nothing to do
+            panel.FlattenCycleVisited++;
+
+            // CASE (2) — A FOREIGN RENDER SUBTREE. Skipped WHOLE and left EXACTLY as the game has
+            // it: not relayered (that shipped once and drew the character twice — see
+            // IsForeignRenderSubtree), and not flattened either. Flattening it would be the SAME
+            // mistake in a different coordinate: a real Renderer inside a window is a live 3D model
+            // the game aims its OWN preview camera at, so zeroing its local rotation/z moves the
+            // subject relative to that camera and the window's picture of it changes or empties.
+            // The honest answer for a genuinely 3D object is that it IS 3D; what would make it lie
+            // flat on the window is being CAPTURED into the window's image, which is
+            // PanelSupersample's path, not this one. Counted and NAMED here so the log says which
+            // object it was rather than only how many there were.
+            if (!ReferenceEquals(t, panel.Target) && IsForeignRenderSubtree(t))
+            {
+                panel.FlattenCycleForeign++;
+                panel.FlattenCycleForeignSample ??= t.name;
+                continue; // and NOT its children either — that is the whole point
+            }
+
+            for (int i = t.childCount - 1; i >= 0; i--)
+                panel.FlattenWalk.Add(t.GetChild(i));
+
+            // The root's own pose is Convert's business (flattened there, restored whole by
+            // Release) — the sweep owns strictly the subtree below it.
+            if (ReferenceEquals(t, panel.Target))
                 continue;
 
-            Vector3 pos = rect.localPosition;
-            Quaternion rot = rect.localRotation;
+            Vector3 pos = t.localPosition;
+            Quaternion rot = t.localRotation;
             bool tiltedRot = Quaternion.Angle(rot, Quaternion.identity) > FlattenAngleEpsilon;
             bool tiltedZ = Mathf.Abs(pos.z) > FlattenZEpsilon;
             if (!tiltedRot && !tiltedZ)
                 continue;
 
-            if (!IsFlattenRecorded(panel, rect))
+            if (!(t is RectTransform))
+            {
+                // A plain Transform holder inside a uGUI tree, carrying 3D but not a render root.
+                // COUNTED AND NAMED, NEVER WRITTEN — see ConvertedPanel.FlattenLastPlain3D. This is
+                // the census bucket to read if every other count comes back zero.
+                panel.FlattenCyclePlain3D++;
+                panel.FlattenCyclePlain3DSample ??= t.name;
+                continue;
+            }
+
+            // CASES (1) and (3) — a RectTransform carrying a baked/inherited local rotation and/or
+            // a local z, whether or not it also carries a nested Canvas. A nested canvas needs no
+            // separate rule: its own transform IS a RectTransform and the same clamp puts its whole
+            // subtree back in the window plane. It is counted separately only so the census can say
+            // whether a case-(3) canvas was involved.
+            if (!IsFlattenRecorded(panel, t))
             {
                 panel.Flattened.Add(new FlattenRecord
                 {
-                    Transform = rect,
+                    Transform = t,
                     OriginalLocalZ = pos.z,
                     OriginalLocalRotation = rot,
                 });
             }
             if (tiltedRot)
-                rect.localRotation = Quaternion.identity;
+                t.localRotation = Quaternion.identity;
             if (tiltedZ)
-                rect.localPosition = new Vector3(pos.x, pos.y, 0f);
+                t.localPosition = new Vector3(pos.x, pos.y, 0f);
         }
-        RectScratch.Clear();
 
-        // Log once per conversion (from Convert), re-log when pooling grows the set
-        // — throttled so a burst of new entries makes one line, not one per entry.
-        if (panel.Flattened.Count > panel.FlattenLoggedCount
+        if (panel.FlattenWalk.Count == 0)
+        {
+            // Cycle complete: prune, classify and PUBLISH. The census only ever reads published
+            // numbers, so it can never report a window half-walked.
+            PruneFlattenRecords(panel);
+            ClassifyFlattenRecords(panel);
+            panel.FlattenLastVisited = panel.FlattenCycleVisited;
+            panel.FlattenLastForeign = panel.FlattenCycleForeign;
+            panel.FlattenForeignSample = panel.FlattenCycleForeignSample;
+            panel.FlattenLastPlain3D = panel.FlattenCyclePlain3D;
+            panel.FlattenPlain3DSample = panel.FlattenCyclePlain3DSample;
+            panel.FlattenLastCycleFrames = panel.FlattenCycleFrames;
+        }
+        panel.FlattenScanTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+        panel.FlattenScanRuns++;
+
+        // Legacy growth line for the test-#21 opt-in family, wording unchanged so anything that
+        // greps for it still finds it. The floated-window family prints the full census instead.
+        if (!panel.FlattenWindowGuarantee
+            && panel.Flattened.Count > panel.FlattenLoggedCount
             && Time.frameCount >= panel.FlattenLogNextFrame)
         {
             VRLog.Info("WorldUI", $"Flatten grew to {panel.Flattened.Count} transform(s) in " +
@@ -648,14 +854,211 @@ internal static partial class CanvasConversion
         }
     }
 
-    private static bool IsFlattenRecorded(ConvertedPanel panel, RectTransform rect)
+    /// <summary>
+    /// RESTORE DISCIPLINE, the half <c>Release</c> cannot do. Drop records whose transform the game
+    /// destroyed (pooled children are destroyed, and without this the list — and the O(n) lookup
+    /// that walks it — grows for the whole life of a long-lived window), and HAND BACK anything the
+    /// game has re-parented out of this window before dropping it: it leaves carrying exactly the
+    /// local rotation and z we took from it. Runs on the rescan cadence only; the per-frame
+    /// re-assert never pays for the ancestor walk.
+    /// </summary>
+    private static void PruneFlattenRecords(ConvertedPanel panel)
+    {
+        for (int i = panel.Flattened.Count - 1; i >= 0; i--)
+        {
+            FlattenRecord record = panel.Flattened[i];
+            if (record.Transform == null)
+            {
+                panel.Flattened.RemoveAt(i);
+                continue;
+            }
+            if (panel.Target != null && record.Transform.IsChildOf(panel.Target))
+                continue;
+            Vector3 pos = record.Transform.localPosition;
+            record.Transform.localPosition = new Vector3(pos.x, pos.y, record.OriginalLocalZ);
+            record.Transform.localRotation = record.OriginalLocalRotation;
+            panel.Flattened.RemoveAt(i);
+        }
+        if (panel.FlattenLoggedCount > panel.Flattened.Count)
+            panel.FlattenLoggedCount = panel.Flattened.Count;
+    }
+
+    /// <summary>
+    /// Census breakdown of the recorded set: how many transforms we hold because of a ROTATION, how
+    /// many because of a local Z, how many for both, and how many of them are nested canvases (case
+    /// 3). Recomputed on the rescan cadence from the ORIGINALS, so the numbers describe what the
+    /// game authored, not what the subtree looks like after we clamped it.
+    /// </summary>
+    private static void ClassifyFlattenRecords(ConvertedPanel panel)
+    {
+        int rotOnly = 0, zOnly = 0, both = 0, canvases = 0;
+        for (int i = 0; i < panel.Flattened.Count; i++)
+        {
+            FlattenRecord record = panel.Flattened[i];
+            if (record.Transform == null)
+                continue;
+            bool r = Quaternion.Angle(record.OriginalLocalRotation, Quaternion.identity) > FlattenAngleEpsilon;
+            bool z = Mathf.Abs(record.OriginalLocalZ) > FlattenZEpsilon;
+            if (r && z)
+                both++;
+            else if (r)
+                rotOnly++;
+            else if (z)
+                zOnly++;
+            if (record.Transform.GetComponent<Canvas>() != null)
+                canvases++;
+        }
+        panel.FlattenRotationCount = rotOnly;
+        panel.FlattenZCount = zOnly;
+        panel.FlattenBothCount = both;
+        panel.FlattenLastNestedCanvas = canvases;
+    }
+
+    /// <summary>
+    /// THE PER-WINDOW CENSUS. Printed unconditionally at conversion — <b>including for a window
+    /// with nothing to report</b>, because a silent log must never be readable as "nothing looked" —
+    /// and afterwards whenever the COUNTS change (rate-limited to
+    /// <see cref="FlattenCensusIntervalFrames"/>). The measured cost is deliberately kept OUT of
+    /// the change key: it fluctuates every frame and would turn a change-gate into a spam loop.
+    /// </summary>
+    private static void LogFlattenCensus(ConvertedPanel panel, bool force)
+    {
+        if (!panel.FlattenWindowGuarantee || panel.HostGo == null)
+            return;
+        if (!force && Time.frameCount < panel.FlattenCensusNextFrame)
+            return;
+
+        FlattenCensusScratch.Length = 0;
+        FlattenCensusScratch.Append(panel.Flattened.Count).Append('/')
+            .Append(panel.FlattenRotationCount).Append('/').Append(panel.FlattenZCount).Append('/')
+            .Append(panel.FlattenBothCount).Append('/').Append(panel.FlattenLastNestedCanvas).Append('/')
+            .Append(panel.FlattenLastForeign).Append('/').Append(panel.FlattenLastPlain3D).Append('/')
+            .Append(panel.FlattenLastVisited).Append('/').Append(panel.FlattenReasserts > 0 ? 1 : 0);
+        string key = FlattenCensusScratch.ToString();
+        if (!force && string.Equals(key, panel.FlattenCensusLast, System.StringComparison.Ordinal))
+            return;
+        panel.FlattenCensusLast = key;
+        panel.FlattenCensusNextFrame = Time.frameCount + FlattenCensusIntervalFrames;
+
+        double scanUs = panel.FlattenScanRuns > 0
+            ? panel.FlattenScanTicks * 1000000.0 / System.Diagnostics.Stopwatch.Frequency / panel.FlattenScanRuns
+            : 0.0;
+        double reassertUs = panel.FlattenReassertRuns > 0
+            ? panel.FlattenReassertTicks * 1000000.0 / System.Diagnostics.Stopwatch.Frequency / panel.FlattenReassertRuns
+            : 0.0;
+
+        VRLog.Info("WorldUI",
+            $"WINDOW FLATNESS '{panel.HostGo.name}': Flattened {panel.Flattened.Count} transform(s) " +
+            $"({panel.FlattenRotationCount} rotation-only, {panel.FlattenZCount} z-only, " +
+            $"{panel.FlattenBothCount} both, {panel.FlattenLastNestedCanvas} of them nested canvases) " +
+            $"out of {panel.FlattenLastVisited} walked; {panel.FlattenLastForeign} foreign render " +
+            $"subtree(s) LEFT ALONE" +
+            (panel.FlattenForeignSample != null ? $" (first: '{panel.FlattenForeignSample}')" : "") +
+            $"; {panel.FlattenLastPlain3D} plain non-Rect transform(s) carry 3D and are also left alone" +
+            (panel.FlattenPlain3DSample != null ? $" (first: '{panel.FlattenPlain3DSample}')" : "") +
+            $". Re-asserts this frame {panel.FlattenReasserts}, {panel.FlattenReassertTotal} since " +
+            $"conversion. COST: {scanUs:F0} us/frame for the budgeted discovery walk " +
+            $"({FlattenWalkBudgetPerFrame} transform(s) max per frame, one full pass every " +
+            $"{panel.FlattenLastCycleFrames} frame(s)) plus {reassertUs:F0} us/frame for the " +
+            $"unbudgeted re-assert of the {panel.Flattened.Count} known transform(s). " +
+            "HOW TO READ THIS LINE. " +
+            "(1) The user's complaint is an element standing OUT of the window plane. If 'Flattened' " +
+            "is non-zero the sweep found and clamped exactly that, and the element should now lie in " +
+            "the plane — case (1)/(3). (2) If 'Flattened' is 0 but 'foreign render subtree(s)' is not, " +
+            "the thing sticking out is a REAL 3D MODEL the game renders with its own preview camera; " +
+            "it is deliberately untouched (moving it once drew the character twice, and flattening it " +
+            "would move it out of that camera's frame), and the only correct way to make it lie on the " +
+            "window is to capture it into the window's image — PanelSupersample, not this sweep. " +
+            "(3) If both are 0 but 'plain non-Rect transform(s)' is not, the flatten contract's " +
+            "RectTransform-only rule is what is holding it back and the named object is the next " +
+            "thing to look at. (4) If EVERY count is 0 the window is already flat and whatever the " +
+            "user sees is not a local pose at all — look at the host's own orientation next, not at " +
+            "its contents. (5) 'Re-asserts since conversion' climbing steadily means a GAME writer is " +
+            "putting the rotation/z back every frame; this sweep is change-gated and runs once per " +
+            "frame in LateUpdate, so it cannot alternate a value with itself, but a second writer " +
+            "would show up here first. (6) COST is what this sweep costs EVERY frame, not a peak: " +
+            "the discovery walk is budgeted per frame, so a 2700-transform window and a 50-transform " +
+            "card cost the same per frame and differ only in 'one full pass every N frame(s)' — " +
+            "which is also the worst-case delay before a newly pooled tilted child is discovered. If " +
+            "the us/frame is too high, lower CanvasConversion.FlattenWalkBudgetPerFrame; if a card " +
+            "is visibly tilted for a moment before it snaps flat, raise it.");
+    }
+
+    private static bool IsFlattenRecorded(ConvertedPanel panel, Transform t)
     {
         for (int i = 0; i < panel.Flattened.Count; i++)
         {
-            if (ReferenceEquals(panel.Flattened[i].Transform, rect))
+            if (ReferenceEquals(panel.Flattened[i].Transform, t))
                 return true;
         }
         return false;
     }
 
+    /// <summary>
+    /// Attach the per-window flatten driver to <paramref name="panel"/>'s host. Same pattern as
+    /// <c>GrabbableModal.HostLateSync</c> and <c>AvatarMirror.LatePin</c>: a tiny MonoBehaviour on
+    /// the object it serves, so its lifetime is the host's lifetime and no registry can leak it.
+    /// </summary>
+    private static void AttachFlattenDriver(ConvertedPanel panel)
+    {
+        if (panel.HostGo == null)
+            return;
+        panel.HostGo.AddComponent<PanelFlattenDriver>().Panel = panel;
+    }
+
+}
+
+/// <summary>
+/// Per-window LateUpdate driver for the flatness guarantee (ModBuild 193).
+///
+/// <para>WHY LateUpdate: the sweep has to run AFTER the game's Update-time tween writers, or a tilt
+/// written this frame renders this frame — the reason <c>CanvasConversion.LateTick</c> is a
+/// LateUpdate service too. Any LateUpdate satisfies that, since Unity runs every Update before every
+/// LateUpdate.</para>
+///
+/// <para>WHY ITS OWN COMPONENT INSTEAD OF THE CENTRAL LateTick: the central one is gated on
+/// <c>ConvertedPanel.FlattenEnabled</c>, and <c>PanelSupersample.Eligible</c> refuses every panel
+/// carrying that flag (PanelSupersample.1.Core.cs). Setting it for the floated-window family would
+/// have turned supersampling off for the family it is actually running on — measured live on
+/// 'New Party display' and 'Quest Log Manager' in the ModBuild 192 log. A separate opt-in and a
+/// separate driver keep both features on, and cost one component per floated window.
+/// RESOLVED AT INTEGRATION (ModBuild 193): that refusal was verified false and REMOVED. This
+/// driver survives on its own merits — the budgeted resumable walk and the per-window census —
+/// not because supersampling refuses anything.</para>
+///
+/// <para>NO ORDERING HAZARD AGAINST THE OTHER FLATTENERS. <c>TooltipOnWindow.LateTick</c> clamps the
+/// same two components on tooltip subtrees inside these same windows, and both writers write the
+/// SAME value (identity / z 0) under the same epsilons. Two writers of one number are only dangerous
+/// when they disagree — the MultiPass eye-disagreement bug this project has shipped came from two
+/// owners ALTERNATING a value between frames. Here neither writer can produce a value the other
+/// would change, so the order between them is irrelevant and no frame can end tilted.</para>
+///
+/// <para>NEVER THROWS. An unguarded exception in a MonoBehaviour Update starves VR input for the
+/// rest of the session; this one catches, reports once, and switches ITSELF off rather than the
+/// window.</para>
+/// </summary>
+internal sealed class PanelFlattenDriver : MonoBehaviour
+{
+    internal ConvertedPanel? Panel;
+    private bool _failed;
+
+    private void LateUpdate()
+    {
+        if (_failed)
+            return;
+        try
+        {
+            CanvasConversion.DriveWindowFlatten(Panel);
+        }
+        catch (System.Exception ex)
+        {
+            _failed = true;
+            enabled = false;
+            VRLog.Error("WorldUI", $"WINDOW FLATNESS: the per-frame sweep on '{name}' threw " +
+                                   $"({ex.GetType().Name}: {ex.Message}) — this driver is now OFF for this " +
+                                   "window and the window keeps whatever pose the game gives its content. " +
+                                   "Everything already flattened stays flattened and is still restored on " +
+                                   "release; no other window is affected.");
+        }
+    }
 }

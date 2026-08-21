@@ -15,30 +15,53 @@ internal static partial class PanelSupersample
     // ---- allocation ---------------------------------------------------------------------------
 
     /// <summary>
-    /// Estimated VRAM for one capture target: colour + its mip chain + a 24/8 depth-stencil, plus the
-    /// multisample colour and depth surfaces when MSAA is on. Deliberately an over-estimate rather
-    /// than an under-estimate — a budget that lies low is not a budget.
+    /// Estimated VRAM for ONE panel: the capture target (colour + 24/8 depth-stencil + the
+    /// multisample colour and depth surfaces when MSAA is on) PLUS the separate single-sample
+    /// display target and its mip chain. Deliberately an over-estimate rather than an
+    /// under-estimate — a budget that lies low is not a budget.
+    /// <para>Worked example, and the one the caps are sized from: at 1920x1080 MSAA 4x the capture
+    /// side is 7.9 (colour) + 7.9 (D24S8) + 63.3 (4 samples of both) = 79.1 MB and the display side
+    /// is 7.9 + 2.6 (mips) = 10.5 MB, i.e. 89.7 MB for the pair. The ModBuild 192 log's 81.7 MB for
+    /// the same window is the same arithmetic WITHOUT the split (mips were charged to the
+    /// multisampled target, where they never existed).</para>
     /// </summary>
     private static long VramBytesFor(int w, int h, int msaa)
+        => CaptureVramBytesFor(w, h, msaa) + MipVramBytesFor(w, h);
+
+    private static long CaptureVramBytesFor(int w, int h, int msaa)
     {
         long px = (long)w * h;
         long colour = px * 4;
-        long mips = colour / 3;
         long depthStencil = px * 4;
         long multisample = msaa > 1 ? (colour + depthStencil) * msaa : 0;
-        return colour + mips + depthStencil + multisample;
+        return colour + depthStencil + multisample;
+    }
+
+    private static long MipVramBytesFor(int w, int h)
+    {
+        long colour = (long)w * h * 4;
+        return colour + colour / 3;
     }
 
     private static string Mb(long bytes) => (bytes / (1024f * 1024f)).ToString("F1");
 
     /// <summary>
-    /// Allocate the capture target. The descriptor comes from <c>FlatScreenStereo.CreateColorRt</c>
-    /// — the shipped factory of this codebase's other RT path — because it is the one place that
-    /// forces <c>D24_UNorm_S8_UInt</c> for a depth request, and a uGUI window without a STENCIL
-    /// buffer loses every <see cref="Mask"/> in it (scroll viewports, circular avatars, the whole
-    /// masked-content family). Mips are explicit, never automatic: <c>autoGenerateMips</c> is off and
-    /// <see cref="RenderTexture.GenerateMips"/> runs in the capture camera's own
-    /// <see cref="Camera.onPostRender"/>, i.e. immediately after the frame it belongs to.
+    /// Allocate the CAPTURE target — multisampled, with a stencil buffer, and deliberately WITHOUT
+    /// mips. The descriptor comes from <c>FlatScreenStereo.CreateColorRt</c> — the shipped factory of
+    /// this codebase's other RT path — because it is the one place that forces
+    /// <c>D24_UNorm_S8_UInt</c> for a depth request, and a uGUI window without a STENCIL buffer loses
+    /// every <see cref="Mask"/> in it (scroll viewports, circular avatars, the whole masked-content
+    /// family).
+    ///
+    /// <para><b>WHY NO MIPS HERE — this is the ModBuild 192 bug.</b> That build asked this very
+    /// method for <c>antiAliasing = 4</c> AND <c>useMipMap = true</c> on one target. A render texture
+    /// cannot be both: <c>Create()</c> succeeded (so nothing failed loudly, and the stand-down below
+    /// never fired) and the mip request was dropped on the floor — every hardware state line read
+    /// <c>mips 1 NONE</c> and this class's own falsifier fired twice. <c>GenerateMips()</c> on a
+    /// multisampled target is a no-op for the same reason. The mip chain now lives on a second,
+    /// single-sample target (<see cref="CreateMipRt"/>) that the capture is RESOLVED into
+    /// (<see cref="ResolveAndMip"/>) — which is the standard way to have both, and the same order an
+    /// offline renderer uses: multisample, resolve, then band-limit.</para>
     /// </summary>
     private static RenderTexture? CreateRt(int w, int h, ref int msaa, string window)
     {
@@ -46,20 +69,19 @@ internal static partial class PanelSupersample
         {
             RenderTexture rt = FlatScreenStereo.CreateColorRt(w, h, 24, $"GloomhavenVR.PanelSS_{window}");
             rt.antiAliasing = Mathf.Max(1, msaa);
-            rt.useMipMap = true;
+            rt.useMipMap = false;      // see the header: MSAA and mips are mutually exclusive
             rt.autoGenerateMips = false;
-            rt.filterMode = FilterMode.Trilinear;
-            rt.anisoLevel = AnisoLevel;
+            rt.filterMode = FilterMode.Bilinear; // only ever read by the resolve blit
+            rt.anisoLevel = 0;
             rt.wrapMode = TextureWrapMode.Clamp;
             if (rt.Create())
                 return rt;
             Object.Destroy(rt);
             if (msaa <= 1)
                 break;
-            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: the driver refused a {w}x{h} mipmapped render "
-                              + $"target at MSAA {msaa}x for '{window}' — retrying without MSAA. THE "
-                              + "CONSEQUENCE if the retry also fails: this window keeps today's "
-                              + "direct rendering.");
+            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: the driver refused a {w}x{h} render target at MSAA "
+                              + $"{msaa}x for '{window}' — retrying without MSAA. THE CONSEQUENCE if "
+                              + "the retry also fails: this window keeps today's direct rendering.");
             msaa = 1;
         }
         VRLog.Warn(Scope, $"PANEL SUPERSAMPLE stands down on '{window}': a {w}x{h} render target could "
@@ -68,6 +90,66 @@ internal static partial class PanelSupersample
                           + "Nothing was changed on the window itself.");
         return null;
     }
+
+    /// <summary>
+    /// Allocate the MIPPED DISPLAY target — single-sample, no depth, full mip chain, trilinear +
+    /// anisotropic. Single-sample is what makes <c>useMipMap</c> stick at all (see
+    /// <see cref="CreateRt"/>); no depth buffer because nothing is ever rendered into it, only
+    /// blitted. <c>autoGenerateMips</c> is off on purpose so the chain is generated exactly once per
+    /// capture, at a moment this class chooses, rather than at whatever moment Unity would pick.
+    /// <para>Returns null (never throws) if the driver refuses it; the caller then displays the
+    /// capture target directly, which is ModBuild 192's behaviour, and says so once.</para>
+    /// </summary>
+    private static RenderTexture? CreateMipRt(int w, int h, string window)
+    {
+        var rt = new RenderTexture(w, h, 0, RenderTextureFormat.Default, RenderTextureReadWrite.Default)
+        {
+            name = $"GloomhavenVR.PanelSSMip_{window}",
+            antiAliasing = 1,
+            useMipMap = true,
+            autoGenerateMips = false,
+            filterMode = FilterMode.Trilinear,
+            anisoLevel = AnisoLevel,
+            wrapMode = TextureWrapMode.Clamp,
+        };
+        if (rt.Create() && rt.mipmapCount > 1)
+            return rt;
+        int got = rt.mipmapCount;
+        rt.Release();
+        Object.Destroy(rt);
+        VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: '{window}' could not get a MIPPED display target "
+                          + $"({w}x{h}, single-sample, no depth — the driver reported mipmapCount="
+                          + $"{got}). THE CONSEQUENCE: the quad falls back to showing the "
+                          + "multisampled capture target directly, i.e. exactly ModBuild 192's "
+                          + "behaviour — sharp while still, and crawling while the window or the head "
+                          + "moves, because the eye minifies an unfiltered texture. Input, geometry "
+                          + "and MSAA are unaffected.");
+        return null;
+    }
+
+    /// <summary>Give <paramref name="e"/> a mipped display target for its current capture size, or
+    /// record the fallback. Never throws; the entry is usable either way.</summary>
+    private static void AttachMipTarget(Entry e, int w, int h)
+    {
+        RenderTexture? mip = CreateMipRt(w, h, e.Window);
+        if (mip == null)
+        {
+            e.MipRt = null!;
+            e.MipFallback = true;
+            e.MipCount = e.Rt != null ? e.Rt.mipmapCount : 1;
+            // The pair's estimate already charged for a mip target we did not get; hand it back so
+            // the session total stays a true statement about what is allocated.
+            e.VramBytes = CaptureVramBytesFor(w, h, e.Msaa);
+            return;
+        }
+        e.MipRt = mip;
+        e.MipFallback = false;
+        e.MipCount = mip.mipmapCount;
+    }
+
+    /// <summary>The texture the display quad shows: the mipped one when we have it, else the
+    /// capture target (the ModBuild 192 fallback).</summary>
+    private static RenderTexture DisplayTexture(Entry e) => e.MipRt != null ? e.MipRt : e.Rt;
 
     /// <summary>
     /// The capture camera, parented UNDER the host so its pose is exact by construction — whoever
@@ -139,7 +221,7 @@ internal static partial class PanelSupersample
         canvas.worldCamera = CanvasConversion.WorldCamera;
         canvas.sortingOrder = panel.DrawSortingOrder;
         var image = go.AddComponent<RawImage>();
-        image.texture = e.Rt;
+        image.texture = DisplayTexture(e);
         image.raycastTarget = false;
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -156,102 +238,243 @@ internal static partial class PanelSupersample
     // ---- per-frame sync -----------------------------------------------------------------------
 
     /// <summary>
-    /// Keep the capture frustum and the display quad on the host rect. The camera is a CHILD of the
-    /// host, so only its projection needs writing (world-unit ortho size and aspect, recomputed from
-    /// the live rect and lossy scale — the diorama scale is ~198 world units per real metre in the
-    /// map room, and every quantity here is in WORLD units, never metres). The display quad is a
-    /// scene root, so its full pose is copied; the final copy happens in
+    /// Keep the capture frustum, the display quad and the allocation on the panel's live CAPTURE
+    /// FRAME (<see cref="Entry.Frame"/> — the host rect unioned with everything the window actually
+    /// draws; see <see cref="MeasureFrame"/> for why it is not simply the host rect). The camera is
+    /// a CHILD of the host, so only its projection needs writing (world-unit ortho size and aspect,
+    /// recomputed from the live frame and lossy scale — the diorama scale is ~198 world units per
+    /// real metre in the map room, and every quantity here is in WORLD units, never metres). The
+    /// display quad is a scene root, so its full pose is copied; the final copy happens in
     /// <see cref="OnPreCull"/>, after every LateUpdate pose writer has run.
+    ///
+    /// <para>ORDERING, stated because ModBuild 192's residual defect was a movement one and the next
+    /// round must not have to re-derive this. Within a frame: every Update runs (including
+    /// <c>GrabbableModal.Tick</c>, which copies the grab frame onto the host), then every LateUpdate
+    /// runs (including <c>GrabbableModal.LateSyncHost</c>, an ordinary MonoBehaviour LateUpdate with
+    /// no defined order against this one, and this method via <c>CanvasConversion.LateTick</c>), and
+    /// only THEN does the camera loop start. So a host pose written by ANY LateUpdate — before or
+    /// after this method — is already final when the capture camera renders, because that camera is
+    /// a CHILD of the host and reads the host's world matrix at render time, and it is already final
+    /// when <see cref="OnPreCull"/> copies the quad's pose, because that runs inside the camera loop
+    /// too. Capture content and quad pose therefore cannot disagree by a frame, whichever LateUpdate
+    /// won. What this method WOULD be one frame late on is the PROJECTION: the capture camera's
+    /// <c>orthographicSize</c> is a WORLD-unit quantity derived from the host's lossy scale, so a
+    /// two-hand resize whose <c>LateSyncHost</c> lands after this method would leave the camera
+    /// framing the previous frame's world size while rendering at the new one — the captured image
+    /// would zoom by the scale ratio for that frame, inside a display quad that (reading the scale
+    /// live in <see cref="OnPreCull"/>) is already correct. That is precisely a "manche Elemente
+    /// nicht richtig dargestellt" artifact, and it is why <see cref="SyncProjection"/> is called
+    /// AGAIN from the capture camera's own <see cref="Camera.onPreCull"/> — the last instant before
+    /// it culls, after every LateUpdate in the frame, whoever won. The ALLOCATION can still trail a
+    /// resize by a frame, which costs resolution and never geometry.</para>
     /// </summary>
     private static void SyncGeometry(Entry e)
     {
         ConvertedPanel panel = e.Panel;
         RectTransform host = panel.HostRect;
-        Rect rect = host.rect;
-        Vector3 lossy = host.lossyScale;
-        float scale = Mathf.Max(Mathf.Abs(lossy.y), 1e-6f);
 
-        float rectHeightWorld = rect.height * scale;
-        float slab = Mathf.Max(rectHeightWorld * 0.5f, 1e-4f);
+        // THE RESIZE / REPOSE TRIGGER (ModBuild 193). Read entirely from the host transform and the
+        // host RectTransform, because that is where every writer lands: the content fit writes
+        // HostRect.sizeDelta (CanvasConversion.3.Fit.cs, which computes its own `resized` flag right
+        // there), GrabbableModal.SyncHostToFrame writes the host's position, rotation and localScale
+        // every frame from the grab frame, and the release re-face
+        // (GrabbableModal.IPanelGrabOwner.OnGrabFinished) writes the rotation once. Watching the
+        // resulting VALUES catches all of them without coupling to any of those files — the same
+        // argument CanvasConversion's own reveal gate makes for value-based stillness.
+        bool dirty = NoticeGeometry(e, host);
+
+        // Re-measure the capture frame on the cadence, and IMMEDIATELY on any geometry change: a
+        // window that was re-fitted or re-scaled on release must not keep framing last size's
+        // content. This is the "a resize must force a full re-capture" requirement — the capture
+        // itself runs every frame, so forcing it means forcing everything the capture is derived
+        // from: the frame, the projection, the allocation and the layer sweep.
+        bool forced = dirty
+                      && Time.frameCount - e.LastMeasureFrame >= ContentMeasureMinIntervalFrames;
+        if (forced || Time.frameCount >= e.NextContentFrame)
+        {
+            e.NextContentFrame = Time.frameCount + ContentMeasureIntervalFrames;
+            MeasureFrame(e);
+        }
+
+        SyncProjection(e);
+        e.DisplayRect.sizeDelta = e.Frame.size;
+        SyncDisplayPose(e);
+        Rect frame = e.Frame;
+
+        // Re-allocate when the frame materially resized: an RT built for the pre-fit frame would
+        // either waste texels or stretch across the new one, and the whole point of this path is
+        // that one RT texel corresponds to one authored pixel times the factor. A geometry change
+        // forces the check regardless of the fraction, so a release-time re-fit can never leave a
+        // stale target behind.
+        if (dirty
+            || Mathf.Abs(frame.width - e.Authored.x) > e.Authored.x * RectChangeFraction
+            || Mathf.Abs(frame.height - e.Authored.y) > e.Authored.y * RectChangeFraction)
+        {
+            Reallocate(e, frame);
+        }
+    }
+
+    /// <summary>
+    /// Write the capture camera's projection from the entry's frame and the host's LIVE lossy scale.
+    /// Called twice a frame on purpose — once from <see cref="SyncGeometry"/> (so a camera that
+    /// somehow never gets a pre-cull callback is still correct) and once from the capture camera's
+    /// own <see cref="Camera.onPreCull"/>, which is the last instant before it culls and therefore
+    /// the only place a late LateUpdate scale write cannot beat. See <see cref="SyncGeometry"/>'s
+    /// ORDERING paragraph for the artifact this second call removes. Both writes are idempotent.
+    /// <para>Everything here is in WORLD units (the map room runs ~198 world units per real metre);
+    /// <c>Frame</c> is in host-local uGUI pixels and the host's lossy scale is the bridge.</para>
+    /// </summary>
+    private static void SyncProjection(Entry e)
+    {
+        RectTransform? host = e.Panel.HostRect;
+        if (host == null || e.Cam == null || e.CamGo == null)
+            return;
+        Rect frame = e.Frame;
+        float scale = Mathf.Max(Mathf.Abs(host.lossyScale.y), 1e-6f);
+        float frameHeightWorld = frame.height * scale;
+        float slab = Mathf.Max(frameHeightWorld * 0.5f, 1e-4f);
         float standoff = slab * 2f;
 
-        e.Cam.orthographicSize = rectHeightWorld * 0.5f;
-        e.Cam.aspect = Mathf.Max(rect.width / Mathf.Max(rect.height, 1e-4f), 1e-4f);
+        e.Cam.orthographicSize = frameHeightWorld * 0.5f;
+        e.Cam.aspect = Mathf.Max(frame.width / Mathf.Max(frame.height, 1e-4f), 1e-4f);
         e.Cam.nearClipPlane = standoff - slab;
         e.Cam.farClipPlane = standoff + slab;
-        Vector2 centre = rect.center;
+        Vector2 centre = frame.center;
         e.CamGo.transform.localPosition = new Vector3(centre.x, centre.y, -standoff / scale);
         e.CamGo.transform.localRotation = Quaternion.identity;
         e.CamGo.transform.localScale = Vector3.one;
-
-        e.DisplayRect.sizeDelta = rect.size;
-        SyncDisplayPose(e);
-
-        // Re-allocate when the content fit materially resized the window: an RT built for the
-        // pre-fit rect would either waste texels or stretch across the new one, and the whole point
-        // of this path is that one RT texel corresponds to one authored pixel times the factor.
-        if (Mathf.Abs(rect.width - e.Authored.x) > e.Authored.x * RectChangeFraction
-            || Mathf.Abs(rect.height - e.Authored.y) > e.Authored.y * RectChangeFraction)
-        {
-            Reallocate(e, rect);
-        }
     }
+
+    /// <summary>
+    /// Did the host's pose, scale or rect change since the last frame? Records the motion stamp that
+    /// drives the per-frame layer sweep (<see cref="SweepAfterMotionFrames"/>) and returns true for
+    /// the changes that invalidate the capture frame (rect or scale), NOT for a pure translation —
+    /// moving a window changes nothing about what it draws or how big its render target must be.
+    /// <para>The position epsilon is expressed in WORLD units and derived from the panel's own
+    /// lossy scale (half an authored pixel), never in metres: at the map room's ~198 world units per
+    /// metre a fixed metric epsilon would be either blind or permanently tripped.</para>
+    /// </summary>
+    private static bool NoticeGeometry(Entry e, RectTransform host)
+    {
+        Transform t = host.transform;
+        Vector3 pos = t.position;
+        Quaternion rot = t.rotation;
+        Vector3 scl = host.lossyScale;
+        Vector2 size = host.rect.size;
+
+        if (!e.HasPoseSnapshot)
+        {
+            e.HasPoseSnapshot = true;
+            e.LastPos = pos;
+            e.LastRot = rot;
+            e.LastScale = scl;
+            e.LastRectSize = size;
+            return false;
+        }
+
+        float posEps = Mathf.Max(Mathf.Abs(scl.y) * 0.5f, 1e-6f);
+        bool moved = (pos - e.LastPos).sqrMagnitude > posEps * posEps;
+        bool turned = Quaternion.Angle(rot, e.LastRot) > 0.05f;
+        bool rescaled = (scl - e.LastScale).magnitude > e.LastScale.magnitude * 1e-4f + 1e-9f;
+        bool resized = Mathf.Abs(size.x - e.LastRectSize.x) > 0.5f
+                       || Mathf.Abs(size.y - e.LastRectSize.y) > 0.5f;
+
+        e.LastPos = pos;
+        e.LastRot = rot;
+        e.LastScale = scl;
+        e.LastRectSize = size;
+
+        if (moved || turned || rescaled || resized)
+        {
+            e.LastMotionFrame = Time.frameCount;
+            e.MotionFrames++;
+        }
+        if (!rescaled && !resized)
+            return false;
+        e.GeometryDirtyEvents++;
+        return true;
+    }
+
+    /// <summary>Is this window inside its motion window (moving, or settling from a move)? Drives
+    /// the per-frame capture-layer sweep — see <see cref="SweepAfterMotionFrames"/>.</summary>
+    private static bool IsMoving(Entry e) => Time.frameCount - e.LastMotionFrame <= SweepAfterMotionFrames;
 
     private static void SyncDisplayPose(Entry e)
     {
         RectTransform host = e.Panel.HostRect;
         if (host == null || e.DisplayGo == null)
             return;
-        Rect rect = host.rect;
         Transform t = e.DisplayGo.transform;
-        t.SetPositionAndRotation(host.TransformPoint(rect.center), host.rotation);
+        t.SetPositionAndRotation(host.TransformPoint(e.Frame.center), host.rotation);
         t.localScale = host.lossyScale;
     }
 
-    private static void Reallocate(Entry e, Rect rect)
+    private static void Reallocate(Entry e, Rect frame)
     {
-        int rtW = Mathf.Clamp(Mathf.RoundToInt(rect.width * e.Factor), 16, MaxRtDimension);
-        int rtH = Mathf.Clamp(Mathf.RoundToInt(rect.height * e.Factor), 16, MaxRtDimension);
+        int rtW = Mathf.Clamp(Mathf.RoundToInt(frame.width * e.Factor), 16, MaxRtDimension);
+        int rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * e.Factor), 16, MaxRtDimension);
         if (rtW == e.RtW && rtH == e.RtH)
         {
-            e.Authored = rect.size;
+            e.Authored = frame.size;
             return;
         }
         int msaa = e.Msaa;
+        long budget = System.Math.Min(MaxPanelVramBytes,
+            MaxTotalVramBytes - (_vramTotal - e.VramBytes));
         long vram = VramBytesFor(rtW, rtH, msaa);
-        while (msaa > 1 && vram > MaxPanelVramBytes)
+        while (msaa > 1 && vram > budget)
         {
             msaa /= 2;
             vram = VramBytesFor(rtW, rtH, msaa);
         }
-        if (vram > MaxPanelVramBytes || _vramTotal - e.VramBytes + vram > MaxTotalVramBytes)
+        if (vram > budget)
         {
-            e.Authored = rect.size; // keep the existing target; it merely stretches a little
+            // Keep the existing target; the image merely resamples a little. Recording the new size
+            // as `Authored` is what stops this from being re-tried (and re-logged) every frame.
+            e.Authored = frame.size;
             return;
         }
 
         RenderTexture? rt = CreateRt(rtW, rtH, ref msaa, e.Window);
         if (rt == null)
+        {
+            e.Authored = frame.size; // as above: do not retry a refused allocation per frame
             return;
+        }
+        long previous = e.VramBytes;
         RenderTexture old = e.Rt;
+        RenderTexture? oldMip = e.MipRt;
         e.Cam.targetTexture = rt;
-        e.DisplayImage.texture = rt;
         e.Rt = rt;
-        _vramTotal += vram - e.VramBytes;
-        e.VramBytes = vram;
+        e.Msaa = msaa;
+        e.VramBytes = vram;                 // AttachMipTarget trims this if the mip target is refused
+        AttachMipTarget(e, rtW, rtH);
+        e.DisplayImage.texture = DisplayTexture(e);
+        _vramTotal += e.VramBytes - previous;
+        if (_vramTotal < 0)
+            _vramTotal = 0;
         e.RtW = rtW;
         e.RtH = rtH;
-        e.Msaa = msaa;
-        e.MipCount = rt.mipmapCount;
-        e.Authored = rect.size;
+        e.Authored = frame.size;
+        e.Reallocations++;
         if (old != null)
         {
             old.Release();
             Object.Destroy(old);
         }
+        if (oldMip != null)
+        {
+            oldMip.Release();
+            Object.Destroy(oldMip);
+        }
         VRLog.Info(Scope, $"PANEL SUPERSAMPLE re-allocated '{e.Window}' to {rtW}x{rtH} (MSAA {msaa}x, "
-                          + $"{Mb(vram)} MB) after the content fit resized the host rect to "
-                          + $"{rect.width:F0}x{rect.height:F0} uGUI px.");
+                          + $"mips {e.MipCount}, {Mb(e.VramBytes)} MB) after its capture frame changed "
+                          + $"to {frame.width:F0}x{frame.height:F0} uGUI px (host rect "
+                          + $"{e.HostRectAtMeasure.width:F0}x{e.HostRectAtMeasure.height:F0} + content "
+                          + $"overspill {e.ExpandX:F0}x{e.ExpandY:F0}). A reallocation is REQUIRED for "
+                          + "correctness, not just for sharpness: the target must match the frame the "
+                          + "camera projects into it, or the window resamples through the wrong "
+                          + "number of texels for as long as the mismatch lasts.");
     }
 
     /// <summary>
@@ -326,6 +549,7 @@ internal static partial class PanelSupersample
         int layer = CaptureLayer;
         if (layer < 0 || e.Panel.HostGo == null)
             return;
+        float sweepStart = Time.realtimeSinceStartup;
         Scratch.Clear();
         Scratch.Add(e.Panel.HostGo.transform);
         int moved = 0;
@@ -370,12 +594,18 @@ internal static partial class PanelSupersample
         e.ForeignSkipped = skipped;
         e.NestedTotal = nested;
         e.NestedCaptured = Mathf.Min(nestedOnLayer, nested);
+        e.Sweeps++;
+        e.SweepMs += (Time.realtimeSinceStartup - sweepStart) * 1000.0;
         if (!initial && moved > 0)
         {
+            e.LateJoiners += moved;
             VRLog.Info(Scope, $"PANEL SUPERSAMPLE: {moved} pooled/late transform(s) of '{e.Window}' "
                               + $"joined capture layer {layer} (a repopulating window brings children "
-                              + "on the game's UI layer; until they are swept they would be drawn "
-                              + "straight into the eye as well as into the capture).");
+                              + "on the game's UI layer; until they are swept they would be MISSING "
+                              + "from the capture and drawn straight into the eye instead — which is "
+                              + "the ModBuild 192 'manche Elemente ... fehlen im Fenster' report). "
+                              + $"This sweep ran because the window {(IsMoving(e) ? "is MOVING (per-frame "
+                                  + "cadence)" : "reached its periodic cadence")}.");
         }
     }
 
@@ -449,6 +679,12 @@ internal static partial class PanelSupersample
             if (mine != null)
             {
                 mine.LastCaptureStart = Time.realtimeSinceStartup;
+                // THE LAST INSTANT BEFORE THIS CAMERA CULLS. Re-deriving the projection here is what
+                // makes a two-hand resize correct in the frame it happens: orthographicSize is a
+                // WORLD-unit quantity read from the host's lossy scale, and GrabbableModal's own
+                // LateUpdate host re-sync has no defined order against ours. See SyncGeometry's
+                // ORDERING paragraph.
+                SyncProjection(mine);
                 return; // our own capture camera: it is the ONE camera that may see the layer
             }
             if (_poseSyncFrame != Time.frameCount)
@@ -484,27 +720,66 @@ internal static partial class PanelSupersample
             Entry? e = EntryForCamera(cam);
             if (e == null)
                 return;
-            // MIPS, explicitly, immediately after the capture that owns them. autoGenerateMips is
-            // off on purpose: on an MSAA target it is unreliable, and a mip chain that silently did
-            // not build would look exactly like this whole feature not working.
-            e.Rt.GenerateMips();
+            ResolveAndMip(e);
             e.Captures++;
             if (e.LastCaptureStart > 0f)
                 e.CaptureMs += (Time.realtimeSinceStartup - e.LastCaptureStart) * 1000.0;
-            if (!e.MipWarned && e.Rt.mipmapCount <= 1)
+
+            // THE FALSIFIER, kept from ModBuild 192 and now pointed at the texture the eye actually
+            // samples. If this ever fires again, the mip half of this design is not running and the
+            // window will crawl under motion no matter how sharp it looks while still.
+            RenderTexture shown = DisplayTexture(e);
+            if (!e.MipWarned && (shown == null || shown.mipmapCount <= 1))
             {
                 e.MipWarned = true;
-                VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: '{e.Window}' has a render target with "
-                                  + $"mipmapCount={e.Rt.mipmapCount} — NO mip chain. THE CONSEQUENCE: "
-                                  + "the panel is drawn from a single full-resolution level, so the "
-                                  + "eye minifies it unfiltered and the shimmer this path exists to "
-                                  + "remove will still be there. Everything else (input, geometry, "
-                                  + "MSAA) is unaffected.");
+                VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: '{e.Window}' is displayed from a render target "
+                                  + $"with mipmapCount={(shown != null ? shown.mipmapCount : 0)} — NO "
+                                  + "mip chain. THE CONSEQUENCE: the panel is drawn from a single "
+                                  + "full-resolution level, so the eye minifies it unfiltered and the "
+                                  + "shimmer this path exists to remove will still be there — "
+                                  + "invisible while the head and the window are still, and crawling "
+                                  + "as soon as either moves. Everything else (input, geometry, MSAA) "
+                                  + "is unaffected.");
             }
         }
         catch (System.Exception ex)
         {
-            Fail(ex, "the post-render mip generation");
+            Fail(ex, "the post-render resolve and mip generation");
+        }
+    }
+
+    /// <summary>
+    /// RESOLVE, THEN BAND-LIMIT — run in the capture camera's own <see cref="Camera.onPostRender"/>,
+    /// i.e. immediately after the frame it belongs to and (because that camera sits at
+    /// <c>depth = -200</c>) before any other camera in the frame has culled. Both MultiPass eye
+    /// passes therefore read one finished, identical, fully mipped texture, which is the invariant
+    /// <c>CameraOrderProbe</c> measured and this path must not break.
+    ///
+    /// <para><see cref="Graphics.Blit(Texture, RenderTexture)"/> is what performs the MSAA resolve:
+    /// binding a multisampled RenderTexture as a source texture resolves it, and the default blit
+    /// material is a straight copy (<c>Blend Off</c>), so the capture's PREMULTIPLIED alpha survives
+    /// the trip byte for byte — the composite derived in <see cref="BuildDisplay"/> is unchanged by
+    /// this indirection. The project renders in Gamma colour space and both targets are
+    /// <c>RenderTextureFormat.Default</c> with sRGB=False, so no colour conversion happens either.</para>
+    ///
+    /// <para><see cref="RenderTexture.active"/> is saved and restored around the blit because
+    /// <c>Graphics.Blit</c> re-points it at its destination and we are inside the engine's own camera
+    /// loop; leaving it moved would hand the next camera a target it did not ask for.</para>
+    /// </summary>
+    private static void ResolveAndMip(Entry e)
+    {
+        if (e.Rt == null || e.MipRt == null)
+            return; // fallback: the quad shows the capture target directly (one Warn at allocation)
+        RenderTexture? previous = RenderTexture.active;
+        try
+        {
+            Graphics.Blit(e.Rt, e.MipRt);
+            e.MipRt.GenerateMips();
+            e.MipCount = e.MipRt.mipmapCount;
+        }
+        finally
+        {
+            RenderTexture.active = previous;
         }
     }
 
@@ -580,10 +855,16 @@ internal static partial class PanelSupersample
             e.Rt.Release();
             Object.Destroy(e.Rt);
         }
+        if (e.MipRt != null)
+        {
+            e.MipRt.Release();
+            Object.Destroy(e.MipRt);
+        }
         e.CamGo = null!;
         e.Cam = null!;
         e.DisplayGo = null!;
         e.Rt = null!;
+        e.MipRt = null!;
     }
 
     private static void Fail(System.Exception ex, string where)

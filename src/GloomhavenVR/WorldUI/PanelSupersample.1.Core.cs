@@ -49,6 +49,39 @@ namespace GloomhavenVR.WorldUI;
 /// shimmer and any per-pixel screen-space rivalry go together, because there is no longer a
 /// per-pixel race between 475 graphics and the eye's sample grid; there is one texture fetch.</para>
 ///
+/// <para><b>MODBUILD 193 — THE PATH WORKS, AND THE 192 LOG NAMED ITS OWN THREE DEFECTS.</b> The
+/// user's verdict on 192: <i>"Durchbruch beim Flackern! Die Option 'Fenster scharf zeichnen' hat
+/// das Flackern beendet. Allerdings tritt das flackern dann noch auf während dessen man das Fenster
+/// verschiebt. Wenn man es dann mit in der Bewegung loslässt, werden manche Elemente nicht richtig
+/// dargestellt oder andere fehlen im Fenster."</i> So the diagnosis above is confirmed for a still
+/// window, and three things were still wrong — each of which the 192 log had already printed:
+/// <list type="number">
+/// <item><b>THE MIP CHAIN WAS NEVER BUILT.</b> Every state line read <c>mips 1 NONE</c> and the
+/// class's own falsifier fired twice. CAUSE, read from the Unity contract and confirmed by the log:
+/// a RenderTexture cannot be MULTISAMPLED and MIPMAPPED at the same time. <see cref="CreateRt"/>
+/// asked for both (<c>antiAliasing = 4</c> and <c>useMipMap = true</c>), <c>Create()</c> returned
+/// TRUE — so no allocation failure was logged — and the mip request was silently dropped;
+/// <c>GenerateMips()</c> on a multisampled target is likewise a no-op. The win the user felt was
+/// therefore MSAA plus 1:1 rasterization ALONE, with the eye still minifying an unfiltered texture
+/// by up to 2.29x (the 192 line's own "RT texels per rendered pixel"). Unfiltered minification is
+/// invisible while the head and the window are still — the alias pattern is frozen — and turns into
+/// crawl the moment either moves, which is exactly the residual "flackert beim Verschieben". THE
+/// FIX: two targets. The camera renders into a multisampled capture target; that target is resolved
+/// with a <c>Graphics.Blit</c> into a single-sample MIPPED display target immediately after the
+/// capture, and the mip chain is generated THERE. The RawImage shows the mipped one. The state line
+/// now reports <c>mipmapCount</c> READ BACK FROM THE TEXTURE, and the Warn stays as the falsifier.</item>
+/// <item><b>CONTENT WAS BEING CROPPED.</b> <i>"'New Party display' draws content larger than its
+/// host frame (1920x1080 vs 328x1080 uGUI px)"</i>. The capture framed the host rect exactly, so
+/// anything the window drew proud of that rect was cut out of the image — content the player COULD
+/// see before the dial was switched on. THE RULE APPLIED: a user must never lose visible content to
+/// this path, so the frame is now the UNION of the host rect and the measured drawn content
+/// (<see cref="Entry.Frame"/>, <see cref="MeasureFrame"/>). WHAT IT COSTS: the "OFF and ON geometry
+/// are identical" promise becomes "identical whenever the content fits the host rect, and otherwise
+/// ON shows MORE — never less". That is the correct direction: OFF also showed that content.</item>
+/// <item><b>THE CAP WAS SET FROM AN ESTIMATE, NOT A MEASUREMENT</b> — see <see cref="MaxPanels"/>
+/// for the reconciled arithmetic and the new numbers.</item>
+/// </list></para>
+///
 /// <para>THIS IS PRIOR ART IN THIS CODEBASE, NOT AN INVENTION. <see cref="FlatScreen"/> already
 /// renders the game's flat UI into a RenderTexture and shows it on a world quad, and the RT
 /// descriptor is reused verbatim from that family: <c>FlatScreenStereo.CreateColorRt</c>, which
@@ -121,24 +154,56 @@ internal static partial class PanelSupersample
 
     // ---- caps (constants on purpose: the user gets one switch and one factor, not five knobs) ----
 
-    /// <summary>How many panels may be supersampled at once. Two is the realistic maximum a player
-    /// reads at the same time, and it bounds the worst case to twice
-    /// <see cref="MaxPanelVramBytes"/>. Panels past the cap keep today's direct rendering and the
-    /// stand-down line names them.</summary>
-    private const int MaxPanels = 2;
+    /// <summary>
+    /// How many panels may be supersampled at once. EIGHT, raised from two in ModBuild 193, and the
+    /// reason the old value was wrong is worth writing down because it was set from an estimate
+    /// rather than from a measurement.
+    ///
+    /// <para>THE 192 HARDWARE LOG: <i>"PANEL SUPERSAMPLE cap reached: 2 panel(s) are supersampled
+    /// and 3 further eligible window(s) are NOT"</i> — i.e. the cap, not VRAM, was what sent three
+    /// of the five open windows back to the shimmering direct path. The map room's window arc holds
+    /// five at once and there are permanent windows besides, so two was never going to cover a
+    /// normal session.</para>
+    ///
+    /// <para>WHAT A PANEL ACTUALLY COSTS, measured in that same log rather than estimated. The two
+    /// engaged panels reported 14.0 MB (328x1080) and 13.5 MB (390x880); the party window then
+    /// grew to its fitted 1920x1080 and RE-ALLOCATED to 81.7 MB (the "PANEL SUPERSAMPLE
+    /// re-allocated 'New Party display' to 1920x1080" line). The session figure of 95.3 MB is
+    /// 81.7 + 13.5 and is therefore NOT counted differently from the per-panel figures at all — the
+    /// apparent discrepancy in the 192 reading was simply the engage-time number (pre-fit rect)
+    /// being compared with the post-fit total. Both are right; only one of them is current.</para>
+    ///
+    /// <para>SO THE VRAM CEILING IS THE REAL BOUND, and this number is only there to stop an
+    /// unbounded set of windows each holding a camera and a target. Eight of the SMALL windows cost
+    /// ~210 MB with mips; a full-size 1920x1080 window at MSAA 4x costs ~90 MB, so
+    /// <see cref="MaxTotalVramBytes"/> stops that family at four and the allocator degrades the
+    /// fifth's MSAA rather than refusing it outright.</para>
+    /// </summary>
+    private const int MaxPanels = 8;
 
     /// <summary>Hard per-axis RT ceiling. 4096 is the conservative floor of what every desktop GPU
     /// this mod runs on supports as a render target; the factor dial cannot exceed it.</summary>
     private const int MaxRtDimension = 4096;
 
-    /// <summary>Hard VRAM ceiling for ONE panel's render target, mips, depth/stencil and MSAA
-    /// surfaces together. The allocator steps MSAA down 4 → 2 → 1 until the estimate fits, and logs
-    /// which step it took, rather than silently allocating a third of a gigabyte for one window.</summary>
-    private const long MaxPanelVramBytes = 96L * 1024 * 1024;
+    /// <summary>
+    /// Hard VRAM ceiling for ONE panel: capture target + its depth/stencil + its MSAA surfaces +
+    /// the separate mipped display target, all together. The allocator steps MSAA down 4 → 2 → 1
+    /// until the estimate fits and logs which step it took.
+    /// <para>128 MB, sized from the measurement above: the largest window this mod has ever floated
+    /// is the fitted 1920x1080 party display, which costs 79.1 MB of capture target (colour 7.9 +
+    /// depth/stencil 7.9 + 4x multisample 63.3) plus 10.6 MB of mipped display target = 89.7 MB at
+    /// factor 1.0. 96 MB (the ModBuild 192 value) no longer clears that once the mip target exists,
+    /// and a cap a real window cannot fit under is not a cap, it is an outage.</para>
+    /// </summary>
+    private const long MaxPanelVramBytes = 128L * 1024 * 1024;
 
-    /// <summary>Hard VRAM ceiling across every supersampled panel. A panel that would cross it is
-    /// refused with a Warn and keeps today's rendering.</summary>
-    private const long MaxTotalVramBytes = 256L * 1024 * 1024;
+    /// <summary>
+    /// Hard VRAM ceiling across every supersampled panel — THE real bound, and the one the cap
+    /// message quotes. 384 MB holds four full-size 1920x1080 MSAA-4x windows, or all eight of the
+    /// arc's typical ~14–30 MB windows with room to spare. A panel that cannot fit even at MSAA 1x
+    /// is refused with a Warn and keeps today's rendering.
+    /// </summary>
+    private const long MaxTotalVramBytes = 384L * 1024 * 1024;
 
     /// <summary>MSAA sample count the allocator ASKS for (stepped down by the budget, and again if
     /// the driver refuses to create the surface). MSAA resolves the RT's own geometry edges; the mip
@@ -190,6 +255,54 @@ internal static partial class PanelSupersample
     /// is a badge, not a window, and its RT would cost more than it buys.</summary>
     private const float MinAuthoredPx = 64f;
 
+    /// <summary>
+    /// Frames between CONTENT-FRAME measurements (<see cref="MeasureFrame"/>) while nothing about
+    /// the panel is changing. The measurement is an O(subtree) walk — 2700 transforms on the party
+    /// window in the ModBuild 192 log — so it is not run per frame for a settled window; every
+    /// event that could invalidate it (host rect, scale, pose, a stand-up) forces it immediately
+    /// instead, which is what <see cref="MarkGeometryDirty"/> is for.
+    /// </summary>
+    private const int ContentMeasureIntervalFrames = 15;
+
+    /// <summary>
+    /// Floor on how often the content-frame measurement may be forced by a geometry change. A
+    /// two-hand resize changes the host's lossy scale EVERY frame for as long as the pinch lasts,
+    /// and re-walking a 2700-transform subtree at 90 Hz for the whole gesture is a cost this path
+    /// does not need to pay: two frames of lag in a rectangle the user is actively dragging is
+    /// invisible, while the frame-rate cost would not be. A resize therefore re-measures at most
+    /// every other frame, and the moment the gesture stops the ordinary cadence takes over.
+    /// </summary>
+    private const int ContentMeasureMinIntervalFrames = 2;
+
+    /// <summary>
+    /// How far the capture frame may grow beyond the host rect, as a multiple of the host rect on
+    /// each axis. THIS IS THE ONLY PLACE VISIBLE CONTENT CAN STILL BE LOST, so it is generous (2x =
+    /// half a host rect of overspill allowed on every edge) and it is reported: crossing it sets
+    /// the state line's CONTENT field to CLAMPED and prints one Warn naming what was cut.
+    /// </summary>
+    private const float MaxContentExpansion = 2f;
+
+    /// <summary>
+    /// While a window is being MOVED, RESIZED or RE-FACED — and for this many frames after the last
+    /// change — the capture-layer sweep runs EVERY frame instead of on
+    /// <see cref="SweepIntervalFrames"/>.
+    ///
+    /// <para>WHY, read from source. <c>GrabbableModal.ThrottleDiagWhileMoving</c> sets
+    /// <c>ConvertedPanel.Diagnostic = false</c> for up to a second at a time WHILE the host pose is
+    /// changing (a deliberate log-spam fix, documented in its own header). <c>Diagnostic</c> is also
+    /// what makes <c>CanvasConversion.Tick</c> run <c>AdoptNestedCanvases</c> and
+    /// <c>ReassertAdoptedSorting</c> EVERY frame; while it is off, adoption falls back to the
+    /// 30-frame <c>CanvasSweepNextFrame</c> schedule. So a nested canvas or a pooled child born
+    /// during a drag can sit on the GAME's UI layer for tens of frames — which on this path means
+    /// it is MISSING from the capture (our camera's mask is the capture layer alone) and
+    /// simultaneously drawn straight into the eye at its own sorting order. That is exactly the
+    /// user's ModBuild 192 report: <i>"Wenn man es dann mit in der Bewegung loslässt, werden manche
+    /// Elemente nicht richtig dargestellt oder andere fehlen im Fenster."</i> Sweeping per frame
+    /// while the window moves closes the window this path opened; the measured sweep cost is
+    /// printed in the state line so a future round can revisit it with numbers.</para>
+    /// </summary>
+    private const int SweepAfterMotionFrames = 30;
+
     // ---- state -------------------------------------------------------------------------------
 
     private static readonly List<Entry> Entries = new(MaxPanels);
@@ -229,7 +342,21 @@ internal static partial class PanelSupersample
 
         internal GameObject CamGo = null!;
         internal Camera Cam = null!;
+
+        /// <summary>The CAPTURE target: MSAA, D24_UNorm_S8_UInt, and NO mip chain — a
+        /// multisampled render target cannot carry one (see <see cref="CreateRt"/>). The camera
+        /// renders here.</summary>
         internal RenderTexture Rt = null!;
+
+        /// <summary>The DISPLAY target: single-sample, no depth, mipmapped. <see cref="Rt"/> is
+        /// resolved into it after every capture and its mip chain is generated there. This is what
+        /// the <see cref="RawImage"/> shows — unless <see cref="MipFallback"/>.</summary>
+        internal RenderTexture MipRt = null!;
+
+        /// <summary>The mipped display target could not be created: the RawImage falls back to the
+        /// capture target, i.e. ModBuild 192's behaviour (MSAA but no mip chain). One Warn.</summary>
+        internal bool MipFallback;
+
         internal GameObject DisplayGo = null!;
         internal RectTransform DisplayRect = null!;
         internal Canvas DisplayCanvas = null!;
@@ -248,17 +375,66 @@ internal static partial class PanelSupersample
         internal long VramBytes;
         internal float Factor;
 
+        /// <summary>
+        /// THE CAPTURE FRAME, in HOST-LOCAL uGUI pixels — what the camera frames, what the display
+        /// quad is sized to, and what the render target is sized from. It is the UNION of the host
+        /// rect and everything the window actually draws (<see cref="MeasureFrame"/>), so it equals
+        /// the host rect exactly whenever the content fits inside it — which is the normal case and
+        /// keeps this path's geometry identical to the dial's OFF geometry. When the content spills
+        /// (the ModBuild 192 party window drew 1920x1080 into a 328x1080 host frame) the frame
+        /// grows to cover the spill instead of cropping it.
+        /// </summary>
+        internal Rect Frame;
+
+        /// <summary>The host rect the <see cref="Frame"/> was measured against (uGUI px).</summary>
+        internal Rect HostRectAtMeasure;
+
+        /// <summary>How far <see cref="Frame"/> had to grow past the host rect, per axis, uGUI px.
+        /// 0/0 = the promise "OFF and ON geometry are identical" holds literally.</summary>
+        internal float ExpandX;
+        internal float ExpandY;
+
+        /// <summary>The expansion hit <see cref="MaxContentExpansion"/> — content IS being cropped
+        /// and the state line says so every report.</summary>
+        internal bool ExpandClamped;
+        internal bool ExpandClampWarned;
+
+        // ---- motion tracking (the ModBuild 192 "flackert beim Verschieben" case) ---------------
+        internal bool HasPoseSnapshot;
+        internal Vector3 LastPos;
+        internal Quaternion LastRot;
+        internal Vector3 LastScale;
+        internal Vector2 LastRectSize;
+
+        /// <summary>Frame number of the last host pose / scale / rect change. Everything within
+        /// <see cref="SweepAfterMotionFrames"/> of it counts as "moving".</summary>
+        internal int LastMotionFrame = -1000;
+
+        /// <summary>Frames in this report window in which the host pose, scale or rect changed.</summary>
+        internal int MotionFrames;
+
+        /// <summary>Rect/scale changes that forced an immediate re-measure + re-sweep.</summary>
+        internal int GeometryDirtyEvents;
+
         internal int NextSweepFrame;
+        internal int NextContentFrame;
+        internal int LastMeasureFrame = -1000;
         internal int NextCaptureFrame;
         internal int Captures;
         internal double CaptureMs;
         internal float LastCaptureStart;
 
+        internal int Reallocations;
+        internal int Sweeps;
+        internal double SweepMs;
+        internal int LateJoiners;
+        internal int ContentMeasures;
+        internal double ContentMs;
+
         internal int LayersMoved;
         internal int ForeignSkipped;
         internal int NestedTotal;
         internal int NestedCaptured;
-        internal bool OverflowWarned;
         internal bool MipWarned;
     }
 
@@ -394,7 +570,13 @@ internal static partial class PanelSupersample
                 }
                 SyncGeometry(e);
                 SyncVisibility(e);
-                if (Time.frameCount >= e.NextSweepFrame)
+                // THE MOVEMENT FIX. While the window is moving (and for SweepAfterMotionFrames
+                // after), sweep every frame: that is exactly the interval in which the panel's own
+                // per-frame nested-canvas adoption is throttled OFF by
+                // GrabbableModal.ThrottleDiagWhileMoving, so a child born mid-drag would otherwise
+                // stay on the game's UI layer — missing from the capture and double-drawn into the
+                // eye. See SweepAfterMotionFrames for the full chain.
+                if (IsMoving(e) || Time.frameCount >= e.NextSweepFrame)
                 {
                     e.NextSweepFrame = Time.frameCount + SweepIntervalFrames;
                     ApplyCaptureLayer(e, initial: false);
@@ -418,11 +600,40 @@ internal static partial class PanelSupersample
     /// family whose subtree layers are already mod-owned. Docked HUD hosts (initiative track, actor
     /// bars, tooltips) sit on the game's UI layer, are drawn by the game's own UI Camera as well, and
     /// are not what the user reports.</item>
-    /// <item>NOT <see cref="ConvertedPanel.FlattenEnabled"/> — <c>CanvasConversion.FlattenSubtree</c>
-    /// re-asserts local z = 0 on every transform in the subtree each LateUpdate, which would drag the
-    /// capture camera (a child of the host, standing off along local -z) onto the panel plane and
-    /// capture nothing. The floated modal family does not flatten; this clause makes that explicit
-    /// instead of assumed.</item>
+    /// <item>THE FLATTEN CLAUSE IS GONE (ModBuild 193), and the reason it was here was FALSE. It
+    /// read: <i>"NOT ConvertedPanel.FlattenEnabled — CanvasConversion.FlattenSubtree re-asserts local
+    /// z = 0 on every transform in the subtree each LateUpdate, which would drag the capture camera
+    /// (a child of the host, standing off along local -z) onto the panel plane and capture
+    /// nothing."</i> That cannot happen, for three independent reasons, checked against the merged
+    /// flatten lane rather than assumed:
+    /// <list type="number">
+    /// <item>THE WALK CANNOT REACH THE CAMERA. <c>CanvasConversion.FlattenSubtree</c> is
+    /// <c>RunFlattenPass</c>, which seeds its walk at <c>panel.Target</c>
+    /// (<c>CanvasConversion.2.Adopt.cs</c>, <c>panel.FlattenWalk.Add(panel.Target)</c>). The capture
+    /// camera is parented to <c>panel.HostRect</c> (<see cref="BuildCamera"/>), and <c>Target</c> is
+    /// ALSO a child of <c>HostRect</c> (<c>CanvasConversion.1.Core.cs</c>, <c>target.SetParent(
+    /// hostRect, ...)</c>). The camera is <c>Target</c>'s SIBLING, not its descendant, so no flatten
+    /// sweep of either family — the old <c>flatten2D</c> one or the new window-flatness guarantee —
+    /// visits it.</item>
+    /// <item>AND IT WOULD SKIP IT ANYWAY. Both flatten walks leave a subtree carrying a
+    /// <see cref="Renderer"/> or a <see cref="Camera"/> alone ("foreign render subtree(s) LEFT
+    /// ALONE" in their own census line), for the same reason this class's layer sweep does.</item>
+    /// <item>AND THIS CLASS OWNS THE NUMBER REGARDLESS. <see cref="SyncProjection"/> rewrites the
+    /// camera's local position, rotation and scale from the capture camera's OWN
+    /// <see cref="Camera.onPreCull"/> — after every LateUpdate in the frame, whoever ran last, and
+    /// inside the callback of the only camera that reads them. That is this project's "don't win a
+    /// write war: own the number" rule applied where it is guaranteed to win, so even a future
+    /// writer that DID reach the camera could not move what it renders.</item>
+    /// </list>
+    /// The clause was also DEAD: <c>useModLayer:true</c> is passed only by <c>ModalFallback</c> (the
+    /// floated-window family) and <c>flatten2D:true</c> only by the docked-card surfaces
+    /// (StatPanel, PropInfo, EnemyReveal, WorldSurface), so no panel in this codebase has ever had
+    /// both — the <c>ModLayerEnabled</c> clause above already excluded every panel this one could
+    /// have refused. Removing it therefore changes nothing today AND unblocks routing the floated
+    /// window family through the ordinary <c>flatten2D</c> flag, which is the only reason the
+    /// flatten lane needed a separate <c>ConvertedPanel.FlattenWindowGuarantee</c> flag and its own
+    /// per-host driver. (That flag was never refused here in any case: this clause only ever read
+    /// <c>FlattenEnabled</c>.)</item>
     /// <item>visible — a panel behind the reveal gate has its canvases disabled, so a capture would
     /// bake an empty frame and the display would show a blank window at the pop-in.</item>
     /// </list>
@@ -432,7 +643,7 @@ internal static partial class PanelSupersample
         if (panel == null || !panel.IsAlive || panel.HostGo == null || panel.HostCanvas == null
             || panel.HostRect == null)
             return false;
-        if (!panel.ModLayerEnabled || panel.FlattenEnabled)
+        if (!panel.ModLayerEnabled)
             return false;
         if (panel.RevealPending || panel.RenderHidden || panel.OwnerRenderHidden)
             return false;
@@ -486,12 +697,21 @@ internal static partial class PanelSupersample
             if (candidates > 0)
             {
                 _capLogged = true;
+                long average = Entries.Count > 0 ? _vramTotal / Entries.Count : 0;
                 VRLog.Warn(Scope, $"PANEL SUPERSAMPLE cap reached: {MaxPanels} panel(s) are "
                                   + $"supersampled and {candidates} further eligible window(s) are "
                                   + "NOT. THE CONSEQUENCE for those windows: they keep today's direct "
                                   + "rendering — the same text and edge shimmer as before this build. "
-                                  + "The cap is a VRAM bound, not a preference; the per-panel state "
-                                  + "lines say what each supersampled panel costs.");
+                                  + "HOW TO SIZE THE NEXT VALUE from this line rather than from an "
+                                  + $"estimate: the {Entries.Count} panel(s) actually engaged cost "
+                                  + $"{Mb(_vramTotal)} MB together, i.e. {Mb(average)} MB each on "
+                                  + $"average, against a session ceiling of {Mb(MaxTotalVramBytes)} MB "
+                                  + $"and a per-panel ceiling of {Mb(MaxPanelVramBytes)} MB — so "
+                                  + $"{(average > 0 ? (MaxTotalVramBytes / average).ToString() : "many")} "
+                                  + "panel(s) of THIS size fit in the session budget. If that number "
+                                  + "is comfortably above MaxPanels, raise MaxPanels; if it is below, "
+                                  + "the VRAM ceiling is the real bound and MaxPanels is not what "
+                                  + "refused these windows.");
             }
         }
     }
@@ -519,22 +739,53 @@ internal static partial class PanelSupersample
             WorldUIConfig.PanelSupersampleFactor != null ? WorldUIConfig.PanelSupersampleFactor.Value : 1f,
             0.5f, 2f);
 
-        int rtW = Mathf.Clamp(Mathf.RoundToInt(rect.width * factor), 16, MaxRtDimension);
-        int rtH = Mathf.Clamp(Mathf.RoundToInt(rect.height * factor), 16, MaxRtDimension);
+        var e = new Entry
+        {
+            Panel = panel,
+            Window = window,
+            Factor = factor,
+            Frame = rect,
+            HostRectAtMeasure = rect,
+            Authored = rect.size,
+            NextSweepFrame = Time.frameCount + SweepIntervalFrames,
+            NextContentFrame = Time.frameCount + ContentMeasureIntervalFrames,
+        };
+        // Frame the CONTENT, not the host rect (see Entry.Frame): the ModBuild 192 log proved a
+        // window whose content is six times wider than the frame it was measured into, and cropping
+        // visible content is a worse defect than the shimmer this path removes.
+        MeasureFrame(e);
+        Rect frame = e.Frame;
+        // `Authored` is what the render target was sized for, so it must be the FRAME, not the host
+        // rect — otherwise a window whose content already overspills at engage time would look
+        // "resized" to the very next LateTick and reallocate for nothing.
+        e.Authored = frame.size;
 
+        int rtW = Mathf.Clamp(Mathf.RoundToInt(frame.width * factor), 16, MaxRtDimension);
+        int rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * factor), 16, MaxRtDimension);
+
+        // The MSAA step-down now answers to the SESSION headroom as well as to the per-panel cap.
+        // Before ModBuild 193 it only saw the per-panel cap, so a window that could have fitted at
+        // MSAA 2x or 1x was refused outright once the session filled — the cap message then blamed
+        // MaxPanels for what was really a budget decision. A degraded-MSAA panel still gets the
+        // supersampled rasterization AND the mip chain, which is the whole of the fix; MSAA only
+        // resolves the RT's own internal edges.
         int msaa = PreferredMsaa;
+        long budget = System.Math.Min(MaxPanelVramBytes, MaxTotalVramBytes - _vramTotal);
         long vram = VramBytesFor(rtW, rtH, msaa);
-        while (msaa > 1 && vram > MaxPanelVramBytes)
+        int askedMsaa = msaa;
+        while (msaa > 1 && vram > budget)
         {
             msaa /= 2;
             vram = VramBytesFor(rtW, rtH, msaa);
         }
-        if (vram > MaxPanelVramBytes || _vramTotal + vram > MaxTotalVramBytes)
+        if (vram > budget)
         {
             Refused.Add(panel.HostGo.GetInstanceID());
-            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE refused '{window}': its {rtW}x{rtH} render target "
-                              + $"would cost {Mb(vram)} MB (per-panel cap {Mb(MaxPanelVramBytes)} MB, "
-                              + $"session total {Mb(_vramTotal)} of {Mb(MaxTotalVramBytes)} MB). THE "
+            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE refused '{window}': its {rtW}x{rtH} capture + mip "
+                              + $"targets would cost {Mb(vram)} MB even at MSAA 1x, against a "
+                              + $"remaining budget of {Mb(budget)} MB (per-panel cap "
+                              + $"{Mb(MaxPanelVramBytes)} MB, session {Mb(_vramTotal)} of "
+                              + $"{Mb(MaxTotalVramBytes)} MB across {Entries.Count} panel(s)). THE "
                               + "CONSEQUENCE: this window keeps today's direct rendering and will "
                               + "still shimmer. Lower [WorldUI] PanelSupersampleFactor to fit it.");
             return;
@@ -547,20 +798,12 @@ internal static partial class PanelSupersample
             return;
         }
 
-        var e = new Entry
-        {
-            Panel = panel,
-            Window = window,
-            Rt = rt,
-            RtW = rtW,
-            RtH = rtH,
-            Msaa = msaa,
-            MipCount = rt.mipmapCount,
-            VramBytes = VramBytesFor(rtW, rtH, msaa),
-            Factor = factor,
-            Authored = rect.size,
-            NextSweepFrame = Time.frameCount + SweepIntervalFrames,
-        };
+        e.Rt = rt;
+        e.RtW = rtW;
+        e.RtH = rtH;
+        e.Msaa = msaa;
+        e.VramBytes = VramBytesFor(rtW, rtH, msaa);
+        AttachMipTarget(e, rtW, rtH);
 
         if (!BuildCamera(e, panel) || !BuildDisplay(e, panel))
         {
@@ -576,15 +819,27 @@ internal static partial class PanelSupersample
         SyncGeometry(e);
         SyncVisibility(e);
 
+        string frameNote = e.ExpandX > 0.5f || e.ExpandY > 0.5f
+            ? $" The capture frame was GROWN past the host rect by {e.ExpandX:F0}x{e.ExpandY:F0} uGUI "
+              + "px to cover content the window draws proud of its own frame — without that, exactly "
+              + "that content would be cropped out of the supersampled image."
+            : " The capture frame IS the host rect to the pixel (no content draws outside it), so "
+              + "this window's ON and OFF geometry are identical.";
+        string msaaNote = msaa != askedMsaa
+            ? $" MSAA was stepped {askedMsaa}x -> {msaa}x to fit the {Mb(budget)} MB budget left for "
+              + "this panel; the supersampled rasterization and the mip chain are unaffected."
+            : string.Empty;
         VRLog.Info(Scope, $"PANEL SUPERSAMPLE engaged on '{window}': the window's canvas now renders "
-                          + $"into a {rtW}x{rtH} RenderTexture (MSAA {msaa}x, mips "
-                          + $"{rt.mipmapCount}, Trilinear, aniso {AnisoLevel}, {Mb(e.VramBytes)} MB) "
-                          + $"through a dedicated orthographic camera, and a mod-owned quad at the "
-                          + "window's exact world pose shows that texture. The host canvas itself is "
-                          + $"moved to capture layer {CaptureLayer} — it stays ENABLED, REGISTERED and "
-                          + "RAYCASTABLE, so every laser/poke hit, hover, drag and scroll takes the "
-                          + "same path as before; only the camera that draws it changed. "
-                          + $"{e.LayersMoved} transform(s) moved, {e.ForeignSkipped} foreign render "
-                          + "subtree(s) left alone.");
+                          + $"into a {rtW}x{rtH} capture target (MSAA {msaa}x, D24S8) which is "
+                          + $"resolved after every frame into a {rtW}x{rtH} MIPPED display target "
+                          + $"(mips {(e.MipRt != null ? e.MipRt.mipmapCount : rt.mipmapCount)}, "
+                          + $"Trilinear, aniso {AnisoLevel}) — {Mb(e.VramBytes)} MB for the pair — "
+                          + "through a dedicated orthographic camera, and a mod-owned quad at the "
+                          + $"window's exact world pose shows that texture.{msaaNote}{frameNote} The "
+                          + $"host canvas itself is moved to capture layer {CaptureLayer} — it stays "
+                          + "ENABLED, REGISTERED and RAYCASTABLE, so every laser/poke hit, hover, "
+                          + "drag and scroll takes the same path as before; only the camera that "
+                          + $"draws it changed. {e.LayersMoved} transform(s) moved, "
+                          + $"{e.ForeignSkipped} foreign render subtree(s) left alone.");
     }
 }
