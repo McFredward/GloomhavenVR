@@ -124,6 +124,35 @@ namespace GloomhavenVR.WorldUI;
 /// <c>FlatScreenStereo</c> already uses for its per-eye texture swap. Nothing observes an
 /// alternating value: VRRigDriver's per-frame write always sees the mask it wrote.</para>
 ///
+/// <para><b>MODBUILD 194 — ONE CAPTURE LAYER PER PANEL, AND THE MOTION INSTRUMENT WAS NEVER BLIND.</b>
+/// Two findings, one of which corrects a premise this file used to state.
+/// <list type="number">
+/// <item><b>THE SHARED CAPTURE LAYER WAS PUTTING ONE WINDOW INSIDE ANOTHER.</b> The user:
+/// <i>"Das Quest Window hat ein komisches Problem wenn es vor dem Händler-Window ist — ist es nah
+/// genug am Händler-Window dran, stellt es teile davon dar."</i> ModBuild 193 resolved ONE capture
+/// layer for the whole mod and gave every per-panel camera <c>cullingMask = 1 &lt;&lt; thatLayer</c>,
+/// so each camera drew EVERY supersampled panel inside its own frustum into its own target — and
+/// that frustum is as deep as the window is tall (<see cref="SyncProjection"/>), on windows that
+/// stand side by side on an arc. Each panel now owns a PRIVATE layer out of a pool for as long as it
+/// is engaged; the pool, the census, the three rejected alternatives and the falsifier that measures
+/// how often 193 was firing all live in PanelSupersample.5.Isolation.cs. Its price is stated there
+/// too: the pool is smaller than <see cref="MaxPanels"/>, so <see cref="EffectiveMaxPanels"/> is the
+/// real cap and a window beyond it is REFUSED rather than made to share.</item>
+/// <item><b>THE ModBuild 193 MOTION DETECTOR WORKED — THAT HYPOTHESIS IS DEAD.</b> It was suspected
+/// of never firing, which would have meant every movement remedy in 193 was gated off. The hardware
+/// log falsifies that outright: of its 226 <c>PANEL SUPERSAMPLE</c> state lines, 23 carry a non-zero
+/// motion count — 1, 2, 12, 21, 27, 29, 35, 38, 49, 55, 64, 69, 104, 132, 235, 290, 308, 542 frames
+/// in a ten-second window (a 900-frame window at 90 Hz), with several reading <c>currently MOVING</c>
+/// and one showing 14 re-allocations. So <see cref="NoticeGeometry"/> saw the drags, the per-frame
+/// layer sweep DID run while moving, the forced re-measure DID run and the reallocation check DID
+/// run — and the user's verdict was <i>"Am Flackern beim Verschieben hat sich nichts geändert"</i>.
+/// Those three remedies are therefore FALSIFIED as the cause of the moving shimmer, not untested.
+/// The detector is now self-falsifying instead of merely correct: it reports how many comparisons it
+/// made, the largest single-frame step it saw and the epsilon it tested against, in world units AND
+/// in authored pixels, so "0 motion frames" can never again be confused with "the instrument did not
+/// run" (<see cref="Entry.MotionTicks"/>).</item>
+/// </list></para>
+///
 /// <para>LAYER OWNERSHIP IS TAKEN WHOLE, never shared. While a panel is supersampled this class is
 /// the ONLY writer of its subtree's layers: <see cref="OwnsPanelLayers"/> stands
 /// <c>CanvasConversion.ApplyModLayer</c> down for exactly those panels (the two re-assert call sites
@@ -178,6 +207,14 @@ internal static partial class PanelSupersample
     /// ~210 MB with mips; a full-size 1920x1080 window at MSAA 4x costs ~90 MB, so
     /// <see cref="MaxTotalVramBytes"/> stops that family at four and the allocator degrades the
     /// fifth's MSAA rather than refusing it outright.</para>
+    ///
+    /// <para><b>MODBUILD 194 CAPS THIS AGAINST THE LAYER POOL.</b> Every supersampled panel now owns
+    /// a PRIVATE capture layer (<see cref="PoolSize"/>, and the whole argument in
+    /// PanelSupersample.5.Isolation.cs), because ModBuild 193 gave them all the same one and each
+    /// camera therefore captured every neighbour inside its frustum. Unity has 32 layers, most of
+    /// them named by the game, so the real cap is <see cref="EffectiveMaxPanels"/> =
+    /// min(this, pool) — expected to be SEVEN on this game (layers 20-26). Read THAT everywhere,
+    /// never this constant.</para>
     /// </summary>
     private const int MaxPanels = 8;
 
@@ -318,9 +355,6 @@ internal static partial class PanelSupersample
     /// bounded diagnosis into a per-frame log flood. Cleared when the conversion goes away.</summary>
     private static readonly HashSet<int> Refused = new(4);
 
-    /// <summary>-2 = not resolved yet, -1 = none available (the path cannot run).</summary>
-    private static int _captureLayer = -2;
-
     private static bool _hooksInstalled;
     private static bool _noLayerLogged;
     private static bool _noHeadLogged;
@@ -339,6 +373,12 @@ internal static partial class PanelSupersample
     {
         internal ConvertedPanel Panel = null!;
         internal string Window = string.Empty;
+
+        /// <summary>THIS PANEL'S PRIVATE CAPTURE LAYER, taken from the pool at engage and handed back
+        /// on stand-down. -1 = none held. It is the entry's whole isolation guarantee: the camera's
+        /// culling mask is <c>1 &lt;&lt; Layer</c> and nothing else in the scene is ever on it. See
+        /// PanelSupersample.5.Isolation.cs for why a shared layer was the ModBuild 193 defect.</summary>
+        internal int Layer = -1;
 
         internal GameObject CamGo = null!;
         internal Camera Cam = null!;
@@ -416,6 +456,43 @@ internal static partial class PanelSupersample
         /// <summary>Rect/scale changes that forced an immediate re-measure + re-sweep.</summary>
         internal int GeometryDirtyEvents;
 
+        // ---- MOTION INSTRUMENT SELF-CHECK (ModBuild 194) ---------------------------------------
+        // A zero in MotionFrames used to be ambiguous: it reads the same whether the window was
+        // genuinely still, whether the detector never ran, or whether its epsilon was so large that
+        // a real drag fell under it. The three fields below make those cases DISTINGUISHABLE from
+        // the log alone, which is the only thing that stops a future round re-litigating whether
+        // this instrument works. (For the record, and read from the ModBuild 193 hardware log: it
+        // DOES — 23 of that log's 226 state lines carry a non-zero motion count, the largest being
+        // 542 frames of a 900-frame report window, and several read "currently MOVING".)
+
+        /// <summary>How many frames <see cref="NoticeGeometry"/> actually COMPARED a pose in this
+        /// report window. "0 motion frames out of 0 comparisons" is a detector that never ran;
+        /// "0 out of 900" is a window that genuinely did not move.</summary>
+        internal int MotionTicks;
+
+        /// <summary>The LARGEST single-frame world-space host translation seen in this report window,
+        /// in world units. Reported next to the epsilon it was tested against, so a detector blinded
+        /// by a wrong epsilon shows up as a large delta with a zero count.</summary>
+        internal float MaxStepWorld;
+
+        /// <summary>The epsilon the last comparison used, in world units. Derived from the panel's
+        /// own lossy scale (half an authored uGUI pixel), never in metres — the map room runs ~198
+        /// world units per real metre, so a fixed metric epsilon would be blind or always tripped.</summary>
+        internal float MotionEpsWorld;
+
+        /// <summary>The host's world units per authored uGUI pixel at the last comparison, so the
+        /// two numbers above can be read in authored pixels as well as in world units.</summary>
+        internal float WorldPerAuthoredPx;
+
+        /// <summary>Authored uGUI pixels per RENDERED eye pixel, as
+        /// <see cref="SamplingSentence"/> last measured it. 0 = not measured this report. It exists
+        /// so the largest drag step can also be quoted in RENDERED pixels, which is the unit that
+        /// decides what a drag looks like: a window sliding 8 rendered px per frame is a
+        /// strobing/judder problem (one frame of pose lag is 8 px of error), while one sliding 0.4
+        /// rendered px per frame can only be a sub-pixel SAMPLING problem. Those two want opposite
+        /// fixes and the log could not tell them apart before ModBuild 194.</summary>
+        internal float AuthoredPerRenderedPx;
+
         internal int NextSweepFrame;
         internal int NextContentFrame;
         internal int LastMeasureFrame = -1000;
@@ -433,6 +510,12 @@ internal static partial class PanelSupersample
 
         internal int LayersMoved;
         internal int ForeignSkipped;
+
+        /// <summary>Transforms the sweep left alone because they were already on ANOTHER live
+        /// entry's private capture layer. The expected value is ZERO — converted panels' subtrees
+        /// are disjoint — and a non-zero value is a real finding: it means two panels share a
+        /// transform, which without this guard would be a per-frame layer write war between them.</summary>
+        internal int ForeignLayerSkipped;
         internal int NestedTotal;
         internal int NestedCaptured;
         internal bool MipWarned;
@@ -511,18 +594,23 @@ internal static partial class PanelSupersample
                     StandDownAll("[WorldUI] PanelSupersample was switched off");
                 return;
             }
-            if (CaptureLayer < 0)
+            if (PoolSize <= 0)
             {
                 if (!_noLayerLogged)
                 {
                     _noLayerLogged = true;
-                    VRLog.Warn(Scope, "PANEL SUPERSAMPLE stands down: no free unnamed layer for the "
-                                      + "capture pass (every layer 8-31 is named, and layer "
-                                      + $"{VRLayers.ModLayer} is already the mod layer). THE "
+                    VRLog.Warn(Scope, "PANEL SUPERSAMPLE stands down: the capture-layer POOL is empty "
+                                      + "(every layer 8-31 is named, and layer "
+                                      + $"{VRLayers.ModLayer} is already the mod layer), and a panel "
+                                      + "without a PRIVATE layer would have to share one with its "
+                                      + "neighbours — which is the ModBuild 193 defect in which one "
+                                      + "window's capture contained another window's content. THE "
                                       + "CONSEQUENCE: every floated window keeps being rasterized "
                                       + "directly into the eye at ~1.86 authored pixels per rendered "
                                       + "pixel, i.e. exactly today's behaviour including the reported "
-                                      + "text and edge shimmer. Nothing else changes.");
+                                      + "text and edge shimmer. Nothing else changes. The one-time "
+                                      + "POOL census line above lists exactly which layers are named "
+                                      + "and by whom.");
                 }
                 return;
             }
@@ -675,10 +763,11 @@ internal static partial class PanelSupersample
 
     private static void Consider()
     {
-        if (Entries.Count >= MaxPanels)
+        int cap = EffectiveMaxPanels;
+        if (Entries.Count >= cap)
             return;
         IReadOnlyList<ConvertedPanel> live = CanvasConversion.ActivePanels;
-        for (int i = 0; i < live.Count && Entries.Count < MaxPanels; i++)
+        for (int i = 0; i < live.Count && Entries.Count < cap; i++)
         {
             ConvertedPanel panel = live[i];
             if (!Eligible(panel) || OwnsPanelLayers(panel)
@@ -686,7 +775,7 @@ internal static partial class PanelSupersample
                 continue;
             Engage(panel);
         }
-        if (Entries.Count >= MaxPanels && !_capLogged)
+        if (Entries.Count >= cap && !_capLogged)
         {
             int candidates = 0;
             for (int i = 0; i < live.Count; i++)
@@ -698,9 +787,17 @@ internal static partial class PanelSupersample
             {
                 _capLogged = true;
                 long average = Entries.Count > 0 ? _vramTotal / Entries.Count : 0;
-                VRLog.Warn(Scope, $"PANEL SUPERSAMPLE cap reached: {MaxPanels} panel(s) are "
+                string capSource = PoolSize < MaxPanels
+                    ? $"the LAYER POOL ({PoolSize} private capture layer(s) exist; MaxPanels is "
+                      + $"{MaxPanels}). A ninth window cannot be given a tenth layer, and it must "
+                      + "never SHARE one — sharing is the ModBuild 193 defect in which one window's "
+                      + "capture contained its neighbour's content. The only honest lever here is to "
+                      + "free a named layer, not to raise MaxPanels."
+                    : $"MaxPanels ({MaxPanels}); the layer pool holds {PoolSize} and is not the bound.";
+                VRLog.Warn(Scope, $"PANEL SUPERSAMPLE cap reached: {cap} panel(s) are "
                                   + $"supersampled and {candidates} further eligible window(s) are "
-                                  + "NOT. THE CONSEQUENCE for those windows: they keep today's direct "
+                                  + "NOT. THE CAP THAT BOUND IS " + capSource
+                                  + " THE CONSEQUENCE for those windows: they keep today's direct "
                                   + "rendering — the same text and edge shimmer as before this build. "
                                   + "HOW TO SIZE THE NEXT VALUE from this line rather than from an "
                                   + $"estimate: the {Entries.Count} panel(s) actually engaged cost "
@@ -709,9 +806,10 @@ internal static partial class PanelSupersample
                                   + $"and a per-panel ceiling of {Mb(MaxPanelVramBytes)} MB — so "
                                   + $"{(average > 0 ? (MaxTotalVramBytes / average).ToString() : "many")} "
                                   + "panel(s) of THIS size fit in the session budget. If that number "
-                                  + "is comfortably above MaxPanels, raise MaxPanels; if it is below, "
-                                  + "the VRAM ceiling is the real bound and MaxPanels is not what "
-                                  + "refused these windows.");
+                                  + "is comfortably above the cap above, the VRAM ceiling is NOT the "
+                                  + "bound and the line named the one that is; if it is below, the "
+                                  + "VRAM ceiling is the real bound and neither MaxPanels nor the "
+                                  + "layer pool is what refused these windows.");
             }
         }
     }
@@ -791,9 +889,33 @@ internal static partial class PanelSupersample
             return;
         }
 
+        // THE PRIVATE CAPTURE LAYER — taken BEFORE anything is allocated, because a panel that
+        // cannot get one must not be engaged at all. ModBuild 193 handed every panel the same layer
+        // and every capture camera therefore rendered every panel inside its frustum; the whole
+        // argument, the photograph that proves it and the three designs that were rejected are in
+        // PanelSupersample.5.Isolation.cs.
+        int layer = AcquireLayer();
+        if (layer < 0)
+        {
+            Refused.Add(panel.HostGo.GetInstanceID());
+            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE refused '{window}': the capture-layer pool is "
+                              + $"exhausted ({PoolSize} private layer(s) exist and all are held by "
+                              + $"the {Entries.Count} panel(s) already engaged). It is NOT given a "
+                              + "shared layer, because a shared layer is exactly what made one "
+                              + "window's capture contain another window's content in ModBuild 193 "
+                              + "(.planning/debug/window_merge.jpg). THE CONSEQUENCE: this window "
+                              + "keeps today's direct rendering — the dial's OFF behaviour, "
+                              + "including the shimmer — until another window closes and hands its "
+                              + "layer back, at which point this one is re-considered automatically.");
+            return;
+        }
+        e.Layer = layer;
+
         RenderTexture? rt = CreateRt(rtW, rtH, ref msaa, window);
         if (rt == null)
         {
+            ReleaseLayer(e.Layer);
+            e.Layer = -1;
             Refused.Add(panel.HostGo.GetInstanceID());
             return;
         }
@@ -808,6 +930,8 @@ internal static partial class PanelSupersample
         if (!BuildCamera(e, panel) || !BuildDisplay(e, panel))
         {
             DestroyEntryObjects(e);
+            ReleaseLayer(e.Layer);
+            e.Layer = -1;
             Refused.Add(panel.HostGo.GetInstanceID());
             return;
         }
@@ -836,7 +960,11 @@ internal static partial class PanelSupersample
                           + $"Trilinear, aniso {AnisoLevel}) — {Mb(e.VramBytes)} MB for the pair — "
                           + "through a dedicated orthographic camera, and a mod-owned quad at the "
                           + $"window's exact world pose shows that texture.{msaaNote}{frameNote} The "
-                          + $"host canvas itself is moved to capture layer {CaptureLayer} — it stays "
+                          + $"host canvas itself is moved to this panel's PRIVATE capture layer "
+                          + $"{e.Layer} (mask 0x{1 << e.Layer:X8}; {FreeLayers.Count} of "
+                          + $"{PoolSize} pool layer(s) still free) — no other panel is ever on it, "
+                          + "so this camera cannot capture a neighbouring window the way ModBuild "
+                          + "193's shared layer did. It stays "
                           + "ENABLED, REGISTERED and RAYCASTABLE, so every laser/poke hit, hover, "
                           + "drag and scroll takes the same path as before; only the camera that "
                           + $"draws it changed. {e.LayersMoved} transform(s) moved, "

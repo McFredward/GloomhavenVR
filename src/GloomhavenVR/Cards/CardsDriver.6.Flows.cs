@@ -2179,10 +2179,147 @@ internal sealed partial class CardsDriver
         // already correct (the fan's own contract, see CardFan.SetMode).
         _fan.SetMode(CardFan.FanMode.Inspect);
         _fan.SetCards(_fanBuffer, swap);
+        // SINGLE-CARD ARRIVAL. Runs AFTER SetCards for the same reason the scenario's own dock
+        // APPEAR does (Rebuild, "Issue 2 APPEAR", CardsDriver.4.Rebuild.cs:853-864): PlayAppear
+        // snaps the card to its HOME, so the layout must already have asserted one.
+        MaterializeNewOffScenarioCards(swap);
+        _offScenarioLast.Clear();
+        _offScenarioLast.AddRange(_fanBuffer);
         _placementRefusal = "the off-scenario (map-room) fan is inspection-only by construction — "
                             + "its cards hold no game widget, so no commit seam exists for them";
         OffScenarioFanActive = true;
         return true;
+    }
+
+    // ---------------------------------------------------- single-card join / leave (ModBuild 193) --
+    //
+    // USER ASK (2026-08-21, item 8): "Wenn man eine Karte ändert während man seinen Kartenfächer in
+    // der Hand betrachtet soll die Karte per Animation auftauchen oder verschwinden damit der Fächer
+    // immer aktuell ist."
+    //
+    // The character-swap seam above answers "the WHOLE hand was exchanged". Ticking ONE card on or
+    // off in UIPartyCharacterAbilityCardsDisplay is not that, and playing the exchange wipe for it
+    // would move eleven cards to report one — the same "two unrelated animations glued together"
+    // failure the exchange region's own header argues against. So the source (WorldUI.MapRoom.
+    // MapRoomHand) DIFFS its loadout and asks for exactly two things, and BOTH are the scenario's
+    // own vocabulary rather than a new one:
+    //
+    //   JOIN  → <c>VRCard.PlayAppear</c>, the "emerge from dust" materialize a scenario plays for a
+    //           docked action card / a slot occupant that appears for the newly active character
+    //           (CardsDriver.4.Rebuild.cs:860 and :880). Same method, same 0.28 s, same dust.
+    //           The card's PLACE comes from CardFan.SetCards → Relayout(instant: false), which is
+    //           also what re-lays the survivors out around it — they glide, they do not jump.
+    //   LEAVE → <c>CardFan.Remove</c> (the fan's own single-card exit: "remaining cards close the
+    //           gap", CardFan.cs:460) + <c>VRCard.Vanish</c>, the "crumble to dust" a scenario plays
+    //           for a card that leaves every zone with NO pile to fly to (CardsDriver.4.Rebuild.cs:794).
+    //           A pile flight is deliberately NOT reused: the map phase has no discard or burnt pile
+    //           to fly to, and inventing a destination would be inventing an animation.
+    //
+    // WHAT IS NOT TOUCHED, because the fan is OPEN IN HIS HAND while this runs: the palm gate is
+    // never poked (allowFan reads _fanBuffer/_fan.Cards, both of which stay non-empty across a
+    // one-card diff, so no open/close edge is generated); a HELD card is never removed here (the
+    // source defers it, and the belt below refuses one anyway); and the hover election needs no
+    // help — UpdateFanHoverSplit re-resolves its index from _fan.Cards every frame and
+    // CardFan.Remove re-stamps the fingertip scan itself.
+
+    /// <summary>
+    /// The off-scenario cards the fan adopted on the PREVIOUS rebuild. Exactly the role
+    /// <c>_lastHalfCards</c> / <c>_lastVisibleCards</c> play for the scenario's dock appear: a card
+    /// in the new set but not in this one is a card that JUST JOINED, and only those materialize.
+    /// </summary>
+    private readonly List<VRCard> _offScenarioLast = new(12);
+
+    /// <summary>True while the shared fan is OPEN with an off-scenario source's cards in it — the
+    /// source's own "is he looking at it right now" test, so it can pick the animation the user
+    /// will actually see and say so in its log.</summary>
+    internal static bool OffScenarioFanIsOpen =>
+        OffScenarioFanActive && Instance != null && Instance._fan.IsOpen;
+
+    /// <summary>True while a character exchange is still in the air on the off-scenario fan. The
+    /// swap wave owns every card's pose while it runs, so a single-card join must not also drive
+    /// one — see <see cref="MaterializeNewOffScenarioCards"/>.</summary>
+    internal static bool OffScenarioFanExchanging =>
+        OffScenarioFanActive && Instance != null && Instance._fan.HasLeavingCards;
+
+    /// <summary>
+    /// ONE card leaves the off-scenario fan: the survivors close the gap and the card crumbles to
+    /// dust where it sat. The SOURCE still owns its lifetime — this neither destroys nor parks it;
+    /// it hides it when the crumble ends, and the source destroys it on its own sweep.
+    ///
+    /// <para>A HELD card is refused outright. The standing rule ("while a card IsHeld this code
+    /// writes nothing a hold depends on", <c>CardFan.StampMembership</c>) makes taking a card out of
+    /// the player's own hand the one thing this may never do — <c>VRCard.Vanish</c> refuses a held
+    /// card by itself, and the source defers the removal until the release, so this is a belt.</para>
+    /// </summary>
+    internal static void OffScenarioFanLeave(VRCard card) => Instance?.LeaveOffScenarioFan(card);
+
+    private void LeaveOffScenarioFan(VRCard card)
+    {
+        if (card == null || card.IsHeld)
+            return;
+        // A card that is about to be inert must not keep the beam's pop. The next frame would clear
+        // it anyway (the pull-jerk grace is gated on _fan.Contains), but a vanishing card holding a
+        // laser highlight for a frame reads as the fan lagging behind the menu.
+        if (ReferenceEquals(card, _laserHover))
+            ClearLaserHover();
+        _fan.Remove(card);          // CardFan's own single-card exit — the survivors glide the gap shut
+        card.Released -= OnCardReleased;
+        card.Grabbed -= OnCardGrabbed;
+        card.Poked -= OnCardPoked;
+        _hooked.Remove(card);
+        _liveGrabs.Remove(card);
+        _fanOriginCards.Remove(card);
+        _offScenarioLast.Remove(card);
+        VRCard leaving = card;
+        // Vanish resets alpha and re-enables the body when it ENDS (a pooled scenario card is about
+        // to be hidden by its park callback), so an off-scenario card must be hidden by ours or it
+        // would snap back to fully visible for the moment before the source destroys it.
+        card.Vanish(() =>
+        {
+            if (leaving != null)
+                leaving.gameObject.SetActive(false);
+        });
+    }
+
+    /// <summary>
+    /// Materialize every card that is in the fan now and was not in it on the previous off-scenario
+    /// rebuild. The three suppressions are the scenario's own, one for one:
+    /// <list type="bullet">
+    /// <item>THE FAN IS CLOSED — nobody is looking, and the palm-gate reveal owns that entrance
+    /// (the same argument that gates the character exchange on <c>_fan.IsOpen</c>).</item>
+    /// <item>THE FIRST ADOPTION — <c>_offScenarioLast</c> is empty, i.e. this is the fan being
+    /// populated rather than a card joining it. Verbatim the scenario's "no storm" guard
+    /// (<c>_dockAnimSuppressed</c>).</item>
+    /// <item>AN EXCHANGE IS RUNNING — the swap blend writes every incoming card's pose every frame,
+    /// so a second animation on the same transform would fight it.</item>
+    /// </list>
+    /// </summary>
+    private void MaterializeNewOffScenarioCards(bool swap)
+    {
+        if (swap || !_fan.IsOpen || _offScenarioLast.Count == 0 || _fan.HasLeavingCards)
+            return;
+        int appeared = 0;
+        for (int i = 0; i < _fanBuffer.Count; i++)
+        {
+            VRCard card = _fanBuffer[i];
+            if (card == null || card.IsHeld || card.IsFlying || card.IsVanishing)
+                continue;
+            if (_offScenarioLast.Contains(card))
+                continue;
+            card.PlayAppear();
+            appeared++;
+        }
+        if (appeared == 0)
+            return;
+        VRLog.Info("Cards", $"Off-scenario fan JOIN: {appeared} card(s) materialize into the OPEN "
+                            + $"fan (VRCard.PlayAppear — the scenario's own dust appear, "
+                            + $"{VRCard.DockAppearSeconds:F2}s), and the {_fanBuffer.Count - appeared} "
+                            + "card(s) already there keep their slabs and glide to their new arc "
+                            + "slots (CardFan.SetCards -> Relayout). READ THIS AS: the loadout gained "
+                            + "a card while the hand was up. If the map-room hand reports an ADD and "
+                            + "this line is missing, the fan was CLOSED, the exchange was still in "
+                            + "the air, or this was the fan's first adoption — all three are "
+                            + "deliberate suppressions, see MaterializeNewOffScenarioCards.");
     }
 
     /// <summary>
@@ -2210,6 +2347,7 @@ internal sealed partial class CardsDriver
             _fanOriginCards.Remove(card);
         }
         _fanBuffer.Clear();
+        _offScenarioLast.Clear();   // the next adoption is a FIRST one again: no join storm
         _fan.SetCards(_fanBuffer);
         _fan.SetMode(CardFan.FanMode.Interactive);
         _placementRefusal = "none (the fan is fully interactive)";

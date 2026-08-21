@@ -117,6 +117,37 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<float> MapCityIconScale = null!;
 
     /// <summary>
+    /// [MapRoom] Size factor for the PARTY MARKER — the token showing where the party currently is
+    /// (<c>MapChoreographer.m_PartyToken</c>).
+    ///
+    /// <para>WHY IT EXISTS (user request against ModBuild 193: "Ich will auch die Größe des Markers
+    /// wo man sich befindet sowie des eingezeichneten Weges von einem zum anderen Punkt einstellen
+    /// können"). Through ModBuild 193 <c>MapIconLayer</c>'s own class doc stated that this token
+    /// "takes NO dial and cannot", because it is drawn with <c>CommandBuffer.DrawRenderer</c> from
+    /// the game's renderers. That verdict was too narrow: the same renderer's mesh can be issued as
+    /// <c>CommandBuffer.DrawMesh</c> with a matrix of our choosing, which scales the marker in OUR
+    /// recording and writes nothing to the game's transform. At 1 the old call is issued unchanged.
+    /// See <c>MapIconLayer.DrawToken</c>.</para>
+    /// </summary>
+    internal static ConfigEntry<float> MapPartyMarkerScale = null!;
+
+    /// <summary>
+    /// [MapRoom] Width factor for the DRAWN ROUTE between two map locations — both the active path
+    /// to the place you are pointing at and the permanent roads between unlocked villages, which the
+    /// game builds from one prefab and one routine (decompiled MapLocation.cs:783-806 and
+    /// :1015-1054).
+    ///
+    /// <para>Applied through the <c>LineRenderer</c>'s <c>widthMultiplier</c>, which multiplies the
+    /// game's own randomly-ragged width CURVE — so the road keeps its hand-drawn profile and only
+    /// gets thicker or thinner as a whole. This is the ONE game-component write the map room's icon
+    /// layer makes; the original is recorded before the first write, re-asserted level-triggered and
+    /// restored on stand-down. The game itself never writes <c>widthMultiplier</c> on a map line
+    /// (grep of the whole decompile: only <c>ClientScenarioManager</c> and <c>RFX4_ParticleTrail</c>,
+    /// neither on the map), so there is no write war to lose.</para>
+    /// </summary>
+    internal static ConfigEntry<float> MapPathWidthScale = null!;
+
+    /// <summary>
     /// [Rig] Demeo-style world tilt (degrees, 0-60) — FEATURE PARKED (user ruling 2026-08:
     /// "macht zu viele Probleme, vorerst entfernen"). The entry stays bound so a tuned value
     /// survives in the .cfg, but the runtime clamps the effective tilt to 0
@@ -403,6 +434,36 @@ public class Plugin : BaseUnityPlugin
                 + "the same reason as everywhere else: a shopfront scaled to nothing is a merchant "
                 + "you can no longer point at. Applies live, 3D map room only, flat 2D map "
                 + "unaffected; the invisible target area grows with the icon.",
+                new AcceptableValueRange<float>(0.5f, 4f)));
+        // THE TWO THINGS ON THE MAP THAT ARE NOT ICONS (ModBuild 194, user: "Ich will auch die Größe
+        // des Markers wo man sich befindet sowie des eingezeichneten Weges von einem zum anderen
+        // Punkt einstellen können"). Same section, same range, same default and the same 0.5 floor as
+        // the three icon dials, because they are the same kind of comfort setting and a player who
+        // found one row expects the next one to behave identically.
+        MapPartyMarkerScale = Config.Bind(
+            "MapRoom", "PartyMarkerScale", Defaults.MapPartyMarkerScale,
+            new ConfigDescription(
+                "SIZE of the PARTY MARKER in the 3D map room — the token that shows where your group "
+                + "currently is, and that walks the route when you travel. Range 0.5-4, default 1 = "
+                + "the size it has always had. Separate from the location icons: the marker is a "
+                + "different object drawn a different way, and it is the one thing on the map you "
+                + "look for first. The floor is there for the same reason as everywhere else — a "
+                + "marker shrunk to nothing is a party you can no longer find. It is enlarged in the "
+                + "room's own drawing, so the game's own map object is never modified and the flat "
+                + "2D map is unaffected. Applies live, no restart. If part of the marker refuses to "
+                + "grow, the log says so in numbers rather than leaving you to guess.",
+                new AcceptableValueRange<float>(0.5f, 4f)));
+        MapPathWidthScale = Config.Bind(
+            "MapRoom", "PathWidthScale", Defaults.MapPathWidthScale,
+            new ConfigDescription(
+                "WIDTH of the ROUTE drawn between two places in the 3D map room — both the path to "
+                + "the location you are pointing at and the permanent roads between the villages "
+                + "you have unlocked. Range 0.5-4, default 1 = the width the game draws. The value "
+                + "multiplies the game's own hand-drawn, deliberately ragged line, so a wider road "
+                + "still looks drawn by hand and does not become a flat ribbon. This is the only "
+                + "setting in the map room that changes something on the game's own map object; it "
+                + "is put back exactly as it was the moment you leave the room, and it is never "
+                + "sent to other players. Applies live, no restart.",
                 new AcceptableValueRange<float>(0.5f, 4f)));
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,

@@ -78,8 +78,12 @@
 // player EDITS the loadout of the character already selected (the card-selection screen mutates
 // HandAbilityCardIDs directly — see the two line references above — and deliberately does not raise
 // OnAbilityDeckUpdated on that path). A signature poll catches both with one mechanism and cannot
-// leak a subscription across a scene teardown. 4 Hz is 250 ms — under the threshold at which a
-// player pressing a card in the party window would call the fan "stale".
+// leak a subscription across a scene teardown.
+//
+// THE RATE IS NOT FIXED (ModBuild 193). 4 Hz while the fan is DOWN; 20 Hz while it is OPEN in his
+// hand, because item 8 asks for an ANIMATION he is watching for and 250 ms of it is plainly late —
+// see PollIntervalWatching for the cost, which is one hash of at most twelve ints and nothing else.
+// The event route stays refused for the reason above: it cannot see a loadout edit at all.
 //
 // ─── MULTIPLAYER, AND WHY THIS FILE ADDS NOTHING TO THE WIRE ──────────────────────────────────
 // THE STANDING RULE — CARD IDENTITY NEVER GOES ON THE WIRE — is not touched here, and no wire field
@@ -153,9 +157,39 @@ internal sealed partial class MapRoomHand
 {
     private const string Scope = "MapRoom";
 
-    /// <summary>Seconds between selection/loadout signature polls. See the header for why this is a
-    /// poll and not <c>NewPartyDisplayUI.NewCharacterSelected</c>.</summary>
-    private const float PollInterval = 0.25f;
+    /// <summary>Seconds between selection/loadout signature polls while the fan is DOWN. See the
+    /// header for why this is a poll and not <c>NewPartyDisplayUI.NewCharacterSelected</c>.</summary>
+    private const float PollIntervalIdle = 0.25f;
+
+    /// <summary>
+    /// Seconds between polls while the fan is OPEN IN HIS HAND — 20 Hz.
+    ///
+    /// <para>WHY THE RATE IS RAISED, AND WHAT IT COSTS (ModBuild 193). The user's ask is that a card
+    /// he ticks on or off "per Animation auftauchen oder verschwinden" WHILE he is looking at the
+    /// fan. At 4 Hz the animation would start up to 250 ms after the click — plainly late for a
+    /// cause-and-effect he is watching for, and late in the worst way, because the menu's own
+    /// checkbox has already responded. There is no cheaper edge to find: the two writers
+    /// (UIPartyCharacterAbilityCardsDisplay.OnAbilityCardSelect :536 / OnAbilityCardDeselect :558)
+    /// mutate <c>HandAbilityCardIDs</c> in place and raise nothing at all, and
+    /// <c>NewPartyDisplayUI.NewCharacterSelected</c> fires on a SELECTION change only — subscribing
+    /// to it would miss every loadout edit, which is the whole event this feature is about.</para>
+    ///
+    /// <para>THE COST IS ONE HASH OF AT MOST TWELVE INTS, sixteen extra times a second, and ONLY
+    /// while the hand is actually raised: <see cref="ResolveCharacter"/>'s authoritative path is two
+    /// property reads on the party display and returns before the roster scan, and
+    /// <see cref="BuildSignature"/> is a loop over <c>HandAbilityCardIDs</c>. The roster fallback —
+    /// the one path that walks the party — now fills a reusable list instead of allocating one
+    /// (<see cref="PartyMembers"/>), so the fast rate cannot turn into 20 allocations a second even
+    /// when nothing is selected. A rebuild is still only requested when the signature MOVES.</para>
+    /// </summary>
+    private const float PollIntervalWatching = 0.05f;
+
+    /// <summary>
+    /// The live poll period. Fast while the shared fan is open with our cards in it (he is looking
+    /// at the fan, so an edit must land on it almost at once), idle otherwise.
+    /// </summary>
+    private static float PollInterval =>
+        CardsDriver.OffScenarioFanIsOpen ? PollIntervalWatching : PollIntervalIdle;
 
     /// <summary>Hard clamp on the slab count. A Gloomhaven loadout is 8–12 cards
     /// (<c>CharacterYMLData.NumberAbilityCardsInBattle</c>); this is the same defensive cap
@@ -197,6 +231,11 @@ internal sealed partial class MapRoomHand
 
     private float _nextPollAt;
 
+    /// <summary>Unscaled time of the PREVIOUS poll. The edit that a diff reports happened somewhere
+    /// inside the window that ends now, so this is what the diff line's latency bound is measured
+    /// from — a real number rather than a restatement of the configured interval.</summary>
+    private float _lastPollAt;
+
     // ==========================================================================================
     //  LIFECYCLE
     // ==========================================================================================
@@ -212,6 +251,7 @@ internal sealed partial class MapRoomHand
             return;
         _engaged = true;
         _nextPollAt = 0f;      // resolve on the very next tick
+        _lastPollAt = Time.unscaledTime;
         _signature = int.MinValue;
         Probe();
     }
@@ -250,8 +290,12 @@ internal sealed partial class MapRoomHand
 
             if (Time.unscaledTime >= _nextPollAt)
             {
-                _nextPollAt = Time.unscaledTime + PollInterval;
+                float now = Time.unscaledTime;
+                // _lastPollAt is read by the diff line BEFORE it is advanced, so the window it
+                // reports is the one the edit actually fell into.
+                _nextPollAt = now + PollInterval;
                 Reconcile();
+                _lastPollAt = now;
             }
 
             // NOTE WHAT IS *NOT* HERE. No pose, no layout, no reveal test, no hover scan, no
@@ -343,15 +387,37 @@ internal sealed partial class MapRoomHand
     // ==========================================================================================
 
     /// <summary>
-    /// Re-resolve the selected character and its loadout, and rebuild if either changed. Called at
-    /// <see cref="PollInterval"/>, never per frame.
+    /// Re-resolve the selected character and its loadout, and update the fan if either changed.
+    /// Called at <see cref="PollInterval"/>, never per frame.
+    ///
+    /// <para>THE PRECEDENCE, stated here because both edges can land in the same poll (ModBuild 193,
+    /// user item 8): A CHARACTER CHANGE ALWAYS WINS. When the resolved <c>CMapCharacter</c> is not
+    /// the one the fan was built for, the whole hand really was exchanged and
+    /// <see cref="RebuildFan"/> plays the exchange — retire every slab, <c>CardFan.BeginSwapOut</c>,
+    /// <c>SetCards(swap: true)</c> — whatever else changed in the same tick. The single-card diff
+    /// runs only for a loadout edit on the character already on screen, which is exactly the case
+    /// the exchange is the wrong animation for. Nothing is lost either way: the exchange carries
+    /// every card of BOTH hands, so a diff would have nothing left to report.</para>
     /// </summary>
     private void Reconcile()
     {
         CMapCharacter? character = ResolveCharacter(out string source);
         int signature = BuildSignature(character);
         if (signature == _signature)
+        {
+            // A removal deferred because the player was HOLDING that card retries here. The
+            // signature will not move again on its own — the loadout already lost the card — so
+            // without this the slab would sit in the fan until the next unrelated edit.
+            if (_deferredLeave)
+                UpdateFanCards();
             return;
+        }
+
+        // Read BEFORE _character is overwritten: "is this the same character the fan is showing".
+        // Reference identity is the right test — CMapCharacter is the persistent per-character
+        // model and a loadout edit mutates that very object in place, which is precisely why the
+        // signature (and not the reference) is the change detector one line above.
+        bool sameCharacter = character != null && ReferenceEquals(character, _character);
 
         _signature = signature;
         _character = character;
@@ -360,7 +426,10 @@ internal sealed partial class MapRoomHand
         if (character != null)
             ResolveLoadout(character, _loadout);
 
-        RebuildFan();
+        if (sameCharacter)
+            UpdateFanCards();   // a loadout edit: diff, and animate only the difference
+        else
+            RebuildFan();       // a character change: the exchange, and it wins
         RebuildWrist();
         // DEFERRED BY ONE FRAME, on purpose. The state line reports whether the shared driver has
         // ADOPTED the published list, and the driver's rebuild runs in its own MonoBehaviour's
@@ -449,7 +518,7 @@ internal sealed partial class MapRoomHand
         {
             source = "FALLBACK: nothing is selected in the party display, and exactly one party "
                      + "member is under this client's control (CMapCharacter.IsUnderMyControl) — "
-                     + "selecting a character in the party screen overrides this within 250 ms";
+                     + "selecting a character in the party screen overrides this within 250 ms (50 ms while the fan is up)";
             return owned;
         }
 
@@ -457,7 +526,7 @@ internal sealed partial class MapRoomHand
         {
             source = "FALLBACK: nothing is selected in the party display and this is an OFFLINE "
                      + "session, so the first party member is shown (offline every merc is the "
-                     + "player's own) — selecting a character overrides this within 250 ms";
+                     + "player's own) — selecting a character overrides this within 250 ms (50 ms while the fan is up)";
             return party[0];
         }
 
@@ -469,6 +538,9 @@ internal sealed partial class MapRoomHand
         return null;
     }
 
+    /// <summary>Scratch for <see cref="PartyMembers"/> — see the note in its body.</summary>
+    private static readonly List<CMapCharacter> s_partyScratch = new(4);
+
     /// <summary>
     /// The party roster, guarded. <c>AdventureState.MapState</c> is null outside a loaded
     /// campaign — the very null <c>RevealGate.InScenario</c> guards against (RevealGate.cs:47) —
@@ -477,7 +549,12 @@ internal sealed partial class MapRoomHand
     /// </summary>
     private static List<CMapCharacter> PartyMembers()
     {
-        var result = new List<CMapCharacter>(4);
+        // REUSED, not allocated (ModBuild 193). This is the fallback arm of a poll that now runs at
+        // 20 Hz while the fan is up, and a fresh four-element list twenty times a second is exactly
+        // the kind of per-frame garbage that gets copied into a hotter path later. The list is
+        // consumed entirely inside the one caller below before anything else can ask for it.
+        List<CMapCharacter> result = s_partyScratch;
+        result.Clear();
         try
         {
             MapRuleLibrary.State.CMapState? state = MapRuleLibrary.Adventure.AdventureState.MapState;
@@ -688,6 +765,11 @@ internal sealed partial class MapRoomHand
             + "    (e) character swap : CardFan.BeginSwapOut + SetCards(swap: true), raised here "
             + "through CardsDriver.OffScenarioFanSwap. It only plays while the fan is OPEN, exactly "
             + "as in a scenario — switching character with your palm down is silent by design.\n"
+            + "    (8) ONE CARD       : a LOADOUT edit on the character already shown does NOT come "
+            + "here — it takes MapRoomHand.UpdateFanCards, which diffs by card id and animates only "
+            + "the difference (VRCard.PlayAppear to join, CardFan.Remove + VRCard.Vanish to leave, "
+            + "both the scenario's own). Grep 'MAP-ROOM HAND DIFF' for those; a CHARACTER change "
+            + "always wins over a diff and produces THIS line instead.\n"
             + $"  faces     : {_frontsShown} of {_cards.Count} printed so far "
             + "(Net.RemoteAbilityCardSource pooled borrow — a widget spawned from the game's own "
             + "ObjectPool by card ID, cloned, handed straight back). PRINTING IS DEFERRED to the "

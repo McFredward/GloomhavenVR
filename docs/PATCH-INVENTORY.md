@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**70 patch classes, 110 patched methods.**
+**70 patch classes, 112 patched methods.**
 
 ## Board
 
@@ -128,7 +128,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `WorldspaceDisplayPanelBase.LateUpdate()` *(private)* | prefix | &nbsp; |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:45 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:46 |
-| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:925</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:329 |
+| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:957</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:358 |
 | `Character3DDisplayRefcount`<br/><sub>src/GloomhavenVR/WorldUI/Patches/Character3DDisplayRefcount.cs:115</sub> | `Character3DDisplayManager.Display(Component, ECharacter, string, string)` *(private)* | prefix | `WorldUIModule`:70 |
 | &nbsp; | `Character3DDisplayManager.Hide()` | prefix | &nbsp; |
 | &nbsp; | `Character3DDisplayManager.HideAll()` | prefix | &nbsp; |
@@ -160,7 +160,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `TakeDamagePanel.get_IsLethalDamage()` *(private)* | prefix | &nbsp; |
 | `TooltipRaiseGuard`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipRaiseGuard.cs:78</sub> | `UITooltipTarget.OnPointerEnter()` | prefix | `WorldUIModule`:50 |
 | &nbsp; | `UITooltip.Show()` | prefix | &nbsp; |
-| `TooltipWindowPatches`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipWindowPatches.cs:59</sub> | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | `WorldUIModule`:77 |
+| `TooltipWindowPatches`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipWindowPatches.cs:66</sub> | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | `WorldUIModule`:77 |
 | &nbsp; | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float, float)` | prefix | &nbsp; |
 | &nbsp; | `RectTransformExtensions.DeltaPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | &nbsp; |
 | &nbsp; | `RectTransformExtensions.DeltaPositionToFitTheScreen(RectTransform, float)` | prefix | &nbsp; |
@@ -172,6 +172,8 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `UIPartyItemSlot.OnHovered()` | postfix | &nbsp; |
 | &nbsp; | `UITempleShopSlot.Select()` | postfix | &nbsp; |
 | &nbsp; | `UITempleShopSlot.Deselect()` | postfix | &nbsp; |
+| &nbsp; | `AbilityCardUI.ChangeFullCardPosition()` | prefix | &nbsp; |
+| &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | postfix | &nbsp; |
 | `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:342</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:47 |
 
 ## Registration sites

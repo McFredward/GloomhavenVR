@@ -126,6 +126,81 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 194** (bundle UNCHANGED — plugin DLL only) — one capture layer for every panel, and
+  the game was placing its UI sounds at a disabled ear. *(Six workers.)* **Nothing on the wire.**
+  * **A CORRECTION I OWE THE RECORD.** I told him the supersample motion detector was blind and that
+    193's movement fix never armed. **Wrong — my own reading error** (`sort -u | head` collapsed the
+    field to its zero samples). Counted properly: **23 of 226** state lines read non-zero, up to
+    **542** motion frames in a ~900-frame window, several `currently MOVING`. The zeros are CORRECT —
+    only the panel being dragged counts frames. **The consequence is worse than the misdiagnosis:**
+    193's remedies RAN (3501 sweeps, 2836 measures, 2448 late joiners) and the shimmer is unchanged,
+    so they are **falsified, not untested**. With the confirmed mip chains that is two dead
+    hypotheses. The detector is now **self-falsifying**: comparisons made, largest single-frame host
+    step, and the epsilon — in world units, authored px **and rendered eye px**, so "never ran",
+    "blind" and "genuinely still" are finally distinguishable.
+  * **THE WINDOW MERGE: one capture layer for the whole mod.** `cam.cullingMask = 1 << CaptureLayer`
+    with `CaptureLayer` a single static — so every capture camera drew every other supersampled panel
+    inside its frustum into its own target. And the frustum is **as deep as the window is tall**
+    (1611×1453×1453 px for 'New Party display'). Fixed with a **pool of private per-panel layers**;
+    a panel that cannot get one is REFUSED, never given a shared one. Exact, not probabilistic.
+    Rejected: a tighter frustum (windows separate in **X**, not depth, and X is the one extent that
+    must not shrink) and disabling other panels' `Canvas` (the host must stay enabled or the
+    raycaster returns early). **This is itself a moving-flicker mechanism** — dragging X slides Y in
+    and out of X's frustum. Second candidate now measured: at 1.34 texels/px the LOD is 0.42, so
+    **58 % of every sample still comes from unfiltered level 0**; the `mipMapBias` lever was
+    deliberately NOT shipped so the next report stays attributable.
+  * **THE SILENT BUTTONS: the game aimed its UI sounds at a DISABLED ear.** The pointer was never at
+    fault — `UguiPointer` dispatches enter/exit up the ancestor chain and the log shows the game's
+    buttons receiving them. `AudioController.Play(id)` spawns the pooled **3D** object at
+    `listener.position + listener.forward`, and `GetCurrentAudioListener()` **caches**, dropping only
+    on Unity-null — **a disabled component is not null**. `EnvSound.TakeListener()` disables the
+    game's listener and adds ours on the head camera, so every UI sound was placed hundreds of world
+    units away at 198 u/m. Nothing errors; `Play` returns a live object. **Our own comment had
+    declared this safe** by reading `AudioItem.spatialBlend`'s **C# field initializer** as the
+    authored asset value — that field is only consulted when `overrideAudioSourceSettings` is set;
+    otherwise the pool prefab's AudioSource stands. Fixed with one reflection write to the game's
+    cached listener; the button's own authored item then plays through the game's own code. **Still
+    open:** `FlatScreen.6.Pointer.cs` dispatches down/up/click but **never enter/exit**.
+  * **THE CARD-SELECTION PREVIEW IS NOT A TOOLTIP** — hovering a loadout row switches on that row's
+    own `FullAbilityCard` child, so the family table never matched. The 190 cut **did** fire and was
+    not enough: the damage is the line before it, `transform.position = new Vector3(x + 40f, y - 45f)`
+    — an **absolute world** position from **canvas-pixel** constants along **world** axes, with a
+    two-arg `Vector3`'s implicit **z = 0** snapping it to the world plane. And 192's fix never reached
+    it either (the preview **adds** an `overrideSorting` canvas on show). Fixed with a **prefix** (not
+    a postfix — the broken pose must not land for one frame in stereo) writing a `localPosition`.
+    **Reported, not fixed:** `UILevelUpCard.MouseEnter` carries the identical defect.
+  * **THE QUEST LOG IS PERMANENT**, matched by `GetComponent<QuestLogManager>()` — an IS-A test
+    guaranteed by `[RequireComponent(typeof(UIWindow))]`. Not by name (localised) and not by ID:
+    **`UIWindowID` has no quest-log member**, so it carries the default `None` that dozens of windows
+    share. The 185 split failure does not transfer — the quest popup is a **sibling**, not a child.
+    Three exits verified. The no-X line is now routed through `MapRoomPermanentReason(window)`.
+  * **ONE CARD IN / OUT, in the scenario's own vocabulary**: diff by `CAbilityCard.ID`,
+    `CardFan.Remove` + `VRCard.Vanish` (the leave path used where a card has **no pile to fly to** —
+    `FlyToPile` rejected because an invented destination is an invented animation) and
+    `VRCard.PlayAppear` after the layout. A **held** card is never removed (three belts). Poll rises
+    to 20 Hz only while the fan is open. **Real defect in another file, worked around and reported:**
+    `VRCard.SetVisualAlpha` fades only VRCard's OWN face canvas, and the map face is on a **sibling**
+    canvas because `AttachGameCard` is never called.
+  * **MAP ICONS: the lane refused to invent the measurement, and that is right** — no captured log
+    contains an icon texture or quad size (the flat dump stands down under `MapRoomOwnsParchment`).
+    `MAP ICON SAMPLING` now prints the same quantity as `PanelSamplingProbe` plus `mipmapCount`,
+    filter and aniso. The bake reuses `CardFaceMipBake` (no second cache) and is a **no-op if the
+    icons are already mipped**, with the log naming what the cause would then be instead.
+    **The late loading was already in our own log and had been read past:** the census climbs
+    0 → 4 → 6 → 16 → 27 → 47 across nine prints. Causes: `includeInactive: false` and a 15-frame poll.
+  * **PARTY MARKER + ROUTE ARE ADJUSTABLE.** 190's claim that the token is unscalable is overtaken —
+    and its reason was also wrong (`PartyToken` writes only position/LookAt; **nothing in the whole
+    decompile writes its `localScale`**). Still not taken: `DrawRenderer` → `DrawMesh` under our own
+    matrix, so **no game transform is written**. Guards: skinned/mesh-less renderers refused, and the
+    renderer's `MaterialPropertyBlock` copied across — without it a **size** slider would have changed
+    the token's **colour**. The route is a `LineRenderer` built by `MapLocation`; `widthMultiplier`
+    has **no other writer in the decompile**, so it is a number to own rather than a flag to concede.
+  * **TRAVEL BUTTON REVERTED TO 190 + DIALS.** Verified statement-for-statement against `ac270f4`;
+    both dials at default compute `Vector2.zero` **for any window height**. New
+    `[WorldUI] TravelButtonOffsetX/YWindowHeights`, fractions of window height (the unit is in the
+    key). **Finding acted on by nobody:** 193's header claims the 190 pose hung far below the window;
+    the only measurement says 26–83 mm **above** its bottom edge, on the card.
+
 - **ModBuild 193** (bundle UNCHANGED — plugin DLL only) — a render texture cannot be both
   multisampled and mipmapped, and `Create()` does not say so. *(Five workers, isolated worktrees.)*
   **Nothing on the wire.**

@@ -117,6 +117,12 @@ internal static partial class VROptionsTab
         //      built for this dial to show or hide. Same parent, same evidence shape as the
         //      [MapRoom] section rule below.
         ["WorldUI/MapRoomHand"] = new("Rig", "Experimental3DMap", On),
+        // The travel-confirm button is parked only inside the 3D map room: MapTravelConfirm
+        // .Reconcile is called from exactly one place (MapRoomDriver, guarded by
+        // MapRoomDriver.Active) and its own first branch unparks whenever !Active — so with the 3D
+        // map off there is no parked container for either offset to move.
+        ["WorldUI/TravelButtonOffsetXWindowHeights"] = new("Rig", "Experimental3DMap", On),
+        ["WorldUI/TravelButtonOffsetYWindowHeights"] = new("Rig", "Experimental3DMap", On),
 
         // ---- Grafik ▸ Darstellung: the element-mood strength is the tuning OF the toggle — its
         //      bound description opens with "Has no effect at all while 'EnvironmentResponse' is

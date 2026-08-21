@@ -723,6 +723,35 @@ internal static partial class Loc
                 + "die EIGENE EINSTUFUNG DES SPIELS (Hauptquartier-Typ), nicht über Name oder Grafik — das "
                 + "hält in jeder Sprache und nach jedem Grafik-Update. Auf der Stadtkarte blendet das Spiel "
                 + "den Marker aus, dort wirkt dieser Regler nicht. Wirkt sofort; die Zielfläche wächst mit.",
+            // THE TWO NON-SYMBOL DIALS (ModBuild 194, user: "Ich will auch die Größe des Markers wo man
+            // sich befindet sowie des eingezeichneten Weges von einem zum anderen Punkt einstellen
+            // können"). Both were written AGAINST ConfigCatalog.MaxDescriptionChars = 620 from the
+            // start rather than trimmed afterwards, which is what went wrong with the three above:
+            // they shipped at 1062 and 772 collapsed characters and were clipped mid-word in the
+            // headset. Collapsed lengths now: PartyMarkerScale 578, PathWidthScale 585 (measured, not
+            // estimated: both were extracted from this file and run through ConfigCatalog.Collapse's
+            // exact rule, and the same extractor reproduces the three numbers above to the character).
+            //
+            // The Weg text spends its last sentence on the ONE honest disclosure this feature owes:
+            // it is the only map-room setting that changes something on the game's own map object,
+            // and it is put back on leaving. A comfort dial that touches the game's own state has to
+            // say so where the player reads about it, not only in a code comment.
+            ["MapRoom/PartyMarkerScale"] =
+                "GRÖSSE des GRUPPEN-MARKERS im 3D-Kartenraum — die Figur, die zeigt, wo eure Gruppe gerade "
+                + "steht und die beim Reisen den Weg abläuft. Bereich 0.5-4, Standard 1 = die bisherige "
+                + "Größe. Getrennt von den Ortssymbolen, denn der Marker ist ein anderes Objekt und das "
+                + "Erste, wonach man auf der Karte sucht. Die Untergrenze gibt es aus demselben Grund wie "
+                + "überall: eine auf nichts geschrumpfte Gruppe findest du nicht wieder. Vergrößert wird nur "
+                + "in der Darstellung des Raums, das Kartenobjekt des Spiels bleibt unangetastet und die "
+                + "flache 2D-Karte unberührt. Wirkt sofort, ohne Neustart.",
+            ["MapRoom/PathWidthScale"] =
+                "BREITE des eingezeichneten WEGES im 3D-Kartenraum — sowohl der Pfad zu dem Ort, auf den du "
+                + "zeigst, als auch die festen Straßen zwischen den freigeschalteten Dörfern. Bereich 0.5-4, "
+                + "Standard 1 = die Breite, die das Spiel zeichnet. Der Wert multipliziert die absichtlich "
+                + "unregelmäßige Linie des Spiels: ein breiterer Weg sieht weiterhin von Hand gezeichnet aus "
+                + "und wird kein glattes Band. Das ist die einzige Einstellung des Kartenraums, die etwas am "
+                + "Kartenobjekt des Spiels ändert; beim Verlassen wird sie exakt zurückgesetzt, und an "
+                + "Mitspieler geht nichts. Wirkt sofort, ohne Neustart.",
             ["Rig/WorldTiltDegrees"] =
                 "ALT — ohne Wirkung (Funktion 2026-08 auf Nutzerwunsch GEPARKT: die Weltneigung machte zu "
                 + "viele Probleme und ist vorerst abgeschaltet; sie kommt eventuell später wieder). Das war "
@@ -1684,6 +1713,27 @@ internal static partial class Loc
                 + "losgelassene Karten gleiten ins Blatt zurück, und es wird weder etwas an Mitspieler "
                 + "gesendet noch am Spielstand geändert. Aus = kein Blatt und keine Handgelenk-Anzeige; "
                 + "die 3D-Weltkarte bleibt sonst unverändert.",
+            // Same 620-Zeichen rule as MapRoomHand above (collapsed: X = 582, Y = 603). The first
+            // sentence says which knob this is and which way it moves; the unit and its zero come
+            // next, because 0 is the pose the user asked to have restored; the range closes it.
+            ["WorldUI/TravelButtonOffsetXWindowHeights"] =
+                "Verschiebt den Bestätigungsknopf (\"Reisen\" / \"Quest erneut spielen\") in der "
+                + "3D-Weltkarte SEITLICH im schwebenden Questfenster. Einheit: Bruchteile der "
+                + "FENSTERHÖHE — dieselbe wie beim Höhen-Regler, gleiche Zahl also gleiche echte "
+                + "Strecke —, positiv = nach rechts. 0 = genau dort, wo der Knopf seit dem ersten "
+                + "Einbau ins Fenster sitzt, es ändert sich also nichts, bis du drehst. Bruchteil "
+                + "statt Pixel, damit der Knopf bei jeder Fenstergröße an derselben Stelle auf der "
+                + "Karte bleibt. Die Kartenränder liegen bei etwa ±0.25. Live: der Knopf folgt im "
+                + "nächsten Bild. Bereich -0.5 bis 0.5.",
+            ["WorldUI/TravelButtonOffsetYWindowHeights"] =
+                "Verschiebt denselben Bestätigungsknopf (\"Reisen\" / \"Quest erneut spielen\") HOCH "
+                + "und RUNTER im schwebenden Questfenster. Gleiche Einheit wie der Seiten-Regler — "
+                + "Bruchteile der FENSTERHÖHE —, aber gemessen NACH OBEN AB DER UNTERKANTE des "
+                + "Fensters: 0 = genau dort, wo der Knopf seit dem ersten Einbau sitzt (es ändert "
+                + "sich also nichts, bis du drehst), 1.0 = die Oberkante, negativ = unter der Karte. "
+                + "Der Bereich reicht von einer halben Fensterhöhe unter der Unterkante bis eine "
+                + "halbe über die Oberkante, deckt also die ganze Karte samt Rand ab. Live: der "
+                + "Knopf folgt im nächsten Bild. Bereich -0.5 bis 1.5.",
             ["WorldUI/PanelMipBake"] =
                 "Aliasing-Nachzügler zu [Cards] FaceMipBake: auch die Texturen, die die INITIATIVLEISTE "
                 + "(RawImage-Porträts + Rahmen-/Linien-Sprites) und die Mouseover-HINWEISBOX abtasten, liefert "

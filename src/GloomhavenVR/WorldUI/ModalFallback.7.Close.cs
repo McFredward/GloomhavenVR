@@ -66,9 +66,11 @@ internal static partial class ModalFallback
             // release path are handled in one place.
             if (window == null || wp.UserClosing || (!window.IsOpen && !wp.Sticky))
                 continue;
-            // ModBuild 185: the map room's character screen is not closable — skip it HERE rather
-            // than letting CloseFloatedWindow refuse it, so the chord walks on to the next window
-            // instead of stopping on one it may not touch.
+            // ModBuild 185 (character screen) + 194 (quest log): a PERMANENT map-room window is not
+            // closable — skip it HERE rather than letting CloseFloatedWindow refuse it, so the chord
+            // walks on to the NEXT window instead of stopping on one it may not touch. That
+            // `continue` is what keeps a permanent window from becoming a trap: every other floated
+            // window stays chord-closable no matter how many permanent ones stand in front of it.
             if (IsMapRoomPermanent(window))
                 continue;
             VRLog.Info("WorldUI", $"MODAL ESCAPE CHORD: closing top modal '{window.name}' (ID {window.ID}) — " +
@@ -97,10 +99,10 @@ internal static partial class ModalFallback
         // and CloseStickyFloatsExceptEscMenu in one place, because they all route through here.
         if (IsMapRoomPermanent(window))
         {
-            VRLog.Info("WorldUI", $"MODAL CLOSE: refused for '{name}' (ID {window.ID}) — the map room's "
-                                  + "character screen has no X and is not closable in this phase (user "
-                                  + "ruling). Closing it would strand its nested character display as a "
-                                  + "separate window, which is the split he reported.");
+            VRLog.Info("WorldUI", $"MODAL CLOSE: refused for '{name}' (ID {window.ID}) — "
+                                  + MapRoomPermanentReason(window)
+                                  + " The escape chord walks PAST this window to the next one and the "
+                                  + "pause menu is unaffected, so nothing here can trap the room.");
             return;
         }
 
@@ -625,14 +627,105 @@ internal static partial class ModalFallback
     /// <see cref="CloseFloatedWindow"/> and the escape chord alike. Nothing else is affected: in a
     /// scenario the flat screen composites whatever is not floated, and outside the map room these
     /// windows keep their X exactly as before. The pause menu remains the way out of the room.</para>
+    ///
+    /// <para>AND THE QUEST LOG (ModBuild 194). User ruling, verbatim: <i>"Auch das Fenster mit den
+    /// Quests ('Weltquests', 'Abgeschlossene Quests') sollen nicht schließbar sein (Kein x)."</i>
+    /// That window is <c>Quest Log Manager</c>, and the hardware log says its <c>UIWindowID</c> is
+    /// <b>None</b> (<c>UIWindow SHOWN: 'Quest Log Manager' (ID None …)</c>) — the serialized default
+    /// that dozens of other windows also carry, because the <c>UIWindowID</c> enum has no quest-log
+    /// member at all (decompiled UIWindowID.cs has QuestPopup / QuestTracker / UnlockQuestPopup and
+    /// nothing for the log). So the ID set above cannot name it, and adding <c>None</c> to that set
+    /// would make EVERY unnamed window in the room permanent. It is matched by
+    /// <see cref="IsQuestLogWindow"/> instead — see there for why that test is the stable one.</para>
+    ///
+    /// <para>THE CONSEQUENCE CHECK, BECAUSE THE 185 RULE EXISTS FOR A REASON AND THE REASON DOES NOT
+    /// TRANSFER. 185 made the character screen permanent because closing it SPLIT it: a nested
+    /// <c>UIWindow</c> (PartyAssemblyWindow) was being suppressed by the parent-wins rule and became
+    /// eligible the moment the parent went away. THE QUEST LOG HAS NO SUCH CHILD. Its own subtree is
+    /// <c>UIQuestLogGroup</c> / <c>UIQuestLogSlot</c> — plain MonoBehaviours, not windows — and the
+    /// hardware log confirms the shape from the other side: the quest popup that a quest click opens
+    /// is <c>UI Quest Preview Popup</c> at path <c>Map Canvas/Quest UI/UI Quest Preview Popup</c>,
+    /// a SIBLING of <c>Map Canvas/Quest UI/Quest Log Manager</c> owned by
+    /// <c>Singleton&lt;UIQuestPopupManager&gt;</c>, never a child of the log. So permanence here buys
+    /// the ruling and cannot buy the 185 failure mode with it.</para>
+    ///
+    /// <para>WHAT PERMANENCE DOES COST, STATED PLAINLY. The game hides the quest log on its own in
+    /// several flows (<c>QuestManager.OnMapLocationQuestSelected</c> → <c>HideLogScreen</c> when a
+    /// quest is picked, <c>OnPartyMove</c>, city events, level-up, reward distribution). In the map
+    /// room this window is already STICKY (<see cref="MapRoomParallel"/>, ModBuild 180), so the mod
+    /// already re-shows it against those hides — that behaviour is UNCHANGED by this rule. What
+    /// changes is only that the player can no longer take it down himself: no X, refused by
+    /// <see cref="CloseFloatedWindow"/> and skipped by the escape chord. That is exactly the ruling.
+    /// </para>
+    ///
+    /// <para>AND IT IS NOT A TRAP, WHICH IS THE ONE THING A PERMANENT WINDOW MUST NEVER BECOME.
+    /// Three independent exits are untouched. (1) The quest log is NON-BLOCKING: it is not in
+    /// <see cref="ConfirmationFamily"/> and not a hover card, so <see cref="MapRoomParallel"/> is
+    /// true for it and <see cref="IsBlockingWindow"/> is false — it never raises the ModalUI lock,
+    /// so it cannot freeze the board, the room or any other window. (2) The escape chord CONTINUES
+    /// past it (see <see cref="CloseTopModal"/>) instead of stopping on it, so every other floated
+    /// window is still chord-closable. (3) The pause menu is reached through
+    /// <c>Singleton&lt;ESCMenu&gt;</c> / <see cref="OptionsToggle"/>, which neither consults this
+    /// predicate nor requires any float to close first — and the quest log does not subscribe to
+    /// <c>ESCMenu.OnShown</c> the way <c>NewPartyDisplayUI</c> does, so opening the pause menu
+    /// neither closes it nor is blocked by it. Leaving the map room goes through the pause menu and
+    /// through the room's own teardown, both of which release floats wholesale rather than asking
+    /// this predicate.</para>
     /// </summary>
     internal static bool IsMapRoomPermanent(UIWindow? window) =>
         window != null
         && MapRoom.MapRoomDriver.Active
-        && MapRoomPermanentIds.Contains(window.ID);
+        && (MapRoomPermanentIds.Contains(window.ID) || IsQuestLogWindow(window));
+
+    /// <summary>
+    /// IS THIS WINDOW THE QUEST LOG — asked as an IS-A question on the window's OWN GameObject, for
+    /// the reason <see cref="IsMapRoomHoverCard"/> spells out at length: ModBuild 181/182 shipped
+    /// <c>GetComponentIn{Parent,Children}</c> twice and both times it answered "related to an X"
+    /// when the question was "IS this an X", which flew the whole character UI over an icon.
+    ///
+    /// <para>THE TEST IS <c>window.GetComponent&lt;QuestLogManager&gt;()</c>, AND IT IS EXACT RATHER
+    /// THAN MERELY LIKELY, because the game declares the pairing itself: <c>QuestLogManager</c> is
+    /// <c>[RequireComponent(typeof(UIWindow))]</c> and caches <c>window = GetComponent&lt;UIWindow&gt;()</c>
+    /// in its own <c>Awake</c> (decompiled QuestLogManager.cs:15-16, :59, :67). Unity's RequireComponent
+    /// guarantees the two components share ONE GameObject, so "the UIWindow that has a QuestLogManager
+    /// on it" and "the quest log's window" are the same object by construction, and a GetComponent on
+    /// the window's own GameObject cannot reach any other window's parts.</para>
+    ///
+    /// <para>WHY NOT BY NAME, WHICH IS THE OBVIOUS SHORTCUT AND THE WRONG ONE. The log line that
+    /// found this window reads <c>'Quest Log Manager'</c>, but a name match is fragile in three
+    /// separate ways this project has already been bitten by: the game localises its UI (the user's
+    /// own report names the German group headers 'Weltquests' / 'Abgeschlossene Quests', which are
+    /// <c>GUI_QUEST_GROUP_*</c> translations), Unity appends <c>(Clone)</c> to instantiated copies,
+    /// and a prefab variant may be renamed by an asset update without any code change. A component
+    /// type survives all three. It also survives the ID being <b>None</b>, which is the whole reason
+    /// the ID set could not be used.</para>
+    ///
+    /// <para>SCOPE: this predicate says nothing on its own — it is only ever read through
+    /// <see cref="IsMapRoomPermanent"/>, which additionally requires the map room to be standing. In
+    /// a scenario, on the flat screen, and with VR off, the quest log keeps byte-identical vanilla
+    /// behaviour including its X.</para>
+    /// </summary>
+    internal static bool IsQuestLogWindow(UIWindow? window) =>
+        window != null && window.GetComponent<QuestLogManager>() != null;
+
+    /// <summary>
+    /// Which permanence rule a window matched, phrased for the hardware log so a refusal line names
+    /// the family and its reason rather than asserting "the character screen" for whatever it caught.
+    /// Only meaningful when <see cref="IsMapRoomPermanent"/> is true.
+    /// </summary>
+    internal static string MapRoomPermanentReason(UIWindow? window) =>
+        IsQuestLogWindow(window)
+            ? "it is the QUEST LOG (matched by its own QuestLogManager component, not by name or ID — "
+              + "its UIWindowID is None), which has no X and is not closable in the map room (user "
+              + "ruling). Unlike the character screen this window has no nested UIWindow to strand: "
+              + "the quest popup is a SIBLING under 'Map Canvas/Quest UI', so nothing splits here."
+            : "it is the map room's CHARACTER SCREEN, which has no X and is not closable in this "
+              + "phase (user ruling). Closing it would strand its nested character display as a "
+              + "separate window, which is the split he reported.";
 
     /// <summary>The map room's un-closable screen: the party display and the assembly window it
-    /// carries. See <see cref="IsMapRoomPermanent"/>.</summary>
+    /// carries. The quest log belongs to the same rule but cannot be named here (its ID is None) —
+    /// see <see cref="IsQuestLogWindow"/>.</summary>
     private static readonly HashSet<UIWindowID> MapRoomPermanentIds = new()
     {
         UIWindowID.PartyPanel,

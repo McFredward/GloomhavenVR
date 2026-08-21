@@ -59,6 +59,46 @@
 //                             raises the same edge through CardsDriver.OffScenarioFanSwap.
 //   (d) the wrist plate is MapRoomHand.3.Wrist.cs — see that file's header.
 //
+// ─── MODBUILD 193: ONE CARD, NOT THE WHOLE HAND ───────────────────────────────────────────────
+// USER ASK, VERBATIM (2026-08-21, item 8): "Wenn man eine Karte ändert während man seinen
+// Kartenfächer in der Hand betrachtet soll die Karte per Animation auftauchen oder verschwinden
+// damit der Fächer immer aktuell ist."
+//
+// 192 had exactly ONE update path — <see cref="RebuildFan"/> — and it retires every slab and builds
+// every slab again. For a CHARACTER change that is right (the whole hand really was exchanged, and
+// the exchange wipe is the animation for it). For a single tick in the card-selection screen it is
+// wrong twice over: eleven cards move to report one, and the one card that actually changed is the
+// only thing on screen that does NOT read as an event.
+//
+// SO THE UPDATE IS NOW A DIFF (<see cref="UpdateFanCards"/>), and the two animations it asks for are
+// the SCENARIO'S OWN — the standing ruling for this whole feature is "Es soll sich nicht vom Szenario
+// unterscheiden wie sich die Karten verhalten!", so nothing new was invented:
+//
+//   UNCHANGED → keeps its slab, its printed face and its identity. It is re-published in loadout
+//               order and the fan's own CardFan.SetCards -> Relayout(instant: false) glides it to its
+//               new arc slot. No card is destroyed and rebuilt to make room for another one.
+//   ADDED     → a new VRCard is built by the same BuildCard as any other, published, and the DRIVER
+//               materializes it with VRCard.PlayAppear at the one seam that has already asserted its
+//               home (CardsDriver.6.Flows.MaterializeNewOffScenarioCards). That is verbatim the
+//               "emerge from dust" a scenario plays for a docked action card / a slot occupant that
+//               appears for a newly active character (CardsDriver.4.Rebuild.cs:860 and :880).
+//   REMOVED   → CardsDriver.OffScenarioFanLeave: CardFan.Remove (the fan's own single-card exit —
+//               "remaining cards close the gap", CardFan.cs:460) plus VRCard.Vanish, the
+//               "crumble to dust" a scenario plays for a card that leaves every zone with no pile to
+//               fly to (CardsDriver.4.Rebuild.cs:794). A pile FLIGHT was deliberately not reused:
+//               the map phase has no discard or burnt pile, and inventing a destination would be
+//               inventing an animation.
+//
+// PRECEDENCE, because both edges can land in one poll: A CHARACTER CHANGE ALWAYS WINS. Reconcile
+// routes to RebuildFan (retire-all + BeginSwapOut + SetCards(swap: true)) whenever the resolved
+// CMapCharacter is not the one the fan was built for, whatever else changed in the same tick — the
+// exchange already carries every card of both hands, so a diff on top of it could only fight it.
+//
+// AND A CARD HE IS HOLDING IS NEVER TAKEN OUT OF HIS HAND. The removal pass skips a held slab, keeps
+// it published, and re-runs on the next poll; the card leaves with the ordinary crumble the moment he
+// lets go. This is the same standing rule CardFan.StampMembership and CardFan.BeginSwapOut both
+// state from their side ("while a card IsHeld this code writes nothing a hold depends on").
+//
 // ─── THE INSPECTION-ONLY GUARANTEE, IN ITS NEW SHAPE ──────────────────────────────────────────
 // USER RULING: "Zwar kann man sonst nicht damit interagieren, aber so kann man sich die aktuell
 // ausgewählten Karten vor einem Szenario nochmal anschauen."
@@ -166,6 +206,12 @@ internal sealed partial class MapRoomHand
     /// why the print is deferred and not done at build time.</summary>
     private readonly List<RemoteCardArt?> _faces = new(MaxCards);
 
+    /// <summary>
+    /// The fade handle on each printed face, index-aligned with <see cref="_faces"/> — see
+    /// <see cref="TryCaptureFaceGroup"/> for why this exists at all and what the real fix is.
+    /// </summary>
+    private readonly List<CanvasGroup?> _faceGroups = new(MaxCards);
+
     /// <summary>One-shot per card set: the "faces printed" line has been emitted. Reset by every
     /// rebuild, so a hardware log gets exactly one such line per character.</summary>
     private bool _facesLogged;
@@ -187,6 +233,152 @@ internal sealed partial class MapRoomHand
     }
 
     private readonly List<Retired> _retired = new(MaxCards);
+
+    /// <summary>
+    /// How long a card removed by a SINGLE-CARD diff is kept alive. Long enough for the whole
+    /// crumble (<c>VRCard.DockVanishSeconds</c>) plus a comfortable margin, and no longer: unlike
+    /// the character exchange there is no wave to wait for, and the card hides itself the instant
+    /// its own vanish ends (the completion callback in
+    /// <c>CardsDriver.LeaveOffScenarioFan</c>), so this bound only ever decides when the invisible
+    /// object is freed. A card the player is HOLDING re-arms it in <see cref="SweepRetired"/>, as
+    /// every other retirement does.
+    /// </summary>
+    private static float LeaveGraceSeconds => VRCard.DockVanishSeconds + 0.25f;
+
+    // ---- diff scratch (see UpdateFanCards). Instance-owned and REUSED: the diff runs at the poll
+    //      rate — 20 Hz while the fan is up — and a per-poll allocation in a path that frequent is
+    //      exactly the kind of thing that later shows up in a frame-time capture.
+    private readonly List<VRCard> _diffCards = new(MaxCards);
+    private readonly List<CAbilityCard> _diffModels = new(MaxCards);
+    private readonly List<RemoteCardArt?> _diffFaces = new(MaxCards);
+    private readonly List<CanvasGroup?> _diffGroups = new(MaxCards);
+    private readonly List<bool> _diffClaimed = new(MaxCards);
+    private readonly List<int> _diffAdded = new(MaxCards);
+    private readonly List<int> _diffRemoved = new(MaxCards);
+    private readonly List<int> _diffDeferred = new(MaxCards);
+
+    /// <summary>
+    /// A card left the loadout while the player was HOLDING it, so its removal was deferred rather
+    /// than performed under his hand. While this is set the poll re-runs the diff even when the
+    /// loadout signature has not moved — otherwise the retirement would wait for the NEXT edit,
+    /// which may never come.
+    /// </summary>
+    private bool _deferredLeave;
+
+    // ==========================================================================================
+    //  THE PRINTED FACE'S FADE — and the cross-file defect it works around
+    // ==========================================================================================
+    //
+    // READ THIS BEFORE TOUCHING ANY OF IT. <c>VRCard.Vanish</c> and <c>VRCard.PlayAppear</c> — the
+    // two animations ModBuild 193 reuses — carry the card visually with TWO writes: they hide the
+    // backing slab's Renderers (VRCard.SetBodyVisible) and they fade the card's ART
+    // (VRCard.SetVisualAlpha, a CanvasGroup on VRCard's OWN "FaceCanvas" child). That is complete
+    // for a SCENARIO card, whose face is the game's real AbilityCardUI ADOPTED INTO that very canvas
+    // (VRCard.AttachGameCard -> CardFace.Adopt(card, _canvasRect)).
+    //
+    // IT IS NOT COMPLETE FOR A MAP-ROOM CARD. This feature never calls AttachGameCard — that is the
+    // whole basis of the inspection-only guarantee — so VRCard's FaceCanvas is EMPTY here and the
+    // visible front is a <c>Net.RemoteCardArt</c> clone hosted on a SIBLING world-space canvas
+    // parented to the card transform, which VRCard's CanvasGroup cannot reach. Left alone, a leaving
+    // map card would hide its slab, puff its dust, and keep a 100 % opaque printed front standing
+    // for the whole 0.30 s crumble — and then cut to nothing when the vanish's completion callback
+    // hides it. A hard cut is exactly the "popping is unacceptable" the animation exists to remove.
+    //
+    // THE REAL FIX IS ONE LINE AND IT IS NOT IN THIS LANE'S FILES: VRCard.SetVisualAlpha should
+    // apply its CanvasGroup to every canvas under the card (or VRCard should expose a fade the face
+    // provider can hook), so ANY face mechanism follows the card's own animation. That is
+    // Cards/VRCard.cs, which this lane does not own — see this lane's report.
+    //
+    // THE LOCAL WORKAROUND, which is what the code below is: this file already OWNS the moment each
+    // face is created, so it puts a CanvasGroup on that face's host itself and drives it with the
+    // same curve (VRCard.SmootherStep over VRCard.DockAppearSeconds / DockVanishSeconds). Every
+    // printed face fades IN — which is also strictly better than the pop the pooled borrow used to
+    // land with — and a face on a leaving card fades OUT with its card's crumble.
+
+    /// <summary>One running face fade. Independent of the card lists on purpose: a diff reorders
+    /// those every poll, and a fade that had to be re-indexed with them would be one more lockstep
+    /// invariant to get wrong.</summary>
+    private readonly struct FaceFade
+    {
+        internal FaceFade(CanvasGroup group, float start, float duration, bool fadeIn)
+        {
+            Group = group;
+            Start = start;
+            Duration = duration;
+            FadeIn = fadeIn;
+        }
+
+        internal CanvasGroup Group { get; }
+        internal float Start { get; }
+        internal float Duration { get; }
+        internal bool FadeIn { get; }
+    }
+
+    private readonly List<FaceFade> _faceFades = new(MaxCards);
+
+    /// <summary>
+    /// The <see cref="CanvasGroup"/> that fades <paramref name="card"/>'s printed front, created on
+    /// the host <c>Net.RemoteCardArt</c> just parented under the card. Null when no host appeared
+    /// (then there is nothing to fade and the caller degrades to no fade at all).
+    ///
+    /// <para>WHY THE HOST IS FOUND BY POSITION AND NOT BY NAME: <c>RemoteCardArt.EnsureHost</c>
+    /// parents exactly ONE new GameObject to the slab (its clone goes under THAT, never under the
+    /// card), so the child that appeared across the print IS the host. Matching on its name would
+    /// couple this file to a private literal in another file for no extra safety; the Canvas check
+    /// below is the real assertion, and a miss simply means no fade.</para>
+    /// </summary>
+    private static CanvasGroup? TryCaptureFaceGroup(VRCard card, int childrenBefore)
+    {
+        Transform t = card.transform;
+        if (t.childCount <= childrenBefore)
+            return null;
+        Transform host = t.GetChild(t.childCount - 1);
+        if (host == null || host.GetComponent<Canvas>() == null)
+            return null;
+        CanvasGroup group = host.GetComponent<CanvasGroup>();
+        if (group == null)
+            group = host.gameObject.AddComponent<CanvasGroup>();
+        return group;
+    }
+
+    /// <summary>Arm a fade on one face. A null group (no host, or a destroyed one) is a no-op, which
+    /// is how every path here degrades: no fade, never an exception.</summary>
+    private void ArmFaceFade(CanvasGroup? group, bool fadeIn, float duration)
+    {
+        if (group == null)
+            return;
+        group.alpha = fadeIn ? 0f : 1f;
+        for (int i = _faceFades.Count - 1; i >= 0; i--)
+        {
+            if (ReferenceEquals(_faceFades[i].Group, group))
+                _faceFades.RemoveAt(i);   // one fade per face; a new one supersedes
+        }
+        _faceFades.Add(new FaceFade(group, Time.unscaledTime, Mathf.Max(0.01f, duration), fadeIn));
+    }
+
+    /// <summary>Advance every running face fade. Allocation-free; a group whose card was destroyed
+    /// drops out silently (a destroyed component compares equal to null).</summary>
+    private void TickFaceFades()
+    {
+        if (_faceFades.Count == 0)
+            return;
+        float now = Time.unscaledTime;
+        for (int i = _faceFades.Count - 1; i >= 0; i--)
+        {
+            FaceFade fade = _faceFades[i];
+            CanvasGroup group = fade.Group;
+            if (group == null)
+            {
+                _faceFades.RemoveAt(i);
+                continue;
+            }
+            float t = Mathf.Clamp01((now - fade.Start) / fade.Duration);
+            float s = VRCard.SmootherStep(t);
+            group.alpha = fade.FadeIn ? s : 1f - s;
+            if (t >= 1f)
+                _faceFades.RemoveAt(i);
+        }
+    }
 
     /// <summary>Cards parked under this while they wait for the fan to adopt them. INACTIVE, and
     /// that is the point: a card created straight into the world would be visible at the rig origin
@@ -249,9 +441,316 @@ internal sealed partial class MapRoomHand
             _cards.Add(card);
             _cardModels.Add(model);
             _faces.Add(null);   // printed on the first frame the card is active — see TickFan
+            _faceGroups.Add(null);
         }
 
         Publish(swap);
+    }
+
+    // ==========================================================================================
+    //  THE SINGLE-CARD DIFF (ModBuild 193 — see this file's header for the ruling it serves)
+    // ==========================================================================================
+
+    /// <summary>
+    /// Bring the standing fan up to date with <see cref="_loadout"/> WITHOUT rebuilding it: compare
+    /// by card identity, keep every slab that is still wanted, and animate only the difference.
+    /// Called from <see cref="Reconcile"/> for a loadout edit on the character the fan is already
+    /// showing; a CHARACTER change goes to <see cref="RebuildFan"/> instead and always wins.
+    ///
+    /// <para>WHY IDENTITY AND NOT POSITION. <c>CMapCharacter.HandAbilityCardIDs</c> is mutated IN
+    /// PLACE by the game's own screen (UIPartyCharacterAbilityCardsDisplay.OnAbilityCardSelect
+    /// appends at :536, OnAbilityCardDeselect removes at :558), so every card after a removal
+    /// changes index without changing identity. A positional diff would report the whole tail as
+    /// "changed" and animate eleven cards to report one — precisely the failure this replaces.</para>
+    ///
+    /// <para>THE PASSES, in this order because the second depends on the first:
+    /// <list type="number">
+    /// <item>BUILD THE NEW SET IN LOADOUT ORDER. Each wanted ID claims the first unclaimed slab that
+    /// carries it (so a duplicate ID, which the game does not produce today, cannot claim one slab
+    /// twice); an unclaimed ID gets a brand-new <see cref="BuildCard"/>. The card's PLACE therefore
+    /// follows the player's own selection order, exactly as <see cref="RebuildFan"/> does.</item>
+    /// <item>EVERY UNCLAIMED SLAB HAS LEFT. It is handed to <c>CardsDriver.OffScenarioFanLeave</c>
+    /// (fan exit + crumble) and retired — unless the player is HOLDING it, in which case it stays
+    /// published and the diff runs again on the next poll.</item>
+    /// </list></para>
+    ///
+    /// <para>NOTHING IS PUBLISHED WHEN NOTHING MOVED. A retry poll that finds the same set returns
+    /// before it touches the driver, so the deferred-removal retry cannot turn into a rebuild
+    /// request every 50 ms.</para>
+    /// </summary>
+    private void UpdateFanCards()
+    {
+        _deferredLeave = false;
+
+        // THE LOCKSTEP THE WHOLE PASS ASSUMES, checked BEFORE anything has a side effect. Every
+        // append to these four lists is paired, so they can only disagree if a future edit breaks
+        // the pairing — and the failure mode of a silent misalignment is the wrong art on the wrong
+        // card, which is precisely why _cardModels is not an index into _loadout in the first place.
+        if (_cardModels.Count != _cards.Count || _faces.Count != _cards.Count
+            || _faceGroups.Count != _cards.Count)
+        {
+            VRLog.Warn(Scope, "MAP-ROOM HAND: the card/model/face lists are out of lockstep "
+                + $"({_cards.Count}/{_cardModels.Count}/{_faces.Count}/{_faceGroups.Count}), so the "
+                + "single-card diff was REFUSED and the whole hand is rebuilt instead. CONSEQUENCE: "
+                + "this one loadout edit plays the character-exchange animation rather than a single "
+                + "card joining or leaving; nothing is lost and nothing is left standing. If this "
+                + "line ever appears, a paired append was missed in MapRoomHand.2.Fan.");
+            RebuildFan();
+            return;
+        }
+
+        int have = _cards.Count;
+        int want = _loadout.Count;
+
+        _diffClaimed.Clear();
+        for (int i = 0; i < have; i++)
+            _diffClaimed.Add(false);
+        _diffCards.Clear();
+        _diffModels.Clear();
+        _diffFaces.Clear();
+        _diffGroups.Clear();
+        _diffAdded.Clear();
+        _diffRemoved.Clear();
+        _diffDeferred.Clear();
+
+        Transform holder = Holder();
+        GameObject? backing = CardsDriver.CardBackingPrefab;
+
+        // (1) THE NEW SET, IN LOADOUT ORDER.
+        for (int j = 0; j < want; j++)
+        {
+            CAbilityCard model = _loadout[j];
+            if (model == null)
+                continue;
+            int claim = -1;
+            for (int i = 0; i < have; i++)
+            {
+                CAbilityCard mine = _cardModels[i];
+                if (_diffClaimed[i] || _cards[i] == null || mine == null || mine.ID != model.ID)
+                    continue;
+                claim = i;
+                break;
+            }
+            if (claim >= 0)
+            {
+                _diffClaimed[claim] = true;
+                _diffCards.Add(_cards[claim]);
+                _diffModels.Add(_cardModels[claim]);
+                _diffFaces.Add(_faces[claim]);
+                _diffGroups.Add(_faceGroups[claim]);
+                continue;
+            }
+            VRCard? card = BuildCard(_diffCards.Count, model, holder, backing);
+            if (card == null)
+                continue;   // BuildCard has already warned and named the consequence
+            _diffCards.Add(card);
+            _diffModels.Add(model);
+            _diffFaces.Add(null);   // printed by PrintPendingFaces on its first visible frame
+            _diffGroups.Add(null);
+            _diffAdded.Add(model.ID);
+        }
+
+        // (2) EVERYTHING UNCLAIMED HAS LEFT THE LOADOUT.
+        for (int i = 0; i < have; i++)
+        {
+            if (_diffClaimed[i])
+                continue;
+            VRCard card = _cards[i];
+            RemoteCardArt? face = _faces[i];
+            CanvasGroup? group = _faceGroups[i];
+            CAbilityCard model = _cardModels[i];
+            // The id goes through IdOf rather than a null test HERE on purpose: the element is
+            // DECLARED non-nullable (both writers refuse a null model), and testing the local would
+            // narrow it, turning the lockstep Add below into a nullable-warning site with no
+            // meaningful model to substitute. IdOf carries the belt without touching this local.
+            int id = IdOf(model);
+            if (card == null)
+            {
+                face?.Destroy();
+                continue;
+            }
+            if (card.IsHeld)
+            {
+                // NEVER OUT OF HIS HAND. He lifted this card to read it (CardFan.FanMode.Inspect)
+                // and the menu behind him just deselected it; taking it away mid-look is the one
+                // thing this feature may not do. It stays a published fan card — CardFan.
+                // StampMembership writes nothing to a held card except the InspectOnly tightening —
+                // and the retry below removes it the moment he lets go. Appended at the END of the
+                // new set because it no longer HAS a place in the loadout; that index is never used
+                // while it is held (every layout loop in CardFan skips IsHeld).
+                _deferredLeave = true;
+                _diffDeferred.Add(id);
+                _diffCards.Add(card);
+                _diffModels.Add(model);
+                _diffFaces.Add(face);
+                _diffGroups.Add(group);
+                continue;
+            }
+            _diffRemoved.Add(id);
+            // THE SCENARIO'S OWN LEAVE PATH: CardFan.Remove (the survivors glide the gap shut) plus
+            // VRCard.Vanish (crumble to dust, in place, no slide and no re-orient) — and the printed
+            // front fades with it, which VRCard's own art fade cannot do here (see the face-fade
+            // region's header for the cross-file defect that stands behind this line).
+            ArmFaceFade(group, fadeIn: false, VRCard.DockVanishSeconds);
+            CardsDriver.OffScenarioFanLeave(card);
+            _retired.Add(new Retired(card, face, Time.unscaledTime + LeaveGraceSeconds));
+        }
+
+        bool changed = _diffAdded.Count > 0 || _diffRemoved.Count > 0
+                       || _diffCards.Count != _cards.Count;
+        if (!changed)
+        {
+            for (int i = 0; i < _diffCards.Count; i++)
+            {
+                if (!ReferenceEquals(_diffCards[i], _cards[i]))
+                {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if (!changed)
+            return;   // a deferred-removal retry with nothing to do: do not disturb the driver
+
+        bool wasOpen = CardsDriver.OffScenarioFanIsOpen;
+        bool exchanging = CardsDriver.OffScenarioFanExchanging;
+
+        // NAMED BEFORE THE COMMIT, and that ordering is load-bearing: NameOf reads _loadout (which
+        // holds the ids that JOINED) and _cardModels (which still holds the ones that LEFT). One
+        // line further down _cardModels becomes the new set and the removed cards' names are gone.
+        string addedNames = Ids(_diffAdded);
+        string removedNames = Ids(_diffRemoved);
+        string deferredNames = Ids(_diffDeferred);
+
+        _cards.Clear();
+        _cards.AddRange(_diffCards);
+        _cardModels.Clear();
+        _cardModels.AddRange(_diffModels);
+        _faces.Clear();
+        _faces.AddRange(_diffFaces);
+        _faceGroups.Clear();
+        _faceGroups.AddRange(_diffGroups);
+        _frontsShown = 0;
+        for (int i = 0; i < _faces.Count; i++)
+        {
+            if (_faces[i] != null)
+                _frontsShown++;
+        }
+        if (_diffAdded.Count > 0)
+        {
+            // The new slab must show its REAL front, not a card back, while it materializes: arm
+            // the printer for the very next tick instead of waiting out its 5 Hz cadence.
+            _facesLogged = false;
+            _nextFacePrintAt = 0f;
+        }
+
+        // NEVER swap: the exchange is the CHARACTER edge and nothing else (see Reconcile's
+        // precedence). The driver plays the join animation itself, at the seam that has already
+        // asserted the new card's home.
+        Publish(swap: false);
+        LogDiff(addedNames, removedNames, deferredNames, wasOpen, exchanging);
+    }
+
+    /// <summary>
+    /// THE DIFF LINE. One per edit that actually moved something, written so a hardware log can be
+    /// judged on the user's ask directly: what joined, what left, which animation each one took,
+    /// how stale the fan could have been, and whether he was looking at it at the time.
+    /// </summary>
+    private void LogDiff(string added, string removed, string deferred, bool wasOpen, bool exchanging)
+    {
+        float window = Time.unscaledTime - _lastPollAt;
+
+        VRLog.Info(Scope,
+            "MAP-ROOM HAND DIFF (a loadout edit, NOT a character change).\n"
+            + $"  added    : {added} -> "
+            + (_diffAdded.Count == 0 ? "nothing joined"
+               : wasOpen && !exchanging
+                   ? "VRCard.PlayAppear, the scenario's own dust MATERIALIZE "
+                     + $"({VRCard.DockAppearSeconds:F2}s), played by the driver once CardFan.SetCards "
+                     + "asserted the card's arc home. Grep 'Off-scenario fan JOIN' for the driver's "
+                     + "own confirmation of the same event."
+                   : "NO join animation: " + (exchanging
+                       ? "a character exchange is still in the air and owns every card's pose"
+                       : "the fan was CLOSED, so the palm-gate reveal owns the entrance instead")
+                     + " — the card is in the fan either way.")
+            + "\n"
+            + $"  removed  : {removed} -> "
+            + (_diffRemoved.Count == 0 ? "nothing left"
+               : "CardFan.Remove (the survivors GLIDE the gap shut) + VRCard.Vanish, the scenario's "
+                 + $"own dust CRUMBLE ({VRCard.DockVanishSeconds:F2}s) in place — no slide, no "
+                 + "re-orient. The slab is freed "
+                 + $"{LeaveGraceSeconds:F2}s later by SweepRetired, long after it is invisible.")
+            + "\n"
+            + $"  held back: {deferred} — a card the player is HOLDING is never removed under his "
+            + "hand. It stays a published fan card and leaves with the ordinary crumble on the poll "
+            + "after he lets go. Empty is the normal case.\n"
+            + $"  kept     : {_cards.Count - _diffAdded.Count} card(s) keep their slab, their printed "
+            + "face and their identity; they only re-lay out around the change "
+            + "(CardFan.SetCards -> Relayout(instant: false), the same glide any hand-fan change "
+            + "uses). NOTHING WAS REBUILT — that is the whole point of this path.\n"
+            + $"  fan open : {(wasOpen ? "YES — he is looking at it, so the animations above are the ones he sees"
+                                       : "no — his palm is down; the fan is CURRENT the moment he raises it")}\n"
+            + $"  latency  : <= {window * 1000f:F0} ms (the poll window that caught this edit; the "
+            + "poll runs at 20 Hz while the fan is OPEN and 4 Hz while it is down — there is no event "
+            + "to subscribe to, UIPartyCharacterAbilityCardsDisplay mutates HandAbilityCardIDs in "
+            + "place and raises nothing).\n"
+            + "  wire     : NOTHING. Card identity never goes on the wire. The only observable is "
+            + "PresenceState.HandCardCount, which follows the fan's count — so a peer sees our fan of "
+            + "card BACKS gain or lose one back as the animation STARTS, up to ~0.3 s before it "
+            + "finishes here. RemoteHandFan still gates every front on RevealGate.InScenario, false "
+            + "on the map.\n"
+            + "  DISPROOF : the card appears/disappears with no animation -> the driver's own JOIN "
+            + "line is missing and 'fan open' above says no. The WRONG card animates -> the match is "
+            + "by CAbilityCard.ID, so read the ids above against the party screen. A card the player "
+            + "was holding vanished out of his hand -> 'held back' would have named it and did not.");
+    }
+
+    /// <summary>A model's card id, or -1 for the null that <see cref="_cardModels"/> is not supposed
+    /// to be able to hold. See its one call site for why the check lives here.</summary>
+    private static int IdOf(CAbilityCard? model) => model != null ? model.ID : -1;
+
+    /// <summary>Render a diff bucket for the log: ids with the game's own card names where they can
+    /// be read. <c>CBaseCard.Name</c> is a guarded YML lookup that returns an empty string rather
+    /// than throwing, but it is wrapped anyway — this runs inside the map room's tick.</summary>
+    private string Ids(List<int> ids)
+    {
+        if (ids.Count == 0)
+            return "none";
+        var sb = new System.Text.StringBuilder(64);
+        for (int i = 0; i < ids.Count; i++)
+        {
+            if (i > 0)
+                sb.Append(", ");
+            sb.Append('#').Append(ids[i]);
+            string? name = NameOf(ids[i]);
+            if (!string.IsNullOrEmpty(name))
+                sb.Append(" '").Append(name).Append('\'');
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>The card's own name, or null. Looked up in <see cref="_loadout"/> first (the ids we
+    /// just added are there) and then in <see cref="_cardModels"/> (the ids we just removed are).</summary>
+    private string? NameOf(int id)
+    {
+        try
+        {
+            for (int i = 0; i < _loadout.Count; i++)
+            {
+                if (_loadout[i] != null && _loadout[i].ID == id)
+                    return _loadout[i].StrictName;
+            }
+            for (int i = 0; i < _cardModels.Count; i++)
+            {
+                if (_cardModels[i] != null && _cardModels[i].ID == id)
+                    return _cardModels[i].StrictName;
+            }
+        }
+        catch (System.Exception)
+        {
+            // A card whose YML row is missing is not worth a line of its own — the ID is in the log.
+        }
+        return null;
     }
 
     /// <summary>
@@ -335,6 +834,7 @@ internal sealed partial class MapRoomHand
     private void TickFan()
     {
         PrintPendingFaces();
+        TickFaceFades();
         for (int i = 0; i < _faces.Count; i++)
             _faces[i]?.MaintainMipBake();
         for (int i = 0; i < _retired.Count; i++)
@@ -384,6 +884,9 @@ internal sealed partial class MapRoomHand
                 continue;
             try
             {
+                // Child count BEFORE the print: RemoteCardArt parents its host here, and that is
+                // how the fade handle is captured — see TryCaptureFaceGroup.
+                int childrenBefore = card.transform.childCount;
                 var art = new RemoteCardArt(card.transform, CardWidthMeters, CardHeightMeters);
                 // actor: null forces the POOLED path. There is no CPlayerActor in the map phase at
                 // all — CMapCharacter.GetActor() (CMapCharacter.cs:1116) reads
@@ -398,6 +901,17 @@ internal sealed partial class MapRoomHand
                     continue;   // stays a card BACK, and will be retried next frame
                 }
                 _faces[i] = art;
+                // FADE IT IN rather than let the pooled borrow land at full opacity. This is the
+                // scenario's own materialize duration, and it covers three cases with one rule:
+                // the first reveal (the faces used to POP in at 5 Hz as the borrows landed), a card
+                // arriving in a character exchange, and — the case ModBuild 193 exists for — a card
+                // JOINING the hand, whose slab is hidden and whose dust is converging while this
+                // runs. See the region header for the cross-file defect this stands in for.
+                if (i < _faceGroups.Count)
+                {
+                    _faceGroups[i] = TryCaptureFaceGroup(card, childrenBefore);
+                    ArmFaceFade(_faceGroups[i], fadeIn: true, VRCard.DockAppearSeconds);
+                }
                 _frontsShown++;
             }
             catch (System.Exception ex)
@@ -460,9 +974,14 @@ internal sealed partial class MapRoomHand
         _cards.Clear();
         _cardModels.Clear();
         _faces.Clear();
+        _faceGroups.Clear();
         _frontsShown = 0;
         _facesLogged = false;
         _nextFacePrintAt = 0f;   // the new set may print in the very next frame
+        // A whole-hand retirement supersedes any single-card removal that was waiting for the
+        // player to let go: the card it was waiting on is in _retired now, and SweepRetired keeps
+        // re-arming its grace for exactly as long as the hold lasts.
+        _deferredLeave = false;
     }
 
     /// <summary>
@@ -549,6 +1068,7 @@ internal sealed partial class MapRoomHand
                 entry.Face?.Destroy();
         }
         _retired.Clear();
+        _faceFades.Clear();   // every group they pointed at died with its card
 
         if (_holder != null)
         {

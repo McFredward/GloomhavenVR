@@ -329,6 +329,33 @@ internal static partial class VROptionsTab
                         new("MapRoom", "IconScale", ""),
                         new("MapRoom", "CityIconScale", ""),
                         new("MapRoom", "GloomhavenIconScale", ""),
+                        // AND THE TWO THINGS ON THE MAP THAT ARE NOT SYMBOLS (ModBuild 194, user:
+                        // "Ich will auch die Größe des Markers wo man sich befindet sowie des
+                        // eingezeichneten Weges von einem zum anderen Punkt einstellen können").
+                        // They belong on this page for the same reason the three above do — a size
+                        // dial is tuned by looking at the map and stepping the value, which needs
+                        // the rows to be reachable while the map room is up. Placed AFTER the icons
+                        // rather than interleaved: the icons are one family that is compared against
+                        // each other, and dropping two unrelated objects between them would break
+                        // exactly the comparison the previous report asked for. Marker before route
+                        // because that is the order of the sentence he asked in, and because the
+                        // marker is what you look at first on a map you have just opened.
+                        //
+                        // Empty caption keys, same argument as the block above: the localized names
+                        // ("Karte 3D: Gruppen-Marker" / "Karte 3D: Wegbreite") and the German
+                        // descriptions carry the row.
+                        new("MapRoom", "PartyMarkerScale", ""),
+                        new("MapRoom", "PathWidthScale", ""),
+                        // THE TRAVEL-CONFIRM BUTTON'S TWO PLACEMENT DIALS (ModBuild 194). He asked
+                        // for them BY NAME and BY PLACE: "Geb mir dann im debug menu die offsets um
+                        // ihm zu verschieben - ich stell es selber ein." THREE solved placements
+                        // were rejected in a row (191/192/193), so the mod ships the ModBuild 190
+                        // pose — which both defaults of 0 reproduce exactly — and he does the
+                        // moving. A row here is therefore not a nicety: without it the dials sit in
+                        // the raw catalog and the ruling is not delivered. Sideways first, then
+                        // height — the order of the log line he tunes from.
+                        new("WorldUI", "TravelButtonOffsetXWindowHeights", ""),
+                        new("WorldUI", "TravelButtonOffsetYWindowHeights", ""),
                         // ELEMENT MOOD — the environment's answer to the element infusions. Sits
                         // directly under the environment choice because that is what it acts on,
                         // and the strength dial folds under the toggle (VROptionsTab.8.Dependencies).

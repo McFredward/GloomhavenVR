@@ -38,6 +38,13 @@ namespace GloomhavenVR.WorldUI.Patches;
 /// <item><description>THE ATTRIBUTION (<see cref="NoteShopHover"/> and friends). Every hover on a
 /// tooltip-bearing SLOT is reported, so a hover that raises nothing at all becomes one logged
 /// verdict with a census instead of silence.</description></item>
+/// <item><description>THE REPLACEMENT (<see cref="PlaceAbilityCardPreview"/>, ModBuild 194). The
+/// ability-card loadout screen's hover preview is not a tooltip at all — it is the card's own
+/// <c>FullAbilityCard</c> child — and its broken term is an ABSOLUTE world-position ASSIGNMENT
+/// rather than an added helper, so there is nothing to return zero for. That one method is skipped
+/// for cards on a floated window and the game's own pixel offset is rebuilt in the window's basis
+/// instead. Two companions go with it: the RELEASE on the hide edge (the owner is a pooled row) and
+/// the same ATTRIBUTION as above.</description></item>
 /// </list>
 ///
 /// <para>REVERSIBLE / VANILLA-SAFE: every entry point returns immediately unless
@@ -216,4 +223,86 @@ internal static class TooltipWindowPatches
     [HarmonyPatch(typeof(UITempleShopSlot), nameof(UITempleShopSlot.Deselect))]
     private static void NoteTempleUnhover(UITempleShopSlot __instance) =>
         TooltipOnWindow.NoteSlotHover(__instance, "UITempleShopSlot (temple blessing)", hovered: false);
+
+    // ---- THE ABILITY-CARD HOVER PREVIEW (the third family) ------------------------------------
+    //
+    // The whole diagnosis — including which of the two prior fixes reached this widget and which did
+    // not, both read off the ModBuild-193 hardware log rather than assumed — lives in
+    // TooltipOnWindow's class doc. Three seams, mirroring the three above: the REPLACEMENT (the
+    // broken term here is an assignment, so it is skipped and rebuilt rather than zeroed), the
+    // RELEASE (the owner is a pooled row, so the raise must be handed back on the hide edge), and
+    // the ATTRIBUTION (a card hover that shows nothing must be a logged verdict, not silence).
+
+    /// <summary>The game's own offset for the big card, in CANVAS PIXELS, read verbatim off
+    /// <c>AbilityCardUI.ChangeFullCardPosition</c> (AbilityCardUI.cs:1074:
+    /// <c>new Vector3(base.transform.position.x + 40f, base.transform.position.y - 45f)</c>). Kept as
+    /// named constants rather than folded into the mod's own numbers, because the INTENT is the
+    /// game's and only the BASIS was wrong: if a game update moves the preview, these two values are
+    /// the single place that has to follow.</summary>
+    private const float FullCardOffsetXPixels = 40f;
+
+    /// <summary>See <see cref="FullCardOffsetXPixels"/>. Negative: the game subtracts 45.</summary>
+    private const float FullCardOffsetYPixels = -45f;
+
+    /// <summary>
+    /// <c>AbilityCardUI.ChangeFullCardPosition()</c> — the ability-card loadout screen's hover
+    /// preview, and the widget the 2026-08-21 card-menu report is about. PREFIX, and it SKIPS the
+    /// original for cards on a floated window: the method's first act is an ABSOLUTE world-position
+    /// assignment (AbilityCardUI.cs:1074), so unlike the screen-fit helpers there is no delta to
+    /// return zero for — correcting it in a postfix would still let the wrong pose land for a frame,
+    /// and on a 90 Hz stereo display a one-frame teleport of a card-sized object is visible.
+    ///
+    /// <para>Returning <c>true</c> (run the original) is the default and covers every card that is
+    /// NOT inside a floated window — the scenario hand fan, the flat screen, VR off — so
+    /// <c>CardsHandUI</c> and every other <c>AbilityCardUI</c> consumer keeps byte-identical
+    /// behaviour. The ownership test is <c>ModalFallback.FindOwningWindow</c> inside
+    /// <c>PlaceFullCardPreview</c>, the same predicate every other patch in this file is gated on.</para>
+    /// </summary>
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(AbilityCardUI), nameof(AbilityCardUI.ChangeFullCardPosition))]
+    private static bool PlaceAbilityCardPreview(AbilityCardUI __instance)
+    {
+        if (__instance == null || __instance.fullAbilityCard == null)
+            return true;
+        return !TooltipOnWindow.PlaceFullCardPreview(
+            __instance, __instance.fullAbilityCard,
+            FullCardOffsetXPixels, FullCardOffsetYPixels,
+            "FullAbilityCard (ability-card hover preview)");
+    }
+
+    /// <summary>
+    /// <c>AbilityCardUI.ToggleFullCardPreview(bool, Transform)</c> — BOTH the hide edge and the
+    /// attribution seam, in one postfix because both want the same moment.
+    ///
+    /// <para>THE RELEASE (hide edge). Postfix, so it is the last thing that happens on an un-hover,
+    /// and it hands the raise back (parent, sibling index, anchors, pivot, anchored position, local
+    /// scale) while the widget is still ours. This matters more than for the tooltip families
+    /// because the OWNER IS POOLED: <c>ObjectPool.RecycleCard</c> recycles the card ROW, and a
+    /// preview left parented to the window's content root would outlive it there. A no-op for a
+    /// widget that was never raised, so it costs one list scan per un-hover and nothing else.</para>
+    ///
+    /// <para>THE ATTRIBUTION, AND WHY IT IS HERE RATHER THAN ON <c>OnPointerEnter</c>. The obvious
+    /// seam for "the player hovered a card" is <c>AbilityCardUI.OnPointerEnter</c> (AbilityCardUI.cs:374,
+    /// wired from the prefab's <c>ExtendedButton.onMouseEnter</c> UnityEvent). It is the WRONG one
+    /// for the silent-hover watch: that method DELIBERATELY declines to preview in several modes
+    /// (<c>ActionSelection</c>, <c>Preview</c>, <c>alwaysShowFullCard</c>,
+    /// <c>isInFurtherAbilityPanel</c>, AbilityCardUI.cs:376-389), and a hover that was never meant
+    /// to show anything would then be reported as a hover that FAILED to show something — a false
+    /// verdict, which is worse than no verdict. <c>ToggleFullCardPreview</c> runs only once the game
+    /// has decided a preview IS wanted, so a silent-hover warning raised from here always means a
+    /// preview was genuinely requested and genuinely did not appear.</para>
+    /// </summary>
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(AbilityCardUI), nameof(AbilityCardUI.ToggleFullCardPreview))]
+    private static void ReleaseAbilityCardPreview(AbilityCardUI __instance, bool isHighlighted)
+    {
+        if (__instance == null)
+            return;
+        TooltipOnWindow.NoteSlotHover(__instance, "AbilityCardUI (ability-card loadout row)",
+            isHighlighted);
+        if (isHighlighted)
+            return;
+        TooltipOnWindow.ReleaseRaiseOf(__instance.fullAbilityCard,
+            "the ability-card hover preview was hidden — the pointer left the card row");
+    }
 }

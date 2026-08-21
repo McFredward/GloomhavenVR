@@ -177,6 +177,68 @@ namespace GloomhavenVR.WorldUI;
 /// — for the same reason <see cref="WorldTooltips.ResolveHostOwner"/> is: a widget that belongs to
 /// no floated window (the flat screen, a board surface, a scenario canvas) is left EXACTLY as the
 /// game left it, screen fit and all.</para>
+///
+/// <para>=====================================================================================</para>
+///
+/// <para>THE THIRD FAMILY, AND IT IS NOT A TOOLTIP AT ALL (ModBuild 194). User report, verbatim:
+/// <i>"Wenn ich das Kartenmenü eines Characters in der UI aufmache werden die mouseover Karten nicht
+/// richtig angezeigt, in dem Menü in dem man die Karten umstellen kann, was man auswählt und was
+/// nicht. Gewährleiste das hier die mouseovers funktionieren."</i> That screen is
+/// <c>UIPartyCharacterAbilityCardsDisplay</c>, and THE FIRST QUESTION WAS WHETHER ITS HOVER POPUP
+/// GOES THROUGH EITHER MECHANISM ABOVE. It does not, and it is not a popup either: hovering a row
+/// switches on the card's OWN <c>FullAbilityCard</c> child (<c>AbilityCardUI.OnPointerEnter</c> →
+/// <c>ToggleFullCardPreview(true, fullCardHolder)</c>, AbilityCardUI.cs:393 / :1031). There is no
+/// shared instance, no <c>UITooltip</c>, no <c>UILocalTooltip</c>: <see cref="WorldTooltips"/> never
+/// sees it and the family table below never matched it.</para>
+///
+/// <para>SO WHICH OF THE TWO PRIOR FIXES REACHED IT, MEASURED RATHER THAN ASSUMED — the ModBuild-193
+/// hardware log answers both halves on its own lines:</para>
+/// <list type="number">
+/// <item><description>THE 190 CUT DID REACH IT, AND IT WAS NOT ENOUGH. Player.log line 14493:
+/// <c>SCREEN-FIT CUT: … 'DeltaWorldPositionToFitTheScreen(camera, marginX, marginY)' … 'Full' (other
+/// floated-window content) … inside the floated window 'GloomhavenVR.Panel_Modal_New Party display'</c>.
+/// The two-margin overload is <c>AbilityCardUI.cs:1075</c>, so the cut fired — the prefix is on the
+/// extension method and is blind to which family asked. But the cut only zeroes the DELTA that is
+/// ADDED afterwards, and the line BEFORE it is the real damage:
+/// <c>fullAbilityCard.transform.position = new Vector3(base.transform.position.x + 40f,
+/// base.transform.position.y - 45f)</c> (AbilityCardUI.cs:1074). That is an ABSOLUTE WORLD position
+/// built from two pixel-sized constants along the WORLD x/y axes — and a two-argument
+/// <c>Vector3</c> carries <b>z = 0</b>, so the card is also teleported to world z = 0. On the flat
+/// screen those units are canvas pixels and the write is correct; on a floated host whose own pose
+/// is <c>(52.53, 167.99, 90.40)</c> world units, yawed, at 0.1734 m per uGUI pixel, it throws the
+/// card ~90 units off the window plane and ~40 units sideways. Same bug CLASS as 190 — a
+/// screen-space assumption expressed as a world write — different TERM, and the 190 patch could
+/// never have covered it because it patches the helper, not the assignment.</description></item>
+/// <item><description>THE 192 FIX DID NOT REACH IT, AND IT NEEDS TO. Player.log, same second:
+/// <c>Adopted nested canvas 'Full' in 'GloomhavenVR.Panel_Modal_New Party display' (overrideSorting
+/// <b>True→false</b>, sortingOrder=116, raycaster added)</c>. <c>ToggleFullCardPreview</c> ADDS a
+/// <c>Canvas</c> with <c>overrideSorting = true, sortingOrder = 10</c> on show and DESTROYS it on
+/// hide (AbilityCardUI.cs:1049-1061) — the same "escape my list's clipper and draw over it" trick
+/// the merchant's item hint uses, and the conversion's generic nested-canvas adoption clears the
+/// flag for the same reason. The card lives in <c>abilityCardsPanel.content</c>, i.e. inside a
+/// <c>ScrollRect</c> with a working viewport clipper, and it is drawn BESIDE its row on purpose. So
+/// with the flag cleared it is both painted over by later rows and cut to the viewport it is
+/// deliberately outside of. <see cref="RaiseToWindowTop"/> is exactly the answer, and nothing was
+/// calling it for this widget.</description></item>
+/// </list>
+///
+/// <para>THE FIX IS THEREFORE THE SAME TWO MOVES THIS CLASS ALREADY MAKES, EXTENDED TO ONE MORE
+/// WIDGET, plus the one thing that is genuinely new: the broken term here is an ASSIGNMENT rather
+/// than an added helper, so it cannot be zeroed — it has to be replaced. <see cref="PlaceFullCardPreview"/>
+/// re-expresses the game's OWN intent (+40, −45 uGUI pixels from the card row's pivot) in the
+/// WINDOW'S basis instead of the world's, then hands the widget to <see cref="Settle"/> for the
+/// identical flatten / raise / in-plane-clamp pass every other family gets. It runs as a PREFIX that
+/// SKIPS <c>ChangeFullCardPosition</c>, not as a postfix that corrects it, so the world write never
+/// lands even for one frame. Nothing on the wire, nothing about game state: this moves one widget
+/// inside one player's own converted window.</para>
+///
+/// <para>AND IT IS RELEASED ON EVERY UN-HOVER (<see cref="ReleaseRaiseOf"/>, from the
+/// <c>ToggleFullCardPreview(false)</c> postfix), which matters more here than for the tooltips: an
+/// <c>AbilityCardUI</c> is POOLED, and <c>ObjectPool.RecycleCard</c> recycles the ROW, not the full
+/// card. A full card left parented to the window's content root would be an orphan the pool cannot
+/// see. The pool does carry a defensive re-parent for exactly this (ObjectPool.cs:545-547), but
+/// relying on someone else's safety net instead of handing the widget back is not the discipline
+/// this project uses.</para>
 /// </summary>
 internal static class TooltipOnWindow
 {
@@ -267,6 +329,19 @@ internal static class TooltipOnWindow
     private static readonly List<UIPartyItemInventoryTooltip> PartyItemScratch = new(8);
     private static readonly List<UITempleSlotTooltip> TempleScratch = new(8);
     private static readonly List<TooltipUI> ButtonScratch = new(16);
+
+    // ModBuild 194: the ability-card hover preview. Listed here for two reasons, both of them the
+    // same ones the item-card hint is listed for. (1) The census behind SILENT HOVER must be able to
+    // NAME this family, or a card hover that produces nothing reads as "this window contains no
+    // tooltip widget of any known kind" — which would be a false verdict, not a missing one. (2) The
+    // per-frame Flatten: the loadout screen spawns its rows with
+    // ObjectPool.SpawnCard(..., resetLocalRotation: false, ...)
+    // (UIPartyCharacterAbilityCardsDisplay.cs:279), which is the EXACT defect the class doc derives
+    // for the merchant's pooled item card — a recycled card that was last used somewhere that
+    // rotated it arrives still rotated, which is a styling nudge under a perspective UI camera and
+    // literal 3D on a world-space host. Only the hovered card is ever active, so this costs one
+    // subtree per frame at most.
+    private static readonly List<FullAbilityCard> FullCardScratch = new(24);
 
     /// <summary>One live local-tooltip widget inside a floated window, with the kind label its
     /// diagnostics are deduped by.</summary>
@@ -689,6 +764,121 @@ internal static class TooltipOnWindow
                + ").";
     }
 
+    // ---- the ability-card hover preview (the third family) -------------------------------------
+
+    /// <summary>Kinds whose "the game's world write was replaced" line was already logged.</summary>
+    private static readonly HashSet<string> ReplacedLogged = new();
+
+    /// <summary>Reasons a raise was released whose line was already logged (a release happens on
+    /// EVERY un-hover, so the steady state must be one HashSet lookup and nothing else).</summary>
+    private static readonly HashSet<string> ReleasedLogged = new();
+
+    /// <summary>
+    /// PLACE ONE ABILITY-CARD HOVER PREVIEW ON ITS WINDOW, REPLACING the game's world-space
+    /// assignment rather than correcting it afterwards. Full derivation in the class doc; the short
+    /// version is that <c>AbilityCardUI.ChangeFullCardPosition</c> writes
+    /// <c>fullAbilityCard.transform.position = new Vector3(row.position.x + 40f, row.position.y - 45f)</c>
+    /// (AbilityCardUI.cs:1074) — pixel-sized constants applied along the WORLD axes, with an implicit
+    /// <c>z = 0</c>, which on a yawed host at ~0.17 m per uGUI pixel puts the card tens of metres off
+    /// the window's plane.
+    ///
+    /// <para>WHAT IS REBUILT AND IN WHICH BASIS. The game's INTENT is unambiguous and worth keeping:
+    /// "put the big card <paramref name="offsetXPixels"/> right and <paramref name="offsetYPixels"/>
+    /// down of the row's pivot, in canvas pixels". The only thing wrong with it is the basis, so the
+    /// same offset is walked along the HOST'S right/up axes scaled by the host's own metres-per-pixel
+    /// (<c>host.lossyScale.x</c> — the very number the placed-log prints as <c>m/px</c>), and the
+    /// resulting world point is resolved through the widget's CURRENT parent before it is written as
+    /// a <c>localPosition</c>. Never <c>transform.position</c>: writing a world position on a child
+    /// of a rotated, 198x-scaled host is the mistake this whole class exists to undo, and resolving
+    /// through the current parent is also what makes this correct on the SECOND hover, when
+    /// <see cref="RaiseToWindowTop"/> has already moved the widget to the window's content root.</para>
+    ///
+    /// <para>Returns TRUE when this class took the placement over — the caller (a Harmony PREFIX)
+    /// then skips the game's method entirely, so the broken write never lands even for one frame. It
+    /// returns FALSE for every card that is not inside a floated window (the scenario hand fan, the
+    /// flat screen, VR off), and those run the game's arithmetic byte-identically.</para>
+    /// </summary>
+    internal static bool PlaceFullCardPreview(Component? row, Component? fullCard,
+        float offsetXPixels, float offsetYPixels, string kind)
+    {
+        if (!WorldUIConfig.ConversionActive || row == null || fullCard == null)
+            return false;
+        if (fullCard.transform is not RectTransform rect)
+            return false;
+        ConvertedPanel? owner = ModalFallback.FindOwningWindow(rect);
+        if (owner == null || !owner.IsAlive || owner.HostRect == null)
+            return false; // not on a floated window — vanilla arithmetic, untouched
+
+        RectTransform host = owner.HostRect;
+        Quaternion hostRot = host.rotation;
+        // Metres per uGUI pixel on this host. x is read on purpose (the conversion scales the host
+        // uniformly; the placed-log prints this same component as the window's "m/px").
+        float metresPerPixel = host.lossyScale.x;
+        Vector3 want = row.transform.position
+                       + hostRot * Vector3.right * (offsetXPixels * metresPerPixel)
+                       + hostRot * Vector3.up * (offsetYPixels * metresPerPixel);
+        Transform? parent = rect.parent;
+        Vector3 local = parent != null ? parent.InverseTransformPoint(want) : want;
+        // z is dropped: the offset is in-plane by construction and Flatten (inside Settle) owns z.
+        rect.localPosition = new Vector3(local.x, local.y, 0f);
+
+        if (ReplacedLogged.Add(kind))
+        {
+            VRLog.Info(Scope,
+                $"FULL-CARD PLACEMENT REPLACED for '{kind}' on the floated window "
+                + $"'{(owner.HostGo != null ? owner.HostGo.name : "?")}': the game assigns an ABSOLUTE "
+                + "WORLD position here (AbilityCardUI.cs:1074, "
+                + "'fullAbilityCard.transform.position = new Vector3(row.position.x + "
+                + $"{offsetXPixels:F0}f, row.position.y - {-offsetYPixels:F0}f)') — two CANVAS-PIXEL "
+                + "constants walked along the WORLD x/y axes, and a two-argument Vector3 carries an "
+                + "implicit z = 0, so the card is also snapped to world z = 0. Correct on a "
+                + "screen-space canvas, meaningless on a host at "
+                + $"{metresPerPixel:F5} m per uGUI pixel whose plane is yawed away from world x/y. "
+                + "The SAME offset is now walked along the HOST'S right/up axes at that scale and "
+                + "written as a localPosition through the widget's current parent, so the game's own "
+                + "intent survives in the only basis where it means anything. This is a DIFFERENT "
+                + "term from the ModBuild-190 screen-fit cut: that one zeroes the delta ADDED after "
+                + "this line (and still does, see SCREEN-FIT CUT), this one replaces the assignment "
+                + "itself. Cards outside every floated window keep the game's arithmetic exactly.");
+        }
+
+        Settle(fullCard, kind);
+        return true;
+    }
+
+    /// <summary>
+    /// HAND ONE RAISED WIDGET BACK, on the game's own hide edge. Restores parent, sibling index,
+    /// anchors, pivot, anchored position and local scale — and, per <see cref="RestoreRaise"/>, ONLY
+    /// while the widget is still parented where this class put it; a widget the game has since moved
+    /// is the game's again.
+    ///
+    /// <para>This exists because the ability-card preview is not a tooltip: its owner is a POOLED
+    /// row, and <c>ObjectPool.RecycleCard</c> recycles the row rather than the preview. Leaving the
+    /// preview parented to the window's content root would strand it there when the loadout screen
+    /// repopulates. A no-op when the widget was never raised, so it is safe to call on every hide.</para>
+    /// </summary>
+    internal static void ReleaseRaiseOf(Component? widget, string why)
+    {
+        if (widget == null || widget.transform is not RectTransform rect)
+            return;
+        int i = IndexOfRaise(rect);
+        if (i < 0)
+            return;
+        RestoreRaise(Raised[i]);
+        Raised.RemoveAt(i);
+        if (!ReleasedLogged.Add(why))
+            return;
+        VRLog.Info(Scope,
+            $"LOCAL TOOLTIP RAISE released for '{rect.name}' ({why}) — parent, sibling index, "
+            + "anchors, pivot, anchored position and local scale restored verbatim, and only because "
+            + "the widget was still parented where this class put it. READ IT LIKE THIS: this line "
+            + "appearing means the hide edge is wired and a pooled row can be recycled without "
+            + "stranding its preview under the window root; its ABSENCE after a session of hovering "
+            + "means the release never ran and the pool's own defensive re-parent "
+            + "(ObjectPool.cs:545-547) is the only thing keeping the hierarchy sane. Logged once per "
+            + "reason.");
+    }
+
     /// <summary>Ratio of two lossy-scale components, with a zero denominator answering 1 (a
     /// degenerate basis must not produce an infinity that then lands on a transform).</summary>
     private static float SafeRatio(float pre, float post) =>
@@ -883,10 +1073,13 @@ internal static class TooltipOnWindow
         PartyItemScratch.Clear();
         TempleScratch.Clear();
         ButtonScratch.Clear();
+        FullCardScratch.Clear();
         PlacedLogged.Clear();
         SilentLogged.Clear();
         CutLogged.Clear();
         StretchLogged.Clear();
+        ReplacedLogged.Clear();
+        ReleasedLogged.Clear();
         _scanFrame = int.MinValue;
         _hoverPending = false;
         _hoverWindow = null;
@@ -933,11 +1126,16 @@ internal static class TooltipOnWindow
             host.GetComponentsInChildren(includeInactive: true, ButtonScratch);
             for (int k = 0; k < ButtonScratch.Count; k++)
                 Add(ButtonScratch[k], "TooltipUI (ExtendedButton hint)");
+
+            host.GetComponentsInChildren(includeInactive: true, FullCardScratch);
+            for (int k = 0; k < FullCardScratch.Count; k++)
+                Add(FullCardScratch[k], "FullAbilityCard (ability-card hover preview)");
         }
         LocalScratch.Clear();
         PartyItemScratch.Clear();
         TempleScratch.Clear();
         ButtonScratch.Clear();
+        FullCardScratch.Clear();
     }
 
     private static void Add(Component? widget, string kind)

@@ -323,6 +323,15 @@ internal sealed class UguiPointer
         if (ReferenceEquals(target, _hovered))
             return;
 
+        // THE EAR, BEFORE THE EVENT. ExtendedButton.OnPointerEnter/OnPointerExit play their authored
+        // hover items SYNCHRONOUSLY inside the dispatch below, through AudioController.Play(id) —
+        // which spawns a 3D source one world unit in front of the game's CACHED AudioListener. That
+        // cache still points at the listener EnvSound disabled, so the sound is placed hundreds of
+        // world units from the ear that hears (user report 2026-08-21: "Die Knöpfe machen keine
+        // Geräusche"). See WorldUI.UiSoundEar for the whole reading; it dispatches nothing and plays
+        // nothing, so it cannot change what this method sends or how often.
+        WorldUI.UiSoundEar.BeforeUiEvent();
+
         PointerEventData data = GetData();
 
         // Common root of old and new hover. Unity-null-safe: a DESTROYED previous hover
@@ -381,6 +390,14 @@ internal sealed class UguiPointer
             LogHover("EXIT", exitedWidget, exitDispatched);
         if (enteredWidget != null)
             LogHover("ENTER", enteredWidget, enterDispatched);
+
+        // One-shot diagnostic only (see WorldUI.UiSoundEar.NoticeHoveredWidget): the first time the
+        // beam or a fingertip lands on one of the game's audio-carrying button classes, the log
+        // states which items that button is authored with, whether the game can play them, whether
+        // the pooled source is 3D, and how far the game is placing them from the VR ear. It reads
+        // serialized fields; it plays nothing and dispatches nothing.
+        if (enteredWidget != null)
+            WorldUI.UiSoundEar.NoticeHoveredWidget(enteredWidget);
     }
 
     /// <summary>
@@ -471,6 +488,11 @@ internal sealed class UguiPointer
     {
         if (_hovered == null || _pressed != null)
             return;
+
+        // The press sound: UIButtonExtended.OnPointerDown (UIButtonExtended.cs:64-75) and
+        // ExtendedButton.OnPointerDown (:200-222) play their mouseDown item inside the dispatch
+        // below. Same repair, same reason as in SetHovered.
+        WorldUI.UiSoundEar.BeforeUiEvent();
 
         PointerEventData data = GetData();
         data.position = screenPos;
@@ -570,6 +592,10 @@ internal sealed class UguiPointer
     {
         if (_pressed == null)
             return;
+
+        // The release and click sounds: ExtendedButton.OnPointerUp (:224-236) plays the mouseUp item
+        // and OnPointerClick (:168-184) plays the mouseClick item, both inside the dispatches below.
+        WorldUI.UiSoundEar.BeforeUiEvent();
 
         PointerEventData data = GetData();
         data.position = screenPos;

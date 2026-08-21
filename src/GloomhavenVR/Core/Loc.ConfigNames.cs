@@ -203,6 +203,18 @@ internal static partial class Loc
                 Pair("3D map: city map icons", "Karte 3D: Symbole Stadtkarte"),
             ["MapRoom/GloomhavenIconScale"] =
                 Pair("3D map: Gloomhaven marker", "Karte 3D: Gloomhaven-Marker"),
+            // THE TWO THINGS ON THE MAP THAT ARE NOT SYMBOLS (ModBuild 194, user: "Ich will auch die
+            // Größe des Markers wo man sich befindet sowie des eingezeichneten Weges von einem zum
+            // anderen Punkt einstellen können"). Same "Karte 3D: …" family as the three above, and
+            // each name says WHICH THING rather than which map — because that is the distinction
+            // here, and a player scanning the row list must be able to tell "the marker for where I
+            // am" from "the symbols of the places" without opening a tooltip. "Gruppen-Marker" is
+            // the game's own vocabulary for the token (die Gruppe reist); "Wegbreite" says both the
+            // object and the property in one word, which the caption column has room for.
+            ["MapRoom/PartyMarkerScale"] =
+                Pair("3D map: party marker", "Karte 3D: Gruppen-Marker"),
+            ["MapRoom/PathWidthScale"] =
+                Pair("3D map: route width", "Karte 3D: Wegbreite"),
             // THE MAP ROOM'S CARD HAND (ModBuild ~188). Its config KEY lives in the [WorldUI]
             // section — it is bound on worldui's file by the code that owns it — but the FEATURE
             // is the 3D map room's, so it is named here with its two siblings and carries the
@@ -210,6 +222,15 @@ internal static partial class Loc
             // "Map Room Hand", which is the same gap [Rig] Experimental3DMap had at ModBuild 176.
             ["WorldUI/MapRoomHand"] =
                 Pair("3D map: show your card hand", "Karte 3D: Handkarten zeigen"),
+            // The map room's travel-confirm PLACEMENT dials (ModBuild 194, user ruling: "Geb mir
+            // dann im debug menu die offsets um ihm zu verschieben - ich stell es selber ein").
+            // Same [WorldUI]-section / map-room-feature split as MapRoomHand above, so they carry
+            // the same "Karte 3D: …" prefix; without a line here the menu would space the raw keys
+            // out to "Travel Button Offset X Window Heights".
+            ["WorldUI/TravelButtonOffsetXWindowHeights"] =
+                Pair("3D map: travel button sideways", "Karte 3D: Reise-Knopf seitlich"),
+            ["WorldUI/TravelButtonOffsetYWindowHeights"] =
+                Pair("3D map: travel button height", "Karte 3D: Reise-Knopf Höhe"),
 
             // ---- [FigureGrab] — grabbing miniatures -----------------------------------------
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),

@@ -22,7 +22,8 @@ internal static partial class PanelSupersample
     private static void Report(Entry e)
     {
         Camera? head = VRRigDriver.HeadCamera;
-        string sampling = SamplingSentence(e, head);
+        RenderTexture shownForBias = DisplayTexture(e);
+        string sampling = SamplingSentence(e, head, shownForBias != null ? shownForBias.mipMapBias : 0f);
         float ms = e.Captures > 0 ? (float)(e.CaptureMs / e.Captures) : 0f;
         float sweepMs = e.Sweeps > 0 ? (float)(e.SweepMs / e.Sweeps) : 0f;
         float contentMs = e.ContentMeasures > 0 ? (float)(e.ContentMs / e.ContentMeasures) : 0f;
@@ -64,20 +65,108 @@ internal static partial class PanelSupersample
                   + "the first suspect is N panels x (one full-target blit + one mip chain) per "
                   + "frame, and the lever is MaxPanels or CaptureIntervalFrames, not this number. "
                   + "MOTION (this 10 s window): ").Append(e.MotionFrames)
-          .Append(" frame(s) with a pose/scale/rect change, ").Append(e.GeometryDirtyEvents)
+          .Append(" frame(s) with a pose/scale/rect change out of ").Append(e.MotionTicks)
+          .Append(" comparison(s), ").Append(e.GeometryDirtyEvents)
           .Append(" of them a RESIZE/RESCALE that forced a re-measure; ").Append(e.Reallocations)
           .Append(" re-allocation(s) since engage, currently ").Append(IsMoving(e) ? "MOVING" : "still")
-          .Append(". LAYERS: ").Append(e.Relayered.Count)
-          .Append(" transform(s) on capture layer ").Append(_captureLayer).Append(", ")
+          .Append(". INSTRUMENT SELF-CHECK: largest single-frame host step ")
+          .Append(e.MaxStepWorld.ToString("F4")).Append(" world units = ")
+          .Append((e.MaxStepWorld / Mathf.Max(e.WorldPerAuthoredPx, 1e-9f)).ToString("F2"))
+          .Append(" authored px = ")
+          .Append((e.MaxStepWorld / Mathf.Max(e.WorldPerAuthoredPx, 1e-9f)
+                   / Mathf.Max(e.AuthoredPerRenderedPx, 1e-6f)).ToString("F2"))
+          .Append(" RENDERED eye px, against an epsilon of ").Append(e.MotionEpsWorld.ToString("F4"))
+          .Append(" world units = 0.50 authored px (the host measures ")
+          .Append(e.WorldPerAuthoredPx.ToString("F5"))
+          .Append(" world units per authored px). ISOLATION: private capture layer ").Append(e.Layer)
+          .Append(" (pool ").Append(PoolSize).Append(", ").Append(FreeLayers.Count)
+          .Append(" free), display quad sortingOrder ")
+          .Append(e.DisplayCanvas != null ? e.DisplayCanvas.sortingOrder : -1).Append("; ")
+          .Append(ForeignPanelsInFrustum(e))
+          .Append(" other supersampled panel(s) currently inside THIS camera's frustum. LAYERS: ")
+          .Append(e.Relayered.Count)
+          .Append(" transform(s) on capture layer ").Append(e.Layer).Append(", ")
           .Append(e.LateJoiners).Append(" late joiner(s) swept since engage, ").Append(e.Sweeps)
           .Append(" sweep(s) at ").Append(sweepMs.ToString("F2")).Append(" ms each, ")
           .Append(e.ContentMeasures).Append(" content measure(s) at ")
           .Append(contentMs.ToString("F2")).Append(" ms each, ")
           .Append(e.ForeignSkipped).Append(" foreign render subtree(s) LEFT ALONE, ")
+          .Append(e.ForeignLayerSkipped)
+          .Append(" transform(s) left alone because ANOTHER panel owns their layer (expect 0), ")
           .Append(e.NestedCaptured).Append('/').Append(e.NestedTotal)
           .Append(" nested canvas(es) on the capture layer.");
 
-        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 193. (0) 'mips' IS THE HEADLINE. ModBuild 192 "
+        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 194. (A) 'ISOLATION' IS THE NEW HEADLINE AND IT "
+                  + "ANSWERS THE USER'S REPORT THAT ONE WINDOW WAS DRAWING ANOTHER INSIDE ITSELF "
+                  + "(.planning/debug/window_merge.jpg: the floated quest card showing the merchant "
+                  + "window's item rows in its own rect). ModBuild 193 resolved ONE capture layer for "
+                  + "the whole mod and built every per-panel camera with that single bit, so each "
+                  + "camera drew EVERY supersampled panel inside its frustum into its own render "
+                  + "target — and that frustum is as deep as the window is tall, on windows standing "
+                  + "side by side on an arc. Every panel now owns a PRIVATE layer out of a pool. READ "
+                  + "IT LIKE THIS: 'private capture layer N' must be DIFFERENT on every panel's line "
+                  + "in the same report window — if two lines ever show the same number, the pool is "
+                  + "broken and the merge bug is back. 'K other supersampled panel(s) currently "
+                  + "inside THIS camera's frustum' is NOT a defect in this build: those panels are on "
+                  + "other layers and cannot be drawn here. It is the measurement of how often the "
+                  + "193 bug WAS firing, so a non-zero K is the confirmation that this fix was "
+                  + "load-bearing; a K that is permanently 0 on every panel means the shared layer "
+                  + "cannot explain the photograph and the next round must look elsewhere (the test "
+                  + "is the neighbour's HOST RECT as a world-space AABB against the frustum planes: "
+                  + "it counts a box straddling a frustum corner as inside, and it cannot see a "
+                  + "neighbour's content spilled outside its own rect, so read it as a magnitude and "
+                  + "not as a proof — the proof is the private layer). 'display quad sortingOrder' "
+                  + "is here because "
+                  + "CanvasConversion rewrites every panel's draw order EVERY frame from its measured "
+                  + "eye distance: two overlapping windows whose orders SWAP mid-drag would pop in "
+                  + "front of each other, which is its own flicker and is not this class's to fix — "
+                  + "if two panels ever print the same sortingOrder while overlapping, that is the "
+                  + "finding. "
+                  + "(B) 'INSTRUMENT SELF-CHECK' RETIRES A WRONG READING OF THE 193 LOG. The MOTION "
+                  + "field was read as zero everywhere and the detector was declared blind. It is "
+                  + "not: 23 of the 193 log's 226 state lines carry a non-zero motion count, up to "
+                  + "542 frames of a 900-frame window, several reading 'currently MOVING'. THE "
+                  + "CONSEQUENCE FOR THE NEXT ROUND IS THE OPPOSITE OF WHAT WAS ASSUMED: the "
+                  + "per-frame layer sweep while moving, the forced re-measure and the reallocation "
+                  + "check all DID run during real drags, and the user still reported the movement "
+                  + "shimmer unchanged — so those three remedies are FALSIFIED as its cause, not "
+                  + "untested. The self-check makes the zero unambiguous from now on: 'N frame(s) "
+                  + "with a change out of M comparison(s)' plus the largest single-frame step and the "
+                  + "epsilon it was tested against, in world units AND authored px. M = 0 means the "
+                  + "detector never ran. A step far ABOVE the epsilon with N = 0 means it is blind. A "
+                  + "step below the epsilon with a large M means the window really was still. Those "
+                  + "three used to print the same character. THE 'RENDERED eye px' FIGURE IN THAT "
+                  + "FIELD IS THE ONE THAT DECIDES WHAT KIND OF DEFECT A DRAG CAN BE, and it is new. "
+                  + "If a dragged window moves several RENDERED pixels per frame, a single frame of "
+                  + "pose lag is several pixels of positional error and the complaint is JUDDER, "
+                  + "which no filtering can fix and which would have to be chased in the pose path "
+                  + "(the host is written from the hand in Update/LateUpdate while the HMD pose is "
+                  + "late-latched immediately before the render). If it moves well under one "
+                  + "rendered pixel per frame, pose lag is invisible by construction and the "
+                  + "complaint can only be sub-pixel SAMPLING, which is what (C) measures. Two "
+                  + "ordering explanations are already DEAD and must not be re-opened: the capture "
+                  + "camera sits at depth -200 and every other camera in the 193 log sits at -1, 0 "
+                  + "or 1, so the resolve blit and GenerateMips in its onPostRender always complete "
+                  + "before the head camera culls; and the capture camera is a CHILD of the host, so "
+                  + "a pure translation cannot move the panel inside the captured image at all. "
+                  + "(C) 'trilinear MIP LOD' IS THE LIVE HYPOTHESIS FOR THE REMAINING MOVING "
+                  + "SHIMMER, now that mips are confirmed present (193 read 'mips 10' and 'mips 11' "
+                  + "and the shimmer did not change, which kills the missing-mip-chain explanation "
+                  + "outright). Trilinear does not REMOVE aliasing at a fractional LOD, it "
+                  + "attenuates it: at 1.34 texels per rendered pixel the LOD is 0.42 and 58 % of "
+                  + "every sample still comes from level 0, which at 1.34x minification is genuinely "
+                  + "undersampled. A frozen alias pattern is invisible; the same pattern under a "
+                  + "moving window crawls. Anisotropic filtering makes it worse for a panel facing "
+                  + "the seat, because aniso selects a LOWER lod. HOW TO DECIDE IT NEXT ROUND: if the "
+                  + "user still reports movement shimmer and this field reads a level-0 share above "
+                  + "roughly 30 %, the levers in order of cost are mipMapBias (+0.5 to +1.0 on the "
+                  + "display target — one line in AttachMipTarget, and it costs sharpness while "
+                  + "still) and [WorldUI] PanelSupersampleFactor above 1.0 (which buys texels until "
+                  + "the ratio drops below 1.0, at which point there is no minification left to "
+                  + "alias and this hypothesis is dead by construction). If the field already reads "
+                  + "0 % and the shimmer persists, the panel surface is fully band-limited and the "
+                  + "cause is not on it. "
+                  + "(0) 'mips' IS THE OLD HEADLINE. ModBuild 192 "
                   + "read 'mips 1 NONE' on every panel because a render target cannot be "
                   + "multisampled AND mipmapped, so the whole mip half of this design never ran and "
                   + "the eye was still minifying an unfiltered texture — invisible while everything "
@@ -98,9 +187,12 @@ internal static partial class PanelSupersample
                   + "user still reports wrong or missing elements after a release and this line "
                   + "shows re-measures and re-allocations happening, the frame is NOT the cause and "
                   + "the next suspect is the layer sweep — read 'late joiner(s)' and the "
-                  + "nested-canvas ratio below. If it shows ZERO motion frames during a session in "
-                  + "which the user definitely dragged a window, this instrument is not seeing the "
-                  + "drag at all and nothing else it says about movement can be trusted. "
+                  + "nested-canvas ratio below. THE 193 EDITION OF THIS CLAUSE SAID that zero motion "
+                  + "frames in a session with real drags would mean a blind instrument; that reading "
+                  + "was applied to the 193 log and it was WRONG, because zero is what MOST report "
+                  + "windows show even in a session full of dragging — only the panel actually being "
+                  + "dragged counts frames, and 23 of 226 lines did. Use the INSTRUMENT SELF-CHECK "
+                  + "field in (B) to decide this, never the bare zero. "
                   + "(1) RT texels per rendered pixel is the same quantity "
                   + "PANEL SAMPLING calls 'panel scale', multiplied by the factor — but it now means "
                   + "something completely different, because the surface being minified is a MIPPED, "
@@ -154,6 +246,8 @@ internal static partial class PanelSupersample
         // since it opened" is not. Everything else stays cumulative.
         e.MotionFrames = 0;
         e.GeometryDirtyEvents = 0;
+        e.MotionTicks = 0;
+        e.MaxStepWorld = 0f;
     }
 
     /// <summary>
@@ -166,7 +260,7 @@ internal static partial class PanelSupersample
     /// than shared because that probe is another lane's file; the two numbers are therefore directly
     /// comparable in the same hardware log, which is the point.
     /// </summary>
-    private static string SamplingSentence(Entry e, Camera? head)
+    private static string SamplingSentence(Entry e, Camera? head, float shownBias)
     {
         if (head == null)
             return "SAMPLING NOT MEASURED (no head camera);";
@@ -182,13 +276,31 @@ internal static partial class PanelSupersample
         // scaled by the factor whether or not the frame grew past the host rect.
         float authoredPerPixel = Mathf.Max(e.HostRectAtMeasure.width / Mathf.Max(pxW, 0.01f),
             e.HostRectAtMeasure.height / Mathf.Max(pxH, 0.01f));
+        e.AuthoredPerRenderedPx = authoredPerPixel;
         float texelsPerPixel = authoredPerPixel * e.Factor;
+        // THE MIP LOD THIS MINIFICATION ACTUALLY SELECTS, and how much UNFILTERED level 0 survives
+        // it. This is the ModBuild 194 addition and it exists to make one specific hypothesis about
+        // the residual moving shimmer decidable from the log instead of arguable: trilinear does NOT
+        // remove aliasing at a fractional LOD, it ATTENUATES it. At t texels per pixel the LOD is
+        // log2(t); for 0 < LOD < 1 the hardware blends level 0 — which is minified by t and is
+        // therefore genuinely undersampled — with level 1, weighting level 0 by (1 - LOD). At the
+        // ModBuild 193 log's measured 1.34 texels per pixel that is LOD 0.42 and 58 % of every
+        // sample coming from an aliased level. A frozen alias pattern is invisible; the same pattern
+        // under a moving window crawls, which is the exact shape of "flackert beim Verschieben".
+        // Anisotropic filtering makes this WORSE for a near-frontal panel, because it lowers the
+        // selected LOD towards the minor axis' rate — aniso is bought for the map room's windows
+        // yawed up to 85 degrees, and it costs band-limiting on the ones facing the seat.
+        float lod = Mathf.Max(0f, Mathf.Log(Mathf.Max(texelsPerPixel, 1e-4f), 2f));
+        float level0Weight = lod >= 1f ? 0f : 1f - lod;
+        float bias = shownBias;
         return $"drawn into {pxW:F0}x{pxH:F0} rendered px through the LEFT eye of a "
                + $"{eyeW:F0}x{eyeH:F0} per-eye target ({XRSettings.stereoRenderingMode}, viewportScale "
                + $"{XRSettings.renderViewportScale:F2}) = {texelsPerPixel:F2} RT texels per rendered "
                + $"pixel, against {authoredPerPixel:F2} authored px per rendered px (which is what "
                + "PANEL SAMPLING reported for this window before this build, and is now filtered "
-               + "rather than point-sampled);";
+               + $"rather than point-sampled) -> trilinear MIP LOD {lod:F2} at mipMapBias "
+               + $"{bias:F2}, so {level0Weight * 100f:F0} % of every texture sample still comes from "
+               + $"UNFILTERED level 0 at {texelsPerPixel:F2}x minification;";
     }
 
     // THE ModBuild 192 OVERFLOW WARN IS GONE, and deliberately so. It compared the host rect with

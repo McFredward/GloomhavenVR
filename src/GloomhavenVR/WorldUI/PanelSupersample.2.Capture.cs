@@ -169,7 +169,12 @@ internal static partial class PanelSupersample
         cam.orthographic = true;
         cam.clearFlags = CameraClearFlags.SolidColor;
         cam.backgroundColor = new Color(0f, 0f, 0f, 0f); // transparent: the window keeps per-pixel alpha
-        cam.cullingMask = 1 << CaptureLayer;
+        // THE ISOLATION GUARANTEE IN ONE LINE: this camera's mask is this panel's PRIVATE pool layer
+        // and nothing else, so no other supersampled window can be inside what it captures however
+        // close it stands or however deep the ortho slab is. ModBuild 193 wrote the ONE shared
+        // capture layer here and that is the whole of the "quest window shows the merchant window"
+        // defect — see PanelSupersample.5.Isolation.cs.
+        cam.cullingMask = e.Layer >= 0 ? 1 << e.Layer : 0;
         cam.depth = -200f;                                // renders before every other camera in the frame
         cam.stereoTargetEye = StereoTargetEyeMask.None;   // mono, once per frame — never part of an eye pass
         cam.renderingPath = RenderingPath.Forward;        // uGUI only; a G-buffer here would be pure cost
@@ -353,6 +358,20 @@ internal static partial class PanelSupersample
     /// <para>The position epsilon is expressed in WORLD units and derived from the panel's own
     /// lossy scale (half an authored pixel), never in metres: at the map room's ~198 world units per
     /// metre a fixed metric epsilon would be either blind or permanently tripped.</para>
+    ///
+    /// <para><b>THIS INSTRUMENT IS NOT BLIND, AND ModBuild 194 MAKES THE LOG SAY SO ITSELF.</b> It
+    /// was suspected of never firing, on the reading that the ModBuild 193 log's MOTION field was
+    /// zero everywhere. It is not: 23 of that log's 226 state lines carry a non-zero count, the
+    /// largest being 542 frames of a 900-frame report window, and several read
+    /// <c>currently MOVING</c>. The reason a reader could believe otherwise is that a bare zero
+    /// carries no evidence about WHY it is zero — a still window, a detector that never ran and a
+    /// detector whose epsilon swallowed the drag all print the same character. So this method now
+    /// also records how many comparisons it made (<see cref="Entry.MotionTicks"/>), the largest
+    /// single-frame world-space step it saw (<see cref="Entry.MaxStepWorld"/>) and the epsilon that
+    /// step was tested against (<see cref="Entry.MotionEpsWorld"/>), and the report prints all three
+    /// in world units AND in authored uGUI pixels. A blind detector is then a large step with a zero
+    /// count; a still window is a step below the epsilon with a large comparison count; a detector
+    /// that never ran is a zero comparison count. The three are no longer confusable.</para>
     /// </summary>
     private static bool NoticeGeometry(Entry e, RectTransform host)
     {
@@ -373,6 +392,13 @@ internal static partial class PanelSupersample
         }
 
         float posEps = Mathf.Max(Mathf.Abs(scl.y) * 0.5f, 1e-6f);
+        // The self-check, recorded BEFORE the snapshot is overwritten and regardless of the verdict.
+        e.MotionTicks++;
+        e.MotionEpsWorld = posEps;
+        e.WorldPerAuthoredPx = Mathf.Abs(scl.y);
+        float step = (pos - e.LastPos).magnitude;
+        if (step > e.MaxStepWorld)
+            e.MaxStepWorld = step;
         bool moved = (pos - e.LastPos).sqrMagnitude > posEps * posEps;
         bool turned = Quaternion.Angle(rot, e.LastRot) > 0.05f;
         bool rescaled = (scl - e.LastScale).magnitude > e.LastScale.magnitude * 1e-4f + 1e-9f;
@@ -499,32 +525,6 @@ internal static partial class PanelSupersample
 
     // ---- the layer sweep ----------------------------------------------------------------------
 
-    /// <summary>The dedicated capture layer: the first unnamed layer scanning 31 → 8 that is NOT the
-    /// mod layer. -1 when none is free, which stands the whole path down.</summary>
-    private static int CaptureLayer
-    {
-        get
-        {
-            if (_captureLayer != -2)
-                return _captureLayer;
-            _captureLayer = -1;
-            int mod = VRLayers.ModLayer;
-            for (int i = 31; i >= 8; i--)
-            {
-                if (i == mod || !string.IsNullOrEmpty(LayerMask.LayerToName(i)))
-                    continue;
-                _captureLayer = i;
-                VRLog.Info(Scope, $"PANEL SUPERSAMPLE capture layer resolved: {i} (first unnamed layer "
-                                  + $"scanning 31->8 that is not the mod layer {mod}; mask "
-                                  + $"0x{1 << i:X8}). Only the per-panel capture cameras render it; "
-                                  + "every other camera has the bit cleared for the duration of its "
-                                  + "own render.");
-                break;
-            }
-            return _captureLayer;
-        }
-    }
-
     /// <summary>
     /// Move the panel's subtree onto the capture layer, WALKED not flattened, with the same rule
     /// <c>CanvasConversion.ApplyModLayer</c> uses: a subtree whose root carries a real
@@ -546,7 +546,7 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void ApplyCaptureLayer(Entry e, bool initial)
     {
-        int layer = CaptureLayer;
+        int layer = e.Layer;
         if (layer < 0 || e.Panel.HostGo == null)
             return;
         float sweepStart = Time.realtimeSinceStartup;
@@ -554,6 +554,7 @@ internal static partial class PanelSupersample
         Scratch.Add(e.Panel.HostGo.transform);
         int moved = 0;
         int skipped = 0;
+        int foreignLayer = 0;
         int nested = 0;
         int nestedOnLayer = 0;
         while (Scratch.Count > 0)
@@ -570,6 +571,18 @@ internal static partial class PanelSupersample
             {
                 skipped++;
                 continue; // and NOT its children either
+            }
+            // NEVER STEAL ANOTHER PANEL'S PRIVATE LAYER. The converted panels' subtrees are disjoint
+            // today (each gets its own scene-root host GameObject), so this cannot fire; it is here
+            // so the isolation guarantee does not rest on an invariant in a file this lane does not
+            // own. If two entries ever did share a transform, both would rewrite its layer every
+            // frame and the value would ALTERNATE — this project's "don't win a write war" failure,
+            // and under MultiPass the two eyes would disagree about it. One mask test per transform
+            // buys the guarantee outright. See IsForeignPoolLayer.
+            if (!isRoot && IsForeignPoolLayer(e, t.gameObject.layer))
+            {
+                foreignLayer++;
+                continue;
             }
             if (!isRoot && t.GetComponent<Canvas>() != null)
             {
@@ -592,6 +605,7 @@ internal static partial class PanelSupersample
         Scratch.Clear();
         e.LayersMoved = e.Relayered.Count;
         e.ForeignSkipped = skipped;
+        e.ForeignLayerSkipped = foreignLayer;
         e.NestedTotal = nested;
         e.NestedCaptured = Mathf.Min(nestedOnLayer, nested);
         e.Sweeps++;
@@ -627,7 +641,12 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void RestoreLayers(Entry e)
     {
-        int layer = _captureLayer;
+        int layer = e.Layer;
+        if (layer < 0)
+        {
+            e.Relayered.Clear();
+            return;
+        }
         for (int i = 0; i < e.Relayered.Count; i++)
         {
             LayerRecord record = e.Relayered[i];
@@ -673,7 +692,7 @@ internal static partial class PanelSupersample
     {
         try
         {
-            if (cam == null || Entries.Count == 0 || _captureLayer < 0)
+            if (cam == null || Entries.Count == 0 || _poolMask == 0)
                 return;
             Entry? mine = EntryForCamera(cam);
             if (mine != null)
@@ -693,11 +712,14 @@ internal static partial class PanelSupersample
                 for (int i = 0; i < Entries.Count; i++)
                     SyncDisplayPose(Entries[i]);
             }
-            int bit = 1 << _captureLayer;
-            if ((cam.cullingMask & bit) == 0)
+            // THE UNION, not one bit: since ModBuild 194 every engaged panel holds its own pool
+            // layer, so a camera that is not one of ours must lose ALL of them for the duration of
+            // its render or a panel would be drawn into the eye as well as into its own capture.
+            int bits = _poolMask;
+            if ((cam.cullingMask & bits) == 0)
                 return;
             MaskedCameras[cam] = cam.cullingMask;
-            cam.cullingMask &= ~bit;
+            cam.cullingMask &= ~bits;
         }
         catch (System.Exception ex)
         {
@@ -818,7 +840,10 @@ internal static partial class PanelSupersample
 
     private static void StandDown(Entry e, int index, string why)
     {
-        RestoreLayers(e);
+        RestoreLayers(e);   // must run BEFORE the layer goes back in the pool: it reads e.Layer
+        int layer = e.Layer;
+        ReleaseLayer(layer);
+        e.Layer = -1;
         DestroyEntryObjects(e);
         _vramTotal -= e.VramBytes;
         if (_vramTotal < 0)
@@ -839,7 +864,10 @@ internal static partial class PanelSupersample
         VRLog.Info(Scope, $"PANEL SUPERSAMPLE stood down on '{e.Window}' ({why}): the window's canvas "
                           + "is back on its original layer and is drawn straight into the eye again, "
                           + $"and {Mb(e.VramBytes)} MB of render target was released (session total "
-                          + $"now {Mb(_vramTotal)} MB). Input was never affected either way.");
+                          + $"now {Mb(_vramTotal)} MB). Its private capture layer {layer} went back "
+                          + $"into the pool ({FreeLayers.Count} of {PoolSize} free), so a window that "
+                          + "was refused for want of one can now be re-considered. Input was never "
+                          + "affected either way.");
     }
 
     private static void DestroyEntryObjects(Entry e)

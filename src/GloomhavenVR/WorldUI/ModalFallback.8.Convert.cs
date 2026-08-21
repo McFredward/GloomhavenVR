@@ -504,7 +504,12 @@ internal static partial class ModalFallback
                                       $"({(isResultsPanel ? "results window — native buttons are the only exit"
                                           : isRewardShowcase ? "reward showcase — native continue is the only exit (its callback releases the message pump)"
                                           : isLevelMsg ? "tutorial/level message — the player must engage, not dismiss (its own button/action is the only exit)"
-                                          : isMapRoomPermanent ? "the map room's character screen — not closable in this phase (user ruling); closing it would split its nested character display into a window of its own"
+                                          // ROUTED, NOT HARDCODED (ModBuild 194): the permanent set is
+                                          // no longer one window. Spelling out the character screen's
+                                          // reason for the quest log would make a hardware log assert
+                                          // the wrong cause, which is exactly the kind of line this
+                                          // project has had to retract before.
+                                          : isMapRoomPermanent ? MapRoomPermanentReason(window)
                                           : "click-through story box")}).");
 
             var wp = new WindowPanel

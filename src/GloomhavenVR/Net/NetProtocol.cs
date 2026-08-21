@@ -416,7 +416,234 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 193;
+    public const ushort ModBuild = 194;
+    // Build 194: ONE CAPTURE LAYER FOR EVERY PANEL, AND THE GAME WAS PLACING ITS UI SOUNDS AT A
+    // DISABLED EAR. (Six workers, isolated worktrees.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── A CORRECTION I OWE THE RECORD, BEFORE ANYTHING ELSE ───────────────────────────────
+    // I told the user the supersample MOTION DETECTOR was blind and that 193's whole movement fix
+    // therefore never armed. **THAT WAS WRONG, and it was my own reading error** — I collapsed the
+    // field with `sort -u | head` and saw only the zero-reading samples. Counted properly: of 226
+    // state lines, 23 read NON-ZERO — 1, 2, 12, 21, 27, 29, 35, 38, 49, 55, 64, 69, 104, 104, 132,
+    // 132, 235, 290, 308 and 542 motion frames in a ~900-frame window, several reading
+    // `currently MOVING`, one with 14 re-allocations. The zeros are CORRECT: only the panel actually
+    // being dragged counts frames, so most report windows should read zero even during heavy
+    // dragging — the reading key's own trap, which I fell into.
+    // THE CONSEQUENCE IS WORSE THAN THE MISDIAGNOSIS: 193's remedies RAN (3501 sweeps at 0.88 ms,
+    // 2836 content measures, 2448 late joiners, 38/38 nested canvases) and the user still reports
+    // the movement shimmer EXACTLY IDENTICAL. **They are falsified, not untested.** Together with
+    // the confirmed mip chains (`mips 10`/`mips 11`, 226 lines) that is two dead hypotheses.
+    // The detector is now SELF-FALSIFYING so this cannot recur: it prints the number of comparisons
+    // made, the largest single-frame host step, and the epsilon it was tested against — in world
+    // units, authored px AND RENDERED EYE px. `M = 0` = never ran; a large step with `N = 0` = blind;
+    // a small step with a large `M` = genuinely still. Those three were indistinguishable before,
+    // which is exactly why I could confuse them.
+    //
+    // ── ONE CAPTURE LAYER FOR EVERY PANEL (the window-merge photograph) ───────────────────
+    // User: "Das Quest Window ... ist es nah genug am Händler-Window dran, stellt es teile davon dar
+    // (siehe window_merge.jpg). Verhindere solche Wechselwirkungen zwischen den verschiedenen Fenster
+    // KOMPLETT." In the photo the floated quest card shows the MERCHANT's item rows inside its own
+    // rect, clipped to the QUEST window's right edge and well outside the merchant's own quad — i.e.
+    // they are in the quest window's TEXTURE, not seen past an edge.
+    // CAUSE, read from source: `BuildCamera` set `cam.cullingMask = 1 << CaptureLayer` where
+    // `CaptureLayer` was ONE static for the whole mod (log: "capture layer resolved: 26"). A culling
+    // mask is the only thing deciding what a camera draws, so every capture camera drew every
+    // supersampled panel inside its frustum into that panel's own target. And the frustum is not
+    // narrow: `SyncProjection` sets the capture volume AS DEEP AS THE WINDOW IS TALL
+    // (near = standoff - frameHeight/2, far = standoff + frameHeight/2) — 1611x1453x1453 px for
+    // 'New Party display', on windows standing side by side on an arc.
+    // FIX: A POOL OF PRIVATE PER-PANEL LAYERS. Each engaged panel takes one for its life; its
+    // camera's mask is that single bit; the layer returns to the pool on stand-down;
+    // `EffectiveMaxPanels = min(MaxPanels, PoolSize)` and a panel that cannot get one is REFUSED and
+    // keeps the dial-OFF rendering — never given a shared layer. This is exact, not probabilistic: a
+    // camera whose mask holds one bit cannot draw an object that is not on that bit, ever.
+    // REJECTED, with reasons: a tighter ortho frustum (the windows separate in X, not in depth, and
+    // the frustum's X extent is the frame width — the one quantity that must not shrink; coplanar
+    // uGUI content cannot be separated by any clip plane); and per-camera exclusion by disabling the
+    // other panels' Canvas (forbidden — the host must keep `Canvas.enabled` or `GraphicRaycaster`
+    // returns early, and it costs N×(N−1) canvas rebuilds per frame on subtrees the log measures at
+    // 2391/3363/4624 transforms).
+    // AND THIS IS ITSELF A MOVING-FLICKER MECHANISM: while you drag window X, neighbour Y slides in
+    // and out of X's capture frustum and X slides in and out of Y's. Still, it freezes into "part of
+    // the window", which is why the still case read as fixed and only the photograph exposed it.
+    // A SECOND CANDIDATE IS NOW MEASURED RATHER THAN ARGUED: trilinear ATTENUATES, it does not
+    // remove. At the log's measured 1.34 RT texels/rendered px the LOD is 0.42, so **58 % of every
+    // sample still comes from UNFILTERED level 0**. The mipMapBias lever was DELIBERATELY NOT
+    // SHIPPED — stacking a second visual change on the isolation fix would make the next report
+    // unattributable.
+    //
+    // ── THE BUTTONS WERE SILENT BECAUSE THE GAME AIMED THEM AT A DISABLED EAR ─────────────
+    // User: "Die Knöpfe machen keine Geräusche - weder beim mouseover noch beim Drücken."
+    // THE POINTER WAS NEVER THE PROBLEM. `UguiPointer` already dispatches enter/exit up the ANCESTOR
+    // CHAIN exactly like `BaseInputModule.HandlePointerExitAndEnter`, plus down/up/click/drag/scroll,
+    // and the log proves the game's own buttons receive them (`uGUI hover ENTER: 'Sell'/'Buy'/'Exit'`,
+    // `uGUI click: 'Options'`). He also does not report the buttons failing to WORK — only silence.
+    // CAUSE: `AudioController.Play(audioID)` — the single-argument overload the whole game UI uses —
+    // does not play 2D. It spawns the pooled 3D AudioObject at `listener.position + listener.forward`
+    // (AudioController.cs:631-637), and `GetCurrentAudioListener()` CACHES, dropping the cache only
+    // when the reference is Unity-NULL (:940-952) — a DISABLED component is not null. `EnvSound
+    // .TakeListener()` disables every existing listener and adds ours on the head camera. So the game
+    // kept placing every UI sound at the disabled listener on the parked flat camera, hundreds of
+    // world units from the ear that hears at 198 units/metre. Nothing errors: `Play` returns a live
+    // AudioObject, so every "played" check stays true. Hover and click go silent TOGETHER because
+    // both funnel through `ExtendedButton.PlaySound` → `AudioControllerUtils.PlaySound` → that one
+    // line. No `ISelectHandler`, no `EventTrigger`, no `onClick` subscriber is involved.
+    // A COMMENT IN OUR OWN TREE HAD DECLARED THIS SAFE, and its reasoning is the lesson: EnvSound's
+    // header argued the game's UI items are 2D "because `AudioItem.spatialBlend` defaults to 0" —
+    // reading a C# FIELD INITIALIZER as if it were the authored asset value. That field is only
+    // consulted when `overrideAudioSourceSettings` is set; otherwise the POOL PREFAB's AudioSource
+    // settings stand, and the game's own `GetAudioItemMaxDistance` reads exactly that prefab. The new
+    // class MEASURES `spatialBlend` and the rolloff off that prefab and prints them, so the next
+    // round does not take it on trust either.
+    // FIX: one reflection write to the game's cached `_currentAudioListener`, issued before any
+    // dispatch that can make the game speak. Then `Play(id)` places the sound 1 world unit = 1/198 m
+    // in front of the VR head and the button's OWN authored item plays, through the GAME's own code.
+    // No invented sound, no bundled asset, no dispatched event — so double-firing is impossible by
+    // construction. Self-healing: `ReleaseListener` DESTROYS our listener, which IS Unity-null, so
+    // the game's own guard re-resolves.
+    // STILL OPEN, NAMED: `FlatScreen.6.Pointer.cs` dispatches down/up/click but NEVER enter/exit, so
+    // on the flat-screen mirror the game's hover sound AND hover animation never run at all.
+    //
+    // ── THE CARD-SELECTION PREVIEW IS NOT A TOOLTIP, WHICH IS WHY NEITHER FIX REACHED IT ──
+    // User: "Wenn ich das Kartenmenü eines Characters in der UI aufmache werden die mouseover Karten
+    // nicht richtig angezeigt." Hovering a loadout row switches on that row's OWN `FullAbilityCard`
+    // child — no `UITooltip`, no shared instance, so `TooltipOnWindow`'s family table never matched.
+    // THE 190 CUT DID FIRE and was not enough (log: `SCREEN-FIT CUT: … 'Full' …`). The real damage is
+    // the line BEFORE it, `AbilityCardUI.cs:1074`:
+    //     fullAbilityCard.transform.position = new Vector3(base.transform.position.x + 40f,
+    //                                                      base.transform.position.y - 45f);
+    // an ABSOLUTE WORLD position built from two CANVAS-PIXEL constants walked along the WORLD x/y
+    // axes — and a two-argument Vector3 carries an implicit z = 0, so the card is also snapped to
+    // world z = 0 while the host sits ~90 units off that plane. Same bug CLASS as 190, different
+    // TERM: the 190 patch is on the helper, not on the assignment.
+    // AND THE 192 FIX DID NOT REACH IT: `ToggleFullCardPreview` ADDS a Canvas at
+    // `overrideSorting = true, sortingOrder = 10` on show and destroys it on hide (:1049-1061) — the
+    // identical escape-my-clipper trick the merchant hint uses — and the adoption clears the flag, so
+    // the preview is painted over AND clipped to the ability-card viewport.
+    // FIX: a PREFIX (not a postfix — the broken pose must not land for even one frame at 90 Hz in
+    // stereo) on `ChangeFullCardPosition` that rebuilds the game's own (+40, −45) intent in uGUI
+    // pixels along the HOST's right/up axes and writes a `localPosition`, never `transform.position`
+    // — so it is also correct on the second hover, when the widget already lives at the window's
+    // content root. Then the existing flatten → RaiseToWindowTop → in-plane-clamp pass.
+    // NOT FIXED, REPORTED: `UILevelUpCard.MouseEnter` (:118-121) carries the identical defect on the
+    // level-up screen and does not route through `ChangeFullCardPosition`.
+    //
+    // ── THE QUEST LOG IS NOW PERMANENT, IDENTIFIED BY ITS OWN COMPONENT ───────────────────
+    // User: "Auch das Fenster mit den Quests ... sollen nicht schließbar sein (Kein x)."
+    // `IsMapRoomPermanent` now also matches `window.GetComponent<QuestLogManager>() != null` — an
+    // IS-A test on the window's own GameObject, guaranteed by `[RequireComponent(typeof(UIWindow))]`
+    // (QuestLogManager.cs:15-16). Not by name (localisation: "Weltquests"/"Abgeschlossene Quests" are
+    // `GUI_QUEST_GROUP_*` translations) and not by ID: **`UIWindowID` has NO quest-log member at
+    // all**, so the log carries the serialized default `None`, which dozens of other windows also
+    // carry — putting `None` in the permanent-id set would have frozen every unnamed room window.
+    // THE 185 FAILURE MODE DOES NOT TRANSFER: the character screen became permanent because closing
+    // it SPLIT it (a nested UIWindow suppressed by parent-wins became eligible when the parent left).
+    // The quest log has no dependent CHILD window — the quest popup is a SIBLING under
+    // `Map Canvas/Quest UI/`. Three exits verified: it never blocks (not in `ConfirmationFamily`, so
+    // no ModalUI lock), the escape chord `continue`s past a permanent window rather than stopping,
+    // and the pause menu neither closes it nor is blocked by it.
+    // The no-X log line is now routed through `MapRoomPermanentReason(window)` instead of hardcoding
+    // the character screen's reason — otherwise a hardware log would assert the wrong cause.
+    //
+    // ── ONE CARD IN, ONE CARD OUT, WITH THE SCENARIO'S OWN VOCABULARY ─────────────────────
+    // User: "Wenn man eine Karte ändert während man seinen Kartenfächer in der Hand betrachtet soll
+    // die Karte per Animation auftauchen oder verschwinden damit der Fächer immer aktuell ist."
+    // DIFF BY CARD IDENTITY (`CAbilityCard.ID`, first-unclaimed match so a duplicate id cannot claim
+    // two slabs): unchanged cards keep their slab, their printed face and their place. Reused, all
+    // pre-existing: `CardFan.Remove` (the fan's own single-card exit — it re-stamps the fingertip
+    // scan and glides the gap shut), `VRCard.Vanish` (the scenario's crumble, used where a card
+    // leaves with NO pile to fly to — `FlyToPile` was deliberately not reused because the map phase
+    // has no discard pile and an invented destination is an invented animation), and
+    // `VRCard.PlayAppear` at the same seam the scenario calls it from, AFTER the layout, because it
+    // snaps to `_homePos`. `BeginSwapOut`/`DrainSwapExit` stay the CHARACTER edge, and a character
+    // change always wins a tick that carries both.
+    // THE OPEN-FAN CASE IS PROTECTED THREE DEEP: a card the player is LIFTING is never removed (the
+    // pass skips it, keeps it published and re-runs until he lets go; the leave path refuses a held
+    // card; `Vanish` refuses one). Poll rises to 20 Hz WHILE THE FAN IS OPEN so the animation is not
+    // late, 4 Hz otherwise; the diff returns before touching the driver when nothing moved, so a
+    // higher rate is not a higher rebuild rate.
+    // A REAL DEFECT IN A FILE THAT LANE DID NOT OWN, worked around locally and reported:
+    // `VRCard.SetVisualAlpha` fades the art through a CanvasGroup on VRCard's OWN "FaceCanvas" child
+    // — complete for a scenario card whose face is adopted into it, and NOT complete here, because
+    // this feature never calls `AttachGameCard` and the visible front is a `RemoteCardArt` clone on a
+    // SIBLING canvas. Left alone, a leaving map card would hold a 100 %-opaque front for the full
+    // 0.30 s and then hard-cut. The lane drove its own CanvasGroup with the same curve instead; the
+    // one-line proper fix (group every canvas under the card, or expose a FaceAlpha hook) is
+    // `VRCard.cs`'s. The workaround also removes an older pop as pooled borrows landed.
+    //
+    // ── THE MAP ICONS: THE INSTRUMENT SHIPS, THE NUMBER DOES NOT EXIST YET ────────────────
+    // User: "Die Symbole auf der map haben auch ziemlich krasses aliasing ... Auch hier soll es
+    // direkt geladen und angezeigt werden, nicht erst nach 1,2 Sekunden."
+    // THE LANE REFUSED TO INVENT THE MEASUREMENT, and that is right: the flat path's icon-geometry
+    // dump stands down while `MapRoomOwnsParchment`, so NO captured log contains an icon texture size
+    // or quad size, and import settings are not in the decompile. What ships is `MAP ICON SAMPLING`,
+    // printing the SAME quantity `PanelSamplingProbe` reports (max of the two axes, edge lengths
+    // between projected corners because the quad is yawed, through the LEFT eye against the real
+    // per-eye target) plus each texture's `mipmapCount`, `filterMode`, `anisoLevel` and bake state.
+    // The fix is conditional and safe either way: `CardFaceMipBake.BakedTextureFor` — the EXISTING
+    // shared cache, no second one — which refuses an already-mipped source by design, so if the icons
+    // turn out to be mipped the bake is a no-op and the log says the cause is then the printed filter
+    // mode, the printed aniso, or extreme minification, and NOT another bake.
+    // THE LATE LOADING WAS ALREADY IN OUR OWN LOG AND HAD BEEN READ PAST: the icon census climbs
+    // 0 → 4 → 6 → 16 → 27 → 47 across nine prints of a line throttled to one per 0.5 s. Two causes,
+    // both fixed: `Collect` used `includeInactive: false`, so a decal the loader had spawned but not
+    // enabled was invisible until a later scan (the same move `PanelMipBake` needed); and the
+    // 15-frame rescan was a poll — it now runs EVERY frame while the population is still changing.
+    // A poll cannot be deleted outright here the way it was for panels, because `MapLocation.Init`
+    // INSTANTIATES the decal, so there is no pre-existing object to have been watching.
+    // `BakeAsked` is static and never cleared ON PURPOSE: it rations a session-lifetime cache, and
+    // clearing it on Release would re-meter ~47 already-baked icons at 2/frame on every world<->city
+    // switch — re-creating the exact 1.2 s symptom this build removes.
+    //
+    // ── THE PARTY MARKER AND THE ROUTE ARE NOW ADJUSTABLE ─────────────────────────────────
+    // User: "Ich will auch die Größe des Markers wo man sich befindet sowie des eingezeichneten Weges
+    // ... einstellen können." ModBuild 190's class doc had declared the party token unscalable. That
+    // verdict is overtaken, and the reason it gave was also wrong: `PartyToken` is 143 lines that
+    // write only `transform.position` and `LookAt`, and a grep of the ENTIRE decompile finds NO
+    // writer of its `localScale` — a transform write would have been safe.
+    // IT WAS STILL NOT TAKEN. `DrawToken` replaces `DrawRenderer` with `DrawMesh` under a matrix of
+    // our own, pivoting on the token root so it grows where it stands. No game transform is written,
+    // so there is nothing to restore. At scale 1 the old call is issued unchanged. Two guards, both
+    // counted: a `SkinnedMeshRenderer` or a renderer with no `MeshFilter` mesh is refused (bind-pose
+    // drawing is worse than no scaling), and the renderer's own `MaterialPropertyBlock` is copied
+    // onto the `DrawMesh` — `DrawRenderer` carries it implicitly and `DrawMesh` does not, so without
+    // that the token would have changed COLOUR when you moved a SIZE slider.
+    // THE ROUTE IS A `LineRenderer` built by `MapLocation`, not by the choreographer (there is no
+    // path-drawer class): the active route at :435-438/:783-806 and the permanent village roads at
+    // :1015-1054, one prefab, one holder. Its hand-drawn look is 31 curve keys of
+    // `Random.Range(0.2f, 0.4f)`. `ApplyPathWidth` sets `LineRenderer.widthMultiplier`, which Unity
+    // multiplies against that curve — and a grep finds `widthMultiplier` written ONLY in
+    // `ClientScenarioManager` and `RFX4_ParticleTrail`, NEVER on a map line. So this is a number with
+    // no other writer rather than a flag to concede; the write is level-triggered, the original is
+    // recorded before the first write, and `RestorePathWidths` runs from `Release`. The risk is
+    // stated in the log: a per-tick write count that never falls to 0 on a settled frame IS the
+    // diagnosis that someone else started writing it.
+    // New dials `[MapRoom] PartyMarkerScale` and `PathWidthScale` (1.0, 0.5-4), named and described
+    // in German at 578/585 chars against the 620 tooltip clip, with a name-resolution proof carrying
+    // FOUR negative controls.
+    //
+    // ── THE TRAVEL BUTTON: THE THIRD PLACEMENT IS REVERTED, AND HE GETS THE DIALS ─────────
+    // User: "Mach die Position des Quest Buttons ganz rückgängig wie es das erste mal war ... Geb mir
+    // dann im debug menu die offsets um ihm zu verschieben - ich stell es selber ein."
+    // 190's pose is restored statement-for-statement (verified against `git show ac270f4`), and with
+    // both new dials at their defaults `ApplyPose` computes `Vector2.zero` FOR ANY WINDOW HEIGHT —
+    // there is no content measurement, no window edge and no inset constant anywhere on the write
+    // path. The `Graphic`-union sweep survives as LOG EVIDENCE ONLY, called from `LogPlacement` and
+    // nowhere else.
+    // `[WorldUI] TravelButtonOffsetXWindowHeights` / `…OffsetYWindowHeights`, both fractions of the
+    // WINDOW HEIGHT (fraction not pixels because `WindowLegibility` rescales the windows; height for
+    // BOTH axes so the two are commensurable and equal numbers give a true 45°). The unit is IN THE
+    // KEY because a placement number with a guessed unit is the mixed-units bug class this repo has
+    // already shipped. Anchor is the window's bottom-centre: `Y = 0` is the bottom edge, `Y = 1.0`
+    // the top, the side edges are at `X = ±0.25`, and 0.01 ≈ 8.9 mm real at the measured rig scale.
+    // A FINDING WORTH KEEPING, ACTED ON BY NOBODY: 193's header asserts that at the 190 pose the
+    // button "hung far BELOW the window, out over the table". The only measurement in the file does
+    // not support that — 191's own hardware line puts the visible content union at container-local
+    // y = 30…95, which with `anchoredPosition = 0` lands 26–83 mm ABOVE the window's bottom edge, on
+    // the card; 193's solve moved it down by ~8 mm. The restored pose is exactly 190 as asked, and
+    // the new log line prints the button's real-millimetre offset from the window centre, so this is
+    // now decidable rather than arguable.
     // Build 193: A RENDER TEXTURE CANNOT BE BOTH MULTISAMPLED AND MIPMAPPED, AND Create() DOES NOT
     // SAY SO. (Five workers, isolated worktrees.)
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

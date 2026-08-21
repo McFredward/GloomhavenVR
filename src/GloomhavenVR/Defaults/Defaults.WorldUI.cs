@@ -157,6 +157,16 @@ internal static partial class Defaults
     // room changes by so much as a transform write.
     internal const bool MapRoomHand = true;                  // => [WorldUI] MapRoomHand
 
+    // ---- WorldUI/MapRoom/MapTravelConfirm.cs ---------------------------------------
+    // BOTH ZERO IS THE POINT, not a placeholder. User ruling 2026-08-21: "Mach die Position des
+    // Quest Buttons ganz rückgängig wie es das erste mal war als du den button im window hinzugefügt
+    // hast. Geb mir dann im debug menu die offsets um ihm zu verschieben - ich stell es selber ein."
+    // The applied offset is (X, Y) x the quest window's height, so 0 and 0 write Vector2.zero — the
+    // exact anchoredPosition ModBuild 190 wrote, after the exact same anchors and pivot. Three solved
+    // placements (191, 192, 193) were rejected in a row; do not "improve" either number.
+    internal const float TravelButtonOffsetXWindowHeights = 0f;  // => [WorldUI] TravelButtonOffsetXWindowHeights
+    internal const float TravelButtonOffsetYWindowHeights = 0f;  // => [WorldUI] TravelButtonOffsetYWindowHeights
+
     internal const bool DevShowAllPanels = false;            // => [WorldUI] DevShowAllPanels
     internal const bool DevForceConvert = false;             // => [WorldUI] DevForceConvert
 }

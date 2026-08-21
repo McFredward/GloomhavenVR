@@ -101,6 +101,42 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<bool> MapRoomHand = null!;
 
+    // ---- the map room's travel-confirm button: WHERE IT SITS IN THE QUEST WINDOW ---------------
+    //
+    // User ruling 2026-08-21, verbatim: "1) Mach die Position des Quest Buttons ganz rückgängig wie
+    // es das erste mal war als du den button im window hinzugefügt hast. Geb mir dann im debug menu
+    // die offsets um ihm zu verschieben - ich stell es selber ein."
+    //
+    // THREE SOLVED PLACEMENTS WERE REJECTED IN A ROW (ModBuild 191, 192 and 193 — see the header of
+    // WorldUI/MapRoom/MapTravelConfirm.cs), so the mod stopped guessing: the shipped pose is the
+    // ModBuild 190 one, which both defaults of 0 reproduce EXACTLY, and these two dials are how the
+    // player moves it from there.
+    //
+    // THE UNIT IS FRACTIONS OF THE QUEST WINDOW'S OWN HEIGHT — spelled out in the key names, because
+    // a placement number whose unit is a guess is the mixed-units bug this project has already
+    // shipped. A fraction and not a pixel count because [WorldUI] WindowLegibility resizes the
+    // floated windows: a pixel offset tuned at one window size is wrong at the next, a fraction keeps
+    // the button in the same place ON THE CARD at every size. HEIGHT for both axes and not width for
+    // x, so that the same number means the same real distance on either dial.
+    //
+    // A SETTING MAY ONLY MAKE OPTIONAL CONTENT OPTIONAL: these are PLACEMENT dials for content that
+    // is always present. No value of either removes the confirm button, changes what it does or
+    // touches game state, and neither clamp can put the button out of reach — the extremes trace the
+    // window's own outline grown by half a window height (~447 mm at the measured rig scale), and the
+    // button is a CHILD of the window, so it always travels, scales and occludes with the card the
+    // player is already looking at. Presentation only, per client, nothing on the wire.
+
+    /// <summary>Sideways offset of the map room's travel-confirm button inside the floated quest
+    /// window, in fractions of that window's HEIGHT (+ = right). 0 = the ModBuild 190 pose. Clamped
+    /// by <see cref="MapRoom.MapTravelConfirm.OffsetLimitX"/>; read live.</summary>
+    internal static ConfigEntry<float> TravelButtonOffsetXWindowHeights = null!;
+
+    /// <summary>Vertical offset of the same button, in fractions of the window's HEIGHT, measured UP
+    /// from the window's BOTTOM edge (which is where 0 — the ModBuild 190 pose — sits; 1.0 is the
+    /// window's top edge). Clamped by <see cref="MapRoom.MapTravelConfirm.OffsetLimitYMin"/> /
+    /// <see cref="MapRoom.MapTravelConfirm.OffsetLimitYMax"/>; read live.</summary>
+    internal static ConfigEntry<float> TravelButtonOffsetYWindowHeights = null!;
+
     /// <summary>Aliasing follow-up to [Cards] FaceMipBake: mip-bake the mipless game textures the
     /// initiative track and the hover-hint tooltip sample on their world-space hosts (see
     /// <see cref="PanelMipBake"/>). Mirrors the cards' kill switch; read live.</summary>
@@ -409,6 +445,39 @@ internal static class WorldUIConfig
             "fan. Nothing is transmitted and no game state is written in either position of this " +
             "switch. false = no fan and no wrist plate on the map; the map room is otherwise " +
             "completely unchanged. Live: the next frame builds or tears down.");
+        TravelButtonOffsetXWindowHeights = _file.Bind("WorldUI", "TravelButtonOffsetXWindowHeights",
+            Defaults.TravelButtonOffsetXWindowHeights,
+            new ConfigDescription(
+                "3D world map: moves the travel/'Quest erneut spielen' CONFIRM BUTTON SIDEWAYS " +
+                "inside the floated quest window. The unit is FRACTIONS OF THAT WINDOW'S HEIGHT " +
+                "(the same unit as the Y dial, so the same number means the same real distance on " +
+                "both), positive = to the right. 0 = exactly where the button has sat since it was " +
+                "first put in the window, so nothing moves until you tune it. A fraction and not a " +
+                "pixel count because [WorldUI] WindowLegibility resizes the window: this keeps the " +
+                "button in the same place ON the card at any window size. The card's own side " +
+                "edges are at about ±0.25, and the range reaches half a window width beyond " +
+                "either of them - the button stays a child of the window at every value, so it " +
+                "always moves, scales and occludes with the card and can never be left behind. " +
+                "Read live: turn it in the headset and the button moves on the next frame. " +
+                "Range -0.5 to 0.5.",
+                new AcceptableValueRange<float>(-MapRoom.MapTravelConfirm.OffsetLimitX,
+                                                MapRoom.MapTravelConfirm.OffsetLimitX)));
+        TravelButtonOffsetYWindowHeights = _file.Bind("WorldUI", "TravelButtonOffsetYWindowHeights",
+            Defaults.TravelButtonOffsetYWindowHeights,
+            new ConfigDescription(
+                "3D world map: moves the travel/'Quest erneut spielen' CONFIRM BUTTON UP AND DOWN " +
+                "inside the floated quest window. Same unit as the X dial - FRACTIONS OF THE " +
+                "WINDOW'S HEIGHT - but measured UP FROM THE WINDOW'S BOTTOM EDGE, which is where 0 " +
+                "sits: 0 = exactly where the button has sat since it was first put in the window " +
+                "(so nothing moves until you tune it), 1.0 = the window's TOP edge, negative = " +
+                "below the card. The range therefore runs from half a window height under the " +
+                "bottom edge to half a window height over the top one, which covers every point on " +
+                "the card and a margin all round it; the button stays a child of the window at " +
+                "every value, so it always moves, scales and occludes with the card and can never " +
+                "be left behind. Read live: turn it in the headset and the button moves on the " +
+                "next frame. Range -0.5 to 1.5.",
+                new AcceptableValueRange<float>(MapRoom.MapTravelConfirm.OffsetLimitYMin,
+                                                MapRoom.MapTravelConfirm.OffsetLimitYMax)));
         // Tooltips / ActionElementHints: always on — user ruling 2026-08-13. The flat game raises
         // both on hover and offers no way to switch them off; in VR the mod's dials did, and their
         // OFF left the tooltip canvas at its 2D screen position, i.e. nowhere the player can read

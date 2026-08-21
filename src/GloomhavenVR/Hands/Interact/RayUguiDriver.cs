@@ -87,6 +87,25 @@ internal sealed class RayUguiDriver
 
     internal void Tick()
     {
+        // THE EAR, ONCE PER TAKEOVER — deliberately BEFORE the early return below, and deliberately
+        // not only on the pointer's own event edges.
+        //
+        // WorldUI.UiSoundEar repairs the AudioListener the GAME places its sounds at: EnvSound
+        // disables the authored listener and puts ours on the head camera, but AudioController
+        // caches the authored one and only drops it when it goes NULL, not when it is disabled
+        // (AudioController.cs:940-952). Every listener-anchored AudioController.Play(id) — which is
+        // ALL of the game's UI audio (AudioControllerUtils.cs:7-26) and most of its SFX — is then
+        // spawned at a listener that no longer hears, hundreds of world units from the one that
+        // does. UguiPointer repairs it on its own event edges, but sounds are also triggered by
+        // paths this pointer does not own (the flat-screen mirror's pointer, the game itself), so
+        // the repair is issued here too: the field is GLOBAL and the write is STICKY, so the first
+        // frame of a session fixes every sound in it.
+        //
+        // Cost when nothing changed: a static property read, a Unity-null check and one
+        // ReferenceEquals — no allocation, no reflection, no scene search. The reflection write
+        // happens once per listener takeover (environment build/rebuild), not per frame.
+        WorldUI.UiSoundEar.BeforeUiEvent();
+
         // Dominant hand only (the off-hand holds the fan); dominance can switch live.
         // Ray.Active is the level-derived effective state (test #19) — while the hand
         // holds a grabbable the ray's pick is suppressed and STALE, so gate on it
