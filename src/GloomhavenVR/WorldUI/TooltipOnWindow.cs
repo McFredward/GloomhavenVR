@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -82,8 +83,68 @@ namespace GloomhavenVR.WorldUI;
 /// same basis. Strip only the screen-fit delta (<see cref="Patches.TooltipWindowPatches"/>) and the
 /// vanilla 2D layout IS the correct world layout. Nothing is re-derived, so nothing can drift.</para>
 ///
+/// <para>THE SECOND HALF OF THE SAME STORY (user report 2026-08-21 against ModBuild 190, verbatim:
+/// <i>"Beim Händler sind nun gar keine Mouseovers mehr sichtbar von den Gegenständen."</i>). The
+/// placement above is CORRECT and the user confirms it landed — and the box still cannot be seen.
+/// THE MOD'S OWN INSTRUMENTATION PREDICTED THIS ONE BUILD IN ADVANCE and named the cause, so it is
+/// read here as a measurement rather than re-derived as a theory (Player.log of that session,
+/// lines 3811 / 3859-3860):</para>
+/// <list type="number">
+/// <item><description><c>Adopted nested canvas 'UI Party Inventory Item Tooltip' in
+/// 'GloomhavenVR.Panel_Modal_UI Shop Item Window' (overrideSorting <b>True→false</b>,
+/// sortingOrder=1000 …)</c> — the widget ships with its OWN canvas at <c>overrideSorting = true,
+/// sortingOrder = 1000</c>. That is not decoration: it is the entire reason a vanilla item hint is
+/// visible at all. <c>CanvasConversion</c>'s generic nested-canvas adoption clears the flag (so a
+/// nested canvas cannot beat the host's distance ladder — CanvasConversion.2.Adopt.cs), and it
+/// carved out exactly one exception, the uGUI dropdown overlay. The tooltip is the same class of
+/// object and had no carve-out.</description></item>
+/// <item><description><c>the box hangs at sibling 6 of 6 under 'UI Shop Item Slot Variant(Clone)';
+/// nearest canvas … overrideSorting=false order=132, host canvas order 132</c> — with the flag
+/// cleared the box draws in HIERARCHY order, and it lives inside ONE item row of a scroll list.
+/// Every LATER ROW is a later sibling of an ancestor and paints over it.</description></item>
+/// </list>
+///
+/// <para>AND CLEARING THAT ONE FLAG COSTS A SECOND THING, WHICH IS PROBABLY THE LOUDER HALF. uGUI
+/// resolves a graphic's clipper by walking up the parents and STOPPING at the first canvas with
+/// <c>overrideSorting</c> (<c>MaskUtilities.GetRectMaskForClippable</c> / <c>GetStencilDepth</c>,
+/// which takes <c>FindRootSortOverrideCanvas</c> as its stop). An overriding canvas is therefore
+/// how a vanilla tooltip escapes the clipper of the list it is parented into — and the merchant's
+/// item list is a <c>ScrollRect</c> with a working viewport clipper (the mod's own SCROLL CLIP pass
+/// logged nothing for that window, i.e. it found one already there). With the flag cleared the box
+/// is clipped to the item list's viewport, and the item hint is drawn BESIDE the row, i.e. largely
+/// outside it. Clipped away entirely reads as <i>"gar keine Mouseovers mehr sichtbar"</i> exactly
+/// as well as painted-over does; both are one write, and both end here.</para>
+///
+/// <para>THE FIX IS A REPARENT, NOT A SORTING WRITE, AND THAT IS A RULING RATHER THAN A
+/// PREFERENCE. Re-asserting <c>overrideSorting</c> on that canvas would put this class in a
+/// per-frame write war with the mod's OWN adoption guard (<c>CanvasConversion.ReassertAdoptedSorting</c>
+/// clears it every frame for a modal host) — and the value alternating frame to frame is precisely
+/// what made the two MultiPass eyes disagree in ModBuild 179 (<i>"flackert stark"</i>,
+/// <see cref="NestedCanvasRecord.ConcededOverrideSorting"/>). Owning the NUMBER instead is no
+/// better: the conceded branch writes that number every frame too. So this class touches no flag
+/// and no order. It moves the box to the LAST CHILD OF THE WINDOW'S OWN CONTENT ROOT
+/// (<see cref="RaiseToWindowTop"/>), which answers both halves with one hierarchy write: last
+/// sibling of the top level is painted after every other piece of that window's content, and a
+/// clipper it is no longer a descendant of cannot clip it. The world pose the placement above
+/// produced is carried across verbatim, so nothing that works today moves by a millimetre.</para>
+///
+/// <para>AND IT IS THE GAME'S OWN WRITE, IN A WIDER PARENT. The item hint carries a
+/// <c>UIWindow</c>, and <c>UIWindow.Show</c> → <c>Focus</c> already ends in
+/// <c>transform.SetAsLastSibling()</c> for exactly this widget (UIWindow.cs:445-451 via
+/// <c>UIUtility.BringToFront</c>, UIUtility.cs:19). "Be the last thing drawn in my parent" is
+/// therefore the game's own stated intent for this box, not an invention here; all this class
+/// changes is WHICH parent that "last" is measured in, from one row of a scroll list to the window
+/// the row belongs to. Nobody else writes a tooltip's sibling index, so there is exactly one writer
+/// of the value — the condition the sorting flag could never satisfy.</para>
+///
 /// <para>WHAT THIS CLASS ADDS ON TOP, AND WHY EACH PIECE EXISTS:</para>
 /// <list type="bullet">
+/// <item><description>THE RAISE (<see cref="RaiseToWindowTop"/>, from <see cref="Settle"/>). See
+/// above. FULLY REVERSIBLE and only ever while the box is still OURS: parent, sibling index,
+/// anchors, pivot, anchored position and local scale are recorded before the first move and written
+/// back on release, on stand-down and on teardown — and the moment the game re-parents the box
+/// itself (it does, on every hover: <c>SetParent(target, worldPositionStays: false)</c>) the record
+/// is dropped and re-taken instead of fought over.</description></item>
 /// <item><description>FLATTEN (<see cref="Flatten"/>, every frame from <see cref="LateTick"/>).
 /// Converted WINDOWS are never flattened: <c>CanvasConversion.Convert</c> takes <c>flatten2D</c> as
 /// an opt-in and <c>ModalFallback</c> does not pass it (only PropInfo / StatPanel / EnemyReveal do),
@@ -145,6 +206,13 @@ internal static class TooltipOnWindow
     /// per-frame jitter.</summary>
     private const float ClampEpsilon = 1e-4f;
 
+    /// <summary>Relative deviation of the two parent chains' lossy scale below which the raise
+    /// writes no <c>localScale</c> at all. A tooltip normally moves between two rects of the very
+    /// same basis (both are plain uGUI layout inside one window), so the expected value is exactly
+    /// 1 and the expected number of scale writes is zero; the compensation exists only so that a
+    /// window which DOES scale its list cannot resize the box by moving it.</summary>
+    private const float RaiseScaleEpsilon = 0.001f;
+
     /// <summary>
     /// A transform inside a local tooltip whose real 3D we clamped — its original local z and local
     /// rotation, for <see cref="Shutdown"/>. Same record shape and same discipline as
@@ -159,6 +227,37 @@ internal static class TooltipOnWindow
     }
 
     private static readonly List<FlatRecord> Flattened = new(64);
+
+    /// <summary>
+    /// A local tooltip this class RAISED to the last child of its owning window's content root
+    /// (<see cref="RaiseToWindowTop"/>) — everything needed to put it back EXACTLY where the game
+    /// had it. Same restore discipline as <c>MapRoom.MapTravelConfirm</c>, for the same reason:
+    /// the game moves its own UI, and taking something back from wherever it has since put it is a
+    /// write war this project has already paid for once.
+    ///
+    /// <para><see cref="OriginalLocalScale"/> is the only recorded value that can survive the
+    /// game's own <c>SetParent(target, worldPositionStays: false)</c>, so it is also the only one
+    /// that has to be handed back BEFORE a re-raise — otherwise a scale compensation would compound
+    /// once per hover. Anchors/pivot are recorded but never written: changing them would silently
+    /// re-aim the game's own <c>anchoredPosition = offset</c> on the NEXT hover, which computes its
+    /// placement before this class is ever called.</para>
+    /// </summary>
+    private struct RaiseRecord
+    {
+        public RectTransform Rect;
+        public ConvertedPanel Owner;
+        public Transform? OriginalParent;
+        public int OriginalSiblingIndex;
+        public Vector2 OriginalAnchorMin;
+        public Vector2 OriginalAnchorMax;
+        public Vector2 OriginalPivot;
+        public Vector2 OriginalAnchoredPosition;
+        public Vector3 OriginalLocalScale;
+        public bool ScaleWritten;
+        public RectTransform RaisedTo;
+    }
+
+    private static readonly List<RaiseRecord> Raised = new(8);
 
     // ---- the family table --------------------------------------------------------------------
     // Matched BY COMPONENT TYPE, never by name. UILocalTooltip is listed as the base on purpose:
@@ -196,6 +295,10 @@ internal static class TooltipOnWindow
     /// <summary>Kinds whose screen-fit cut was already reported (written from the patch).</summary>
     private static readonly HashSet<string> CutLogged = new();
 
+    /// <summary>Rect names whose raise was DECLINED because the box is anchor-stretched to its
+    /// parent (see <see cref="RaiseToWindowTop"/>) — one line each, never per frame.</summary>
+    private static readonly HashSet<string> StretchLogged = new();
+
     // ---- the silent-hover watch ---------------------------------------------------------------
     private static bool _hoverPending;
     private static string _hoverKind = string.Empty;
@@ -227,9 +330,17 @@ internal static class TooltipOnWindow
     internal static void LateTick()
     {
         if (!WorldUIConfig.ConversionActive)
+        {
+            // STAND-DOWN: conversion switched off (VR off, hot reload, a scene without floated
+            // windows). Every raised box goes home before this class stops running, because a
+            // reversible move that is never reversed is not reversible.
+            if (Raised.Count > 0)
+                ReleaseAllRaises("conversion stood down");
             return;
+        }
 
         PruneFlattened();
+        TickRaises();
         Rescan();
 
         for (int i = 0; i < Live.Count; i++)
@@ -268,6 +379,9 @@ internal static class TooltipOnWindow
         // Flatten FIRST: the clamp measures the box's world corners, and a box that is still
         // carrying a stale pooled rotation would be measured at the wrong extent.
         Flatten(rect);
+        // Then RAISE, and only then clamp — the clamp writes through the widget's own parent
+        // basis, so it must be the last of the three and it must see the FINAL parent.
+        string raiseNote = RaiseToWindowTop(rect, owner);
 
         RectTransform host = owner.HostRect;
         Quaternion hostRot = host.rotation;
@@ -320,7 +434,7 @@ internal static class TooltipOnWindow
         if (!PlacedLogged.Add(kind))
             return;
         Vector3 lossy = host.lossyScale;
-        VRLog.Info(Scope, DrawOrderEvidence(rect, owner));
+        VRLog.Info(Scope, DrawOrderEvidence(rect, owner, raiseNote));
         VRLog.Info(Scope,
             $"LOCAL TOOLTIP '{kind}' laid FLAT ON its OWNING floated window "
             + $"'{(owner.HostGo != null ? owner.HostGo.name : "?")}' — it hangs under "
@@ -340,24 +454,26 @@ internal static class TooltipOnWindow
     }
 
     /// <summary>
-    /// "IN FRONT OF ITS HOST" IS A DRAW-ORDER QUESTION, AND IT IS NOT THIS CLASS'S TO ANSWER —
-    /// so it is MEASURED here instead of assumed. Geometry cannot decide it: this widget is a real
-    /// CHILD of the window's host, so it is coplanar with it by construction, and pushing it proud
-    /// would fight the flatten that keeps it on the plane in the first place. What decides it is
-    /// uGUI's own rule: a nested canvas with <c>overrideSorting</c> draws at its own
-    /// <c>sortingOrder</c> (which <c>CanvasConversion</c>'s adoption owns — it clears the flag, and
-    /// concedes ownership of the NUMBER when a game writer keeps flipping it back), and a widget
-    /// with no canvas of its own draws in HIERARCHY order, i.e. after its earlier siblings and
-    /// BEFORE its later ones.
+    /// "IN FRONT OF ITS HOST" IS A DRAW-ORDER QUESTION, AND THE PREVIOUS BUILD'S VERSION OF THIS
+    /// LINE ANSWERED IT ONE BUILD BEFORE IT WAS ASKED — <i>"the box hangs at sibling 6 of 6 under
+    /// 'UI Shop Item Slot Variant(Clone)' … with overrideSorting false and no canvas of its own the
+    /// box draws in HIERARCHY order, so any later sibling of its parent paints over it"</i>. That
+    /// is why this line exists at all, and why it is now written to be read AFTER the raise rather
+    /// than as a prediction. Geometry still cannot decide the question: the widget is a real CHILD
+    /// of the window's host, coplanar with it by construction, and pushing it proud would fight the
+    /// flatten that keeps it on the plane. What decides it is uGUI's own rule — a nested canvas with
+    /// <c>overrideSorting</c> draws at its own <c>sortingOrder</c> (which <c>CanvasConversion</c>'s
+    /// adoption owns: it clears the flag, and concedes ownership of the NUMBER when a game writer
+    /// keeps flipping it back), and a widget without one draws in HIERARCHY order, after its earlier
+    /// siblings and before its later ones.
     ///
-    /// <para>That second case is the one that could still hide a correctly placed box: the tooltip
-    /// re-parents itself under the hovered slot, so every list row BELOW that slot is a later
-    /// sibling of the slot's own parent and paints over it. This line reports the numbers that
-    /// separate "the box is somewhere invisible" from "the box is exactly where it should be and
-    /// something is painted on top of it", once per kind, so the next hardware log settles it as a
-    /// fact rather than as my guess.</para>
+    /// <para>So the numbers printed here are the ones that decide it, all measured on the box's
+    /// FINAL hierarchy position: where it ended up, what it draws at, what the host draws at, how
+    /// many siblings still paint after it, and how many clippers still cut it. Once per kind — a
+    /// held hover must not allocate a line per frame — and phrased so that every outcome, including
+    /// the one that says this fix was the wrong one, has a written reading.</para>
     /// </summary>
-    private static string DrawOrderEvidence(RectTransform rect, ConvertedPanel owner)
+    private static string DrawOrderEvidence(RectTransform rect, ConvertedPanel owner, string raiseNote)
     {
         Canvas own = rect.GetComponent<Canvas>();
         Canvas nested = own != null ? own : rect.GetComponentInParent<Canvas>();
@@ -365,17 +481,330 @@ internal static class TooltipOnWindow
         int index = parent != null ? rect.GetSiblingIndex() : -1;
         int siblings = parent != null ? parent.childCount : 0;
         int hostOrder = owner.HostCanvas != null ? owner.HostCanvas.sortingOrder : 0;
-        return "LOCAL TOOLTIP draw order (measured, not assumed): the box hangs at sibling "
-               + $"{index + 1} of {siblings} under '{(parent != null ? parent.name : "<none>")}'; "
-               + $"nearest canvas '{(nested != null ? nested.name : "<none — draws in the host's batch>")}' "
-               + $"overrideSorting={(nested != null && nested.overrideSorting ? "TRUE" : "false")} "
-               + $"order={(nested != null ? nested.sortingOrder.ToString() : "n/a")}, host canvas order "
-               + $"{hostOrder}. READ IT LIKE THIS: with overrideSorting false and no canvas of its own "
-               + "the box draws in HIERARCHY order, so any later sibling of its parent paints over it "
-               + "— if the box is reported placed but still cannot be seen, that is the reason and the "
-               + "fix belongs in the nested-canvas adoption (CanvasConversion), not here. With "
-               + "overrideSorting TRUE the number shown is what it actually draws at, and it must be "
-               + "at or above the host order to be in front.";
+        bool overriding = nested != null && nested.overrideSorting;
+        int drawOrder = overriding ? nested!.sortingOrder : hostOrder;
+        int painters = CountLaterPainters(rect, owner);
+        string clippers = DescribeClippers(rect, owner);
+        return "LOCAL TOOLTIP draw order (measured AFTER the raise, not assumed): the box hangs at "
+               + $"sibling {index + 1} of {siblings} under '{(parent != null ? parent.name : "<none>")}'; "
+               + $"{raiseNote} It draws at order {drawOrder} "
+               + (overriding
+                   ? $"(its own canvas '{nested!.name}' has overrideSorting TRUE, so that number IS its order)"
+                   : $"(inherited from the host — nearest canvas '{(nested != null ? nested.name : "<none>")}' "
+                     + "has overrideSorting false, so HIERARCHY order decides)")
+               + $", host canvas order {hostOrder}. "
+               + $"STILL PAINTING AFTER IT inside this window's content: {painters} sibling(s) on its "
+               + $"whole ancestor chain up to the window root. CLIPPERS it is still a descendant of "
+               + $"(enabled RectMask2D / stencil Mask between it and the host, named): {clippers}. "
+               + "READ IT LIKE THIS, AND IT ANSWERS THE WHOLE QUESTION WITHOUT GUESSING: 0 later "
+               + "painters + 0 clippers + order at or above the host order = the box is genuinely on "
+               + "top of its window and anything still invisible is NOT a draw-order or clipping "
+               + "problem (look at activity, alpha or the raise being declined). A NON-ZERO painter "
+               + "count means the raise did not reach the top level — the box is still nested inside "
+               + "window content and that content paints over it, which is the ModBuild-190 failure "
+               + "verbatim. A NON-ZERO clipper count naming a scroll VIEWPORT means the box is still "
+               + "cut to that viewport, which for a hint drawn BESIDE its row means cut away "
+               + "entirely; a count naming only the window root itself is benign (that clip is the "
+               + "window frame, and the in-plane clamp already keeps the box inside it). An "
+               + "overrideSorting-TRUE canvas whose order is BELOW the host order is the one outcome "
+               + "this class cannot fix by reparenting — a canvas that overrides sorting ignores "
+               + "hierarchy — and that one does belong to the nested-canvas adoption "
+               + "(CanvasConversion.2.Adopt.cs / ReassertAdoptedSorting's conceded branch).";
+    }
+
+    /// <summary>
+    /// How many siblings still paint AFTER this rect, counted at every level of its ancestor chain
+    /// up to (and excluding) the window's own content root. This is the number that decides
+    /// hierarchy-order visibility: uGUI paints a canvas's content depth-first in sibling order, so
+    /// every later sibling of every ancestor draws over the whole subtree the rect lives in. The
+    /// walk stops at <c>owner.Target</c> because above that the only siblings are the mod's own
+    /// decorations (the close X, the grab bar), which carry their own overriding canvases and are
+    /// deliberately above everything.
+    /// </summary>
+    private static int CountLaterPainters(RectTransform rect, ConvertedPanel owner)
+    {
+        int later = 0;
+        Transform? stop = owner.Target;
+        Transform? node = rect;
+        // Bounded by the hierarchy depth; the stop is an ancestor by construction (Settle only
+        // runs for rects inside the owning window), and the null test covers the case where it
+        // is not, so this cannot walk the whole scene.
+        while (node != null && node.parent != null && !ReferenceEquals(node, stop))
+        {
+            Transform p = node.parent;
+            later += p.childCount - 1 - node.GetSiblingIndex();
+            node = p;
+        }
+        return later;
+    }
+
+    /// <summary>
+    /// How many enabled clippers the rect is still a DESCENDANT of, between it and the host. uGUI
+    /// resolves a graphic's clipper by walking its parents and stopping at the first canvas with
+    /// <c>overrideSorting</c> (<c>MaskUtilities.GetRectMaskForClippable</c> and, for stencil masks,
+    /// <c>GetStencilDepth</c> with <c>FindRootSortOverrideCanvas</c> as its stop) — which is
+    /// exactly the flag the conversion's nested-canvas adoption clears. So on a floated window this
+    /// count is the honest one: whatever is listed here WILL cut the box.
+    /// </summary>
+    private static string DescribeClippers(RectTransform rect, ConvertedPanel owner)
+    {
+        int clippers = 0;
+        var names = new List<string>(4);
+        Transform? stop = owner.HostRect;
+        Transform? node = rect.parent;
+        while (node != null)
+        {
+            var rectMask = node.GetComponent<RectMask2D>();
+            bool clips = rectMask != null && rectMask.enabled;
+            var stencil = node.GetComponent<Mask>();
+            clips |= stencil != null && stencil.enabled && stencil.graphic != null && stencil.graphic.enabled;
+            if (clips)
+            {
+                clippers++;
+                if (names.Count < 4)
+                    names.Add(node.name);
+            }
+            if (ReferenceEquals(node, stop))
+                break;
+            node = node.parent;
+        }
+        return clippers == 0
+            ? "0 (nothing between it and the host clips it)"
+            : $"{clippers} [{string.Join(", ", names)}]";
+    }
+
+    // ---- the raise ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// MOVE ONE PLACED BOX TO THE LAST CHILD OF ITS WINDOW'S CONTENT ROOT, carrying its world pose
+    /// across unchanged. The full root cause is in the class doc; the short version is that the
+    /// widget's own canvas ships at <c>overrideSorting = true</c> for two reasons at once — to draw
+    /// over the list it is parented into, and to escape that list's viewport clipper — and the
+    /// conversion's generic nested-canvas adoption clears the flag. Both of those are hierarchy
+    /// facts as well as sorting facts, so ONE hierarchy write answers both without touching a flag
+    /// this mod has already lost a write war over.
+    ///
+    /// <para>WHAT IS AND IS NOT WRITTEN. Parent, sibling index and local position: yes. Local
+    /// scale: only when the two parent chains actually differ in lossy scale by more than
+    /// <see cref="RaiseScaleEpsilon"/> (they should not — expect zero such writes), so that moving
+    /// the box can never resize it. Anchors and pivot: NEVER, and that is load-bearing. The game
+    /// places this family with <c>SetParent(slot, worldPositionStays: false)</c> followed by
+    /// <c>anchoredPosition = offset</c> (UIPartyItemInventoryTooltip.cs:189/240) — both of which run
+    /// BEFORE the postfix that calls this method — so re-anchoring the box here would silently
+    /// re-aim the game's own placement on the NEXT hover, and the position that finally works would
+    /// be lost to fix a draw order.</para>
+    ///
+    /// <para>Returns the clause the evidence line reads out, so the next hardware log states what
+    /// was done rather than what was intended.</para>
+    /// </summary>
+    private static string RaiseToWindowTop(RectTransform rect, ConvertedPanel owner)
+    {
+        RectTransform content = owner.Target;
+        if (content == null || ReferenceEquals(rect, content) || !rect.IsChildOf(content))
+        {
+            // Not this window's content (or IS its root) — there is no "top" to move it to and
+            // nothing here applies. Vanilla hierarchy, untouched.
+            return "no raise (the box is not inside this window's content root).";
+        }
+
+        int held = IndexOfRaise(rect);
+        if (held >= 0)
+        {
+            RaiseRecord rec = Raised[held];
+            if (rec.RaisedTo != null && ReferenceEquals(rect.parent, rec.RaisedTo))
+            {
+                KeepLastSibling(rect);
+                return "already raised to the window's content root (still ours; only the sibling "
+                       + "index is re-asserted).";
+            }
+            // The game re-parented it — every hover does. Hand back the ONE write of ours that
+            // survives a SetParent before measuring a fresh home, so a scale compensation can
+            // never compound across hovers, and drop the stale record.
+            if (rec.ScaleWritten)
+                rect.localScale = rec.OriginalLocalScale;
+            Raised.RemoveAt(held);
+        }
+
+        if (ReferenceEquals(rect.parent, content))
+        {
+            // The game already put it at the top level. Nothing to reparent — but "last" still has
+            // to be asserted, and it is recorded so the sibling index is handed back on release.
+            RecordRaise(rect, owner, content, scaleWritten: false);
+            KeepLastSibling(rect);
+            return "no reparent needed (the game had already parented it to the window's content "
+                   + "root); raised to LAST sibling there.";
+        }
+
+        // A stretched rect derives its SIZE from its parent, so reparenting one silently resizes
+        // it. Declining is the honest answer: a mis-sized hint is worse than a hidden one, and the
+        // line below names the widget so the next round can decide deliberately.
+        if (rect.anchorMin != rect.anchorMax)
+        {
+            if (StretchLogged.Add(rect.name))
+            {
+                VRLog.Warn(Scope,
+                    $"LOCAL TOOLTIP RAISE DECLINED for '{rect.name}' in "
+                    + $"'{(owner.HostGo != null ? owner.HostGo.name : "?")}': the box is anchor-STRETCHED "
+                    + $"to its parent (anchorMin {rect.anchorMin}, anchorMax {rect.anchorMax}), so its "
+                    + "size is derived from that parent and re-parenting it would resize it. "
+                    + "CONSEQUENCE: this hint keeps drawing in hierarchy order inside its row and may "
+                    + "be painted over or clipped by the row list — i.e. the ModBuild-190 symptom "
+                    + "persists for THIS widget only. Every non-stretched hint is raised normally.");
+            }
+            return "raise DECLINED (anchor-stretched to its parent — see the warning above).";
+        }
+
+        Vector3 worldPos = rect.position;
+        Vector3 preLossy = rect.lossyScale;
+        Transform? previous = rect.parent;
+        RecordRaise(rect, owner, content, scaleWritten: false);
+
+        rect.SetParent(content, worldPositionStays: false);
+        Vector3 postLossy = rect.lossyScale;
+        Vector3 ratio = new Vector3(
+            SafeRatio(preLossy.x, postLossy.x),
+            SafeRatio(preLossy.y, postLossy.y),
+            SafeRatio(preLossy.z, postLossy.z));
+        bool scaled = Mathf.Abs(ratio.x - 1f) > RaiseScaleEpsilon
+                      || Mathf.Abs(ratio.y - 1f) > RaiseScaleEpsilon
+                      || Mathf.Abs(ratio.z - 1f) > RaiseScaleEpsilon;
+        if (scaled)
+        {
+            Vector3 ls = rect.localScale;
+            rect.localScale = new Vector3(ls.x * ratio.x, ls.y * ratio.y, ls.z * ratio.z);
+            MarkScaleWritten(rect);
+        }
+
+        // The pose is carried across as a WORLD point resolved into the new parent's basis — never
+        // as transform.position, which on a rotated host at map-room rig scale is the mistake this
+        // whole class exists to undo. z is dropped: the correction is in-plane by construction and
+        // the flatten owns z.
+        Vector3 local = content.InverseTransformPoint(worldPos);
+        rect.localPosition = new Vector3(local.x, local.y, 0f);
+        rect.SetAsLastSibling();
+
+        return $"RAISED from '{(previous != null ? previous.name : "<none>")}' to the LAST child of "
+               + $"the window's content root '{content.name}' (world pose carried across verbatim"
+               + (scaled ? $", local scale compensated by {ratio}" : ", no scale write needed")
+               + ").";
+    }
+
+    /// <summary>Ratio of two lossy-scale components, with a zero denominator answering 1 (a
+    /// degenerate basis must not produce an infinity that then lands on a transform).</summary>
+    private static float SafeRatio(float pre, float post) =>
+        Mathf.Abs(post) < 1e-6f ? 1f : pre / post;
+
+    private static void RecordRaise(RectTransform rect, ConvertedPanel owner, RectTransform raisedTo,
+        bool scaleWritten)
+    {
+        Raised.Add(new RaiseRecord
+        {
+            Rect = rect,
+            Owner = owner,
+            OriginalParent = rect.parent,
+            OriginalSiblingIndex = rect.GetSiblingIndex(),
+            OriginalAnchorMin = rect.anchorMin,
+            OriginalAnchorMax = rect.anchorMax,
+            OriginalPivot = rect.pivot,
+            OriginalAnchoredPosition = rect.anchoredPosition,
+            OriginalLocalScale = rect.localScale,
+            ScaleWritten = scaleWritten,
+            RaisedTo = raisedTo,
+        });
+    }
+
+    private static void MarkScaleWritten(RectTransform rect)
+    {
+        int i = IndexOfRaise(rect);
+        if (i < 0)
+            return;
+        RaiseRecord rec = Raised[i];
+        rec.ScaleWritten = true;
+        Raised[i] = rec;
+    }
+
+    private static int IndexOfRaise(RectTransform rect)
+    {
+        for (int i = 0; i < Raised.Count; i++)
+        {
+            if (ReferenceEquals(Raised[i].Rect, rect))
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>Assert "last sibling" only when it is not already true. Idempotent and single-
+    /// writer: nothing else in this mod writes a tooltip's sibling index, so this can never become
+    /// the alternating write the sorting flag once was.</summary>
+    private static void KeepLastSibling(RectTransform rect)
+    {
+        Transform? parent = rect.parent;
+        if (parent == null)
+            return;
+        if (rect.GetSiblingIndex() != parent.childCount - 1)
+            rect.SetAsLastSibling();
+    }
+
+    /// <summary>
+    /// Per-frame upkeep of the raised set: drop records whose widget or window died (restoring
+    /// first, while it is still ours), and re-assert "last sibling" for the ones still raised — a
+    /// window that spawns content while a hint is up would otherwise paint over it.
+    /// </summary>
+    private static void TickRaises()
+    {
+        for (int i = Raised.Count - 1; i >= 0; i--)
+        {
+            RaiseRecord rec = Raised[i];
+            if (rec.Rect == null || rec.RaisedTo == null || rec.Owner == null || !rec.Owner.IsAlive)
+            {
+                RestoreRaise(rec); // no-ops unless the box is still parented where we put it
+                Raised.RemoveAt(i);
+                continue;
+            }
+            if (!ReferenceEquals(rec.Rect.parent, rec.RaisedTo))
+                continue; // the game took it back; the next placement call re-takes it cleanly
+            KeepLastSibling(rec.Rect);
+        }
+    }
+
+    /// <summary>
+    /// Put ONE raised box back exactly where the game had it — parent, sibling index, anchors,
+    /// pivot, anchored position and local scale — and ONLY while it is still parented where this
+    /// class put it. A box the game has since moved is the game's again; taking it back would be
+    /// the write war.
+    /// </summary>
+    private static void RestoreRaise(RaiseRecord rec)
+    {
+        RectTransform rect = rec.Rect;
+        if (rect == null || rec.RaisedTo == null || !ReferenceEquals(rect.parent, rec.RaisedTo))
+            return;
+        if (rec.ScaleWritten)
+            rect.localScale = rec.OriginalLocalScale;
+        if (rec.OriginalParent == null)
+            return; // its home was destroyed (a pooled row) — leave it flat inside the window
+        rect.SetParent(rec.OriginalParent, worldPositionStays: false);
+        rect.SetSiblingIndex(Mathf.Clamp(rec.OriginalSiblingIndex, 0,
+            Mathf.Max(0, rec.OriginalParent.childCount - 1)));
+        rect.anchorMin = rec.OriginalAnchorMin;
+        rect.anchorMax = rec.OriginalAnchorMax;
+        rect.pivot = rec.OriginalPivot;
+        rect.anchoredPosition = rec.OriginalAnchoredPosition;
+    }
+
+    private static void ReleaseAllRaises(string why)
+    {
+        int restored = Raised.Count;
+        for (int i = 0; i < Raised.Count; i++)
+            RestoreRaise(Raised[i]);
+        Raised.Clear();
+        if (restored > 0)
+        {
+            VRLog.Info(Scope,
+                $"LOCAL TOOLTIP RAISE released for {restored} widget(s) ({why}) — parent, sibling "
+                + "index, anchors, pivot, anchored position and local scale restored verbatim for "
+                + "every box still parented where this class put it; anything the game had already "
+                + "moved was left alone on purpose.");
+        }
     }
 
     /// <summary>
@@ -438,6 +867,7 @@ internal static class TooltipOnWindow
     /// it did before the mod touched them.</summary>
     internal static void Shutdown()
     {
+        ReleaseAllRaises("module shutdown / hot reload");
         for (int i = 0; i < Flattened.Count; i++)
         {
             Transform tf = Flattened[i].Transform;
@@ -456,6 +886,7 @@ internal static class TooltipOnWindow
         PlacedLogged.Clear();
         SilentLogged.Clear();
         CutLogged.Clear();
+        StretchLogged.Clear();
         _scanFrame = int.MinValue;
         _hoverPending = false;
         _hoverWindow = null;

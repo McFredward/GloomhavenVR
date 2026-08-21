@@ -112,6 +112,13 @@ internal static partial class Defaults
     // shipped look is bit-identical; only the two menu rows and the two cfg keys are gone.
     internal const bool WristHud = true;                     // => [WorldUI] WristHud
     internal const bool PanelMipBake = true;                 // => [WorldUI] PanelMipBake
+    // ---- WorldUI/PanelSupersample.cs -----------------------------------------------
+    // DEFAULT OFF for this build, deliberately: it is the largest rendering change in the mod and
+    // it lands on a symptom that has survived nine hardware rounds, so the user has to be able to
+    // A/B it against today's behaviour inside ONE session. OFF is byte-for-byte today's rendering
+    // — no camera, no render target, no layer is touched while the switch is false.
+    internal const bool PanelSupersample = false;            // => [WorldUI] PanelSupersample
+    internal const float PanelSupersampleFactor = 1.0f;      // => [WorldUI] PanelSupersampleFactor
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale
@@ -143,6 +150,13 @@ internal static partial class Defaults
     internal const bool ScreenLayerSplit = true;             // => [WorldUI] ScreenLayerSplit
     internal const bool LoadingIndicator = true;             // => [WorldUI] LoadingIndicator
     internal const bool AutoCapitalise = true;               // => [Keyboard] AutoCapitalise
+    // ---- WorldUI/MapRoom/MapRoomHand.*.cs ------------------------------------------
+    // DEFAULT ON by explicit user ruling (2026-08-21, ruling 4: "Das Feature soll deaktivierbar
+    // sein" — deactivatable, i.e. on until switched off). Its OFF makes only OPTIONAL content
+    // optional: no loadout fan and no map-room wrist plate are built, and nothing else in the map
+    // room changes by so much as a transform write.
+    internal const bool MapRoomHand = true;                  // => [WorldUI] MapRoomHand
+
     internal const bool DevShowAllPanels = false;            // => [WorldUI] DevShowAllPanels
     internal const bool DevForceConvert = false;             // => [WorldUI] DevForceConvert
 }

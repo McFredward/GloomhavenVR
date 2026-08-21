@@ -203,11 +203,116 @@ internal static class PanelSamplingProbe
     /// <summary>Total bakes this probe has caused, for the report line.</summary>
     private static int _bakedGraphics;
 
+    // =====================================================================================
+    // THE HAND-OFF TO THE EYE PROBE (ModBuild 191).
+    //
+    // <see cref="EyeFrameProbe"/> reads back the PIXELS the eye actually receives over a 64x64
+    // window of one surface. Which surface it should look at is exactly the question this class
+    // already answers every scan: the WORST-minified graphic on a floated panel is the one the user
+    // reports, and the BEST-sampled graphic on the same canvas is the reference column that does
+    // not flicker. Publishing those two RectTransforms here rather than letting the eye probe pick
+    // its own means the two log lines describe THE SAME two surfaces and can be read against each
+    // other without a remembered value — which is the whole reason the REFERENCE column exists.
+    //
+    // These are plain statics rather than an event because the eye probe samples from inside the
+    // render loop, where nothing may be recomputed; it needs a value that was settled in Update.
+    // =====================================================================================
+
+    /// <summary>The worst-minified measurable graphic across all floated panels on the last scan —
+    /// the surface the flicker is reported on. Null when nothing was measurable.</summary>
+    internal static RectTransform? SubjectRect { get; private set; }
+
+    /// <summary>Name and measured minification of <see cref="SubjectRect"/>, for the eye probe's log.</summary>
+    internal static string SubjectLabel { get; private set; } = "<none>";
+
+    /// <summary>The best-sampled measurable graphic across all floated panels on the last scan —
+    /// the quiet reference column. Null when nothing was measurable.</summary>
+    internal static RectTransform? ReferenceRect { get; private set; }
+
+    /// <summary>Name and measured minification of <see cref="ReferenceRect"/>.</summary>
+    internal static string ReferenceLabel { get; private set; } = "<none>";
+
+    /// <summary>Frame the two rects above were chosen on — the eye probe prints its age so a stale
+    /// pick (a window closed between the scan and the capture) is visible rather than silent.</summary>
+    internal static int SelectionFrame { get; private set; } = -1;
+
+    // Scan-scoped candidates. Surfaces is cleared PER PANEL, so the pick has to be accumulated
+    // across panels and committed once at the end of the scan.
+    private static RectTransform? _candWorstRect;
+    private static RectTransform? _candBestRect;
+    private static string _candWorstLabel = "<none>";
+    private static string _candBestLabel = "<none>";
+    private static float _candWorst;
+    private static float _candBest;
+
+    private static void BeginSelection()
+    {
+        _candWorstRect = null;
+        _candBestRect = null;
+        _candWorstLabel = "<none>";
+        _candBestLabel = "<none>";
+        _candWorst = float.MinValue;
+        _candBest = float.MaxValue;
+    }
+
+    /// <summary>Fold this panel's measured surfaces into the scan-wide worst/best pick.</summary>
+    private static void AccumulateSelection(string window)
+    {
+        for (int i = 0; i < Surfaces.Count; i++)
+        {
+            Surface s = Surfaces[i];
+            if (s.Rect == null)
+                continue;
+            if (s.Minification > _candWorst)
+            {
+                _candWorst = s.Minification;
+                _candWorstRect = s.Rect;
+                _candWorstLabel = $"'{s.Name}' {s.Kind} on '{window}', {s.Minification:F2}x "
+                                  + $"minified, mips={s.Mips}, {s.Filter}, aniso {s.Aniso}"
+                                  + (s.WasBaked ? ", MIP-BAKED" : string.Empty);
+            }
+            if (s.Minification < _candBest)
+            {
+                _candBest = s.Minification;
+                _candBestRect = s.Rect;
+                _candBestLabel = $"'{s.Name}' {s.Kind} on '{window}', {s.Minification:F2}x "
+                                 + $"minified, mips={s.Mips}, {s.Filter}, aniso {s.Aniso}"
+                                 + (s.WasBaked ? ", MIP-BAKED" : string.Empty);
+            }
+        }
+    }
+
+    /// <summary>Commit the scan's pick. An empty scan KEEPS the previous pick rather than blanking
+    /// it: a window that momentarily measures nothing must not make the eye probe stand down and
+    /// then re-arm, because the burst it is in the middle of would be torn in half.</summary>
+    private static void CommitSelection()
+    {
+        if (_candWorstRect == null)
+            return;
+        SubjectRect = _candWorstRect;
+        SubjectLabel = _candWorstLabel;
+        ReferenceRect = _candBestRect;
+        ReferenceLabel = _candBestLabel;
+        SelectionFrame = Time.frameCount;
+    }
+
+    private static void ClearSelection()
+    {
+        SubjectRect = null;
+        ReferenceRect = null;
+        SubjectLabel = "<none>";
+        ReferenceLabel = "<none>";
+        SelectionFrame = -1;
+    }
+
     /// <summary>One measured graphic. Value type in a reused list: the scan allocates nothing.</summary>
     private readonly struct Surface
     {
         internal readonly string Name;
         internal readonly string Kind;
+        /// <summary>The graphic's own rect — published to <see cref="EyeFrameProbe"/> so the pixel
+        /// probe samples the very surface this line names, not one it picked for itself.</summary>
+        internal readonly RectTransform? Rect;
         internal readonly float TexelsW;
         internal readonly float TexelsH;
         internal readonly float PixelsW;
@@ -219,12 +324,13 @@ internal static class PanelSamplingProbe
         internal readonly bool IsRenderTexture;
         internal readonly bool WasBaked;
 
-        internal Surface(string name, string kind, float texelsW, float texelsH, float pixelsW,
-            float pixelsH, float minification, int mips, FilterMode filter, int aniso,
+        internal Surface(string name, string kind, RectTransform? rect, float texelsW, float texelsH,
+            float pixelsW, float pixelsH, float minification, int mips, FilterMode filter, int aniso,
             bool isRenderTexture, bool wasBaked)
         {
             Name = name;
             Kind = kind;
+            Rect = rect;
             TexelsW = texelsW;
             TexelsH = texelsH;
             PixelsW = pixelsW;
@@ -245,12 +351,22 @@ internal static class PanelSamplingProbe
     /// </summary>
     internal static void Tick(bool wanted)
     {
+        // ModBuild 191: the PIXEL instrument rides the same arm condition and is driven from here
+        // for the same reason this class is driven from RenderTargetProbe — the Update seam that
+        // arms this family lives in ModalFallback.4.Tick.cs, which neither lane owns, and this
+        // method is already called from it on exactly the right condition. It is called FIRST and
+        // OUTSIDE the scan throttle below: the eye probe needs a per-frame arm/disarm edge (its
+        // work happens on Camera.onPreRender, not here), whereas this class only re-measures every
+        // ScanIntervalFrames. See EyeFrameProbe.
+        EyeFrameProbe.Tick(wanted);
+
         if (!wanted)
         {
             if (_armed)
             {
                 _armed = false;
                 RestoreAll("stand-down (no floated panel left)");
+                ClearSelection();
                 _lastScanFrame = -1;
             }
             return;
@@ -311,9 +427,11 @@ internal static class PanelSamplingProbe
     /// a ScriptEngine hot reload cannot leave a game window wearing our baked sprites.</summary>
     internal static void Shutdown()
     {
+        EyeFrameProbe.Shutdown();
         _armed = false;
         _lastScanFrame = -1;
         RestoreAll("module shutdown");
+        ClearSelection();
         Refused.Clear();
     }
 
@@ -344,6 +462,7 @@ internal static class PanelSamplingProbe
 
         bool bakeAllowed = WorldUIConfig.PanelMipBake != null && WorldUIConfig.PanelMipBake.Value;
         int attempts = 0;
+        BeginSelection();
 
         for (int p = 0; p < panels.Count; p++)
         {
@@ -353,10 +472,12 @@ internal static class PanelSamplingProbe
 
             Surfaces.Clear();
             MeasureAndTreat(panel, head, eyePxW, eyePxH, bakeAllowed, ref attempts);
+            AccumulateSelection(panel.Target != null ? panel.Target.name : "<released>");
             if (_reportDue)
                 Report(panel, head, eyePxW, eyePxH);
         }
         Surfaces.Clear();
+        CommitSelection();
     }
 
     private static void MeasureAndTreat(ConvertedPanel panel, Camera head, float eyePxW, float eyePxH,
@@ -403,8 +524,9 @@ internal static class PanelSamplingProbe
                 }
             }
 
-            Surfaces.Add(new Surface(img.name, $"Image[{img.type}]", texelsW, texelsH, pxW, pxH, min,
-                tex.mipmapCount, tex.filterMode, tex.anisoLevel, isRenderTexture: false, baked));
+            Surfaces.Add(new Surface(img.name, $"Image[{img.type}]", img.rectTransform, texelsW,
+                texelsH, pxW, pxH, min, tex.mipmapCount, tex.filterMode, tex.anisoLevel,
+                isRenderTexture: false, baked));
         }
         ImageScratch.Clear();
 
@@ -457,7 +579,8 @@ internal static class PanelSamplingProbe
             }
 
             Surfaces.Add(new Surface(raw.name, isRt ? "RawImage[RenderTexture]" : "RawImage[Texture2D]",
-                texelsW, texelsH, pxW, pxH, min, mips, tex.filterMode, tex.anisoLevel, isRt, baked));
+                raw.rectTransform, texelsW, texelsH, pxW, pxH, min, mips, tex.filterMode,
+                tex.anisoLevel, isRt, baked));
         }
         RawScratch.Clear();
     }

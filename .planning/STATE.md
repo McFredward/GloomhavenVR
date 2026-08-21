@@ -126,6 +126,114 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 191** (bundle UNCHANGED — plugin DLL only) — the dither hypothesis died, the tooltip
+  was being *clipped* as well as buried, and the card hand came to the map room. *(Five workers,
+  isolated worktrees, split file ownership.)* **Nothing on the wire.**
+  * **THE MIP BAKE LANDED AND THE FLICKER DID NOT MOVE.** 190's prediction was tested: the shop
+    window reports **474 of 475** graphics at ≥1.35× minification, all now `mips=10 Trilinear
+    aniso 8, MIP-BAKED`, and the report is unchanged. **Texture-space shimmer of MIPPED graphics is
+    measured out.** That is a result, not a null.
+  * **MY OWN NEW HYPOTHESIS WAS KILLED BEFORE IT SHIPPED.** An FFT of `flackern_story.jpg` gave a
+    sharp ~8.2 px diagonal peak (~7 %) on the story illustration and nothing on the Options panel in
+    the same frame; I proposed a **screen-space dither** (per-eye phase difference in MultiPass).
+    **Wrong**, on three independent measurements: (1) the flat panel background on the SAME panel
+    measures amplitude **0.18** — a dithered alpha modulates flat areas *hardest*; (2) period and
+    axis **drift** across one flat plane (7.9–8.9 px @140°→157° right half, 9–15 px @60°–90° left) —
+    an ordered dither is nailed to the pixel grid and cannot drift, a hash dither is broadband;
+    (3) amplitude tracks **source detail** (robe knit, crown, the 1 px gold frame line, glyph
+    strokes). A source audit agrees: the mod assigns no material/shader to a converted panel,
+    `Overlay.shader:57-60` never reads `SV_POSITION`, `alphaToMask`/`LODFade`/`_Dissolve` = 0 hits,
+    `WallSegmentFade` cannot reach a panel (MeshRenderer-only **and** `IsModObject`), `PeerBoardFade`
+    is uniform alpha. Head camera = `Camera + TrackedPoseDriver + AudioListener`; `OnRenderImage`
+    0 hits. **Beautify stays retracted.**
+  * **THE READING THAT MATTERS: aliasing is per-eye BY CONSTRUCTION.** Each eye samples the same
+    surface on a different grid, so each gets a different alias pattern ⇒ **binocular rivalry** ⇒
+    violent shimmer in the headset, a merely-sharp one-eye screenshot. Invisible to every state
+    probe. What is left is **mipless SDF text** and near-1:1 artwork detail — the census separates
+    exactly along his report (`Quest Log Manager` **38 mipless**, `UI Quest Popup` 15, shop window 0,
+    `New Party display` — the portraits he says do NOT flicker — only **2** graphics minified).
+  * **Open flank checked and closed:** `RenderQuality.ApplyMsaa` re-asserts per its own comment; the
+    log carries exactly **two** `MSAA (re)asserted 0x → 8x` lines all session. Not per-frame. And it
+    proves **MSAA 8× is running**, so uGUI *geometry* edges are already resolved.
+  * **New instrument `WorldUI/EyeFrameProbe.cs`** — the first to read **the pixels the eye receives**:
+    CommandBuffer at `AfterEverything`, re-recorded per eye pass, 64×64 **1:1 eye-pixel crop** (not a
+    downsample — an 8 px pattern would not survive one), async readback, FIFO-paired. Left-vs-right
+    **same frame, same world region**; same-eye N/N+1 control gated on head stillness; 4-axis
+    autocorrelation spectrum. Aims at `PanelSamplingProbe`'s own SUBJECT and REFERENCE so the
+    hypothesis can lose. **It self-tests before it may speak — and that caught a defect:** the first
+    self-test pattern (square wave in x+y, period 8) is *also* period 8 on the screen axes, so the
+    probe would have **disabled itself on every launch**. Found by porting the classifier to numpy.
+    Second time [[verify-the-instrument-first]] has paid.
+  * **New measure `WorldUI/PanelSupersample.*.cs`, DEFAULT OFF** — render the window's canvas into
+    its own RT at authored resolution with MSAA + mips and show that. Reaches **rasterization**,
+    which is what is left. **Input untouched, verified line by line:** the host canvas keeps pose,
+    rect, `Canvas.enabled` and its `GraphicRaycaster`; **only its layer moves**, and
+    `RayUguiDriver`/`UguiPointer` never read which camera draws a canvas. FlatScreen's UV→screen
+    remap **rejected** — it needs `HostCanvas.worldCamera` re-pointed and
+    `CanvasConversion.4.Lifecycle.cs:254` re-asserts that every frame (a write war). Head-camera mask
+    can't be edited from a tick, so the capture bit is cleared in `onPreCull` / restored in
+    `onPostRender`, symmetric across both eye passes. **On-demand capture rejected for correctness:**
+    `GraphicRaycaster` skips graphics with `depth == -1`, and our camera is the *only* one drawing
+    that canvas — a skipped frame is a frame where clicks die. D24S8 (uGUI `Mask` is a **stencil**
+    effect), explicit `GenerateMips()` (autogen unreliable on MSAA). Caps 4096 px / 96 MB per panel /
+    256 MB / 2 panels. Dials `[WorldUI] PanelSupersample` (false), `PanelSupersampleFactor` (1.0,
+    0.5–2). **Next `CameraOrderProbe` reading: one extra mono camera at depth −200 now appears
+    BEFORE the eye passes — it must not appear BETWEEN them.**
+  * **The merchant tooltips: I broke them at 190, and there were TWO mechanisms.** The box lives
+    inside one scroll row, so every later row paints over it — the mod's own log predicted that a
+    build in advance. **That is only half:** the widget ships its own canvas at
+    `overrideSorting=true, sortingOrder=1000`, and the generic adoption **clears that flag**
+    (`CanvasConversion.2.Adopt.cs:258`). uGUI resolves a graphic's **clipper** by walking parents and
+    stopping at the first `overrideSorting` canvas — that flag *is* how a vanilla tooltip escapes the
+    list's viewport clipper. So it was also **clipped away**, and it sits *beside* its row, mostly
+    outside the viewport. Fix: `TooltipOnWindow.RaiseToWindowTop` — one hierarchy write to the last
+    child of the window's content root, world pose carried verbatim, after the flatten and **before**
+    the clamp, so 190's placement is untouched. The game's own intent in a wider parent
+    (`UIWindow.Focus` ends in `SetAsLastSibling`, `UIWindow.cs:445-451`). **Still open:** a tooltip
+    whose canvas *keeps* `overrideSorting` is inert to a reparent, and
+    `CanvasConversion.4.Lifecycle.cs:625-628` forces a conceded canvas to **exactly** the host order
+    — a tie. Those want `hostOrder + lift`.
+  * **The tan bars in both photographs are our own grab handles.** Measured: interior
+    **(186.8, 131.0, 71.1)** in *both* photos, bit-constant, sharp-cornered, untextured =
+    `GrabbableModal.cs:449` flat brass; 772 px on a ~1363 px window = **56.6 %** vs
+    `BarWidthFraction 0.55`. **A real defect is visible in them:** one bar in `questbutton.jpg` has
+    **no window above it** — a floated panel whose content is not drawn still shows its handle.
+    Belongs to `GrabbableModal` / `CanvasConversion`'s render-hide. **Not fixed.**
+  * **Travel footer was a frame confusion.** 190 pinned the *container's own top edge* to the window
+    bottom; the container is the flat HUD's screen-sized bar and the button sits inside it.
+    `AlignFooter` now takes the union of the container's **active visible Graphics** (Graphics, not
+    RectTransforms — layout groups and spacers dwarf anything drawn) in container-local space and
+    solves `anchoredPosition = (−content.center.x, −gap − content.yMax)`, gap = 2 % of window height.
+    A **fixed point**, so it converges in one step. A SOLVED line repeating forever on its 5 s cadence
+    is the signature of another writer.
+  * **Deselection was too wide.** `_hover == null` meant *any* trigger edge with no icon — so a
+    window drag deselected. **The absence of a location is not the presence of the map.**
+    `RayOnMapOrTable` honours two **positive claims** first (`RayUgui.HasHit`,
+    `Ray.HasFreshUiHit` — grab bar, table cap, flat screen) and only then geometry against
+    `MapRoomDriver.ParchmentRenderer` (acquired **by material name**; no layer assumed, no
+    `GetComponentIn*` as identity). **The room has no table object the mod owns** — one renderer under
+    the map roots, `MapTable.prefab` built but never spawned, the wood is environment geometry — so
+    "the table" is the parchment's top plane widened 0.20 m **real** and dropped 0.12 m real.
+    **Failure mode is never-deselect.** Refusals log once per 3 s naming what the ray *was* on.
+  * **The card hand in the map room** (`MapRoomHand.1.Core/2.Fan/3.Wrist.cs`, dial
+    `[WorldUI] MapRoomHand`, **default ON**). Loadout = `CMapCharacter.HandAbilityCardIDs` — proved
+    *the* loadout because the card-select screen writes exactly it, the pre-travel validator counts it
+    against `MaxCards`, and `ExportPlayerStates → AddPlayer → SetHand` turns it into the scenario
+    hand. Selection = `NewPartyDisplayUI.SelectedUISlot.Data`. `HandAbilityCards` (`:141`)
+    deliberately **not** called — LINQ `.Single()`, and a throw here starves VR input. **Polled at
+    4 Hz, not subscribed:** `NewCharacterSelected` fires on a *selection* change only, but the fan
+    must also follow a **loadout edit** on the already-selected character, and both writers mutate the
+    list in place. **Inspection-only is structural:** the lifted card is a `VRCard` never registered
+    with `VRCardFactory` and never hooked by `CardsDriver.HookCard`, so play/discard/tray/pile are
+    *unreachable*, not declined; it joins no fan; `AttachGameCard` is never called; this feature only
+    ever **reads** `HandAbilityCardIDs`. MP-7's `CardBorrow` reused whole via `IBorrowedCardSource`.
+    **Peer fans NOT built, and the reason is measured:** peers *are* embodied in the room but only
+    incidentally (`NetAvatarDriver.GetOrCreate:3001-3018` has no scene/phase condition, `RemoteAvatar`
+    is `DontDestroyOnLoad` with no phase guard) and every client sits at the same authored vantage,
+    so **avatars pile up at one point** — `MapRoomDriver.cs:40-42` says so itself and calls it phase
+    8's problem. Phase 8 needs **one byte** (party slot 0–3, 0xFF for none); fronts still resolve
+    locally. Wire ruling re-verified this build and unbroken.
+
 - **ModBuild 190** (bundle UNCHANGED — plugin DLL only) — a stale shrink, a screen-fit that aimed
   at the camera, and a confirmation the game already had. *(Three workers, isolated worktrees.)*
   * **Undersampling had a BUG under it, not just a trade-off.** `DeriveWindowScale` runs at CONVERT

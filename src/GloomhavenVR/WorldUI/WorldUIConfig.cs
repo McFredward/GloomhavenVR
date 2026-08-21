@@ -87,10 +87,38 @@ internal static class WorldUIConfig
     // gone is the ability to type numbers into a factor whose effect no player can see.
     internal static ConfigEntry<bool> WristHud = null!;
 
+    /// <summary>
+    /// THE MAP ROOM'S LOADOUT HAND (user feature 2026-08-21): while the 3D world map stands, the
+    /// scenario loadout of the character selected in the party display is fanned out on the
+    /// fan-carrying hand, with that character's info on a wrist plate — and either hand can lift a
+    /// card out to read it.
+    ///
+    /// <para>DEFAULT ON (his ruling 4: "Das Feature soll deaktivierbar sein"). Its OFF makes only
+    /// OPTIONAL content optional — nothing is built, so the map room is byte-identical to a build
+    /// without the feature. It cannot change game state in either position: the lifted card is a
+    /// mod-made copy no game system owns, and the loadout list is only ever READ. See
+    /// <c>WorldUI/MapRoom/MapRoomHand.2.Fan.cs</c> for the exhaustive inspection-only argument.</para>
+    /// </summary>
+    internal static ConfigEntry<bool> MapRoomHand = null!;
+
     /// <summary>Aliasing follow-up to [Cards] FaceMipBake: mip-bake the mipless game textures the
     /// initiative track and the hover-hint tooltip sample on their world-space hosts (see
     /// <see cref="PanelMipBake"/>). Mirrors the cards' kill switch; read live.</summary>
     internal static ConfigEntry<bool> PanelMipBake = null!;
+
+    /// <summary>
+    /// ROUND 10 of the floated-window flicker: render a floated window's canvas into its own
+    /// RenderTexture at (or above) its AUTHORED resolution, with MSAA and a mip chain, and show that
+    /// one filtered texture on the panel instead of rasterizing 475 uGUI graphics straight into the
+    /// eye at ~0.54 rendered pixels per authored pixel. See <c>WorldUI/PanelSupersample.1.Core.cs</c>
+    /// for why the mip bake of ModBuild 189/190 could never reach this half of the defect. Default
+    /// OFF so it can be A/B'd against today's rendering in one session; read live.
+    /// </summary>
+    internal static ConfigEntry<bool> PanelSupersample = null!;
+
+    /// <summary>RT pixels per authored uGUI pixel for <see cref="PanelSupersample"/> — the
+    /// sharpness/VRAM trade. Clamped 0.5-2.</summary>
+    internal static ConfigEntry<float> PanelSupersampleFactor = null!;
 
     // ---- behavior ----------------------------------------------------------------------
     // [WorldUI] ForceMouseMode is GONE (user ruling 2026-08-13): mouse mode is now pinned
@@ -371,6 +399,16 @@ internal static class WorldUIConfig
         // stale lines in an existing worldui.cfg bind to nothing and are dropped on the next save.
         WristHud = _file.Bind("WorldUI", "WristHud", Defaults.WristHud,
             "Compact character status (HP/XP/conditions/gold) on the non-dominant wrist, look-at activated.");
+        MapRoomHand = _file.Bind("WorldUI", "MapRoomHand", Defaults.MapRoomHand,
+            "3D world map: fan the SELECTED character's scenario loadout out on your hand, with " +
+            "that character's info on a wrist plate. Follows the character selected in the party " +
+            "screen and updates within a quarter second when you change the selection or edit the " +
+            "loadout. Either hand can take a card out to look at it closely, and it can be passed " +
+            "between hands - but it is INSPECTION ONLY: the copy is not a game card, so it cannot " +
+            "be played, discarded, reordered or put down, and letting go glides it back into the " +
+            "fan. Nothing is transmitted and no game state is written in either position of this " +
+            "switch. false = no fan and no wrist plate on the map; the map room is otherwise " +
+            "completely unchanged. Live: the next frame builds or tears down.");
         // Tooltips / ActionElementHints: always on — user ruling 2026-08-13. The flat game raises
         // both on hover and offers no way to switch them off; in VR the mod's dials did, and their
         // OFF left the tooltip canvas at its 2D screen position, i.e. nowhere the player can read
@@ -384,6 +422,29 @@ internal static class WorldUIConfig
             "as the card faces - an atlas both use is baked once) and the live graphics are " +
             "swapped onto the baked copies (originals restored when a surface is released). " +
             "false = the initiative track and tooltip keep sampling the mipless originals.");
+        PanelSupersample = _file.Bind("WorldUI", "PanelSupersample", Defaults.PanelSupersample,
+            "SUPERSAMPLE the floated windows. A floated 1920 px window is drawn into roughly 1030 " +
+            "rendered pixels per eye, so a 1-pixel-wide authored stroke lands on about half a " +
+            "rendered pixel and drops in and out as your head moves - that is the shimmer on the " +
+            "window text and edges, and no amount of mipmapping can fix it because the problem is " +
+            "the RASTERIZATION, not the textures (ModBuild 189/190 mipped every texture on these " +
+            "windows and the shimmer was unchanged). When true, the window is rendered by its own " +
+            "camera into a render target at its full authored resolution with MSAA and mipmaps, " +
+            "and the panel shows THAT texture: one properly filtered surface instead of hundreds " +
+            "of point-sampled ones. Clicking, hovering, dragging and scrolling are untouched - the " +
+            "real canvas stays exactly where it is and keeps taking every hit. Costs about 20-90 " +
+            "MB of video memory per window; at most two windows at a time, the rest keep today's " +
+            "rendering. false = exactly the rendering you have today.");
+        PanelSupersampleFactor = _file.Bind("WorldUI", "PanelSupersampleFactor",
+            Defaults.PanelSupersampleFactor,
+            new ConfigDescription(
+                "Sharpness/memory trade for [WorldUI] PanelSupersample: render-target pixels per " +
+                "AUTHORED window pixel. 1.0 = the window is rendered at exactly the resolution it " +
+                "was designed for, which is what removes the shimmer; above 1.0 buys extra " +
+                "sharpness when you lean in close, at four times the memory for every doubling; " +
+                "below 1.0 saves memory and starts to soften the text. Has no effect while " +
+                "PanelSupersample is off. Range 0.5-2.",
+                new AcceptableValueRange<float>(0.5f, 2f)));
 
         // CatchAllModals / MenuPopupFloat: always on — user ruling 2026-08-11: essential
         // deadlock insurance (their OFF paths restored the silent-deadlock classes).

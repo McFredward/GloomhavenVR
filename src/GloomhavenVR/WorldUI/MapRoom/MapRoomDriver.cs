@@ -66,6 +66,7 @@ internal static class MapRoomDriver
     private static readonly MapIconLayer Icons = new();
     private static readonly MapLocationInteractor Locations = new();
     private static readonly MapButtonRail Buttons = new();
+    private static readonly MapRoomHand Hand = new();
 
     // Facts the rig hands over at build time so the ONE map-room line can state them all together
     // (a diagnostic split across two lines is a diagnostic a log reader has to correlate by hand).
@@ -318,6 +319,10 @@ internal static class MapRoomDriver
         // WorldUIModule because the room is the only thing it applies to, and because its prefix
         // must be live before the first location can be pressed. Idempotent.
         MapTravelConfirm.Install();
+        // The selected character's loadout hand + wrist plate ([WorldUI] MapRoomHand, default on).
+        // Nothing is built here — Engage only runs the one capability probe and arms the poll,
+        // because the party display arrives with the map HUD several frames after the room does.
+        Hand.Engage();
         // TELL THE MODE MACHINE THERE IS A TABLE HERE. Not a mode change — a correction to the
         // premise the three locomotion guards state in their own comments ("no table exists").
         // Without it the player stands in the room and cannot walk, fly, turn or zoom, because
@@ -369,6 +374,11 @@ internal static class MapRoomDriver
         // live in the flat map HUD, which this room does not draw, so without this they exist and
         // cannot be reached. Level-triggered; see MapTravelConfirm.
         MapTravelConfirm.Reconcile(ModalFallback.FloatedWindowWithId(UIWindowID.QuestPopup));
+        // The loadout hand. Unconditional for the same reason as the two above: it hangs off the
+        // player's own hand, not off the parchment, so a world<->city switch must not blink it. It
+        // is entirely self-guarding (its own dial, its own capability latch, its own try) and never
+        // throws into this call.
+        Hand.Tick();
         if (have)
         {
             // The ONE map dump, from the room's own vantage (the flat path calls the same method
@@ -398,6 +408,8 @@ internal static class MapRoomDriver
         // gated on the same predicate) must stand down with the room rather than one frame after it.
         Core.Events.VRModeStateMachine.SetModRoom(false);
         _reportPending = false;
+        // FIRST: a borrowed card in the player's hand must never outlive the room it was read from.
+        Hand.StandDown(reason);
         Locations.Release(reason);
         Buttons.Release(reason);
         Icons.Release(reason);

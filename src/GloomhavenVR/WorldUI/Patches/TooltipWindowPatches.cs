@@ -28,7 +28,13 @@ namespace GloomhavenVR.WorldUI.Patches;
 /// OWN placement methods, so the mod's in-plane clamp is the last write of that call by
 /// construction. It is deliberately NOT done from a LateUpdate step: the game writes the same x/y
 /// from its own LateUpdate, and two writers of one number in two unordered LateUpdates is the
-/// alternating value that makes the two eyes disagree in MultiPass.</description></item>
+/// alternating value that makes the two eyes disagree in MultiPass. Since the 2026-08-21
+/// visibility round the same postfix also RAISES the box to the last child of the window's own content root
+/// (<c>TooltipOnWindow.RaiseToWindowTop</c>) — the ModBuild-190 hardware log proved a correctly
+/// placed box invisible underneath the very item list it hangs inside, and the seam has to be here
+/// for the same reason the clamp is: the game re-parents the box on every hover
+/// (UIPartyItemInventoryTooltip.cs:189), so the only moment "where it ended up" is knowable is
+/// immediately after the game's own placement returned.</description></item>
 /// <item><description>THE ATTRIBUTION (<see cref="NoteShopHover"/> and friends). Every hover on a
 /// tooltip-bearing SLOT is reported, so a hover that raises nothing at all becomes one logged
 /// verdict with a census instead of silence.</description></item>
@@ -38,7 +44,15 @@ namespace GloomhavenVR.WorldUI.Patches;
 /// <see cref="WorldUIConfig.ConversionActive"/> AND the rect resolves to a floated window, so with
 /// VR off — and on every screen-space surface, the flat screen included — the game's arithmetic runs
 /// byte-identically. Nothing is mutated on the way out: the cut simply returns a different number,
-/// and the flatten it enables is recorded and handed back by <c>TooltipOnWindow.Shutdown</c>.</para>
+/// and the flatten and the raise are both recorded and handed back by
+/// <c>TooltipOnWindow.Shutdown</c> (parent, sibling index, anchors, pivot, anchored position,
+/// local scale), on stand-down and when the owning window dies.</para>
+///
+/// <para>LOCAL DISPLAY ONLY — MULTIPLAYER IS UNAFFECTED. Nothing here reads or writes game state:
+/// the cut changes a return value used for one widget's on-screen position, and the raise changes
+/// one widget's parent inside one player's own converted window. No rule library, no Bolt/FFSNet
+/// call, nothing on the wire, and no observable difference for any other player — a remote client
+/// runs its own tooltips through its own copy of this code or, with VR off, not at all.</para>
 /// </summary>
 [HarmonyPatch]
 internal static class TooltipWindowPatches

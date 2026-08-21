@@ -241,6 +241,7 @@ internal sealed class MapLocationInteractor
         _reported = false;
         _hoverFrame = int.MinValue;
         _verdictDone = false;
+        _refusedLoggedAt = float.NegativeInfinity;
 
         if (_maskTaken)
         {
@@ -683,11 +684,23 @@ internal sealed class MapLocationInteractor
     /// exact counterpart of the <c>Select()</c> a click runs, so it passes the same
     /// <c>IsSelectable()</c> and <c>m_OnClickAction</c> guards and cannot desynchronise anything:
     /// <list type="number">
-    /// <item>a trigger pull with the ray on NO location — "press somewhere else";</item>
+    /// <item>a trigger pull that lands ON THE MAP OR THE TABLE and on no location — "press
+    ///   somewhere else <b>on the map</b>";</item>
     /// <item>the quest popup that the selection opened being gone. Closing that window IS the
     ///   deselection in his model, so the selection follows the window rather than the window
     ///   being expected to follow a selection nobody can see.</item>
     /// </list></para>
+    ///
+    /// <para>TRIGGER (1) WAS TOO WIDE, AND THE USER PAID FOR IT (ModBuild 191). Up to 190 the test
+    /// was <c>_hover == null</c> — i.e. ANY trigger edge anywhere with no icon under the ray. User:
+    /// <i>"Statt das man mit trigger überall die ausgewählte Quest wieder abwählt soll das nur
+    /// passieren wenn man auf der map bzw auf dem Holztisch wo die map draufklickt hinklickt, nicht
+    /// wenn man außerhalb von da irgendwo mit dem trigger drückt. Aktuell wählt man die quest so ab
+    /// weil ich versucht habe das Fenster zu verschieben mit dem trigger."</i> Grabbing a floated
+    /// window's bar, pressing a table button, or pointing at the forest all satisfied "no icon under
+    /// the ray", so all three deselected. The absence of a location is NOT the presence of the map.
+    /// <see cref="RayOnMapOrTable"/> now asks the positive question, and trigger (2) is untouched —
+    /// closing the quest window IS a deselection, which is a standing ruling from ModBuild 183.</para>
     /// </summary>
     private void TickDeselect()
     {
@@ -706,10 +719,174 @@ internal sealed class MapLocationInteractor
             return;
         }
 
-        // (1) a trigger pull that landed on no location at all.
+        // (1) a trigger pull that landed ON THE MAP OR THE TABLE, and on no location.
         VRHand? clicking = TriggerEdgeHand();
-        if (clicking != null && _hover == null)
-            Deselect($"{clicking.Side} trigger pulled with the ray on no location");
+        if (clicking == null)
+            return;
+        if (_hover != null)
+            return; // an icon is under the ray: that press is a SELECTION, never a deselection
+        if (RayOnMapOrTable(clicking, out string what, out float distance))
+            Deselect($"{clicking.Side} trigger pulled with the ray on {what} at {distance:F1} world "
+                     + "units and on no location icon");
+        else
+            NoteDeselectRefused(clicking, what);
+    }
+
+    // ---- "is the ray on the map or on the table it lies on?" ---------------------------------
+
+    /// <summary>
+    /// How far past the parchment's own edge still counts as THE TABLE, real metres. The map is
+    /// seated to read 1.20 m across (<c>MapRoomSeat.TargetMapWidthMeters</c>) and the game's own
+    /// bar buttons stand 0.075 m outside its near edge on that table
+    /// (<c>MapButtonRail</c>), so a 0.20 m rim is a plausible tabletop margin that still stops
+    /// well short of the 0.45 m standoff the player is seated at
+    /// (<c>MapRoomSeat.EdgeStandoffMeters</c>) — pointing at your own feet is not pointing at the
+    /// table. REAL METRES, multiplied by the hand's world scale at the point of use; this room runs
+    /// at ~198 world units per metre and mixing the two has shipped as a bug here before.
+    /// </summary>
+    private const float TableRimMeters = 0.20f;
+
+    /// <summary>How far BELOW the parchment's underside the table slab reaches, real metres. The
+    /// parchment is 0.13 world units thin (~0.6 mm at rig scale); without a body under it a ray
+    /// arriving at a shallow angle from across the table would pass under the map's own box and
+    /// miss a surface the player is plainly pointing at.</summary>
+    private const float TableDropMeters = 0.12f;
+
+    /// <summary>Seconds between REFUSED lines. One per few seconds is enough to prove the gate ran;
+    /// per-press would flood a log during ordinary window dragging.</summary>
+    private const float RefusedLogIntervalSeconds = 3f;
+
+    private float _refusedLoggedAt = float.NegativeInfinity;
+
+    /// <summary>
+    /// Is this hand's ray on the campaign map, or on the table it lies on?
+    ///
+    /// <para>IDENTIFIED BY OBJECT, NOT BY LAYER. The map is
+    /// <c>MapRoomDriver.ParchmentRenderer</c> — the very renderer <see cref="MapParchment"/>
+    /// acquired by material name and holds the MapUnlit override on, i.e. a thing this mod owns a
+    /// reference to and can print. No layer is assumed (this project has been burned by that), and
+    /// no <c>GetComponentInParent</c> is used as an identity test (it answers "related to an X",
+    /// never "IS an X").</para>
+    ///
+    /// <para>THE TABLE IS THE MAP'S OWN TOP PLANE, WIDENED — and that is a modelling decision worth
+    /// stating, because the room contains no table object this mod owns: the MAP SCENE REPORT lists
+    /// exactly ONE renderer under the map roots (the parchment), and the bundle's
+    /// <c>MapTable.prefab</c> is not spawned at runtime. What the player sees as wood under the
+    /// parchment is environment geometry belonging to another lane. So "the table" is defined here
+    /// the same way <see cref="MapRoomSeat"/> and <c>MapButtonRail</c> already define it — the
+    /// parchment's top plane — expanded by <see cref="TableRimMeters"/> horizontally and
+    /// <see cref="TableDropMeters"/> downward, giving a slab that a ray aimed at the wood around
+    /// the map enters and a ray aimed at the forest, the sky or the player's feet does not.</para>
+    ///
+    /// <para>A BEAM THAT BELONGS TO SOMETHING ELSE IS NEVER "on the table", however far the ray
+    /// would travel if nothing stopped it. A floated window hangs in the air OVER the table, so the
+    /// geometric test alone would count every window drag as a press on the map — which is the
+    /// user's report verbatim. Two positive claims are honoured first: <c>RayUgui.HasHit</c> (this
+    /// hand's beam is on a converted uGUI panel — a floated window's own widgets) and
+    /// <c>Ray.HasFreshUiHit</c> (some mod driver has clamped the beam to a UI surface or claimed
+    /// this trigger — a window grab bar via <c>RayGrabDriver</c>, a table button cap via
+    /// <c>MapButtonRail</c>, the flat screen). Both are published by their owners for exactly this
+    /// arbitration; neither is inferred.</para>
+    /// </summary>
+    /// <param name="what">What the ray was judged to be on — log material, always set.</param>
+    /// <param name="distance">Distance along the aim ray to the map/table surface, world units.</param>
+    private bool RayOnMapOrTable(VRHand hand, out string what, out float distance)
+    {
+        distance = float.PositiveInfinity;
+        if (hand.RayUgui.HasHit)
+        {
+            Canvas? canvas = hand.RayUgui.HoveredCanvas;
+            GameObject? widget = hand.RayUgui.Hovered;
+            what = $"the floated window panel '{(canvas != null ? canvas.name : "<unnamed canvas>")}'"
+                   + (widget != null ? $" (widget '{widget.name}')" : "")
+                   // WORLD UNITS, not metres: RayUguiDriver compares this against
+                   // OcclusionEpsilonMeters * worldScale, i.e. it is a world-unit distance. At the
+                   // map room's ~198 units/m a "0.30" here is 1.5 mm, and calling it metres is the
+                   // exact unit slip this project has shipped before.
+                   + $" at {hand.RayUgui.HitDistance:F2} world units";
+            return false;
+        }
+        if (hand.Ray.HasFreshUiHit)
+        {
+            what = "a mod-owned UI surface the beam is clamped to — a floated window's grab bar, a "
+                   + "table button cap or the flat screen (whoever owns it published a UI hit or "
+                   + "claimed this trigger)";
+            return false;
+        }
+
+        MeshRenderer? parchment = MapRoomDriver.ParchmentRenderer;
+        if (parchment == null)
+        {
+            // SAFE FAILURE = NEVER DESELECT. Without the parchment there is no measured map and no
+            // measured table, so there is no positive evidence the press was on either. Refusing
+            // costs the player one extra press somewhere useful; guessing yes is precisely the
+            // behaviour reported as a bug.
+            what = "nothing identifiable — the map room holds no parchment renderer this frame, so "
+                   + "neither the map nor the table can be measured and the selection is kept";
+            return false;
+        }
+        if (!hand.HasPose || !hand.Ray.TryGetPick(out PickPose pick))
+        {
+            what = "nothing — this hand's ray is stood down";
+            return false;
+        }
+
+        float scale = Mathf.Max(hand.WorldScale, 0.0001f);
+        float limit = Mathf.Min(hand.Ray.SolidOccluderDistance, MaxPickMeters * scale);
+        Bounds map = parchment.bounds;
+        Bounds slab = map;
+        // Bounds.Expand adds HALF of what it is given to each side, so the rim is doubled going in.
+        slab.Expand(new Vector3(TableRimMeters * scale * 2f, 0f, TableRimMeters * scale * 2f));
+        slab.SetMinMax(new Vector3(slab.min.x, slab.min.y - TableDropMeters * scale, slab.min.z),
+                       slab.max);
+
+        var ray = new Ray(pick.Origin, pick.Direction);
+        if (!slab.IntersectRay(ray, out float t))
+        {
+            what = "neither the map nor the table — the aim ray never enters the map's own slab "
+                   + $"(centre {slab.center}, size {slab.size}, world units)";
+            return false;
+        }
+        if (t > limit)
+        {
+            what = $"the map/table slab, but {t:F1} world units away — past this ray's limit of "
+                   + $"{limit:F1} (the raised card fan or the control board is in front of it), so it "
+                   + "does not count";
+            return false;
+        }
+
+        Vector3 p = ray.GetPoint(t);
+        bool onMap = p.x >= map.min.x && p.x <= map.max.x && p.z >= map.min.z && p.z <= map.max.z;
+        float outsideWorld = Mathf.Max(
+            Mathf.Max(map.min.x - p.x, p.x - map.max.x),
+            Mathf.Max(map.min.z - p.z, p.z - map.max.z));
+        what = onMap
+            ? $"the MAP PARCHMENT '{parchment.name}' at {p}"
+            : $"the TABLE around the map at {p} — {Mathf.Max(outsideWorld, 0f) / scale * 100f:F1} cm "
+              + $"(real) outside the parchment's own edge, within the {TableRimMeters * 100f:F0} cm rim";
+        distance = t;
+        return true;
+    }
+
+    /// <summary>
+    /// The REFUSAL line — rate-limited, and it exists because of what the next report will say.
+    /// The two possible follow-ups are "it still deselects everywhere" and "it never deselects any
+    /// more", and only a line that names WHAT THE RAY WAS ON separates them: if this line appears
+    /// while the player is pressing on the map, the surface test is wrong; if it never appears while
+    /// they drag a window and the selection still drops, something else is deselecting.
+    /// </summary>
+    private void NoteDeselectRefused(VRHand hand, string what)
+    {
+        if (Time.unscaledTime - _refusedLoggedAt < RefusedLogIntervalSeconds)
+            return;
+        _refusedLoggedAt = Time.unscaledTime;
+        VRLog.Info(Scope, $"MAP ROOM deselect REFUSED — {hand.Side} trigger was pulled while "
+                          + $"'{(_selected != null ? _selected.name : "<none>")}' is selected, but the ray "
+                          + $"was on {what}, not on the map or the table, so the selection was LEFT "
+                          + "ALONE. User ruling (ModBuild 191): only a press on the map parchment or on "
+                          + "the table it lies on deselects; dragging a window, pressing a button or "
+                          + "pointing at the room must not. Rate-limited to one line per "
+                          + $"{RefusedLogIntervalSeconds:F0} s.");
     }
 
     private void Deselect(string why)

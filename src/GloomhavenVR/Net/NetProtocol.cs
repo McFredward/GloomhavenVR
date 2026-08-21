@@ -416,7 +416,220 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 190;
+    public const ushort ModBuild = 191;
+    // Build 191: THE DITHER HYPOTHESIS DIED, THE TOOLTIP WAS BEING CLIPPED AS WELL AS BURIED, AND THE
+    // CARD HAND CAME TO THE MAP ROOM. (Five workers, isolated worktrees, split file ownership.)
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    // Nothing on the wire: zero new records, zero new fields, PresenceState untouched.
+    //
+    // ── ROUND 10 OF THE FLICKER: MY OWN NEW HYPOTHESIS WAS TESTED AND KILLED ──────────────
+    // 190 predicted that if the panel scales landed near 1.2 and he still reported Flackern, then
+    // sampling was measured out. THE HARDWARE ANSWERED: the mip bake DID land — the shop window
+    // reports 474 of 475 graphics at >=1.35x minification and ALL of them now read
+    // "mips=10 Trilinear aniso 8, MIP-BAKED" — and the flicker is unchanged. So texture-space
+    // shimmer of MIPPED graphics is measured out. That is a real result, not a null one.
+    //
+    // I then read flackern_story.jpg with an FFT and found a sharp oriented periodic peak (~8.2 px
+    // diagonal, ~7% amplitude) on the story illustration and NOTHING on the Options panel in the
+    // same frame, and proposed a SCREEN-SPACE DITHER — which in MultiPass gives each eye a different
+    // dither phase and would explain nine silent state probes at once. IT IS WRONG, and it was
+    // killed by three independent measurements before a line of it shipped:
+    //   (1) CONTENT-CORRELATED, NOT SURFACE-WIDE. The flat dark panel background on the SAME panel
+    //       measures amplitude 0.18 — nothing. A dithered alpha modulates flat areas HARDEST
+    //       (amplitude is |C-B| against a backdrop measuring a flat 11.5). It does not touch them.
+    //   (2) THE PERIOD AND AXIS DRIFT ACROSS ONE FLAT PLANE. A 64 px grid over the illustration
+    //       reads 7.9-8.9 px at 140°→157° on the right half and 9-15 px at 60°-90° on the left. An
+    //       ordered screen-space dither is nailed to the pixel grid — 0/45/90°, identical
+    //       everywhere. It CANNOT drift. A hash/blue-noise dither is broadband, not a sharp peak.
+    //       Both forms are excluded.
+    //   (3) THE AMPLITUDE TRACKS SOURCE DETAIL — robe knit, crown spikes, the 1 px gold frame line,
+    //       glyph strokes. That is the aliasing signature.
+    // A SOURCE AUDIT AGREES AND IS NOW ON THE RECORD: the mod assigns NO material and NO shader to a
+    // converted panel (CanvasConversion.1.Core.cs:108-351 writes rects/layers/sorting only); the
+    // backing plate's Overlay.shader:57-60 is `tex2D * _Color * i.color` with SV_POSITION never read
+    // in the fragment stage; alphaToMask / LODFade / CrossFade / _Dissolve are 0 hits mod-wide;
+    // WallSegmentFade cannot reach a panel for TWO independent reasons (it selects MeshRenderer, and
+    // a CanvasRenderer IS NOT A Renderer — CanvasConversion.2.Adopt.cs:433-435 — and IsModObject at
+    // WallSegmentFade.cs:3004-3006 excludes the mod layer and the "GloomhavenVR." prefix); and
+    // PeerBoardFade delivers a UNIFORM per-renderer alpha by its own doc at :285-295. The head
+    // camera carries exactly Camera + TrackedPoseDriver + AudioListener; OnRenderImage is 0 hits
+    // across src/. Beautify STAYS RETRACTED (186's inverted A-B-A) and is now enumerated rather than
+    // argued about.
+    // ONE OPEN FLANK WAS CHECKED AND CLOSED: RenderQuality.ApplyMsaa (:383-391) re-asserts every
+    // frame by its own comment. The log carries exactly TWO "MSAA (re)asserted 0x -> 8x" lines all
+    // session, at two quality-level swaps. Not per-frame. And it says something else: MSAA 8x IS
+    // RUNNING, so uGUI GEOMETRY edges are already resolved. What is left is TEXTURE and SDF
+    // sampling, and the census separates exactly along his report — 'Quest Log Manager' 38 mipless,
+    // 'UI Quest Popup' 15, the shop window 0, and 'New Party display' (the four portraits he says do
+    // NOT flicker) only 2 graphics minified at all.
+    //
+    // ── WHY ALIASING IS THE FLICKER, WHICH IS THE PART NINE ROUNDS MISSED ─────────────────
+    // ALIASING IS PER-EYE BY CONSTRUCTION. The same world surface lands on a different screen sample
+    // grid in each eye, so each eye receives a DIFFERENT alias pattern. That is binocular rivalry:
+    // violent shimmer in the headset, and a one-eye screenshot that merely looks sharp or hatched.
+    // It is invisible to every probe that reads C# state, and mips cannot reach the two things left
+    // — mipless SDF text and near-1:1 artwork detail. This is why eight clean measurements were all
+    // correct and all useless (see the memory note "state probes cannot see sampling").
+    //
+    // ── THE INSTRUMENT: EyeFrameProbe (WorldUI/EyeFrameProbe.cs) ──────────────────────────
+    // The first probe in this family that reads THE PIXELS THE EYE ACTUALLY RECEIVES. A CommandBuffer
+    // at CameraEvent.AfterEverything on the head camera, re-recorded per eye pass in
+    // Camera.onPreRender, blits a 64x64 EYE-PIXEL 1:1 CROP (not a downsample — an 8 px pattern would
+    // not survive one) from BuiltinRenderTextureType.CurrentActive and reads it back async, FIFO
+    // paired. It compares LEFT vs RIGHT FOR THE SAME FRAME over the SAME WORLD REGION (each rect
+    // projected through its own eye), against a same-eye N/N+1 temporal control gated on head
+    // stillness, and classifies the patch spectrally by 4-axis normalised autocorrelation. It aims
+    // at the two surfaces PanelSamplingProbe already names — its worst-minified SUBJECT and its
+    // best-sampled REFERENCE — so the hypothesis can lose on the reference.
+    // IT SELF-TESTS BEFORE IT IS ALLOWED TO SPEAK, and that requirement earned its keep: the
+    // worker's FIRST self-test pattern (a square wave in x+y at period 8) is ALSO period 8 along the
+    // screen axes, the classifier correctly reported axis 0, the assertion demanded +45, and the
+    // probe would have DISABLED ITSELF ON EVERY LAUNCH. Caught by porting the classifier to numpy
+    // before shipping. Replaced with a 32 px plane wave in (x+y), invisible on both screen axes.
+    // See the memory note "verify the instrument first" — this is the second time that rule paid.
+    //
+    // ── THE MEASURE: PanelSupersample (WorldUI/PanelSupersample.*.cs) — DEFAULT OFF ───────
+    // Render a floated window's canvas into its own RenderTexture at its AUTHORED resolution with
+    // MSAA and a mip chain, and show THAT on the panel. The window then reaches the eye as ONE
+    // band-limited surface instead of ~475 point-sampled graphics at 1.86 authored px per rendered
+    // px. This is the only move that reaches rasterization, which is what is left.
+    // INPUT IS UNTOUCHED, verified line by line rather than assumed: the world-space host canvas
+    // keeps its pose, its rect, Canvas.enabled and its GraphicRaycaster, and stays registered in
+    // UguiPokeSurfaces. ONLY ITS LAYER MOVES. RayUguiDriver.cs:123-149/607-638/665-669 and
+    // UguiPointer.cs:135-206 never read which camera draws a canvas. FlatScreen's UV->screen remap
+    // was REJECTED because it would need HostCanvas.worldCamera re-pointed, and
+    // CanvasConversion.4.Lifecycle.cs:254 re-asserts that field every frame — a write war, which
+    // this project has already lost once.
+    // The head camera's mask cannot be edited from a tick (VRRigDriver.HeadCamera.cs:122-171
+    // rewrites it every frame), so the capture-layer bit is cleared in Camera.onPreCull and handed
+    // back in onPostRender, symmetric across both MultiPass eye passes — the same hooks
+    // FlatScreenStereo.1.State.cs:345-349 already uses. No other writer ever sees a changed value.
+    // ON-DEMAND CAPTURE WAS EVALUATED AND REJECTED FOR A CORRECTNESS REASON, and it is the finding
+    // of that lane: GraphicRaycaster skips any graphic with Graphic.depth == -1 ("it hasn't been
+    // processed by the canvas, which means it isn't actually drawn"). Our capture camera is the ONLY
+    // camera drawing that canvas, so a skipped capture frame is a frame in which every click and
+    // drag on that window can die. CaptureIntervalFrames = 1.
+    // RT: D24S8 depth (uGUI Mask is a STENCIL effect — a window without a stencil buffer loses every
+    // masked scroll viewport), MSAA 4 with a logged step-down, useMipMap with EXPLICIT
+    // GenerateMips() in the capture camera's onPostRender (autogeneration is unreliable on an MSAA
+    // target and a silently-failed chain looks exactly like the feature not working), Trilinear,
+    // aniso 8. Caps: 4096 px, 96 MB/panel, 256 MB session, 2 panels; over the cap keeps today's path
+    // with a Warn that names the consequence. 1920x1080 at factor 1.0 = 85.7 MB at MSAA 4.
+    // Dials: [WorldUI] PanelSupersample (false) and PanelSupersampleFactor (1.0, clamped 0.5-2).
+    // OFF is byte-for-byte today's rendering: no camera, no RT, no hook, no layer written.
+    // NOTE FOR THE NEXT CameraOrderProbe READING: one extra mono camera at depth -200,
+    // stereoTargetEye None, now appears BEFORE the eye passes. It must not appear BETWEEN them.
+    //
+    // ── THE MERCHANT TOOLTIPS: I BROKE THEM IN 190, AND THERE WERE TWO MECHANISMS ─────────
+    // 190 fixed the POSITION (the game's own screen-fit term, cut) and the user then saw NOTHING at
+    // all. The mod's own instrumentation had predicted it one build in advance:
+    // "the box hangs at sibling 6 of 6 under 'UI Shop Item Slot Variant(Clone)' ... overrideSorting
+    // =false order=132, host canvas order 132 ... any later sibling of its parent paints over it".
+    // The box lives INSIDE one row of a scroll list (UIPartyItemInventoryTooltip.cs:189), so every
+    // later row paints over it. THAT IS ONLY HALF. The widget ships its own Canvas at
+    // overrideSorting=true, sortingOrder=1000 (proved by the mod's own adoption line in the log),
+    // and the generic nested-canvas adoption CLEARS that flag (CanvasConversion.2.Adopt.cs:258).
+    // uGUI resolves a graphic's CLIPPER by walking parents and stopping at the first canvas with
+    // overrideSorting — that flag IS how a vanilla tooltip escapes the list's viewport clipper. So
+    // the box was also being CLIPPED AWAY by the ScrollRect, and it sits BESIDE its row, i.e. mostly
+    // outside the viewport. Both readings say "gar keine Mouseovers" equally well.
+    // FIX: one hierarchy write, no flag and no sorting number — TooltipOnWindow.RaiseToWindowTop
+    // moves the placed box to the LAST CHILD of the window's content root, carrying its world pose
+    // verbatim, after the flatten and BEFORE the in-plane clamp, so 190's placement is untouched.
+    // A last sibling of the top level paints after all of that window's content, and a clipper it is
+    // no longer a descendant of cannot clip it. This is the game's own intent in a wider parent:
+    // UIWindow.Focus already ends in SetAsLastSibling for this very widget (UIWindow.cs:445-451).
+    // Full restore (parent, sibling index, anchors, pivot, position, scale) on window death,
+    // stand-down and shutdown, and only while the box is still parented where we put it.
+    // STILL OPEN, NAMED IN THE LOG: a tooltip whose canvas KEEPS overrideSorting is inert to a
+    // reparent, and CanvasConversion.4.Lifecycle.cs:625-628 forces a conceded canvas to EXACTLY the
+    // host's sortingOrder — a tie, which is ambiguous for coplanar content. Those want hostOrder +
+    // lift, not a tie. Not this build.
+    //
+    // ── THE TAN BARS IN BOTH PHOTOGRAPHS ARE OUR OWN GRAB HANDLES ─────────────────────────
+    // Measured, not guessed: the bar interior is (186.8, 131.0, 71.1) in BOTH photos, bit-constant
+    // along its length, sharp-cornered, untextured — GrabbableModal.cs:449's flat brass. Geometry
+    // agrees: 772 px on a ~1363 px window = 56.6% against BarWidthFraction 0.55, centred, one gap
+    // below the bottom edge. Not the tooltip (30.5x33.2 m, aspect 0.9, vs 7:1..22:1 for the bars).
+    // A REAL DEFECT IS VISIBLE IN THEM AND IS NOT FIXED HERE: at least one bar in questbutton.jpg
+    // has NO WINDOW ABOVE IT — only forest. A floated panel whose content is not being drawn still
+    // shows its handle. Belongs to GrabbableModal / CanvasConversion's render-hide.
+    //
+    // ── THE TRAVEL FOOTER WAS A FRAME CONFUSION, AND IT IS NOW SOLVED RATHER THAN TUNED ───
+    // 190 pinned travelOptions with anchor (0.5,0), pivot (0.5,1), anchoredPosition zero — which
+    // pins THE CONTAINER'S OWN TOP EDGE to the window's bottom. The container is the flat HUD's
+    // screen-sized bar (home parent 'New Adventure UI', button 'Adventure button'), and the button
+    // sits somewhere inside it. That gap IS the photograph. AlignFooter now takes the union of the
+    // container's ACTIVE, VISIBLE Graphics (Graphics, not RectTransforms: a uGUI bar is full of
+    // layout groups and spacers whose rects dwarf anything drawn, and a Graphic is the only thing
+    // that paints; transparent and zero-sized ones skipped) in CONTAINER-LOCAL space and solves
+    //     anchoredPosition = ( -content.center.x , -gap - content.yMax ),  gap = 2% of window height
+    // — a fixed point (moving the container does not change the content's LOCAL y), so it converges
+    // in one step and cannot oscillate. Re-solved every tick because the game re-labels the button
+    // (OnSelectedMapLocation:356) and shows/hides the container (EnableTravelOptions:408-415), and a
+    // uGUI layout is not final on the frame of a re-parent. Write-skipped once the answer stands.
+    // A SOLVED line repeating forever on its 5 s cadence is the signature of another writer.
+    //
+    // ── DESELECTION WAS TOO WIDE, AND HE PAID FOR IT WITH A WINDOW DRAG ───────────────────
+    // Up to 190 the test was `_hover == null` — ANY trigger edge with no icon under the ray. User:
+    // "Aktuell wählt man die quest so ab weil ich versucht habe das Fenster zu verschieben mit dem
+    // trigger." THE ABSENCE OF A LOCATION IS NOT THE PRESENCE OF THE MAP. RayOnMapOrTable now asks
+    // the positive question, honouring two POSITIVE CLAIMS first — RayUgui.HasHit (the beam is on a
+    // converted panel's widgets) and Ray.HasFreshUiHit (a mod driver clamped the beam or claimed the
+    // trigger: a window grab bar via RayGrabDriver, a table cap via MapButtonRail, the flat screen)
+    // — and only then the geometry, against MapRoomDriver.ParchmentRenderer, the renderer
+    // MapParchment acquired BY MATERIAL NAME. No layer assumed; no GetComponentIn* used as an
+    // identity test ("containment is not identity").
+    // THE ROOM HAS NO TABLE OBJECT THE MOD OWNS: the MAP SCENE REPORT lists exactly ONE renderer
+    // under the map roots, and the bundle's MapTable.prefab is built but never spawned — the wood is
+    // environment geometry from another lane. So "the table" is modelled the way MapRoomSeat and
+    // MapButtonRail already model it: the parchment's own top plane, widened by 0.20 m REAL and
+    // dropped 0.12 m REAL (real metres x hand.WorldScale at the point of use; this room runs ~198
+    // units/m and mixing the two has shipped here before). FAILURE MODE IS NEVER-DESELECT: no
+    // parchment, no ray, no slab entry => keep the selection. Refusals log once per 3 s naming what
+    // the ray WAS on, because the next report is either "still deselects" or "now never deselects"
+    // and nothing else separates them. Trigger (2) — the quest window closing IS a deselection — is
+    // untouched (standing ruling, ModBuild 183).
+    //
+    // ── THE CARD HAND IN THE MAP ROOM (WorldUI/MapRoom/MapRoomHand.*.cs) ──────────────────
+    // User: "Die Kartenhand inklusive des Characterinfo am Handgelenk des aktuell ausgewählten
+    // Characters soll voll angezeigt werden. Auch soll man die Karten normal in die Hand (beide)
+    // nehmen können." Rulings taken 2026-08-21: the SCENARIO LOADOUT, of the character selected in
+    // the PARTY DISPLAY, both hands, inspection only, DEFAULT ON.
+    // READ FROM SOURCE, not inferred: the loadout is CMapCharacter.HandAbilityCardIDs
+    // (CMapCharacter.cs:59). Proof it is THE loadout and not a same-sounding list — the card-select
+    // screen writes exactly it (UIPartyCharacterAbilityCardsDisplay.cs:536/:558), the pre-travel
+    // validator counts it against MaxCards (UILoadoutManager.cs:189), and ExportPlayerStates ->
+    // AddPlayer -> SetHand turns that list into the scenario hand (CMapParty.cs:1234, CScenario.cs
+    // :243, CCharacterClass.cs:1234). The selection is NewPartyDisplayUI.SelectedUISlot.Data
+    // (:226, :280), written by SelectCurrentCharacter (:861) out of OnCharacterSelect (:871).
+    // CMapCharacter.HandAbilityCards (:141) is deliberately NOT called: it is LINQ .Single() and
+    // throws for a class missing from Classes, and a throw on this path starves VR input.
+    // SELECTION IS POLLED AT 4 Hz, NOT SUBSCRIBED, and that is a decision: NewCharacterSelected
+    // (:270) fires on a SELECTION change only, while the fan must also follow a LOADOUT EDIT on the
+    // already-selected character — and both writers mutate the live list in place without raising
+    // it. One poll catches both and cannot leak a subscription across a teardown.
+    // NOTHING ON THE WIRE, AND THE RULING STANDS — re-verified this build: PresenceState.HandCardCount
+    // is a byte (:27, written :1353, read :2554, filled from CardFan.Current?.Count at
+    // NetAvatarDriver.cs:842/:1596) and fronts are resolved LOCALLY from the peer's replicated actor
+    // (RemoteHandFan.cs:982-1000). RevealGate.ShowRoundCardFronts is open on the map because
+    // RevealGate.InScenario is false there (:31-51, :59-64) and its own doc names "map".
+    // INSPECTION-ONLY IS STRUCTURAL, not a refusal: the lifted card is a fresh VRCard NEVER
+    // registered with VRCardFactory and never hooked by CardsDriver.HookCard, so play, discard, tray
+    // slots, pile returns and SelectCard/UnselectCard are UNREACHABLE rather than declined; it joins
+    // no CardFan, so it has no membership to reorder; AttachGameCard is never called; and this
+    // feature never writes HandAbilityCardIDs, it reads it. The MP-7 CardBorrow mechanism is reused
+    // whole via a new IBorrowedCardSource — no second mechanism was written.
+    // PEER FANS ARE NOT BUILT, AND THE REASON IS MEASURED: peers ARE embodied in the map room, but
+    // only incidentally — NetAvatarDriver.GetOrCreate (:3001-3018) has no scene/phase/board
+    // condition, RemoteAvatar is DontDestroyOnLoad (:690) with no phase guard, and every client's
+    // menu rig sits at the same authored vantage, so AVATARS PILE UP AT ONE POINT.
+    // MapRoomDriver.cs:40-42 says so in its own words and calls it phase 8's problem. Hanging a fan
+    // off an unseated avatar would be worse than the honest absence. What phase 8 needs is ONE byte
+    // — the party slot index 0-3 the sender has selected, 0xFF for none — after which the receiver
+    // resolves the fronts LOCALLY from the already-replicated CMapParty.SelectedCharactersArray.
+    // Card identity still never travels. That claim belongs to the reserved id 18 (or 19/20/21).
+    // Dial: [WorldUI] MapRoomHand, default TRUE. OFF builds nothing at all.
     // Build 190: A STALE SHRINK, A SCREEN-FIT THAT AIMED AT THE CAMERA, AND A CONFIRMATION THE GAME
     // ALREADY HAD. (Three workers, isolated worktrees, split file ownership.)
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.

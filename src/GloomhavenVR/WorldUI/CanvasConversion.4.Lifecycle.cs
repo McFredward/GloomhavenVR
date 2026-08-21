@@ -14,6 +14,12 @@ internal static partial class CanvasConversion
             return;
         Active.Remove(panel);
 
+        // ROUND 10 (supersample): stand the panel's capture path down FIRST, while its transforms
+        // still carry the capture layer — this method's own layer restore (below) then hands them to
+        // the game's layer. Both restores are guarded on the layer they expect to find, so the order
+        // is not load-bearing; running ours first simply means no transform is ever written twice.
+        PanelSupersample.NoticeRelease(panel);
+
         // User ruling 2026-08-02 round 2: undo the COMPLETE render hide FIRST. A window closed
         // while still behind the reveal gate (fast X, escape chord, scene teardown) would otherwise
         // be restored into 2D with the GAME's own nested canvases still disabled by us — an
@@ -205,6 +211,10 @@ internal static partial class CanvasConversion
         // dead panels behind.
         OrderedPanels.Clear();
         RestoreCameraMask();
+        // ROUND 10: the supersample path's own teardown — camera hooks removed, every borrowed
+        // culling mask handed back, every render target released. Release() above already stood each
+        // individual panel down; this drops the process-wide state it installed.
+        PanelSupersample.Shutdown();
     }
 
     // ---- per-frame service (called by the WorldUI driver) --------------------------------
@@ -223,6 +233,9 @@ internal static partial class CanvasConversion
             {
                 // The game destroyed the UI (scene unload) — drop our host too.
                 Active.RemoveAt(i);
+                // ROUND 10: the second (and last) exit from Active must stand the supersample down
+                // as well, or a dead panel's capture camera and render target would outlive it.
+                PanelSupersample.NoticeRelease(panel);
                 // Same reason as in Release: never leave a surviving game-owned nested canvas
                 // disabled by our reveal hide (IsAlive can be false for reasons other than the
                 // whole subtree being gone).
@@ -263,7 +276,14 @@ internal static partial class CanvasConversion
                 bool adoptedNew = AdoptNestedCanvases(panel);
                 // User #8: a freshly adopted/pooled child spawns on the game's UI layer —
                 // re-assert the mod-layer move so the UI Camera never picks it up.
-                if (panel.ModLayerEnabled && (earlySettle || sweepDue || adoptedNew))
+                // ROUND 10: ...unless the supersample path currently OWNS this panel's layers. Two
+                // writers moving the same transforms to two different layers is a write war, and the
+                // recorded "original layer" of whichever wrote second would be the other's layer. The
+                // supersample path runs the identical sweep, on the same cadence, with the same
+                // foreign-Renderer skip rule, onto its own capture layer — which the game's UI
+                // Camera cannot see either, so the guarantee this call protects still holds.
+                if (panel.ModLayerEnabled && (earlySettle || sweepDue || adoptedNew)
+                    && !PanelSupersample.OwnsPanelLayers(panel))
                     ApplyModLayer(panel, initial: false);
             }
 
@@ -320,6 +340,12 @@ internal static partial class CanvasConversion
             if (panel.Diagnostic)
                 DiagnoseModal(panel, force: false); // change-gated per-frame flicker snapshot
         }
+
+        // ROUND 10 (supersample): decide which floated windows render through their own
+        // supersampled render target this frame. Runs AFTER the loop above, so every panel's fit,
+        // reveal and hide state is this frame's settled value. Fully self-guarded and a no-op
+        // while [WorldUI] PanelSupersample is false.
+        PanelSupersample.Tick();
 
         if (Active.Count > 0 || _maskRequests > 0)
             EnsureCameraMask();
@@ -559,7 +585,10 @@ internal static partial class CanvasConversion
                 if (panel.ModLayerEnabled)
                 {
                     AdoptNestedCanvases(panel);
-                    ApplyModLayer(panel, initial: false);
+                    // ROUND 10: same single-writer rule as the Update-phase call — see the comment
+                    // there. A supersampled panel's layers belong to PanelSupersample alone.
+                    if (!PanelSupersample.OwnsPanelLayers(panel))
+                        ApplyModLayer(panel, initial: false);
                 }
                 if (panel.HideBackground)
                     HideFullScreenBackground(panel, initial: false);
@@ -587,6 +616,15 @@ internal static partial class CanvasConversion
             // panel costs one component walk and no writes, and only for the ≤0.6 s gate window.
             SetPanelRenderVisible(panel, visible: false);
         }
+
+        // ROUND 10 (supersample): keep each capture frustum, display quad and allocation on its
+        // panel's live geometry. The CAPTURE itself is not driven from here — the per-panel capture
+        // camera is an ordinary enabled camera at depth -200, so Unity renders it in its own camera
+        // loop after EVERY LateUpdate and before the head camera's two eye passes, which keeps the
+        // "both eyes read one finished, identical RenderTexture" invariant CameraOrderProbe measured.
+        // The display quad's final pose is copied in the capture path's own onPreCull, i.e. after
+        // every remaining LateUpdate pose writer (grab, board docks, the order ladder) has run.
+        PanelSupersample.LateTick();
     }
 
     // ---- floated-modal flicker instrumentation + per-frame sorting guard ------------------
