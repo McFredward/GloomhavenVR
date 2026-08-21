@@ -142,29 +142,67 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///   regression.</item>
 /// </list>
 ///
-/// <para>THE PARTY TOKEN TAKES A DIAL NOW, AND IT STILL WRITES NO GAME TRANSFORM (user request
-/// against ModBuild 193: "Ich will auch die Größe des Markers wo man sich befindet sowie des
-/// eingezeichneten Weges von einem zum anderen Punkt einstellen können"). Through ModBuild 193 this
-/// class doc said the token "takes NO dial and cannot", because it is drawn with
-/// <c>CommandBuffer.DrawRenderer</c> from the game's own renderers rather than as a quad with a
-/// footprint we compute — and <c>DrawRenderer</c> has no matrix parameter, so the only lever looked
-/// like <c>PartyToken.transform.localScale</c>. THAT VERDICT WAS TOO NARROW: a renderer's mesh can
-/// be drawn with <c>CommandBuffer.DrawMesh</c> and an arbitrary matrix, which is a lever on OUR
-/// recording and not on the game's scene. <see cref="DrawToken"/> therefore scales the token about
-/// its own root position:
-/// <c>M = T(pivot)·S(f)·T(-pivot)·renderer.localToWorldMatrix</c>. The game's transform is READ and
-/// never written, so there is no write war to lose and nothing to restore.
-/// <list type="bullet">
-///   <item>AT f == 1 THE OLD PATH IS KEPT EXACTLY. <c>DrawRenderer</c> is still what is issued, so
-///   the default build is bit-for-bit the ModBuild 193 recording. The matrix path only exists once
-///   the user has moved the dial, which is the only state it can be blamed for.</item>
-///   <item>A RENDERER WITH NO READABLE MESH IS COUNTED, NOT GUESSED AT. A <c>SkinnedMeshRenderer</c>
-///   (bind-pose <c>sharedMesh</c>, useless without a skinning pass) or a renderer with no
-///   <c>MeshFilter</c> falls back to the unscaled <c>DrawRenderer</c> and increments the census's
-///   "could not take the dial" count. The shipping token is ONE submesh draw (hardware log,
-///   ModBuild 193: "1 party-token submesh draw(s)"), so a non-zero count there is news and the log
-///   says it in numbers rather than leaving a half-scaled token unexplained.</item>
-/// </list></para>
+/// <para>THE PARTY MARKER IS SCALED ON THE GAME'S OWN TRANSFORM SINCE ModBuild 195, AND THAT IS THE
+/// SECOND GAME-COMPONENT WRITE THIS LAYER MAKES — SAY SO PLAINLY (user report against ModBuild 194,
+/// verbatim: "Der Slider für den 'Gruppen-Marker' verändert nichts. Egal wie ich es umstelle, es
+/// bleibt gleich klein."). THE ModBuild 194 INSTRUMENT ANSWERED ITS OWN QUESTION: its census read
+/// "PartyMarkerScale x1.80 on 1 submesh draw(s), 1 of which could NOT take it" — the refusal fired
+/// on the ONLY draw there is, so the dial was wired correctly and had nothing to act on.</para>
+/// <para>WHY THE DRAW-MATRIX ROUTE COULD NOT BE REPAIRED IN PLACE. 194 re-drew the token with
+/// <c>CommandBuffer.DrawMesh</c> and a conjugated scale matrix, which needs a mesh we can honestly
+/// hand to <c>DrawMesh</c>; the token's single renderer has none (either it is a
+/// <c>SkinnedMeshRenderer</c>, whose <c>sharedMesh</c> is the BIND POSE and would draw a T-posed
+/// figure, or it is a renderer with no <c>MeshFilter</c> at all — the census below now prints WHICH,
+/// by runtime type, so this is never guessed again). Three ways out were weighed:</para>
+/// <list type="number">
+///   <item>A MATRIX OVERLOAD OF <c>DrawRenderer</c>. CHECKED AGAINST THE SHIPPING ASSEMBLY rather
+///   than against memory — the game's own <c>UnityEngine.CoreModule.dll</c> (Unity 2021.3.5f1)
+///   exposes exactly three: <c>DrawRenderer(Renderer, Material)</c>,
+///   <c>(Renderer, Material, int)</c> and <c>(Renderer, Material, int, int)</c>. THERE IS NO MATRIX
+///   PARAMETER IN THIS UNITY VERSION, so the clean answer does not exist here. REJECTED as
+///   unavailable, not as unattractive.</item>
+///   <item><c>SkinnedMeshRenderer.BakeMesh</c> into a scratch mesh, drawn with a matrix. This fixes
+///   ONLY the skinned branch and does nothing for a renderer with no <c>MeshFilter</c>, i.e. it
+///   might not fix this token at all; and the marker ANIMATES (it walks the route during travel,
+///   MapChoreographer → MapMovementFlow), so the bake would have to be re-run EVERY FRAME the token
+///   is in view — a full CPU skinning pass per frame, per eye-independent buffer refill, to change
+///   one number. REJECTED: worse cost, narrower coverage, and it still leaves the "could not take
+///   it" branch reachable.</item>
+///   <item>WRITE <c>PartyToken.transform.localScale</c>. TAKEN. It is the only lever that covers
+///   BOTH branches, it costs one float compare per tick, and the evidence that it is safe was
+///   already on the table and unused: <c>PartyToken</c> is 143 lines that write only
+///   <c>transform.position</c> (:46, :65, :105) and <c>transform.LookAt</c> (:22, :48, :118); its
+///   five callers (<c>MapChoreographer</c>, <c>MapMovementFlow</c>, <c>MapTimedMovementFlow</c>,
+///   <c>MapPointsMovementFlow</c>, <c>IMapFlowConfig</c>) write only <c>transform.position</c>
+///   (MapChoreographer.cs:740, :749, :2739) and read only <c>transform.position</c> for the camera
+///   focal point; and a grep of the WHOLE decompile finds no writer of this transform's
+///   <c>localScale</c> anywhere. Nothing in the game reads its scale either — the zoom-to-party path
+///   drives <c>CameraController.m_ExtraMinimumFOV</c> from a config FOV, never from the token's
+///   bounds. So this is a number with no other writer, the same shape as <c>widthMultiplier</c>
+///   below, and it takes the same protocol.</item>
+/// </list>
+/// <para>THE PROTOCOL, WHICH IS THE PART THAT HAS TO BE RIGHT — see <see cref="ApplyTokenScale"/>
+/// and <see cref="RestoreTokenScale"/>:</para>
+/// <list type="number">
+///   <item>THE ORIGINAL IS RECORDED BEFORE THE FIRST WRITE, once per token transform, at scan time.
+///   The AUTHORED value is multiplied — not <c>Vector3.one</c> — so a token the artist did not build
+///   at unit scale keeps its proportions.</item>
+///   <item>THE WRITE IS LEVEL-TRIGGERED. A settled frame compares and writes nothing; the census
+///   prints the write count, so "somebody else is writing this transform" is a number that fails to
+///   fall to zero rather than a thing to argue about.</item>
+///   <item>AT x1.00 THE ORIGINAL IS WHAT IS WRITTEN, so a default install leaves the token at
+///   exactly the scale the game authored and performs no write at all.</item>
+///   <item>RESTORED ON STAND-DOWN AND ON TEARDOWN, and ONLY WHILE IT IS STILL OURS: the restore is
+///   skipped when the live value is not the one we last wrote, because taking a transform back from
+///   whatever has since written it is the write war this project has already lost once. Multiplayer:
+///   this is local presentation on an object the local client already has; nothing goes on the wire,
+///   and the stand-down restore is what keeps a peer's map untouched.</item>
+/// </list>
+/// <para>THE DRAW IS PLAIN <c>DrawRenderer</c> AGAIN, for every token renderer, exactly as it was
+/// through ModBuild 193. It needs no matrix now: <c>DrawRenderer</c> records the renderer's own
+/// transform, so the scale on the root is already in the picture, and a skinned token skins
+/// correctly because the engine still does the skinning. The 194 mesh-resolution pass is gone from
+/// the draw path and survives only as the census's renderer-kind classification.</para>
 ///
 /// <para>THE DRAWN ROUTE TAKES A DIAL TOO, AND THAT ONE DOES WRITE A GAME COMPONENT — SAY SO
 /// PLAINLY. READ FROM SOURCE, the route between two map locations is a <c>LineRenderer</c>:
@@ -394,20 +432,46 @@ internal sealed class MapIconLayer
 
     private readonly List<Renderer> _tokenRenderers = new(8);
 
-    /// <summary>The mesh each token renderer can be re-drawn from with our own matrix, or null when
-    /// it has none we can honestly use (skinned, or no <c>MeshFilter</c>). Index-parallel to
-    /// <see cref="_tokenRenderers"/>; resolved at scan time, not per frame.</summary>
-    private readonly List<Mesh?> _tokenMeshes = new(8);
+    /// <summary>
+    /// WHAT KIND OF RENDERER THE TOKEN ACTUALLY IS, in words, rebuilt once per scan and printed by
+    /// the census. This is the ModBuild 194 mesh-resolution pass turned into a DIAGNOSIS: 194 could
+    /// only report "1 draw could not take the dial" and left the reader to guess which of two causes
+    /// it was, which cost a hardware round trip. The string names each token renderer's runtime type
+    /// and whether it has a <c>MeshFilter</c> mesh, so the next log ANSWERS that question instead of
+    /// re-asking it. Nothing in the draw path reads it — since ModBuild 195 the scale rides the
+    /// token's transform and every renderer is drawn with plain <c>DrawRenderer</c>, so no renderer
+    /// kind can be refused any more.
+    /// </summary>
+    private string _tokenKinds = "<not scanned>";
 
-    /// <summary>Reusable block for carrying a token renderer's own material overrides onto the
-    /// scaled <c>DrawMesh</c> — see <see cref="DrawToken"/>. Allocated lazily, because a token with
-    /// no property block never needs one.</summary>
-    private MaterialPropertyBlock? _tokenMpb;
-
-    /// <summary>The party token's own root transform — the PIVOT the marker dial scales about, so a
-    /// scaled token still stands on the same spot on the parchment instead of drifting toward the
-    /// map origin. Read only; never written.</summary>
+    /// <summary>The party token's own root transform — the transform the marker dial SCALES. See the
+    /// class doc for the full argument that this is a number with no other writer in the game, and
+    /// <see cref="ApplyTokenScale"/> for the record-once / level-triggered / restore-if-still-ours
+    /// protocol that write follows.</summary>
     private Transform? _tokenRoot;
+
+    /// <summary>The transform whose authored <c>localScale</c> is held in
+    /// <see cref="_tokenOriginalScale"/>. Kept as its own reference rather than assumed to be
+    /// <see cref="_tokenRoot"/>, so that a token the game destroys and rebuilds re-records its own
+    /// authored value instead of inheriting the dead one's — and so the restore can tell whether the
+    /// record it holds still belongs to the object in front of it.</summary>
+    private Transform? _tokenScaleOwner;
+
+    /// <summary>The token root's <c>localScale</c> as the game authored it, read ONCE before our
+    /// first write. The dial multiplies THIS, not <c>Vector3.one</c>, so a token that was not built
+    /// at unit scale keeps its proportions at every dial value.</summary>
+    private Vector3 _tokenOriginalScale = Vector3.one;
+
+    /// <summary>The exact value we last wrote to the token's <c>localScale</c>, so
+    /// <see cref="RestoreTokenScale"/> can tell "still ours" from "somebody else has written it
+    /// since" and decline to stomp the second case.</summary>
+    private Vector3 _tokenWrittenScale = Vector3.one;
+
+    /// <summary>Have we written the token's scale at all since the original was recorded? Until this
+    /// is true there is nothing to restore and nothing to compare against, and a default install
+    /// (dial at x1.00) never sets it — the level-triggered write finds the wanted value already
+    /// there and returns.</summary>
+    private bool _tokenScaleWritten;
 
     /// <summary>Every route <c>LineRenderer</c> this layer has found, and the <c>widthMultiplier</c>
     /// each one had BEFORE we first wrote it. Kept as a dictionary rather than a list parallel to
@@ -614,8 +678,8 @@ internal sealed class MapIconLayer
     /// <summary>
     /// <c>[MapRoom] PartyMarkerScale</c>, clamped — the size of the marker showing where the party
     /// currently is. Read live once per tick like every other dial here, so a step in the options
-    /// pane shows on the next frame. See the class doc for why this can be applied without writing
-    /// the game's transform, and <see cref="DrawToken"/> for the matrix.
+    /// pane shows on the next frame. See the class doc for why this one DOES write the game's own
+    /// transform and what that costs, and <see cref="ApplyTokenScale"/> for the protocol.
     /// </summary>
     private static float PartyMarkerScale() =>
         ClampScale(Plugin.MapPartyMarkerScale != null ? Plugin.MapPartyMarkerScale.Value : 1f);
@@ -800,7 +864,13 @@ internal sealed class MapIconLayer
                 prewarmed++;
         }
 
-        int tokenDraws = DrawToken(markerScale, out int tokenUnscalable);
+        // ORDER IS LOAD-BEARING: the scale goes on the token's transform FIRST, and the draw is
+        // recorded second. DrawRenderer captures the renderer's matrix at EXECUTION time rather than
+        // at record time, so strictly speaking either order would look right — but writing first
+        // keeps the recording and the transform in step for any future path that does read the
+        // matrix here, and it costs nothing.
+        int tokenWrites = ApplyTokenScale(markerScale);
+        int tokenDraws = DrawToken();
         int pathWrites = ApplyPathWidth(pathScale, head.cullingMask, out int pathDrawing, out int pathSeen);
 
         // The population is still filling in whenever the drawn count moves; hold the every-frame
@@ -820,7 +890,7 @@ internal sealed class MapIconLayer
         TokenDrawCount = tokenDraws;
         LogCensus(drawn, tokenDraws, capitalHits, cityHits, ownerless, planeY,
                   surface, worldScale, capitalScale, cityScale,
-                  markerScale, tokenUnscalable, pathScale, pathWrites, pathDrawing, pathSeen,
+                  markerScale, tokenWrites, pathScale, pathWrites, pathDrawing, pathSeen,
                   arrivals, deferredBakes, prewarmed);
         if (_measureThisTick)
         {
@@ -867,84 +937,120 @@ internal sealed class MapIconLayer
     }
 
     /// <summary>
-    /// Draw the party token into this frame's buffer, at <paramref name="scale"/> about its own
-    /// root, and report how many of its submesh draws could NOT take that factor.
+    /// Draw the party token into this frame's buffer and report how many submesh draws that was.
     ///
-    /// <para>AT SCALE 1 THE OLD CALL IS ISSUED UNCHANGED. <c>DrawRenderer</c> is what shipped
-    /// through ModBuild 193 and it is what a default install still records — the matrix path exists
-    /// only once the dial has been moved, so it can never be blamed for a default build.</para>
+    /// <para>PLAIN <c>DrawRenderer</c> FOR EVERY RENDERER, WHATEVER KIND IT IS — the same call that
+    /// shipped through ModBuild 193, restored at 195 after 194's matrix path proved unable to touch
+    /// this particular token at all. There is no size decision left in here: the marker dial is
+    /// applied to the token's own transform by <see cref="ApplyTokenScale"/> before this runs, and
+    /// <c>DrawRenderer</c> records the renderer's own matrix, so the scale is already in the picture.
+    /// That is also why no renderer kind can be refused any more — a <c>SkinnedMeshRenderer</c> skins
+    /// correctly here because the ENGINE does the skinning, and a renderer with no <c>MeshFilter</c>
+    /// never needed a mesh from us in the first place.</para>
     ///
-    /// <para>THE MATRIX, AND WHY IT PIVOTS ON THE TOKEN'S ROOT. A plain <c>Matrix4x4.Scale</c>
-    /// multiplied on the left scales about the WORLD origin, which on a map whose parchment sits far
-    /// from (0,0,0) would fling the marker across the table as soon as the dial left 1. The token
-    /// must grow where it stands, so the scale is conjugated by the root's position:
-    /// <c>T(pivot)·S(f)·T(-pivot)·localToWorldMatrix</c>. Using the ROOT rather than each renderer's
-    /// own position also keeps a multi-part token together — every part is scaled about the same
-    /// point, so their relative offsets scale with them instead of each part inflating in place.</para>
-    ///
-    /// <para>WHAT CANNOT BE SCALED IS COUNTED, NOT FAKED. A <c>SkinnedMeshRenderer</c>'s
-    /// <c>sharedMesh</c> is the BIND POSE and drawing it with a matrix would show a T-posed, wrongly
-    /// placed mesh — strictly worse than an unscaled marker. Such a renderer, and any renderer with
-    /// no <c>MeshFilter</c> mesh, falls back to the unscaled <c>DrawRenderer</c> and is counted out
-    /// through <paramref name="unscalable"/>, which the census prints. The shipping token is a
-    /// single submesh draw, so a non-zero count is a finding and not a shrug.</para>
+    /// <para>-1 as the pass index means "every valid pass of the material", which is what makes a
+    /// multi-pass token render the way the game's own camera renders it.</para>
     /// </summary>
-    private int DrawToken(float scale, out int unscalable)
+    private int DrawToken()
     {
-        unscalable = 0;
         int draws = 0;
-        bool scaled = !Mathf.Approximately(scale, 1f);
-        Matrix4x4 about = Matrix4x4.identity;
-        if (scaled && _tokenRoot != null)
-        {
-            Vector3 pivot = _tokenRoot.position;
-            about = Matrix4x4.Translate(pivot)
-                    * Matrix4x4.Scale(new Vector3(scale, scale, scale))
-                    * Matrix4x4.Translate(-pivot);
-        }
-        else
-        {
-            // No root to pivot on is the same case as no dial: draw exactly what shipped.
-            scaled = false;
-        }
         for (int i = 0; i < _tokenRenderers.Count; i++)
         {
             Renderer tr = _tokenRenderers[i];
             if (tr == null || !tr.enabled || !tr.gameObject.activeInHierarchy)
                 continue;
-            Mesh? mesh = _tokenMeshes[i];
             Material[] mats = tr.sharedMaterials;
-            bool canScale = scaled && mesh != null;
-            if (scaled && mesh == null)
-                unscalable++;
-            Matrix4x4 m = canScale ? about * tr.localToWorldMatrix : Matrix4x4.identity;
-            // A PER-RENDERER PROPERTY BLOCK MUST COME WITH THE MESH. DrawRenderer carries the
-            // renderer's own block implicitly; DrawMesh does not, so a token the game tints or fades
-            // through a block (a colour, a highlight, a dissolve) would have rendered with the
-            // material's DEFAULTS the moment the dial left 1 — a colour change caused by a size
-            // slider, which would have been a baffling report. Copied into a reusable block, so the
-            // scaled path is the same picture as the unscaled one in everything but size.
-            MaterialPropertyBlock? block = null;
-            if (canScale && tr.HasPropertyBlock())
-            {
-                _tokenMpb ??= new MaterialPropertyBlock();
-                tr.GetPropertyBlock(_tokenMpb);
-                block = _tokenMpb;
-            }
             for (int sm = 0; sm < mats.Length; sm++)
             {
                 if (mats[sm] == null)
                     continue;
-                if (canScale && block != null)
-                    _cmd!.DrawMesh(mesh, m, mats[sm], sm, -1, block);
-                else if (canScale)
-                    _cmd!.DrawMesh(mesh, m, mats[sm], sm, -1); // -1 = the material's own valid passes
-                else
-                    _cmd!.DrawRenderer(tr, mats[sm], sm, -1);
+                _cmd!.DrawRenderer(tr, mats[sm], sm, -1);
                 draws++;
             }
         }
         return draws;
+    }
+
+    /// <summary>
+    /// How far the token's <c>localScale</c> may drift from the wanted value before it is rewritten,
+    /// as a squared distance in local units. Loose enough that the float we wrote last tick compares
+    /// equal to itself forever (so a settled frame writes nothing), tight enough that the smallest
+    /// step the dial can take — the config stepper moves in hundredths against an authored scale of
+    /// order 1 — always lands as a write.
+    /// </summary>
+    private const float TokenScaleEpsilonSq = 1e-8f;
+
+    /// <summary>
+    /// Put <c>[MapRoom] PartyMarkerScale</c> on the party token's own transform, LEVEL-TRIGGERED, and
+    /// return how many writes that actually took this tick (0 or 1).
+    ///
+    /// <para>THIS IS THE SECOND — AND LAST — GAME COMPONENT THIS LAYER WRITES, and the class doc
+    /// carries the whole argument for why <c>PartyToken.transform.localScale</c> is a number with no
+    /// other writer in the game and no reader either. What matters here is the protocol:</para>
+    /// <list type="number">
+    ///   <item>THE ORIGINAL WAS RECORDED AT SCAN TIME, before any write (see the token block in
+    ///   <see cref="Rescan"/>), and it is the AUTHORED scale that gets multiplied — so a token built
+    ///   at something other than unit scale keeps its proportions.</item>
+    ///   <item>NOTHING IS WRITTEN WHEN THE VALUE IS ALREADY THERE. At x1.00 the wanted value IS the
+    ///   authored value, so a default install performs no write at all, ever.</item>
+    ///   <item>A NON-ZERO WRITE COUNT ON A SETTLED FRAME IS THE WRITE-WAR DIAGNOSIS, which is why the
+    ///   census prints this number beside the route's.</item>
+    /// </list>
+    /// <para>NO ROOT IS A REAL STATE, NOT AN ERROR: the choreographer has no <c>m_PartyToken</c> yet,
+    /// or the map is mid-rebuild. It writes nothing and the census says the dial had nothing to act
+    /// on, which is a finding rather than a silent frame.</para>
+    /// </summary>
+    private int ApplyTokenScale(float scale)
+    {
+        Transform? t = _tokenRoot;
+        if (t == null || !ReferenceEquals(t, _tokenScaleOwner))
+            return 0;
+        Vector3 want = _tokenOriginalScale * scale;
+        if ((t.localScale - want).sqrMagnitude <= TokenScaleEpsilonSq)
+            return 0;
+        t.localScale = want;
+        _tokenWrittenScale = want;
+        _tokenScaleWritten = true;
+        return 1;
+    }
+
+    /// <summary>
+    /// Put the party token's authored <c>localScale</c> back, and forget the record. Returns what
+    /// happened, in words, for the stand-down log — the three outcomes are genuinely different and
+    /// collapsing them into a bool is how a skipped restore becomes invisible.
+    ///
+    /// <para>ONLY WHILE IT IS STILL OURS. If the live scale is not the value we last wrote, then
+    /// something else has written this transform since — and putting OUR idea of its original back
+    /// on top of THEIR value is the write war, not the fix. In that case the record is dropped and
+    /// the log says so, because a silent skip here would leave a mystery on the next map entry.</para>
+    /// </summary>
+    private string RestoreTokenScale()
+    {
+        Transform? t = _tokenScaleOwner;
+        Vector3 original = _tokenOriginalScale;
+        bool written = _tokenScaleWritten;
+        Vector3 lastWritten = _tokenWrittenScale;
+        _tokenScaleOwner = null;
+        _tokenOriginalScale = Vector3.one;
+        _tokenWrittenScale = Vector3.one;
+        _tokenScaleWritten = false;
+
+        if (!written)
+            return "the party marker's transform was never written (dial at x1.00, or no token was "
+                   + "ever found), so there was nothing to put back";
+        if (t == null)
+            return "the party marker's transform was destroyed under us before it could be restored "
+                   + "— normal on a map rebuild, and a rebuilt token is born at its authored scale";
+        if ((t.localScale - lastWritten).sqrMagnitude > TokenScaleEpsilonSq)
+            return $"the party marker's transform was NOT restored: it now reads {t.localScale} but we "
+                   + $"last wrote {lastWritten}, so something else has written it since and putting "
+                   + $"our record of {original} back on top of that would be a write war. The record "
+                   + "was dropped instead. IF THE MARKER LOOKS WRONG ON THE FLAT 2D MAP AFTER THIS "
+                   + "LINE, that other writer is the thing to find";
+        t.localScale = original;
+        return $"the party marker's transform was restored to its authored localScale {original} "
+               + "(recorded before the first write, and the live value still matched what we last "
+               + "wrote, so it was still ours to give back)";
     }
 
     /// <summary>
@@ -1137,7 +1243,7 @@ internal sealed class MapIconLayer
     private void LogCensus(int drawn, int tokenDraws, int capitalHits, int cityHits, int ownerless,
                            float planeY, MapSurface surface,
                            float worldScale, float capitalScale, float cityScale,
-                           float markerScale, int tokenUnscalable,
+                           float markerScale, int tokenWrites,
                            float pathScale, int pathWrites, int pathDrawing, int pathSeen,
                            int arrivals, int deferredBakes, int prewarmed)
     {
@@ -1151,7 +1257,8 @@ internal sealed class MapIconLayer
                         ^ capitalScale.GetHashCode()
                         ^ cityScale.GetHashCode()
                         ^ markerScale.GetHashCode()
-                        ^ tokenUnscalable * 613
+                        ^ _tokenKinds.Length * 613
+                        ^ (_tokenScaleWritten ? 2749 : 0)
                         ^ pathScale.GetHashCode()
                         ^ _pathRenderers.Count * 17
                         ^ pathDrawing * 53
@@ -1193,12 +1300,32 @@ internal sealed class MapIconLayer
             + $"{cityHits} icon(s) (city map, ALL of its icons: the shopfronts in m_CityLocations plus the "
             + "City-type quests). "
             + $"{ownerless} drawn icon(s) had NO owning MapLocation; they take the dial of the map on screen. "
-            + $"PARTY MARKER: [MapRoom] PartyMarkerScale x{markerScale:F2} on {tokenDraws} submesh draw(s), "
-            + $"{tokenUnscalable} of which could NOT take it. It is applied to OUR DRAW MATRIX "
-            + "(CommandBuffer.DrawMesh about the token's own root), never to the game's transform — at x1.00 "
-            + "the old DrawRenderer call is issued unchanged. A non-zero 'could not take it' means a token "
-            + "renderer is skinned or has no MeshFilter mesh, so that part is drawn at authored size; the "
-            + "shipping token is 1 draw, so any non-zero here is news. "
+            + $"PARTY MARKER: [MapRoom] PartyMarkerScale x{markerScale:F2} on {tokenDraws} submesh draw(s). "
+            + "SINCE ModBuild 195 THIS DIAL WRITES A GAME TRANSFORM — PartyToken.transform.localScale — "
+            + "and that is the SECOND of the two game-component writes this layer makes (the route width is "
+            + "the other). It was moved there because ModBuild 194's draw-matrix route could not touch this "
+            + "token at all: 194 needed a mesh to hand CommandBuffer.DrawMesh, this token's renderer has "
+            + $"none, and Unity {Application.unityVersion}'s CommandBuffer.DrawRenderer has no matrix "
+            + "overload to fall back on (checked against the shipping UnityEngine.CoreModule.dll, not from "
+            + $"memory). WHAT THE TOKEN IS, so this is never guessed again: {_tokenKinds}. "
+            + $"OWNERSHIP: authored localScale recorded before the first write as {_tokenOriginalScale}, "
+            + $"target = that x {markerScale:F2}, {tokenWrites} write(s) this tick, "
+            + $"{(_tokenScaleWritten ? $"last written value {_tokenWrittenScale}" : "never written yet (x1.00 wants the authored value, so a default install writes nothing at all)")}, "
+            + "restored on stand-down and on teardown and ONLY while the live value is still the one we "
+            + "wrote. A tokenWrites that never falls to 0 on a settled frame means a second writer of this "
+            + "transform appeared and we are in a write war — that, and not the dial, would be the bug. "
+            + (_tokenRoot == null
+                ? "NO PARTY TOKEN ON THE CHOREOGRAPHER RIGHT NOW, so this dial has nothing to act on this "
+                  + "tick — the scan RAN and found no m_PartyToken. WHAT TO DO ABOUT IT: nothing, if the map "
+                  + "is still opening (the token is created with the map); if this persists while the marker "
+                  + "is visibly on the parchment, the marker being drawn is not the choreographer's token and "
+                  + "THAT is the thing to find. "
+                : tokenDraws == 0
+                    ? "THE TOKEN EXISTS BUT DREW NOTHING THIS TICK: every renderer under it is disabled or "
+                      + "inactive, so the dial is being applied to a marker nobody can see. WHAT TO DO ABOUT "
+                      + "IT: this is expected on the city map, where the party marker is hidden; on the world "
+                      + "map it means the marker you are looking at belongs to some other object. "
+                    : string.Empty)
             + $"ROUTE: [MapRoom] PathWidthScale x{pathScale:F2} on {_pathRenderers.Count} LineRenderer(s) "
             + $"({(_pathFromFallback ? "found by the FALLBACK sweep of the active map object — the lineRenderers "
                                      + "holder is not parented under its MapLocation in this build"
@@ -1425,6 +1552,12 @@ internal sealed class MapIconLayer
     {
         bool had = _cam != null;
         int restored = RestorePathWidths();
+        // The token restore runs in the SAME place and for the same reason as the route restore:
+        // before anything is cleared, because both are writes to game components that must not
+        // survive the room. It returns words rather than a bool — "never written", "destroyed under
+        // us" and "somebody else owns it now" are three different situations and only one of them is
+        // a fault, so collapsing them would hide the one that matters.
+        string tokenRestore = RestoreTokenScale();
         Detach();
         if (_cmd != null)
         {
@@ -1449,9 +1582,8 @@ internal sealed class MapIconLayer
         // session lifetime, so it must have session lifetime too, or every re-entry into the room
         // would meter already-baked icons back in two per frame.
         _tokenRenderers.Clear();
-        _tokenMeshes.Clear();
         _tokenRoot = null;
-        _tokenMpb = null;
+        _tokenKinds = "<not scanned>";
         _pathRenderers.Clear();
         _pathFromFallback = false;
         _locationScratch.Clear();
@@ -1483,12 +1615,15 @@ internal sealed class MapIconLayer
         if (had)
             VRLog.Info(Scope, $"MAP ROOM icon layer released ({reason}) — command buffer detached, mesh and "
                               + $"material destroyed, and {restored} route LineRenderer(s) put back to their "
-                              + "authored widthMultiplier. That restore is the ONLY thing this layer ever wrote "
-                              + "to a game component ([MapRoom] PathWidthScale); the decals, the party token and "
-                              + "every texture were only READ, and the party-marker dial acts on our own draw "
-                              + "matrix, so there is nothing else to undo. A number here below the route count "
-                              + "in the last census means renderers were destroyed under us, which is normal on "
-                              + "a map rebuild and not a leak.");
+                              + "authored widthMultiplier. THIS LAYER WRITES EXACTLY TWO GAME COMPONENTS and "
+                              + "both are undone here: the route widths ([MapRoom] PathWidthScale) just named, "
+                              + $"and the party marker ([MapRoom] PartyMarkerScale) — {tokenRestore}. Everything "
+                              + "else (the decals, the token's renderers, every texture) was only READ. A route "
+                              + "number here below the route count in the last census means renderers were "
+                              + "destroyed under us, which is normal on a map rebuild and not a leak. "
+                              + "MULTIPLAYER: both restores are what keep this a purely local presentation — "
+                              + "nothing was ever sent, and after this line the game's own map objects are back "
+                              + "to exactly the state a peer's copy is in.");
     }
 
     /// <summary>Put every recorded route width back and forget the records. Returns how many
@@ -1614,34 +1749,71 @@ internal sealed class MapIconLayer
             }
         }
         _tokenRenderers.Clear();
-        _tokenMeshes.Clear();
         _tokenRoot = null;
         PartyToken? token = choreo.m_PartyToken;
         if (token != null)
         {
             _tokenRoot = token.transform;
             token.GetComponentsInChildren(includeInactive: false, _tokenRenderers);
-            for (int i = 0; i < _tokenRenderers.Count; i++)
-                _tokenMeshes.Add(MeshFor(_tokenRenderers[i]));
+            _tokenKinds = DescribeTokenRenderers();
+
+            // THE AUTHORED SCALE IS RECORDED HERE, BEFORE ANY WRITE — the first step of the protocol
+            // in the class doc. Guarded on transform IDENTITY rather than on a "have we recorded"
+            // flag: the game destroys and rebuilds the token across a map rebuild, and a record taken
+            // from the previous instance would be restored onto the new one. The identity test also
+            // means a re-scan of the SAME token (which happens every frame during the warm-up hold)
+            // can never re-record OUR OWN written value as if it were the authored one — the bug that
+            // would have made the restore a no-op and left the marker permanently resized.
+            if (!ReferenceEquals(_tokenRoot, _tokenScaleOwner))
+            {
+                RestoreTokenScale();               // hand the PREVIOUS token back before adopting this one
+                _tokenScaleOwner = _tokenRoot;
+                _tokenOriginalScale = _tokenRoot.localScale;
+                _tokenWrittenScale = _tokenOriginalScale;
+                _tokenScaleWritten = false;
+            }
+        }
+        else
+        {
+            _tokenKinds = "no PartyToken on the MapChoreographer yet";
         }
         CollectPathRenderers(choreo);
     }
 
     /// <summary>
-    /// The mesh a token renderer can be RE-DRAWN from with our own matrix, or null when there is
-    /// none we can honestly use.
+    /// NAME WHAT THE TOKEN'S RENDERERS ACTUALLY ARE, once per scan, for the census.
     ///
-    /// <para>A <c>SkinnedMeshRenderer</c> is deliberately refused rather than approximated: its
-    /// <c>sharedMesh</c> is the BIND POSE, and drawing that with a matrix would put a T-posed mesh on
-    /// the map — visibly worse than an unscaled marker. The caller counts every refusal into the
-    /// census, so the fallback is on the record instead of being a silent half-scale.</para>
+    /// <para>THIS IS THE ANSWER ModBuild 194's LOG COULD NOT GIVE. That build could only say "1 draw
+    /// could NOT take the dial" — true, but it left the reader choosing between two causes
+    /// (skinned / no <c>MeshFilter</c>) that would have needed different fixes, and the choice cost a
+    /// hardware round trip. The scale no longer depends on the answer, but the answer is still worth
+    /// printing: it is what makes "the marker is one skinned figure" a fact in the log rather than an
+    /// inference, and it is the first thing to look at if the marker ever stops responding again.</para>
+    ///
+    /// <para>Built at SCAN time and cached in <see cref="_tokenKinds"/>: a runtime type name and a
+    /// <c>GetComponent</c> per renderer is nothing once per scan and is not nothing per frame.</para>
     /// </summary>
-    private static Mesh? MeshFor(Renderer? r)
+    private string DescribeTokenRenderers()
     {
-        if (r == null || r is SkinnedMeshRenderer)
-            return null;
-        MeshFilter? mf = r.GetComponent<MeshFilter>();
-        return mf != null ? mf.sharedMesh : null;
+        if (_tokenRenderers.Count == 0)
+            return "no Renderer under the token at all";
+        var sb = new System.Text.StringBuilder(64);
+        for (int i = 0; i < _tokenRenderers.Count; i++)
+        {
+            Renderer? r = _tokenRenderers[i];
+            if (i > 0)
+                sb.Append(", ");
+            if (r == null)
+            {
+                sb.Append("<destroyed>");
+                continue;
+            }
+            MeshFilter? mf = r.GetComponent<MeshFilter>();
+            bool hasMesh = mf != null && mf.sharedMesh != null;
+            sb.Append('\'').Append(r.name).Append("' is a ").Append(r.GetType().Name)
+              .Append(hasMesh ? " WITH a MeshFilter mesh" : " with NO MeshFilter mesh");
+        }
+        return sb.ToString();
     }
 
     /// <summary>

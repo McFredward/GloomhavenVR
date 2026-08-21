@@ -416,7 +416,174 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 194;
+    public const ushort ModBuild = 195;
+    // Build 195: THE MOD HAS BEEN RUNNING AT 50 Hz, AND A RAYCASTER WE ADD BLOCKED A DESTROY THE
+    // GAME KEEPS ASKING FOR. (Six workers, isolated worktrees.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── THE REGRESSION THAT COST HIM A WHOLE ROUND, AND IT IS MINE ────────────────────────
+    // User: "Ich kann nun in der Character-UI die Character gar nicht mehr öffnen seit deinem letzten
+    // 'fix'. Klare regression." The click was never lost: `uGUI click: 'Adventure Character Slot'`
+    // appears 15 times and the sheet window has ZERO `UIWindow SHOWN` lines all session. `UIWindow
+    // SHOWN` is a postfix on the game's own visibility choke point, so its absence is the GAME's
+    // statement that the window never opened — the defect is "never asked", not "suppressed".
+    // ALL 15 CLICKS FALL INSIDE THE INTERVAL THE SHOP WINDOW WAS OPEN (shown 3992, hidden 8525;
+    // clicks 4141-4393). `EnterShop` -> `EnableSelectionMode(cb, disableButtons: FALSE)` clears
+    // `autoOpenDefaultPanel` and sets `disabledCharacterSelection` per slot, so `OnClick` falls to
+    // `SetAllTogglesOff()` and the sheet is unreachable — while leaving untouched the exact three
+    // fields the mod's own `PARTY SLOTS n/m interactable` probe reads. **The line was TRUE and the
+    // feature was broken.** It measured readiness; it should have measured outcome.
+    // WHY IT SURFACED NOW, AND THIS PART IS MY DOING: ModBuild 193's in-cone packing spawned the
+    // merchant ON TOP of the permanent character screen ("overlaps ... by 39° of the 48° it spans"),
+    // so he DRAGGED IT ASIDE instead of closing it — and an open shop keeps the mode live. Before the
+    // packing, getting the merchant out of the way meant closing it, which left the mode.
+    // FIX: `ReArmCharacterScreen`, level-triggered while the room stands, restores `autoOpen` for
+    // every slot and clears `disabledCharacterSelection` for ASSIGNED slots only. The online guards
+    // survive because `DetermineInteractability` ANDs them. NOT re-armed: `buttonsCanvasGroup`, so
+    // the enchantress's harder lock stands — that one needs a user ruling, not a guess.
+    // NEW INSTRUMENT `CHARACTER SHEET OUTCOME`: a slot was clicked, and within 30 ticks the sheet
+    // either opened or it did not — and if it did not, every gate the game branches on, in test
+    // order, plus the destination window floated at that instant.
+    //
+    // ── THE PACKING DEFECT UNDERNEATH IT, PRICED RATHER THAN PATCHED ──────────────────────
+    // The overflow ranking now prefers covering the LEAST PERMANENT surface: a permanent window has
+    // no X, so the player can neither close nor dismiss it. Simulated on the logged case it picks
+    // -8° instead of +8°, covering 39° of permanent surface instead of 55°.
+    // AND THE REST IS GEOMETRY, STATED IN THE LOG RATHER THAN LEFT AS A SURPRISE: a 48°-wide window
+    // and a 46°-wide centred one need 94° inside a 64° cone, and the centre clamp allows |a| <= 8°,
+    // so the overlap is `47 - |a|` >= 39° at EVERY LEGAL ANGLE. No in-cone placement avoids it at
+    // 1.20 m. THE MEASURED OFFER, verified independently: at 1.85 m the pair is 30.2 + 30.8 + 2 =
+    // 63.0° <= 64° and both fit — at 35% less apparent size. `WindowDistanceMeters` is NOT changed;
+    // 193 priced that trade against an overlap it called optional, and this one is not optional.
+    //
+    // ── THE MOD HAS BEEN RUNNING AT ~50 Hz, AND NOBODY REPORTED IT ────────────────────────
+    // Not a spike — a FLOOR. `[Perf] FRAME 30.0s n=1497 ... over-budget 1497/1497 (100.0%) ... mod
+    // 15.20ms/frame avg (75.8% of frame time)`, with `ModalFallback 12.991ms avg, worst 21.02`
+    // against an 11.11 ms budget, on EVERY frame. Onset is one event: the ramp 3.85 -> 11.46 ms
+    // starts the frame the permanent character screen converts, then never returns, because that
+    // window cannot be closed. One window already costs 11.5 ms and five cost 13.0 — a FIXED cost
+    // that arms with the first float. `[Perf] SPLIT` puts 83% in logic, so it is main-thread CPU.
+    // THE BRIEF'S PRIME SUSPECTS ARE REFUTED BY MEASUREMENT, and the numbers bound the search:
+    // CanvasConversion 0.58 ms; the ModBuild 193 flatness guarantee 146 us discovery + 8 us
+    // re-assert on its WORST window; a full walk of all five floated subtrees (~15,000 transforms)
+    // fits inside 0.58 ms, so **the 12 ms cannot be any subtree walk** — it would be 25x the entire
+    // floated content per frame. The catch-all recursion ran ONCE in 46k frames.
+    // WHAT IS LEFT, and it is named: `RenderTargetProbe` issues a `Graphics.Blit` plus an
+    // `AsyncGPUReadback` FROM UPDATE every frame — outside the render loop, the classic multi-ms
+    // main-thread sync — plus three reflection reads per watch, and its arming frame IS the frame the
+    // ramp begins. **I STOOD IT DOWN.** Its own baseline reads `44200 ticks sampled, 0
+    // alternation(s), 0 transition(s), 0 sweep(s)`: it was correct and it is spent, because the
+    // flicker turned out to be undersampled rasterization and `PanelSupersample` ended it. A
+    // diagnostic that has answered its question does not keep a multi-millisecond benefit of the
+    // doubt on a user's frame time. The stand-down runs through the normal disarm path so the
+    // restore and the final baseline still happen. The new sub-step instrument prices it either way.
+    // NEW: `ModalFallback` now times 19 named phases; `[Perf] SPIKE` and `[Perf] STEPS` name the
+    // sub-step, and `MODAL TICK BREAKDOWN` ranks them every 30 s with a HOW-TO-READ that separates a
+    // steady sweep (avg ~ worst) from a periodic burst (avg << worst). Cost ~1 us/frame.
+    //
+    // ── THE CARD-PREVIEW DECAY: WE BLOCK A DESTROY THE GAME KEEPS ASKING FOR ──────────────
+    // User: "desto öfters ich über die Karten hovere desto mehr Karten zeigen plötzlich kein Overlay
+    // mehr, bis sogar irgendwann gar keine". THE CAUSE WAS TWO UNITY ERROR LINES IN OUR OWN LOG THAT
+    // NOBODY HAD READ. `ToggleFullCardPreview` ADDS a Canvas on show and DESTROYS it on hide;
+    // between those two our nested-canvas adoption ADDS a `GraphicRaycaster` to it; `GraphicRaycaster`
+    // is `[RequireComponent(typeof(Canvas))]`, so Unity REFUSES the game's destroy —
+    // "Can't remove Canvas because GraphicRaycaster (Script) depends on it". On the next hover of
+    // that card: "Can't add component 'Canvas' ... already added", `AddComponent` returns NULL, and
+    // the game's own `if (canvas != null) { overrideSorting = true; sortingOrder = 10; }` is skipped
+    // FOREVER for that card. One card lost per card hovered, monotonic, never recovering — exactly
+    // the report. The placement instrumentation agreed with a broken build because the box WAS being
+    // placed; it had lost the mechanism that makes it draw where it must.
+    // FIX: finish the destruction the game already requested, on the hide edge, once the preview is
+    // inactive. Every hover is now the first hover — the one he confirms works.
+    // THREE MORE DEAD ENDS CLOSED IN THE SAME PASS: the home is now DERIVED from the owning row at
+    // restore time instead of remembered (a pooled row can be recycled between raise and release);
+    // the release is driven by STATE, not by an edge; nothing invisible is ever raised; and
+    // `ToggleFullCard(false)` leaves `previewingFullCard` set, which permanently bricks a card — a
+    // prefix now reconciles that flag with reality instead of asserting a value.
+    //
+    // ── THE FAINT EQUIPMENT OVERLAYS: A SHARED CARD POOL CARRIES A FOREIGN FINGERPRINT ────
+    // User: "diese werden so transparent dargestellt, dass man sie kaum erkennen kann ... beim
+    // Händler werden sie richtig dargestellt." Measured in `PanelSupersample`'s own field
+    // `N transform(s) left alone because ANOTHER panel owns their layer (expect 0)`: equipment 18 of
+    // 30 report lines non-zero, shop 0 of 52. The guard's own comment said the converted subtrees are
+    // disjoint so it "cannot fire". IT FIRED. The game's SHARED CARD POOL hands the equipment tooltip
+    // a card the SHOP tooltip used, still carrying the shop panel's private capture layer — and the
+    // `continue` skips the transform AND ITS WHOLE SUBTREE, so the frame is captured and the card art
+    // is not: a visible-but-empty box.
+    // FIXED AT INTEGRATION, WITH ONE ADDITION TO THE HAND-OFF: the object is OUR descendant (the
+    // sweep only ever walks our own host), so the layer value is a stale fingerprint, not a competing
+    // owner — we take it. But claiming WITHOUT transferring the layer record would have been WORSE
+    // than the skip: our own restore would later write the SHOP's capture layer onto it and strand
+    // the card on a layer no camera renders. `TryTakeForeignRecord` moves the original game layer
+    // across, so exactly one entry owns the object. A transform with no record to transfer is still
+    // refused — a wrong restore is permanent, a skipped capture is one aliased element.
+    //
+    // ── 41% OF THE EQUIPMENT WINDOW WAS DEAD TO THE LASER ─────────────────────────────────
+    // User: "der Laser geht durch den rechten Bereich hindurch der angewachsen ist". The window is
+    // converted at `532x1080` and STAYS there in all 30 supersample reports — but
+    // "'Character Items Equipment Content' draws content that reaches 903x1080 uGUI px around a
+    // 532x1080 host rect". The game enables a subtree that draws 371 px outside the rect and never
+    // touches the rect. `RayUguiDriver.TryIntersect` tested the canvas root rect: 532/903 = 59%, so
+    // **41% of the visible window was dead**, and the boundary he could read off the photo is the
+    // mod's own close-X, which rides the host rect's corner.
+    // AND THE CONTENT FIT COULD NEVER HAVE CAUGHT IT: `TryMeasureContent` CLAMPS its union into the
+    // conversion target's own frame. Not staleness — a clamp, structurally unable to report content
+    // outside the window.
+    // FIX: the host rect stays the FRAME; the ray/poke plane gets a HIT RECT = union(host rect,
+    // measured drawn content), from the fit's own per-graphic visibility verdict, so it reaches
+    // exactly as far as pixels the player can see and collapses again when the swap panel closes.
+    // GROWING THE WINDOW WAS REJECTED: the swap panel opens and closes on EVERY item swap, so it
+    // would slide the window ~185 px sideways under his hands, move the X and resize the grab bar
+    // once per swap — on a window the log calls PLAYER-OWNED after a grab.
+    //
+    // ── THE PHYSICAL CAPS WERE MUTE BY CONSTRUCTION ───────────────────────────────────────
+    // User: "Immer noch keine Geräusche wenn ich die physischen buttons drücke wie zB 'Händler'".
+    // The cap reached the game's widget perfectly — with a CLICK. And the target is not an
+    // `ExtendedButton`, it is a **Toggle**: `ExtendedToggle.OnPointerClick` calls the interactability
+    // check, the AutoTest recorder, the base — and RETURNS. **No PlaySound at all; the class has no
+    // click-audio field.** Every sound it owns hangs off Down/Up/Enter/Exit, and the DOWN sound is
+    // gated on an `isHighlighted` that only `OnPointerEnter` sets — which the caps never sent
+    // (`OnPokeEnter`/`OnPokeExit` were empty bodies, and the laser hover was a local tint).
+    // So it was silent at ANY listener distance, and ModBuild 194's ear repair — confirmed working
+    // in this log, 241 world units -> 0 — was never on that path anyway.
+    // FIX: the full `pointerEnter -> pointerDown -> pointerUp -> pointerClick (-> pointerExit)`
+    // sequence, so the sounds are the game's BY CONSTRUCTION. ORDER IS LOAD-BEARING, read from
+    // source: `UIGuildmasterButton.RefreshSelected` sets `toggle.interactable = !toggle.isOn`, so the
+    // click that turns a toggle ON makes it non-interactable IN THE SAME CALL STACK — a Down after
+    // the click would play the NON-INTERACTABLE item. Exactly-once holds because the commit lives in
+    // `pointerClick` alone and the other four are read from source to be incapable of it;
+    // `submitHandler` is NEVER sent (Toggle.OnSubmit would be a second commit) and the header says so.
+    // A CAVEAT THAT NARROWS 194: the log measures the UI category's pooled source as
+    // `spatialBlend 0.00 (2D)`. Listener distance could NOT have silenced UI sounds. 194 stays right
+    // for music and ambience, but the ear is no longer a suspect for button audio.
+    //
+    // ── THE PARTY MARKER: THE 194 ROUTE DID NOT EXIST ─────────────────────────────────────
+    // User: "Der Slider für den 'Gruppen-Marker' verändert nichts." 194's own instrument answered it
+    // first try: "1 submesh draw(s), **1 of which could NOT take it**" — the guard fired on the only
+    // draw there is. AND THE API CHECK 194 SHOULD HAVE DONE: dumping `CommandBuffer`'s method table
+    // out of the game's own `UnityEngine.CoreModule.dll` gives exactly three `DrawRenderer`
+    // overloads and **NONE takes a matrix** in Unity 2021.3.5f1. The draw-matrix route was never
+    // available. `BakeMesh` was rejected: it covers only the skinned branch and the marker ANIMATES.
+    // SO IT NOW WRITES THE GAME TRANSFORM'S `localScale`, and the log and the German description say
+    // so in those words — 194's description claimed the opposite and he reads it in the headset.
+    // The evidence was already established and unused: `PartyToken` writes only position and LookAt,
+    // and nothing in the decompile writes OR READS that token's scale.
+    //
+    // ── THE TRAVEL BUTTON: THE CLAMP COULD NOT REACH, AND THE DEFAULT STAYS UNDECIDED ─────
+    // The photograph (`bestsätigungsknopf.jpg` — his typo, which is why a name search misses it)
+    // shows the plaque ABOVE the card. **Both previous claims were wrong in opposite directions**:
+    // 193 said "far BELOW the window, out over the table", 194 computed "26-83 mm above the bottom
+    // edge, on the card". The dial path was verified intact end to end — page, fold, name resolution,
+    // binding, `ApplyPose` — so the reason the dials did not deliver is that `OffsetLimitYMin` was
+    // `-0.5` and reaching below the card needs about `-(1 + margin)` window heights. **He could have
+    // turned it to the stop and still not arrived.** Widened to -1.5.
+    // THE DEFAULT IS DELIBERATELY NOT CHANGED, against my own instruction, and the reason is good:
+    // the two evidence sources CONTRADICT each other (the photo puts it above the card; the log puts
+    // the button 26 mm above the window's bottom edge with the painted content ending ~15 px below
+    // it), and scaling the photograph gave two estimates 40% apart. A default from either alone is a
+    // guess with a number on it — the exact failure mode of 191/192/193. Instead the log now COMPUTES
+    // AND PRINTS the two dial values that put the button under the information, from the button's
+    // painted union and the window's, in the same frame and the same space. Printed, never applied.
     // Build 194: ONE CAPTURE LAYER FOR EVERY PANEL, AND THE GAME WAS PLACING ITS UI SOUNDS AT A
     // DISABLED EAR. (Six workers, isolated worktrees.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

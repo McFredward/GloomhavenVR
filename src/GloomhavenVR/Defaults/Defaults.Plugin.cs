@@ -50,9 +50,15 @@ internal static partial class Defaults
     // man sich befindet sowie des eingezeichneten Weges von einem zum anderen Punkt einstellen
     // können"). Both ship at 1 for the same reason as the three above: 1 reproduces exactly what the
     // previous build drew.
-    //   PartyMarkerScale — MapChoreographer.m_PartyToken, scaled in the ROOM'S OWN draw matrix
-    //                      (CommandBuffer.DrawMesh about the token's root); the game transform is
-    //                      never written, and at 1 the old DrawRenderer call is issued unchanged.
+    //   PartyMarkerScale — MapChoreographer.m_PartyToken. CORRECTED AT ModBuild 195: this DOES write
+    //                      the game transform's localScale. The ModBuild 194 draw-matrix route was
+    //                      refused by its own guard on the only draw there is ("1 of which could NOT
+    //                      take it"), and CommandBuffer has NO DrawRenderer overload taking a matrix
+    //                      in Unity 2021.3.5f1 — verified against the shipping CoreModule assembly.
+    //                      Nothing in the decompile writes or reads that token's scale. Authored
+    //                      scale recorded once by transform identity, level-triggered write (at 1 it
+    //                      writes nothing, ever), restored on Release and only while the live value
+    //                      is still what we last wrote.
     //   PathWidthScale   — the route LineRenderers MapLocation builds from m_NodeLineRendererPrefab
     //                      (decompiled MapLocation.cs:435-438 active path, :1015-1054 village roads).
     //                      Applied through widthMultiplier, which multiplies the game's own width

@@ -1,6 +1,11 @@
+using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands.Interact;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -114,7 +119,13 @@ namespace GloomhavenVR.WorldUI;
 /// ══════════════════════════════════════════════════════════════════════════ WHY NOT THE OTHERS ══
 ///
 /// <list type="bullet">
-/// <item><b>REJECTED: dispatch more pointer events.</b> Already there and already correct —
+/// <item><b>REJECTED: dispatch more pointer events</b> — <i>on the uGUI POINTER path, and only
+///   there.</i> (This bullet is scoped as of ModBuild 195: it was written about the laser/fingertip
+///   pointer over the game's own converted windows, and for THAT path it still holds. It never
+///   covered the mod's own PHYSICAL props, which do not go through
+///   <see cref="Hands.Interact.UguiPointer"/> at all — see <see cref="NativeUiPress"/>, which is
+///   exactly the "dispatch more pointer events" this bullet rejected, applied where the events
+///   were genuinely missing.) Already there and already correct —
 ///   <see cref="Hands.Interact.UguiPointer.SetHovered"/> walks the ancestor chain with
 ///   <c>pointerEnter</c>/<c>pointerExit</c> exactly as <c>BaseInputModule.HandlePointerExitAndEnter</c>
 ///   does, and <c>Press</c>/<c>Release</c> send down/up/click. The hardware log names real game
@@ -400,6 +411,163 @@ internal static class UiSoundEar
                           "the mixer group, before touching the pointer again.");
     }
 
+    // ---- the state line for ONE PHYSICAL BUTTON (ModBuild 195) -----------------------------------
+
+    /// <summary>Physical props already reported on, keyed by the game GameObject's instance id.
+    /// Instance ids, never the GameObject: a destroyed <c>UnityEngine.Object</c> compares EQUAL to
+    /// every other destroyed one, which would corrupt a set keyed by the object itself (the same
+    /// reason <c>UguiHoverTracker</c> gives).</summary>
+    private static readonly HashSet<int> ReportedProps = new(16);
+
+    /// <summary>
+    /// ONE LINE PER PHYSICAL BUTTON, the first time the mod drives it. This is the line the next
+    /// round is judged on, and it answers, in order, the four questions the ModBuild 195 brief asks:
+    /// WHAT the physical prop dispatches, WHICH audio items the game has authored on the real
+    /// widget, WHETHER <c>AudioController</c> knows those items (and whether their pooled source is
+    /// 3D), and WHERE the listener is at that moment.
+    ///
+    /// <para>Diagnostic ONLY — it reads serialized fields through reflection and plays nothing. The
+    /// item fields are found by NAME PATTERN (<c>*AudioItem</c>) over every component on the object
+    /// rather than by enumerating the game's button classes, because the game has at least five of
+    /// them (<c>ExtendedButton</c>, <c>ExtendedToggle</c>, <c>UIButtonExtended</c>,
+    /// <c>TrackedButton</c>, <c>TrackedToggle</c>) and a version that adds a sixth must still be
+    /// reported honestly instead of silently as "no audio".</para>
+    /// </summary>
+    /// <param name="target">The GAME GameObject the physical prop dispatches into.</param>
+    /// <param name="what">Human name of the physical prop, e.g. "map table cap 'Shop'".</param>
+    /// <param name="dispatch">Exactly what the prop sends, for the record.</param>
+    internal static void ReportPhysicalButton(GameObject? target, string what, string dispatch)
+    {
+        if (target == null)
+            return;
+        try
+        {
+            if (!ReportedProps.Add(target.GetInstanceID()))
+                return;
+
+            var sb = new StringBuilder(1024);
+            sb.Append("PHYSICAL BUTTON SOUND STATE — ").Append(what)
+              .Append(" dispatches into the game object '").Append(target.name).Append("'. ")
+              .Append("WHAT IT SENDS: ").Append(dispatch).Append(". ");
+
+            sb.Append("WHAT THE GAME HAS ON THAT OBJECT: ");
+            Component[] comps = target.GetComponents<Component>();
+            int audioCarriers = 0;
+            for (int i = 0; i < comps.Length; i++)
+            {
+                Component? c = comps[i];
+                if (c == null)
+                    continue;
+                if (AppendAudioFields(sb, c))
+                    audioCarriers++;
+            }
+            if (audioCarriers == 0)
+            {
+                sb.Append("NO component on it carries a *AudioItem field at all (components: ");
+                for (int i = 0; i < comps.Length; i++)
+                    sb.Append(i > 0 ? ", " : "").Append(comps[i] != null ? comps[i].GetType().Name : "<missing>");
+                sb.Append("). READ THIS AS: the FLAT game is silent on this button too, and no amount "
+                          + "of event dispatch can make it speak — the next round must find which "
+                          + "object in the game's own hierarchy actually plays the sound. ");
+            }
+
+            AudioListener? ours = OurEar();
+            AudioListener? cached = CachedListenerNoResolve();
+            float rigScale = RigScale();
+            sb.Append("WHERE THE LISTENER IS RIGHT NOW: ");
+            if (ours == null)
+                sb.Append("the mod does NOT own the AudioListener (no enabled listener on the head "
+                          + "camera), so the game's own cache is authoritative and nothing was repaired");
+            else if (cached == null)
+                sb.Append("our ear is '").Append(ours.gameObject.name)
+                  .Append("'; the game's cache could not be read (see the WARN line above)");
+            else
+            {
+                float d = Vector3.Distance(cached.transform.position, ours.transform.position);
+                sb.Append("our ear is '").Append(ours.gameObject.name).Append("' at ")
+                  .Append(Fmt(ours.transform.position)).Append("; the game places its UI sounds at '")
+                  .Append(cached.gameObject.name).Append("' (enabled=").Append(cached.enabled)
+                  .Append("), ").Append(d.ToString("F0")).Append(" world units = ")
+                  .Append((d / Mathf.Max(rigScale, 0.0001f)).ToString("F1"))
+                  .Append(" perceived m away. THAT NUMBER MUST BE 0");
+            }
+            sb.Append(". rigScale ").Append(rigScale.ToString("F2"))
+              .Append(" world units per perceived metre, ear repairs so far ").Append(_repairs)
+              .Append(", soundMuted=").Append(MutedText())
+              .Append(", UI category volume ").Append(CategoryVolumeText("UI")).Append(". ");
+
+            sb.Append("HOW TO READ A FAILURE. (a) An item shown as 'UNKNOWN to AudioController' or "
+                      + "'<none>' is silent in the FLAT game too — not a VR bug, and never a reason to "
+                      + "substitute a clip. (b) A non-zero listener distance above means the ear repair "
+                      + "did not run before this dispatch; look for a 'UI SOUND EAR repaired' line "
+                      + "EARLIER in the log. (c) If the DOWN item is authored, the distance is 0, and "
+                      + "there is still no press sound, then the button's own gate refused it: both "
+                      + "ExtendedButton (:208) and ExtendedToggle gate the DOWN sound on isHighlighted "
+                      + "&& interactable, i.e. on a pointerEnter having ARRIVED FIRST and not been "
+                      + "undone — count the NATIVE UI PRESS enter/exit balance on the press lines. "
+                      + "(d) If only the CLICK item is missing, note that ExtendedToggle has no click "
+                      + "item at all: on a toggle the press sound IS the down/up pair, which is why a "
+                      + "click-only dispatch was silent by construction before ModBuild 195.");
+
+            VRLog.Info(Scope, sb.ToString());
+        }
+        catch (System.Exception ex)
+        {
+            LogFailureOnce("ReportPhysicalButton threw " + ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Append every <c>*AudioItem</c> string field this component declares (own value, the shared
+    /// <c>AudioButtonProfile</c> fallback the game itself applies, the effective id, and whether
+    /// <c>AudioController</c> can play it). Returns true when the component carried any.
+    /// </summary>
+    private static bool AppendAudioFields(StringBuilder sb, Component c)
+    {
+        const BindingFlags Flags = BindingFlags.Instance | BindingFlags.Public
+                                   | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+        AudioButtonProfile? profile = null;
+        List<KeyValuePair<string, string>>? items = null;
+
+        System.Type? cur = c.GetType();
+        for (int depth = 0; cur != null && depth < 8 && cur != typeof(MonoBehaviour); depth++, cur = cur.BaseType)
+        {
+            FieldInfo[] fields = cur.GetFields(Flags);
+            for (int i = 0; i < fields.Length; i++)
+            {
+                FieldInfo f = fields[i];
+                if (profile == null && f.FieldType == typeof(AudioButtonProfile))
+                    profile = f.GetValue(c) as AudioButtonProfile;
+                else if (f.FieldType == typeof(string)
+                         && f.Name.IndexOf("AudioItem", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    items ??= new List<KeyValuePair<string, string>>(6);
+                    items.Add(new KeyValuePair<string, string>(f.Name, f.GetValue(c) as string ?? string.Empty));
+                }
+            }
+        }
+        if (items == null)
+            return false;
+
+        sb.Append('[').Append(c.GetType().Name).Append(": profile=")
+          .Append(profile != null ? profile.name : "<none>");
+        if (c is Selectable sel)
+            sb.Append(", interactable=").Append(sel.IsInteractable());
+        for (int i = 0; i < items.Count; i++)
+        {
+            string own = items[i].Value;
+            string fromProfile = profile != null
+                ? (typeof(AudioButtonProfile).GetField(items[i].Key)?.GetValue(profile) as string ?? string.Empty)
+                : string.Empty;
+            string eff = Effective(own, fromProfile);
+            sb.Append("; ").Append(items[i].Key).Append(" = '").Append(Show(eff)).Append("' (")
+              .Append(own.Length > 0 ? "on the component" : (fromProfile.Length > 0 ? "from the shared profile" : "nowhere"))
+              .Append(", ").Append(Describe(eff)).Append(')');
+        }
+        sb.Append("] ");
+        return true;
+    }
+
     /// <summary>The game's cached listener WITHOUT triggering its re-resolve — we want to report what
     /// it holds, not change it as a side effect of reporting.</summary>
     private static AudioListener? CachedListenerNoResolve()
@@ -507,5 +675,354 @@ internal static class UiSoundEar
         _failureLogged = true;
         VRLog.Warn(Scope, "UI SOUND EAR " + what + " — button hover/click sounds may stay inaudible. This is logged " +
                           "once per session; the pointer path itself is unaffected because every call here is guarded.");
+    }
+}
+
+/// <summary>
+/// THE PRESS A PHYSICAL PROP MAKES INTO A GAME BUTTON — enter, down, up, click, exit.
+///
+/// ════════════════════════════════════════════════════════════════════════ THE USER'S RULING ══
+///
+/// <para>Verbatim, ModBuild 195: <i>"Immer noch keine Geräusche wenn ich die physischen buttons
+/// drücke wie zB 'Händler', ich will das die selben Geräusche kommen die auch im normalen Spiel
+/// hörbar sind, wenn die Knöpfe gedrückt werden."</i> — still no sound when he presses the mod's
+/// own PHYSICAL buttons; he wants THE SAME sounds the flat game plays. "The same sounds" is the
+/// binding half and it is a construction requirement, not a matching requirement: nothing here
+/// picks a clip, names an id, or adds a bundled asset. This class plays no sound whatsoever. It
+/// sends the game the events the game itself listens for, and the game plays its own authored item
+/// with its own code, or it does not — and if it does not, the log says why.</para>
+///
+/// ════════════════════════════════════════ WHY THE PHYSICAL CAPS WERE SILENT (READ FROM SOURCE) ══
+///
+/// <para>ModBuild 194 repaired WHERE the game puts a UI sound (<see cref="UiSoundEar"/>). That was a
+/// real bug and it is fixed — the ModBuild 194 hardware log shows <c>UI SOUND EAR repaired (#1)</c>
+/// moving the game's cached listener 241 world units onto the head camera, and the later
+/// <c>UI SOUND STATE</c> line reporting the distance back to <b>0</b>. So audibility is not the
+/// remaining problem. <b>The remaining problem is that the game was never asked to speak.</b></para>
+///
+/// <para>READ FROM SOURCE. The mod's physical props all dispatched exactly ONE event —
+/// <c>ExecuteEvents.pointerClickHandler</c> — modelled on the game's own hotkey bridge
+/// (<c>BaseButtons.clickButton</c>). Follow that single event into the two classes the props
+/// actually target:</para>
+/// <list type="bullet">
+/// <item>The map room's table caps target the guildmaster bar's <c>Toggle</c>
+///   (<c>UIGuildmasterButton</c> holds it in a private <c>[SerializeField] Toggle toggle</c>,
+///   decompiled UIGuildmasterButton.cs:24). In this build that toggle is one of the game's
+///   audio-carrying toggle classes, and <b><c>ExtendedToggle.OnPointerClick</c> plays NOTHING</b>
+///   (ExtendedToggle.cs: it calls <c>InteractabilityManager.ShouldAllowClickForExtendedToggle</c>,
+///   the AutoTest recorder, then <c>base.OnPointerClick</c> — and returns). The class has no
+///   <c>mouseClickAudioItem</c> field at all. EVERY sound it owns hangs off
+///   <c>OnPointerDown</c> / <c>OnPointerUp</c> / <c>OnPointerEnter</c> / <c>OnPointerExit</c>.
+///   A click-only dispatch is therefore silent BY CONSTRUCTION, at any listener distance.</item>
+/// <item><see cref="ButtonCluster"/>'s Ready/Undo/Skip target <c>ExtendedButton</c>s.
+///   <c>ExtendedButton.OnPointerClick</c> does play an item (:182) — but only
+///   <c>mouseClickAudioItem</c>, and the ModBuild 194 log's own <c>UI SOUND STATE</c> line shows a
+///   real game button whose click item is <c>&lt;none&gt;</c> while its shared profile
+///   ("General Hover Button SFX") carries only the HOVER item. On a button authored that way the
+///   press sound is again the down/up pair, and again a click-only dispatch is silent.</item>
+/// </list>
+///
+/// <para>AND THE DOWN SOUND HAS A SECOND GATE. <c>ExtendedButton.OnPointerDown</c> plays its item
+/// only <c>if (isHighlighted &amp;&amp; interactable)</c> (:208), and <c>isHighlighted</c> is set
+/// by <c>ToggleHighlight</c> from <c>OnHighlight()</c>, which only runs from <c>OnPointerEnter</c>
+/// (:325-333, :410-421). <c>ExtendedToggle</c> gates its down sound identically. A physical prop
+/// that never sends <c>pointerEnter</c> cannot make a down sound even once the down event arrives.
+/// <b>So the hover half is not a nicety here — it is half the mechanism.</b></para>
+///
+/// ═══════════════════════════════════════════════════════════════════════════════════ THE FIX ══
+///
+/// <para>Send the four events a real left-mouse press sends, in the order the input module sends
+/// them, on the same GameObject: <c>pointerEnter</c> → <c>pointerDown</c> → <c>pointerUp</c> →
+/// <c>pointerClick</c> (→ <c>pointerExit</c> when the prop has no hover of its own to hand back).
+/// The sounds are then the game's by construction, because they are played by the game's own
+/// handlers off the game's own serialized ids.</para>
+///
+/// <para>ORDER IS LOAD-BEARING, and this is READ FROM SOURCE, not preference: down/up MUST precede
+/// the click. <c>UIGuildmasterButton.RefreshSelected</c> sets <c>toggle.interactable = !toggle.isOn</c>
+/// (UIGuildmasterButton.cs), so the click that turns the toggle ON makes the toggle
+/// non-interactable in the same call stack. Dispatching down after that would fail
+/// <c>isHighlighted &amp;&amp; interactable</c> and play the NON-interactable item instead of the
+/// press item.</para>
+///
+/// <para>ONE GAMEOBJECT, NOT THE ANCESTOR CHAIN. <c>ExecuteEvents.Execute</c> delivers to the
+/// handlers on the target object only (ExecuteEvents.cs:248-278). That is deliberate: the sound is
+/// authored on the <c>Selectable</c> itself, and for the guildmaster bar the owning
+/// <c>UIGuildmasterButton</c> is on that SAME GameObject anyway — its
+/// <c>[RequireComponent]</c> partner <c>GuildmasterModeSelectable</c> resolves the toggle with a
+/// plain <c>GetComponent&lt;Selectable&gt;()</c> (GuildmasterModeSelectable.cs), which is only
+/// possible if the two share an object. Walking further up would additionally drive the flat HUD's
+/// tooltip and hover animation (<c>UIGuildmasterHUD.OnHovered</c>, :762-783), which have no VR
+/// surface — churn with no user-visible gain. <see cref="Hands.Interact.UguiPointer"/> keeps doing
+/// the full chain walk for the game's own converted windows, where it IS needed.</para>
+///
+/// ══════════════════════════════════════════════════════ A PRESS STILL COMMITS EXACTLY ONCE ══
+///
+/// <para>THIS IS THE HARD CONSTRAINT — the "Händler" cap opens the merchant, and one push must open
+/// it once. The proof is that the commit lives in exactly one of the five events, and the other
+/// four are read from source to be incapable of it:</para>
+/// <list type="bullet">
+/// <item><c>pointerClick</c> → <c>Toggle.OnPointerClick</c> → <c>InternalToggle()</c> →
+///   <c>isOn = !isOn</c> (ugui Toggle.cs:312-329) → <c>onValueChanged</c> →
+///   <c>UIGuildmasterButton.OnToggled</c> → <c>OnSelected.Invoke(mode)</c>. <b>THE COMMIT.</b>
+///   Sent once per press, exactly as before this change. For a <c>Button</c> the same role is
+///   <c>Button.OnPointerClick</c> → <c>Press()</c> → <c>onClick.Invoke()</c>.</item>
+/// <item><c>pointerDown</c> → <c>Selectable.OnPointerDown</c> (Selectable.cs:1205-1216): sets
+///   <c>EventSystem.current.SetSelectedGameObject</c> and <c>isPointerDown</c>, then a colour
+///   transition. No toggle, no <c>onClick</c>. The subclass overrides
+///   (<c>ExtendedButton</c>:200-222, <c>ExtendedToggle</c>) add a LeanTween scale and a
+///   <c>PlaySound</c> — nothing else.</item>
+/// <item><c>pointerUp</c> → <c>Selectable.OnPointerUp</c> (:1245-1252): clears
+///   <c>isPointerDown</c>. Overrides add a scale write and a <c>PlaySound</c>.</item>
+/// <item><c>pointerEnter</c>/<c>pointerExit</c> → <c>Selectable</c>:1277-1311: two bools and a
+///   colour transition. Overrides add <c>onMouseEnter</c>/<c>onMouseExit</c> (on the guildmaster
+///   bar: a tooltip label and a hover animation, UIGuildmasterHUD.cs:762-789), a highlight tween
+///   and a <c>PlaySound</c>.</item>
+/// <item>We never send <c>ExecuteEvents.submitHandler</c>. <c>Toggle.OnSubmit</c> DOES call
+///   <c>InternalToggle()</c> (Toggle.cs:331-334) and would be a second commit — it is named here
+///   so that a later round cannot add it by accident.</item>
+/// </list>
+/// <para>And a handler that THROWS cannot swallow the commit either: <c>ExecuteEvents.Execute</c>
+/// catches per handler (ExecuteEvents.cs:270-277), so a broken down-handler logs and the click
+/// still runs. Each dispatch here additionally sits inside this class's own try/catch, because an
+/// unguarded exception on a VR input path starves input entirely.</para>
+///
+/// <para>DOUBLE-FIRING IS COUNTED, NOT ASSUMED. Enter/exit are reference-counted through the
+/// mod-wide <see cref="Hands.Interact.UguiHoverTracker"/> — the same arbiter the laser and the
+/// fingertip pointers use — so a cap held by two hands still enters once and exits once. Every
+/// dispatch increments a counter, and the counters are printed on every press line
+/// (<see cref="Counters"/>): if <c>clicks</c> ever exceeds the number of "pressed" lines, or if
+/// <c>enters</c> and <c>exits</c> drift apart while nothing is hovered, the next log shows it
+/// without needing a new build.</para>
+///
+/// ════════════════════════════════════════════════════════════════════════════════ MULTIPLAYER ══
+///
+/// <para>NOTHING GOES ON THE WIRE, and nothing here could put anything there. This class creates no
+/// network message, touches no Bolt/FFSNet state and calls no rules code; it calls
+/// <c>ExecuteEvents.Execute</c> on a game GameObject. The one event that commits — the click — is
+/// the SAME single dispatch the props already made before ModBuild 195, on the same object, with
+/// the same guards (<c>InteractabilityManager</c>, <c>IsInteractable</c>, the button's own
+/// <c>canToggle</c> predicate). So whatever the game chose to send for a press, it still sends
+/// exactly that, exactly once: the wire cannot tell this build from the last one. The four events
+/// ADDED are enter/down/up/exit, which are hover highlighting, a scale tween and a local sound —
+/// no commit path leads out of any of them (proved item by item above). Sound itself is local by
+/// nature: the peer did not make this press and must not hear it.</para>
+///
+/// <para>TURNING AND HEAD-TRACKING: untouched. This class has no Update, holds no transform and
+/// never re-orients anything.</para>
+/// </summary>
+internal static class NativeUiPress
+{
+    private const string Scope = "WorldUI";
+
+    /// <summary>
+    /// The pointer id every PHYSICAL PROP dispatch carries. Distinct from the laser (-111/-112) and
+    /// fingertip (-101/-102) uGUI pointers so uGUI never sees one pointer teleporting, and below
+    /// <c>UguiPointer.ModPointerIdCeiling</c> (-100) so the mod's own "is this event ours" tests
+    /// (<c>Cards.CardFaceRaycaster</c>, <c>WorldUI.Patches.TooltipRaiseGuard</c>) still recognise it
+    /// as a mod event rather than as the game's parked desktop mouse.
+    /// </summary>
+    internal const int PropPointerId = -121;
+
+    private static int _enters;
+    private static int _exits;
+    private static int _downs;
+    private static int _ups;
+    private static int _clicks;
+    private static bool _failureLogged;
+
+    /// <summary>Running dispatch tally, for the press log lines. HOW TO READ IT: enters and exits
+    /// must be equal whenever nothing is hovered; clicks must equal the number of press lines.</summary>
+    internal static string Counters =>
+        $"enters={_enters} exits={_exits} (balance {_enters - _exits}) downs={_downs} ups={_ups} clicks={_clicks}";
+
+    /// <summary>
+    /// Hover a game widget from a physical prop. Reference-counted through
+    /// <see cref="Hands.Interact.UguiHoverTracker"/>: the FIRST claim dispatches
+    /// <c>pointerEnter</c>, the LAST release dispatches <c>pointerExit</c>, everything in between
+    /// is silent. <b>Every <c>true</c> call must be balanced by a <c>false</c> call</b>, including
+    /// on teardown — an unbalanced enter leaves the game's button highlighted forever.
+    /// </summary>
+    /// <returns>True when an event was actually dispatched (i.e. this was the first enter or the
+    /// last exit), for the caller's log only. The claim is taken either way.</returns>
+    internal static bool SetHovered(GameObject? target, bool hovered, string what)
+    {
+        // REFERENCE null, not Unity-null: a DESTROYED widget still has to balance its refcount on
+        // the exit path (its managed wrapper's GetInstanceID keeps working), and only a genuinely
+        // absent reference has nothing to hand back. Same rule UguiHoverTracker.Release states.
+        if (target is null)
+            return false;
+        try
+        {
+            if (!hovered)
+            {
+                if (!UguiHoverTracker.Release(target))
+                    return false; // another pointer still holds it, or it was never claimed
+                if (target == null)
+                    return false; // destroyed with the count balanced — no event left to send
+                UiSoundEar.BeforeUiEvent();
+                Dispatch(target, ExecuteEvents.pointerExitHandler, target);
+                _exits++;
+                return true;
+            }
+
+            if (target == null)
+                return false; // never enter a destroyed widget
+
+            UiSoundEar.ReportPhysicalButton(target, what, "pointerEnter on hover, then "
+                                                          + "pointerDown -> pointerUp -> pointerClick on press, "
+                                                          + "then pointerExit when the hover ends");
+
+            // THE EAR, BEFORE THE EVENT. The game plays its hover item SYNCHRONOUSLY inside the
+            // dispatch below; the repair must already have happened when it does.
+            UiSoundEar.BeforeUiEvent();
+
+            if (!UguiHoverTracker.Acquire(target))
+                return false; // another pointer already holds this widget entered (claim IS taken)
+            Dispatch(target, ExecuteEvents.pointerEnterHandler, target);
+            _enters++;
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            LogFailureOnce("SetHovered", what, ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Press a game widget from a physical prop: <c>pointerDown</c> → <c>pointerUp</c> →
+    /// <c>pointerClick</c>, with <c>pointerEnter</c>/<c>pointerExit</c> wrapped around them when
+    /// the caller does not already hold a hover on this widget.
+    ///
+    /// <para>The click is dispatched LAST and exactly once — see the class doc for the item-by-item
+    /// reading of why none of the other four events can commit the action.</para>
+    /// </summary>
+    /// <param name="alreadyHovered">True when the caller has an outstanding
+    /// <see cref="SetHovered"/>(true) on this widget. When false, this call synthesizes the
+    /// enter/exit pair itself, because the DOWN sound is gated on the button having been entered.</param>
+    internal static void Press(GameObject? target, bool alreadyHovered, string what)
+    {
+        if (target == null)
+            return;
+
+        bool synthesized = false;
+        try
+        {
+            UiSoundEar.ReportPhysicalButton(target, what,
+                alreadyHovered
+                    ? "pointerDown -> pointerUp -> pointerClick (the enter came from the prop's own hover)"
+                    : "pointerEnter -> pointerDown -> pointerUp -> pointerClick -> pointerExit, "
+                      + "synthesized around this one press because the prop carries no hover of its own");
+
+            // NOTE the flag is set from "did I ask for a claim", NOT from SetHovered's return
+            // value: SetHovered returns false when ANOTHER pointer already holds the widget
+            // entered, but it has still taken a reference — reading the return value here would
+            // leak that reference and leave the game's button highlighted for good.
+            if (!alreadyHovered)
+            {
+                synthesized = true;
+                SetHovered(target, hovered: true, what);
+            }
+
+            UiSoundEar.BeforeUiEvent();
+
+            // Down and up BEFORE the click: the click can make the widget non-interactable in the
+            // same call stack (UIGuildmasterButton.RefreshSelected sets interactable = !isOn), and
+            // both button classes gate their press sound on `interactable`. See the class doc.
+            if (Dispatch(target, ExecuteEvents.pointerDownHandler, target, press: true))
+                _downs++;
+            if (Dispatch(target, ExecuteEvents.pointerUpHandler, target, press: true))
+                _ups++;
+
+            // THE COMMIT. Counted only when it really went out, so the log cannot claim a press the
+            // game never received. If the widget vanished during down/up the action does NOT commit
+            // — that would be a regression against the click-only dispatch this replaced, so it is
+            // shouted rather than swallowed. (No handler read from source does this: Selectable's
+            // down/up set two bools and a colour, and the subclass overrides add a tween and a
+            // PlaySound. The guard exists so a future game version cannot make it silent.)
+            if (Dispatch(target, ExecuteEvents.pointerClickHandler, target, press: true))
+                _clicks++;
+            else
+                VRLog.Warn(Scope, $"NATIVE UI PRESS: '{what}' could not deliver its pointerClick — the game "
+                                  + "object was destroyed by its own pointerDown/pointerUp handlers. THE "
+                                  + "ACTION DID NOT COMMIT. Read this as a game-version change, not as a "
+                                  + "double: the press is LOST, not repeated.");
+        }
+        catch (System.Exception ex)
+        {
+            LogFailureOnce("Press", what, ex);
+        }
+        finally
+        {
+            // Hand the synthesized hover back even if a dispatch threw — an unbalanced enter would
+            // leave the game's own button highlighted for the rest of the session. Unity-null safe:
+            // the click may have destroyed the widget (a mode switch rebuilds the guildmaster bar).
+            if (synthesized)
+            {
+                try
+                {
+                    SetHovered(target, hovered: false, what);
+                }
+                catch (System.Exception ex)
+                {
+                    LogFailureOnce("Press/unhover", what, ex);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// One event, with a freshly built <see cref="PointerEventData"/> shaped the way
+    /// <c>PointerInputModule</c> shapes a real left-mouse event. Allocating per dispatch is
+    /// deliberate and cheap: these calls are EDGE-driven (a hover change, a press), never per-frame,
+    /// and a shared instance would carry stale press/drag bookkeeping between unrelated props.
+    /// </summary>
+    /// <returns>True when the event was actually handed to <c>ExecuteEvents</c> — false only when
+    /// the target was destroyed in the meantime, so the counters can never overstate what the game
+    /// received.</returns>
+    private static bool Dispatch<T>(GameObject target, ExecuteEvents.EventFunction<T> functor,
+                                    GameObject enterTarget, bool press = false)
+        where T : UnityEngine.EventSystems.IEventSystemHandler
+    {
+        if (target == null)
+            return false;
+        var data = new PointerEventData(EventSystem.current)
+        {
+            pointerId = PropPointerId,
+            button = PointerEventData.InputButton.Left,
+            // REQUIRED, not cosmetic: Selectable.OnPointerEnter returns immediately unless
+            // eventData.pointerEnter resolves back to this same Selectable (Selectable.cs:1277-1280),
+            // so without this the base highlight transition would silently not happen. (The audio
+            // overrides play their item either way — they call PlaySound after base — but the
+            // visual state the game itself keeps would have been wrong, and a later round reading
+            // isHighlighted would have been misled.)
+            pointerEnter = enterTarget,
+            // A plausible screen point, so any handler that reads it (tooltip placement) gets a
+            // finite value instead of (0,0). Nothing in VR is positioned from it.
+            position = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f),
+        };
+        data.pressPosition = data.position;
+        if (press)
+        {
+            data.pointerPress = target;
+            data.rawPointerPress = target;
+            data.eligibleForClick = true;
+            data.clickCount = 1;
+            data.clickTime = Time.unscaledTime;
+        }
+        ExecuteEvents.Execute(target, data, functor);
+        return true;
+    }
+
+    private static void LogFailureOnce(string where, string what, System.Exception ex)
+    {
+        if (_failureLogged)
+            return;
+        _failureLogged = true;
+        VRLog.Warn(Scope, $"NATIVE UI PRESS {where} threw for {what}: {ex.GetType().Name}: {ex.Message}. "
+                          + "Logged once per session. The physical button itself keeps working — every "
+                          + "dispatch here is guarded, and the game action commits on the click, which "
+                          + "ExecuteEvents runs even when an earlier handler throws "
+                          + "(ExecuteEvents.cs:270-277). What you lose is the sound, not the press.");
     }
 }

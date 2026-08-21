@@ -246,6 +246,11 @@ internal static partial class ModalFallback
         _coneFallbackWarned = false;
         ScreenWanted = false;
         VRModeStateMachine.SetAuxModal(false);
+        // The sub-step accumulators describe ONE session's map room; a fresh session must not
+        // inherit the previous one's frames (see the SUB-STEP ATTRIBUTION block).
+        _tickPhase = -1;
+        _nextTickBreakdown = 0f;
+        ResetTickBreakdown();
     }
 
     private static void OnWindow(WindowVisibilityEvent e)
@@ -652,6 +657,25 @@ internal static partial class ModalFallback
         /// <summary>Worst overlap with any neighbour at claim time, degrees (0 = none). Printed on
         /// the spawn line so "these two are on top of each other" is answerable from the log.</summary>
         public float OverlapDeg;
+
+        /// <summary>
+        /// THE CLAIMING WINDOW IS PERMANENT — it has no X and the player cannot close it in the map
+        /// room (<see cref="IsMapRoomPermanent"/>: the character screen and the quest log).
+        ///
+        /// <para>WHY THE REGISTRY HAS TO KNOW (ModBuild 194 report). The overflow rule "in view
+        /// wins, overlap is the price" is right as a rule, but it is not indifferent to WHOM it
+        /// spends that price on. The 194 log: the merchant claimed 8°±24° and
+        /// <c>"overlaps 'GloomhavenVR.Panel_Modal_New Party display' by 39° of the 48° it spans"</c>
+        /// — i.e. it buried the ONE window the player can neither close nor dismiss. He could not
+        /// read the character screen, so instead of closing the merchant he dragged it aside by
+        /// hand, which left the shop's selection mode live and cost him the whole test round.</para>
+        ///
+        /// <para>A closable window that gets covered is a two-second problem: press its X, or move
+        /// it. A permanent window that gets covered has no such exit, so covering it is strictly
+        /// worse and the packer must prefer the other victim whenever a choice exists. Recorded
+        /// at claim time (spawn only) so the choice costs one bool per claim and no lookups.</para>
+        /// </summary>
+        public bool Permanent;
     }
 
     /// <summary>THE CLAIM REGISTRY. See <see cref="ArcClaim"/>.</summary>
@@ -875,6 +899,10 @@ internal static partial class ModalFallback
             sb.Append(_arcClaims[i].CentreDeg.ToString("F0")).Append("°±")
               .Append(_arcClaims[i].HalfWidthDeg.ToString("F0")).Append("° '")
               .Append(_arcClaims[i].Name ?? "?").Append('\'');
+            // ModBuild 194: mark the un-closable ones inline, so a reader of this list can see at a
+            // glance which claims a later window may not bury without consequence.
+            if (_arcClaims[i].Permanent)
+                sb.Append(" PERMANENT/no-X");
         }
         return sb.Length == 0 ? "(none)" : sb.ToString();
     }
@@ -1002,20 +1030,100 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
-    /// The in-cone angle FURTHEST from every standing claim's centre — the overlap remedy. Sampled
-    /// rather than solved because the objective (maximise the minimum distance to a set of points
-    /// on a bounded interval) has its optimum at an endpoint or a midpoint, and a ~1°-resolution
-    /// sweep finds it to within half a degree, which is far below anything the eye can judge; it
-    /// runs once per spawn, never per frame. Ties go to the angle nearest the centre, so a room
-    /// with nothing standing still answers 0°.
+    /// The total angular extent of PERMANENT standing claims that a window of half-width
+    /// <paramref name="halfAngle"/> centred on <paramref name="centreDeg"/> would cover, degrees —
+    /// summed over every permanent claim, because covering two permanent windows is twice the harm
+    /// of covering one. 0 when nothing permanent stands or the window clears them all.
     /// </summary>
-    private static float SpreadAngleDeg(float centreLimit)
+    private static float PermanentOverlapDeg(float centreDeg, float halfAngle)
+    {
+        float total = 0f;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null || !_arcClaims[i].Permanent)
+                continue;
+            float ov = (_arcClaims[i].HalfWidthDeg + halfAngle)
+                       - Mathf.Abs(centreDeg - _arcClaims[i].CentreDeg);
+            if (ov > 0f)
+                total += ov;
+        }
+        return total;
+    }
+
+    /// <summary>Names the permanent claims this angle would cover, with the degrees each loses —
+    /// for the log line that has to say WHICH un-closable window is being buried and by how much.
+    /// "(none)" when the placement clears every permanent window.</summary>
+    private static string PermanentOverlapText(float centreDeg, float halfAngle)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null || !_arcClaims[i].Permanent)
+                continue;
+            float ov = (_arcClaims[i].HalfWidthDeg + halfAngle)
+                       - Mathf.Abs(centreDeg - _arcClaims[i].CentreDeg);
+            if (ov <= 0.5f)
+                continue;
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append('\'').Append(_arcClaims[i].Name ?? "?").Append("' by ")
+              .Append(ov.ToString("F0")).Append("° of its ")
+              .Append((_arcClaims[i].HalfWidthDeg * 2f).ToString("F0")).Append('°');
+        }
+        return sb.Length == 0 ? "(none)" : sb.ToString();
+    }
+
+    /// <summary>
+    /// The in-cone angle for a window that cannot avoid overlapping — the overflow remedy. Sampled
+    /// rather than solved because the objective has its optimum at an endpoint or a midpoint, and a
+    /// ~1°-resolution sweep finds it to within half a degree, which is far below anything the eye
+    /// can judge; it runs once per spawn, never per frame. With nothing standing it answers 0°.
+    ///
+    /// <para>THE RANKING, AND WHY IT CHANGED (ModBuild 194 report — the merchant over the character
+    /// screen). ModBuild 193 ranked candidates by ONE number: the minimum distance to any standing
+    /// claim's centre, i.e. "spread out". That objective is blind to a distinction the player is
+    /// not: a covered CLOSABLE window costs him one press of its X, while a covered PERMANENT
+    /// window (<see cref="ArcClaim.Permanent"/> — the character screen and the quest log, both of
+    /// which float without an X by standing ruling) has no exit at all. The 194 log shows the shop
+    /// window burying the character screen by 39°, and his workaround — grabbing the merchant and
+    /// dragging it aside rather than closing it — is what left the shop's selection mode live and
+    /// cost him the round. The remedy is not to move anything (that is forbidden) and not to leave
+    /// the cone (also forbidden); it is to choose the victim.</para>
+    ///
+    /// <para>So the sweep now ranks, in order:</para>
+    /// <list type="number">
+    /// <item>LEAST PERMANENT SURFACE COVERED — <see cref="PermanentOverlapDeg"/>, summed over every
+    /// permanent claim. This is the new term and it is FIRST.</item>
+    /// <item>then the ModBuild 193 rule verbatim: the largest minimum distance to any standing
+    /// centre, so each window still shows a readable strip of itself;</item>
+    /// <item>then nearest the gaze centre; then RIGHT, the side every build since 183 has filled
+    /// first (without it the ±limit tie would be settled by which end the sweep started at).</item>
+    /// </list>
+    ///
+    /// <para>IT REDUCES TO 193 EXACTLY when nothing permanent stands: term 1 is then 0 at every
+    /// candidate and the decision falls through to the old comparison unchanged. And it does NOT
+    /// buy a non-overlap that the geometry does not have — when every in-cone angle covers the same
+    /// permanent degrees (the merchant case: a 48°-wide window against a 46°-wide centred screen in
+    /// a ±32° cone covers 39° of it wherever it is put), term 1 ties and the old rule decides, which
+    /// is the honest outcome. What it DOES buy is the second victim: in that same log the chosen
+    /// +8° also covered 16° of the permanent quest log, and −8° covers none of it for the identical
+    /// 39° on the character screen. One permanent window buried instead of two, for free.</para>
+    ///
+    /// <para>REJECTED ALTERNATIVE — giving a permanent claim a WIDER reserved interval than its own
+    /// width. It reads as the same idea and is not: the reservation is what the in-cone free-interval
+    /// search tests against, so inflating it makes windows that WOULD have fitted cleanly fall into
+    /// the overflow branch, and the overflow branch is the one being repaired. It also lies in the
+    /// occupancy line about how wide a window is. The ranking above changes only the choice AMONG
+    /// angles that already overlap, which is precisely the decision at issue.</para>
+    /// </summary>
+    private static float SpreadAngleDeg(float centreLimit, float halfAngle)
     {
         if (centreLimit <= 0.5f)
             return 0f;
         int samples = Mathf.Clamp(Mathf.CeilToInt(centreLimit * 2f) + 1, 3, 241);
         float best = 0f;
         float bestScore = -1f;
+        float bestPerm = float.MaxValue;
         for (int s = 0; s < samples; s++)
         {
             float a = Mathf.Lerp(-centreLimit, centreLimit, s / (float)(samples - 1));
@@ -1030,21 +1138,77 @@ internal static partial class ModalFallback
             }
             if (!any)
                 return 0f;
-            // Larger separation wins; then nearer the centre; then RIGHT, which is the side every
-            // build since 183 has filled first. Without that last clause the ±limit tie would be
-            // settled by which end the sweep started at, i.e. always left, for no reason.
+            float perm = PermanentOverlapDeg(a, halfAngle);
+
+            // (1) Less PERMANENT surface covered always wins. 0.5° of slack, so a rounding-level
+            //     difference does not override the separation rule the player actually sees.
+            bool permTied = Mathf.Abs(perm - bestPerm) <= 0.5f;
+            bool permBetter = perm < bestPerm - 0.5f;
+            // (2)-(4) the ModBuild 193 comparison, unchanged, applied within a permanence tie.
             bool tied = Mathf.Abs(score - bestScore) <= 0.01f;
-            bool better = score > bestScore + 0.01f
-                          || (tied && Mathf.Abs(a) < Mathf.Abs(best) - 1e-3f)
-                          || (tied && Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(best)) <= 1e-3f
-                              && a > best);
+            bool better = permBetter
+                          || (permTied
+                              && (score > bestScore + 0.01f
+                                  || (tied && Mathf.Abs(a) < Mathf.Abs(best) - 1e-3f)
+                                  || (tied && Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(best)) <= 1e-3f
+                                      && a > best)));
             if (better)
             {
                 bestScore = score;
+                bestPerm = perm;
                 best = a;
             }
         }
         return best;
+    }
+
+    /// <summary>
+    /// THE MEASURED TRADE, so the next report is decidable instead of a surprise: the smallest
+    /// reading distance (real metres) at which this window AND the widest standing PERMANENT window
+    /// would BOTH fit inside the cone, side by side, with the usual neighbour gap — or 0 when no
+    /// distance up to <paramref name="ceilingMeters"/> achieves it.
+    ///
+    /// <para>WHY IT IS COMPUTED AND PRINTED RATHER THAN APPLIED. Pushing the window further DOES buy
+    /// the angle — a 1.00 m panel is 45.2° at 1.20 m and 31.0° at 1.80 m — but it costs apparent
+    /// size in exact proportion, and <c>WindowDistanceMeters</c> is a tuned value the user approved
+    /// and this lane does not own (ModalFallback.1.Core.cs). ModBuild 193 rejected spending it to
+    /// buy a non-overlap the user had called optional, and that reasoning stands for an ordinary
+    /// overlap. What it did NOT price is this case: the covered window is un-closable, so the
+    /// overlap is not optional for him at all. Rather than reverse his tuning unilaterally, the line
+    /// states the number — "both fit at X m, which is Y % smaller" — and he decides.</para>
+    ///
+    /// <para>Both widths are WORLD units and the angles are ratios, so nothing here has to be
+    /// converted out of the diorama scale (the "…Meters against a world-unit product" bug class).
+    /// Spawn path only, ~60 iterations of two atan calls.</para>
+    /// </summary>
+    /// <param name="halfWidthWorld">This window's half-width, WORLD units.</param>
+    /// <param name="scale">Diorama scale (world units per real metre).</param>
+    /// <param name="cone">The usable half-cone, degrees.</param>
+    /// <param name="ceilingMeters">Stop searching past this reading distance.</param>
+    private static float DistanceThatWouldFitMeters(float halfWidthWorld, float scale, float cone,
+        float ceilingMeters = 4f)
+    {
+        // The widest permanent neighbour, expressed as a WORLD half-width at ITS claim distance —
+        // that is the physical size that does not change when either window is moved.
+        float permHalfWorld = 0f;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null || !_arcClaims[i].Permanent)
+                continue;
+            float w = Mathf.Tan(_arcClaims[i].HalfWidthDeg * Mathf.Deg2Rad) * _arcClaims[i].DistanceWorld;
+            permHalfWorld = Mathf.Max(permHalfWorld, w);
+        }
+        if (permHalfWorld <= 1e-4f || halfWidthWorld <= 1e-4f || scale <= 1e-4f)
+            return 0f;
+        for (float d = WindowDistanceMeters; d <= ceilingMeters + 1e-3f; d += 0.05f)
+        {
+            float dw = d * scale;
+            float own = HalfAngleDeg(halfWidthWorld, dw);
+            float perm = HalfAngleDeg(permHalfWorld, dw);
+            if (2f * own + 2f * perm + NeighbourGapDegrees <= 2f * cone)
+                return d;
+        }
+        return 0f;
     }
 
     /// <summary>The first free registry index, or −1 when all <see cref="MaxWindowClaims"/> are
@@ -1204,7 +1368,7 @@ internal static partial class ModalFallback
             halfAngle = HalfAngleDeg(halfWidthWorld, pulledDist);
             widerThanCone = cone - halfAngle < 0f;
             centreLimit = Mathf.Max(0f, cone - halfAngle);
-            yawDeg = SpreadAngleDeg(centreLimit);
+            yawDeg = SpreadAngleDeg(centreLimit, halfAngle);
             float pullMeters = foregroundPullWorld / Mathf.Max(scale, 1e-4f);
             float pulledMeters = pulledDist / Mathf.Max(scale, 1e-4f);
             why = $"NO free interval is left inside the cone (±{cone:F1}°) — this window is "
@@ -1229,7 +1393,35 @@ internal static partial class ModalFallback
         if (overlapDeg > 0.5f)
             why += $". MEASURED: it overlaps '{overlapWith}' by {overlapDeg:F0}° of the "
                    + $"{halfAngle * 2f:F0}° it spans";
-        else if (overlapRank > 0)
+        // ModBuild 194: SAY IT IN THOSE WORDS. An overlap on a closable window is a press of its X;
+        // an overlap on a permanent one has no exit, and the last report is what happens when the
+        // log does not distinguish them — he dragged the merchant aside by hand instead of closing
+        // it, which left the shop's selection mode live and cost him the round. The line names the
+        // un-closable victims, the degrees each loses, and the ONE lever that would remove it.
+        float permOverlap = PermanentOverlapDeg(yawDeg, halfAngle);
+        if (permOverlap > 0.5f)
+        {
+            why += $". PERMANENT WINDOWS COVERED: {PermanentOverlapText(yawDeg, halfAngle)} — "
+                   + "those windows have NO X and the player can neither close nor dismiss them "
+                   + "(standing ruling), so this overlap is not one he can clear the way he clears "
+                   + "any other. The packer already chose the in-cone angle that covers the LEAST "
+                   + "permanent surface (see SpreadAngleDeg); what is left is geometry, not a "
+                   + "placement mistake";
+            float fitAt = DistanceThatWouldFitMeters(halfWidthWorld, scale, cone);
+            why += fitAt > 0f
+                ? $". THE TRADE, MEASURED: this window and the widest permanent one would BOTH fit "
+                  + $"inside the ±{cone:F1}° cone at a reading distance of {fitAt:F2} m instead of "
+                  + $"{WindowDistanceMeters:F2} m — that is "
+                  + $"{(1f - WindowDistanceMeters / fitAt) * 100f:F0}% less apparent size, in "
+                  + "exchange for both windows being readable at once. WindowDistanceMeters is a "
+                  + "tuned, accepted value and is NOT changed here; this line exists so the choice "
+                  + "can be made on the number rather than on a guess"
+                : ". THE TRADE, MEASURED: no reading distance up to 4.00 m makes this window and "
+                  + "the widest permanent one both fit inside the cone — the pair is simply wider "
+                  + "than the headset's usable field, and only a NARROWER window (a tighter content "
+                  + "fit) can change that";
+        }
+        if (overlapDeg <= 0.5f && overlapRank > 0)
             why += $". MEASURED: it does NOT actually overlap anything after all — it only failed "
                    + $"to keep the full {NeighbourGapDegrees:F0}° breathing gap, so it was routed "
                    + "through the overlap rule and carries its depth offset. The windows are edge "
@@ -1258,8 +1450,35 @@ internal static partial class ModalFallback
             DistanceWorld = nominalDist - foregroundPullWorld,
             OverlapRank = overlapRank,
             OverlapDeg = overlapDeg,
+            Permanent = IsPermanentPanel(panel),
         };
         return true;
+    }
+
+    /// <summary>
+    /// Is this PANEL one of the map room's permanent, un-closable windows
+    /// (<see cref="IsMapRoomPermanent"/> — the character screen and the quest log)?
+    ///
+    /// <para>Asked of the panel rather than the window for the same reason
+    /// <see cref="IsHoverCardPanel"/> is: the placement path only carries the panel, because the
+    /// claim is made from inside <c>ComputeHmdPose</c> during the conversion — before the
+    /// <c>WindowPanel</c> record exists to be looked up.</para>
+    ///
+    /// <para>IS-A, NOT RELATED-TO. <c>GetComponent</c> on the converted root's OWN GameObject, never
+    /// <c>GetComponentIn{Parent,Children}</c>: this repo has shipped that confusion twice in four
+    /// builds and it is what once flew the whole character UI over a map icon. A permanent window's
+    /// converted target IS its own <c>UIWindow</c> rect — only the guildmaster destinations convert
+    /// a different root (<c>GuildmasterDestinations.PreferredConvertRoot</c>), and none of those is
+    /// permanent — so a null here means "not permanent", which is also the safe direction: the
+    /// packer then treats it as an ordinary closable neighbour and behaves exactly as ModBuild 193
+    /// did.</para>
+    /// </summary>
+    private static bool IsPermanentPanel(ConvertedPanel panel)
+    {
+        if (panel.Target == null)
+            return false;
+        var window = panel.Target.GetComponent<UIWindow>();
+        return window != null && IsMapRoomPermanent(window);
     }
 
     /// <summary>
@@ -1452,14 +1671,302 @@ internal static partial class ModalFallback
         return FallbackIds.Contains(id);
     }
 
+    // =====================================================================================
+    //  SUB-STEP ATTRIBUTION FOR THIS TICK (ModBuild 195)
+    //
+    //  WHY IT EXISTS. The ModBuild 194 hardware log says this, over and over, for 45,000
+    //  consecutive frames:
+    //
+    //    [Perf] STEPS 30.0s … ModalFallback 12.991ms avg, worst 21.02ms, 647.9ms/s, frames 1497
+    //    [Perf] FRAME 30.0s n=1497 … frametime mean 20.05 … over-budget 1497/1497 (100.0%)
+    //                                | mod 15.20ms/frame avg (75.8% of frame time)
+    //
+    //  ONE step is eating the whole 11.11 ms budget, EVERY frame, and the report can only name
+    //  the step — which is this entire file plus everything it calls. That is not actionable:
+    //  it is 30 named things behind one number. The [Perf] SPLIT line already proves the cost is
+    //  real main-thread work and not a GPU wait ("logic (Update→LateUpdate) 16.61ms (83%) |
+    //  blocked (waiting on GPU/compositor) 1.92ms (10%)"), so the only thing missing is WHICH
+    //  part. This is that measurement, and it is deliberately shipped even though it does not by
+    //  itself make a single frame faster.
+    //
+    //  HOW IT WORKS, AND WHY IT IS A CURSOR RATHER THAN A using-BLOCK. Every phase boundary in
+    //  Tick calls EnterPhase(slot); the call CLOSES whatever phase was open and OPENS the new
+    //  one, so the body of Tick keeps its original shape, its original indentation and its
+    //  original comments — a reviewer diffing this against ModBuild 194 sees one added line per
+    //  boundary and nothing else. It also survives a throw: a phase left open by an exception is
+    //  DISCARDED at the top of the next Tick (never recorded, so a fault cannot invent a 16 ms
+    //  phase), and PerfMonitor zeroes its own nesting depth on every frame roll.
+    //
+    //  TWO CONSUMERS, ONE MEASUREMENT.
+    //    * PerfMonitor gets each phase as a NESTED named step, so the existing [Perf] STEPS
+    //      ranking and — more importantly — the per-frame [Perf] SPIKE line's "worst steps:"
+    //      list will now print e.g. "ModalFallback 12.9ms, ModalFallback.Probe.RenderTarget
+    //      11.4ms" and name the culprit on the very frame it happened. Nested steps are
+    //      attributed individually but counted ONCE in the mod total (PerfMonitor's depth
+    //      counter), so the mod share cannot exceed 100 % because of this.
+    //    * THIS class keeps its own accumulators as well, and prints ONE line every
+    //      TickBreakdownSeconds that ranks EVERY phase — because [Perf] STEPS only prints the
+    //      top [Perf] TopSteps entries, and a phase that is cheap is exactly the thing a
+    //      breakdown has to be able to state rather than omit. Grep MODAL TICK BREAKDOWN.
+    //
+    //  COST OF THE INSTRUMENT ITSELF: two Stopwatch.GetTimestamp() reads per boundary (~20 ns
+    //  each on Windows) — 19 phases is under 1 µs against an 11.11 ms budget — plus one Info
+    //  line every 30 s. It allocates nothing per frame; the breakdown line's StringBuilder is
+    //  static and reused. It is unconditional on purpose: a diagnostic that has to be switched
+    //  on is a diagnostic that is off in the log you actually receive.
+    // =====================================================================================
+
+    /// <summary>Phase slots. The order is the order they run in, which is also the order the
+    /// breakdown line prints them in when their costs tie.</summary>
+    private const int PhasePreConvertHide = 0;
+    private const int PhasePolls = 1;
+    private const int PhaseCatchAll = 2;
+    private const int PhaseErrorBox = 3;
+    private const int PhaseDecide = 4;
+    private const int PhaseRelease = 5;
+    private const int PhaseConvert = 6;
+    private const int PhaseRaycast = 7;
+    private const int PhaseGrabFollow = 8;
+    private const int PhaseDestinations = 9;
+    private const int PhaseProbeFlicker = 10;
+    private const int PhaseProbeCameraOrder = 11;
+    private const int PhaseProbeRenderTarget = 12;
+    private const int PhaseScroll = 13;
+    private const int PhaseRefit = 14;
+    private const int PhaseChainPose = 15;
+    private const int PhaseMenuGuard = 16;
+    private const int PhaseEscape = 17;
+    private const int PhasePublish = 18;
+
+    /// <summary>
+    /// The step name each phase is reported under. They are all prefixed <c>ModalFallback.</c>
+    /// so ONE grep — <c>grep 'ModalFallback\.'</c> — over a [Perf] STEPS or [Perf] SPIKE line
+    /// answers "which part of ModalFallback is slow", and the parent step keeps its own name so
+    /// nothing that already greps for <c>ModalFallback</c> stops matching.
+    ///
+    /// <para>WHAT EACH ONE COVERS (so a number can be acted on without reading the method):
+    /// <c>PreConvertHide</c> the round-8 2D blackout bookkeeping; <c>Polls</c> the open-window
+    /// prune plus the three ID-less deadlock polls and the rebuild of the open set;
+    /// <c>CatchAll</c> part 10's unknown-window enrollment (ModalFallback.10.CatchAll.cs);
+    /// <c>ErrorBox</c> the GlobalErrorMessage poll and float; <c>Decide</c> the sticky/blocking
+    /// scans that produce want/wantLock; <c>Release</c> the release loop, the arc-slot release
+    /// and the Failed prune; <c>Convert</c> TryConvertWindow for newly opened windows;
+    /// <c>Raycast</c> the raycaster and sticky-visibility re-asserts; <c>GrabFollow</c> the grab
+    /// frame follow and the hover-card pose; <c>Destinations</c> the guildmaster banner
+    /// reconcile; the three <c>Probe.*</c> phases the ModBuild 182/185/186 flicker instruments
+    /// (Probe.RenderTarget additionally drives PanelSamplingProbe → EyeFrameProbe → PanelMipBake,
+    /// so a large number there is a probe-family number, not one class); <c>Scroll</c> the
+    /// results-window stick scroll; <c>Refit</c> the fitted-scale re-derivation and the one
+    /// pre-reveal pose re-place; <c>ChainPose</c> the level-message chain store; <c>MenuGuard</c>
+    /// the ESC-tab highlights and the InControl hover-focus guard; <c>Escape</c> the modal escape
+    /// chord; <c>Publish</c> the lock/screen policy tail.</para>
+    /// </summary>
+    private static readonly string[] TickPhaseNames =
+    {
+        "ModalFallback.PreConvertHide",
+        "ModalFallback.Polls",
+        "ModalFallback.CatchAll",
+        "ModalFallback.ErrorBox",
+        "ModalFallback.Decide",
+        "ModalFallback.Release",
+        "ModalFallback.Convert",
+        "ModalFallback.Raycast",
+        "ModalFallback.GrabFollow",
+        "ModalFallback.Destinations",
+        "ModalFallback.Probe.Flicker",
+        "ModalFallback.Probe.CameraOrder",
+        "ModalFallback.Probe.RenderTarget",
+        "ModalFallback.Scroll",
+        "ModalFallback.Refit",
+        "ModalFallback.ChainPose",
+        "ModalFallback.MenuGuard",
+        "ModalFallback.Escape",
+        "ModalFallback.Publish",
+    };
+
+    /// <summary>Stopwatch ticks accumulated per phase since the last breakdown line.</summary>
+    private static readonly long[] TickPhaseTicks = new long[19];
+
+    /// <summary>Worst SINGLE frame per phase since the last breakdown line — the number that
+    /// separates a steady floor from a periodic burst, which is the first thing anyone reading a
+    /// stutter report needs to know.</summary>
+    private static readonly long[] TickPhaseWorst = new long[19];
+
+    /// <summary>Open phase, or −1. See the cursor discussion in the block above.</summary>
+    private static int _tickPhase = -1;
+    private static long _tickPhaseBegin;
+    private static long _tickPhasePerfBegin;
+
+    private static long _tickTotalTicks;
+    private static long _tickWorstTotalTicks;
+    private static int _tickFrames;
+    private static float _nextTickBreakdown;
+
+    /// <summary>Seconds between MODAL TICK BREAKDOWN lines. 30 s ON PURPOSE: it is the same
+    /// window [Perf] FRAME / [Perf] STEPS use, so the two can be read side by side in the log
+    /// without correcting for different averaging periods.</summary>
+    private const float TickBreakdownSeconds = 30f;
+
+    /// <summary>Line builder for the breakdown (static, reused — the instrument must not become
+    /// the allocation it is hunting).</summary>
+    private static readonly System.Text.StringBuilder TickBreakdownSb = new(768);
+
+    /// <summary>Phase ranking scratch (indices into <see cref="TickPhaseNames"/>, reused).</summary>
+    private static readonly int[] TickPhaseRank = new int[19];
+
+    /// <summary>Close the open phase (if any) and open <paramref name="slot"/>.</summary>
+    private static void EnterPhase(int slot)
+    {
+        EndPhase();
+        _tickPhase = slot;
+        _tickPhaseBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+        _tickPhasePerfBegin = PerfMonitor.BeginStep();
+    }
+
+    /// <summary>Close the open phase (if any) and fold its duration into both consumers.</summary>
+    private static void EndPhase()
+    {
+        int slot = _tickPhase;
+        if (slot < 0)
+            return;
+        _tickPhase = -1;
+        long dt = System.Diagnostics.Stopwatch.GetTimestamp() - _tickPhaseBegin;
+        if (dt < 0L)
+            dt = 0L;
+        TickPhaseTicks[slot] += dt;
+        if (dt > TickPhaseWorst[slot])
+            TickPhaseWorst[slot] = dt;
+        PerfMonitor.EndStep(TickPhaseNames[slot], _tickPhasePerfBegin);
+    }
+
+    /// <summary>Drop every accumulator (module teardown, and after each breakdown line).</summary>
+    private static void ResetTickBreakdown()
+    {
+        for (int i = 0; i < TickPhaseTicks.Length; i++)
+        {
+            TickPhaseTicks[i] = 0L;
+            TickPhaseWorst[i] = 0L;
+        }
+        _tickTotalTicks = 0L;
+        _tickWorstTotalTicks = 0L;
+        _tickFrames = 0;
+    }
+
+    /// <summary>
+    /// ONE LINE THAT ANSWERS "WHICH PART OF ModalFallback COSTS THE 11 ms" — every phase, ranked,
+    /// with its average per frame, its share of the step and its worst single frame, plus the
+    /// room state the numbers were measured in. Emitted every <see cref="TickBreakdownSeconds"/>.
+    /// </summary>
+    private static void LogTickBreakdown()
+    {
+        try
+        {
+            int frames = _tickFrames;
+            if (frames <= 0)
+                return;
+            double freq = System.Diagnostics.Stopwatch.Frequency;
+            double totalMs = _tickTotalTicks * 1000d / freq / frames;
+
+            int n = 0;
+            for (int i = 0; i < TickPhaseNames.Length; i++)
+                TickPhaseRank[n++] = i;
+            // Insertion sort by window total, descending. 19 entries, once every 30 s.
+            for (int i = 1; i < n; i++)
+            {
+                int key = TickPhaseRank[i];
+                int j = i - 1;
+                while (j >= 0 && TickPhaseTicks[TickPhaseRank[j]] < TickPhaseTicks[key])
+                {
+                    TickPhaseRank[j + 1] = TickPhaseRank[j];
+                    j--;
+                }
+                TickPhaseRank[j + 1] = key;
+            }
+
+            System.Text.StringBuilder sb = TickBreakdownSb;
+            sb.Length = 0;
+            sb.Append("MODAL TICK BREAKDOWN over ").Append(frames).Append(" frame(s): the whole "
+                      + "ModalFallback step cost ").Append(totalMs.ToString("F3"))
+              .Append("ms/frame avg, worst ")
+              .Append((_tickWorstTotalTicks * 1000d / freq).ToString("F2"))
+              .Append("ms. Ranked by total time:");
+            for (int r = 0; r < n; r++)
+            {
+                int slot = TickPhaseRank[r];
+                double avgMs = TickPhaseTicks[slot] * 1000d / freq / frames;
+                double share = totalMs > 1e-9d ? avgMs / totalMs * 100d : 0d;
+                sb.Append(r == 0 ? " " : " | ")
+                  .Append(TickPhaseNames[slot]).Append(' ')
+                  .Append(avgMs.ToString("F3")).Append("ms (")
+                  .Append(share.ToString("F0")).Append("%), worst ")
+                  .Append((TickPhaseWorst[slot] * 1000d / freq).ToString("F2")).Append("ms");
+            }
+            sb.Append(" | state: ").Append(Converted.Count).Append(" floated window(s) [")
+              .Append(FloatedWindowNames()).Append("], ").Append(Open.Count)
+              .Append(" tracked open, ").Append(OpenWindows.Count).Append(" presented, map room ")
+              .Append(MapRoom.MapRoomDriver.Active ? "ACTIVE" : "down")
+              .Append(". HOW TO READ THIS LINE. The frame budget at 90 Hz is 11.11 ms for "
+                      + "EVERYTHING, mod and game together, so any phase here above ~1 ms is "
+                      + "already a large fraction of it. Compare the phase avg against its own "
+                      + "WORST: avg ≈ worst is a STEADY per-frame cost (an unbounded sweep, a "
+                      + "per-frame engine call) and it is fixed by making the work happen on an "
+                      + "edge or by bounding it; avg far below worst is a PERIODIC burst (a "
+                      + "cadence-driven rescan) and it is fixed by spreading the cadence, not by "
+                      + "deleting it. 'floated window(s)' is the multiplier for every phase that "
+                      + "loops over the float set — if a phase grows with that count it scales "
+                      + "per window, and if it does not, it is a fixed cost that arms with the "
+                      + "FIRST window. Probe.* phases are the ModBuild 182/185/186 flicker "
+                      + "instruments plus (under Probe.RenderTarget) the sampling/eye/mip-bake "
+                      + "family: those are DIAGNOSTICS, so a large number there is pure overhead "
+                      + "on a question that may already be answered — check their own BASELINE "
+                      + "lines for whether they have found anything before paying for them. The "
+                      + "same numbers appear per-frame on [Perf] SPIKE, so a single blown frame "
+                      + "can be attributed without waiting 30 s for this line.");
+            VRLog.Info("WorldUI", sb.ToString());
+        }
+        catch (System.Exception ex)
+        {
+            // House rule: an instrument may never be the thing that starves VR input.
+            VRLog.Warn("WorldUI", $"MODAL TICK BREAKDOWN could not be composed "
+                                  + $"({ex.GetType().Name}: {ex.Message}) — the per-phase numbers "
+                                  + "are still on the [Perf] STEPS and [Perf] SPIKE lines under "
+                                  + "their 'ModalFallback.' names; only this summary is missing.");
+        }
+    }
+
+    /// <summary>The floated windows' names for the breakdown line's state clause (allocates once
+    /// every 30 s, never per frame).</summary>
+    private static string FloatedWindowNames()
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append(Converted[i].Window != null ? Converted[i].Window!.name : "<menu>");
+        }
+        return sb.Length == 0 ? "none" : sb.ToString();
+    }
+
     /// <summary>
     /// Per-frame service (WorldUI driver): prune dead/closed windows, poll the ID-less
     /// deadlockers, maintain the window conversions, drive the aux-modal mode input.
     /// Allocation-free steady state (WindowPanel records allocate only when a window
     /// is first converted — a rare event).
+    ///
+    /// <para>Every phase boundary below opens a measured sub-step — see the SUB-STEP ATTRIBUTION
+    /// block above for what each name covers and why the cost had to be split.</para>
     /// </summary>
     internal static void Tick()
     {
+        // Discard a phase left open by an exception in the PREVIOUS frame rather than closing it
+        // now: closing it would charge one whole frame's wall time to whichever phase threw, and
+        // an instrument that invents a 16 ms phase after a fault is worse than one that drops a
+        // frame. PerfMonitor's own nesting depth is zeroed on its frame roll, so nothing leaks
+        // past this point either.
+        _tickPhase = -1;
+        long tickBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+        EnterPhase(PhasePreConvertHide);
         // Round 8, FIRST — before any step that could throw: end every pre-convert 2D blackout
         // whose window will not be floated after all, and enforce the frame budget (part 11).
         // A window the mod switched off must never outlive the reason it was switched off.
@@ -1474,6 +1981,7 @@ internal static partial class ModalFallback
         // Every downstream use of this local — the catch-all, the reward showcase, the chain-pose
         // reset — is about PRESENCE, which is what this predicate names.
         bool inScenario = VRModeStateMachine.TableInFrontOfPlayer;
+        EnterPhase(PhasePolls);
 
         // LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): the shared stored
         // window pose is scoped to ONE scenario — outside it there is no chain to continue,
@@ -1593,6 +2101,7 @@ internal static partial class ModalFallback
             && !DecisionDock.ClaimsWindow(manager.dialogPopup.Window))
             AddPollWindow(manager.dialogPopup.Window);
 
+        EnterPhase(PhaseCatchAll);
         // Part 10: the reward-showcase poll (enrollment #2 — the chest showcase window's ID
         // is scene-serialized and unprovable, see the part-10 verification comment) and the
         // CATCH-ALL — unknown scenario windows join OpenWindows after a short grace so an
@@ -1600,12 +2109,14 @@ internal static partial class ModalFallback
         // AFTER the explicit polls so their dedupe/claim handling always wins.
         TickCatchAll(inScenario);
 
+        EnterPhase(PhaseErrorBox);
         // Part 10: GlobalErrorMessage (enrollment #1) — NOT a UIWindow (SetActive-shown), so
         // neither the transition patch nor the catch-all above can see it; dedicated poll +
         // direct float. Feeds the lock below via ErrorModalOpen (a genuine blocker: the whole
         // game halts on ShowingMessage) and the screen policy via ErrorScreenWanted.
         TickErrorMessage(inScenario);
 
+        EnterPhase(PhaseDecide);
         // Item 6 (parallel windows): a STICKY reachable menu stays floated even when the game hid it
         // (its single-window toggle), so it is NOT in OpenWindows. Keep the float wanted while any
         // sticky menu the user has not closed is still alive, or it would be released the moment the
@@ -1656,6 +2167,7 @@ internal static partial class ModalFallback
                              && !FlatScreen.ManualScreenActive
                              && WorldUIConfig.ConversionActive;
 
+        EnterPhase(PhaseRelease);
         // 1. Release conversions whose window closed/died or that are no longer wanted.
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
@@ -1726,6 +2238,7 @@ internal static partial class ModalFallback
                 Failed.RemoveAt(i);
         }
 
+        EnterPhase(PhaseConvert);
         // 3. Convert newly opened windows.
         if (convertWanted)
         {
@@ -1739,6 +2252,7 @@ internal static partial class ModalFallback
             }
         }
 
+        EnterPhase(PhaseRaycast);
         // 4. Keep the floating modal clickable: the game's UI lock legitimately
         //    disables all host raycasters (CanvasConversion lock mirror), but the
         //    modal window is the one surface that must accept input while modal —
@@ -1764,6 +2278,7 @@ internal static partial class ModalFallback
                 ReassertStickyVisible(wp);
         }
 
+        EnterPhase(PhaseGrabFollow);
         // 5. Sub-item B: the game-owned host follows its mod-owned grab frame every tick
         //    (static while ungripped; moved/scaled by the shared PanelGrabHandle while a hand
         //    grips the bar). Every floated modal is grabbable now, Sieg/Niederlage included.
@@ -1774,6 +2289,7 @@ internal static partial class ModalFallback
                 Converted[i].Grab?.Tick();
         }
         TickHoverCards();
+        EnterPhase(PhaseDestinations);
         // ModBuild 184: the merchant/temple/trainer/enchantress/records window carries its shared
         // background banner while it is floated — the same move the game makes for the temple.
         // Level-triggered and idempotent; see GuildmasterDestinations for the whole story,
@@ -1785,20 +2301,24 @@ internal static partial class ModalFallback
         // there is deliberately NO per-tick layout step left in this method. If a future round finds
         // itself wanting to "just re-arrange them once more", that is this bug being re-introduced;
         // the ruling is quoted in full at the registry.)
+        EnterPhase(PhaseProbeFlicker);
         // The flicker instrument (ModBuild 182): armed exactly while floated panels exist, so it
         // costs nothing in a scenario with none and nothing in the menu. See PanelFlickerProbe for
         // why the next round needs a measurement rather than a fourth hypothesis.
         PanelFlickerProbe.Sync(Converted.Count > 0);
+        EnterPhase(PhaseProbeCameraOrder);
         // ModBuild 185: the measurement PanelFlickerProbe's silence pointed at — see
         // CameraOrderProbe. Armed on the same condition; TickApply performs any correction the
         // last judged frame asked for, here in Update and never inside the render loop.
         CameraOrderProbe.Sync(Converted.Count > 0);
         CameraOrderProbe.TickApply();
+        EnterPhase(PhaseProbeRenderTarget);
         // ModBuild 186: with the panels proven steady and both eyes proven to read the same
         // texture, what is left is TEMPORAL content change — measurable from Update, no render
         // hook needed. See RenderTargetProbe.
         RenderTargetProbe.Tick(Converted.Count > 0);
 
+        EnterPhase(PhaseScroll);
         // 5a-scroll. User #12: thumbstick-Y scrolls the Sieg/Niederlage results window's
         //    scroll area while a laser/poke hovers ANYWHERE on the floated window — the
         //    generic RayUguiDriver stick-scroll only fires when the hover raycast lands
@@ -1806,6 +2326,7 @@ internal static partial class ModalFallback
         //    raycast targets, so the hover lands on the window frame outside the viewport).
         TickResultsStickScroll();
 
+        EnterPhase(PhaseRefit);
         // 5b. Item 1 (pause-menu size) + issue #1 (confirmations): once a ONE-SHOT content fit has
         //     shrunk the host rect from the full window (1920x…) to the visible button/dialog
         //     bounds, re-derive its board-relative scale from the FITTED width and push it to the
@@ -1845,6 +2366,7 @@ internal static partial class ModalFallback
         //     re-derived THIS tick is re-placed in the same tick (one-shot, see TickPoseRePlace).
         TickPoseRePlace();
 
+        EnterPhase(PhaseChainPose);
         // 5c. LEVEL-MESSAGE CHAIN POSE: record where the player is reading the scripted message
         //     chain, so the NEXT hint spawns there. Runs after the grab follow so it sees the
         //     final host pose of this tick — for a gripped window that is the hand's current spot.
@@ -1856,6 +2378,7 @@ internal static partial class ModalFallback
         //     ModalFallback.6.MenuGuard.cs and says what still rescues a genuinely lost window.
         TickLevelMessageChain();
 
+        EnterPhase(PhaseMenuGuard);
         // Issue #9 (multi-highlight): mark EVERY parallel-open sub-window's ESC-menu tab, not just
         // the single one the game's single-select toggle group leaves 'on'. Runs after the
         // release/convert loops so Converted reflects exactly which windows float this tick.
@@ -1873,7 +2396,9 @@ internal static partial class ModalFallback
 
         ApplyMenuSelectionGuard(); // P6: stop the gamepad-nav highlight flicker on a floated full-screen menu
 
+        EnterPhase(PhaseEscape);
         TickEscapeChord(); // test #17: floating modals must always be closable
+        EnterPhase(PhasePublish);
 
         // The ModalUI LOCK tracks wantLock (blocking prompts only), NOT want (float) — item 3b.
         if (wantLock != _lastWant)
@@ -1893,5 +2418,28 @@ internal static partial class ModalFallback
         ScreenWanted = wantLock && (!WorldUIConfig.ModalWindowStyle || Failed.Count > 0
                                     || ErrorScreenWanted); // part 10: unfloatable error box
         VRModeStateMachine.SetAuxModal(wantLock); // ModalUI only for genuine blockers (item 3b)
+
+        // ---- close the measurement out (see the SUB-STEP ATTRIBUTION block) ------------------
+        EndPhase();
+        long tickTicks = System.Diagnostics.Stopwatch.GetTimestamp() - tickBegin;
+        if (tickTicks > 0L)
+        {
+            _tickTotalTicks += tickTicks;
+            if (tickTicks > _tickWorstTotalTicks)
+                _tickWorstTotalTicks = tickTicks;
+        }
+        _tickFrames++;
+        float nowT = Time.unscaledTime;
+        if (_nextTickBreakdown <= 0f)
+        {
+            // First tick of a session: start the clock rather than printing a one-frame window.
+            _nextTickBreakdown = nowT + TickBreakdownSeconds;
+        }
+        else if (nowT >= _nextTickBreakdown)
+        {
+            _nextTickBreakdown = nowT + TickBreakdownSeconds;
+            LogTickBreakdown();
+            ResetTickBreakdown();
+        }
     }
 }

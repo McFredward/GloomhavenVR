@@ -475,7 +475,7 @@ internal static class WorldUIConfig
                 "the card and a margin all round it; the button stays a child of the window at " +
                 "every value, so it always moves, scales and occludes with the card and can never " +
                 "be left behind. Read live: turn it in the headset and the button moves on the " +
-                "next frame. Range -0.5 to 1.5.",
+                "next frame. Range -1.5 to 1.5.",
                 new AcceptableValueRange<float>(MapRoom.MapTravelConfirm.OffsetLimitYMin,
                                                 MapRoom.MapTravelConfirm.OffsetLimitYMax)));
         // Tooltips / ActionElementHints: always on — user ruling 2026-08-13. The flat game raises

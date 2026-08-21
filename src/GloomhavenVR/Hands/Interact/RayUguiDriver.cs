@@ -357,9 +357,14 @@ internal sealed class RayUguiDriver
             HitDistance = Vector3.Distance(pick.Origin, point);
         }
 
-        // Clamp into the rect (local space) so events stay on the panel.
+        // Clamp into the rect (local space) so events stay on the panel. THE SAME RECT THE PRESS
+        // WAS BORN IN (HitRectOf, not rect.rect): a press that started on content the window draws
+        // outside its own frame would otherwise be yanked back inside that frame on the very next
+        // frame of the hold — the widget under the beam would change mid-press and a drag started
+        // out there could never track. For a canvas with no committed hit rect the two are the same
+        // rectangle, so this is unchanged for everything else.
         Vector3 local = t.InverseTransformPoint(point);
-        Rect r = rect.rect;
+        Rect r = HitRectOf(canvas, rect);
         local.x = Mathf.Clamp(local.x, r.xMin, r.xMax);
         local.y = Mathf.Clamp(local.y, r.yMin, r.yMax);
         local.z = 0f;
@@ -616,12 +621,54 @@ internal sealed class RayUguiDriver
     private static readonly Dictionary<int, Vector2> LoggedCanvasSizes = new();
 
     /// <summary>
+    /// THE RECTANGLE A HIT IS TESTED AGAINST, in the canvas RectTransform's own local space.
+    ///
+    /// <para>Historically this was always <c>rect.rect</c> — the canvas root's own rect — and for
+    /// every canvas that still holds, byte for byte. The exception is a converted window whose game
+    /// content DRAWS OUTSIDE that rect without ever resizing it (user report 2026-08-21, the
+    /// equipment screen's item-swap panel: the ModBuild 194 log has the window pinned at 532x1080
+    /// uGUI px while its content measurably reaches 903x1080, so 41 % of the visible window was
+    /// dead to the laser and the boundary was legible in the screenshot as the close-X). For those,
+    /// <c>CanvasConversion.TryGetHitRect</c> publishes the union of the host rect and the content
+    /// the window actually draws — measured with the content fit's own visibility verdict, on the
+    /// fit's own cadence, and never written back to any game transform. The full argument, and what
+    /// growing the WINDOW instead would have cost, is in the HIT RECT section of
+    /// CanvasConversion.3.Fit.cs.</para>
+    ///
+    /// <para>Failure mode by construction: no entry (mod-built surfaces, board-docked canvases, a
+    /// window whose first measurement has not committed) ⇒ <c>rect.rect</c> ⇒ the shipped
+    /// behaviour. Never throws.</para>
+    /// </summary>
+    private static Rect HitRectOf(Canvas canvas, RectTransform rect) =>
+        WorldUI.CanvasConversion.TryGetHitRect(canvas, out Rect hit) ? hit : rect.rect;
+
+    /// <summary>
+    /// World-space corners of an arbitrary local rect on a RectTransform, in the exact order
+    /// <see cref="RectTransform.GetWorldCorners"/> uses (0=bottom-left, 1=top-left, 2=top-right,
+    /// 3=bottom-right) — so every consumer of <see cref="Corners"/> below is unchanged. Passing
+    /// <c>rect.rect</c> reproduces <c>GetWorldCorners</c> exactly (that is what it computes), which
+    /// is what makes the no-entry path provably identical to the previous build.
+    /// </summary>
+    private static void HitCorners(RectTransform rect, in Rect local, Vector3[] into)
+    {
+        into[0] = rect.TransformPoint(new Vector3(local.xMin, local.yMin, 0f));
+        into[1] = rect.TransformPoint(new Vector3(local.xMin, local.yMax, 0f));
+        into[2] = rect.TransformPoint(new Vector3(local.xMax, local.yMax, 0f));
+        into[3] = rect.TransformPoint(new Vector3(local.xMax, local.yMin, 0f));
+    }
+
+    /// <summary>
     /// Ray ∩ canvas via the RectTransform's actual WORLD-SPACE corners (test #13):
     /// pivot/sizeDelta assumptions do not enter — the plane is spanned by the real
-    /// corners (GetWorldCorners: 0=bottom-left, 1=top-left, 2=top-right,
-    /// 3=bottom-right), so converted windows (host rect + re-anchored child, e.g.
-    /// the story window at 1920x1080 with host scale 0.7) intersect over their
-    /// ENTIRE surface, including under parent shear / negative scale.
+    /// corners (0=bottom-left, 1=top-left, 2=top-right, 3=bottom-right), so
+    /// converted windows (host rect + re-anchored child, e.g. the story window at
+    /// 1920x1080 with host scale 0.7) intersect over their ENTIRE surface, including
+    /// under parent shear / negative scale.
+    ///
+    /// <para>The corners are taken from <see cref="HitRectOf"/> rather than from
+    /// <c>GetWorldCorners</c>, so a window that draws past its own rect is hittable over the area
+    /// it actually covers. Same plane, same math, same winding — only the rectangle differs, and
+    /// only for canvases with a committed hit rect.</para>
     /// </summary>
     private static bool TryIntersect(Canvas canvas, Vector3 origin, Vector3 direction,
         float maxDist, out float dist, out Vector3 point)
@@ -630,7 +677,7 @@ internal sealed class RayUguiDriver
         point = default;
 
         var rect = (RectTransform)canvas.transform;
-        rect.GetWorldCorners(Corners);
+        HitCorners(rect, HitRectOf(canvas, rect), Corners);
         Vector3 right = Corners[3] - Corners[0]; // world-space +X edge
         Vector3 up = Corners[1] - Corners[0];    // world-space +Y edge
         float rightLen2 = right.sqrMagnitude;
@@ -660,11 +707,20 @@ internal sealed class RayUguiDriver
     /// Verification log per canvas (test #13): its actual world rect — once on first
     /// sight and again whenever the world SIZE changes by more than ~1 cm (converted
     /// hosts get re-fit to their visible content shortly after conversion).
+    ///
+    /// <para>The measured size reported here is the HIT rectangle (<see cref="HitRectOf"/>), i.e.
+    /// what this driver actually intersects, not the canvas rect it used to be — a line that
+    /// reported a different rectangle from the one the code tests would be an instrument
+    /// disagreeing with its own subject. The canvas <c>sizeDelta</c> is printed alongside it, so
+    /// the two are comparable at a glance: equal = a window whose content stays inside its own
+    /// frame; hit rect larger = a window drawing outside it (the WorldUI 'HIT RECT' line for the
+    /// same window carries the full derivation and the element responsible).</para>
     /// </summary>
     private static void LogCanvasOnce(Canvas canvas)
     {
         var rect = (RectTransform)canvas.transform;
-        rect.GetWorldCorners(Corners);
+        Rect hitLocal = HitRectOf(canvas, rect);
+        HitCorners(rect, hitLocal, Corners);
         float w = (Corners[3] - Corners[0]).magnitude;
         float h = (Corners[1] - Corners[0]).magnitude;
         int id = canvas.GetInstanceID();
@@ -675,10 +731,23 @@ internal sealed class RayUguiDriver
             && Mathf.Abs(last.y - h) < last.y * 0.02f + 0.001f)
             return;
         LoggedCanvasSizes[id] = new Vector2(w, h);
+        bool grown = hitLocal.width > rect.rect.width + 0.5f || hitLocal.height > rect.rect.height + 0.5f;
         Core.VRLog.Debug("Interact",
-            $"Ray-uGUI canvas '{canvas.name}': world rect {w:F3}x{h:F3} m, " +
+            // The 'Ray-uGUI canvas …: world rect …' prefix is a documented grep token
+            // (docs/TESTING-P3B.md:265, docs/TESTING-P3C.md:342) and is kept verbatim. What it
+            // reports is now the HIT rect — see the doc above — and the unit is named honestly:
+            // these are WORLD units, not metres (at the shipped rig scale ~198 world units make one
+            // tracking metre, so the old " m" was off by more than two orders of magnitude).
+            $"Ray-uGUI canvas '{canvas.name}': world rect {w:F3}x{h:F3} world units " +
+            "(this IS the hit rect the ray is tested against), " +
             $"BL={Corners[0]:F3} TL={Corners[1]:F3} TR={Corners[2]:F3} BR={Corners[3]:F3}, " +
-            $"pivot={rect.pivot}, sizeDelta={rect.sizeDelta}, lossyScale={rect.lossyScale:F4}.");
+            $"pivot={rect.pivot}, sizeDelta={rect.sizeDelta}, lossyScale={rect.lossyScale:F4} — " +
+            $"hit rect in uGUI px {hitLocal.width:F0}x{hitLocal.height:F0} at " +
+            $"({hitLocal.center.x:F0},{hitLocal.center.y:F0}) versus the canvas rect " +
+            $"{rect.rect.width:F0}x{rect.rect.height:F0}: " +
+            (grown
+                ? "GROWN — this window draws past its own rect and the laser reaches that far now."
+                : "identical — this window's content fits its own rect, laser geometry unchanged."));
     }
 
     private static Vector2 ToScreen(Canvas canvas, Vector3 worldPoint)

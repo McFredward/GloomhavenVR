@@ -239,6 +239,84 @@ namespace GloomhavenVR.WorldUI;
 /// see. The pool does carry a defensive re-parent for exactly this (ObjectPool.cs:545-547), but
 /// relying on someone else's safety net instead of handing the widget back is not the discipline
 /// this project uses.</para>
+///
+/// <para>=====================================================================================</para>
+///
+/// <para>MODBUILD 195 — THE PREVIEW WORKED ONCE PER CARD AND THEN NEVER AGAIN, AND THE REASON IS A
+/// COMPONENT THIS MOD ADDS. User report against 194, verbatim: <i>"Die Mouse-Overs bei der
+/// Kartenauswahl ist mal kurz da gewesen aber desto öfters ich über die Karten hovere desto mehr
+/// Karten zeigen plötzlich kein Overlay mehr, bis sogar irgendwann gar keine Karten mehr ein Overlay
+/// anzeigen."</i> Monotonic, per card, never recovering — and the ModBuild-194 Player.log contains
+/// the whole mechanism as two Unity engine errors nobody had read yet:</para>
+/// <list type="number">
+/// <item><description><c>Can't remove Canvas because GraphicRaycaster (Script) depends on it</c> —
+/// first at Player.log:4499, i.e. on the very FIRST un-hover, and then on every un-hover after it.
+/// <c>ToggleFullCardPreview</c> ADDS a <c>Canvas</c> on show and <c>Destroy</c>s it on hide
+/// (AbilityCardUI.cs:1049-1061). Between those two calls <c>CanvasConversion.AdoptCanvas</c> sees a
+/// new nested canvas inside a floated window and, so that the host's raycaster does not raycast a
+/// hollow set, <b>adds a <c>GraphicRaycaster</c> to it</b> (CanvasConversion.2.Adopt.cs:261-262 —
+/// the log says so in the same breath: <c>Adopted nested canvas 'Full' … raycaster added</c>,
+/// Player.log:4494). <c>GraphicRaycaster</c> is <c>[RequireComponent(typeof(Canvas))]</c>, so Unity
+/// REFUSES the game's <c>Destroy</c> and the canvas survives — permanently, on that one card's
+/// <c>Full</c> object.</description></item>
+/// <item><description><c>Can't add component 'Canvas' to Full because such a component is already
+/// added to the game object!</c> — from Player.log ~43.1 s, i.e. once every card in the list has
+/// been hovered once (the log carries exactly 18 <c>Adopted nested canvas 'Full'</c> lines, one per
+/// distinct card, and the "can't add" lines begin after them). <c>AddComponent&lt;Canvas&gt;()</c>
+/// returns <b>null</b> for a type that is already present, the game's own
+/// <c>if (canvas != null) { canvas.overrideSorting = true; canvas.sortingOrder = 10; }</c> is
+/// therefore SKIPPED, and from that hover onward the card has permanently lost the one mechanism the
+/// game gives it to escape the ability list's <c>ScrollRect</c> viewport clipper and to draw over the
+/// rows it is deliberately drawn beside.</description></item>
+/// </list>
+///
+/// <para>THAT IS THE REPORT'S SHAPE EXACTLY, AND IT IS A LEAK RATHER THAN A PLACEMENT BUG: the FIRST
+/// hover of each card is the only one that runs the game's full show path, so the first hover works
+/// and every later hover of that same card is a different code path; the set of broken cards grows by
+/// one per card hovered and never shrinks, because a component that could not be destroyed is not
+/// going to be destroyed later either. <see cref="CompleteCanvasTeardown"/> ends it by FINISHING THE
+/// DESTRUCTION THE GAME ALREADY ASKED FOR: on the hide edge, once the preview is inactive (so nothing
+/// needs to raycast it), the mod-added <c>GraphicRaycaster</c> is withdrawn and the canvas the game
+/// tried to destroy is destroyed. This is not a write war — it is one call per hide, it is the game's
+/// own stated intent, and it makes every hover identical to the first one, which is the hover the
+/// user confirms works.</para>
+///
+/// <para>AND THE BOOKKEEPING IS REBUILT SO IT CANNOT LEAK AGAIN, because "the release edge was
+/// missed" must stop being a way to fail:</para>
+/// <list type="bullet">
+/// <item><description>THE HOME IS DERIVED, NOT REMEMBERED. A raise record for a pooled widget carries
+/// its OWNER (<see cref="RaiseRecord.HomeOwner"/>) instead of a parent <c>Transform</c>, and the home
+/// is read as <c>HomeOwner.transform</c> at RESTORE time. That is the identical answer
+/// <c>ObjectPool.RecycleCard</c> itself uses (<c>fullAbilityCard.transform.SetParent(component.transform)</c>,
+/// ObjectPool.cs:545-547), so a row that was recycled and re-spawned between the raise and the
+/// release still resolves to the right parent — a remembered <c>Transform</c> could not.</description></item>
+/// <item><description>THE RELEASE IS DRIVEN BY STATE, NOT BY AN EVENT. <see cref="TickRaises"/> now
+/// releases any raise whose widget is no longer <c>activeInHierarchy</c>: a hidden widget is not being
+/// displayed, so a raise on it has no purpose and is handed back on the next frame whether or not the
+/// hide edge was ever delivered. The hide-edge postfix is kept because it is one frame earlier, but
+/// nothing depends on it any more.</description></item>
+/// <item><description>NOTHING IS RAISED THAT IS NOT ON SCREEN. <see cref="PlaceFullCardPreview"/>
+/// returns early for an inactive card. <c>ChangeFullCardPosition</c> is also reached from
+/// <c>ToggleFullCardPreview</c>'s early-return branch (AbilityCardUI.cs:1037-1041), which runs on
+/// hide-while-hidden, and raising a widget the game is not showing is how a record is created that
+/// nobody will ever release.</description></item>
+/// <item><description>THE DECAY IS A NUMBER NOW (<see cref="RaiseLedger"/>): raises taken, released,
+/// outstanding, dropped because their home died, restores declined because the widget was no longer
+/// ours, hovers that found no widget, preview-flag repairs and leaked canvases cleared. If any of
+/// these grows without bound in the next hardware log, that counter names the remaining leak on its
+/// own.</description></item>
+/// </list>
+///
+/// <para>ONE MORE PREMISE THAT CAN DESYNC, AND IT IS CORRECTED RATHER THAN WORKED AROUND.
+/// <c>ToggleFullCardPreview</c> early-returns when its own cached <c>previewingFullCard</c> equals the
+/// requested state (AbilityCardUI.cs:1037) — so if that flag is ever left TRUE while the widget is
+/// switched off (<c>ToggleFullCard(active: false)</c> deactivates the object without clearing the
+/// flag, AbilityCardUI.cs:1005-1012, reached from <c>SetMode</c> and from
+/// <c>UIPartyCharacterAbilityCardsDisplay.HideFullCards</c>), that card can never preview again: every
+/// show request takes the early return and only re-positions an object that is not active. The prefix
+/// in <see cref="Patches.TooltipWindowPatches"/> repairs THE FLAG when it disagrees with
+/// <c>activeSelf</c> and then lets the game run its own show path — correcting the premise instead of
+/// bypassing the method.</para>
 /// </summary>
 internal static class TooltipOnWindow
 {
@@ -291,6 +369,17 @@ internal static class TooltipOnWindow
     private static readonly List<FlatRecord> Flattened = new(64);
 
     /// <summary>
+    /// Membership index over <see cref="Flattened"/>. The list is walked once at
+    /// <see cref="Shutdown"/> (order matters there, so the list stays), but the per-frame question is
+    /// only "have I already recorded this transform?" — and that used to be a LINEAR scan of the whole
+    /// list per transform per frame. Pooled preview content is never destroyed, so the list plateaus
+    /// at the size of the live pooled subtree (the ModBuild-194 log measures 72 flattened transforms
+    /// for one window alone) and the scan is quadratic in it. A set makes it O(1); the two are kept in
+    /// lockstep by <see cref="PruneFlattened"/>.
+    /// </summary>
+    private static readonly HashSet<Transform> FlattenedIndex = new();
+
+    /// <summary>
     /// A local tooltip this class RAISED to the last child of its owning window's content root
     /// (<see cref="RaiseToWindowTop"/>) — everything needed to put it back EXACTLY where the game
     /// had it. Same restore discipline as <c>MapRoom.MapTravelConfirm</c>, for the same reason:
@@ -308,6 +397,23 @@ internal static class TooltipOnWindow
     {
         public RectTransform Rect;
         public ConvertedPanel Owner;
+
+        /// <summary>
+        /// THE POOLED OWNER WHOSE TRANSFORM *IS* THE WIDGET'S HOME, when the family has one — and the
+        /// whole reason this record cannot strand a widget on a recycled parent. For the ability-card
+        /// preview this is the <c>AbilityCardUI</c> row, and "the home is <c>row.transform</c>" is not
+        /// this class's opinion: it is the literal rule <c>ObjectPool.RecycleCard</c> enforces
+        /// (<c>component.fullAbilityCard.transform.SetParent(component.transform)</c>,
+        /// ObjectPool.cs:545-547). Reading it at RESTORE time rather than remembering a
+        /// <c>Transform</c> at RAISE time is what makes a recycle-and-respawn between the two survive:
+        /// the row object is the same pooled instance, so the answer is still correct, whereas a
+        /// remembered parent could by then be a dead or re-used rect.
+        ///
+        /// <para>Null for the tooltip families, which are not handed round a pool by an owner
+        /// component; those fall back to <see cref="OriginalParent"/>.</para>
+        /// </summary>
+        public Component? HomeOwner;
+
         public Transform? OriginalParent;
         public int OriginalSiblingIndex;
         public Vector2 OriginalAnchorMin;
@@ -317,9 +423,86 @@ internal static class TooltipOnWindow
         public Vector3 OriginalLocalScale;
         public bool ScaleWritten;
         public RectTransform RaisedTo;
+
+        /// <summary>
+        /// The widget has been seen <c>activeInHierarchy</c> at least once SINCE this raise was taken
+        /// — the precondition the state-driven release in <see cref="TickRaises"/> waits for, and it
+        /// is not a nicety. Two of the three families are settled BEFORE they are switched on:
+        /// <c>UIPartyItemInventoryTooltip.Build</c> calls <c>RefreshPosition</c> (our postfix, which
+        /// raises) and only then <c>window.Show()</c> (UIPartyItemInventoryTooltip.cs:189-205), and
+        /// <c>UITempleSlotTooltip.Build</c> does the same (UITempleSlotTooltip.cs:78-88); the merchant
+        /// even defers one of its hints by a frame through
+        /// <c>SkipAFrameAndNotifyNewItemTooltip</c> (UIShopItemInventory.cs:973). Releasing on "not
+        /// active" alone would therefore hand those boxes back before they were ever drawn and undo
+        /// the ModBuild-192 fix on the next frame. "Was up, then went down" is the only transition
+        /// that means the widget is finished with.
+        /// </summary>
+        public bool SeenActive;
     }
 
     private static readonly List<RaiseRecord> Raised = new(8);
+
+    // ---- THE LEDGER (ModBuild 195) -------------------------------------------------------------
+    // The 194 report is a DECAY — "the more often I hover, the more cards show nothing" — and a decay
+    // is only diagnosable as a set of counters that either stay flat or grow. Every one of these is a
+    // plain int incremented on a path that already exists; none of them allocates, and they are
+    // printed by RaiseLedger() into the draw-order line and, on a slow cadence, on their own.
+    // HOW TO READ THEM is written out in full at the RAISE LEDGER log line.
+
+    /// <summary>Raises taken (a widget was moved to its window's content root).</summary>
+    private static int _raisesTaken;
+
+    /// <summary>Raises handed back with a full restore.</summary>
+    private static int _raisesReleased;
+
+    /// <summary>Records dropped because the widget's HOME died — <see cref="RaiseRecord.HomeOwner"/>
+    /// destroyed, or a null <see cref="RaiseRecord.OriginalParent"/> for a family without an owner.
+    /// This is the counter that would prove a pooled parent is being recycled underneath us.</summary>
+    private static int _raisesDroppedHomeDead;
+
+    /// <summary>Restores DECLINED because the widget was no longer parented where this class put it —
+    /// the game (or the pool's own defensive re-parent) took it back first. Not an error: it is the
+    /// concession that keeps this class out of a write war. It growing steadily means the hide edge is
+    /// consistently losing the race to someone else's re-parent.</summary>
+    private static int _raisesDeclinedForeign;
+
+    /// <summary>Raises released by the STATE sweep rather than by the hide edge (the widget went
+    /// inactive while raised). Non-zero means the event-driven release was missed and the self-heal
+    /// caught it — the mod is still correct, but the edge is not firing.</summary>
+    private static int _raisesReleasedBySweep;
+
+    /// <summary>Show edges where the game returned with NO displayable preview (null widget, or the
+    /// widget still inactive). This is the direct count of "I hovered a card and nothing came up".</summary>
+    private static int _showEdgesWithNoWidget;
+
+    /// <summary>Times the game's own <c>previewingFullCard</c> flag was found disagreeing with
+    /// <c>activeSelf</c> on a show request and was corrected before the game read it.</summary>
+    private static int _previewFlagRepairs;
+
+    /// <summary>Canvases the game asked to destroy, Unity refused (a mod-added
+    /// <c>GraphicRaycaster</c> depended on them) and this class finished off. Equal to the number of
+    /// hide edges once the fix is in; it stopping while hovers continue is the signature of the leak
+    /// coming back through some other component.</summary>
+    private static int _leakedCanvasesCleared;
+
+    /// <summary>Frames between two RAISE LEDGER lines. ~10 s at 90 Hz — a decay is a trend, not an
+    /// event, so it is sampled rather than traced, and the line is skipped entirely when nothing
+    /// changed (a still session must not write a log line per interval).</summary>
+    private const int LedgerIntervalFrames = 900;
+
+    private static int _ledgerFrame = int.MinValue;
+    private static int _ledgerSignature = int.MinValue;
+
+    /// <summary>
+    /// The decay, as numbers, in one clause — appended to the draw-order evidence and printed on its
+    /// own cadence. Deliberately terse: the READING is written once, at the RAISE LEDGER line.
+    /// </summary>
+    private static string RaiseLedger() =>
+        $"LEDGER taken={_raisesTaken} released={_raisesReleased} outstanding={Raised.Count} "
+        + $"homeDead={_raisesDroppedHomeDead} declinedForeign={_raisesDeclinedForeign} "
+        + $"bySweep={_raisesReleasedBySweep} showEdgesWithNoWidget={_showEdgesWithNoWidget} "
+        + $"flagRepairs={_previewFlagRepairs} leakedCanvasesCleared={_leakedCanvasesCleared} "
+        + $"flattenRecords={Flattened.Count}";
 
     // ---- the family table --------------------------------------------------------------------
     // Matched BY COMPONENT TYPE, never by name. UILocalTooltip is listed as the base on purpose:
@@ -434,6 +617,60 @@ internal static class TooltipOnWindow
         }
 
         TickSilentHoverWatch();
+        TickLedger();
+    }
+
+    /// <summary>
+    /// PRINT THE DECAY, ON A CADENCE, AND ONLY WHEN IT MOVED. The 194 report is a trend ("the more I
+    /// hover, the more cards show nothing"), so the instrument for it has to be a trend too: a line
+    /// every <see cref="LedgerIntervalFrames"/> frames carrying every counter, skipped whenever the
+    /// numbers are identical to the last one printed. A session that hovers nothing writes one line
+    /// and then nothing.
+    /// </summary>
+    private static void TickLedger()
+    {
+        if (_ledgerFrame != int.MinValue && Time.frameCount - _ledgerFrame < LedgerIntervalFrames)
+            return;
+        _ledgerFrame = Time.frameCount;
+        int signature = _raisesTaken * 31 + _raisesReleased * 17 + Raised.Count * 13
+                        + _raisesDroppedHomeDead * 7 + _raisesDeclinedForeign * 5
+                        + _raisesReleasedBySweep * 3 + _showEdgesWithNoWidget * 11
+                        + _previewFlagRepairs * 19 + _leakedCanvasesCleared * 23;
+        if (signature == _ledgerSignature)
+            return;
+        _ledgerSignature = signature;
+
+        VRLog.Info(Scope,
+            "RAISE LEDGER (the hover-overlay decay as numbers) — " + RaiseLedger() + ". READ IT LIKE "
+            + "THIS, COUNTER BY COUNTER. taken vs released: these must track each other with at most "
+            + "'outstanding' between them; taken running away from released is the leak the ModBuild-194 "
+            + "report describes and 'outstanding' is its size. outstanding: how many widgets are parked "
+            + "at a window's content root RIGHT NOW — one while a preview is up, zero otherwise; a "
+            + "steadily climbing number means releases are being skipped. homeDead: records whose home "
+            + "could not be resolved because the OWNER was destroyed — non-zero means a pooled row died "
+            + "under a raised preview and that preview could not be handed back (ObjectPool.RecycleCard "
+            + "would have re-parented it, so it is not lost, but this class no longer knows its "
+            + "anchors). declinedForeign: restores skipped because the widget had already been "
+            + "re-parented by someone else; this is BENIGN and expected on every hover the game "
+            + "re-places (it re-parents on show), and only a concern if it grows while 'released' does "
+            + "not. bySweep: releases the per-frame STATE sweep had to make because the hide edge never "
+            + "fired — the mod stays correct, but a growing number means "
+            + "AbilityCardUI.ToggleFullCardPreview(false) is not reaching us and the postfix should be "
+            + "re-examined. showEdgesWithNoWidget: the direct count of 'I hovered a card and no overlay "
+            + "appeared' — if the user reports the 194 symptom again and THIS number is zero, the "
+            + "overlay was shown and the problem is visibility (alpha, clipping, draw order), not "
+            + "activation. flagRepairs: times the game's own previewingFullCard flag was found stuck "
+            + "against activeSelf and corrected; non-zero proves that desync is real and this class is "
+            + "the only thing preventing it from permanently killing that card's preview. "
+            + "leakedCanvasesCleared: the ModBuild-194 root cause, counted — the game destroys its "
+            + "per-hover Canvas on every hide and Unity refuses because CanvasConversion's adoption "
+            + "added a GraphicRaycaster that RequireComponent-depends on it ('Can't remove Canvas "
+            + "because GraphicRaycaster (Script) depends on it' in the 194 log, from the first un-hover "
+            + "onward). This counter should rise once per hide; if it STOPS rising while hovering "
+            + "continues, the canvases are leaking again by some other route and 'Can't add component "
+            + "'Canvas' to Full' will be back in the log right beside it. flattenRecords: the size of "
+            + "the flatten undo list — bounded by the live pooled subtree, so it plateaus; a number that "
+            + "grows for ever is a prune that stopped working.");
     }
 
     /// <summary>
@@ -441,7 +678,12 @@ internal static class TooltipOnWindow
     /// method for that family (so it is always the last write of that call — see the class doc).
     /// A widget outside every floated window returns immediately and keeps today's behaviour.
     /// </summary>
-    internal static void Settle(Component? widget, string kind)
+    /// <param name="homeOwner">The POOLED owner whose transform is the widget's home, when the family
+    /// has one (the <c>AbilityCardUI</c> row for the ability-card preview). Passing it makes the
+    /// restore derive the parent from live game state instead of remembering a <c>Transform</c> that a
+    /// recycle could invalidate — see <see cref="RaiseRecord.HomeOwner"/>. Null keeps the recorded
+    /// parent, which is right for the tooltip families.</param>
+    internal static void Settle(Component? widget, string kind, Component? homeOwner = null)
     {
         if (!WorldUIConfig.ConversionActive || widget == null)
             return;
@@ -456,7 +698,7 @@ internal static class TooltipOnWindow
         Flatten(rect);
         // Then RAISE, and only then clamp — the clamp writes through the widget's own parent
         // basis, so it must be the last of the three and it must see the FINAL parent.
-        string raiseNote = RaiseToWindowTop(rect, owner);
+        string raiseNote = RaiseToWindowTop(rect, owner, homeOwner);
 
         RectTransform host = owner.HostRect;
         Quaternion hostRot = host.rotation;
@@ -584,7 +826,9 @@ internal static class TooltipOnWindow
                + "overrideSorting-TRUE canvas whose order is BELOW the host order is the one outcome "
                + "this class cannot fix by reparenting — a canvas that overrides sorting ignores "
                + "hierarchy — and that one does belong to the nested-canvas adoption "
-               + "(CanvasConversion.2.Adopt.cs / ReassertAdoptedSorting's conceded branch).";
+               + "(CanvasConversion.2.Adopt.cs / ReassertAdoptedSorting's conceded branch). "
+               + "AND THE DECAY, AS NUMBERS, AT THIS MOMENT: " + RaiseLedger()
+               + " — the full reading of every counter is at the RAISE LEDGER line.";
     }
 
     /// <summary>
@@ -672,7 +916,8 @@ internal static class TooltipOnWindow
     /// <para>Returns the clause the evidence line reads out, so the next hardware log states what
     /// was done rather than what was intended.</para>
     /// </summary>
-    private static string RaiseToWindowTop(RectTransform rect, ConvertedPanel owner)
+    private static string RaiseToWindowTop(RectTransform rect, ConvertedPanel owner,
+        Component? homeOwner)
     {
         RectTransform content = owner.Target;
         if (content == null || ReferenceEquals(rect, content) || !rect.IsChildOf(content))
@@ -704,7 +949,7 @@ internal static class TooltipOnWindow
         {
             // The game already put it at the top level. Nothing to reparent — but "last" still has
             // to be asserted, and it is recorded so the sibling index is handed back on release.
-            RecordRaise(rect, owner, content, scaleWritten: false);
+            RecordRaise(rect, owner, content, scaleWritten: false, homeOwner);
             KeepLastSibling(rect);
             return "no reparent needed (the game had already parented it to the window's content "
                    + "root); raised to LAST sibling there.";
@@ -732,7 +977,7 @@ internal static class TooltipOnWindow
         Vector3 worldPos = rect.position;
         Vector3 preLossy = rect.lossyScale;
         Transform? previous = rect.parent;
-        RecordRaise(rect, owner, content, scaleWritten: false);
+        RecordRaise(rect, owner, content, scaleWritten: false, homeOwner);
 
         rect.SetParent(content, worldPositionStays: false);
         Vector3 postLossy = rect.lossyScale;
@@ -809,6 +1054,16 @@ internal static class TooltipOnWindow
         if (owner == null || !owner.IsAlive || owner.HostRect == null)
             return false; // not on a floated window — vanilla arithmetic, untouched
 
+        // NOTHING THAT IS NOT ON SCREEN IS EVER PLACED OR RAISED (ModBuild 195).
+        // ChangeFullCardPosition is also reached from ToggleFullCardPreview's early-return branch
+        // (AbilityCardUI.cs:1037-1041), which fires on hide-while-already-hidden — and a raise taken on
+        // a widget the game is not showing is precisely a record nobody will ever release. TRUE is
+        // returned, not false: the card is ours (it is inside a floated window), so the game's world
+        // write must still not land; there is simply nothing worth placing on an invisible object, and
+        // the next SHOW re-places it from scratch.
+        if (!fullCard.gameObject.activeInHierarchy)
+            return true;
+
         RectTransform host = owner.HostRect;
         Quaternion hostRot = host.rotation;
         // Metres per uGUI pixel on this host. x is read on purpose (the conversion scales the host
@@ -842,8 +1097,118 @@ internal static class TooltipOnWindow
                 + "itself. Cards outside every floated window keep the game's arithmetic exactly.");
         }
 
-        Settle(fullCard, kind);
+        // The ROW is handed through as the widget's HOME OWNER, so the restore reads
+        // row.transform at release time instead of remembering a parent a recycle could invalidate —
+        // the same rule ObjectPool.RecycleCard enforces (ObjectPool.cs:545-547).
+        Settle(fullCard, kind, row);
         return true;
+    }
+
+    /// <summary>
+    /// FINISH THE DESTRUCTION THE GAME ALREADY ASKED FOR — the ModBuild-194 leak, ended.
+    ///
+    /// <para><c>AbilityCardUI.ToggleFullCardPreview</c> adds a <c>Canvas</c> to the preview on show and
+    /// <c>Destroy</c>s it on hide (AbilityCardUI.cs:1049-1061). In between,
+    /// <c>CanvasConversion.AdoptCanvas</c> adds a <c>GraphicRaycaster</c> to that canvas so the host's
+    /// raycaster does not raycast a hollow set (CanvasConversion.2.Adopt.cs:261-262). A
+    /// <c>GraphicRaycaster</c> is <c>[RequireComponent(typeof(Canvas))]</c>, so Unity REFUSES the
+    /// game's destroy — <c>"Can't remove Canvas because GraphicRaycaster (Script) depends on it"</c>,
+    /// Player.log:4499 and every un-hover after it — and the canvas survives on that card for the rest
+    /// of the session. The next hover then hits
+    /// <c>"Can't add component 'Canvas' to Full because such a component is already added"</c>,
+    /// <c>AddComponent</c> returns null, and the game's own
+    /// <c>overrideSorting = true; sortingOrder = 10;</c> never runs again for that card. One card lost
+    /// per card hovered, monotonically, never recovering: the reported decay, exactly.</para>
+    ///
+    /// <para>THIS IS NOT A WRITE WAR AND IT IS NOT A NEW POLICY. It runs once per hide, it only ever
+    /// completes a destruction the game itself requested in the same call, and it only runs once the
+    /// preview is INACTIVE — so withdrawing the raycaster cannot cost a raycast anybody could have
+    /// made. What it buys is that every hover is identical to the FIRST hover of that card, which is
+    /// the hover the user confirms works.</para>
+    ///
+    /// <para>Safe against the adoption's bookkeeping by inspection: <c>ReassertAdoptedSorting</c> skips
+    /// records whose <c>Canvas</c> is null (CanvasConversion.4.Lifecycle.cs:653-655) and <c>Release</c>
+    /// null-checks both the canvas and the added raycaster (same file, :47-58) — which it must anyway,
+    /// because in VANILLA this canvas is destroyed on every hide.</para>
+    /// </summary>
+    internal static void CompleteCanvasTeardown(Component? fullCard)
+    {
+        if (fullCard == null)
+            return;
+        GameObject go = fullCard.gameObject;
+        // Only for a hidden preview: an active one may still be raycast through this canvas.
+        if (go.activeInHierarchy)
+            return;
+        var canvas = go.GetComponent<Canvas>();
+        if (canvas == null)
+            return; // the game's own Destroy went through — nothing leaked, nothing to do
+
+        var raycaster = go.GetComponent<GraphicRaycaster>();
+        if (raycaster != null)
+            UnityEngine.Object.Destroy(raycaster);
+        UnityEngine.Object.Destroy(canvas);
+        _leakedCanvasesCleared++;
+
+        if (_leakedCanvasesCleared != 1)
+            return;
+        VRLog.Info(Scope,
+            $"LEAKED PREVIEW CANVAS CLEARED on '{go.name}' — the game destroys the Canvas it adds for "
+            + "each ability-card hover preview (AbilityCardUI.cs:1049-1061), and Unity was REFUSING "
+            + "because this mod's own nested-canvas adoption had added a GraphicRaycaster that "
+            + "RequireComponent-depends on it (CanvasConversion.2.Adopt.cs:261-262). The ModBuild-194 "
+            + "log carries both halves: 'Can't remove Canvas because GraphicRaycaster (Script) depends "
+            + "on it' from the first un-hover, then 'Can't add component Canvas to Full because such a "
+            + "component is already added' once every card had accumulated one — at which point "
+            + "AddComponent returns null and the game's own overrideSorting/sortingOrder=10 is never "
+            + "applied to that card again. That is the reported decay: one card lost per card hovered, "
+            + "never recovering. The raycaster is withdrawn and the canvas destroyed here, on the hide "
+            + "edge, only while the preview is INACTIVE, so every hover is now identical to the first "
+            + "one. READ IT LIKE THIS: this line appears ONCE; the running count is in the RAISE "
+            + "LEDGER, and it must keep rising in step with the hovers. If 'Can't add component "
+            + "'Canvas' to Full' ever appears in the log again, this teardown stopped reaching the "
+            + "widget and the decay is back.");
+    }
+
+    /// <summary>A show request returned with nothing displayable — counted so "I hovered and no
+    /// overlay came up" is a number rather than a description. See <see cref="RaiseLedger"/>.</summary>
+    internal static void NoteShowEdgeWithoutWidget(string kind, string what)
+    {
+        _showEdgesWithNoWidget++;
+        if (_showEdgesWithNoWidget != 1)
+            return;
+        VRLog.Warn(Scope,
+            $"HOVER PRODUCED NO PREVIEW: '{kind}' on '{what}' returned from the game's own show call "
+            + "with the preview widget still not active in the hierarchy. READ IT LIKE THIS: this is "
+            + "the ACTIVATION half of the ModBuild-194 report, kept apart from the VISIBILITY half on "
+            + "purpose — if this line is present the game never switched the widget on (its own "
+            + "previewingFullCard bookkeeping declined, or the widget was destroyed), and no amount of "
+            + "placement, raising or sorting in this mod could have helped. If it is ABSENT while the "
+            + "user still reports missing overlays, the widget WAS switched on and the loss is "
+            + "downstream: alpha, a clipper, or draw order — read the LOCAL TOOLTIP draw-order line. "
+            + "Logged once; the running count is in the RAISE LEDGER.");
+    }
+
+    /// <summary>The game's own <c>previewingFullCard</c> flag was found stuck against
+    /// <c>activeSelf</c> and corrected before the game read it (see the class doc).</summary>
+    internal static void NotePreviewFlagRepair(string what)
+    {
+        _previewFlagRepairs++;
+        if (_previewFlagRepairs != 1)
+            return;
+        VRLog.Warn(Scope,
+            $"PREVIEW FLAG REPAIRED on '{what}': AbilityCardUI.previewingFullCard said the hover "
+            + "preview was already showing while the widget itself was switched OFF. "
+            + "ToggleFullCardPreview early-returns when that flag equals the requested state "
+            + "(AbilityCardUI.cs:1037) and only re-positions the widget — so a card in that state can "
+            + "NEVER preview again, for the rest of the session, which is one of the two ways the "
+            + "ModBuild-194 report could look. The flag desyncs because ToggleFullCard(active: false) "
+            + "deactivates the widget WITHOUT clearing it (AbilityCardUI.cs:1005-1012, reached from "
+            + "SetMode and from UIPartyCharacterAbilityCardsDisplay.HideFullCards). The premise is "
+            + "corrected here — the flag is set to match reality — and the game then runs its own show "
+            + "path unchanged; nothing is bypassed. READ IT LIKE THIS: a NON-ZERO count in the RAISE "
+            + "LEDGER proves that desync happens on real hardware; a count that grows once per hover "
+            + "would mean something is re-breaking the flag every time and this repair is papering over "
+            + "it. Logged once.");
     }
 
     /// <summary>
@@ -885,12 +1250,14 @@ internal static class TooltipOnWindow
         Mathf.Abs(post) < 1e-6f ? 1f : pre / post;
 
     private static void RecordRaise(RectTransform rect, ConvertedPanel owner, RectTransform raisedTo,
-        bool scaleWritten)
+        bool scaleWritten, Component? homeOwner)
     {
+        _raisesTaken++;
         Raised.Add(new RaiseRecord
         {
             Rect = rect,
             Owner = owner,
+            HomeOwner = homeOwner,
             OriginalParent = rect.parent,
             OriginalSiblingIndex = rect.GetSiblingIndex(),
             OriginalAnchorMin = rect.anchorMin,
@@ -900,6 +1267,12 @@ internal static class TooltipOnWindow
             OriginalLocalScale = rect.localScale,
             ScaleWritten = scaleWritten,
             RaisedTo = raisedTo,
+            // Seeded from the truth at raise time: the ability-card preview is switched on BEFORE
+            // ChangeFullCardPosition runs (AbilityCardUI.cs:1046 then :1063), so its record starts
+            // eligible for the state-driven release straight away, while the two tooltip families —
+            // settled before their window.Show() — start ineligible and become eligible on the frame
+            // they are first drawn.
+            SeenActive = rect.gameObject.activeInHierarchy,
         });
     }
 
@@ -936,9 +1309,17 @@ internal static class TooltipOnWindow
     }
 
     /// <summary>
-    /// Per-frame upkeep of the raised set: drop records whose widget or window died (restoring
-    /// first, while it is still ours), and re-assert "last sibling" for the ones still raised — a
-    /// window that spawns content while a hint is up would otherwise paint over it.
+    /// Per-frame upkeep of the raised set, and — since ModBuild 195 — THE RELEASE OF LAST RESORT.
+    ///
+    /// <para>Three jobs. (1) Drop records whose widget or window died, restoring first while it is
+    /// still ours. (2) RELEASE ANY RAISE WHOSE WIDGET IS NO LONGER DRAWN: a widget that is not
+    /// <c>activeInHierarchy</c> is not being displayed, so a raise on it has no purpose and is handed
+    /// back on the next frame — <b>whether or not the hide edge was ever delivered</b>. That is what
+    /// makes the ModBuild-194 failure mode ("the release never runs, the record accumulates, the next
+    /// hover finds the widget parked at the window root") impossible by construction: the release is
+    /// driven by the widget's own observable state, and the hide-edge postfix is now only an
+    /// optimisation that gets there one frame earlier. (3) Re-assert "last sibling" for the ones still
+    /// raised — a window that spawns content while a hint is up would otherwise paint over it.</para>
     /// </summary>
     private static void TickRaises()
     {
@@ -953,6 +1334,22 @@ internal static class TooltipOnWindow
             }
             if (!ReferenceEquals(rec.Rect.parent, rec.RaisedTo))
                 continue; // the game took it back; the next placement call re-takes it cleanly
+            if (!rec.Rect.gameObject.activeInHierarchy)
+            {
+                if (!rec.SeenActive)
+                    continue; // raised before it was switched on — wait for it (see SeenActive)
+                // WAS up, now DOWN: the widget is finished with, whether or not a hide edge ever
+                // reached this class. Hand it home rather than waiting for one.
+                RestoreRaise(rec);
+                Raised.RemoveAt(i);
+                _raisesReleasedBySweep++;
+                continue;
+            }
+            if (!rec.SeenActive)
+            {
+                rec.SeenActive = true;
+                Raised[i] = rec;
+            }
             KeepLastSibling(rec.Rect);
         }
     }
@@ -966,19 +1363,39 @@ internal static class TooltipOnWindow
     private static void RestoreRaise(RaiseRecord rec)
     {
         RectTransform rect = rec.Rect;
-        if (rect == null || rec.RaisedTo == null || !ReferenceEquals(rect.parent, rec.RaisedTo))
+        if (rect == null)
             return;
+        if (rec.RaisedTo == null || !ReferenceEquals(rect.parent, rec.RaisedTo))
+        {
+            // Somebody else already took it back — the game's own SetParent on the next show, or
+            // ObjectPool.RecycleCard's defensive re-parent (ObjectPool.cs:545-547). Conceding is the
+            // whole point; it is counted so a hide edge that ALWAYS loses this race is visible.
+            _raisesDeclinedForeign++;
+            return;
+        }
         if (rec.ScaleWritten)
             rect.localScale = rec.OriginalLocalScale;
-        if (rec.OriginalParent == null)
-            return; // its home was destroyed (a pooled row) — leave it flat inside the window
-        rect.SetParent(rec.OriginalParent, worldPositionStays: false);
+
+        // THE HOME IS DERIVED, NOT REMEMBERED, whenever the family has an owner: HomeOwner.transform
+        // is the same answer ObjectPool.RecycleCard gives, and it stays right across a recycle and a
+        // re-spawn of that same pooled instance. The recorded parent is the fallback for the families
+        // that have no owner component.
+        Transform? home = rec.HomeOwner != null ? rec.HomeOwner.transform : rec.OriginalParent;
+        if (home == null)
+        {
+            // Its home is gone (the owner row was destroyed, not just recycled). Nothing correct is
+            // left to write; the widget stays where it is, inactive, and the counter says so.
+            _raisesDroppedHomeDead++;
+            return;
+        }
+        rect.SetParent(home, worldPositionStays: false);
         rect.SetSiblingIndex(Mathf.Clamp(rec.OriginalSiblingIndex, 0,
-            Mathf.Max(0, rec.OriginalParent.childCount - 1)));
+            Mathf.Max(0, home.childCount - 1)));
         rect.anchorMin = rec.OriginalAnchorMin;
         rect.anchorMax = rec.OriginalAnchorMax;
         rect.pivot = rec.OriginalPivot;
         rect.anchoredPosition = rec.OriginalAnchoredPosition;
+        _raisesReleased++;
     }
 
     private static void ReleaseAllRaises(string why)
@@ -1068,6 +1485,7 @@ internal static class TooltipOnWindow
             tf.localRotation = Flattened[i].OriginalLocalRotation;
         }
         Flattened.Clear();
+        FlattenedIndex.Clear();
         Live.Clear();
         LocalScratch.Clear();
         PartyItemScratch.Clear();
@@ -1085,6 +1503,19 @@ internal static class TooltipOnWindow
         _hoverWindow = null;
         _lastSettleWindow = null;
         _lastSettleFrame = int.MinValue;
+
+        // The ledger is per-session evidence: a hot reload starts a new session, and carrying the
+        // counters across one would make "taken vs released" un-readable.
+        _raisesTaken = 0;
+        _raisesReleased = 0;
+        _raisesDroppedHomeDead = 0;
+        _raisesDeclinedForeign = 0;
+        _raisesReleasedBySweep = 0;
+        _showEdgesWithNoWidget = 0;
+        _previewFlagRepairs = 0;
+        _leakedCanvasesCleared = 0;
+        _ledgerFrame = int.MinValue;
+        _ledgerSignature = int.MinValue;
     }
 
     // ---- internals ----------------------------------------------------------------------------
@@ -1190,7 +1621,7 @@ internal static class TooltipOnWindow
             if (!tiltedRot && !tiltedZ)
                 continue;
 
-            if (!IsRecorded(tf))
+            if (FlattenedIndex.Add(tf))
             {
                 Flattened.Add(new FlatRecord
                 {
@@ -1207,24 +1638,18 @@ internal static class TooltipOnWindow
         SubtreeScratch.Clear();
     }
 
-    private static bool IsRecorded(Transform tf)
-    {
-        for (int i = 0; i < Flattened.Count; i++)
-        {
-            if (ReferenceEquals(Flattened[i].Transform, tf))
-                return true;
-        }
-        return false;
-    }
-
     /// <summary>Pooled tooltip content comes and goes per hover, so the flatten record must stay
-    /// bounded to the live subtree — the same discipline as the other two flatteners.</summary>
+    /// bounded to the live subtree — the same discipline as the other two flatteners. The membership
+    /// index is pruned in the same pass, or a destroyed transform's stale entry would keep a REUSED
+    /// (recycled) transform from ever being recorded again.</summary>
     private static void PruneFlattened()
     {
         for (int i = Flattened.Count - 1; i >= 0; i--)
         {
-            if (Flattened[i].Transform == null)
-                Flattened.RemoveAt(i);
+            if (Flattened[i].Transform != null)
+                continue;
+            FlattenedIndex.Remove(Flattened[i].Transform);
+            Flattened.RemoveAt(i);
         }
     }
 

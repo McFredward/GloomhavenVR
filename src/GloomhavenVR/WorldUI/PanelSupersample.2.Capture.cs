@@ -579,10 +579,33 @@ internal static partial class PanelSupersample
             // frame and the value would ALTERNATE — this project's "don't win a write war" failure,
             // and under MultiPass the two eyes would disagree about it. One mask test per transform
             // buys the guarantee outright. See IsForeignPoolLayer.
-            if (!isRoot && IsForeignPoolLayer(e, t.gameObject.layer))
+            // ONE PANEL'S FINGERPRINT ON A POOLED OBJECT IS NOT THE OTHER PANEL'S CLAIM
+            // (ModBuild 195). The comment above assumed the converted subtrees are disjoint, so this
+            // guard "cannot fire". IT FIRED — 18 of 30 report lines on 'Character Items Equipment
+            // Content' in the ModBuild 194 log, and the `continue` skips the transform AND ITS WHOLE
+            // SUBTREE, so the equipment tooltip's card art was never captured while its frame was:
+            // a visible-but-empty box, which is the user's "so transparent, dass man sie kaum
+            // erkennen kann". The cause is the game's SHARED CARD POOL: a card the shop tooltip used
+            // arrives in the equipment window still carrying the shop panel's private layer. It is
+            // OUR descendant now — the sweep only ever walks our own host — so the layer VALUE is a
+            // stale fingerprint, not a competing owner.
+            // WE TAKE IT, AND WE TAKE THE RECORD WITH IT. Claiming without transferring would have
+            // been worse than the skip: our own restore would later write the SHOP's capture layer
+            // onto it (that is what it would have found there), stranding the card on a layer no
+            // camera renders. TryTakeForeignRecord moves the original game layer across, so exactly
+            // one entry owns the object and the restore still hands back what the game gave.
+            int observed = t.gameObject.layer;
+            if (!isRoot && IsForeignPoolLayer(e, observed))
             {
                 foreignLayer++;
-                continue;
+                if (TryTakeForeignRecord(e, t, out int gameLayer))
+                    observed = gameLayer;
+                else
+                    // No record to transfer: the other entry never wrote this object (it was pooled
+                    // out and back before its sweep ran). We cannot know the game layer, so refuse
+                    // rather than guess — a wrong restore is permanent, a skipped capture is one
+                    // aliased element. Counted above so the report still names it.
+                    continue;
             }
             if (!isRoot && t.GetComponent<Canvas>() != null)
             {
@@ -593,7 +616,7 @@ internal static partial class PanelSupersample
             if (t.gameObject.layer != layer)
             {
                 if (!IsRecorded(e, t))
-                    e.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = t.gameObject.layer });
+                    e.Relayered.Add(new LayerRecord { Transform = t, OriginalLayer = observed });
                 t.gameObject.layer = layer;
                 moved++;
                 if (!isRoot && t.GetComponent<Canvas>() != null)
@@ -621,6 +644,32 @@ internal static partial class PanelSupersample
                               + $"This sweep ran because the window {(IsMoving(e) ? "is MOVING (per-frame "
                                   + "cadence)" : "reached its periodic cadence")}.");
         }
+    }
+
+    /// <summary>
+    /// Move <paramref name="t"/>'s layer record from whichever OTHER entry owns it to us, and hand
+    /// back the layer the GAME originally gave it. Returns false when no other entry has a record —
+    /// see the call site for why that case refuses instead of guessing.
+    /// </summary>
+    private static bool TryTakeForeignRecord(Entry mine, Transform t, out int originalLayer)
+    {
+        originalLayer = 0;
+        for (int i = 0; i < Entries.Count; i++)
+        {
+            Entry other = Entries[i];
+            if (ReferenceEquals(other, mine))
+                continue;
+            for (int r = 0; r < other.Relayered.Count; r++)
+            {
+                if (!ReferenceEquals(other.Relayered[r].Transform, t))
+                    continue;
+                originalLayer = other.Relayered[r].OriginalLayer;
+                other.Relayered.RemoveAt(r);
+                other.LayersMoved = other.Relayered.Count;
+                return true;
+            }
+        }
+        return false;
     }
 
     private static bool IsRecorded(Entry e, Transform t)

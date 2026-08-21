@@ -126,6 +126,59 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 195** (bundle UNCHANGED — plugin DLL only) — the mod has been running at ~50 Hz, and a
+  raycaster we add blocked a destroy the game keeps asking for. *(Six workers.)* **Nothing on the wire.**
+  * **THE REGRESSION WAS MINE, INDIRECTLY.** The click was never lost (15 `uGUI click: 'Adventure
+    Character Slot'`, ZERO `UIWindow SHOWN` for the sheet — and that line is a postfix on the game's
+    own visibility choke point, so its absence means the game never opened it). **All 15 clicks fall
+    inside the interval the shop was open.** `EnterShop → EnableSelectionMode(disableButtons: FALSE)`
+    clears `autoOpenDefaultPanel` + sets `disabledCharacterSelection`, leaving untouched exactly the
+    three fields `PARTY SLOTS n/m interactable` reads — **the line was TRUE and the feature broken.**
+    It surfaced now because **193's packing spawned the merchant on top of the permanent character
+    screen (39° of 48°), so he DRAGGED IT ASIDE instead of closing it**, and an open shop keeps the
+    mode live. New `CHARACTER SHEET OUTCOME` measures the outcome, not the readiness.
+  * **~50 Hz, AND NOBODY REPORTED IT.** Not a spike, a **floor**: `over-budget 1497/1497 (100.0%)`,
+    `ModalFallback 12.991ms avg` against 11.11 ms, **every frame**, arming the frame the permanent
+    character screen converts and never returning. Measurement **bounds the search**: CanvasConversion
+    0.58 ms, the 193 flatness guarantee 146 µs + 8 µs on its worst window, and a full walk of all five
+    floated subtrees (~15,000 transforms) fits in 0.58 ms — **so the 12 ms cannot be any subtree
+    walk.** Leading suspect named and **stood down**: `RenderTargetProbe` issues `Graphics.Blit` +
+    `AsyncGPUReadback` **from Update** every frame, and its own baseline reads `44200 ticks sampled,
+    0 alternation(s)`. It was correct and it is spent. New 19-phase sub-step timing prices it either way.
+  * **THE CARD-PREVIEW DECAY WAS TWO UNITY ERROR LINES IN OUR OWN LOG.** The preview adds a Canvas on
+    show and destroys it on hide; our adoption adds a `GraphicRaycaster`; `[RequireComponent]` makes
+    Unity **refuse the destroy**; the next hover's `AddComponent` returns **null** and the game's
+    `overrideSorting`/`sortingOrder` branch is skipped **forever for that card**. One card lost per
+    card hovered. The placement instrument agreed with a broken build because the box *was* placed.
+  * **THE FAINT EQUIPMENT OVERLAYS = the shared card pool.** `expect 0` read **18 of 30** on equipment
+    and **0 of 52** on the shop: a card the shop used arrives still carrying the shop's private capture
+    layer, and the guard's `continue` skips **the whole subtree** — frame captured, art not. Fixed at
+    integration **with a transfer of the layer record**, because claiming without it would have written
+    the *shop's* layer back on restore and stranded the card where no camera renders.
+  * **41 % OF THE EQUIPMENT WINDOW WAS DEAD.** Converted at `532x1080`, draws to `903x1080`; the ray
+    tested the root rect. The content fit could never catch it — it **clamps** its union into the frame.
+    New HIT RECT = union(host, measured drawn content). Growing the window was rejected (the swap panel
+    opens/closes on every swap, which would slide a player-owned window under his hands each time).
+  * **THE PHYSICAL CAPS WERE MUTE BY CONSTRUCTION** — the target is a **Toggle**, and
+    `ExtendedToggle.OnPointerClick` plays nothing; its sounds hang off Down/Up/Enter/Exit with Down
+    gated on an `isHighlighted` the caps never set. Full pointer sequence now sent; **order is
+    load-bearing** (`RefreshSelected` makes the toggle non-interactable in the same call stack).
+    **Caveat narrowing 194:** the UI pool source measures `spatialBlend 0.00 (2D)` — listener distance
+    could not have silenced UI sounds.
+  * **THE PARTY MARKER: 194's route never existed.** `CommandBuffer` has **no `DrawRenderer` overload
+    taking a matrix** in 2021.3.5f1 — verified against the shipping CoreModule assembly. It now writes
+    the game transform's `localScale`, and four texts that claimed otherwise (one of them in the
+    headset) were corrected.
+  * **TRAVEL BUTTON: the clamp could not reach.** The photo shows it **above** the card; both previous
+    claims were wrong in opposite directions. `OffsetLimitYMin` −0.5 → −1.5. **The default is
+    deliberately NOT changed** — the two evidence sources contradict each other and a guess with a
+    number on it is the exact failure mode of 191/192/193. The log now *computes and prints* the two
+    dial values, never applies them.
+  * **OPEN, NEEDS A USER RULING:** the enchantress's mode also clears `buttonsCanvasGroup`, which the
+    re-arm deliberately does not restore (vanilla behaviour; restoring it would un-grey cards mid-
+    enhancement). **OPEN OFFER:** 1.20 m → 1.85 m reading distance would let a full window and the
+    widest permanent one both fit the cone, at **35 % less apparent size**.
+
 - **ModBuild 194** (bundle UNCHANGED — plugin DLL only) — one capture layer for every panel, and
   the game was placing its UI sounds at a disabled ear. *(Six workers.)* **Nothing on the wire.**
   * **A CORRECTION I OWE THE RECORD.** I told him the supersample motion detector was blind and that

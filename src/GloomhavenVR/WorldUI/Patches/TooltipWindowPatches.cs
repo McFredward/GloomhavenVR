@@ -1,3 +1,4 @@
+using System;
 using GloomhavenVR.Core;
 using HarmonyLib;
 using UnityEngine;
@@ -300,9 +301,103 @@ internal static class TooltipWindowPatches
             return;
         TooltipOnWindow.NoteSlotHover(__instance, "AbilityCardUI (ability-card loadout row)",
             isHighlighted);
+        FullAbilityCard full = __instance.fullAbilityCard;
         if (isHighlighted)
+        {
+            // THE SHOW EDGE, VERIFIED (ModBuild 195). "The overlay must come up reliably, every time"
+            // is only checkable if a hover that produced nothing is COUNTED, and it has to be counted
+            // apart from a hover that produced something invisible — those two have completely
+            // different fixes and the 194 report cannot distinguish them on its own.
+            if (full == null || !full.gameObject.activeInHierarchy)
+            {
+                TooltipOnWindow.NoteShowEdgeWithoutWidget(
+                    "AbilityCardUI (ability-card loadout row)",
+                    __instance.gameObject.name);
+            }
             return;
-        TooltipOnWindow.ReleaseRaiseOf(__instance.fullAbilityCard,
+        }
+
+        TooltipOnWindow.ReleaseRaiseOf(full,
             "the ability-card hover preview was hidden — the pointer left the card row");
+
+        // THE ModBuild-194 LEAK, ENDED HERE. The game just asked Unity to destroy the Canvas it added
+        // for this hover; Unity refuses while the GraphicRaycaster this mod's nested-canvas adoption
+        // added still depends on it, and a canvas that survives one hide never lets the game configure
+        // a fresh one again. Full derivation and the log evidence are on
+        // TooltipOnWindow.CompleteCanvasTeardown; it is a no-op whenever the game's own destroy went
+        // through, and it never runs on a preview that is still active.
+        TooltipOnWindow.CompleteCanvasTeardown(full);
+    }
+
+    // ---- the desynced premise -----------------------------------------------------------------
+
+    /// <summary>
+    /// Reflected access to <c>AbilityCardUI.previewingFullCard</c> (private). Resolved ONCE and
+    /// tolerated as null: a game update that renames the field must degrade to "no repair", never to
+    /// an exception on a hover path — an unguarded throw here would starve VR input.
+    /// </summary>
+    private static readonly AccessTools.FieldRef<AbilityCardUI, bool>? PreviewingFullCardRef =
+        ResolvePreviewingFullCardRef();
+
+    private static AccessTools.FieldRef<AbilityCardUI, bool>? ResolvePreviewingFullCardRef()
+    {
+        try
+        {
+            return AccessTools.FieldRefAccess<AbilityCardUI, bool>("previewingFullCard");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("WorldUI",
+                "ABILITY-CARD PREVIEW FLAG not reachable (" + ex.GetType().Name + ": " + ex.Message
+                + ") — AbilityCardUI.previewingFullCard could not be bound, so the desync repair "
+                + "described on TooltipOnWindow is DISABLED for this session. CONSEQUENCE: if that "
+                + "flag is ever left set while the preview widget is switched off, that card can no "
+                + "longer preview (ToggleFullCardPreview early-returns on it, AbilityCardUI.cs:1037). "
+                + "Everything else in this file is unaffected.");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// <c>AbilityCardUI.ToggleFullCardPreview(bool, Transform)</c> — PREFIX, and it corrects ONE
+    /// PREMISE rather than taking over the method: it never returns false, so the game's own show/hide
+    /// always runs.
+    ///
+    /// <para>THE METHOD'S FIRST REAL DECISION IS <c>if (previewingFullCard == isHighlighted) {
+    /// ChangeFullCardPosition(); return; }</c> (AbilityCardUI.cs:1037-1041) — "I am already in the
+    /// state you asked for, so I will only re-position". That is correct as long as the flag is true,
+    /// and the flag has a documented way to go stale: <c>ToggleFullCard(active: false)</c> switches the
+    /// widget OFF without clearing it (AbilityCardUI.cs:1005-1012), and it is reached from
+    /// <c>SetMode</c> (AbilityCardUI.cs:930) and from
+    /// <c>UIPartyCharacterAbilityCardsDisplay.HideFullCards</c> (:351-356, itself called from
+    /// <c>LevelUpState</c>). A card left in that state is <b>permanently unable to preview</b>: every
+    /// hover takes the early return and only moves an object nobody can see. Per card, monotonic, never
+    /// recovering — one of exactly two shapes the ModBuild-194 report can have.</para>
+    ///
+    /// <para>So the flag is compared against the observable truth (<c>activeSelf</c> of the widget the
+    /// flag is about) and, on a SHOW request where the two disagree, set to match reality. The game
+    /// then takes its own full show path, unmodified. Nothing is bypassed, no state is invented, and —
+    /// this being a one-shot correction on a disagreement rather than a value asserted every frame —
+    /// it cannot become a write war. Gated on a floated window like every other patch here, so flat
+    /// play is byte-identical.</para>
+    /// </summary>
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(AbilityCardUI), nameof(AbilityCardUI.ToggleFullCardPreview))]
+    private static void RepairAbilityCardPreviewFlag(AbilityCardUI __instance, bool isHighlighted)
+    {
+        if (!isHighlighted || PreviewingFullCardRef == null || !WorldUIConfig.ConversionActive)
+            return;
+        if (__instance == null || __instance.fullAbilityCard == null)
+            return;
+        // activeSelf, not activeInHierarchy: the question is what THIS widget's own switch says, and a
+        // whole window being hidden must not be read as a desynced card.
+        if (__instance.fullAbilityCard.gameObject.activeSelf)
+            return;
+        if (!PreviewingFullCardRef(__instance))
+            return; // the flag already agrees with reality — the game will show it normally
+        if (ModalFallback.FindOwningWindow(__instance.transform) == null)
+            return; // not on a floated window — vanilla behaviour, untouched
+        PreviewingFullCardRef(__instance) = false;
+        TooltipOnWindow.NotePreviewFlagRepair(__instance.gameObject.name);
     }
 }

@@ -193,8 +193,35 @@ internal static class RenderTargetProbe
     private static bool _mgrResolved;
 
     /// <summary>Arm/disarm with the floated-window layer, and sample once per tick while armed.</summary>
+    /// <summary>
+    /// STOOD DOWN AT ModBuild 195 — the question this probe was built for is ANSWERED.
+    /// <para>It watched the character-preview RenderTexture for the "es flackert" report and, across
+    /// ten hardware rounds, reported <c>44200 ticks sampled, 0 alternation(s), 0 transition(s),
+    /// 0 sweep(s)</c>. It was CORRECT and it is now SPENT: the flicker was undersampled
+    /// RASTERIZATION, confirmed on hardware when <c>[WorldUI] PanelSupersample</c> ended it. No
+    /// remaining question needs a per-frame readback of that texture.</para>
+    /// <para>WHAT IT COSTS TO LEAVE ARMED, and why that decides it: the ModalFallback step runs at
+    /// <b>12.4-13.0 ms average on 100% of frames</b> against an 11.11 ms budget, i.e. the whole mod
+    /// sits at roughly 50 Hz in the map room. The perf lane bounded the search space by measurement —
+    /// it is NOT CanvasConversion (0.58 ms), NOT the flatness guarantee (0.3 ms), NOT any subtree
+    /// walk (0.5 ms calibrated for 15,000 transforms), NOT the catch-all recursion (one refusal in
+    /// 46k frames) — and named this class the leading suspect: a <c>Graphic.Blit</c> plus an
+    /// <c>AsyncGPUReadback</c> issued FROM UPDATE every frame, outside the render loop, plus three
+    /// reflection field reads per watch. Its arming frame is also the frame the 3.9 -> 11.5 ms ramp
+    /// begins.</para>
+    /// <para>THAT SUSPICION IS NOT PROOF, and the honest move is not to guess either way: the
+    /// ModBuild 195 sub-step instrument will PRICE this class exactly, as
+    /// <c>ModalFallback.Probe.RenderTarget</c>. But a diagnostic that has answered its question does
+    /// not get to keep a multi-millisecond benefit of the doubt on a user's frame time. Standing it
+    /// down costs nothing we still need and, if the next log shows the frame budget recovered, that
+    /// IS the measurement. Re-arming is deleting this early return.</para>
+    /// </summary>
     internal static void Tick(bool wanted)
     {
+        // The stand-down runs through the normal disarm path (wanted:false), so the restore, the
+        // in-flight readback generation bump and the final baseline all happen exactly as they would
+        // on a real teardown — never by simply ceasing to be called.
+        wanted = false;
         // ModBuild 189: the sampling instrument rides the same arm condition. It lives here rather
         // than at the tick site because the Update seam that arms these probes is in
         // ModalFallback.4.Tick.cs, which this lane does not own — and this method is already called

@@ -741,16 +741,17 @@ internal static partial class Loc
                 + "steht und die beim Reisen den Weg abläuft. Bereich 0.5-4, Standard 1 = die bisherige "
                 + "Größe. Getrennt von den Ortssymbolen, denn der Marker ist ein anderes Objekt und das "
                 + "Erste, wonach man auf der Karte sucht. Die Untergrenze gibt es aus demselben Grund wie "
-                + "überall: eine auf nichts geschrumpfte Gruppe findest du nicht wieder. Vergrößert wird nur "
-                + "in der Darstellung des Raums, das Kartenobjekt des Spiels bleibt unangetastet und die "
-                + "flache 2D-Karte unberührt. Wirkt sofort, ohne Neustart.",
+                + "überall: eine geschrumpfte Gruppe findest du nicht wieder. Diese Einstellung "
+                + "ändert die Größe am Kartenobjekt des Spiels; beim Verlassen wird sie exakt "
+                + "zurückgesetzt, an Mitspieler geht nichts und die flache 2D-Karte bleibt unberührt. "
+                + "Wirkt sofort, ohne Neustart.",
             ["MapRoom/PathWidthScale"] =
                 "BREITE des eingezeichneten WEGES im 3D-Kartenraum — sowohl der Pfad zu dem Ort, auf den du "
                 + "zeigst, als auch die festen Straßen zwischen den freigeschalteten Dörfern. Bereich 0.5-4, "
                 + "Standard 1 = die Breite, die das Spiel zeichnet. Der Wert multipliziert die absichtlich "
                 + "unregelmäßige Linie des Spiels: ein breiterer Weg sieht weiterhin von Hand gezeichnet aus "
-                + "und wird kein glattes Band. Das ist die einzige Einstellung des Kartenraums, die etwas am "
-                + "Kartenobjekt des Spiels ändert; beim Verlassen wird sie exakt zurückgesetzt, und an "
+                + "und wird kein glattes Band. Wie beim Gruppen-Marker wird hier etwas am Kartenobjekt des "
+                + "Spiels geändert; beim Verlassen wird es exakt zurückgesetzt, und an "
                 + "Mitspieler geht nichts. Wirkt sofort, ohne Neustart.",
             ["Rig/WorldTiltDegrees"] =
                 "ALT — ohne Wirkung (Funktion 2026-08 auf Nutzerwunsch GEPARKT: die Weltneigung machte zu "
@@ -1733,7 +1734,7 @@ internal static partial class Loc
                 + "sich also nichts, bis du drehst), 1.0 = die Oberkante, negativ = unter der Karte. "
                 + "Der Bereich reicht von einer halben Fensterhöhe unter der Unterkante bis eine "
                 + "halbe über die Oberkante, deckt also die ganze Karte samt Rand ab. Live: der "
-                + "Knopf folgt im nächsten Bild. Bereich -0.5 bis 1.5.",
+                + "Knopf folgt im nächsten Bild. Bereich -1.5 bis 1.5.",
             ["WorldUI/PanelMipBake"] =
                 "Aliasing-Nachzügler zu [Cards] FaceMipBake: auch die Texturen, die die INITIATIVLEISTE "
                 + "(RawImage-Porträts + Rahmen-/Linien-Sprites) und die Mouseover-HINWEISBOX abtasten, liefert "

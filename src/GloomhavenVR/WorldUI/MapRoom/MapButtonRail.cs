@@ -5,7 +5,6 @@ using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using TMPro;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.MapRoom;
@@ -47,6 +46,22 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// (<c>BaseButtons.clickButton</c>). The full guard chain runs — interactability, the game's own
 /// <c>canToggle</c> predicate, whatever it does about multiplayer authority — because this is the
 /// game's click path and not a shortcut past it. Nothing goes on the wire.</para>
+///
+/// <para>AND SINCE ModBuild 195, THE OTHER FOUR EVENTS TOO — <b>because a click alone is silent</b>.
+/// User ruling: <i>"Immer noch keine Geräusche wenn ich die physischen buttons drücke wie zB
+/// 'Händler', ich will das die selben Geräusche kommen die auch im normalen Spiel hörbar sind."</i>
+/// READ FROM SOURCE: the guildmaster bar's <c>Toggle</c> is one of the game's audio-carrying toggle
+/// classes, and <c>ExtendedToggle.OnPointerClick</c> plays nothing at all — that class has no click
+/// item; its sounds hang off <c>OnPointerDown</c>/<c>OnPointerUp</c>/<c>OnPointerEnter</c>/
+/// <c>OnPointerExit</c>, and the DOWN sound is additionally gated on <c>isHighlighted</c>, which
+/// only <c>OnPointerEnter</c> sets. So a cap that clicks but never hovers is mute by construction,
+/// at any listener distance — which is why ModBuild 194's (correct, and confirmed working) ear
+/// repair did not fix this. The cap now sends the whole left-mouse sequence through
+/// <see cref="NativeUiPress"/>: <c>pointerEnter</c> when the fingertip or the beam arrives,
+/// <c>pointerDown</c> → <c>pointerUp</c> → <c>pointerClick</c> on the press, <c>pointerExit</c>
+/// when it leaves. <b>The commit is still the click and still exactly one dispatch</b> — see
+/// <see cref="NativeUiPress"/> for the item-by-item reading of why none of the other four events
+/// can commit an action, and why the wire therefore cannot tell this build from the last one.</para>
 ///
 /// <para>AND THE HUD WINDOW STOPS BEING FLOATED. <c>UIGuildmasterHUD</c> is a permanent flat HUD
 /// the game shows and hides continuously; the catch-all floated it, released it and re-floated it
@@ -156,6 +171,21 @@ internal sealed class MapButtonRail
         internal bool Interactable;
         internal bool Hovered;
 
+        /// <summary>The GAME GameObject this cap drives — the real <c>Toggle</c>'s object when the
+        /// bar has one, the <c>UIGuildmasterButton</c>'s otherwise. Cached at build so the press and
+        /// hover paths can never disagree about the target.</summary>
+        internal GameObject? Target;
+
+        /// <summary>How many mod pointers (left fingertip, right fingertip, laser) are on this cap.
+        /// The 0→1 edge sends the game a <c>pointerEnter</c> and the 1→0 edge a <c>pointerExit</c>;
+        /// two hands on one cap therefore still hover it ONCE. <see cref="GameHovered"/> is the
+        /// resulting claim, and it must be handed back on teardown.</summary>
+        internal int HoverRefs;
+        internal bool GameHovered;
+
+        /// <summary>Presses made on this cap (log material — a doubled press shows as a jump of 2).</summary>
+        internal int Presses;
+
         /// <summary>The travelling part — the cap body and everything printed on it. The socket
         /// stays put, which is what makes the travel legible.</summary>
         internal Transform? Body;
@@ -208,6 +238,10 @@ internal sealed class MapButtonRail
     internal void Release(string reason)
     {
         ClearLaserHover();
+        // Hand every pointerEnter back to the game BEFORE the caps go away. The game's own bar
+        // button would otherwise stay highlighted forever, and the mod-wide UguiHoverTracker
+        // refcount would never drain.
+        DropAllHovers(reason);
         for (int i = 0; i < _caps.Count; i++)
         {
             if (_caps[i].Poke != null)
@@ -361,9 +395,13 @@ internal sealed class MapButtonRail
                               + $"{withIcon}/{built} carry the game's own icon Image and {withGlow}/{built} "
                               + "carry its highlight graphic — those two are SAMPLED every frame (sprite, "
                               + "colour, alpha, scale), so a mode switch and the press-me pulse arrive "
-                              + "here as the same animation rather than a copy of it. A press is "
-                              + "ExecuteEvents.pointerClickHandler on the real Toggle: the game's own "
-                              + "click path, its guards still decide, nothing goes on the wire. "
+                              + "here as the same animation rather than a copy of it. A press sends the "
+                              + "game's own left-mouse sequence on the real Toggle — pointerEnter on "
+                              + "hover, pointerDown -> pointerUp -> pointerClick on the press, "
+                              + "pointerExit on leaving — and COMMITS on the click alone, exactly one "
+                              + "dispatch, so its guards still decide and nothing goes on the wire. The "
+                              + "other four exist because the game's press SOUND is gated on them "
+                              + "(ModBuild 195). "
                               + "World-fixed — the rail never follows the head.");
         }
     }
@@ -389,6 +427,9 @@ internal sealed class MapButtonRail
             TravelWorld = TravelMeters * _scale,
         };
         BindGameGraphics(c, button);
+        // The one game object this cap drives, for BOTH hover and press. Resolved once here rather
+        // than per event so a fingertip enter and a laser click can never land on different objects.
+        c.Target = c.Toggle != null ? c.Toggle.gameObject : button.gameObject;
 
         // THE SOCKET — a static, darker disc a fifth wider than the cap. It never moves, and that
         // is its whole job: a cap that sinks against nothing reads as a shrinking picture, while a
@@ -543,8 +584,15 @@ internal sealed class MapButtonRail
                 // HONEST AFFORDANCE: a cap the game would refuse is physically inert, so neither a
                 // fingertip nor the laser can promise a press that cannot happen.
                 c.Collider.enabled = live;
-                if (!live && c.Hovered)
-                    c.Hovered = false;
+                // A cap that just went inert must also hand back any hover it holds on the game's
+                // button: the laser scan and the poke interactor both skip a disabled collider, so
+                // neither of them will ever send the matching exit by itself.
+                if (!live)
+                {
+                    if (ReferenceEquals(_laserHover, c))
+                        _laserHover = null;
+                    DropHover(c, "the game turned this button off");
+                }
             }
 
             // THE SYMBOL. Read per frame, not once: the game re-assigns it from
@@ -626,6 +674,103 @@ internal sealed class MapButtonRail
         }
     }
 
+    // ---- hover, reference-counted across the two hands and the beam ---------------------------
+
+    /// <summary>
+    /// A mod pointer arrived on / left this cap. TWO THINGS HAPPEN, and only one of them is new:
+    /// the cap's own warm tint (as before), and — since ModBuild 195 — a real
+    /// <c>pointerEnter</c>/<c>pointerExit</c> into the GAME's button.
+    ///
+    /// <para>WHY THE GAME NEEDS THE HOVER AT ALL, given the user asked about PRESS sounds: both of
+    /// the game's audio-carrying button classes gate their DOWN sound on <c>isHighlighted</c>
+    /// (ExtendedButton.cs:208 and the same test in ExtendedToggle), and <c>isHighlighted</c> is set
+    /// only from <c>OnPointerEnter</c>. Without the enter there is no press sound even when the
+    /// press event arrives. The hover sound the game plays on the way in is a bonus, and it is the
+    /// game's own item — exactly what the flat game does when the mouse crosses that button.</para>
+    ///
+    /// <para>REFERENCE-COUNTED so two hands on one cap enter it once: the count is per cap here, and
+    /// <see cref="NativeUiPress"/> additionally arbitrates per GameObject through the mod-wide
+    /// <c>UguiHoverTracker</c>, so even the laser and a fingertip agreeing on the same cap cannot
+    /// double it.</para>
+    ///
+    /// <para>ONE VISIBLE SIDE EFFECT, and it is the game's own and the right one: the enter also
+    /// reaches <c>UIGuildmasterButton.OnPointerEnter</c> (the same GameObject — its
+    /// <c>[RequireComponent]</c> partner <c>GuildmasterModeSelectable</c> resolves the toggle with a
+    /// plain <c>GetComponent&lt;Selectable&gt;()</c>), whose <c>SetHovered</c> → <c>RefreshHighlight</c>
+    /// STOPS the "press me" loop animation while the button is hovered. Because the cap SAMPLES that
+    /// highlight object, the cap's glow stops with it — which is exactly what the flat game shows
+    /// when the mouse rests on a pulsing button, and it comes back on the exit. Nothing here
+    /// re-implements that; it is the sampled animation doing what the game told it to do.</para>
+    /// </summary>
+    private void AddHover(Cap c, string source)
+    {
+        c.HoverRefs++;
+        c.Hovered = true;
+        if (c.HoverRefs != 1 || c.GameHovered)
+            return;
+        c.GameHovered = true;
+        NativeUiPress.SetHovered(c.Target, hovered: true, CapName(c) + " (" + source + ")");
+    }
+
+    private void RemoveHover(Cap c, string source)
+    {
+        if (c.HoverRefs > 0)
+            c.HoverRefs--;
+        c.Hovered = c.HoverRefs > 0;
+        if (c.HoverRefs != 0 || !c.GameHovered)
+            return;
+        c.GameHovered = false;
+        NativeUiPress.SetHovered(c.Target, hovered: false, CapName(c) + " (" + source + ")");
+    }
+
+    /// <summary>Hand back EVERY outstanding claim on one cap at once, whatever the count. Used when
+    /// the cap stops being pressable at all (the game turned its Toggle off) and on teardown — an
+    /// enter that is never balanced leaves the game's own bar button highlighted for the session.</summary>
+    private void DropHover(Cap c, string reason)
+    {
+        c.HoverRefs = 0;
+        c.Hovered = false;
+        if (!c.GameHovered)
+            return;
+        c.GameHovered = false;
+        NativeUiPress.SetHovered(c.Target, hovered: false, CapName(c) + " (" + reason + ")");
+    }
+
+    private void DropAllHovers(string reason)
+    {
+        for (int i = 0; i < _caps.Count; i++)
+            DropHover(_caps[i], reason);
+    }
+
+    private static string CapName(Cap c) =>
+        "map table cap '" + (c.Button != null ? c.Button.GuildmasterMode.ToString() : "?") + "'";
+
+    /// <summary>Find the cap that drives this game button, or null. Linear over at most eight.</summary>
+    private Cap? CapOf(UIGuildmasterButton button)
+    {
+        for (int i = 0; i < _caps.Count; i++)
+        {
+            if (ReferenceEquals(_caps[i].Button, button))
+                return _caps[i];
+        }
+        return null;
+    }
+
+    /// <summary>Fingertip hover, routed from <see cref="MapButtonPoke"/> so the finger and the beam
+    /// share one refcount and one dispatch path.</summary>
+    internal void SetPokeHover(UIGuildmasterButton button, bool hovered, string source)
+    {
+        if (button == null)
+            return;
+        Cap? c = CapOf(button);
+        if (c == null)
+            return;
+        if (hovered)
+            AddHover(c, source);
+        else
+            RemoveHover(c, source);
+    }
+
     // ---- laser -------------------------------------------------------------------------------
 
     /// <summary>
@@ -678,7 +823,7 @@ internal sealed class MapButtonRail
         {
             ClearLaserHover();
             _laserHover = hit;
-            hit.Hovered = true;
+            AddHover(hit, "laser");
             hand.SendHaptic(HapticPreset.HoverTick);
         }
         hand.Ray.UiHitOverride = hitPoint;
@@ -694,16 +839,21 @@ internal sealed class MapButtonRail
     {
         if (_laserHover != null)
         {
-            _laserHover.Hovered = false;
-            _laserHover = null;
+            Cap c = _laserHover;
+            _laserHover = null;           // cleared FIRST: RemoveHover must not re-enter this
+            RemoveHover(c, "laser left");
         }
     }
 
     // ---- the click ---------------------------------------------------------------------------
 
     /// <summary>
-    /// Press a button. ONE dispatch, into the game's own uGUI Toggle — see the class doc on why
-    /// this and not the button's internal handler.
+    /// Press a button. ONE commit — <c>pointerClick</c> into the game's own uGUI Toggle, exactly as
+    /// before ModBuild 195 — preceded by the <c>pointerDown</c>/<c>pointerUp</c> pair (and, when the
+    /// prop is not already hovering, by a synthesized <c>pointerEnter</c>/<c>pointerExit</c> around
+    /// the whole thing) so the game's OWN press sound is reachable at all. See the class doc and
+    /// <see cref="NativeUiPress"/> for the reading of why the four added events cannot commit
+    /// anything and why nothing new goes on the wire.
     /// </summary>
     internal void Press(UIGuildmasterButton button, string source)
     {
@@ -712,13 +862,11 @@ internal sealed class MapButtonRail
         // THE CAP GOES DOWN WHETHER OR NOT THE GAME ACCEPTS THE PRESS. A button that does not move
         // when you push it reads as broken input, not as a refusal — and the refusal is already
         // communicated by the cap being dimmed and inert in the first place.
-        for (int i = 0; i < _caps.Count; i++)
+        Cap? cap = CapOf(button);
+        if (cap != null)
         {
-            if (ReferenceEquals(_caps[i].Button, button))
-            {
-                _caps[i].PressedUntil = Time.unscaledTime + PressHoldSeconds;
-                break;
-            }
+            cap.PressedUntil = Time.unscaledTime + PressHoldSeconds;
+            cap.Presses++;
         }
         Toggle? toggle = ToggleOf(button);
         GameObject target = toggle != null ? toggle.gameObject : button.gameObject;
@@ -730,23 +878,34 @@ internal sealed class MapButtonRail
                               + "this line appears, the mirror was one frame behind the game.");
             return;
         }
-        try
-        {
-            var data = new PointerEventData(EventSystem.current!)
-            {
-                button = PointerEventData.InputButton.Left,
-            };
-            ExecuteEvents.Execute(target, data, ExecuteEvents.pointerClickHandler);
-            VRLog.Info(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' pressed ({source}) — "
-                              + $"dispatched as ExecuteEvents.pointerClickHandler on '{target.name}', "
-                              + "i.e. exactly a left mouse click on the game's own bar button. Every "
-                              + "guard the flat game runs, runs — including its canToggle predicate.");
-        }
-        catch (System.Exception ex)
-        {
-            VRLog.Warn(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' press threw: {ex}");
-        }
+
+        // ALREADY HOVERED? Then the pointerEnter is already outstanding (the fingertip or the beam
+        // sent it on arrival) and must NOT be sent again — that would be the double this brief
+        // warns about. Only a press with no hover behind it (PressMode from GuildmasterDestinations,
+        // or a poke whose enter was lost to a rebuilt rail) synthesizes its own enter/exit pair.
+        bool hovered = cap != null && cap.GameHovered;
+        NativeUiPress.Press(target, hovered, CapName(cap, button) + " (" + source + ")");
+
+        VRLog.Info(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' pressed ({source}) — dispatched on "
+                          + $"'{target.name}' as {(hovered ? "pointerDown -> pointerUp -> pointerClick (the "
+                              + "pointerEnter was already outstanding from this cap's own hover)"
+                              : "pointerEnter -> pointerDown -> pointerUp -> pointerClick -> pointerExit "
+                              + "(synthesized: nothing was hovering this cap)")}, i.e. exactly what a left "
+                          + "mouse press on the game's own bar button sends. HOW TO READ THIS LINE: the "
+                          + "GAME ACTION commits on the pointerClick and on nothing else "
+                          + "(Toggle.OnPointerClick -> InternalToggle, ugui Toggle.cs:312-329) — the other "
+                          + "events are highlight state, a scale tween and the game's own PlaySound calls, "
+                          + "so this is still ONE press and still one thing on the wire. A DOUBLE PRESS "
+                          + "would show as two of these lines, or as capPresses jumping by 2. "
+                          + $"capPresses={(cap != null ? cap.Presses : -1)}, dispatch totals: "
+                          + NativeUiPress.Counters + ". THE SOUND: it is played by the game's own handler "
+                          + "off the game's own serialized item — see the one-shot 'PHYSICAL BUTTON SOUND "
+                          + "STATE' line for this button, which names each item and whether AudioController "
+                          + "knows it. Nothing here picks or plays a clip.");
     }
+
+    private static string CapName(Cap? c, UIGuildmasterButton button) =>
+        c != null ? CapName(c) : $"map table cap '{button.GuildmasterMode}'";
 
     /// <summary>
     /// Press the bar button that carries this mode, if the bar has one. Same dispatch as a
@@ -841,8 +1000,15 @@ internal sealed class MapButtonRail
 }
 
 /// <summary>
-/// Fingertip adapter for one table cap. Holds nothing: the press routes back through the rail so
-/// the finger and the laser can never disagree about what a cap does.
+/// Fingertip adapter for one table cap. Holds nothing: hover AND press route back through the rail
+/// so the finger and the laser can never disagree about what a cap does.
+///
+/// <para>ModBuild 195: the enter/exit callbacks are no longer empty. <c>PokeInteractor</c> guarantees
+/// the order <c>OnPokeEnter → (OnPoke)* → OnPokeExit</c> and keeps ONE hovered target per hand
+/// (PokeInteractor.cs:322-333, which exits the old target before entering the new one), so these two
+/// calls are strictly paired per hand; two hands on one cap are reconciled by the rail's own
+/// reference count. That pairing is what lets the cap send the game a real <c>pointerEnter</c> — and
+/// without one the game's own DOWN sound is gated off, which is the whole ModBuild 195 defect.</para>
 /// </summary>
 internal sealed class MapButtonPoke : MonoBehaviour, IPokeable
 {
@@ -855,9 +1021,17 @@ internal sealed class MapButtonPoke : MonoBehaviour, IPokeable
         _button = button;
     }
 
-    public void OnPokeEnter(VRHand hand) { }
+    public void OnPokeEnter(VRHand hand)
+    {
+        if (_rail != null && _button != null)
+            _rail.SetPokeHover(_button, hovered: true, $"{hand.Side} fingertip");
+    }
 
-    public void OnPokeExit(VRHand hand) { }
+    public void OnPokeExit(VRHand hand)
+    {
+        if (_rail != null && _button != null)
+            _rail.SetPokeHover(_button, hovered: false, $"{hand.Side} fingertip left");
+    }
 
     public void OnPoke(VRHand hand)
     {

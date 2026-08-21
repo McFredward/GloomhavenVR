@@ -16,8 +16,11 @@ namespace GloomhavenVR.WorldUI;
 /// CLICK ROUTING (decided per button from the decompiled code, all signatures
 /// verified against the real GH.Runtime.dll with ilspycmd 8.2, 2026-07-15):
 ///
-/// All three buttons are clicked via <c>ExecuteEvents.pointerClickHandler</c> on the
+/// All three buttons COMMIT via <c>ExecuteEvents.pointerClickHandler</c> on the
 /// REAL uGUI button GameObject — exactly the way the game's own hotkey bridge does it
+/// (and since ModBuild 195 that one click is preceded by the enter/down/up the game's
+/// own sound handlers hang off, and followed by the matching exit; the COMMIT is still
+/// that single click and nothing else — see <see cref="ClickUiButton"/>)
 /// (<c>BaseButtons.clickButton(GameObject)</c>: <c>if (Objbutton.GetComponent&lt;Selectable&gt;()
 /// .IsInteractable()) ExecuteEvents.Execute(Objbutton, new PointerEventData(EventSystem.current),
 /// ExecuteEvents.pointerClickHandler);</c> — IL 36 B). This runs the FULL guard chain:
@@ -872,6 +875,32 @@ internal sealed class ButtonCluster
     /// The game's own programmatic click (BaseButtons.clickButton pattern):
     /// Selectable.IsInteractable precheck + ExecuteEvents.pointerClickHandler.
     /// Extra gate: the mirrored UI lock (ExecuteEvents bypasses raycasters).
+    ///
+    /// <para>ModBuild 195 — THE SAME DEFECT THE MAP ROOM'S TABLE CAPS HAD, so it is repaired the
+    /// same way and through the same seam. User ruling: <i>"Immer noch keine Geräusche wenn ich die
+    /// physischen buttons drücke … ich will das die selben Geräusche kommen die auch im normalen
+    /// Spiel hörbar sind."</i> READ FROM SOURCE: <c>ExtendedButton.OnPointerClick</c> plays only
+    /// <c>mouseClickAudioItem</c> (:182), and the ModBuild 194 hardware log's own
+    /// <c>UI SOUND STATE</c> line shows a real game button whose click item is <c>&lt;none&gt;</c>
+    /// while the shared profile carries only the HOVER item — on a button authored that way the
+    /// press sound lives entirely in <c>OnPointerDown</c>/<c>OnPointerUp</c> (:200-236), and the
+    /// down half is additionally gated on <c>isHighlighted</c> (:208), which only
+    /// <c>OnPointerEnter</c> sets (:325-333 → :410-421). A click-only dispatch is therefore mute
+    /// by construction. <see cref="NativeUiPress"/> now sends the whole left-mouse sequence.</para>
+    ///
+    /// <para>STILL EXACTLY ONE COMMIT, which matters here more than anywhere: Ready ends a turn and
+    /// Undo rewinds one. The commit is the <c>pointerClick</c> — <c>Button.OnPointerClick</c> →
+    /// <c>Press()</c> → <c>onClick.Invoke()</c> — and it is dispatched once, last, exactly as
+    /// before. <c>pointerEnter</c>/<c>Down</c>/<c>Up</c>/<c>Exit</c> reach only
+    /// <c>Selectable</c>'s two bools plus a colour transition and the subclasses' tween and
+    /// <c>PlaySound</c> (read item by item in <see cref="NativeUiPress"/>); none of them can invoke
+    /// <c>onClick</c>. Nothing new goes on the wire: the network action is committed by
+    /// <c>ReadyButton.OnClick</c>/<c>UndoButton.OnClick</c> off that one <c>onClick</c>, and that
+    /// one <c>onClick</c> still fires once per physical press.</para>
+    ///
+    /// <para>Hover is synthesized around the press rather than tracked, because this cluster's
+    /// physical keycaps do not report a hover of their own into here: one press = one
+    /// enter/down/up/click/exit, balanced inside the call, so nothing is left highlighted.</para>
     /// </summary>
     private static void ClickUiButton(Selectable? button)
     {
@@ -882,8 +911,8 @@ internal sealed class ButtonCluster
             VRLog.Debug("WorldUI", "ButtonCluster: click swallowed — UI locked (modality respected).");
             return;
         }
-        ExecuteEvents.Execute(button.gameObject,
-            new PointerEventData(EventSystem.current), ExecuteEvents.pointerClickHandler);
+        NativeUiPress.Press(button.gameObject, alreadyHovered: false,
+                            "control-board keycap for '" + button.gameObject.name + "'");
     }
 
     // ---- one physical button ----------------------------------------------------------------

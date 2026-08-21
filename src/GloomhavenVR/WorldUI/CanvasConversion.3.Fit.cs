@@ -1253,6 +1253,15 @@ internal static partial class CanvasConversion
     /// </summary>
     private static void TickFit(ConvertedPanel panel)
     {
+        // THE INTERACTIVE AREA, FIRST AND UNCONDITIONALLY (user report 2026-08-21, the equipment
+        // window's swap panel). Deliberately ABOVE every early return in this method: the hit rect
+        // must keep tracking a window whose SIZING is finished or disabled. `FitEnabled` goes false
+        // the moment a one-shot menu locks its rect, and the equipment window's content grew long
+        // after its pre-reveal first fit had committed — a hit-rect update hung off the fit's own
+        // gates would be blind in exactly the cases that produced the report. Self-throttled
+        // (FitCheckIntervalFrames, staggered per panel) and self-guarded; see TickHitRect.
+        TickHitRect(panel);
+
         if (!panel.FitEnabled)
             return;
         // User ruling 2026-08-02 (post-reveal jump): while the host is still render-hidden
@@ -2156,4 +2165,529 @@ internal static partial class CanvasConversion
         panel.RevealPending && panel.RevealDeadline > 0f
         && Time.unscaledTime >= panel.RevealDeadline - FitForceCommitLeadSeconds;
 
+    // =============================================================================================
+    // THE HIT RECT — the interactive area follows the content the window actually DRAWS
+    // =============================================================================================
+    //
+    // THE REPORT (user, 2026-08-21, screenshot .planning/debug/ausrüstungsmenu.jpg):
+    //
+    //   "Im Ausrüstungsmenü kann man einen Gegenstand anklicken um ihn mit einem anderen zu
+    //    tauschen, dafür wird das Fenster größer - allerdings wächst das Fenster in VR nicht bzw.
+    //    der interaktive Bereich nicht. Der Laser geht durch den rechten Bereich hindurch der
+    //    angewachsen ist, dort kann man entsprechend auch nichts bedienen. […] achte darauf wo das
+    //    x ist, da endet der interaktive Bereich des Fensters."
+    //
+    // WHAT ACTUALLY GROWS, FROM THE HARDWARE LOG (ModBuild 194, .planning/debug/Player.log). The
+    // window's OWN RectTransform does not grow at all. It is 532x1080 uGUI px at conversion
+    // (line 5845: "Converted 'Modal_Character Items Equipment Content' to world space (532x1080
+    // px)") and it is still 532x1080 in all THIRTY supersample state reports of that session
+    // (line 5892 and 29 identical siblings):
+    //
+    //   PANEL SUPERSAMPLE 'Character Items Equipment Content': host rect 532x1080 uGUI px,
+    //   CAPTURE FRAME 805x1080 (GROWN by 273x0 px to cover content drawn outside the host frame;
+    //   CLAMPED — content IS being cropped)
+    //
+    // and the warning one line earlier (5868) gives the unclamped truth:
+    //
+    //   'Character Items Equipment Content' draws content that reaches 903x1080 uGUI px around a
+    //   532x1080 host rect
+    //
+    // So the game enables a sibling subtree that draws 371 px to the RIGHT of the window's own
+    // rect and never touches that rect. A world-space uGUI canvas does not clip at its own root
+    // rect, so all 371 px are DRAWN and VISIBLE — they are the inventory column in the screenshot.
+    //
+    // WHAT BOUNDS A HIT TODAY: exactly that unchanged root rect.
+    //   * RayUguiDriver.TryIntersect takes the canvas RectTransform's four world corners and
+    //     accepts the ray only for u,v in [0,1] — i.e. inside the 532 px.
+    //   * PokeInteractor.TickCanvases does `rect.rect.Contains(local)` — the same 532 px.
+    // 532 / 903 = 59 %, so 41 % of the visible window is dead to both. The close-X is parented to
+    // the HOST rect at anchor (1,1) (ModalCloseButton.cs:147-151), which is why the user could read
+    // the boundary straight off the screenshot: the X marks the host rect's right edge.
+    //
+    // WHY THE CONTENT FIT COULD NEVER HAVE CAUGHT THIS. TickFit's periodic growth re-check DOES
+    // run on this panel every 30 frames, and it measures 532x1080 every time — because
+    // TryMeasureContent CLAMPS its union into the conversion target's own frame
+    // ("off-screen/overflow elements must not grow the panel beyond the window's own rect", the
+    // block above `Vector2 sz = max - min;`). That clamp is correct for SIZING — it is what stops
+    // a stray off-screen graphic from inflating a window — but it means the fit is structurally
+    // incapable of reporting content that lives outside the window frame. The same log proves it
+    // for a second window: 'UI Quest Popup' logs "512x1015 → 512x1015 px … [frame-clamped]" over
+    // and over while the supersample frame reports 154x83 px of overspill on the same window.
+    //
+    // WHAT THIS SECTION DOES — and what was REJECTED.
+    //
+    //   REJECTED: grow the WINDOW (relax the frame clamp so HostRect.sizeDelta covers the
+    //   overspill). It is the tidier story — visible frame, X, grab bar and hit area would all
+    //   agree by construction — and it would also un-clamp the supersample capture frame that is
+    //   currently cropping this window. It was rejected because of what the host rect IS to
+    //   everything else: ApplyFitConverging re-centres the target by -center on every applied fit,
+    //   the close-X rides the host's top-right corner, GrabbableModal sizes its grab bar from
+    //   `_panel.HostRect.rect` (GrabbableModal.cs:319), and MapRoom slots the window by the
+    //   angular width that rect subtends. The swap panel opens and closes on every item the player
+    //   swaps, so growing the host would slide the window ~185 px sideways under his hands, move
+    //   the X and re-size the grab bar, once per swap — on a window whose pose the log explicitly
+    //   calls PLAYER-OWNED after a grab. The shrink damping (FitStableSeconds +
+    //   FitRefitMinIntervalSeconds) would additionally hold the enlarged frame for over a second
+    //   after the swap panel closed, i.e. a laser hitting empty space. That is a worse defect than
+    //   the one being fixed, and it would land on every converted window at once.
+    //
+    //   CHOSEN: the host rect stays the window's FRAME (placement, X, grab bar, supersample — all
+    //   untouched), and the RAY/POKE PLANE gets its own HIT RECT: the union of the host rect and
+    //   the content the window measurably draws, re-measured on the fit's own cadence. Nothing is
+    //   written to any game transform, so there is no write war to lose; the only consumer is the
+    //   ray/poke intersection test.
+    //
+    // MEASURED, NEVER PADDED. The union is built from the SAME per-graphic visibility verdict the
+    // content fit uses (TryGetVisibleHostRect: enabled, not culled, effective alpha >= FitMinAlpha,
+    // non-degenerate draw rect, clamped to its enclosing RectMask2D/Mask viewport) over the SAME
+    // root the fit measures (ResolveFitRoot). What it deliberately does NOT do is apply the target
+    // frame clamp — that clamp is the thing this measurement exists to see past. So the hit rect
+    // reaches exactly as far as pixels the player can see, and not one pixel further; when the
+    // swap panel closes and its graphics go inactive/transparent, the union collapses back and the
+    // hit rect follows it down on the next check.
+    //
+    // WHAT THE GROWTH COSTS, stated plainly: inside the grown region the laser now WINS the
+    // nearest-canvas arbitration against anything behind it. That is the same rule that already
+    // governs the host rect, applied over the area the window visibly covers — but it does mean a
+    // window drawn behind the overspill becomes unclickable there. It is reported in the log line
+    // below (the grown extent, and the graphic that reaches furthest outside) precisely so that
+    // trade is auditable instead of assumed.
+
+    /// <summary>
+    /// Hard bound on the hit rect as a multiple of the host rect, per axis. This is a SAFETY
+    /// BOUND, not a pad: it never adds area, it only refuses to follow a pathological measurement
+    /// (a window that somehow measures a graphic parked far off in the scene would otherwise
+    /// register an enormous invisible click plane that shadows everything behind it). 4x is
+    /// deliberately looser than PanelSupersample's 2x expansion clamp — that one bounds a VRAM
+    /// allocation, this one bounds nothing but a rectangle test — and the equipment window's
+    /// measured 903/532 = 1.70x therefore passes it untouched. Every clamp is reported.
+    /// </summary>
+    private const float MaxHitExpansion = 4f;
+
+    /// <summary>Per-panel hit-rect state. Keyed by host-canvas instance ID so the ray/poke drivers
+    /// can look it up from the <see cref="Canvas"/> alone, which is all they hold.</summary>
+    private sealed class HitRectEntry
+    {
+        /// <summary>The host canvas this entry belongs to (Unity-null once destroyed → pruned).</summary>
+        internal Canvas? Canvas;
+
+        /// <summary>THE ANSWER: what a ray/poke must be inside, in the host RectTransform's own
+        /// local space (uGUI px). Always contains the host rect.</summary>
+        internal Rect Hit;
+
+        /// <summary>The host rect at the last committed measurement (uGUI px).</summary>
+        internal Rect Host;
+
+        /// <summary>The measured drawn-content union, BEFORE the host union and the clamp.</summary>
+        internal Rect Content;
+
+        /// <summary>True when <see cref="MaxHitExpansion"/> had to cut the union down.</summary>
+        internal bool Clamped;
+
+        /// <summary>Graphics that contributed to the last committed union.</summary>
+        internal int Contributors;
+
+        /// <summary>Path of the graphic reaching furthest OUTSIDE the host rect ("" when none does).</summary>
+        internal string OutsideOwner = string.Empty;
+
+        /// <summary>How far outside the host rect that graphic reaches (uGUI px).</summary>
+        internal float OutsideBy;
+
+        /// <summary>Frame the next measurement is due (throttle, staggered per panel).</summary>
+        internal int NextCheckFrame;
+
+        /// <summary>Committed changes so far — the log line's "this is not the first time" counter.</summary>
+        internal int Commits;
+
+        /// <summary>Unscaled time the next log line may be written (see <see cref="HitRectLogIntervalSeconds"/>).</summary>
+        internal float NextLogAt;
+
+        /// <summary>Commits swallowed by that throttle since the last line — reported ON the next
+        /// line, so a throttled burst is visible as a burst instead of vanishing.</summary>
+        internal int SuppressedCommits;
+
+        /// <summary>Whether the LAST LOGGED line said the hit rect was larger than the host rect.
+        /// A commit that flips this is never throttled: it is the transition the bug report is
+        /// about ("the window grew, the interactive area did not"), and burying it behind a rate
+        /// limit would mean the one line the next hardware log is read for could be the one
+        /// swallowed. Sub-second churn WITHIN a state still throttles normally.</summary>
+        internal bool LoggedGrown;
+    }
+
+    /// <summary>
+    /// Minimum seconds between HIT RECT log lines for one window. THE RECT ITSELF IS NEVER
+    /// THROTTLED — only the line is. WHY the throttle exists at all: the union follows real drawn
+    /// content, and some of that content legitimately comes and goes (this very window carries a
+    /// game-owned 'UI Party Inventory Item Tooltip' that can pop up outside the frame and follow the
+    /// pointer). Each appearance is a real change to the interactive area and must land in the rect
+    /// immediately; what it must not do is bury the log. Suppressed commits are counted and named on
+    /// the next line, so a window that is churning reads AS churning.
+    /// </summary>
+    private const float HitRectLogIntervalSeconds = 1f;
+
+    /// <summary>Hit rects by host-canvas instance ID. Small (one entry per floated window).</summary>
+    private static readonly Dictionary<int, HitRectEntry> HitRects = new(8);
+
+    /// <summary>Scratch for <see cref="TryMeasureDrawnUnion"/>. Deliberately NOT
+    /// <see cref="GraphicScratch"/>: the two walks run in the same <see cref="TickFit"/> call and
+    /// sharing one buffer between two independent measurements is the kind of coupling that
+    /// produces a wrong number once and then never again reproducibly.</summary>
+    private static readonly List<Graphic> HitGraphicScratch = new(64);
+
+    /// <summary>Once-per-session guard for the never-throw warning below.</summary>
+    private static bool s_hitRectFaultLogged;
+
+    /// <summary>
+    /// THE PUBLIC ANSWER, and the one place the ray/poke plane may ask it: the rectangle a hit on
+    /// <paramref name="canvas"/> must land inside, in that canvas RectTransform's own local space
+    /// (uGUI px, the same space as <c>RectTransform.rect</c>).
+    ///
+    /// <para>Returns false for every canvas this module has not measured — mod-built surfaces, the
+    /// board's docked canvases, anything registered by a path other than <c>Convert</c>. The
+    /// callers then use <c>rect.rect</c> exactly as they did before, so a canvas without an entry
+    /// behaves BYTE-IDENTICALLY to the shipped builds. It also returns false before the first
+    /// measurement of a converted window has committed, for the same reason.</para>
+    ///
+    /// <para>Never throws, never allocates, never writes: a dictionary probe and a Unity-null
+    /// check. Safe to call from an Update/LateUpdate hot path once per canvas per frame.</para>
+    /// </summary>
+    internal static bool TryGetHitRect(Canvas? canvas, out Rect hit)
+    {
+        hit = default;
+        if (canvas == null)
+            return false;
+        if (!HitRects.TryGetValue(canvas.GetInstanceID(), out HitRectEntry? entry) || entry == null)
+            return false;
+        if (entry.Canvas == null || !ReferenceEquals(entry.Canvas, canvas))
+            return false;
+        if (entry.Hit.width < 1f || entry.Hit.height < 1f)
+            return false;
+        hit = entry.Hit;
+        return true;
+    }
+
+    /// <summary>
+    /// Re-measure this panel's hit rect if its check is due. Called FIRST from
+    /// <see cref="TickFit"/> — before every one of that method's early returns — because the hit
+    /// rect must keep tracking a window whose SIZING fit has finished forever (a one-shot menu
+    /// locks <c>FitEnabled</c> false, and the equipment window's content grows long after its
+    /// pre-reveal first fit committed).
+    ///
+    /// <para>CADENCE: <see cref="FitCheckIntervalFrames"/> (30 frames, ~0.33 s at 90 Hz), staggered
+    /// per panel by instance ID so several open windows never measure on the same frame. That is
+    /// the same rhythm the growth re-fit already runs at, and the same subtree walk (~85 us for the
+    /// 251-transform equipment window per the ModBuild 194 flatness line), so the steady-state cost
+    /// of this whole section is one extra content walk per open window per 30 frames.</para>
+    ///
+    /// <para>A SETTLED WINDOW WRITES NOTHING: the measurement is compared against the committed
+    /// rect with the fit's own <see cref="FitChangeFraction"/> tolerance, and a sub-tolerance result
+    /// is discarded — no field write, no log line, no allocation past the walk. Only a material
+    /// change commits, and every commit logs exactly once.</para>
+    ///
+    /// <para>NEVER THROWS. This runs inside the WorldUI LateUpdate chain; an escaping exception
+    /// there would take the rest of the chain — and with it the panel treatments the whole UI
+    /// depends on — down with it. Any fault degrades to "no entry", i.e. the pre-existing host-rect
+    /// behaviour, and warns once.</para>
+    /// </summary>
+    private static void TickHitRect(ConvertedPanel panel)
+    {
+        try
+        {
+            if (panel == null || panel.HostCanvas == null || panel.HostRect == null
+                || panel.Target == null || panel.HostGo == null)
+                return;
+
+            int id = panel.HostCanvas.GetInstanceID();
+            if (!HitRects.TryGetValue(id, out HitRectEntry? entry) || entry == null)
+            {
+                HitRects[id] = entry = new HitRectEntry
+                {
+                    Canvas = panel.HostCanvas,
+                    // Stagger: the walks of N open windows spread across the interval instead of
+                    // landing on one frame together.
+                    NextCheckFrame = Time.frameCount + (id & 0x7FFFFFFF) % FitCheckIntervalFrames,
+                };
+                PruneHitRects();
+            }
+            if (Time.frameCount < entry.NextCheckFrame)
+                return;
+            entry.NextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
+
+            Rect host = panel.HostRect.rect;
+            if (host.width < 1f || host.height < 1f)
+                return; // degenerate host (not laid out yet) — keep whatever we had
+
+            RectTransform root = ResolveFitRoot(panel, panel.FitContentRoot);
+            bool measured = TryMeasureDrawnUnion(panel, root, host, out Rect content,
+                out int contributors, out string outsideOwner, out float outsideBy);
+
+            // Nothing measurable (mid fade-in, window hidden behind the reveal gate): the hit rect
+            // is the host rect, which is exactly the shipped behaviour. Never a stale grown rect —
+            // that would be a laser hitting empty space.
+            Rect union = measured ? Union(host, content) : host;
+
+            // THE SAFETY BOUND (see MaxHitExpansion). Host-centred, edge by edge, so a clamp gives
+            // away as much of the overspill as the bound allows instead of dropping all of it.
+            float padX = host.width * (MaxHitExpansion - 1f) * 0.5f;
+            float padY = host.height * (MaxHitExpansion - 1f) * 0.5f;
+            float xMin = Mathf.Max(union.xMin, host.xMin - padX);
+            float xMax = Mathf.Min(union.xMax, host.xMax + padX);
+            float yMin = Mathf.Max(union.yMin, host.yMin - padY);
+            float yMax = Mathf.Min(union.yMax, host.yMax + padY);
+            bool clamped = xMin > union.xMin + 0.5f || xMax < union.xMax - 0.5f
+                           || yMin > union.yMin + 0.5f || yMax < union.yMax - 0.5f;
+            Rect hit = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
+            if (hit.width < 1f || hit.height < 1f)
+                hit = host;
+
+            // Dirty check — the same relative tolerance the content fit uses for its own no-op.
+            float tolX = Mathf.Max(Mathf.Max(host.width, hit.width) * FitChangeFraction, 1f);
+            float tolY = Mathf.Max(Mathf.Max(host.height, hit.height) * FitChangeFraction, 1f);
+            if (entry.Commits > 0
+                && Mathf.Abs(hit.xMin - entry.Hit.xMin) <= tolX
+                && Mathf.Abs(hit.xMax - entry.Hit.xMax) <= tolX
+                && Mathf.Abs(hit.yMin - entry.Hit.yMin) <= tolY
+                && Mathf.Abs(hit.yMax - entry.Hit.yMax) <= tolY)
+                return; // settled — nothing written, nothing logged
+
+            entry.Hit = hit;
+            entry.Host = host;
+            entry.Content = measured ? content : host;
+            entry.Clamped = clamped;
+            entry.Contributors = contributors;
+            entry.OutsideOwner = outsideOwner;
+            entry.OutsideBy = outsideBy;
+            entry.Commits++;
+            // The rect above is already live for the ray/poke plane. Only the LINE is rate-limited,
+            // and never across the grown/not-grown transition (see HitRectEntry.LoggedGrown).
+            bool grown = hit.width > host.width + 0.5f || hit.height > host.height + 0.5f;
+            if (entry.Commits > 1 && grown == entry.LoggedGrown
+                && Time.unscaledTime < entry.NextLogAt)
+            {
+                entry.SuppressedCommits++;
+                return;
+            }
+            entry.NextLogAt = Time.unscaledTime + HitRectLogIntervalSeconds;
+            entry.LoggedGrown = grown;
+            LogHitRect(panel, entry, measured, root);
+            entry.SuppressedCommits = 0;
+        }
+        catch (System.Exception e)
+        {
+            if (!s_hitRectFaultLogged)
+            {
+                s_hitRectFaultLogged = true;
+                VRLog.Warn("WorldUI", "HIT RECT: the interactive-area measurement threw " +
+                                      $"{e.GetType().Name} ('{e.Message}') and was swallowed so the " +
+                                      "WorldUI LateUpdate chain keeps running. WHAT THIS MEANS FOR " +
+                                      "INPUT: nothing regressed — every canvas without a committed " +
+                                      "hit rect falls back to its own RectTransform rect, which is " +
+                                      "the behaviour of every build before this one. Windows that " +
+                                      "draw outside their own frame simply stay unclickable there " +
+                                      "until this is fixed. Logged once per session.");
+            }
+        }
+    }
+
+    /// <summary>Drop entries whose host canvas is gone. Runs only when a NEW entry is created (a
+    /// window opened), which is the only moment the dictionary can grow — so a session that opens
+    /// and closes windows all evening never accumulates.</summary>
+    private static void PruneHitRects()
+    {
+        if (HitRects.Count < 2)
+            return;
+        List<int>? dead = null;
+        foreach (KeyValuePair<int, HitRectEntry> pair in HitRects)
+        {
+            if (pair.Value == null || pair.Value.Canvas == null)
+                (dead ??= new List<int>(4)).Add(pair.Key);
+        }
+        if (dead == null)
+            return;
+        for (int i = 0; i < dead.Count; i++)
+            HitRects.Remove(dead[i]);
+    }
+
+    /// <summary>
+    /// The union of everything <paramref name="root"/>'s subtree measurably DRAWS, in host-local
+    /// uGUI px — the content fit's measurement with its one disqualifying difference: the target
+    /// FRAME CLAMP is not applied.
+    ///
+    /// <para>WHY THAT DIFFERENCE IS THE WHOLE POINT. <see cref="TryMeasureContent"/> ends every
+    /// pass with <c>min = Vector2.Max(min, frameMin); max = Vector2.Min(max, frameMax);</c> against
+    /// the conversion target's own rect, because a window must not be SIZED by something that
+    /// escaped its frame. This measurement answers the opposite question — "what can the player
+    /// see, wherever it is?" — and the ModBuild 194 log shows two windows for which the two answers
+    /// differ materially ('Character Items Equipment Content' 903 vs 532 px wide, 'UI Quest Popup'
+    /// reporting "[frame-clamped]" on every single fit while its supersample frame grows by
+    /// 154x83). Everything else is shared code on purpose: the per-graphic verdict is
+    /// <see cref="TryGetVisibleHostRect"/> itself, so a graphic this walk counts is a graphic the
+    /// fit would have counted, mask clipping and alpha floor included, and the two can never
+    /// disagree about what "visible" means.</para>
+    ///
+    /// <para>Mod-owned cue art is skipped for the same reason the fit skips it (it breathes, and it
+    /// is presentation, not content). <paramref name="outsideOwner"/>/<paramref name="outsideBy"/>
+    /// name the single graphic that reaches furthest beyond <paramref name="host"/>, so the log can
+    /// say WHICH element made the window grow rather than only that it did.</para>
+    ///
+    /// <para>False when nothing was measurable at all (window mid-fade, still hidden); the caller
+    /// then falls back to the host rect rather than holding a stale grown one.</para>
+    /// </summary>
+    private static bool TryMeasureDrawnUnion(ConvertedPanel panel, RectTransform root, Rect host,
+        out Rect union, out int contributors, out string outsideOwner, out float outsideBy)
+    {
+        union = default;
+        contributors = 0;
+        outsideOwner = string.Empty;
+        outsideBy = 0f;
+
+        Vector2 min = new(float.MaxValue, float.MaxValue);
+        Vector2 max = new(float.MinValue, float.MinValue);
+
+        // Same per-pass contract as TryMeasureContent: both memos are keyed by live Transforms and
+        // must not survive into a walk taken at a different moment.
+        ClipperMemo.Clear();
+        AuthoredOffsetMemo.Clear();
+        HitGraphicScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, HitGraphicScratch);
+        for (int i = 0; i < HitGraphicScratch.Count; i++)
+        {
+            Graphic g = HitGraphicScratch[i];
+            if (g == null)
+                continue;
+            if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                continue; // mod cue art is presentation, not content (see TryMeasureContent)
+            if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax))
+                continue;
+
+            min = Vector2.Min(min, gMin);
+            max = Vector2.Max(max, gMax);
+            contributors++;
+
+            float outside = Mathf.Max(
+                Mathf.Max(host.xMin - gMin.x, gMax.x - host.xMax),
+                Mathf.Max(host.yMin - gMin.y, gMax.y - host.yMax));
+            if (outside > outsideBy)
+            {
+                outsideBy = outside;
+                Transform? parent = g.transform.parent;
+                outsideOwner = parent != null ? parent.name + "/" + g.name : g.name;
+            }
+        }
+        HitGraphicScratch.Clear();
+
+        if (contributors == 0)
+            return false;
+        union = Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+        return union.width >= 1f && union.height >= 1f;
+    }
+
+    /// <summary>Smallest rect containing both.</summary>
+    private static Rect Union(Rect a, Rect b) => Rect.MinMaxRect(
+        Mathf.Min(a.xMin, b.xMin), Mathf.Min(a.yMin, b.yMin),
+        Mathf.Max(a.xMax, b.xMax), Mathf.Max(a.yMax, b.yMax));
+
+    /// <summary>
+    /// World units per REAL (tracking-space) metre — the diorama scale on the rig root. Returns 0
+    /// when there is no rig yet, and the caller then prints "rig scale unknown" instead of a
+    /// millimetre figure derived from a guess: mixing world units and metres without naming which
+    /// is how this project once drew a laser 0.15 mm wide and called it correct.
+    /// </summary>
+    private static float RigUnitsPerMetre()
+    {
+        Transform? rigRoot = Rig.VRRigDriver.RigRoot;
+        if (rigRoot != null)
+        {
+            float s = rigRoot.lossyScale.x;
+            if (s > 1e-4f)
+                return s;
+        }
+        float baseScale = Rig.VRRigDriver.BaseWorldScale;
+        return baseScale > 1e-4f ? baseScale : 0f;
+    }
+
+    /// <summary>
+    /// One line per COMMITTED hit rect (first measurement, and every material change afterwards).
+    /// It carries the full derivation — host rect, measured drawn content, which of the two is
+    /// larger, the resulting hit rect — in uGUI px AND in real millimetres at the live rig scale,
+    /// plus the element that reaches furthest outside the frame.
+    /// </summary>
+    private static void LogHitRect(ConvertedPanel panel, HitRectEntry entry, bool measured,
+        RectTransform root)
+    {
+        Rect host = entry.Host;
+        Rect hit = entry.Hit;
+        Rect content = entry.Content;
+        float growX = hit.width - host.width;
+        float growY = hit.height - host.height;
+        bool grown = growX > 0.5f || growY > 0.5f;
+
+        // uGUI px -> world units is the host's own lossy scale (this is what GetWorldCorners
+        // applies); world units -> real metres is the rig scale. Named separately on purpose.
+        float pxToWorld = panel.HostRect != null ? panel.HostRect.lossyScale.x : 0f;
+        float unitsPerMetre = RigUnitsPerMetre();
+        string realSize;
+        if (pxToWorld > 1e-6f && unitsPerMetre > 1e-4f)
+        {
+            float mmPerPx = pxToWorld / unitsPerMetre * 1000f;
+            realSize = $"REAL SIZE at the live rig scale ({unitsPerMetre:F1} world units per "
+                       + $"tracking metre, host scale {pxToWorld:F4} world units per uGUI px = "
+                       + $"{mmPerPx:F3} mm per px): the window's own frame is "
+                       + $"{host.width * mmPerPx:F0}x{host.height * mmPerPx:F0} mm and the "
+                       + $"interactive area is {hit.width * mmPerPx:F0}x{hit.height * mmPerPx:F0} mm"
+                       + (grown ? $", i.e. {growX * mmPerPx:F0}x{growY * mmPerPx:F0} mm wider/taller "
+                                  + "than the frame" : " — identical");
+        }
+        else
+        {
+            realSize = "REAL SIZE: not stated — rig scale unknown "
+                       + $"(rig units/metre {unitsPerMetre:F1}, host px scale {pxToWorld:F5}); a "
+                       + "millimetre figure derived from a guessed scale would be worse than none";
+        }
+
+        string verdict = !measured
+            ? "NOTHING MEASURABLE (window still hidden or fading in) — the hit rect IS the host "
+              + "rect, exactly as in every build before this one"
+            : grown
+                ? $"GROWN: the window draws {growX:F0}x{growY:F0} px outside its own frame and the "
+                  + "laser/poke plane now reaches that far"
+                : "content fits inside the frame — the hit rect IS the host rect, so the ray/poke "
+                  + "geometry is bit-identical to the shipped builds";
+
+        VRLog.Info("WorldUI",
+            $"HIT RECT '{panel.HostGo.name}' (commit #{entry.Commits}, root '{root.name}'"
+            + (entry.SuppressedCommits > 0
+                ? $", {entry.SuppressedCommits} further change(s) since the last line were applied "
+                  + "to the rect but not logged — this window's drawn content is churning"
+                : string.Empty)
+            + "): "
+            + $"host rect {host.width:F0}x{host.height:F0} px at "
+            + $"({host.center.x:F0},{host.center.y:F0}); DRAWN CONTENT "
+            + $"{content.width:F0}x{content.height:F0} px at "
+            + $"({content.center.x:F0},{content.center.y:F0}) from {entry.Contributors} visible "
+            + $"graphic(s); LARGER = {(grown ? "the content" : "the host rect")} → HIT RECT "
+            + $"{hit.width:F0}x{hit.height:F0} px at ({hit.center.x:F0},{hit.center.y:F0}) "
+            + $"[x {hit.xMin:F0}..{hit.xMax:F0}, y {hit.yMin:F0}..{hit.yMax:F0}] — {verdict}. "
+            + (entry.OutsideBy > 0.5f
+                ? $"FURTHEST OUTSIDE the frame: '{entry.OutsideOwner}' by {entry.OutsideBy:F0} px. "
+                : "Nothing reaches outside the frame. ")
+            + (entry.Clamped
+                ? $"CLAMPED by the {MaxHitExpansion:F0}x safety bound — the measured content is "
+                  + "larger than this path will follow, so the region beyond the hit rect stays "
+                  + "unclickable; raise MaxHitExpansion if the window genuinely draws that far out. "
+                : string.Empty)
+            + realSize + ". HOW TO READ THIS LINE: the HIT RECT is the rectangle "
+            + "RayUguiDriver.TryIntersect tests the aim ray against — a laser lands on this window "
+            + "if and only if it crosses this rectangle, and nowhere else. 'LARGER = the host rect' "
+            + "means this window changed nothing and behaves exactly as before. 'LARGER = the "
+            + "content' means the game drew outside the window's own RectTransform (it does NOT "
+            + "resize that rect) and the interactive area followed it; the window's visible frame, "
+            + "its close-X and its grab bar all still ride the HOST rect and did not move. If the "
+            + "user reports dead input on a window, this line says whether the mod believed the "
+            + "content was there at all: a hit rect equal to the host rect on a window that "
+            + "visibly extends past it means the extension failed the visibility test (culled, "
+            + "alpha below the fit floor, or clipped by a mask) — compare against the PANEL "
+            + "SUPERSAMPLE capture-frame line for the same window, which measures the same "
+            + "overspill with a deliberately more permissive test.");
+    }
 }
