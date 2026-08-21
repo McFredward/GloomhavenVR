@@ -234,7 +234,15 @@ internal static partial class ModalFallback
         CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
         MapRoom.GuildmasterDestinations.Reset(); // hand the borrowed banner back before we vanish
         MapRoom.HoverCardPose.Reset();          // per-card follow/seat state dies with the module
-        _lastArcCount = -1;
+        // Every window has just been released, so every arc slot is free by definition. Clearing
+        // the registry here (rather than letting the sweep do it) means a fresh session never
+        // inherits a claim held by a panel from the previous one.
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            _arcClaims[i] = null;
+            _arcClaimNames[i] = null;
+        }
+        _arcGeometryLogged = false; // re-state the arc geometry once per session
         ScreenWanted = false;
         VRModeStateMachine.SetAuxModal(false);
     }
@@ -327,27 +335,6 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
-    /// Lay the map room's open windows out on an arc around the player, NEWEST DEAD AHEAD
-    /// (ModBuild 183). User: <i>"Ich möchte das die Fenster … im Halbkreis um einen gespawned
-    /// werden, so dass man alle direkt perfekt im Überblick hat"</i> and <i>"Wenn ich ein icon/ort
-    /// andrücke spawned das fenster nicht vor mir sondern so weit neben mir, dass ich es zuerst
-    /// nicht bemerkt habe."</i> Both at once: the thing you just asked for is in front of you, and
-    /// everything already open steps aside rather than being buried behind it.
-    ///
-    /// <para>Slots run 0°, +34°, −34°, +68° … outward from the gaze, so the set stays centred and
-    /// grows symmetrically. Only the HORIZONTAL direction is rewritten — each window keeps the
-    /// height its own spawn clamp gave it, so nothing here can push a window into the table or
-    /// above the eye cap, and the clamp does not have to run again.</para>
-    ///
-    /// <para>NEVER MOVES A WINDOW THE PLAYER OWNS. <c>UserMoved</c> latches on the first grip
-    /// (GrabbableModal), and a window someone deliberately placed is theirs — re-arranging it under
-    /// their hands would be the same class of insult as re-seating a room they stand in. Hover
-    /// cards are skipped too: their pose belongs to the icon they describe.</para>
-    /// </summary>
-    /// <summary>Converted-count the arc was last laid out for (change detector).</summary>
-    private static int _lastArcCount = -1;
-
-    /// <summary>
     /// The floated window carrying this ID, or null when no such window is currently a world-space
     /// panel. ASKS THE FLOAT SET, not the game: a window can be open and not floated (the parent
     /// won, the catch-all refused it, conversion failed), and something that wants to park content
@@ -383,54 +370,394 @@ internal static partial class ModalFallback
         return null;
     }
 
-    /// <summary>How many floated windows the arc actually places — hover cards excluded, because
-    /// their pose belongs to the icon they describe and they churn on every mouseover.</summary>
-    private static int ArcWindowCount()
+    // ---- THE MAP ROOM'S WINDOW SLOTS (slot reservation) --------------------------------------
+    //
+    // USER RULING, verbatim (report item 3):
+    //
+    //   "Die Fenster verändern ständig ihre Position wenn ein neues Fenster gespawned wird oder
+    //    schließt. Das soll nicht sein - ohne explizite Bewegung vom User, sollen sie ihre Position
+    //    nicht verändern. Spawne die Fenster so, das alle im Sichtfeld passen aber einmal gespawned
+    //    sind sie fix."
+    //
+    // WHAT STOOD HERE, AND WHY IT MOVED THEM. ModBuild 183 laid the room out with
+    // RelayoutMapRoomArc: whenever the floated SET changed — any add, any close, any release — it
+    // walked <see cref="Converted"/> backwards and REWROTE the horizontal direction of every
+    // non-grabbed window, so the newest sat dead ahead and the older ones stepped outward along
+    // 0°, +34°, −34°, +68° … Its own header called that "everything already open steps aside",
+    // which is exactly the behaviour being rejected: opening the temple moved the merchant, and
+    // closing the temple moved it back. The change detector was the ARC COUNT
+    // (ArcWindowCount() != _lastArcCount), so every open and every close fired it.
+    //
+    // WHAT PART OF 183 SURVIVES. The arc GEOMETRY was never the complaint — it was asked for
+    // ("Ich möchte das die Fenster … im Halbkreis um einen gespawned werden, so dass man alle
+    // direkt perfekt im Überblick hat") and it is what keeps the whole set in the field of view,
+    // which this ruling repeats. So the angles (0, ±34°, ±68°), the constant reading distance and
+    // the yaw-only facing are kept BIT FOR BIT; what changes is who decides them and when. The
+    // decision moves from "recompute the ensemble on every event" to "claim one slot at spawn":
+    //
+    //   * a window CLAIMS the free slot nearest the centre the moment it is placed
+    //     (ComputeHmdPose, part 9 — the one placement authority, so the claim rides through the
+    //     same board-floor / eye-cap clamps and the same pre-reveal re-place as every other spawn);
+    //   * it HOLDS that slot for its whole floated life — nothing in this class writes the pose of
+    //     a standing map-room window again;
+    //   * it RELEASES the slot when it stops floating, and the release moves NOTHING. The freed
+    //     slot simply becomes available to the next window that opens, which may well be the same
+    //     window re-opened at a different angle. That is expected and stated in the ruling
+    //     ("einmal gespawned sind sie fix" is about the life of ONE float, not across re-opens).
+    //
+    // WHY A REGISTRY AND NOT A FIELD ON WindowPanel: WindowPanel lives in part 3, which this lane
+    // does not own. The array IS the claim — slot i is occupied by the panel stored at i — so the
+    // "which slot does this window hold" question is answered by a five-entry scan and there is no
+    // second copy of the truth to fall out of sync with the first.
+    //
+    // A WINDOW THE PLAYER HAS MOVED KEEPS ITS SLOT, deliberately. GrabbableModal.UserMoved latches
+    // on the first grip and is already honoured everywhere a pose can be written (the presence-
+    // regain refloat skips it; the pre-reveal re-place refuses to touch a grabbed OR an already
+    // visible window, and a window the player has gripped is by construction both). Freeing the
+    // slot of a carried-off window would let the NEXT window spawn on the angle it vacated — and
+    // since an arc spawn deliberately does no modal-vs-modal box test (the slot is what
+    // deconflicts), a window the player only NUDGED would then have a fresh one materialise on top
+    // of it. Holding the claim costs one seat out of five and cannot superimpose anything; that is
+    // the safer side of the trade, and the player who moved one window can move the next.
+    //
+    // MULTIPLAYER: nothing here goes on the wire, and nothing may. Which windows a client has open,
+    // and where in ITS room they stand, is local presentation — it is derived from that client's
+    // own head pose at its own spawn moments, and two clients in the same map room legitimately see
+    // their own arrangement. No NetProtocol record, no ModBuild-relevant wire change.
+
+    /// <summary>
+    /// How many DISTINCT slots the arc has: the centre plus one step each way until
+    /// <see cref="MaxArcHalfDegrees"/> is passed, i.e. <c>1 + 2 × floor(85 / 34) = 5</c> at the
+    /// shipped angles → 0°, ±34°, ±68°.
+    ///
+    /// <para>THE OLD CODE HAD NO SUCH BOUND AND THAT WAS A LATENT COLLISION: it clamped the angle
+    /// with <c>Mathf.Min(step × 34, 85)</c>, so the sixth window sat at +85° and the seventh at
+    /// −85°, the eighth at +85° again — i.e. exactly ON TOP of the sixth. Here the capacity is the
+    /// number of slots that genuinely exist, and everything past it is handled explicitly by the
+    /// overflow rule below instead of silently coinciding.</para>
+    /// </summary>
+    private const int ArcSlotCount = 5;
+
+    /// <summary>
+    /// WHAT HAPPENS WHEN THE ARC IS FULL. A sixth window may not vanish and may not land exactly on
+    /// top of a fifth, so it falls back to the SAME treatment a stacked secondary gets at a
+    /// scenario table (<see cref="SecondaryStaggerMeters"/> / <see cref="SecondaryForegroundMeters"/>):
+    /// dead centre, nudged right+down and pulled toward the head, so it stands clearly in the
+    /// FOREGROUND of the centre window rather than merging with it — visible, readable, grabbable,
+    /// and separable by hand. Each overflow window takes its own stagger index, so overflow windows
+    /// never coincide with each other either. Four of them is already an eight-window room; past
+    /// that the last index is reused and the log says so rather than pretending otherwise.
+    /// </summary>
+    private const int ArcOverflowCapacity = 4;
+
+    /// <summary>
+    /// THE CLAIM ITSELF. Index &lt; <see cref="ArcSlotCount"/> = a real arc slot (angle from
+    /// <see cref="ArcSlotAngleDeg"/>); index ≥ that = an overflow stack index. Null = free.
+    /// Written ONLY by <see cref="TryClaimArcSlot"/> (spawn / presence-regain refloat) and
+    /// <see cref="ReleaseFinishedArcSlots"/> (a window stopped floating / the room ended).
+    /// </summary>
+    private static readonly ConvertedPanel?[] _arcClaims =
+        new ConvertedPanel?[ArcSlotCount + ArcOverflowCapacity];
+
+    /// <summary>Log name of the panel holding each claim — kept separately because the RELEASE line
+    /// has to name the window AFTER its host has already been destroyed.</summary>
+    private static readonly string?[] _arcClaimNames = new string?[ArcSlotCount + ArcOverflowCapacity];
+
+    /// <summary>One-time geometry report (see <see cref="LogArcGeometryOnce"/>).</summary>
+    private static bool _arcGeometryLogged;
+
+    /// <summary>
+    /// The angle of arc slot <paramref name="slot"/> in degrees, measured from the spawn gaze,
+    /// + = right. IDENTICAL to ModBuild 183's sequence (0°, +34°, −34°, +68°, −68°) so a room laid
+    /// out by the old relayout and one laid out by the slot claims look the same; only the timing
+    /// of the decision changed. Out-of-range (overflow) slots answer 0° — they are centred and
+    /// staggered instead, see <see cref="ArcOverflowCapacity"/>.
+    /// </summary>
+    private static float ArcSlotAngleDeg(int slot)
     {
-        int n = 0;
-        for (int i = 0; i < Converted.Count; i++)
-        {
-            if (!Converted[i].HoverCard)
-                n++;
-        }
-        return n;
+        if (slot < 0 || slot >= ArcSlotCount)
+            return 0f;
+        int step = (slot + 1) / 2;
+        float sign = (slot % 2) == 1 ? 1f : -1f;
+        return step * ArcStepDegrees * sign;
     }
 
-    private static void RelayoutMapRoomArc()
+    /// <summary>How many arc slots and overflow stacks are currently claimed.</summary>
+    private static void CountArcClaims(out int slotsUsed, out int overflowUsed)
     {
-        if (!MapRoom.MapRoomDriver.Active)
-            return;
-        Camera? head = CanvasConversion.WorldCamera;
-        if (head == null)
-            return;
-        Vector3 headPos = head.transform.position;
-        Vector3 flatFwd = head.transform.forward;
-        flatFwd.y = 0f;
-        if (flatFwd.sqrMagnitude < 1e-6f)
-            flatFwd = Vector3.forward;
-        flatFwd.Normalize();
-        float dist = WindowDistanceMeters * PanelLayout.WorldScale;
+        slotsUsed = 0;
+        overflowUsed = 0;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i] == null)
+                continue;
+            if (i < ArcSlotCount)
+                slotsUsed++;
+            else
+                overflowUsed++;
+        }
+    }
 
-        // Newest first: Converted is append-ordered, so walk it backwards.
-        int slot = 0;
-        for (int i = Converted.Count - 1; i >= 0; i--)
+    /// <summary>
+    /// States the arc's geometry ONCE per session, so a hardware log can be read without having to
+    /// know the constants: how many slots exist, at which angles, and what the capacity means. If a
+    /// future edit changes <see cref="ArcStepDegrees"/> / <see cref="MaxArcHalfDegrees"/> without
+    /// changing <see cref="ArcSlotCount"/>, the mismatch is named here rather than showing up as two
+    /// windows quietly sharing an angle.
+    /// </summary>
+    private static void LogArcGeometryOnce()
+    {
+        if (_arcGeometryLogged)
+            return;
+        _arcGeometryLogged = true;
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < ArcSlotCount; i++)
+            sb.Append(i == 0 ? "" : ", ").Append(i).Append(':').Append(ArcSlotAngleDeg(i).ToString("F0")).Append('°');
+        int derived = 1 + 2 * Mathf.FloorToInt(MaxArcHalfDegrees / ArcStepDegrees);
+        VRLog.Info("WorldUI", $"MAP ROOM WINDOW SLOTS: the arc has {ArcSlotCount} slots [{sb}] at "
+                              + $"{WindowDistanceMeters:F2} m reading distance, plus {ArcOverflowCapacity} "
+                              + "overflow stacks in front of the centre. A window claims ONE slot when it "
+                              + "spawns and keeps it until it stops floating; opening or closing a window "
+                              + "never moves any other window (user ruling: 'einmal gespawned sind sie fix')."
+                              + (derived == ArcSlotCount
+                                  ? ""
+                                  : $" WARNING: the step/half-angle constants ({ArcStepDegrees:F0}°/"
+                                    + $"{MaxArcHalfDegrees:F0}°) imply {derived} distinct slots, not "
+                                    + $"{ArcSlotCount} — slots would share angles or be wasted. Fix "
+                                    + "ArcSlotCount."));
+    }
+
+    /// <summary>
+    /// Claim (or re-find) this panel's arc slot. Called from <see cref="ComputeHmdPose"/>, i.e. at
+    /// spawn and at presence-regain refloat, and NEVER per frame.
+    ///
+    /// <para>THE CHOICE RULE — FREE SLOT NEAREST THE CENTRE, right side first. The slot indices are
+    /// already ordered centre-outward (0°, +34°, −34°, +68°, −68°), so "first free index" IS
+    /// "nearest the centre", and the tie between the two sides of a step is broken to the right,
+    /// which is the side ModBuild 183 filled first. Why this rule and not "always dead ahead":
+    /// dead ahead is only free for the FIRST window, and taking it from a window already standing
+    /// there is the move the ruling forbids. Why not "next index after the last one used": that
+    /// wastes the middle — close the centre window and every future window would sit off to the
+    /// side with a hole where the player is looking. Nearest-to-centre re-uses freed central space
+    /// immediately and keeps the ensemble symmetric and inside the field of view, which is the
+    /// other half of the same ruling ("so das alle im Sichtfeld passen").</para>
+    ///
+    /// <para>EXCLUSIONS. Outside the map room there is no arc (a scenario table stacks its
+    /// secondaries instead — item 2/3b). A HOVER CARD never claims: <c>TickHoverCards</c> owns its
+    /// pose, and it joins and leaves <see cref="Converted"/> on every single mouseover, so a claim
+    /// would churn the whole registry for something that is not a window. A LEVEL MESSAGE never
+    /// claims: its pose is governed by the chain-continuity ruling. The global error box never
+    /// claims: it is not a <see cref="Converted"/> window, so nothing would ever release it.</para>
+    /// </summary>
+    /// <param name="slot">The claimed index, or −1 when the arc AND the overflow are both full
+    /// (last-resort placement, see <paramref name="staggerIndex"/>).</param>
+    /// <param name="yawDeg">Degrees to rotate the spawn gaze by, + = right.</param>
+    /// <param name="staggerIndex">0 for a real arc slot; ≥1 for an overflow stack (the existing
+    /// right+down+foreground stagger).</param>
+    /// <param name="why">Human-readable reason for the log line.</param>
+    /// <returns>true when the map room's arc governs this placement.</returns>
+    private static bool TryClaimArcSlot(ConvertedPanel? panel, bool levelMessage,
+        out int slot, out float yawDeg, out int staggerIndex, out string why)
+    {
+        slot = -1;
+        yawDeg = 0f;
+        staggerIndex = 0;
+        why = "";
+        if (panel == null || levelMessage || !MapRoom.MapRoomDriver.Active)
+            return false;
+        if (ReferenceEquals(panel, _errorPanel))
+            return false; // not a Converted window — no release path would ever free its slot
+        if (IsHoverCardPanel(panel))
+            return false; // TickHoverCards owns its pose (and it churns on every mouseover)
+
+        LogArcGeometryOnce();
+
+        // Already holds one? Presence-regain refloat re-places an EXISTING float, and it must land
+        // back on its own slot rather than take a second one (and rather than pile every
+        // non-grabbed window dead ahead, which is what it did while the relayout owned the arc).
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (!ReferenceEquals(_arcClaims[i], panel))
+                continue;
+            slot = i;
+            yawDeg = ArcSlotAngleDeg(i);
+            staggerIndex = i < ArcSlotCount ? 0 : i - ArcSlotCount + 1;
+            why = "re-uses the slot it already claimed (a refloat must not take a second one)";
+            return true;
+        }
+
+        CountArcClaims(out int slotsUsed, out int overflowUsed);
+        for (int i = 0; i < ArcSlotCount; i++)
+        {
+            if (_arcClaims[i] != null)
+                continue;
+            slot = i;
+            yawDeg = ArcSlotAngleDeg(i);
+            staggerIndex = 0;
+            why = slotsUsed == 0
+                ? "the arc was empty, so the centre slot was free"
+                : $"the free slot NEAREST THE CENTRE ({slotsUsed} of {ArcSlotCount} were taken); "
+                  + "the windows already standing were not touched";
+            _arcClaims[i] = panel;
+            _arcClaimNames[i] = PanelLogName(panel);
+            return true;
+        }
+        for (int i = ArcSlotCount; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i] != null)
+                continue;
+            slot = i;
+            yawDeg = 0f;
+            staggerIndex = i - ArcSlotCount + 1;
+            why = $"ALL {ArcSlotCount} arc slots are occupied — overflow stack {staggerIndex}: "
+                  + "placed centred but nudged right/down and pulled toward the head, so it stands "
+                  + "in front of the centre window instead of merging with it";
+            _arcClaims[i] = panel;
+            _arcClaimNames[i] = PanelLogName(panel);
+            return true;
+        }
+        // Nine floated windows in one room. Place it on the last overflow offset rather than
+        // dropping it somewhere unreachable, and say plainly that it may coincide with another.
+        slot = -1;
+        yawDeg = 0f;
+        staggerIndex = ArcOverflowCapacity;
+        why = $"the arc ({ArcSlotCount} slots) AND the overflow ({ArcOverflowCapacity} stacks) are "
+              + $"both full ({slotsUsed}+{overflowUsed} claims) — placed on the LAST overflow offset "
+              + "WITHOUT a claim, so it may coincide with the window already there. It is still in "
+              + "view and grabbable; close a window to free a slot";
+        return true;
+    }
+
+    /// <summary>
+    /// A HOVER CARD, asked of the PANEL rather than the window (the placement path only carries the
+    /// panel). The converted target of a hover card IS the popup/tooltip window's own GameObject —
+    /// <c>TryConvertWindow</c> converts <c>window.transform</c> for this family — so reading the
+    /// <c>UIWindow</c> back off the target and applying the ONE hover-card rule
+    /// (<see cref="IsMapRoomHoverCard"/>) is the same test, not a second one. Spawn-path only.
+    /// </summary>
+    private static bool IsHoverCardPanel(ConvertedPanel panel)
+    {
+        if (panel.Target == null)
+            return false;
+        var window = panel.Target.GetComponent<UIWindow>();
+        return window != null && IsMapRoomHoverCard(window);
+    }
+
+    /// <summary>The name the rest of the log already uses for a floated panel (its host object).</summary>
+    private static string PanelLogName(ConvertedPanel panel) =>
+        panel.HostGo != null ? panel.HostGo.name : "<panel>";
+
+    /// <summary>
+    /// Free the slots of windows that have stopped floating, and NOTHING ELSE — no window is
+    /// re-posed here, which is the whole point of the ruling: "ohne explizite Bewegung vom User,
+    /// sollen sie ihre Position nicht verändern" covers a CLOSE just as much as an open.
+    ///
+    /// <para>Run from <see cref="Tick"/> between the release loop and the convert loop, so a slot
+    /// freed by a window closing this tick is available to a window opening in the SAME tick.
+    /// Membership in <see cref="Converted"/> is the liveness test rather than
+    /// <see cref="ConvertedPanel.IsAlive"/>, because <c>CanvasConversion.Release</c> deliberately
+    /// leaves the panel's target alive (it hands the game window back to its 2D home) — a released
+    /// window is one that has left <see cref="Converted"/>, and that list is the authority.</para>
+    /// </summary>
+    private static void ReleaseFinishedArcSlots()
+    {
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            ConvertedPanel? claimed = _arcClaims[i];
+            if (claimed == null || ContainsPanel(claimed))
+                continue;
+            // Deliberately NOT gated on MapRoomDriver.Active. A claim is released by the window
+            // ceasing to float and by nothing else — so leaving and re-entering the room (or the
+            // room signal flickering for a frame) can never orphan a slot that a standing window
+            // still occupies, and a window that IS released while the room is gone still frees its
+            // seat. Module shutdown clears the whole registry in Detach().
+            string name = _arcClaimNames[i] ?? "<window>";
+            _arcClaims[i] = null;
+            _arcClaimNames[i] = null;
+            CountArcClaims(out int slotsUsed, out int overflowUsed);
+            VRLog.Info("WorldUI", $"MAP ROOM WINDOW SLOT RELEASED: '{name}' gave up "
+                                  + (i < ArcSlotCount
+                                      ? $"arc slot {i} ({ArcSlotAngleDeg(i):F0}° from its spawn gaze)"
+                                      : $"overflow stack {i - ArcSlotCount + 1}")
+                                  + " — it is no longer floated (the player closed it, the game "
+                                  + "released it, or the room ended). "
+                                  + $"{slotsUsed}/{ArcSlotCount} arc slots now occupied, "
+                                  + $"{ArcSlotCount - slotsUsed} free, {overflowUsed} overflow. "
+                                  + "NOTHING WAS MOVED: every window still standing keeps the exact "
+                                  + "pose it claimed at spawn (user ruling). The freed slot goes to "
+                                  + "the next window that opens — which may be this same window "
+                                  + "re-opened, at a different angle, and that is expected.");
+        }
+    }
+
+    /// <summary>True while <paramref name="panel"/> is still one of the floated windows.</summary>
+    private static bool ContainsPanel(ConvertedPanel panel)
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Panel, panel))
+                return true;
+        }
+        return false;
+    }
+
+    // ---- what the arc looks like from outside (for the travel-confirm lane) -------------------
+
+    /// <summary>How many arc slots exist in total (see <see cref="ArcSlotCount"/>).</summary>
+    internal static int FloatedArcSlotCapacity => ArcSlotCount;
+
+    /// <summary>How many arc slots are claimed right now (overflow stacks not counted).</summary>
+    internal static int FloatedArcSlotsOccupied
+    {
+        get
+        {
+            CountArcClaims(out int slotsUsed, out _);
+            return slotsUsed;
+        }
+    }
+
+    /// <summary>Corner scratch for <see cref="TryGetFloatedEnsembleBounds"/> (never per frame).</summary>
+    private static readonly Vector3[] _ensembleCorners = new Vector3[4];
+
+    /// <summary>
+    /// THE WORLD-SPACE EXTENT OF THE FLOATED ENSEMBLE — the union of the host rects of every floated
+    /// window that is not a hover card, measured LIVE from the transforms.
+    ///
+    /// <para>WHY IT IS OFFERED AND HOW IT MUST BE USED. Anything that wants to sit RELATIVE to the
+    /// set of open windows (the map room's travel-confirm button) can no longer assume the set is
+    /// re-laid-out on a change: a window keeps the pose it claimed at spawn and the player may have
+    /// carried it anywhere afterwards, so the ensemble's centre and extent are only knowable by
+    /// measuring. This is that measurement, and it is deliberately a POLL rather than an event:
+    /// callers re-solve on their own cadence. It allocates nothing and costs one
+    /// <c>GetWorldCorners</c> per floated window, so a low cadence (not per frame) is the contract.</para>
+    ///
+    /// <para>WORLD UNITS, not metres — the hosts are placed in world space and the map room's rig
+    /// runs at ~198 world units per real metre. Divide by <see cref="PanelLayout.WorldScale"/>
+    /// before comparing anything here against a real-metre tunable.</para>
+    /// </summary>
+    /// <param name="bounds">World-axis AABB enclosing every floated window.</param>
+    /// <param name="windows">How many windows went into it.</param>
+    /// <returns>false when nothing is floated (bounds is then meaningless).</returns>
+    internal static bool TryGetFloatedEnsembleBounds(out Bounds bounds, out int windows)
+    {
+        bounds = default;
+        windows = 0;
+        for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
-            if (wp.HoverCard || wp.UserClosing || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+            if (wp.HoverCard || !wp.Panel.IsAlive)
                 continue;
-            if (wp.Grab == null || wp.Grab.UserMoved)
+            RectTransform? host = wp.Panel.HostRect;
+            if (host == null)
                 continue;
-
-            int step = (slot + 1) / 2;
-            float sign = (slot % 2) == 1 ? 1f : -1f;
-            float angle = Mathf.Min(step * ArcStepDegrees, MaxArcHalfDegrees) * sign;
-            slot++;
-
-            Vector3 dir = Quaternion.AngleAxis(angle, Vector3.up) * flatFwd;
-            float keepY = wp.Panel.HostGo.transform.position.y;
-            var pos = new Vector3(headPos.x + dir.x * dist, keepY, headPos.z + dir.z * dist);
-            wp.Grab.PlaceFrameAt(pos, Quaternion.LookRotation(dir, Vector3.up));
+            host.GetWorldCorners(_ensembleCorners);
+            if (windows == 0)
+                bounds = new Bounds(_ensembleCorners[0], Vector3.zero);
+            for (int c = 0; c < 4; c++)
+                bounds.Encapsulate(_ensembleCorners[c]);
+            windows++;
         }
+        return windows > 0;
     }
 
     // (HoverCardHalfHeight lived here until ModBuild 188. It measured the HOST RECT — the window's
@@ -708,6 +1035,13 @@ internal static partial class ModalFallback
                                   $"convertWanted={convertWanted}).");
         }
 
+        // 1b. SLOT RELEASE (map room): every window that just left the float set gives its arc slot
+        //     back. Placed BETWEEN the release loop and the convert loop on purpose — a slot freed
+        //     by a window closing this tick is available to a window opening in the SAME tick — and
+        //     it MOVES NOTHING: the windows still standing keep the pose they claimed at spawn.
+        //     See the slot-registry block above for the ruling this replaces the relayout with.
+        ReleaseFinishedArcSlots();
+
         // 2. Failed windows retry only after a close/re-open (no per-frame spam).
         for (int i = Failed.Count - 1; i >= 0; i--)
         {
@@ -768,21 +1102,12 @@ internal static partial class ModalFallback
         // Level-triggered and idempotent; see GuildmasterDestinations for the whole story,
         // including why closing one of these must press the bar's map button.
         MapRoom.GuildmasterDestinations.Reconcile(FirstFloatedDestination());
-        // ModBuild 183: re-arrange the arc whenever the SET changes — a window opened, closed or
-        // was released. Not per frame: the layout is anchored on the player's facing at the moment
-        // the set changed, so re-running it every frame would drag every window around with the
-        // head, which is precisely what the standing "nothing may re-orient with head movement"
-        // ruling forbids.
-        // ModBuild 184: count only the windows the arc actually PLACES. A hover card takes no arc
-        // slot (TickHoverCards owns its pose), but it joins and leaves Converted on every single
-        // mouseover — so counting it made the whole room's window layout jump every time the
-        // pointer touched an icon. The set that matters is the set the arc arranges.
-        int arcCount = ArcWindowCount();
-        if (arcCount != _lastArcCount)
-        {
-            _lastArcCount = arcCount;
-            RelayoutMapRoomArc();
-        }
+        // (ModBuild 183's RelayoutMapRoomArc was called from HERE, gated on the arc COUNT changing,
+        // and that call WAS the reported bug: an open or a close re-posed every other window. It is
+        // gone — the arc is claimed one slot at a time at spawn (see the slot registry above), and
+        // there is deliberately NO per-tick layout step left in this method. If a future round finds
+        // itself wanting to "just re-arrange them once more", that is this bug being re-introduced;
+        // the ruling is quoted in full at the registry.)
         // The flicker instrument (ModBuild 182): armed exactly while floated panels exist, so it
         // costs nothing in a scenario with none and nothing in the menu. See PanelFlickerProbe for
         // why the next round needs a measurement rather than a fourth hypothesis.

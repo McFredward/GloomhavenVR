@@ -1663,6 +1663,19 @@ internal static partial class Loc
             ["WorldUI/WristHud"] =
                 "Kompakter Charakterstatus (LP/EP/Zustände/Gold) am nicht-dominanten Handgelenk, per Hinsehen "
                 + "aktiviert.",
+            // Written to fit the tooltip: the config browser clips a description at 620 Zeichen
+            // (ConfigCatalog.MaxDescriptionChars) and this table's ONLY reader is that UI — the
+            // config FILE shows the English text from the bind site. So the whole of what a
+            // player needs stands inside the clip, not behind it.
+            ["WorldUI/MapRoomHand"] =
+                "Zeigt dir in der 3D-Weltkarte die gewählten Fähigkeitskarten des ausgewählten Charakters "
+                + "als echtes Blatt auf der Hand: du kannst eine Karte herausnehmen, sie dir in Ruhe "
+                + "ansehen und weiterreichen. Dazu die Werte dieses Charakters auf "
+                + "einer Anzeige am Handgelenk. Beides folgt der Auswahl im Gruppenbildschirm. NUR ZUM "
+                + "ANSEHEN: es lässt sich nichts spielen, ablegen, umsortieren oder verändern, "
+                + "losgelassene Karten gleiten ins Blatt zurück, und es wird weder etwas an Mitspieler "
+                + "gesendet noch am Spielstand geändert. Aus = kein Blatt und keine Handgelenk-Anzeige; "
+                + "die 3D-Weltkarte bleibt sonst unverändert.",
             ["WorldUI/PanelMipBake"] =
                 "Aliasing-Nachzügler zu [Cards] FaceMipBake: auch die Texturen, die die INITIATIVLEISTE "
                 + "(RawImage-Porträts + Rahmen-/Linien-Sprites) und die Mouseover-HINWEISBOX abtasten, liefert "
@@ -1672,6 +1685,26 @@ internal static partial class Loc
                 + "beiden genutzter Atlas wird nur einmal gebacken) und die Grafiken auf die Kopien umgestellt "
                 + "(Originale kehren zurück, sobald eine Fläche freigegeben wird). false = Initiativleiste und "
                 + "Hinweisbox tasten weiter die miplosen Originale ab.",
+            // The two ModBuild-191 window dials. Same 620-Zeichen rule as MapRoomHand above: the
+            // sentence that decides whether the player switches this on ("das Fenster wird nur mit
+            // halber Auflösung gezeichnet") comes first, the price stands in the text and not in a
+            // footnote, and the last sentence says what OFF is — because OFF is the default.
+            ["WorldUI/PanelSupersample"] =
+                "Zeichnet die schwebenden Fenster (Menüs, Story-, Questlog-, Händler- und "
+                + "Charakterfenster) scharf. Bisher landet so ein Fenster mit etwa der HALBEN Auflösung im "
+                + "Bild, für die es gebaut wurde — deshalb flimmern dünne Striche und kleine Schrift, "
+                + "sobald du den Kopf bewegst. An = jedes Fenster wird erst in ein eigenes Bild in voller "
+                + "Auflösung gezeichnet, mit Glättung und Mipmaps, und DIESES Bild siehst du. Klicken, "
+                + "Ziehen und Scrollen bleiben unverändert. Kostet rund 20-90 MB Videospeicher pro "
+                + "Fenster; höchstens zwei Fenster gleichzeitig, alle weiteren bleiben wie bisher. "
+                + "Aus = exakt die Darstellung von heute.",
+            ["WorldUI/PanelSupersampleFactor"] =
+                "Schärfe gegen Speicher — die Feineinstellung zu \"Fenster: scharf zeichnen\". 1.0 = das "
+                + "Fenster wird genau in der Auflösung gezeichnet, für die es gebaut wurde; das ist es, was "
+                + "das Flimmern beseitigt. Höher kauft zusätzliche Schärfe, wenn du dich dicht heranlehnst "
+                + "— pro Verdopplung aber zum vierfachen Videospeicher. Niedriger spart Speicher und macht "
+                + "die Schrift weicher. Ohne jede Wirkung, solange \"Fenster: scharf zeichnen\" aus ist. "
+                + "Bereich 0.5-2.",
             ["WorldUI/CanvasScaleMm"] =
                 "Welt-Canvas-Skalierung: Millimeter pro uGUI-Pixel bei Diorama-Größe 1 (Standard 1 px = 1 "
                 + "mm).",
@@ -1695,24 +1728,22 @@ internal static partial class Loc
                 + "Infotafel-Größe): der Wert wird bei jedem Platzierungstick gelesen, eine offene Tafel ändert "
                 + "ihre Größe also sofort und das nächste Mouseover erscheint gleich in der neuen Größe — kein "
                 + "Neustart. Bereich 0.2-2.",
+            // TRIMMED AT INTEGRATION (ModBuild 192): the original ran 1277 characters and
+            // ConfigCatalog.MaxDescriptionChars clips a tooltip at 620, so in the headset it cut
+            // mid-word at "...kleine Buchstaben bei[CUT]". It had been unreachable in the curated
+            // list until this build, which is why nobody had seen it clipped. Every term that
+            // survives is the one a player needs to choose a number; the arithmetic behind it lives
+            // in the build note, not in a tooltip.
             ["WorldUI/WindowLegibility"] =
-                "GRÖSSE der schwebenden Fenster (Menüs, Story-/Ereignisboxen, Questlog, Händler- und "
-                + "Charakterbildschirme) als Faktor ihrer bisherigen Größe. Das ist ein LESBARKEITS-"
-                + "Regler, kein Geschmacksregler: ein schwebendes Fenster ist Spiel-UI, die mit "
-                + "1920x1080 Pixeln gezeichnet wurde, und wie viele Pixel deiner Brille jeder dieser "
-                + "Pixel bekommt, hängt AUSSCHLIESSLICH davon ab, wie viel von deinem Sichtfeld das "
-                + "Fenster einnimmt. Bei der bisherigen Größe misst das Log (PANEL SAMPLING) 1,4-2,6 "
-                + "gezeichnete Pixel, die in EINEN dargestellten Pixel gequetscht werden — genau "
-                + "deshalb fallen dünne Striche und kleine Buchstaben beim Kopfbewegen heraus "
-                + "(\"Flackern\") und deshalb liegt ein Moiré-Gitter über Porträts. 1.0 = exakt die "
-                + "Größe von vor diesem Regler; 1.25 (Standard) macht ein volles Fenster ~1,00 m "
-                + "breit statt 0,80 m auf Lesedistanz; ~1.65 wäre ein dargestellter Pixel pro "
-                + "gezeichnetem Pixel — dann nimmt so ein Fenster aber auch ~57° deines Sichtfelds "
-                + "ein, und das ist viel. Größere Fenster sind besser lesbar UND aufdringlicher; "
-                + "beides zugleich gibt es nicht. Wird bei jedem Öffnen und jeder Inhaltsanpassung "
-                + "neu gelesen — ein bereits offenes Fenster ändert sich also erst beim nächsten "
-                + "Öffnen. Dein Zwei-Hand-Skalieren liegt weiterhin obendrauf und gewinnt. "
-                + "Bereich 1.0-1.75.",
+                "GRÖSSE der schwebenden Fenster (Story, Questlog, Händler, Charakter) als "
+                + "Faktor. Ein LESBARKEITS-Regler: so ein Fenster ist "
+                + "Spiel-UI mit 1920x1080 Pixeln, und wie viele Pixel deiner Brille jeder davon "
+                + "bekommt, hängt allein davon ab, wie viel Sichtfeld es einnimmt. Bisher misst das "
+                + "Log 1,4-2,6 gezeichnete Pixel pro dargestelltem — deshalb fallen dünne Striche "
+                + "beim Kopfbewegen heraus. 1.0 = wie bisher; 1.25 (Standard) "
+                + "macht ein volles Fenster ~1,00 m breit statt 0,80 m; ~1.65 wäre 1:1, nimmt aber "
+                + "~57° deines Sichtfelds ein. Gilt ab dem nächsten Öffnen. Zwei-Hand-Skalieren "
+                + "gewinnt weiterhin. Bereich 1.0-1.75.",
             ["WorldUI/EnemyRevealBoardClearance"] =
                 "Wie weit die GEGNER-RUNDENENTHÜLLUNG (die Monster-Fähigkeitskarten, die gezeigt werden, "
                 + "nachdem alle ihre Wahl bestätigt haben) die Oberkante des KONTROLLBRETTS freihalten muss, in "

@@ -126,6 +126,77 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 192** (bundle UNCHANGED — plugin DLL only) — the map room stopped having its own card
+  hand, the windows stopped moving, and the eye probe was blind for a reason worth remembering.
+  *(Six workers, isolated worktrees.)* **Nothing on the wire; one observable MP change.**
+  * **THE CARD HAND: a SECOND implementation was the whole defect.** 191 built a parallel fan and
+    shared only the pose dials; he rejected it and named the cure himself (*"Am Besten nutzt du auch
+    die selben Code Segmente"*). **It was never the palm gate** — the map is `VRMode.TableIdle`
+    whose interactor row is `Poke|Grab|PalmGate`, so the wrist roll was measured all along. The chain
+    that was actually missing: `CurrentHand()` returns null off-scenario (`InScenario` ⇔ a
+    Choreographer exists, which the map has none of **by construction**) → `Rebuild` takes its
+    `hand == null` arm into `RebuildFakeOrClear` → the fan gets an EMPTY list → `allowFan` is false
+    → `shouldOpen` can never be true. Give the fan cards off-scenario and reveal, roll, animation,
+    hover-split, laser, fingertip-pop, exchange and audio all run **literally the same lines**. The
+    map fan **is** `CardsDriver._fan`. **Deliberate reversal:** the scenario fan BILLBOARDS at the
+    head; 191's header claimed the opposite in capitals. The "nothing re-orients with the head"
+    ruling is about the **world**, not a hand of cards in your own hand.
+    Inspection-only is still structural, now with two belts (`GameCard` is null for life, so every
+    commit seam returns on its first line; and `FanMode.Inspect` stamps the verdicts at the one
+    membership seam) — plus there is no target: the piles, active column, pick field and short-rest
+    display are already cleared when the branch runs.
+    **The wrist plate could NOT be shared** and that is stated, not hidden: `WristHud` is
+    scenario-bound in its **data model** — `want` needs a Choreographer and every value comes off a
+    `CPlayerActor`, and `CMapCharacter.GetActor()` would **throw** on the map. The map plate is a
+    verbatim reproduction with a standing warning in both halves. **The real fix, not done:** give
+    `WristHud` an actor-less content source and delete `MapRoomHand.3.Wrist.cs`.
+    **CORRECTION TO THE 191 NOTE:** `RevealGate.ShowRoundCardFronts` IS open on the map, but
+    `RemoteHandFan` **additionally** requires `RevealGate.InScenario` before resolving fronts
+    (`RemoteHandFan.cs:888`) because the cloned widgets' lifecycle depends on scenario singletons.
+    **Peer FRONTS in the map room need more than phase 8's seating.** 191 overstated that.
+    **One observable MP change, zero new bytes:** `PresenceState.HandCardCount` now carries the true
+    count on the map, so peers draw a fan of card BACKS on our avatar. One line suppresses it.
+  * **THE WINDOWS STOPPED MOVING.** `RelayoutMapRoomArc()` ran on **every** add and remove and is
+    GONE with nothing replacing it. The arc is now a **reservation**: 5 slots at 0/±34/±68° claimed
+    in `ComputeHmdPose`, held for life, released on close, first-free = nearest the centre. This
+    answers **two** old defects at once — 181 indexed by "how many are open" and put every fresh
+    window at the OUTSIDE; 183 answered that with the relayout this ruling rejects. And the old
+    sequence clamped at ±85 where **slots 6 and 8 landed on the same angle**. The slot is a **yaw and
+    nothing else**, so distance, gaze bias and height out of `ClampSpawnPose` are bit-for-bit
+    unchanged and the yaw-only ruling of 189 is untouched.
+  * **TRAVEL BUTTON: the arithmetic was right, the FRAME was wrong.** It now gets a world host of its
+    own, placed from a per-tick census (hover cards excluded via `UguiPokeSurfaces` registration —
+    windows convert `pokeable:true`, hover cards `false`). Lateral = **midpoint of the full extent**,
+    not the centroid; height = the lowest corner of the whole set; scale = the mean host scale.
+    **The one-frame flash was in 191's own code:** `anchoredPosition = Vector2.zero` was written
+    BEFORE solving, and zero pins the *container's* top edge to the window's bottom — **zero IS the
+    190 pose.** Now taken before it is ever shown, born render-hidden, released once the content
+    measurement has repeated itself, bounded by a 0.5 s deadline.
+  * **THE ONE SECOND OF ALIASING WAS A TIMING BUG, and my assumed cause was wrong.**
+    `PanelMipBake` was **never called on that window at all** — every `Rescan` caller is a scenario
+    surface. The only thing baking it was **`PanelSamplingProbe`, a measuring instrument**, which
+    cannot ever be in time: `ScanIntervalFrames = 30` (at 24–27 ms/frame that IS the second) and it
+    walks with `includeInactive: false`, so a graphic the loader has not enabled yet is invisible to
+    it. **Measured in frames against the `Perf SPIKE` marks:** window revealed 27811, hint shown
+    ~27862–27892, first item art baked 28474–28503 = **~600 frames ≈ 15 s**; after the queue drained,
+    one-to-two scans (0.7–1.5 s). Fixed by baking **on arrival** while the graphic is still disabled.
+    **Rejected, and the rejection is the point:** blanket-baking the panel would put the one graphic
+    he complained about at the back of a ~6 s queue behind ~475 others.
+  * **THE EYE PROBE WAS BLIND — `CommandBuffer.Blit` CHANGES THE ACTIVE RENDER TARGET.** Only blit #1
+    ever saw the eye buffer; #2–#4 resolved `CurrentActive` to the probe's own 64×64 destination.
+    The self-test's offset capture is always the LAST blit, so it could never have honoured its rect.
+    **The expensive half: the REFERENCE was blit #2, i.e. a copy of the SUBJECT** — and the reference
+    is the number that lets the sampling hypothesis LOSE. Without the self-test it would have said
+    "reference == subject" every burst and **killed a correct hypothesis**. Now: exactly ONE blit per
+    pass (a full-eye MSAA resolve, read first) then `CopyTexture` region copies — no material, no
+    shader, no target rebind, cannot resample. A second self-inflicted bug was caught in the same
+    pass: a flatness gate of 0.01 made the CONSTANT-READBACK branch unreachable.
+  * **THE MEASURE SHIPPED SWITCHED OFF AND NEVER RAN.** Zero `PANEL SUPERSAMPLE` lines in the 191
+    log, so *"Flackern unverändert"* is **not a test of it**. Curated rows + German names now exist
+    for `PanelSupersample`, `PanelSupersampleFactor`, `WindowLegibility` and `MapRoomHand`, verified
+    against a harness that compiles the real Loc tables **with a negative control**. Also fixed:
+    `WindowLegibility`'s description ran 1277 chars against a 620-char clip and cut mid-word.
+
 - **ModBuild 191** (bundle UNCHANGED — plugin DLL only) — the dither hypothesis died, the tooltip
   was being *clipped* as well as buried, and the card hand came to the map room. *(Five workers,
   isolated worktrees, split file ownership.)* **Nothing on the wire.**

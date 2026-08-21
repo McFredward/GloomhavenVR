@@ -31,6 +31,18 @@ internal enum PanelSlot
 /// with the diorama itself, because they are placed in world space at the table
 /// anchor). `[WorldUI] PanelsFollowView = true` restores the legacy per-frame
 /// rig-yaw follow.
+///
+/// <para>SCOPE OF <c>PanelsFollowView</c>, stated because it is easy to mistake for a global
+/// "windows follow the head" switch and it is NOT one. It changes exactly one thing: which yaw
+/// <see cref="TryGetAnchor"/> hands out for the fixed, table-anchored SLOTS above (initiative
+/// track, element board, objectives, stat panel, button cluster, tooltip) — the cached seat yaw,
+/// or the live rig yaw. It has never applied to FLOATED MODAL WINDOWS: those are placed by
+/// <c>ModalFallback</c> against the head pose at the moment they spawn, once, and are then fixed
+/// in the world for the rest of their life ("ohne explizite Bewegung vom User, sollen sie ihre
+/// Position nicht verändern"). The only thing they take from this class is
+/// <see cref="WorldScale"/>. Turning this setting on must therefore never start dragging windows
+/// around with the head — if it ever appears to, the bug is a new writer in ModalFallback, not a
+/// widened meaning here.</para>
 /// </summary>
 internal static class PanelLayout
 {

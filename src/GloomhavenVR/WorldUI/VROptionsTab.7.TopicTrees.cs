@@ -58,6 +58,10 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "TrayNativeControls", perBoard: false),
                         new BoardRef("WorldUI", "ButtonCluster", perBoard: false),
                         new BoardRef("WorldUI", "WristHud", perBoard: false),
+                        // The 3D map room's card hand + wrist plate. A show/hide switch like its
+                        // neighbours here, and it folds under [Rig] Experimental3DMap, so on a
+                        // flat-map install the row simply does not appear on this page.
+                        new BoardRef("WorldUI", "MapRoomHand", perBoard: false),
                         new BoardRef("WorldUI", "LoadingIndicator", perBoard: false),
                     },
                 },
@@ -72,6 +76,14 @@ internal static partial class VROptionsTab
                         // authored UI pixel get", one for the mod's own panels and one for the
                         // game's windows.
                         new BoardRef("WorldUI", "WindowLegibility", perBoard: false),
+                        // ModBuild 191: the window supersample pair, listed here so it lands
+                        // beside WindowLegibility — size and sharpness are the two answers to the
+                        // same question — instead of dropping into the "Allgemein" catch-all at
+                        // the bottom of this page, which is where every unlisted key goes. Both
+                        // are ALSO curated rows under Grafik ▸ Darstellung; a curated row is an
+                        // extra door, never a wall (VROptionsTab.4.Curated.cs).
+                        new BoardRef("WorldUI", "PanelSupersample", perBoard: false),
+                        new BoardRef("WorldUI", "PanelSupersampleFactor", perBoard: false),
                         new BoardRef("WorldUI", "EnemyRevealBoardClearance", perBoard: false),
                         new BoardRef("WorldUI", "PanelMipBake", perBoard: false),
                         new BoardRef("WorldUI", "CanvasScaleMm", perBoard: false),

@@ -1929,6 +1929,14 @@ internal sealed partial class CardsDriver
         _pickLockedCount = 0;
         RemoveShortRestCard(); // sacrifice display never survives losing the active hand (item 1d)
 
+        // OFF-SCENARIO HAND SOURCE (the 3D map room's loadout fan). THE ONE SEAM that lets a
+        // non-scenario surface drive THIS fan instead of building a second one — see the region at
+        // the end of this file for the whole contract and why it lives here. Placed after the
+        // housekeeping above (piles/active/field/short-rest all cleared, which is exactly what the
+        // map phase wants) and before the dev fake hand, which it is mutually exclusive with.
+        if (TryRebuildOffScenarioFan())
+            return;
+
         bool wantFake = Plugin.DevMode.Value && CardsConfig.DevFakeHand.Value > 0 && !CardsGameApi.InScenario;
         if (!wantFake)
         {
@@ -2031,5 +2039,182 @@ internal sealed partial class CardsDriver
         }
         _fakeCards.Clear();
         _tray.ClearSlots();
+    }
+
+    // ------------------------------------------------- off-scenario hand source (map room) --
+    //
+    // WHAT THIS IS, AND WHY IT IS HERE RATHER THAN IN A SECOND FAN CLASS.
+    //
+    // USER RULING (2026-08-21, on the map room's card hand): "Ich will das es sich hier 1:1
+    // genauso verhält wie im Szenario selber. Am Besten nutzt du auch die selben Code Segmente.
+    // Es soll sich nicht vom Szenario unterscheiden wie sich die Karten verhalten!"
+    //
+    // WHAT ACTUALLY KEPT THIS MACHINERY OUT OF THE MAP PHASE — it was never the palm gate.
+    // The campaign map resolves to VRMode.TableIdle (VRModeStateMachine.Recompute, the
+    // `!_inScenario ? VRMode.TableIdle` arm, reachable because MapRoomDriver pushes SetModRoom),
+    // and TableIdle's interactor row is Poke|Grab|PalmGate — so PalmGate.Enabled is TRUE on the
+    // map today and the wrist roll is ALREADY being measured. What is missing is CARDS:
+    //   * CurrentHand() returns null off-scenario (CardsDriver.2.Update.cs, `if
+    //     (!CardsGameApi.InScenario) return null;` — InScenario is Choreographer.s_Choreographer,
+    //     and the campaign map has none by construction);
+    //   * so Rebuild takes its `hand == null` arm and lands in RebuildFakeOrClear, which clears
+    //     _fanBuffer and hands the fan an EMPTY list;
+    //   * so UpdatePalmGate's `allowFan` (_fanBuffer.Count > 0 || _fan.Cards.Count > 0 ||
+    //     _fan.HasLeavingCards) is false and `shouldOpen` can never become true.
+    // Give the fan CARDS off-scenario and every one of the reveal, roll, animation, hover-split,
+    // laser, fingertip-pop, exchange and audio paths runs unchanged, because they are literally
+    // the same lines. That is the whole of this seam.
+    //
+    // THE CONTRACT, deliberately as small as it can be:
+    //   * the SOURCE owns the VRCards' lifetime (creation, faces, destruction). It publishes a
+    //     list; the driver copies it into _fanBuffer, hooks the cards and hands them to _fan.
+    //   * the driver stamps NOTHING per card. CardFan.SetMode(FanMode.Inspect) + the fan's own
+    //     StampMembership already write Grabbable=true, InspectOnly=true, AllowsGateHand=false and
+    //     PokeSelectEnabled=false — the exact verdicts a scenario read-only hand gets.
+    //   * the source must call <see cref="DropOffScenarioFan"/> BEFORE it destroys any card, so
+    //     the fan is never left holding a destroyed object for a frame.
+    //
+    // INSPECTION-ONLY IS STRUCTURAL AND UNCHANGED IN STRENGTH. The cards carry no AbilityCardUI
+    // (GameCard is null — nothing ever calls AttachGameCard on them), so:
+    //   * OnCardPoked returns on its first line (`card.GameCard == null`);
+    //   * MaybeReopenPickSelection returns on `CurrentHand() == null` AND on `GameCard == null`;
+    //   * OnCardReleased hits `if (card.InspectOnly)` — which sits BEFORE CurrentHand() — and
+    //     returns the card home with no game call; and even if that flag were cleared, the very
+    //     next branch is `gameHand == null || card.GameCard == null → _fan.Add(card); return;`.
+    //   * every remaining commit seam (SelectCard/UnselectCard, tray slots, pick field, initiative
+    //     reconcile) is reached only through a resolved CardsHandUI, which does not exist here.
+    // Two independent belts, both structural.
+
+    /// <summary>
+    /// The cards an off-scenario surface wants THIS fan to show (null / empty = none). Set and
+    /// cleared by the owning surface (today <c>WorldUI.MapRoom.MapRoomHand</c>); read once per
+    /// rebuild. The list and the objects in it belong to the SOURCE — the driver never destroys
+    /// them.
+    /// </summary>
+    internal static IReadOnlyList<VRCard>? OffScenarioFanCards;
+
+    /// <summary>
+    /// One-shot: the next set replaces ANOTHER character's hand, so the rebuild plays the
+    /// character-swap exchange (<c>CardFan.BeginSwapOut</c> + <c>SetCards(swap: true)</c>) rather
+    /// than a plain re-layout. Consumed by the rebuild that acts on it — the same edge
+    /// <see cref="Rebuild"/> derives from <c>CharacterFocus.PresentedActorId</c> in a scenario,
+    /// which the map phase has no equivalent of.
+    /// </summary>
+    internal static bool OffScenarioFanSwap;
+
+    /// <summary>
+    /// The bundled <c>CardBacking</c> prefab the factory builds every scenario card on, or null
+    /// (procedural fallback). Exposed so an off-scenario source's cards are built from the SAME
+    /// asset — a map-room card whose back differs from a scenario card's is exactly the "it does
+    /// not behave like the scenario" the seam exists to remove. Null before the driver exists.
+    /// </summary>
+    internal static GameObject? CardBackingPrefab =>
+        Instance != null ? Instance._factory.GetBackingPrefab() : null;
+
+    /// <summary>
+    /// Hand the fan back, SYNCHRONOUSLY. The source calls this before destroying its cards (and on
+    /// stand-down), so no frame can observe the fan holding a destroyed object and no stale
+    /// subscription can outlive the objects it points at. Idempotent; a no-op with no driver.
+    /// </summary>
+    internal static void DropOffScenarioFan(string reason)
+    {
+        OffScenarioFanCards = null;
+        OffScenarioFanSwap = false;
+        Instance?.ReleaseOffScenarioFan(reason);
+    }
+
+    /// <summary>True while the fan is showing an off-scenario source's cards — the state line's
+    /// proof that the map room really is driving THIS fan and not a copy of it.</summary>
+    internal static bool OffScenarioFanActive { get; private set; }
+
+    /// <summary>
+    /// Fill the fan from <see cref="OffScenarioFanCards"/>. Returns false when there is no source
+    /// (then <see cref="RebuildFakeOrClear"/> continues exactly as it did before this seam
+    /// existed). Only ever runs off-scenario: in a scenario the game's own hand wins, always.
+    /// </summary>
+    private bool TryRebuildOffScenarioFan()
+    {
+        IReadOnlyList<VRCard>? source = OffScenarioFanCards;
+        if (CardsGameApi.InScenario || source == null || source.Count == 0)
+        {
+            if (OffScenarioFanActive)
+                ReleaseOffScenarioFan("the off-scenario source went away");
+            return false;
+        }
+
+        // A scenario we just left still owns adopted faces — hand them back before anything else,
+        // exactly as the plain !wantFake branch below does.
+        if (_boundHand != null)
+        {
+            _factory.Clear();
+            _boundHand = null;
+        }
+        _tray.SetVisible(false);
+        _half.SetVisible(false);
+        if (_fakeActive)
+            ClearFakeCards();
+
+        bool swap = OffScenarioFanSwap;
+        OffScenarioFanSwap = false;
+        // Same three conditions the scenario swap edge carries (Rebuild's `handSwap`): the fan must
+        // be OPEN — a hand nobody is holding up has nothing to exchange — and there must be cards
+        // on one side or the other to move.
+        if (swap && _fan.IsOpen && (_fan.Count > 0 || source.Count > 0))
+            _fan.BeginSwapOut();
+        else
+            swap = false;
+
+        _fanBuffer.Clear();
+        for (int i = 0; i < source.Count; i++)
+        {
+            VRCard card = source[i];
+            if (card == null)
+                continue;
+            HookCard(card);
+            _fanBuffer.Add(card);
+        }
+
+        // INSPECT, not Interactive: grab it, carry it, hand it over, read it — and the release
+        // returns it home without touching a game seam. Set BEFORE SetCards so the first frame is
+        // already correct (the fan's own contract, see CardFan.SetMode).
+        _fan.SetMode(CardFan.FanMode.Inspect);
+        _fan.SetCards(_fanBuffer, swap);
+        _placementRefusal = "the off-scenario (map-room) fan is inspection-only by construction — "
+                            + "its cards hold no game widget, so no commit seam exists for them";
+        OffScenarioFanActive = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Give the fan up: empty it, unhook every card and drop every driver-side reference to them,
+    /// so the source may destroy them in the same frame. Leaves the fan in the state a fresh
+    /// scenario expects (Interactive, empty), which is what <see cref="Rebuild"/>'s null-hand arm
+    /// also asserts.
+    /// </summary>
+    private void ReleaseOffScenarioFan(string reason)
+    {
+        if (!OffScenarioFanActive)
+            return;
+        OffScenarioFanActive = false;
+
+        for (int i = 0; i < _fanBuffer.Count; i++)
+        {
+            VRCard card = _fanBuffer[i];
+            if (card == null)
+                continue;
+            card.Released -= OnCardReleased;
+            card.Grabbed -= OnCardGrabbed;
+            card.Poked -= OnCardPoked;
+            _hooked.Remove(card);
+            _liveGrabs.Remove(card);
+            _fanOriginCards.Remove(card);
+        }
+        _fanBuffer.Clear();
+        _fan.SetCards(_fanBuffer);
+        _fan.SetMode(CardFan.FanMode.Interactive);
+        _placementRefusal = "none (the fan is fully interactive)";
+        VRLog.Info("Cards", $"Off-scenario hand source released ({reason}) — the fan is empty and "
+                            + "every card of it is unhooked, so the source may destroy them now. "
+                            + "The palm gate closes it on the next tick (allowFan goes false).");
     }
 }

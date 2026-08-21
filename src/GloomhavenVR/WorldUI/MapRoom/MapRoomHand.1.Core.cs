@@ -19,14 +19,24 @@
 //   4. The feature is DEFAULT ON and must be switchable off.
 // Plus: the selected character's WRIST INFO must be shown for that same character.
 //
+// ─── AND THE RULING THAT REWROTE IT (ModBuild 191 was REJECTED, 2026-08-21) ───────────────────
+// "Die Karten sind dauerhaft da und reagieren nicht auf der roll der Hand. Es gibt keine Animation
+//  kein Highlighting. Die Characterinfo am Handgelenk sieht anders aus. Ich will das es sich hier
+//  1:1 genauso verhält wie im Szenario selber. Am Besten nutzt du auch die selben Code Segmente. Es
+//  soll sich nicht vom Szenario unterscheiden wie sich die Karten verhalten! Auch beim
+//  Characterwechsel soll es die entsprechende Animation geben etc."
+//
 // ─── WHAT THIS IS, IN ONE PARAGRAPH ───────────────────────────────────────────────────────────
-// While the 3D map room stands (<see cref="MapRoomDriver.Active"/>), the player's fan-carrying hand
-// holds an arc of card slabs — one per card in the selected character's scenario loadout — each
-// wearing the REAL game card face. Either hand can lift one out to read it; the lifted card is a
-// mod-made copy that no game system owns, so there is nothing it could change. The same character's
-// vital statistics ride a plate on the wrist, in exactly the place and pose the scenario's
-// <c>WorldUI.WristHud</c> puts its own. When [WorldUI] MapRoomHand is off, none of it is built and
-// the map room is byte-identical to a build without this file.
+// While the 3D map room stands (<see cref="MapRoomDriver.Active"/>), THE SCENARIO'S OWN CARD HAND
+// is shown, holding the selected character's scenario loadout. Not a copy of it: the same
+// <c>Cards.CardsDriver</c>, the same <c>Cards.CardFan</c> instance, the same
+// <c>Hands.Interact.PalmGate</c>, the same reveal dials, the same reveal/collapse/exchange
+// animations, the same laser and fingertip highlighting, the same grab-to-read gesture. This class
+// is a CARD SOURCE for that machinery and nothing else — see MapRoomHand.2.Fan.cs for the seam and
+// for what was actually gating the machinery out of the map phase. The same character's vital
+// statistics ride a plate on the wrist, built to the scenario plate's own layout, pose dials, fade
+// and row format (MapRoomHand.3.Wrist.cs). When [WorldUI] MapRoomHand is off, none of it is built
+// and the map room is byte-identical to a build without this file.
 //
 // ─── WHERE THE LOADOUT COMES FROM — READ FROM THE GAME'S OWN SOURCE ───────────────────────────
 // There is NO separate "loadout" object in this game. The chosen-cards-for-the-next-scenario set is
@@ -73,13 +83,19 @@
 //
 // ─── MULTIPLAYER, AND WHY THIS FILE ADDS NOTHING TO THE WIRE ──────────────────────────────────
 // THE STANDING RULE — CARD IDENTITY NEVER GOES ON THE WIRE — is not touched here, and no wire field
-// is needed for the LOCAL half of this feature:
-//   * Nothing we build is a Cards.CardFan. Net/NetAvatarDriver samples the broadcast hand count from
-//     `CardFan.Current?.Count` (NetAvatarDriver.cs:842), which stays null/0 on the map, so the
-//     PresenceState.HandCardCount byte (PresenceState.cs:27) is unchanged by this file: zero bytes.
+// is added, changed or removed by this feature:
 //   * The faces are read LOCALLY, from the game's own object pool by card ID
 //     (Net/RemoteAbilityCardSource.TryPooledClone) — the same mechanism the scenario's remote fan
 //     already uses, off data this client already has in CharacterClassManager.
+//   * ONE EXISTING FIELD NOW CARRIES A DIFFERENT VALUE, and it is stated here rather than left to
+//     be discovered: the map fan IS a Cards.CardFan since ModBuild 192, so `CardFan.Current` is
+//     non-null while it is open and NetAvatarDriver's always-sent PresenceState.HandCardCount byte
+//     (sampled at NetAvatarDriver.cs:842) reports the real count instead of 0. Peers draw a fan of
+//     CARD BACKS on our avatar — RemoteHandFan gates every FRONT on `RevealGate.InScenario`
+//     (RemoteHandFan.cs:888), which is FALSE on the map, so no identity can be shown even in
+//     principle. Zero bytes were added; a count that used to be a lie while we held cards is now
+//     the truth. If that is ever unwanted, the whole of the suppression is one line at
+//     NetAvatarDriver.cs:842 — see this lane's change report.
 //   * RevealGate.ShowRoundCardFronts is WIDE OPEN in the map phase and its own doc comment says so
 //     ("offline / single player / MAP / our own actor / post-reveal action phase"): its conjunction
 //     includes RevealGate.InScenario, which is false here (RevealGate.cs:31-64, re-read 2026-08-21).
@@ -105,17 +121,16 @@
 // unguarded throw in an Update in this project starves VR input entirely (see
 // WorldUI/WorldUIModule's TickGuard and the standing note in .planning/STATE.md).
 //
-// UNITS. Every length in this file is REAL METRES and is named so. Nothing here multiplies by the
-// map room's ~198 game-units-per-metre rig scale, and nothing here may start to: the fan is parented
-// to VRRigDriver.RigRoot, whose lossy scale IS the diorama scale, so a 0.0635 m card renders 6.35 cm
-// wide at the eye at every zoom by construction. The ONE place a world-unit product appears is the
-// palm STANDOFF (PoseFan), where the metre offset is multiplied by hand.WorldScale to become a world
-// displacement — exactly as Cards/CardFan.cs:808 does it, and labelled there and here.
+// UNITS. Every length in these three files is REAL METRES and is named so. Nothing here multiplies
+// by the map room's ~198 game-units-per-metre rig scale, and nothing here may start to: the fan is
+// parented to VRRigDriver.RigRoot, whose lossy scale IS the diorama scale, so a 0.0635 m card
+// renders 6.35 cm wide at the eye at every zoom by construction. The ONE world-unit product on the
+// whole path is the palm STANDOFF, which lives in Cards/CardFan.cs:808 and is documented there —
+// this lane no longer forms one at all.
 
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
-using GloomhavenVR.Hands;
 using GloomhavenVR.Net;
 using MapRuleLibrary.Party;
 using ScenarioRuleLibrary;
@@ -127,12 +142,14 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// The map room's loadout hand and its wrist plate. One instance, owned by
 /// <see cref="MapRoomDriver"/>, engaged and stood down with the room.
 ///
-/// <para>It implements <see cref="IBorrowedCardSource"/> so that "take a card into either hand to
-/// look at it" is the EXISTING mechanism (<see cref="CardBorrow"/>, user report 7 of 2026-08-15)
-/// rather than a second implementation of the same idea — see <see cref="MapRoomHand"/>'s partial
-/// in MapRoomHand.2.Fan.cs for that half, and the inspection-only guarantee it inherits.</para>
+/// <para>It is a CARD SOURCE for the scenario's own card machinery, not a second one: it resolves
+/// the selected character and its loadout, builds <c>Cards.VRCard</c>s for them, and publishes the
+/// list through <c>Cards.CardsDriver.OffScenarioFanCards</c>. Reveal, roll response, layout, every
+/// animation, highlighting, the grab-to-read gesture and the character-switch exchange are the
+/// scenario's — see MapRoomHand.2.Fan.cs for the seam and for the gate that used to keep them
+/// out.</para>
 /// </summary>
-internal sealed partial class MapRoomHand : IBorrowedCardSource
+internal sealed partial class MapRoomHand
 {
     private const string Scope = "MapRoom";
 
@@ -221,7 +238,11 @@ internal sealed partial class MapRoomHand : IBorrowedCardSource
         {
             if (!want)
             {
-                if (_character != null || HasFan || HasWrist)
+                // HasRetiredCards is in the list because a card that is mid-exchange is NOT in
+                // HasFan any more — dropping the feature between a character switch and the end of
+                // that exchange would otherwise leave the outgoing wave standing with nobody left
+                // to sweep it.
+                if (_character != null || HasFan || HasRetiredCards || HasWrist)
                     Release("the map-room hand is not wanted this frame "
                             + "([WorldUI] MapRoomHand off, the room stood down, or VR stopped)");
                 return;
@@ -233,15 +254,13 @@ internal sealed partial class MapRoomHand : IBorrowedCardSource
                 Reconcile();
             }
 
+            // NOTE WHAT IS *NOT* HERE. No pose, no layout, no reveal test, no hover scan, no
+            // animation clock. All of that runs in CardsDriver's own Update on the fan this class
+            // feeds — which is the entire point of ModBuild 192 and the reason the map room cannot
+            // drift away from the scenario. TickFan only prints faces and lets retired cards die.
             TickFan();
             TickWrist();
-
-            // THE BORROW GESTURE HAS NO DRIVER OF ITS OWN. CardBorrow.Tick is called by each remote
-            // hand fan in a scenario (there is no module-level driver in that lane's files), and in
-            // the map room there are no remote fans — so without this line the slabs would be built,
-            // reachable and completely inert. It is frame-guarded internally (CardBorrow._tickedFrame),
-            // so calling it here costs one compare in a session that also has remote fans up.
-            CardBorrow.Tick();
+            TickStateLine();
         }
         catch (System.Exception ex)
         {
@@ -287,19 +306,17 @@ internal sealed partial class MapRoomHand : IBorrowedCardSource
     }
 
     /// <summary>Release everything this class built, in the order that cannot orphan anything: the
-    /// borrowed copy first (it points at a slab), then the slabs, then the wrist plate.</summary>
+    /// fan first (it hands the cards back to the driver BEFORE destroying them — see
+    /// <see cref="ReleaseFan"/>), then the wrist plate.</summary>
     private void Release(string reason)
     {
-        // A copy in the player's hand must never outlive the fan it was read from — report 7's
-        // second lifetime rule, and the one a hardware session hits by accident (leaving the map
-        // while holding a card).
-        CardBorrow.EndIfFrom(this, reason);
         ReleaseFan(reason);
         ReleaseWrist();
         _character = null;
         _loadout.Clear();
         _characterSource = "not resolved";
         _signature = int.MinValue;
+        _stateLinePending = false;   // a rebuild that was torn down before it was reported is not news
     }
 
     // ==========================================================================================
@@ -345,6 +362,27 @@ internal sealed partial class MapRoomHand : IBorrowedCardSource
 
         RebuildFan();
         RebuildWrist();
+        // DEFERRED BY ONE FRAME, on purpose. The state line reports whether the shared driver has
+        // ADOPTED the published list, and the driver's rebuild runs in its own MonoBehaviour's
+        // Update — which may not have happened yet this frame. Emitting here would report "not yet"
+        // every single time and make a genuine failure to adopt indistinguishable from the normal
+        // one-frame lag.
+        _stateLineFrame = Time.frameCount;
+        _stateLinePending = true;
+    }
+
+    /// <summary>A rebuild is waiting to be reported; see <see cref="Reconcile"/>.</summary>
+    private bool _stateLinePending;
+
+    /// <summary>The frame the pending state line was armed on.</summary>
+    private int _stateLineFrame;
+
+    /// <summary>Emit the armed state line once the driver has had a frame to consume the publish.</summary>
+    private void TickStateLine()
+    {
+        if (!_stateLinePending || Time.frameCount <= _stateLineFrame)
+            return;
+        _stateLinePending = false;
         EmitStateLine();
     }
 
@@ -595,10 +633,11 @@ internal sealed partial class MapRoomHand : IBorrowedCardSource
     private static readonly List<Vector3> s_peerHeads = new(8);
 
     /// <summary>
-    /// THE map-room hand line. One line, everything a hardware round needs: WHO is shown, HOW MANY
-    /// cards and where they were read from, whether the wrist plate stood up, and whether any peer
-    /// is embodied in this room at all. Emitted on a REBUILD only — i.e. when the selection or the
-    /// loadout changed — so a session produces a handful of these, not one per frame.
+    /// THE map-room hand line. One line, and it is written so the NEXT hardware round can be judged
+    /// on the user's five complaints SPECIFICALLY: which classes are driving the fan (named), what
+    /// the roll response is, whether highlighting is live, what the wrist plate was built by, and
+    /// what the character-switch animation is. Emitted on a REBUILD only — i.e. when the selection
+    /// or the loadout changed — so a session produces a handful of these, not one per frame.
     /// </summary>
     private void EmitStateLine()
     {
@@ -625,35 +664,64 @@ internal sealed partial class MapRoomHand : IBorrowedCardSource
             "MAP-ROOM HAND rebuilt.\n"
             + $"  character : {who}\n"
             + $"  source    : {_characterSource}\n"
-            + $"  cards     : {_loadout.Count} slab(s) built"
-            + (want > 0 ? $", loadout wants {want} (CMapCharacter.MaxCards)" : "")
-            + $"; read from CMapCharacter.HandAbilityCardIDs and resolved through "
+            + $"  cards     : {_cards.Count} VRCard(s) built for a loadout of {_loadout.Count}"
+            + (want > 0 ? $" (CMapCharacter.MaxCards wants {want})" : "")
+            + "; read from CMapCharacter.HandAbilityCardIDs and resolved through "
             + "CharacterClassManager.Find(CharacterID).AbilityCardsPool. THIS IS THE SCENARIO "
-            + "LOADOUT (ruling 1) — the same list UIPartyCharacterAbilityCardsDisplay edits and "
+            + "LOADOUT — the same list UIPartyCharacterAbilityCardsDisplay edits and "
             + "CMapParty.ExportPlayerStates turns into the scenario hand.\n"
-            + $"  faces     : {_frontsShown} of {_loadout.Count} showing the real card front "
+            + "  DRIVEN BY : Cards.CardsDriver + Cards.CardFan + Hands.Interact.PalmGate + "
+            + "Cards.VRCard — THE SCENARIO'S OWN CLASSES, not copies. This class only SOURCES the "
+            + "cards (CardsDriver.OffScenarioFanCards). Read that as the answer to 'verhält es sich "
+            + "wie im Szenario': if these names are here, there is exactly one implementation.\n"
+            + $"    published: {(CardsDriver.OffScenarioFanActive ? "YES — the driver has ADOPTED this list into its fan" : "not yet — the driver has not run its rebuild since the publish (expected for at most one frame)")}\n"
+            + "    (a)+(b) reveal/roll: CardsDriver.UpdatePalmGate on the NON-dominant hand's "
+            + "Hands.Interact.PalmGate, thresholds [Cards] RevealEnterDegrees/RevealExitDegrees, "
+            + "modes [Cards] RevealMode/RevealIgnoreWhenGrabbing. THE FAN IS DOWN UNTIL THE PALM "
+            + "ROLLS UP. The per-frame proof of this is the driver's own change-deduped 'fan state: "
+            + "... gateEnabled=, revealed=, open=' line — grep THAT, not this one.\n"
+            + "    (c) animation      : CardFan.Open's fan-out reveal ([Cards] FanOpenDuration) and "
+            + "Close's reverse collapse (FanCloseDuration), plus the eased palm follow and VRCard's "
+            + "per-card home lerp. Highlighting: CardFan.UpdateFingertipHover (fingertip pop + "
+            + "split) and CardsDriver.UpdateFanLaser -> UpdateFanHoverSplit (laser hover, haptic "
+            + "tick, whole-fan split). LIVE — nothing in the map room suppresses them.\n"
+            + "    (e) character swap : CardFan.BeginSwapOut + SetCards(swap: true), raised here "
+            + "through CardsDriver.OffScenarioFanSwap. It only plays while the fan is OPEN, exactly "
+            + "as in a scenario — switching character with your palm down is silent by design.\n"
+            + $"  faces     : {_frontsShown} of {_cards.Count} printed so far "
             + "(Net.RemoteAbilityCardSource pooled borrow — a widget spawned from the game's own "
-            + "ObjectPool by card ID, cloned, and handed straight back). A count BELOW the slab "
-            + "count means the pool refused: those slabs are card BACKS, which is the fail-safe.\n"
+            + "ObjectPool by card ID, cloned, handed straight back). PRINTING IS DEFERRED to the "
+            + "first frame each card is visible, so 0 here is NORMAL until the hand is first raised; "
+            + "a count that stays below the card count AFTER a reveal means the pool refused, and "
+            + "those cards are card BACKS — the fail-safe, never a blank quad.\n"
             + $"  wrist     : {(HasWrist ? "plate BUILT on the " + _wristSideName + " wrist" : "NOT built")} "
-            + $"— {_wristVerdict}\n"
+            + $"— {_wristVerdict}. Built by MapRoomHand.3.Wrist against WorldUI.WristHud's own pose "
+            + "dials, geometry, fade hysteresis, sorting ladder and ROW FORMAT (Level / HP h/max + "
+            + "XP / Gold / conditions). WristHud itself cannot serve the map phase: its want-gate is "
+            + "Choreographer.s_Choreographer != null (WristHud.cs:246) and every value it renders "
+            + "comes off a CPlayerActor, which does not exist here.\n"
             + $"  peers     : {(peers < 0 ? "uncountable" : peers.ToString())} remote avatar(s) with a "
             + "valid head pose in this room right now. NOTE FOR THE READER: peers are visible on the "
             + "map only INCIDENTALLY (RemoteAvatar is DontDestroyOnLoad with no phase gate) and are "
             + "UNSEATED — every client's menu rig sits at the same authored vantage, so they "
             + "interpenetrate. Deliberate map-room presence is plan phase 8 and is UNBUILT, so NO "
             + "peer loadout fan is drawn by this build. That is a decision, not a bug.\n"
-            + "  wire      : ZERO BYTES. This feature is not a Cards.CardFan, so the broadcast "
-            + "PresenceState.HandCardCount (sampled from CardFan.Current) is unchanged at 0, and the "
-            + "faces are read locally from CharacterClassManager/ObjectPool. Card identity stays off "
-            + "the wire.\n"
-            + "  DISPROOF  : if this line names the RIGHT character but the headset shows no cards, "
-            + "the slabs exist and the fan pose is the suspect — compare the MAP-ROOM HAND POSE line. "
-            + "If it names the WRONG character, read 'source' above: 'PARTY DISPLAY' means the game "
-            + "itself reports that selection, anything starting 'FALLBACK' means nothing was selected. "
-            + "If cards appear as blank BACKS, read 'faces': that is the pooled-borrow path failing, "
-            + "not the gate — there IS no gate in this phase (RevealGate.ShowRoundCardFronts is open "
-            + "off-scenario by its own definition).");
+            + "  wire      : NO FIELD ADDED. Faces are read locally from CharacterClassManager/"
+            + "ObjectPool and card identity stays off the wire. ONE existing byte changes value: the "
+            + "fan is a real Cards.CardFan now, so PresenceState.HandCardCount (sampled from "
+            + "CardFan.Current at NetAvatarDriver.cs:842) reports the real count while the hand is "
+            + "up; peers draw BACKS only, because RemoteHandFan gates fronts on RevealGate.InScenario "
+            + "which is false here.\n"
+            + "  DISPROOF  : cards never appear at all -> read the driver's 'fan state' line. "
+            + "open=False with gateEnabled=True means the ROLL never crossed RevealEnterDegrees "
+            + "(that is (b), and it is a dial, not this file). gateEnabled=False means the "
+            + "interactor policy lost PalmGate — the map room must be VRMode.TableIdle; check the "
+            + "'Mod room STANDS' line. fanBuffer=0 means the driver never adopted this list: this "
+            + "file published and the rebuild did not happen. Cards appear but never animate or "
+            + "highlight -> they are NOT in the fan (fanBuffer would be 0 too) and something else "
+            + "is drawing them. WRONG character -> read 'source' above: 'PARTY DISPLAY' means the "
+            + "game itself reports that selection, anything starting 'FALLBACK' means nothing was "
+            + "selected in the party screen.");
     }
 
     /// <summary>The name to show: the player's own renaming wins, as it does in the game's own

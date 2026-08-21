@@ -416,7 +416,202 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 191;
+    public const ushort ModBuild = 192;
+    // Build 192: THE MAP ROOM STOPPED HAVING ITS OWN CARD HAND, THE WINDOWS STOPPED MOVING, AND THE
+    // EYE PROBE WAS BLIND FOR A REASON WORTH REMEMBERING. (Six workers, isolated worktrees.)
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    // Nothing on the wire: zero new records, zero new fields. ONE observable MP change, see below.
+    //
+    // ── THE CARD HAND: A SECOND IMPLEMENTATION WAS THE WHOLE DEFECT ───────────────────────
+    // User on 191's map-room hand: "Die Karten sind dauerhaft da und reagieren nicht auf der roll
+    // der Hand. Es gibt keine Animation kein Highlighting. Die Characterinfo am Handgelenk sieht
+    // anders aus. Ich will das es sich hier 1:1 genauso verhält wie im Szenario selber. Am Besten
+    // nutzt du auch die selben Code Segmente." He is right, and 191 earned it: it built a PARALLEL
+    // fan (own slabs, own arc, own hand pose) and shared only the pose dials.
+    // THE CENTRAL FINDING, AND IT IS NOT WHAT ANYONE GUESSED: **it was never the palm gate.** The
+    // campaign map resolves to VRMode.TableIdle (VRModeStateMachine.cs:448-457, the
+    // `!_inScenario ? VRMode.TableIdle` arm, reachable because MapRoomDriver.Engage pushes
+    // SetModRoom(true)), and TableIdle's interactor row is Poke|Grab|PalmGate
+    // (VRModeStateMachine.cs:238) — so PalmGate.Enabled has been TRUE on the map all along and the
+    // wrist roll was ALREADY being measured every frame. What was missing is CARDS, in a chain of
+    // three links, each read from source:
+    //   1. CardsDriver.CurrentHand() — `if (!CardsGameApi.InScenario) return null;`
+    //      (CardsDriver.2.Update.cs:916), and InScenario => Choreographer.s_Choreographer != null
+    //      (CardsGameApi.cs:3186). The campaign map has no Choreographer BY CONSTRUCTION — the very
+    //      fact MapRoomDriver's own mode predicate is positive about.
+    //   2. so Rebuild takes its `hand == null` arm (CardsDriver.4.Rebuild.cs:276-285) into
+    //      RebuildFakeOrClear, which hands the fan an EMPTY list (6.Flows.cs:1938-1939).
+    //   3. so UpdatePalmGate's `allowFan` (2.Update.cs:1009) is false and `shouldOpen` (:1029) can
+    //      never become true.
+    // GIVE THE FAN CARDS OFF-SCENARIO AND EVERY PATH RUNS UNCHANGED, because they are literally the
+    // same lines. `MapRoomHand` now publishes a List<VRCard> to `CardsDriver.OffScenarioFanCards`;
+    // `TryRebuildOffScenarioFan()` inside RebuildFakeOrClear copies it into `_fanBuffer`, hooks each
+    // card, sets `FanMode.Inspect` and calls `_fan.SetCards(...)`. From that instant THE MAP FAN IS
+    // LITERALLY CardsDriver._fan — the same object a scenario uses. MapRoomHand no longer poses,
+    // lays out, animates, reveals, hides or highlights anything.
+    // So: (a) permanence is gone — UpdatePalmGate's own Open/Close edge plus PlayFanEdgeSound;
+    // (b) the roll is Hands/Interact/PalmGate with the same [Cards] RevealEnter/ExitDegrees dials;
+    // (c) animation is CardFan.Open/Close's own fan-out and collapse, and highlighting is all four
+    // existing paths (UpdateFingertipHover, UpdateFanLaser, UpdateHandContactArbitration,
+    // UpdateFanHoverSplit) — none of which was scenario-gated; (e) the character switch is the
+    // scenario's own BeginSwapOut() + SetCards(list, swap:true), with outgoing cards held alive
+    // 3 s so the wave can fly.
+    // A DELIBERATE REVERSAL, STATED BECAUSE 191 SAID THE OPPOSITE IN CAPITALS: the scenario fan
+    // BILLBOARDS its root at the head (CardFan.cs:856-884) and toes each card in. 191's header
+    // claimed "NOTHING HERE READS THE HEAD". The standing "nothing may re-orient with head
+    // movement" ruling is about the WORLD and the diorama, not a hand of cards held in your own
+    // hand — and the new ruling is that the map room may not differ from the scenario.
+    // INSPECTION-ONLY IS STILL STRUCTURAL, and now with TWO independent belts: the cards never get
+    // AttachGameCard, so `GameCard` is null for their whole life and every commit seam returns on
+    // its first line (OnCardPoked at 5.Interactions.cs:726; OnCardReleased's InspectOnly arm sits
+    // BEFORE CurrentHand() at :417; and even with InspectOnly cleared the next statement is
+    // `if (gameHand == null || card.GameCard == null)`); and FanMode.Inspect stamps
+    // Grabbable/InspectOnly/PokeSelectEnabled=false/AllowsGateHand=false at the one membership seam.
+    // There is also no target: the branch runs after the piles, active column, pick field and
+    // short-rest display are already cleared. And this feature only ever READS HandAbilityCardIDs.
+    // THE WRIST PLATE could NOT be shared literally, and that is stated rather than hidden:
+    // WristHud is scenario-bound in its DATA MODEL, not its gate — `want` requires a Choreographer
+    // (WristHud.cs:246) and every value comes off a CPlayerActor, and CMapCharacter.GetActor()
+    // (:1116) reads ScenarioManager.Scenario and would THROW on the map. The map plate is now a
+    // verbatim reproduction (same rows, colours, Loc keys, plate size, fade hysteresis, ladder lift
+    // and the shared [WristHud] pose dials), with a standing warning in both halves that the two are
+    // a mirrored pair with nothing enforcing it. THE REAL FIX, NOT DONE: give WristHud an
+    // actor-less content source and delete MapRoomHand.3.Wrist.cs outright.
+    // ONE OBSERVABLE MP CHANGE, ZERO NEW WIRE BYTES: the map fan is a real CardFan, so
+    // `CardFan.Current` is non-null while it is open and the ALWAYS-SENT PresenceState.HandCardCount
+    // byte now carries the true count on the map instead of 0. Peers draw a fan of card BACKS on our
+    // avatar. No identity can leak even in principle — and note the correction to 191's claim:
+    // RevealGate.ShowRoundCardFronts IS open on the map, but RemoteHandFan ADDITIONALLY requires
+    // RevealGate.InScenario before resolving fronts (RemoteHandFan.cs:888), because the cloned
+    // widgets' lifecycle depends on scenario singletons. So peer FRONTS in the map room need more
+    // than phase 8's seating, and the 191 build note overstated that. One line suppresses the count
+    // if the backs are unwanted (NetAvatarDriver.cs:842).
+    //
+    // ── THE WINDOWS STOPPED MOVING ────────────────────────────────────────────────────────
+    // User: "Die Fenster verändern ständig ihre Position wenn ein neues Fenster gespawned wird oder
+    // schließt. Das soll nicht sein ... Spawne die Fenster so, das alle im Sichtfeld passen aber
+    // einmal gespawned sind sie fix." `RelayoutMapRoomArc()` ran on EVERY add and remove and rewrote
+    // every non-grabbed window. It is GONE, with nothing replacing it: there is no per-set layout
+    // step in Tick at all any more. The arc is now a RESERVATION — 5 slots at 0/+34/-34/+68/-68
+    // degrees from the spawn gaze, claimed in ComputeHmdPose (the single placement authority, so a
+    // claim rides the same board/eye clamps and the same Upright guard), held for the window's life,
+    // released on close. Choice rule: first free index = nearest the centre, since the indices are
+    // already ordered centre-outward. Overflow past 5 uses the existing scenario-table stagger in
+    // the FOREGROUND of the centre; past 9 the log says outright that it may coincide.
+    // THIS ANSWERS TWO OLD DEFECTS AT ONCE: 181 indexed the arc by "how many are already open",
+    // which put every fresh window at the OUTSIDE ("so weit neben mir, dass ich es zuerst nicht
+    // bemerkt habe"); 183 answered that with the relayout the current ruling rejects. And the old
+    // angle sequence CLAMPED at +/-85, where slots 6 and 8 landed on the SAME ANGLE — that
+    // collision is gone with the bounded slot count.
+    // THE SLOT IS A YAW AND NOTHING ELSE: the raw pose is the ordinary gaze spawn ROTATED ABOUT
+    // WORLD UP, so distance, downward gaze bias and therefore HEIGHT out of ClampSpawnPose are
+    // bit-for-bit what they were, and rotating about world up cannot introduce pitch or roll (the
+    // yaw-only ruling of 189 is untouched; the Upright guard still reports 0.0/0.0).
+    // In the map room the character screen converts first, so it holds the CENTRE for the room's
+    // life (it is permanent and non-closable by ruling); merchant/temple land at +/-34, +/-68.
+    // A user-moved window KEEPS its slot deliberately: freeing it would let a fresh window
+    // materialise on the angle a merely-nudged window still occupies.
+    //
+    // ── THE TRAVEL BUTTON: THE ARITHMETIC WAS RIGHT, THE FRAME WAS WRONG ──────────────────
+    // User: "er soll zentral UNTER dem Rest angezeigt werden ... nun ist es viel zu weit oben und
+    // auch auf der x-achse verschoben und flackert für einen frame kurz an der alten position auf."
+    // 191 anchored the container to the QUEST WINDOW's bottom edge and its own log proves the solve
+    // was correct — the quest window simply is not the middle of anything; it hangs in whatever arc
+    // slot it got. The container now gets a WORLD HOST OF ITS OWN, placed from a per-tick census of
+    // every floated window (member test: alive, active, host name prefix, not render-hidden, not
+    // ours, and REGISTERED WITH UguiPokeSurfaces — which is the hover-card exclusion, since windows
+    // convert pokeable:true and hover cards pokeable:false since 187). Basis with no head term:
+    // n = the flattened average of the counted hosts' +Z (on an arc that average IS the centre
+    // direction), right = up x n. Lateral = MIDPOINT of the full horizontal extent (not the
+    // centroid — an asymmetric set would pull a centroid sideways); depth = midpoint; height =
+    // lowest corner in the whole set minus the gap minus half the measured content height. Scale =
+    // the MEAN of the counted hosts' lossyScale, so the label reads at the same physical size as the
+    // windows above it. Gap = 2% of the ENSEMBLE's height, which with one window reproduces 191's
+    // accepted 17.9 mm verbatim. Settle gate of 0.25 s so a spawn moves it once and a steady room
+    // writes nothing — bypassed while render-hidden, because a correction nobody can see is not
+    // jitter.
+    // THE ONE-FRAME FLASH was in 191's own code and is embarrassing in the useful way: Reconcile
+    // wrote `anchoredPosition = Vector2.zero` BEFORE solving, and zero pins the CONTAINER's top edge
+    // to the window's bottom — i.e. zero IS the ModBuild 190 pose. The game then showed it, it drew
+    // one frame there, and the next tick moved it. Now the container is taken BEFORE it is ever
+    // shown, born render-hidden behind the mod's existing reveal gate, and released only once the
+    // content measurement has REPEATED itself (uGUI layout is not final on the frame an object is
+    // enabled, and the game re-labels this button between Reisen and Quest erneut spielen), bounded
+    // by a 0.5 s deadline with a Warn — a confirm button must never stay invisible. No Harmony patch
+    // on EnableTravelOptions: that would need a second owner of state the game writes.
+    //
+    // ── THE ONE SECOND OF ALIASING WAS A TIMING BUG, AND THE CAUSE WAS NOT WHAT I ASSUMED ─
+    // User: "die Itemkarten dort werden 1 Sekunde mit dem starken aliasing angezeigt dann sieht man
+    // wie es verschwindet." I assumed a progressive scan in PanelMipBake. **PanelMipBake was never
+    // called on that window at all** — every Rescan caller is a SCENARIO surface, and a floated
+    // map-room window has none. The only thing baking it was `PanelSamplingProbe`, A MEASURING
+    // INSTRUMENT, which is structurally incapable of a zero-aliased-frame swap for two independent
+    // reasons: ScanIntervalFrames = 30 (at 24-27 ms/frame that IS the reported second), and it walks
+    // with GetComponentsInChildren(includeInactive: FALSE), so a graphic the game's loader has not
+    // enabled yet is invisible to it — by the time the probe can see the art, the art is on screen.
+    // MEASURED FROM THE LOG in frames against the Perf SPIKE marks: shop window revealed at 27811,
+    // hint first shown ~27862-27892, FIRST item art baked between 28474 and 28503 — ~600 frames,
+    // ~15 s, across ~60 show/hide cycles. After the queue drained: 28563→28591, 28622→28650, i.e.
+    // one to two scans = 0.7-1.5 s. That is the reported second, to the frame.
+    // FIX: BAKE ON ARRIVAL, reusing the seam Cards/CardArtWatch already won this argument on. Per
+    // floated panel, hold the Image[] captured with includeInactive: TRUE plus each one's last
+    // sprite; once per frame swap every Image whose sprite REFERENCE changed. The game's
+    // ImageLoadingContext keeps the Image disabled until the outer continuation, so the swap lands
+    // WHILE THE GRAPHIC IS STILL HIDDEN and the first rendered frame is already mipmapped.
+    // REJECTED, and the rejection is the interesting part: blanket-baking the panel on first
+    // capture. The shop window carries ~475 graphics, so at 2 bakes/frame that puts the ONE graphic
+    // he complained about at the back of a ~6 s queue. A panel's first capture RECORDS and does not
+    // swap; the initial population stays the probe's job. New bakes are capped at 2/frame — HALF
+    // what the already-shipping MaxBakeAttemptsPerScan = 4 allows, so this seam can never do more
+    // bake work in a frame than today's code may. AT INTEGRATION the tick was moved to its natural
+    // owner, WorldUIModule's LateTick list as the step "PanelMipBake.Arrivals", and the two arming
+    // calls the lane had to put in CardFaceMipBake were deleted.
+    //
+    // ── THE EYE PROBE WAS BLIND, AND THE REASON IS A KEEPER ───────────────────────────────
+    // 191's EyeFrameProbe passed all five SYNTHETIC self-tests and then failed its LIVE one: a
+    // capture displaced by 17 eye pixels over a patch with real contrast (std 0.0128) came back
+    // BIT-IDENTICAL. It disabled itself and named the consequence, which is exactly the discipline
+    // it was built with. THE CAUSE: **CommandBuffer.Blit CHANGES THE ACTIVE RENDER TARGET.** The
+    // probe recorded three or four Blits from BuiltinRenderTextureType.CurrentActive per eye pass;
+    // only #1 ever saw the eye buffer, because #2..#4 resolved CurrentActive to the probe's OWN
+    // 64x64 destination — a blit of that texture onto itself. The self-test's offset capture is
+    // always the LAST blit in its pass, so it could never have honoured its rectangle no matter what
+    // the scale/offset overload does. Corroboration that #1 DID honour its rect: the plain patch
+    // read std 0.0128 (~3/255); if scale/offset were ignored, #1 would have been the whole
+    // 3072x3264 frame — bright panels over a dark scene — which cannot read that flat.
+    // THE EXPENSIVE HALF: the REFERENCE capture was always blit #2, so the reference patch was a
+    // COPY OF THE SUBJECT. The reference is the number that lets the sampling hypothesis LOSE. Had
+    // the self-test not fired, the probe would have answered "reference == subject" on every burst
+    // and KILLED A CORRECT HYPOTHESIS with an instrument that agreed with itself.
+    // FIX: exactly ONE Blit per capturing eye pass — a full-eye 1:1 copy into a single-sampled
+    // temporary whose only job is resolving the 8x MSAA eye buffer, read as the FIRST command before
+    // anything can rebind — then CommandBuffer.CopyTexture region copies at integer pixel
+    // coordinates. A region copy has no material, no _MainTex_ST, no fullscreen quad, no shader and
+    // no target rebind: there is nothing for the engine or an XR blit interception to substitute,
+    // and it cannot resample, which removes the last way the instrument could manufacture a per-eye
+    // difference. Gated at arm time on SystemInfo.copyTextureSupport, refusing to fall back.
+    // The positional proof now uses three rects at printed positions (+17/+17 and +/-96 px) and
+    // prints each window's own mean and std in EVERY outcome, so "rect ignored" and "constant
+    // readback" are distinguishable. A second self-inflicted bug was caught in that: gating flatness
+    // at std 0.01 made the CONSTANT-READBACK branch unreachable — a genuinely constant readback
+    // would have been filed as "too flat to judge" and the probe would have published verdicts built
+    // from a constant. The gate is now std EXACTLY zero.
+    //
+    // ── THE MEASURE WAS SHIPPED SWITCHED OFF AND THEREFORE NEVER RAN ──────────────────────
+    // The 191 log contains ZERO `PANEL SUPERSAMPLE` lines: the path never executed, because the dial
+    // defaults false and he tunes from the in-headset options tab, where it had no row and no German
+    // name. So "Flackern nach wie vor unverändert" is not a test of it. `[WorldUI] PanelSupersample`,
+    // `PanelSupersampleFactor` and `WindowLegibility` now have curated rows under Grafik ▸
+    // Darstellung (beside the render-quality quartet — this IS supersampling, and a player chasing
+    // shimmer looks there), `[WorldUI] MapRoomHand` sits under the 3D-map row, all four are named and
+    // described in German, and two fold rules hide the factor while the switch is off and the hand
+    // while the 3D map is off. The names were verified against a harness that COMPILES the real Loc
+    // tables and runs the exact expression the row evaluates, WITH A NEGATIVE CONTROL — without one,
+    // four hits would only prove the resolver answers everything.
+    // ALSO FIXED AT INTEGRATION: WindowLegibility's German text ran 1277 characters against
+    // ConfigCatalog.MaxDescriptionChars = 620 and clipped mid-word at "...kleine Buchstaben bei".
+    // It had been unreachable in the curated list until this build, which is why nobody had seen it.
+    // Trimmed to 613.
     // Build 191: THE DITHER HYPOTHESIS DIED, THE TOOLTIP WAS BEING CLIPPED AS WELL AS BURIED, AND THE
     // CARD HAND CAME TO THE MAP ROOM. (Five workers, isolated worktrees, split file ownership.)
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

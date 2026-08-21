@@ -317,6 +317,17 @@ internal sealed class WorldUIModule : IVRModule
             late.Add(("DecisionDockSurface.Late", _decisionDock.LateTick)); // after the text: seats off its re-placed bottom
             late.Add(("UseBarsSurface.Late", _useBars.LateTick)); // after the dock: reads its re-placed row edge
             late.Add(("TrayControlDockSurface.Late", _trayControls.LateTick));
+            // MIP BAKE ARRIVALS (ModBuild 192). A floated panel's art is addressable-loaded on hover:
+            // the game creates the Image DISABLED, the load lands later, and the sprite is assigned
+            // from a sync-context continuation in Update. Swapping it for the mipmapped copy HERE —
+            // after every Update, before uGUI builds this frame's canvas — is what makes the shop
+            // item card's FIRST rendered frame the clean one ("1 Sekunde mit dem starken aliasing",
+            // ModBuild 191). It moves no host, so its place before the transparency round is free.
+            // THIS IS THE NATURAL OWNER: PanelMipBake also self-installs a hidden LateUpdate pump for
+            // the scenario path, and TickArrivals guards on the frame number, so the two can never
+            // double-swap. Before 192 the ONLY thing baking a floated window was PanelSamplingProbe —
+            // a measuring instrument, on a 30-frame scan, blind to inactive graphics by construction.
+            late.Add(("PanelMipBake.Arrivals", PanelMipBake.TickArrivals));
             // TRANSPARENCY ROUND, and it must stay LAST. CanvasConversion.TickPanelOrder assigns
             // every converted panel's draw order from its measured eye distance (far = painted
             // first), which is what makes panels occlude each other by perspective now that none of

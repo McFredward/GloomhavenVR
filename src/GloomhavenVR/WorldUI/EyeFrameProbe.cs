@@ -74,24 +74,54 @@ namespace GloomhavenVR.WorldUI;
 /// <para>HOW THE PIXELS ARE OBTAINED. One <see cref="CommandBuffer"/> is attached to the mod's head
 /// camera at <see cref="CameraEvent.AfterEverything"/>. In MultiPass that event fires once per eye
 /// pass, and <c>Camera.onPreRender</c> — which runs before it, in the same pass — re-records the
-/// buffer for THAT eye: a <c>Blit</c> from <see cref="BuiltinRenderTextureType.CurrentActive"/>
-/// (the eye's own render target, MSAA-resolved by the blit) into a mod-owned
-/// <see cref="PatchSize"/>x<see cref="PatchSize"/> RenderTexture, immediately followed by
-/// <c>CommandBuffer.RequestAsyncReadback</c>. Because the copy and the readback are enqueued into
-/// the command stream TOGETHER, readback N always carries the pixels blit N produced, and the
-/// callbacks complete in submission order — so one shared small target serves every capture and a
-/// FIFO pairs each callback with its own request. That is the identical argument
-/// <see cref="RenderTargetProbe"/>'s CONTENT block makes, and it is why there is no
-/// <c>ReadPixels</c> anywhere on this path: a blocking readback would flush the pipeline every
-/// frame and change the frame timing of the very thing being measured.</para>
+/// buffer for THAT eye. The recorded stream is, in this exact order:
+/// <list type="number">
+/// <item>ONE <c>Blit</c> from <see cref="BuiltinRenderTextureType.CurrentActive"/> — the eye's own
+/// render target — into a full-eye-sized, single-sampled TEMPORARY RenderTexture. This blit exists
+/// for one reason: to RESOLVE the 8x MSAA eye buffer into something a copy can address. It is a
+/// straight 1:1 full-frame copy with no scale, no offset and no material, which is the most
+/// exercised path in the whole engine.</item>
+/// <item>One <c>CommandBuffer.CopyTexture</c> PER PATCH, taking a
+/// <see cref="PatchSize"/>x<see cref="PatchSize"/> REGION out of that resolved copy at integer
+/// pixel coordinates into a mod-owned <see cref="PatchSize"/>x<see cref="PatchSize"/>
+/// RenderTexture, each immediately followed by <c>CommandBuffer.RequestAsyncReadback</c>.</item>
+/// </list>
+/// Because each copy and its readback are enqueued into the command stream TOGETHER, readback N
+/// always carries the pixels copy N produced, and the callbacks complete in submission order — so
+/// one shared small target serves every capture and a FIFO pairs each callback with its own
+/// request. That is the identical argument <see cref="RenderTargetProbe"/>'s CONTENT block makes,
+/// and it is why there is no <c>ReadPixels</c> anywhere on this path: a blocking readback would
+/// flush the pipeline every frame and change the frame timing of the very thing being measured.</para>
+///
+/// <para><b>WHY IT IS NOT A PER-PATCH <c>Blit(src, dst, scale, offset)</c> ANY MORE — THE ModBuild
+/// 191 FAULT, WRITTEN DOWN SO IT CANNOT COME BACK.</b> 191 recorded one
+/// <c>Blit(CurrentActive, patchRt, uvSize, uvMin)</c> per patch and its LIVE self-test correctly
+/// caught that a capture displaced by 17 px came back BIT-IDENTICAL to the undisplaced one. The
+/// cause is a DOCUMENTED property of the API that the design simply did not account for:
+/// <b><c>Blit</c> changes the currently active render target — after it executes, <i>dest</i> is
+/// the active target.</b> So only the FIRST blit of a pass ever saw the eye buffer. Every capture
+/// after it resolved <c>CurrentActive</c> to <c>patchRt</c> — the probe's own 64x64 destination —
+/// and was therefore a blit of that texture onto itself, which the driver satisfies without ever
+/// touching the eye buffer. The self-test's offset capture was always the third or fourth blit in
+/// its pass, so it could never have honoured its rectangle no matter what the scale/offset overload
+/// does. The same defect silently poisoned the REFERENCE column, whose capture was always the
+/// second blit: the reference patch was a copy of the SUBJECT patch, so the falsifier
+/// ("does the quiet surface disagree as much as the loud one?") would have answered YES on every
+/// burst and killed a correct hypothesis. The replacement mechanism cannot fail that way by
+/// construction: <c>CopyTexture</c> takes explicit integer source coordinates, does NOT change the
+/// active render target, uses no material, no shader, no <c>_MainTex_ST</c> and no full-screen
+/// quad, so there is nothing left for the engine or an XR blit interception to silently
+/// substitute. And <c>CurrentActive</c> is now read EXACTLY ONCE per pass, as the very first
+/// command, before anything can have rebound it.</para>
 ///
 /// <para>THE CAPTURE IS A 1:1 CROP, NOT A DOWNSCALE, and that is not a detail. The pattern being
 /// hunted has a period of about eight SCREEN pixels. Squeezing a 700x500 rendered graphic into a
 /// 64x64 patch would push that period to 0.7 px and destroy the very signal the probe exists to
-/// find. So the blit takes a window of exactly <see cref="PatchSize"/> EYE PIXELS around the
-/// surface's projected centre, and the window origin is SNAPPED to the eye texture's texel grid so
-/// the copy is a copy and not a resample — otherwise the resampling itself would manufacture a
-/// per-eye difference and the instrument would confirm rivalry on a perfect render.</para>
+/// find. The resolve blit is full-eye-sized, so it does not rescale; the region copy then takes a
+/// window of exactly <see cref="PatchSize"/> EYE PIXELS around the surface's projected centre at
+/// INTEGER coordinates. A region copy cannot resample even in principle — it is a texel-for-texel
+/// move — which removes the last way this instrument could manufacture a per-eye difference on a
+/// perfect render and confirm rivalry that is not there.</para>
 ///
 /// <para>THE SELF-TEST IS NOT OPTIONAL AND IT GATES EVERYTHING. ModBuild 186 shipped an A-B-A test
 /// whose code was the exact inverse of its own doc comment; it named a wrong root cause with
@@ -104,13 +134,29 @@ namespace GloomhavenVR.WorldUI;
 /// diagonal axis; and deterministic hash NOISE must report LOW strength and must NOT report a
 /// period of 8. If any of the five fails, the probe writes ONE Warn naming the consequence and
 /// DISABLES ITSELF.</item>
-/// <item>A LIVE self-test runs on real GPU pixels: the same eye, the same frame, captured twice —
-/// once at the true rect and once at a rect deliberately offset by
-/// <see cref="SelfTestOffsetPixels"/> px. The unoffset pair must be bit-identical (proving the
-/// readback path and the FIFO pairing are not scrambled) and the offset one must DIFFER (proving
-/// the blit actually honours the requested rectangle and the readback is returning live varying
-/// pixels rather than a constant). It is INCONCLUSIVE, never a failure, when the patch is too flat
-/// for an offset to change anything — that condition is stated on the line.</item>
+/// <item>A LIVE self-test runs on real GPU pixels, in ONE eye, in ONE frame, from ONE resolve, at
+/// THREE rectangles whose screen positions are known and printed: the subject rect itself, the
+/// same rect displaced by <see cref="SelfTestOffsetPixels"/> px, and — the POSITIONAL PROOF — the
+/// same rect displaced by <see cref="PositionProofOffsetPixels"/> px. The undisplaced pair must be
+/// bit-identical (the FIFO pairing is not scrambled); BOTH displaced captures must DIFFER from it.
+/// Each patch's OWN mean and standard deviation are printed beside the differences, and that is
+/// what makes the two ways of being blind distinguishable instead of being lumped together:
+/// <list type="bullet">
+/// <item><b>RECT IGNORED</b> — a window carries real structure (std dev above zero), yet two
+/// rectangles at KNOWN DIFFERENT screen positions came back byte-for-byte equal. The pixels are
+/// live; the coordinates are being thrown away. This is the ModBuild 191 failure, and it is called
+/// immediately.</item>
+/// <item><b>CONSTANT READBACK</b> — every window comes back PERFECTLY UNIFORM (std dev exactly
+/// zero) with the same mean. On ONE attempt that is genuinely ambiguous — a solid block of colour
+/// reads exactly like a readback that returns a constant — so the probe retries. If it is still
+/// ambiguous after <see cref="SelfTestMaxAttempts"/> it FAILS, because it cannot show that the
+/// numbers it would publish are live pixels. It names both readings on the way out.</item>
+/// </list>
+/// Either one writes a Warn that names the mode, prints the three positions and the three mean/std
+/// pairs, and DISABLES the probe. A perfectly uniform window is the ONLY state in which a
+/// displacement may legitimately change nothing, and that is judged on a standard deviation of
+/// exactly zero and not on a loose "looks flat" threshold — a loose threshold is precisely how a
+/// constant readback would get filed as "too flat to judge" and let the probe speak anyway.</item>
 /// </list>
 /// Both results are printed on the armed line and repeated on every baseline.</para>
 ///
@@ -119,21 +165,29 @@ namespace GloomhavenVR.WorldUI;
 /// readbacks failed, what the self-tests say, and what the current verdict is. A silent probe must
 /// never be readable as "nothing looked".</para>
 ///
-/// <para>COST. Bursts are throttled to <see cref="BurstsPerSecond"/> per second. A burst is two
-/// CONSECUTIVE frames (it has to be: the temporal control is frame N vs frame N+1) and captures at
-/// most eight <see cref="PatchSize"/>x<see cref="PatchSize"/> RGBA patches, i.e. ~32 patches/s or
-/// ~512 KB/s off the render thread — noise beside one 3072x3264 per-eye frame. The command buffer
-/// is CLEARED on every eye pass and only re-recorded when a capture is due, so a non-capturing pass
-/// costs one empty buffer execution. The measured per-capture record cost is printed on the
-/// baseline in microseconds. The probe stands completely down when no floated panel is up.</para>
+/// <para>COST, AND WHERE IT HONESTLY WENT UP. Bursts are throttled to
+/// <see cref="BurstsPerSecond"/> per second. A burst is two CONSECUTIVE frames (it has to be: the
+/// temporal control is frame N vs frame N+1) and captures at most nine
+/// <see cref="PatchSize"/>x<see cref="PatchSize"/> RGBA patches, i.e. ~36 patches/s or ~576 KB/s
+/// read back off the render thread — noise beside one 3072x3264 per-eye frame. The new item on the
+/// bill is the MSAA RESOLVE: one full-eye blit per CAPTURING eye pass, which at
+/// <see cref="BurstsPerSecond"/> bursts/s is 4 bursts x 2 frames x 2 eyes = 16 full-frame copies
+/// per second. That is a real cost and it is deliberate — it is the price of a capture path that
+/// reads <c>CurrentActive</c> exactly once, and it is paid ONLY on capture passes and ONLY while a
+/// panel is floated. It is charged into the same per-capture microsecond figure printed on the
+/// baseline, and the number of resolves is printed beside it so the reader can divide it out
+/// instead of trusting this paragraph. The command buffer is CLEARED on every eye pass and only
+/// re-recorded when a capture is due, so a non-capturing pass costs one empty buffer execution and
+/// no resolve at all. The probe stands completely down when no floated panel is up.</para>
 ///
 /// <para>MULTIPLAYER: this is a purely LOCAL diagnostic. It reads pixels the local headset is
 /// already rendering, writes nothing the game owns, adds no Harmony patch, sends nothing on the
 /// wire and changes no value any other peer can observe. It is MP-safe by construction.</para>
 ///
 /// <para>DEGRADATION. Every failure path writes one Warn naming the CONSEQUENCE and then stands
-/// down: no AsyncGPUReadback support, no head camera, no eye target size, a failed target creation,
-/// a throw anywhere in the record path. Nothing throws out of the render loop.</para>
+/// down: no AsyncGPUReadback support, no <c>CopyTexture</c> support, no head camera, no eye target
+/// size, a failed target creation, a throw anywhere in the record path. Nothing throws out of the
+/// render loop.</para>
 /// </summary>
 internal static class EyeFrameProbe
 {
@@ -196,23 +250,44 @@ internal static class EyeFrameProbe
     /// content aliasing. Deliberately high: a false "ordered" verdict is the expensive one.</summary>
     private const float SharpPeakStrength = 0.45f;
 
-    /// <summary>How far the live self-test's second capture is displaced, in eye pixels. Big enough
-    /// that no plausible content is self-similar across it, small enough to stay on the surface.</summary>
+    /// <summary>How far the live self-test's second capture is displaced, in eye pixels, on BOTH
+    /// axes. Big enough that no plausible content is self-similar across it, small enough to stay on
+    /// the surface. A prime number on purpose: a displacement that is a multiple of a repeating
+    /// pattern's period would land on an identical-looking window and read as a failure.</summary>
     private const int SelfTestOffsetPixels = 17;
 
-    /// <summary>Live self-test attempts before it is declared unable to conclude (the patch is flat
-    /// every time it looks). It then stops costing captures and says so.</summary>
-    private const int SelfTestMaxAttempts = 24;
+    /// <summary>
+    /// THE POSITIONAL PROOF'S displacement, in eye pixels, along the HORIZONTAL screen axis only.
+    /// This is a SECOND, much larger and differently-shaped displacement than
+    /// <see cref="SelfTestOffsetPixels"/>, and the reason there are two is that one displacement
+    /// cannot tell a broken capture from an unlucky one. 17 px diagonally could in principle land on
+    /// a genuinely identical window (a flat run, a period-17 pattern on the diagonal); 96 px
+    /// horizontally on the same frame could not do the same thing for the same reason. Both must
+    /// come back different before the capture is called honest, and both rectangles' measured screen
+    /// positions are printed so the claim is checkable rather than asserted.
+    /// </summary>
+    private const int PositionProofOffsetPixels = 96;
 
-    /// <summary>Patch standard deviation (0..1) below which the live self-test cannot conclude: an
-    /// offset capture of a flat surface is legitimately identical to the unoffset one.</summary>
+
+    /// <summary>Live self-test attempts before an unresolved reading becomes a verdict. At
+    /// <see cref="BurstsPerSecond"/> bursts/s this is about fifteen seconds of looking, which is
+    /// long enough that a window that is STILL perfectly uniform is telling us something rather
+    /// than being unlucky.</summary>
+    private const int SelfTestMaxAttempts = 60;
+
+    /// <summary>Patch standard deviation (0..1) below which a captured window is DESCRIBED as flat
+    /// on the log line. It is a reading aid only — it is deliberately NOT the gate the live
+    /// self-test judges on, because a 0.01 threshold would file a genuinely constant readback as
+    /// "too flat to judge" and let the probe publish verdicts built out of a constant. The gate is
+    /// a standard deviation of exactly zero; see <see cref="JudgeLiveSelfTest"/>.</summary>
     private const float SelfTestMinStdDev = 0.01f;
 
     // ---- slots -------------------------------------------------------------------------------
 
-    /// <summary>The eight things a burst can capture. Frame A and frame B are separate slots on
+    /// <summary>The nine things a burst can capture. Frame A and frame B are separate slots on
     /// purpose: the temporal control compares SubjectLeftA against SubjectLeftB, so frame A's patch
-    /// must survive frame B's arrival.</summary>
+    /// must survive frame B's arrival. The last three are the live self-test's three rectangles —
+    /// the true one, a small diagonal displacement and the large horizontal POSITIONAL PROOF.</summary>
     private enum Slot
     {
         SubjectLeftA = 0,
@@ -223,9 +298,10 @@ internal static class EyeFrameProbe
         ReferenceRightA = 5,
         SelfTestPlain = 6,
         SelfTestOffset = 7,
+        SelfTestFar = 8,
     }
 
-    private const int SlotCount = 8;
+    private const int SlotCount = 9;
 
     private sealed class Patch
     {
@@ -265,6 +341,22 @@ internal static class EyeFrameProbe
     private static readonly Patch[] Patches = NewPatches();
     private static readonly Queue<Pending> PendingReads = new();
     private static readonly StringBuilder Sb = new(2048);
+
+    /// <summary>Shader property id naming the per-pass MSAA-RESOLVE temporary render texture. It is
+    /// a COMMAND-BUFFER temporary (GetTemporaryRT/ReleaseTemporaryRT), so it lives inside one eye
+    /// pass, comes out of Unity's own pool, and costs nothing on a pass that captures nothing.</summary>
+    private static readonly int ResolveId = Shader.PropertyToID("_GhvrEyeFrameResolve");
+
+    /// <summary>True once THIS pass has acquired and filled the resolve target. It is the flag that
+    /// enforces the whole point of the ModBuild 192 rewrite: <c>CurrentActive</c> is read exactly
+    /// ONCE per pass, as the first command, before any copy can have rebound anything.</summary>
+    private static bool _resolveInPass;
+
+    /// <summary>Where each slot's window was actually taken from, in EYE-TEXTURE PIXELS, recorded at
+    /// RECORD time. The positional proof prints these: a claim that two captures came from different
+    /// screen positions is worth nothing unless the log says which positions.</summary>
+    private static readonly int[] SlotX = new int[SlotCount];
+    private static readonly int[] SlotY = new int[SlotCount];
 
     // Burst scheduling.
     //
@@ -320,6 +412,7 @@ internal static class EyeFrameProbe
     private static float _nextSummary;
     private static long _recordTicks;
     private static int _recordSamples;
+    private static int _resolveBlits;
 
     // Verdict accumulators (window-scoped, reset on every baseline).
     private static int _stereoSamples;
@@ -327,6 +420,7 @@ internal static class EyeFrameProbe
     private static float _stereoMax;
     private static int _refStereoSamples;
     private static float _refStereoSum;
+    private static float _refStereoMax;
     private static int _temporalSamples;
     private static float _temporalSum;
     private static float _temporalMax;
@@ -357,6 +451,7 @@ internal static class EyeFrameProbe
 
     // One-shot latches — a consequence is stated once, never per frame.
     private static bool _noReadbackLogged;
+    private static bool _noCopyLogged;
     private static bool _noTargetLogged;
     private static bool _noHeadLogged;
     private static bool _recordFaultLogged;
@@ -383,7 +478,21 @@ internal static class EyeFrameProbe
     internal static void Tick(bool wanted)
     {
         if (_disabled)
+        {
+            // A probe that shuts itself down still owes the log its counters. ModBuild 191 disabled
+            // itself and left NO baseline at all, so the run says how the self-test failed but not
+            // how many bursts had run, how many readbacks had errored or which two surfaces it had
+            // been aimed at — all of which are needed to read the failure. One final baseline, then
+            // silence.
+            if (_armed)
+            {
+                Baseline("FINAL BASELINE BEFORE STAND-DOWN — the probe disabled itself; the Warn "
+                         + "above says why and what the consequence is. These counters describe the "
+                         + "window up to that point");
+                Disarm();
+            }
             return;
+        }
 
         if (!wanted)
         {
@@ -477,6 +586,33 @@ internal static class EyeFrameProbe
             return false;
         }
 
+        // THE CAPTURE MECHANISM IS A REGION CopyTexture (see the class doc's ModBuild 191 block for
+        // why it is no longer a per-patch Blit). Region copies are Basic-tier CopyTexture support
+        // and every d3d11/d3d12/vulkan device has them, but the capability is CHECKED rather than
+        // assumed: a probe that silently records copies a device will drop is exactly the blindness
+        // this class was written to stop.
+        if ((SystemInfo.copyTextureSupport & CopyTextureSupport.Basic) == 0)
+        {
+            _disabled = true;
+            if (!_noCopyLogged)
+            {
+                _noCopyLogged = true;
+                VRLog.Warn(Scope, "EYE FRAME PROBE stood down before arming: this graphics device "
+                                  + $"({SystemInfo.graphicsDeviceType}) reports copyTextureSupport="
+                                  + $"{SystemInfo.copyTextureSupport}, which does not include the "
+                                  + "Basic region copy the capture path is built on. THE CONSEQUENCE "
+                                  + "is that round 10 has no per-eye pixel comparison on this "
+                                  + "machine — the log will carry no EYE FRAME verdict and the H1 "
+                                  + "(screen-space dither) / H2 (content aliasing) question stays "
+                                  + "open here. A per-patch Blit is deliberately NOT substituted: "
+                                  + "that is the exact mechanism ModBuild 191 proved blind, because "
+                                  + "Blit rebinds the active render target and every capture after "
+                                  + "the first one then copies the probe's own destination. Every "
+                                  + "other probe is unaffected and nothing the game owns was written.");
+            }
+            return false;
+        }
+
         // THE SELF-TEST GATES EVERYTHING. Nothing about a real panel is reported until the
         // comparator and the classifier have each been shown a known-true and a known-false case.
         if (!_syntheticPassed)
@@ -526,7 +662,8 @@ internal static class EyeFrameProbe
         _nextBurstTime = Time.unscaledTime;
         Rebind(head);
 
-        VRLog.Info(Scope, "EYE FRAME PROBE armed (ModBuild 191 — THE FIRST INSTRUMENT IN THIS "
+        VRLog.Info(Scope, "EYE FRAME PROBE armed (the capture path rebuilt after ModBuild 191 — THE "
+                          + "FIRST INSTRUMENT IN THIS "
                           + "FAMILY THAT READS THE PIXELS THE EYE ACTUALLY RECEIVES). Rounds 1-9 all "
                           + "measured C# state or a source texture and all of them said 'steady': "
                           + "the panels' state, the camera order, the character RenderTexture's own "
@@ -544,11 +681,34 @@ internal static class EyeFrameProbe
                           + "when the head moves; content aliasing has a broad spectrum whose beat "
                           + "period SHIFTS with the sampling rate — so the period is reported "
                           + "SEPARATELY for a still head and a moving head and the question is read "
-                          + "off one line. SELF-TEST (synthetic, comparator + classifier, "
-                          + $"known-true and known-false): {_syntheticReport}. LIVE self-test "
-                          + $"(same eye, same frame, offset rect): {_liveReport}. The subject and "
+                          + "off one line. HOW THE PIXELS ARE TAKEN, because ModBuild 191's capture "
+                          + "was BLIND and said so: each capturing eye pass records exactly ONE "
+                          + "Blit from CurrentActive into a full-eye single-sampled temporary (that "
+                          + "blit exists only to resolve the 8x MSAA eye buffer), and then ONE "
+                          + "CommandBuffer.CopyTexture REGION COPY per patch at integer pixel "
+                          + "coordinates out of that resolve. 191 used a per-patch "
+                          + "Blit(CurrentActive, patch, scale, offset) and Blit REBINDS THE ACTIVE "
+                          + "RENDER TARGET, so every capture after the first one copied the probe's "
+                          + "own 64x64 destination instead of the eye — which is why a rect "
+                          + "displaced by 17 px came back bit-identical, and why the reference "
+                          + "column would have been a copy of the subject. A region copy has no "
+                          + "material, no _MainTex_ST, no full-screen quad and no render-target "
+                          + "rebind, so there is nothing left for the engine or an XR blit "
+                          + "interception to silently substitute. SELF-TEST (synthetic, comparator "
+                          + $"+ classifier, known-true and known-false): {_syntheticReport}. LIVE "
+                          + "self-test and POSITIONAL PROOF (one eye, one frame, one resolve, three "
+                          + "rectangles at printed screen positions: the true rect, +"
+                          + $"{SelfTestOffsetPixels} px diagonally and +/-"
+                          + $"{PositionProofOffsetPixels} px horizontally; the first must match "
+                          + "bit-for-bit and BOTH displacements must differ, and each window's own "
+                          + $"mean and std dev are printed so a CONSTANT READBACK is told apart "
+                          + $"from a RECT IGNORED): {_liveReport}. The subject and "
                           + "the reference surface are taken from the PANEL SAMPLING line's own "
-                          + "worst/best pick so the two lines describe the same two graphics. "
+                          + "worst/best pick so the two lines describe the same two graphics — and "
+                          + "THE REFERENCE IS THE NUMBER THAT LETS THE HYPOTHESIS LOSE: if the "
+                          + "quiet, magnified surface shows the same left-vs-right difference as "
+                          + "the complained-about one, per-eye disagreement is a property of the "
+                          + "whole frame and the sampling account is dead. "
                           + "Baseline every " + $"{SummaryIntervalSeconds:F0}s whether or not "
                           + "anything is found. This is a LOCAL diagnostic: it writes nothing the "
                           + "game owns and nothing on the wire.");
@@ -641,7 +801,22 @@ internal static class EyeFrameProbe
         try
         {
             _cb.Clear(); // a non-capturing pass must cost one empty buffer, never a stale capture
+            _resolveInPass = false;
             RecordPass(cam);
+            if (_resolveInPass)
+            {
+                // Rebind the mod-owned patch target before releasing the temporary, so the render
+                // target being handed back to the pool is not the one still bound. _patchRt is a
+                // session-lifetime texture the mod owns, which makes this the cheapest binding that
+                // is guaranteed to be valid; BuiltinRenderTextureType.CameraTarget is deliberately
+                // NOT used here because in MultiPass it is not provably the same surface the eye
+                // pass rendered into, and this class has already paid once for assuming a builtin
+                // identifier means what it looks like it means.
+                if (_patchRt != null)
+                    _cb.SetRenderTarget(_patchRt);
+                _cb.ReleaseTemporaryRT(ResolveId);
+                _resolveInPass = false;
+            }
         }
         catch (Exception ex)
         {
@@ -655,7 +830,10 @@ internal static class EyeFrameProbe
                                   + "the command buffer is left empty, nothing the game owns was "
                                   + "written and every other probe is unaffected.");
             }
+            // Clear() discards every command recorded this pass, INCLUDING the GetTemporaryRT, so
+            // there is nothing to release and nothing leaks.
             _cb.Clear();
+            _resolveInPass = false;
         }
     }
 
@@ -715,23 +893,31 @@ internal static class EyeFrameProbe
 
         if (_burst == BurstState.FrameA)
         {
-            Capture(cam, subject, eye, right ? Slot.SubjectRightA : Slot.SubjectLeftA, 0);
+            Capture(cam, subject, eye, right ? Slot.SubjectRightA : Slot.SubjectLeftA, 0, 0);
             RectTransform? reference = PanelSamplingProbe.ReferenceRect;
             if (reference != null && !ReferenceEquals(reference, subject))
-                Capture(cam, reference, eye, right ? Slot.ReferenceRightA : Slot.ReferenceLeftA, 0);
-            // LIVE SELF-TEST: same eye, same frame, same source — one capture at the true rect and
-            // one displaced by a known number of pixels. Left eye only, and only while it has not
-            // concluded, so it costs nothing for the rest of the session.
+                Capture(cam, reference, eye, right ? Slot.ReferenceRightA : Slot.ReferenceLeftA,
+                    0, 0);
+            // LIVE SELF-TEST: same eye, same frame, ONE resolve — three rectangles at KNOWN screen
+            // positions. The true rect, a small diagonal displacement, and the large horizontal
+            // POSITIONAL PROOF. Left eye only, and only while it has not concluded, so it costs
+            // nothing for the rest of the session.
             if (!right && !_livePassed && !_liveFailed && _liveAttempts < SelfTestMaxAttempts)
             {
                 _liveAttempts++;
-                Capture(cam, subject, eye, Slot.SelfTestPlain, 0);
-                Capture(cam, subject, eye, Slot.SelfTestOffset, SelfTestOffsetPixels);
+                Capture(cam, subject, eye, Slot.SelfTestPlain, 0, 0);
+                Capture(cam, subject, eye, Slot.SelfTestOffset,
+                    SelfTestOffsetPixels, SelfTestOffsetPixels);
+                // The far rect is tried in BOTH directions: near a screen edge one sign puts the
+                // window off the eye target, and a positional proof that quietly does not run is a
+                // positional proof that proves nothing.
+                if (!Capture(cam, subject, eye, Slot.SelfTestFar, PositionProofOffsetPixels, 0))
+                    Capture(cam, subject, eye, Slot.SelfTestFar, -PositionProofOffsetPixels, 0);
             }
         }
         else
         {
-            Capture(cam, subject, eye, right ? Slot.SubjectRightB : Slot.SubjectLeftB, 0);
+            Capture(cam, subject, eye, right ? Slot.SubjectRightB : Slot.SubjectLeftB, 0, 0);
         }
 
         _recordTicks += Stopwatch.GetTimestamp() - start;
@@ -827,55 +1013,99 @@ internal static class EyeFrameProbe
     }
 
     /// <summary>
-    /// Blit a <see cref="PatchSize"/>-pixel window of the CURRENT EYE TARGET, centred on
+    /// Copy a <see cref="PatchSize"/>-pixel window of THIS PASS'S RESOLVED EYE FRAME, centred on
     /// <paramref name="rect"/>'s world centre as projected through <paramref name="eye"/>'s own
     /// matrices, into the mod-owned patch target, and enqueue its readback in the same command
-    /// stream position. <paramref name="offsetPx"/> displaces the window for the live self-test.
+    /// stream position. <paramref name="offsetX"/>/<paramref name="offsetY"/> displace the window
+    /// for the live self-test and the positional proof.
+    ///
+    /// <para>Returns TRUE when a copy was recorded and FALSE when the window would have left the
+    /// eye target — the caller uses that answer to retry the positional proof in the opposite
+    /// direction rather than let it quietly not run.</para>
     /// </summary>
-    private static void Capture(Camera cam, RectTransform rect, Camera.MonoOrStereoscopicEye eye,
-        Slot slot, int offsetPx)
+    private static bool Capture(Camera cam, RectTransform rect, Camera.MonoOrStereoscopicEye eye,
+        Slot slot, int offsetX, int offsetY)
     {
         if (_cb == null || _patchRt == null)
-            return;
-        if (!TryPatchUv(cam, rect, eye, offsetPx, out Vector2 uvMin, out Vector2 uvSize))
+            return false;
+        if (!TryPatchPixels(cam, rect, eye, offsetX, offsetY,
+                out int x0, out int y0, out int targetW, out int targetH))
         {
             _skippedOffTarget++;
             Patches[(int)slot].Valid = false; // never let a stale patch stand in for a skipped one
-            return;
+            return false;
+        }
+        if (!EnsureResolve(targetW, targetH))
+        {
+            _skippedOffTarget++;
+            Patches[(int)slot].Valid = false;
+            return false;
         }
 
-        // Blit and readback go into the stream TOGETHER, so readback N carries exactly the pixels
-        // blit N produced and one shared target serves every capture (RenderTargetProbe's argument;
-        // see the class doc). CurrentActive is the eye's own render target and the blit resolves it.
-        _cb.Blit(BuiltinRenderTextureType.CurrentActive, _patchRt, uvSize, uvMin);
+        // Copy and readback go into the stream TOGETHER, so readback N carries exactly the pixels
+        // copy N produced and one shared target serves every capture (RenderTargetProbe's argument;
+        // see the class doc). The SOURCE is the per-pass resolve — a mod-named temporary, not a
+        // builtin identifier — so no earlier command in this stream can have changed what it means,
+        // and CopyTexture does not rebind the render target, so no LATER command is affected either.
+        // That pair of properties is the entire fix for ModBuild 191.
+        _cb.CopyTexture(ResolveId, 0, 0, x0, y0, PatchSize, PatchSize, _patchRt, 0, 0, 0, 0);
+        SlotX[(int)slot] = x0;
+        SlotY[(int)slot] = y0;
         PendingReads.Enqueue(new Pending(_gen, _burstId, slot));
         _inFlight++;
         _captured++;
         _burstOutstanding++;
         _cb.RequestAsyncReadback(_patchRt, 0, TextureFormat.RGBA32, OnRead);
+        return true;
     }
 
     /// <summary>
-    /// The eye-texture UV window for one capture. Returns false when the window would leave the
-    /// render target or the surface is behind the eye — clamping it instead would silently move the
-    /// world region and make the two eyes' patches describe different pieces of the surface, which
-    /// is precisely the error this comparison cannot survive.
-    ///
-    /// <para>The origin is SNAPPED to the eye texture's texel grid so the blit is a copy and not a
-    /// resample. Without that snap the bilinear resample would differ between the eyes by
-    /// construction and the instrument would report rivalry on a perfect render — the single most
-    /// likely way for this class to become another ModBuild 186. The cost of the snap is that the
-    /// two eyes' windows can be misaligned against the world region by up to one pixel, which is
-    /// far below any pattern this probe is looking for.</para>
+    /// Acquire the per-pass MSAA resolve target and fill it, ONCE per eye pass, as the first thing
+    /// this pass records. Everything after it copies out of the result, so
+    /// <see cref="BuiltinRenderTextureType.CurrentActive"/> is read exactly once and cannot have
+    /// been rebound by one of the probe's own commands.
     /// </summary>
-    private static bool TryPatchUv(Camera cam, RectTransform rect, Camera.MonoOrStereoscopicEye eye,
-        int offsetPx, out Vector2 uvMin, out Vector2 uvSize)
+    private static bool EnsureResolve(int w, int h)
     {
-        uvMin = default;
-        uvSize = default;
+        if (_resolveInPass)
+            return true;
+        if (_cb == null)
+            return false;
+        // Single-sampled (the last argument), no depth, Point filtering, ARGB32 with the project's
+        // default read/write so it matches the patch target's format exactly — CopyTexture requires
+        // identical formats and will refuse the copy otherwise.
+        _cb.GetTemporaryRT(ResolveId, w, h, 0, FilterMode.Point, RenderTextureFormat.ARGB32,
+            RenderTextureReadWrite.Default, 1);
+        _cb.Blit(BuiltinRenderTextureType.CurrentActive, ResolveId);
+        _resolveInPass = true;
+        _resolveBlits++;
+        return true;
+    }
+
+    /// <summary>
+    /// The eye-texture PIXEL window for one capture, as integer texel coordinates. Returns false
+    /// when the window would leave the render target or the surface is behind the eye — clamping it
+    /// instead would silently move the world region and make the two eyes' patches describe
+    /// different pieces of the surface, which is precisely the error this comparison cannot survive.
+    ///
+    /// <para>The coordinates are INTEGERS and the copy is a region copy, so the capture is a
+    /// texel-for-texel move and cannot resample. That matters more than it looks: a resample would
+    /// differ between the eyes by construction and the instrument would report rivalry on a perfect
+    /// render — the single most likely way for this class to become another ModBuild 186. The cost
+    /// is that the two eyes' windows can be misaligned against the world region by up to one pixel,
+    /// which is far below any pattern this probe is looking for.</para>
+    /// </summary>
+    private static bool TryPatchPixels(Camera cam, RectTransform rect,
+        Camera.MonoOrStereoscopicEye eye, int offsetX, int offsetY,
+        out int x0, out int y0, out int targetW, out int targetH)
+    {
+        x0 = 0;
+        y0 = 0;
+        targetW = 0;
+        targetH = 0;
         if (rect == null)
             return false;
-        if (!TryEyeTargetPixels(out float targetW, out float targetH, out float viewportScale))
+        if (!TryEyeTargetPixels(out float pxW, out float pxH, out float viewportScale))
             return false;
 
         Vector3 centre = rect.TransformPoint(rect.rect.center);
@@ -884,17 +1114,20 @@ internal static class EyeFrameProbe
             return false;
 
         // Viewport [0,1] covers the camera's viewport, which occupies the lower-left
-        // viewportScale-fraction of the eye texture. Texture UV is therefore viewport UV scaled.
-        float px = vp.x * viewportScale * targetW + offsetPx;
-        float py = vp.y * viewportScale * targetH + offsetPx;
+        // viewportScale-fraction of the eye texture. Texture pixels are therefore viewport-relative
+        // pixels scaled by it.
+        float px = vp.x * viewportScale * pxW + offsetX;
+        float py = vp.y * viewportScale * pxH + offsetY;
         float half = PatchSize * 0.5f;
-        float x0 = Mathf.Round(px - half);
-        float y0 = Mathf.Round(py - half);
-        if (x0 < 0f || y0 < 0f || x0 + PatchSize > targetW || y0 + PatchSize > targetH)
+        int ix = Mathf.RoundToInt(px - half);
+        int iy = Mathf.RoundToInt(py - half);
+        targetW = Mathf.RoundToInt(pxW);
+        targetH = Mathf.RoundToInt(pxH);
+        if (ix < 0 || iy < 0 || ix + PatchSize > targetW || iy + PatchSize > targetH)
             return false;
 
-        uvMin = new Vector2(x0 / targetW, y0 / targetH);
-        uvSize = new Vector2(PatchSize / targetW, PatchSize / targetH);
+        x0 = ix;
+        y0 = iy;
         return true;
     }
 
@@ -1027,8 +1260,11 @@ internal static class EyeFrameProbe
         Patch refR = Patches[(int)Slot.ReferenceRightA];
         if (Same(refL, refR, burstId))
         {
+            float refStereo = MeanAbsDifference(refL, refR);
             _refStereoSamples++;
-            _refStereoSum += MeanAbsDifference(refL, refR);
+            _refStereoSum += refStereo;
+            if (refStereo > _refStereoMax)
+                _refStereoMax = refStereo;
         }
 
         // THE VERDICT. Note what it does and does not claim: a stereo difference materially larger
@@ -1088,34 +1324,77 @@ internal static class EyeFrameProbe
     private static bool Same(Patch a, Patch b, int burstId)
         => a.Valid && b.Valid && a.BurstId == burstId && b.BurstId == burstId;
 
+    /// <summary>
+    /// THE LIVE SELF-TEST AND THE POSITIONAL PROOF. Three rectangles, one eye, one frame, one
+    /// resolve, at screen positions this method PRINTS rather than asserts:
+    /// <list type="bullet">
+    /// <item>KNOWN-FALSE — the plain self-test capture and the subject capture are the same rect.
+    /// They must be bit-identical, which proves the FIFO pairing between requests and callbacks is
+    /// not scrambled. (With a region copy the pixels are trivially the same; what is NOT trivial is
+    /// that the right callback received them, and that is what this case tests.)</item>
+    /// <item>KNOWN-TRUE #1 — a capture displaced by <see cref="SelfTestOffsetPixels"/> px
+    /// diagonally must differ.</item>
+    /// <item>KNOWN-TRUE #2, THE POSITIONAL PROOF — a capture displaced by
+    /// <see cref="PositionProofOffsetPixels"/> px horizontally must differ too. Two displacements
+    /// of different magnitude on different axes cannot both be defeated by unlucky content.</item>
+    /// </list>
+    /// Each patch's OWN mean and standard deviation are reported in every outcome. That is the part
+    /// that cannot be faked and the part that separates the two ways of being blind: patches that
+    /// are all FLAT with equal means mean the readback handed back a CONSTANT; patches with real
+    /// contrast that are nevertheless byte-identical mean the RECTANGLE was ignored. Both disable
+    /// the probe with a Warn that names the mode and the consequence.
+    /// </summary>
     private static void JudgeLiveSelfTest(int burstId)
     {
         if (_livePassed || _liveFailed)
             return;
         Patch plain = Patches[(int)Slot.SelfTestPlain];
         Patch offset = Patches[(int)Slot.SelfTestOffset];
+        Patch far = Patches[(int)Slot.SelfTestFar];
         Patch subject = Patches[(int)Slot.SubjectLeftA];
         if (!Same(plain, offset, burstId) || !Same(plain, subject, burstId))
             return;
+
+        bool haveFar = Same(plain, far, burstId);
 
         // KNOWN-FALSE: the plain self-test capture and the subject capture are the SAME eye, the
         // SAME frame and the SAME rect. They must be bit-identical. If they are not, the readback
         // path or the FIFO pairing is scrambled and no number this class prints can be trusted.
         float same = MeanAbsDifference(plain, subject);
-        // KNOWN-TRUE: the offset capture is displaced by a known number of pixels and must differ —
-        // unless the patch is genuinely flat, which is inconclusive and not a failure.
+        // KNOWN-TRUE: the displaced captures are displaced by known numbers of pixels and must
+        // differ — unless the patch is genuinely flat, which is inconclusive and not a failure.
         float shifted = MeanAbsDifference(plain, offset);
+        float farDiff = haveFar ? MeanAbsDifference(plain, far) : -1f;
+
+        // THE THREE WINDOWS' MEASURED POSITIONS AND THEIR OWN STATISTICS, printed in EVERY outcome —
+        // pass, failure and inconclusive alike. This is the part that cannot be faked: a claim that
+        // two captures came from different screen positions is worth nothing unless the line says
+        // WHICH positions, and a difference of zero means two completely different things depending
+        // on whether the windows themselves carry any variation.
+        string where =
+            $"rects (eye-texture px, {PatchSize}x{PatchSize} each): plain at "
+            + $"({SlotX[(int)Slot.SelfTestPlain]},{SlotY[(int)Slot.SelfTestPlain]}) "
+            + Stats(plain) + "; near at "
+            + $"({SlotX[(int)Slot.SelfTestOffset]},{SlotY[(int)Slot.SelfTestOffset]}) "
+            + $"(+{SelfTestOffsetPixels},+{SelfTestOffsetPixels} px) " + Stats(offset) + "; far at "
+            + (haveFar
+                ? $"({SlotX[(int)Slot.SelfTestFar]},{SlotY[(int)Slot.SelfTestFar]}) (dx "
+                  + $"{SlotX[(int)Slot.SelfTestFar] - SlotX[(int)Slot.SelfTestPlain]:+#;-#;0} px) "
+                  + Stats(far)
+                : $"<not captured this attempt — the +/-{PositionProofOffsetPixels} px window left "
+                  + "the eye target>");
 
         if (same > 0f)
         {
             _liveFailed = true;
             _disabled = true;
-            _liveReport = $"FAILED — two captures of the SAME eye, SAME frame and SAME rect differ "
-                          + $"by {same:F5}; the readback path or its FIFO pairing is scrambled";
-            VRLog.Warn(Scope, "EYE FRAME PROBE DISABLED ITSELF: its LIVE self-test failed. Two "
-                              + "captures taken in the same eye pass, in the same frame, of the same "
-                              + $"screen rectangle came back DIFFERENT (by {same:F5} of full range). "
-                              + "That means the blit/readback FIFO is not pairing each callback with "
+            _liveReport = $"FAILED (FIFO PAIRING) — two captures of the SAME eye, SAME frame and "
+                          + $"SAME rect differ by {same:F5}; {where}";
+            VRLog.Warn(Scope, "EYE FRAME PROBE DISABLED ITSELF: its LIVE self-test failed in the "
+                              + "FIFO-PAIRING case. Two captures taken in the same eye pass, in the "
+                              + "same frame, of the same screen rectangle came back DIFFERENT (by "
+                              + $"{same:F5} of full range). Measured: {where}. "
+                              + "That means the copy/readback FIFO is not pairing each callback with "
                               + "its own request, so every left-vs-right number this probe could "
                               + "print would be comparing the wrong two patches. THE CONSEQUENCE is "
                               + "that round 10 produces no per-eye verdict on this run and the H1/H2 "
@@ -1125,50 +1404,145 @@ internal static class EyeFrameProbe
             return;
         }
 
-        if (plain.StdDev < SelfTestMinStdDev)
-        {
-            _liveReport = $"inconclusive so far ({_liveAttempts} attempt(s)): the captured patch is "
-                          + $"flat (std dev {plain.StdDev:F4} < {SelfTestMinStdDev:F4}), so an "
-                          + "offset capture is legitimately identical and the known-TRUE case "
-                          + "cannot be exercised on it";
-            if (_liveAttempts >= SelfTestMaxAttempts)
-            {
-                _liveReport = $"INCONCLUSIVE after {_liveAttempts} attempts — every patch it looked "
-                              + "at was flat. The known-FALSE half passed every time (identical "
-                              + "rects read back identical), so the readback pairing is proven; the "
-                              + "known-TRUE half was never exercisable. Read the verdicts below with "
-                              + "that caveat";
-            }
-            return;
-        }
+        // ------------------------------------------------------------------------------------
+        // THE ONLY LEGITIMATE REASON two rectangles at different screen positions can come back
+        // byte-identical is that BOTH windows are PERFECTLY UNIFORM — a solid block of colour, where
+        // a displacement genuinely changes nothing. That is judged on each window's OWN standard
+        // deviation, which is exactly zero for a solid block and non-zero the moment any structure
+        // is present. Anything else — any structure at all in either window, yet identical bytes —
+        // is the capture throwing the coordinates away, because content cannot repeat exactly at a
+        // 17 px DIAGONAL and a 96 px HORIZONTAL displacement at the same time.
+        //
+        // Note that the earlier, looser "flat" threshold is deliberately NOT the gate here: it is
+        // 0.01, twenty times the structure floor, and using it would have made the CONSTANT-READBACK
+        // case unreachable — every constant reading would have been filed as "too flat to judge" and
+        // the probe would have gone on to publish verdicts built from a constant. It survives only
+        // as the word used to DESCRIBE a window in the messages below.
+        // ------------------------------------------------------------------------------------
+        bool nearProven = shifted > 0f;
+        bool farProven = haveFar && farDiff > 0f;
+        bool nearUniform = plain.StdDev <= 0f && offset.StdDev <= 0f;
+        bool farUniform = haveFar && plain.StdDev <= 0f && far.StdDev <= 0f;
+        bool nearFailed = !nearProven && !nearUniform;
+        bool farFailed = haveFar && !farProven && !farUniform;
 
-        if (shifted <= 0f)
+        if (nearFailed || farFailed)
         {
             _liveFailed = true;
             _disabled = true;
-            _liveReport = $"FAILED — a capture displaced by {SelfTestOffsetPixels} px over a patch "
-                          + $"with std dev {plain.StdDev:F4} came back IDENTICAL";
-            VRLog.Warn(Scope, "EYE FRAME PROBE DISABLED ITSELF: its LIVE self-test failed the other "
-                              + $"way. A capture deliberately displaced by {SelfTestOffsetPixels} "
-                              + "eye pixels, over a patch with real contrast in it (std dev "
-                              + $"{plain.StdDev:F4}), came back BIT-IDENTICAL to the undisplaced "
-                              + "one. That means the blit is not honouring the requested rectangle "
-                              + "(or the readback is returning a constant), so the probe is BLIND: "
-                              + "it would compare two copies of the same thing and report 'the eyes "
-                              + "agree' no matter what the headset is actually doing. THE "
-                              + "CONSEQUENCE is that round 10 produces no per-eye verdict on this "
-                              + "run; nothing the game owns was written and every other probe is "
-                              + "unaffected.");
+            _liveReport = $"FAILED (RECT IGNORED) — near displacement differed by {shifted:F5}, far "
+                          + $"by " + (haveFar ? $"{farDiff:F5}" : "n/a") + $"; {where}";
+            VRLog.Warn(Scope, "EYE FRAME PROBE DISABLED ITSELF: its LIVE POSITIONAL PROOF failed in "
+                              + "the RECT-IGNORED mode. Captures deliberately displaced by "
+                              + $"{SelfTestOffsetPixels} px diagonally (difference {shifted:F5}) "
+                              + $"and {PositionProofOffsetPixels} px horizontally ("
+                              + (haveFar ? $"difference {farDiff:F5}" : "not captured this attempt")
+                              + ") came back BYTE-IDENTICAL to the undisplaced capture over windows "
+                              + $"that carry real structure. Measured {where}. HOW TO READ THAT: the "
+                              + "pixels are LIVE — the per-window standard deviations above are "
+                              + "non-zero, so this is not a constant readback — but the COORDINATES "
+                              + "are being thrown away between the region copy and the readback. "
+                              + "That is the ModBuild 191 failure mode returning: check that nothing "
+                              + "has reintroduced a per-patch Blit (which rebinds the active render "
+                              + "target, so every capture after the first one copies the probe's own "
+                              + "destination) in place of the region copy out of the per-pass "
+                              + "resolve, and check that the resolve target and the patch target "
+                              + "still have identical formats, because CopyTexture silently refuses "
+                              + "a mismatched copy. THE CONSEQUENCE is that round 10 produces no "
+                              + "per-eye verdict on this run and the H1 (screen-space term) / H2 "
+                              + "(content aliasing) question stays open; nothing the game owns was "
+                              + "written and every other probe is unaffected. This is deliberate: an "
+                              + "instrument that cannot prove it is looking where it says it is "
+                              + "looking must not be allowed to speak.");
+            return;
+        }
+
+        // THE POSITIONAL PROOF NEEDS ITS THIRD RECT. If the far window did not fit on the eye target
+        // this attempt, do not conclude on two rectangles: retry.
+        if (!haveFar && _liveAttempts < SelfTestMaxAttempts)
+        {
+            _liveReport = $"inconclusive so far ({_liveAttempts} attempt(s)): the near displacement "
+                          + (nearProven ? $"differed by {shifted:F4} as required" : "changed nothing "
+                              + "because both its windows are perfectly uniform")
+                          + $", but the POSITIONAL PROOF's +/-{PositionProofOffsetPixels} px window "
+                          + $"did not fit on the eye target this attempt — {where}";
+            return;
+        }
+
+        // NOTHING WAS PROVEN AND NOTHING FAILED: every window was perfectly uniform, so a
+        // displacement legitimately changed nothing. That reading is genuinely ambiguous between
+        // "the probe is aimed at a solid block of colour" and "the readback is handing back a
+        // CONSTANT", and the probe cannot tell them apart on one attempt — so it retries. If it is
+        // STILL ambiguous after SelfTestMaxAttempts it stops rather than publishing verdicts built
+        // out of numbers it cannot show are live pixels.
+        if (!nearProven && !farProven)
+        {
+            if (_liveAttempts < SelfTestMaxAttempts)
+            {
+                _liveReport = $"inconclusive so far ({_liveAttempts} attempt(s)): every captured "
+                              + "window is PERFECTLY UNIFORM (std dev 0), so a displaced capture is "
+                              + "legitimately identical and neither known-TRUE case can be "
+                              + $"exercised on it — {where}. Retrying; aim the floated panel so its "
+                              + "detailed area is in front of the head.";
+                return;
+            }
+            _liveFailed = true;
+            _disabled = true;
+            _liveReport = $"FAILED (CONSTANT READBACK, unresolved) — {_liveAttempts} attempts and "
+                          + $"every window read back perfectly uniform; {where}";
+            VRLog.Warn(Scope, "EYE FRAME PROBE DISABLED ITSELF: after "
+                              + $"{_liveAttempts} attempts every capture came back PERFECTLY UNIFORM "
+                              + $"(std dev 0) and all three rectangles were byte-identical. {where}. "
+                              + "HOW TO READ THAT: there are exactly two explanations and this probe "
+                              + "cannot separate them — either the surface it was aimed at really is "
+                              + "a solid block of colour (check the SUBJECT label on the EYE FRAME "
+                              + "baseline: if it names a plain background image, that is all this "
+                              + "is, and re-running with a detailed panel in view will clear it), or "
+                              + "the async readback is handing back a CONSTANT rather than an image, "
+                              + "in which case suspect the patch target's format, a target that is "
+                              + "never actually written, or a driver returning zeroes — NOT the "
+                              + "coordinates. THE CONSEQUENCE is that round 10 produces no per-eye "
+                              + "verdict on this run; the probe refuses to publish left-vs-right "
+                              + "numbers it cannot show are live pixels. Nothing the game owns was "
+                              + "written and every other probe is unaffected.");
             return;
         }
 
         _livePassed = true;
-        _liveReport = $"PASS — known-FALSE: two captures of the same eye/frame/rect were "
-                      + $"bit-identical (difference {same:F5}); known-TRUE: the same capture "
-                      + $"displaced by {SelfTestOffsetPixels} px differed by {shifted:F4} over a "
-                      + $"patch with std dev {plain.StdDev:F4}. The capture honours the rectangle it "
-                      + "is given and the readback pairing is intact";
+        _liveReport = "PASS — known-FALSE: two captures of the same eye/frame/rect were "
+                      + $"bit-identical (difference {same:F5}), so the readback FIFO pairs each "
+                      + "callback with its own request. POSITIONAL PROOF: "
+                      + (nearProven
+                          ? $"the same window displaced by {SelfTestOffsetPixels} px diagonally "
+                            + $"differed by {shifted:F4}"
+                          : $"the {SelfTestOffsetPixels} px diagonal displacement landed on a "
+                            + "perfectly uniform window and proves nothing either way")
+                      + "; "
+                      + (farProven
+                          ? $"displaced by {PositionProofOffsetPixels} px horizontally it differed "
+                            + $"by {farDiff:F4}"
+                          : haveFar
+                              ? $"the {PositionProofOffsetPixels} px horizontal window was perfectly "
+                                + "uniform and proves nothing either way"
+                              : $"the {PositionProofOffsetPixels} px horizontal window never fitted "
+                                + "on the eye target, so the proof rests on the near displacement "
+                                + "alone")
+                      + $". {where}. At least one KNOWN displacement produced a KNOWN-DIFFERENT "
+                      + "reading, so the capture reads the eye frame at the coordinates it is given "
+                      + "and is not returning a constant";
     }
+
+    /// <summary>One window's OWN statistics for the self-test line: its mean, its standard
+    /// deviation, and the word that says how to read a difference of zero against it. UNIFORM (std
+    /// exactly 0) is the only state in which two different rectangles may legitimately return the
+    /// same bytes; anything else makes an identical reading a finding.</summary>
+    private static string Stats(Patch p)
+        => $"mean {p.Mean:F4} std {p.StdDev:F4} "
+           + (p.StdDev <= 0f
+               ? "[UNIFORM — a displacement legitimately changes nothing here]"
+               : p.StdDev < SelfTestMinStdDev
+                   ? "[flat but not uniform — a displacement must still change something]"
+                   : "[textured]");
 
     /// <summary>Mean absolute per-channel difference between two patches, as a fraction of full
     /// range. This is the comparator the synthetic self-test validates.</summary>
@@ -1558,6 +1932,68 @@ internal static class EyeFrameProbe
                       + "supported by these pixels.";
         }
 
+        // ===========================================================================================
+        // THE REFERENCE COLUMN IS THE NUMBER THAT LETS THE HYPOTHESIS LOSE.
+        //
+        // The surviving account of the flicker is that SPATIAL ALIASING IS PER-EYE BY CONSTRUCTION:
+        // each eye samples the same surface on a different grid, so each receives a different alias
+        // pattern, and the brain reads the disagreement as flicker. That account makes a hard,
+        // falsifiable prediction — the disagreement must TRACK THE UNDERSAMPLING. The SUBJECT is the
+        // worst-minified graphic on the canvas; the REFERENCE is the best-sampled one, a quiet
+        // magnified surface on the SAME canvas, captured through the SAME two eyes in the SAME
+        // frames. If the reference disagrees between the eyes just as much as the subject, the
+        // difference is a property of the whole frame and not of undersampled content, and THE
+        // SAMPLING ACCOUNT IS DEAD — whatever else the rest of this line says.
+        //
+        // (ModBuild 191 could not have delivered this number: its reference capture was the second
+        // Blit of the pass and therefore a copy of the subject patch, so this test would have
+        // answered "identical" on every burst and killed a correct hypothesis. See the class doc.)
+        // ===========================================================================================
+        string referenceVerdict;
+        if (_refStereoSamples == 0)
+        {
+            referenceVerdict = "NO REFERENCE COMPARISON COMPLETED this window — THE FALSIFIER DID "
+                               + "NOT RUN. Whatever the subject numbers say below, they have not "
+                               + "yet been given the chance to lose: a subject-only reading cannot "
+                               + "tell 'this surface disagrees because it is undersampled' from "
+                               + "'every surface in this frame disagrees'. Check the SUBJECT/"
+                               + "REFERENCE labels above — if REFERENCE is <none>, the PANEL "
+                               + "SAMPLING scan found no quiet graphic to pair against.";
+        }
+        else if (meanStereo < 0f)
+        {
+            referenceVerdict = $"reference measured ({Fmt(meanRef)} mean over {_refStereoSamples} "
+                               + "comparison(s)) but the SUBJECT was not, so there is nothing to "
+                               + "compare it against yet.";
+        }
+        else
+        {
+            float refFloor = Mathf.Max(meanRef, 1e-6f);
+            float ratio = meanStereo / refFloor;
+            referenceVerdict = ratio >= 2f
+                ? $"SUBJECT / REFERENCE = {ratio:F1}x (subject {Fmt(meanStereo)} vs reference "
+                  + $"{Fmt(meanRef)}, peak {Fmt(_refStereoMax)}). The per-eye disagreement TRACKS "
+                  + "THE UNDERSAMPLING: the worst-minified surface disagrees between the eyes far "
+                  + "more than the quiet magnified one on the same canvas, in the same frames, "
+                  + "through the same two eyes. That is what the sampling account predicts, and it "
+                  + "is the reading that survives its own falsifier."
+                : ratio <= 1.25f
+                    ? $"*** THE SAMPLING ACCOUNT IS DEAD *** SUBJECT / REFERENCE = {ratio:F2}x "
+                      + $"(subject {Fmt(meanStereo)} vs reference {Fmt(meanRef)}, peak "
+                      + $"{Fmt(_refStereoMax)}). The QUIET, MAGNIFIED reference surface disagrees "
+                      + "between the eyes just as much as the complained-about one. Per-eye "
+                      + "disagreement is then a property of the WHOLE FRAME, not of undersampled "
+                      + "content, and 'more rendered pixels per source texel' cannot be the cure. "
+                      + "Stop tuning sampling and look for something evaluated per eye across the "
+                      + "whole image — a screen-space term on the INVENTORY line above, a per-eye "
+                      + "projection or viewport difference, or a reprojection stage in the runtime."
+                    : $"AMBIGUOUS: SUBJECT / REFERENCE = {ratio:F2}x (subject {Fmt(meanStereo)} vs "
+                      + $"reference {Fmt(meanRef)}, peak {Fmt(_refStereoMax)}). The subject "
+                      + "disagrees more than the reference but not by the 2x that would make the "
+                      + "sampling account clean, and not by the <=1.25x that would kill it. Collect "
+                      + "more windows on the same two surfaces before concluding either way.";
+        }
+
         string rivalryVerdict;
         if (_stereoSamples == 0)
         {
@@ -1607,7 +2043,9 @@ internal static class EyeFrameProbe
                           + $"STEREO: subject left-vs-right mean {Fmt(meanStereo)} of full range "
                           + $"(peak {Fmt(_stereoMax)}) over {_stereoSamples} same-frame "
                           + $"comparison(s); REFERENCE surface left-vs-right mean {Fmt(meanRef)} "
-                          + $"over {_refStereoSamples}. TEMPORAL CONTROL (same eye, frame N vs N+1, "
+                          + $"(peak {Fmt(_refStereoMax)}) over {_refStereoSamples}. "
+                          + $"REFERENCE VERDICT — THE FALSIFIER: {referenceVerdict} "
+                          + "TEMPORAL CONTROL (same eye, frame N vs N+1, "
                           + $"STILL HEAD ONLY — the gate is <= {StillPositionMetres * 1000f:F2} mm "
                           + $"and <= {StillRotationDegrees:F2} deg of head movement between the two "
                           + $"frames; the last closed burst measured {_closedMoveMm:F2} mm / "
@@ -1620,11 +2058,15 @@ internal static class EyeFrameProbe
                           + "term (H1); a BROAD weak spectrum, or a period that SHIFTS between the "
                           + $"two, = content aliasing (H2). SPECTRAL VERDICT: {spectralVerdict} "
                           + $"SELF-TEST synthetic: {_syntheticReport}. SELF-TEST live: "
-                          + $"{_liveReport}. COST: {Fmt(perCaptureUs, "F1")} us per capture over "
-                          + $"{_recordSamples} recorded pass(es), {BurstsPerSecond:F0} burst(s)/s of "
-                          + $"at most 8 x {PatchSize}x{PatchSize} RGBA patches. ZERO FINDINGS ON "
-                          + "THIS LINE MEAN THE EYE PIXELS WERE READ AND AGREED — it does not mean "
-                          + "nothing looked.");
+                          + $"{_liveReport}. COST: {Fmt(perCaptureUs, "F1")} us of CPU per recorded "
+                          + $"pass over {_recordSamples} pass(es), {BurstsPerSecond:F0} burst(s)/s "
+                          + $"of at most 9 x {PatchSize}x{PatchSize} RGBA region copies, plus "
+                          + $"{_resolveBlits} full-eye MSAA RESOLVE blit(s) this window (one per "
+                          + "capturing eye pass — that is the GPU side of the bill and it is the "
+                          + "price of reading CurrentActive exactly once per pass; divide it out of "
+                          + "the microsecond figure rather than trusting either number alone). ZERO "
+                          + "FINDINGS ON THIS LINE MEAN THE EYE PIXELS WERE READ AND AGREED — it "
+                          + "does not mean nothing looked.");
 
         ResetWindow();
     }
@@ -1641,11 +2083,13 @@ internal static class EyeFrameProbe
         _skippedNoSubject = 0;
         _recordTicks = 0;
         _recordSamples = 0;
+        _resolveBlits = 0;
         _stereoSamples = 0;
         _stereoSum = 0f;
         _stereoMax = -1f;
         _refStereoSamples = 0;
         _refStereoSum = 0f;
+        _refStereoMax = -1f;
         _temporalSamples = 0;
         _temporalSum = 0f;
         _temporalMax = -1f;

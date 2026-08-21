@@ -4,6 +4,38 @@
 // Characters soll voll angezeigt werden." The mod already draws exactly such a plate in a scenario
 // (WorldUI/WristHud) and the player has hand-tuned its pose; this is that plate, for the map phase.
 //
+// ─── AND THE ModBuild 191 REJECTION THAT REWROTE THE CONTENT (2026-08-21) ─────────────────────
+// "Die Characterinfo am Handgelenk SIEHT ANDERS AUS. Ich will das es sich hier 1:1 genauso verhält
+//  wie im Szenario selber."
+//
+// He is right, and the difference was in the ROWS, not the pose — 191 already shared the pose dials.
+// It printed "HP max 12" where the scenario prints "HP 12/12", and it replaced the scenario's
+// CONDITION row with a "Cards 9 / 9" row of its own invention. Two rows out of four differed, which
+// is exactly what "sieht anders aus" describes. THE ROW SET IS NOW THE SCENARIO'S, verbatim:
+//
+//     <alpha=#AA>Level N<alpha=#FF>
+//     <color=#ff6a5e>HP h/max</color>   <color=#7fd4ff>XP x</color>
+//     <color=#ffd45e>Gold g</color>
+//     <color=#9fe08a>+Cond</color> <color=#e08a8a>-Cond</color>   (or the "no_conditions" line)
+//
+// …with the identity row above it built from the same size/alpha/colour markup and the same
+// Loc.Mod("selected") context. Same font, same sizes, same 240x196 px plate at 0.4 mm/px, same
+// backdrop colour and MrBacking.Opacify, same portrait rect. If a byte of that ever drifts again,
+// it is because someone edited ONE of the two files — see the note at the end of this header.
+//
+// WHERE THE MISSING NUMBERS COME FROM, because "1:1" cannot mean "invent state that does not exist":
+//   * CURRENT HP. A character carries no damage outside a scenario — damage IS scenario state, and
+//     CScenario.AddPlayer seats every player at full health on travel. So current == maximum here,
+//     and the row is printed in the scenario's own "h/max" shape with both numbers equal. That is a
+//     true statement, and it reads identically to a healthy character in a scenario.
+//   * MAX HP is the game's own CMapCharacter.MaxHealth (CMapCharacter.cs:193 — HealthTable[Level]),
+//     called rather than re-derived, so a level-table change can never make the two disagree.
+//   * CONDITIONS are CMapCharacter.PositiveConditions / .NegativeConditions (CMapCharacter.cs:77/79)
+//     — the lists CMapCharacter.ApplyMapConditions (:1130) carries INTO the next scenario, i.e. the
+//     map-phase twin of CTokens.GetAllPositiveConditions/GetAllNegativeConditions. Deliberately NOT
+//     NextScenarioPositiveConditions/-Negative, which are a promise about a scenario that has not
+//     started, not a state the character is in.
+//
 // ─── WHY THIS IS A SECOND PLATE AND NOT A CALL INTO WristHud ──────────────────────────────────
 // WristHud is a SCENARIO instrument, top to bottom, and the incompatibility is in its data model
 // rather than in its gate:
@@ -55,17 +87,21 @@
 //   name      CMapCharacter.DisplayCharacterName ?? .CharacterName   (CMapCharacter.cs:47/49)
 //   level     CMapCharacter.Level                                    (CMapCharacter.cs:55)
 //   xp        CMapCharacter.EXP                                      (CMapCharacter.cs:53)
-//   gold      CMapCharacter.CharacterGold                            (CMapCharacter.cs, m_CharacterGold)
-//   max hp    CharacterYMLData.HealthTable[Level-1]                  (CharacterYMLData.cs:24)
-//   loadout   HandAbilityCardIDs.Count / MaxCards                    (CMapCharacter.cs:59/103)
+//   gold      CMapCharacter.CharacterGold                            (CMapCharacter.cs:147)
+//   hp        CMapCharacter.MaxHealth                                (CMapCharacter.cs:193)
+//   cond      CMapCharacter.PositiveConditions / .NegativeConditions (CMapCharacter.cs:77/79)
 //   portrait  UIInfoTools.Instance.GetNewAdventureCharacterPortrait(CharacterYMLData.Model)
 //             (UIInfoTools.cs:465/773, CharacterYMLData.cs:20) — the same call WristHud makes and
 //             the same call the game's own card-selection preview makes.
-// There is no CURRENT hp on the map (a character's damage is scenario state), so the plate shows the
-// class MAXIMUM at the character's level and says so with the level it is derived from. Conditions
-// are likewise absent: CMapCharacter carries NextScenarioPositiveConditions/-Negative, which is a
-// promise about the next scenario rather than a state, and showing it as a live condition row would
-// be a lie in a panel whose whole job is to be trusted.
+//
+// ─── THE ONE THING A FUTURE EDITOR MUST KNOW ──────────────────────────────────────────────────
+// THIS FILE AND WorldUI/WristHud.cs ARE A MIRRORED PAIR by user ruling ("1:1 genauso"), and nothing
+// in the build enforces it. Any change to WristHud's plate geometry, pose composition, fade
+// hysteresis, sorting-ladder lift or ROW MARKUP has to land here in the same commit, and vice versa.
+// The pose half already cannot drift (both read the same [WristHud] per-style entries); the row
+// markup half can, and it is the half the user reported. The right permanent fix is to give
+// WristHud an actor-less content source and delete this builder — that change is described in this
+// lane's report and belongs to WristHud's owner, not to this file.
 
 using System.Text;
 using GloomhavenVR.Core;
@@ -119,6 +155,21 @@ internal sealed partial class MapRoomHand
     private string _wristVerdict = "not evaluated";
 
     internal bool HasWrist => _wristRoot != null;
+
+    /// <summary>
+    /// The wrist the plate sits on: the NON-DOMINANT one. Character-for-character
+    /// <c>WristHud.NonDominantHand()</c>, including its fallback, so the map plate and the scenario
+    /// plate can never land on different arms. It is also the hand
+    /// <c>CardsDriver.UpdatePalmGate</c> hangs the fan off (it picks "not <c>VRHands.Primary</c>"),
+    /// so the plate and the cards ride one arm here exactly as they do in a scenario.
+    /// </summary>
+    private static VRHand? FanHand()
+    {
+        VRHand? primary = VRHands.Primary;
+        if (primary == null)
+            return VRHands.Left ?? VRHands.Right;
+        return VRHands.Get(primary.Side == HandSide.Left ? HandSide.Right : HandSide.Left);
+    }
 
     // ==========================================================================================
     //  BUILD / REBUILD
@@ -384,15 +435,17 @@ internal sealed partial class MapRoomHand
         }
         else
         {
-            int level = 0, xp = 0, gold = 0, cards = 0, want = 0, maxHp = 0;
+            // THE SCENARIO'S ROW SET, VERBATIM (WristHud.RefreshText). Same order, same markup,
+            // same colours, same Loc keys — see this file's header for why that is the deliverable
+            // and not a detail. Every read is guarded individually so one unreadable stat costs one
+            // number, never the plate.
+            int level = 0, xp = 0, gold = 0, maxHp = 0;
             try
             {
                 level = character.Level;
                 xp = character.EXP;
                 gold = character.CharacterGold;
-                want = character.MaxCards;
-                cards = character.HandAbilityCardIDs != null ? character.HandAbilityCardIDs.Count : 0;
-                maxHp = MaxHealthAtLevel(character, level);
+                maxHp = MaxHealthOf(character);
             }
             catch (System.Exception ex)
             {
@@ -402,29 +455,16 @@ internal sealed partial class MapRoomHand
 
             _wristSb.Append("<alpha=#AA>").Append(Loc.Game("GUI_LEVEL", "Level")).Append(' ')
                     .Append(level).Append("<alpha=#FF>\n");
-            if (maxHp > 0)
-            {
-                // MAX hp, and the plate says so: a character carries no current HP outside a
-                // scenario, so printing "HP 12" unqualified would read as full health rather than
-                // as the class maximum at this level.
-                _wristSb.Append("<color=#ff6a5e>").Append(Loc.Mod("hp")).Append(' ')
-                        .Append("<size=18>max </size>").Append(maxHp).Append("</color>   ");
-            }
+            // HP as "current/max", exactly as in a scenario. There is no damage outside a scenario
+            // (CScenario.AddPlayer seats every traveller at full health), so current IS the maximum
+            // here — a true statement printed in the shape the player already reads.
+            _wristSb.Append("<color=#ff6a5e>").Append(Loc.Mod("hp")).Append(' ')
+                    .Append(maxHp).Append('/').Append(maxHp).Append("</color>   ");
             _wristSb.Append("<color=#7fd4ff>").Append(Loc.Mod("xp")).Append(' ')
                     .Append(xp).Append("</color>\n");
             _wristSb.Append("<color=#ffd45e>").Append(Loc.Mod("gold")).Append(' ')
                     .Append(gold).Append("</color>\n");
-            // The loadout counter, the one number this phase is actually about: it is the game's own
-            // "n / MaxCards" from the card-selection screen (UIPartyCharacterAbilityCardsDisplay.cs
-            // :512), so a player who has not finished choosing sees the same shortfall the flat
-            // window shows them — and the fan in front of them has exactly n cards in it.
-            bool complete = want <= 0 || cards == want;
-            _wristSb.Append(complete ? "<color=#9fe08a>" : "<color=#e08a8a>")
-                    .Append(Loc.Game("GUI_ABILITY_CARDS", "Cards")).Append(' ')
-                    .Append(cards);
-            if (want > 0)
-                _wristSb.Append(" / ").Append(want);
-            _wristSb.Append("</color>");
+            AppendConditions(character);
         }
 
         string stats = _wristSb.ToString();
@@ -438,25 +478,91 @@ internal sealed partial class MapRoomHand
     }
 
     /// <summary>
-    /// The class HP maximum at <paramref name="level"/>, from the character's own YML health table
-    /// (<c>CharacterYMLData.HealthTable</c>, CharacterYMLData.cs:24 — a 1-based table indexed by
-    /// level). 0 = unavailable, and the plate then simply omits the row rather than printing a
-    /// zero that would read as "dead".
+    /// The character's maximum health. THE GAME'S OWN DERIVATION FIRST
+    /// (<c>CMapCharacter.MaxHealth</c>, CMapCharacter.cs:193 = <c>HealthTable[Level]</c>), so a
+    /// level-table change can never make this plate and the game disagree.
+    ///
+    /// <para>It is guarded and not just called, for one specific reason: that property indexes the
+    /// YML table with the RAW level and throws IndexOutOfRange for any character whose level sits
+    /// outside it (a modded class with a short table, a save mid-migration). The fallback is the
+    /// same table, clamped — never a zero, because "HP 0/0" on a wrist plate reads as a dead
+    /// character rather than as an unreadable stat.</para>
     /// </summary>
-    private static int MaxHealthAtLevel(CMapCharacter character, int level)
+    private static int MaxHealthOf(CMapCharacter character)
     {
         try
         {
-            int[]? table = character.CharacterYMLData?.HealthTable;
+            int value = character.MaxHealth;
+            if (value > 0)
+                return value;
+        }
+        catch (System.Exception)
+        {
+            // Fall through to the clamped read below.
+        }
+        try
+        {
+            int[]? table = character.HealthTable;
             if (table == null || table.Length == 0)
                 return 0;
-            int index = Mathf.Clamp(level - 1, 0, table.Length - 1);
-            return table[index];
+            return table[Mathf.Clamp(character.Level, 0, table.Length - 1)];
         }
         catch (System.Exception)
         {
             return 0;
         }
+    }
+
+    /// <summary>
+    /// The condition row — the SCENARIO plate's fourth row, with the map-phase equivalents of its
+    /// two sources. <c>WristHud.RefreshText</c> walks
+    /// <c>CTokens.GetAllPositiveConditions()/GetAllNegativeConditions()</c> and prints each as
+    /// "+Name" in green / "-Name" in red, or the localized "no conditions" line when both are
+    /// empty; this walks <c>CMapCharacter.PositiveConditions/.NegativeConditions</c>
+    /// (CMapCharacter.cs:77/79) — the lists <c>ApplyMapConditions</c> (:1130) carries into the next
+    /// scenario — and prints them identically.
+    ///
+    /// <para>An unreadable list falls back to the "no conditions" line rather than to nothing: a
+    /// missing row would change the plate's SHAPE, which is the very complaint this round answers.</para>
+    /// </summary>
+    private void AppendConditions(CMapCharacter character)
+    {
+        int printed = 0;
+        try
+        {
+            var positives = character.PositiveConditions;
+            if (positives != null)
+            {
+                for (int i = 0; i < positives.Count; i++)
+                {
+                    if (positives[i] == null)
+                        continue;
+                    _wristSb.Append("<color=#9fe08a>+").Append(positives[i].PositiveCondition)
+                            .Append("</color> ");
+                    printed++;
+                }
+            }
+            var negatives = character.NegativeConditions;
+            if (negatives != null)
+            {
+                for (int i = 0; i < negatives.Count; i++)
+                {
+                    if (negatives[i] == null)
+                        continue;
+                    _wristSb.Append("<color=#e08a8a>-").Append(negatives[i].NegativeCondition)
+                            .Append("</color> ");
+                    printed++;
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Debug(Scope, $"Map-room wrist: the condition lists could not be read ({ex.Message}) "
+                + "— the row falls back to 'no conditions', which keeps the plate the same shape as "
+                + "the scenario's.");
+        }
+        if (printed == 0)
+            _wristSb.Append("<alpha=#88>").Append(Loc.Mod("no_conditions"));
     }
 
     // ==========================================================================================

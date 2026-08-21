@@ -244,6 +244,37 @@ internal static partial class VROptionsTab
                         // Ruling 19: the pixel-light cap is a visible look-vs-frames trade the
                         // game itself never exposes in VR.
                         new("RenderQuality", "PixelLightCount", "vr_o_pixellights"),
+                        // THE FLOATED WINDOWS' SHARPNESS, three rows, put on a curated page at
+                        // ModBuild 192 for the reason [Rig] Experimental3DMap was at 176: the
+                        // dials existed, were bound and were wired, and were still unreachable
+                        // in practice. ModBuild 191 shipped the supersample pair OFF by default
+                        // and the hardware log of the session testing it contains zero PANEL
+                        // SUPERSAMPLE lines — the path never ran, because the only place the
+                        // switch appeared was the raw catalog under a spaced-out English key.
+                        // A measure nobody can turn on measures nothing.
+                        //
+                        // THEY SIT WITH THE RENDER-QUALITY QUARTET ABOVE, not under Tafeln: this
+                        // is supersampling, the same trade "Auflösung pro Auge" and "MSAA-Stufe"
+                        // make, and a player chasing shimmer looks under Grafik. The factor folds
+                        // under the switch (VROptionsTab.8.Dependencies.cs).
+                        //
+                        // EMPTY CAPTION KEYS, the documented degradation the [Comfort]
+                        // TurnStickVertical row already relies on: Caption(item, "") falls
+                        // through to item.Display, i.e. the localized name in Loc.ConfigNames
+                        // ("Fenster: scharf zeichnen"), and HintKey "h_" misses so the tooltip
+                        // falls through to the bound description's German translation in
+                        // Loc.ConfigDescriptions.German. Both strings are written for a player
+                        // and both are already localized, so a hand-written caption here would
+                        // only be a second place to keep the same words in step.
+                        new("WorldUI", "PanelSupersample", ""),
+                        new("WorldUI", "PanelSupersampleFactor", ""),
+                        // The third dial of the same complaint, and the same gap in a different
+                        // shape: [WorldUI] WindowLegibility HAS a localized name and a German
+                        // description (ModBuild 189) but had no curated row either, so the size
+                        // half of "why is the window text shimmering" was as hard to reach as
+                        // the sharpness half. Size and sharpness are the two ways to spend
+                        // headset pixels on a window; they belong on one screen.
+                        new("WorldUI", "WindowLegibility", ""),
                         new("Compat", "DisablePostProcessing", "disable_post"),
                         new("Compat", "DisableVolumetricFog", "vr_o_fog"),
                         new("Compat", "WallFade", "wall_see_through"),
@@ -261,6 +292,14 @@ internal static partial class VROptionsTab
                         // was. It sits under the environment choice because it is the same kind
                         // of decision — which world the player stands in.
                         new("Rig", "Experimental3DMap", "vr_o_3dmap"),
+                        // The map room's card hand, DIRECTLY under the switch that builds the
+                        // room — it is a property OF the world the row above chooses, the same
+                        // argument the element mood and the haunt block make below. It folds
+                        // under Experimental3DMap (VROptionsTab.8.Dependencies.cs), so it is
+                        // only ever on screen while there is a map room for it to be in.
+                        // Empty caption key: the localized name and the German description
+                        // carry the row (see the window block above for the full argument).
+                        new("WorldUI", "MapRoomHand", ""),
                         // ELEMENT MOOD — the environment's answer to the element infusions. Sits
                         // directly under the environment choice because that is what it acts on,
                         // and the strength dial folds under the toggle (VROptionsTab.8.Dependencies).

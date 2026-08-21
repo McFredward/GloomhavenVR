@@ -519,6 +519,16 @@ internal static partial class ModalFallback
 
         /// <summary>Level-message family (closer distance, deeper pitch, hard view cone).</summary>
         public bool LevelMessage;
+
+        /// <summary>
+        /// The map room's claimed arc slot (−1 = this spawn is not arc-placed). The arc ANGLE is
+        /// already baked into <see cref="RawPos"/>, so a replay reproduces the slot direction for
+        /// free; what this field carries is the FACT of it, which the replay still needs for two
+        /// decisions: the modal-vs-modal overlap resolve must stay switched off (the slot, not a
+        /// box test, decides where an arc window stands), and the log line has to be able to name
+        /// the slot the re-placed window is sitting in.
+        /// </summary>
+        public int ArcSlot;
     }
 
     /// <summary>
@@ -561,6 +571,13 @@ internal static partial class ModalFallback
         bool levelMessage = false, SpawnAnchor? replay = null)
     {
         Vector3 headPos, fwd;
+        // The map room's claimed arc slot for this spawn (−1 = not arc-placed). See the slot
+        // registry in ModalFallback.4.Tick.cs for the ruling and the choice rule.
+        int arcSlot = -1;
+        float arcYawDeg = 0f;
+        string arcWhy = "";
+        bool arcPlaced = false;   // holds a real arc slot → the slot, not a box test, deconflicts it
+        bool arcGoverned = false; // the map room's arc decided this placement (slot or overflow)
         if (replay.HasValue)
         {
             // Replay: the placement inputs are frozen, only the geometry changed.
@@ -571,6 +588,13 @@ internal static partial class ModalFallback
             staggerIndex = a.StaggerIndex;
             levelMessage = a.LevelMessage;
             pos = a.RawPos;
+            // The arc angle is already inside RawPos; carry the FACT so the overlap resolve stays
+            // off and the log can still name the slot (see SpawnAnchor.ArcSlot).
+            arcSlot = a.ArcSlot;
+            arcPlaced = arcSlot >= 0;
+            arcGoverned = arcPlaced;
+            arcYawDeg = ArcSlotAngleDeg(arcSlot);
+            arcWhy = "replayed against the final fitted geometry — the slot is unchanged";
         }
         else
         {
@@ -601,17 +625,56 @@ internal static partial class ModalFallback
             // (merchant, temple, quest log) stand open at once and all of them must be readable
             // without moving anything.
             //
-            // So in the map room the stack index becomes an ANGLE on an arc at the same reading
-            // distance, alternating right and left of the gaze so the first window stays centred
-            // and the set grows symmetrically: 0°, +A, -A, +2A, -2A … The vertical drop and the
-            // pull-forward are dropped with it — every card on the arc is equally near and equally
-            // upright, which is what "perfekt im Überblick" means.
-            // ModBuild 183: the map room's arc moved OUT of the spawn path and into
-            // RelayoutMapRoomArc, which runs after every add/remove. Doing it at spawn could only
-            // ever place the NEW window, and the new one is precisely the one that must be dead
-            // ahead — it was the OLD ones that needed to step aside. Map-room spawns therefore
-            // arrive with staggerIndex 0 and the relayout arranges the set a moment later.
-            if (staggerIndex > 0)
+            // THE ARC IS BACK IN THE SPAWN PATH, AND THIS TIME IT IS A RESERVATION. ModBuild 181
+            // indexed the arc by "how many windows are already open", which put every fresh window
+            // at the OUTSIDE of the set (181's own bug: "so weit neben mir, dass ich es zuerst
+            // nicht bemerkt habe"). 183 answered that by moving the arc OUT of the spawn path into
+            // a relayout that re-posed the whole set on every add/remove — which is the behaviour
+            // the current ruling rejects outright:
+            //
+            //   "Die Fenster verändern ständig ihre Position wenn ein neues Fenster gespawned wird
+            //    oder schließt. Das soll nicht sein - ohne explizite Bewegung vom User, sollen sie
+            //    ihre Position nicht verändern. Spawne die Fenster so, das alle im Sichtfeld passen
+            //    aber einmal gespawned sind sie fix."
+            //
+            // The index is now a CLAIM on a free slot, chosen nearest the centre, so a new window
+            // lands as close to the gaze as the free space allows and NOTHING already standing is
+            // touched — 181's defect and 183's defect are both answered, by the registry in
+            // ModalFallback.4.Tick.cs.
+            //
+            // THE SLOT IS A YAW AND NOTHING ELSE. The raw pose is the ordinary gaze-following spawn
+            // above, ROTATED ABOUT WORLD UP by the slot's angle — so every other property of the
+            // placement is untouched and keeps producing exactly what it produced before: the same
+            // reading distance, the same downward gaze bias, and therefore the same HEIGHT out of
+            // ClampSpawnPose (steep-gaze flatten + board-top floor + eye cap), which is the height
+            // ModBuild 183's relayout preserved per window rather than computing. Rotating about
+            // world up cannot introduce pitch or roll, so the yaw-only ruling (ModBuild 189) is
+            // untouched and the Upright guard below still reports 0.0/0.0.
+            if (TryClaimArcSlot(self, levelMessage, out arcSlot, out arcYawDeg,
+                    out int arcStagger, out arcWhy))
+            {
+                arcGoverned = true;
+                arcPlaced = arcSlot >= 0;
+                staggerIndex = arcStagger;
+                Vector3 flatFwd = fwd;
+                flatFwd.y = 0f;
+                if (flatFwd.sqrMagnitude < 1e-6f)
+                    flatFwd = Vector3.forward;
+                flatFwd.Normalize();
+                pos = headPos + Quaternion.AngleAxis(arcYawDeg, Vector3.up)
+                    * (fwd * (WindowDistanceMeters * scale));
+                if (arcStagger > 0)
+                {
+                    // Overflow (the arc is full): the SAME right+down+foreground offset a stacked
+                    // secondary gets at a scenario table, but measured in the flattened frame so it
+                    // cannot re-introduce a pitch into the placement direction.
+                    Vector3 flatRight = Vector3.Cross(Vector3.up, flatFwd);
+                    float step = SecondaryStaggerMeters * scale;
+                    pos += flatRight * (step * arcStagger) - Vector3.up * (step * arcStagger);
+                    pos -= flatFwd * (SecondaryForegroundMeters * scale * arcStagger);
+                }
+            }
+            else if (staggerIndex > 0)
             {
                 float step = SecondaryStaggerMeters * scale;
                 pos += h.right * (step * staggerIndex) - Vector3.up * (step * staggerIndex);
@@ -636,6 +699,7 @@ internal static partial class ModalFallback
             Scale = scale,
             StaggerIndex = staggerIndex,
             LevelMessage = levelMessage,
+            ArcSlot = arcSlot,
         };
         float maxPitchDeg = levelMessage ? LevelMsgMaxSpawnPitchDeg : MaxSpawnPitchDeg;
         string? clampReason = ClampSpawnPose(headPos, fwd, ref pos, scale, halfSize, maxPitchDeg);
@@ -644,8 +708,18 @@ internal static partial class ModalFallback
         // raise / swing laterally toward free space (spawn/refloat/recall only, never per
         // frame). Staggered secondaries deliberately overlap their parent window (item 2/3b),
         // so they only avoid the board.
+        //
+        // AND AN ARC-PLACED WINDOW ONLY AVOIDS THE BOARD TOO — because on the arc the SLOT is what
+        // deconflicts, and it does so by reservation rather than by measurement. Letting the box
+        // test swing an arc window up to ±30° would make its final angle a function of the
+        // geometry of the windows already standing, i.e. exactly the coupling this whole change
+        // removes: the same window would land somewhere else depending on what else happened to be
+        // open, and two neighbours 34° apart DO overlap at reading distance (a full-width window is
+        // ~45° across), so the swing would fire on nearly every second spawn. ModBuild 183 had the
+        // same property for a different reason — the relayout ran after the resolve and overwrote
+        // whatever it decided — so this is not a behaviour change, only an honest one.
         string? overlapNote = ResolveSpawnOverlap(headPos, ref pos, scale, halfSize, self,
-            includeModals: staggerIndex == 0);
+            includeModals: !arcPlaced && staggerIndex == 0);
 
         // LEVEL-MESSAGE VIEW-CONE (user requirement, torbogen report): the tutorial window must
         // ALWAYS spawn inside the CURRENT view. The soft clamps above optimize for board
@@ -735,6 +809,46 @@ internal static partial class ModalFallback
                               $"eyeCap +{MaxAboveEyeMeters:F2}m, maxPitch {maxPitchDeg:F0}°), " +
                               $"dist={distanceMeters:F2}m{(levelMessage ? " (level-message)" : "")}, " +
                               $"scale={scale:F2}, stagger={staggerIndex}.");
+
+        // THE SLOT LINE — HOW TO READ IT, AND HOW IT ANSWERS "A WINDOW STILL MOVED".
+        // The slot and the angle say WHERE on the arc this window was seated and WHY that seat was
+        // free; the occupancy says how much room is left before the overflow rule takes over; the
+        // pose is where it ended up after the board/eye clamps. Exactly TWO of these lines per
+        // window per open are legitimate, and they are distinguishable:
+        //   1. the spawn itself — 'claimed arc slot N';
+        //   2. AT MOST one more carrying 'replayed against the final fitted geometry', the
+        //      pre-reveal re-place (TickPoseRePlace), which happens while the window is still
+        //      render-hidden and therefore cannot be seen as movement. Its companion line is
+        //      'MODAL POSE RE-PLACE'.
+        // A THIRD line for the same panel means something re-placed a VISIBLE window and is the
+        // bug: the only remaining caller that can produce one is the presence-regain refloat
+        // (RefloatOpenWindows — it prints nothing else, so a doff/don is the thing to ask about).
+        // A window that visibly moves with NO second line at all was moved by something that does
+        // not go through ComputeHmdPose: the player's own grab (look for 'grabbed - its pose is now
+        // PLAYER-OWNED'), or a new writer that must be found and stopped. And a window that moves
+        // WHENEVER ANOTHER WINDOW OPENS OR CLOSES, with no line of its own, is this exact bug
+        // returning — a per-set relayout has been re-introduced somewhere.
+        if (arcGoverned)
+        {
+            CountArcClaims(out int slotsUsed, out int overflowUsed);
+            VRLog.Info("WorldUI", "MAP ROOM WINDOW SLOT: "
+                                  + $"'{(self != null ? PanelLogName(self) : "<panel>")}' "
+                                  + (arcSlot < 0
+                                      ? "placed WITHOUT a claim"
+                                      : arcSlot < ArcSlotCount
+                                          ? $"claimed arc slot {arcSlot} ({arcYawDeg:F0}° from the spawn gaze, "
+                                            + $"+ = right)"
+                                          : $"claimed overflow stack {arcSlot - ArcSlotCount + 1} (centred, "
+                                            + "staggered in front)")
+                                  + $" — {arcWhy}. Occupancy now {slotsUsed}/{ArcSlotCount} arc slots "
+                                  + $"({ArcSlotCount - slotsUsed} free) + {overflowUsed} overflow. Pose "
+                                  + $"({pos.x:F2},{pos.y:F2},{pos.z:F2}) world units at "
+                                  + $"{distanceMeters:F2} m × scale {scale:F2}, yaw {rot.eulerAngles.y:F1}°. "
+                                  + "After the one pre-reveal re-place this window is never posed "
+                                  + "again while it floats: opening or closing any other window "
+                                  + "moves nothing (user ruling), and only the player's own grab "
+                                  + "can move it.");
+        }
         return true;
     }
 

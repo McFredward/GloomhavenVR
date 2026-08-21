@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -230,6 +231,34 @@ internal static class CardFaceMipBake
 
     /// <summary>VRAM currently held by every baked copy — see <see cref="MaxBakedVramBytes"/>.</summary>
     internal static long BakedVramBytes => s_bakedVramBytes;
+
+    /// <summary>
+    /// Arm the WorldUI panel ARRIVAL WATCH (ModBuild 192) from the two entry points every consumer
+    /// of this cache passes through. It is a managed bool test once armed, and a no-op while
+    /// [WorldUI] PanelMipBake is off.
+    ///
+    /// <para>WHY IT IS TRIGGERED FROM HERE, in a Cards file, for a WorldUI mechanism — this is a
+    /// deliberate trade and not an accident. The user's report is the merchant's item card
+    /// ("werden 1 Sekunde mit dem starken aliasing angezeigt dann sieht man wie es verschwindet"),
+    /// which lives on a FLOATED window in the map room. Read from source: every caller of
+    /// <c>WorldUI.PanelMipBake.Rescan</c> is a SCENARIO surface (initiative track, stat panels,
+    /// prop-info, enemy reveal, the scenario tooltip canvas), so in the map room nothing in that
+    /// file is ever executed and a watch installed from there would never start. The ONE piece of
+    /// mod code that provably runs against the shop window is <c>PanelSamplingProbe</c>, and it
+    /// reaches the mod only through THESE TWO methods — the ModBuild 191 hardware log proves it,
+    /// with the shop's 'Filter_*', 'second skin' and 'Iron_Helmet' bakes all logged by this class
+    /// while the window was floated. Arming here is therefore the only seam available without
+    /// editing a file this lane does not own. Cards → WorldUI is an existing direction in this
+    /// codebase (twenty-odd Cards files already use WorldUI types), so no layering is inverted.</para>
+    ///
+    /// <para>RESOLVED AT INTEGRATION (ModBuild 192): the natural home was taken. The arrival tick
+    /// is now a step in <c>WorldUIModule</c>'s LateTick list ("PanelMipBake.Arrivals"), which is the
+    /// per-frame owner this class was standing in for, so the two arming calls that used to sit in
+    /// <see cref="ReplacementFor"/> and <see cref="BakedTextureFor"/> are gone and this class is
+    /// back to doing one thing. <c>PanelMipBake</c> still self-installs its own pump for the
+    /// scenario path, and <c>TickArrivals</c> guards on the frame number, so the two owners can
+    /// never double-swap.</para>
+    /// </summary>
 
     /// <summary>
     /// Swap every mipless-atlas sprite under <paramref name="faceRoot"/> (the adopted

@@ -193,6 +193,13 @@ internal static partial class Loc
                 Pair("3D map: icon size", "Karte 3D: Symbolgröße"),
             ["MapRoom/GloomhavenIconScale"] =
                 Pair("3D map: Gloomhaven icon size", "Karte 3D: Größe Gloomhaven-Symbol"),
+            // THE MAP ROOM'S CARD HAND (ModBuild ~188). Its config KEY lives in the [WorldUI]
+            // section — it is bound on worldui's file by the code that owns it — but the FEATURE
+            // is the 3D map room's, so it is named here with its two siblings and carries the
+            // same "Karte 3D: …" prefix. Without a line here the menu spaced the raw key out to
+            // "Map Room Hand", which is the same gap [Rig] Experimental3DMap had at ModBuild 176.
+            ["WorldUI/MapRoomHand"] =
+                Pair("3D map: show your card hand", "Karte 3D: Handkarten zeigen"),
 
             // ---- [FigureGrab] — grabbing miniatures -----------------------------------------
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),
@@ -442,6 +449,14 @@ internal static partial class Loc
             // stood here. GONE with their dials (user ruling 2026-08-13, see ActorBars.ZoomFollowMin).
             ["WorldUI/BarsOccluded"] = Pair("Health bars behind walls", "Balken hinter Wänden"),
             ["WorldUI/PanelMipBake"] = Pair("Smooth panel textures", "Tafeltexturen glätten"),
+            // ModBuild 191's answer to the window shimmer, and the reason it went untested for a
+            // build: both dials were bound and wired, but neither had a name, so the only place
+            // they appeared was the raw catalog — under the spaced-out keys "Panel Supersample"
+            // and "Panel Supersample Factor", English, among the leftovers. The names say
+            // "Fenster", not "Tafel": these act on the FLOATED GAME WINDOWS (menus, story boxes,
+            // merchant/character screens), not on the mod's own panels the way PanelMipBake does.
+            ["WorldUI/PanelSupersample"] = Pair("Windows: render sharp", "Fenster: scharf zeichnen"),
+            ["WorldUI/PanelSupersampleFactor"] = Pair("Windows: sharpness", "Fenster: Schärfegrad"),
             ["WorldUI/CanvasScaleMm"] = Pair("Panel scale (mm/px)", "Tafel-Maßstab (mm/px)"),
             ["WorldUI/InitiativeDepthMaxSpreadPx"] = Pair("Initiative: depth (px)", "Initiative: Tiefe (px)"),
             ["WorldUI/HoverInfoScale"] = Pair("Hover info size", "Info-Karten: Größe"),

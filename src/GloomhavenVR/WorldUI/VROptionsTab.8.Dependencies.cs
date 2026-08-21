@@ -100,6 +100,24 @@ internal static partial class VROptionsTab
         // ---- Grafik ▸ Leistung: "Has no effect at all when EnableGraphicsJobs is false" --------
         ["Core/AutoRestartForGraphicsJobs"] = new("Core", "EnableGraphicsJobs", On),
 
+        // ---- Grafik ▸ Darstellung: the window supersample FACTOR is the tuning OF its switch,
+        //      and the bound description says so in as many words ("Has no effect while
+        //      PanelSupersample is off"). The code makes that literally true: PanelSupersample's
+        //      own tick stands every display down and releases the render targets the moment the
+        //      switch reads false (PanelSupersample.1.Core, StandDownAll("[WorldUI]
+        //      PanelSupersample was switched off")), so there is no render target left for a
+        //      pixels-per-authored-pixel number to size.
+        ["WorldUI/PanelSupersampleFactor"] = new("WorldUI", "PanelSupersample", On),
+
+        // ---- Grafik ▸ Darstellung: the map-room card hand exists only inside the 3D map room.
+        //      Not an inference from its name: the hand is engaged from exactly one place
+        //      (MapRoomDriver.Engage → Hand.Engage), and the room's mode predicate returns on its
+        //      first line while the switch is off ("if (Plugin.Experimental3DMap == null ||
+        //      !Plugin.Experimental3DMap.Value)", MapRoomDriver.TickPredicate), so nothing is ever
+        //      built for this dial to show or hide. Same parent, same evidence shape as the
+        //      [MapRoom] section rule below.
+        ["WorldUI/MapRoomHand"] = new("Rig", "Experimental3DMap", On),
+
         // ---- Grafik ▸ Darstellung: the element-mood strength is the tuning OF the toggle — its
         //      bound description opens with "Has no effect at all while 'EnvironmentResponse' is
         //      off", and the code makes that literally true: with the toggle off the whole per-frame
