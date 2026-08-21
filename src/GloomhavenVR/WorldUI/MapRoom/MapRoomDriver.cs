@@ -314,6 +314,10 @@ internal static class MapRoomDriver
     {
         FlatScreenStereo.MapRoomOwnsParchment = true;
         Active = true;
+        // ModBuild 190: the travel confirmation. Installed from HERE rather than from
+        // WorldUIModule because the room is the only thing it applies to, and because its prefix
+        // must be live before the first location can be pressed. Idempotent.
+        MapTravelConfirm.Install();
         // TELL THE MODE MACHINE THERE IS A TABLE HERE. Not a mode change — a correction to the
         // premise the three locomotion guards state in their own comments ("no table exists").
         // Without it the player stands in the room and cannot walk, fly, turn or zoom, because
@@ -361,6 +365,10 @@ internal static class MapRoomDriver
         // running it unconditionally: the buttons are their own GameObjects and do not depend on
         // the parchment being measurable this frame.
         Buttons.Tick();
+        // The game's own Reisen/Abbrechen buttons ride the floated quest window (phase 4b) — they
+        // live in the flat map HUD, which this room does not draw, so without this they exist and
+        // cannot be reached. Level-triggered; see MapTravelConfirm.
+        MapTravelConfirm.Reconcile(ModalFallback.FloatedWindowWithId(UIWindowID.QuestPopup));
         if (have)
         {
             // The ONE map dump, from the room's own vantage (the flat path calls the same method
@@ -393,6 +401,9 @@ internal static class MapRoomDriver
         Locations.Release(reason);
         Buttons.Release(reason);
         Icons.Release(reason);
+        // Hand the game's travel options back before the room disappears under them — a container
+        // left parented into a host we are about to destroy would take the Reisen button with it.
+        MapTravelConfirm.Reset();
         Parchment.Release(reason);
         FlatScreenStereo.MapRoomOwnsParchment = false;
         VRLog.Info(Scope, $"MAP ROOM stood down ({reason}) — parchment materials restored, icon command "

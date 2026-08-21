@@ -126,6 +126,46 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 190** (bundle UNCHANGED — plugin DLL only) — a stale shrink, a screen-fit that aimed
+  at the camera, and a confirmation the game already had. *(Three workers, isolated worktrees.)*
+  * **Undersampling had a BUG under it, not just a trade-off.** `DeriveWindowScale` runs at CONVERT
+    time on the PRE-FIT rect and step 5b re-runs it only for `OneShotFitted` windows — everything
+    else keeps the stale value forever. Log: `New Party display` fits 1920x1080 → 328x1080 and then
+    holds `extraScale 0.417` for **100 s** — a 1920-px window's shrink still in force on a 328-px
+    one. **1.68× of the defect, bought by nobody.** New `TickWindowScaleRefit` re-derives it after
+    the fit. Plus clamped dial **`[WorldUI] WindowLegibility`** (default 1.25, 1.0–1.75; 1.0 = today
+    exactly). Honest arithmetic: 1:1 on a 1920-px window needs ~57° of view — the ~1.3 m slab he
+    already rejected — so 1.25 (~45°) takes the free half. **Predicted: 2.6 → ~1.24, 1.65 → ~1.32,
+    1.44 → ~1.15.** If they land there and he still reports Flackern, sampling is measured out.
+  * **Pitch on spawn: one writer.** `rot *= Quaternion.Euler(tiltDeg,0,0)`, `MaxSpawnTiltDeg = 15`,
+    fired whenever any clamp engaged — and the steep-gaze clamp engages on most spawns because
+    looking down at the table IS the posture. Removed; `ComputeHmdPose` (the single rotation
+    authority) now rebuilds from the flattened forward and **prints the residual it stripped** on
+    every spawn line. Not changed: a one-hand carry can still tip with the wrist (different
+    question, unasked).
+  * **Item tooltips: a GAME bug the map room is the first thing to expose.** Two tooltip families;
+    the mod covered one. Family B (incl. the merchant's `UIPartyItemInventoryTooltip`) ends with
+    `DeltaWorldPositionToFitTheScreen`, whose body does
+    `camera.ScreenToWorldPoint(vector2)` — **implicit z = 0, and z is distance from the camera**, so
+    a perspective camera returns its own position. The "delta to fit the screen" is really "the
+    delta that drags this corner onto the camera". Flat it reads as a nudge; in the map room the
+    rect is world metres at 198× against the **frozen** map camera, so a full branch throws it
+    hundreds of units away (**nothing appears**) and a partial branch leaves it askew (**rotated,
+    off the window**). Four branches, same line, same frame = his two symptoms exactly. Fix cuts
+    that ONE term, only for rects owned by a floated window; everything else is inherited by
+    **parenting**. Plus a flatten incl. the root, and an in-plane clamp as a **postfix on the game's
+    own call** (never LateTick — two writers on one x/y is the MultiPass eye-disagreement bug).
+  * **The confirmation the game already had.** `AdventureMapUIManager` has a real `travelButton` +
+    Cancel in a `travelOptions` container — **and** a single-player shortcut where pressing the same
+    location twice calls `ConfirmTravel()` outright, a branch **the game itself disables online**.
+    In VR that shortcut was the only reachable commit path and committed without asking. Prefix now
+    reproduces the online branch byte-for-byte; `travelOptions` is parked in the floated quest window
+    and handed back verbatim. *(User rulings: button in the quest window; shortcut off entirely.)*
+  * **Routed from a worker:** `WindowLegibility`'s default moved into `Defaults/Defaults.WorldUI.cs`
+    with its `// => [WorldUI] WindowLegibility` annotation — `rebase-defaults.py` joins on it, so a
+    default declared elsewhere is reported **UNMAPPED** and a tuned cfg value is *silently not
+    applied*, breaking the "a dropped cfg is always against the newest build" workflow.
+
 - **ModBuild 189** (bundle UNCHANGED — plugin DLL only) — the photograph was the answer all along:
   it is **undersampling**, not flicker. *(Two workers, isolated worktrees, split file ownership.)*
   * **Icons drew through everything — one camera event.** `MapIconLayer` attached its command

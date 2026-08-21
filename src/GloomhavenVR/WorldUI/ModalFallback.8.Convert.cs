@@ -313,6 +313,16 @@ internal static partial class ModalFallback
             if (isLevelMsg && TryGetChainPose(window, out Vector3 chainPos, out Quaternion chainRot,
                     out string chainSetBy))
             {
+                // ModBuild 189 (yaw-only ruling): the chain POSITION is verbatim and authoritative —
+                // the player approved that exact spot by leaving the previous window there. The
+                // ORIENTATION is not the same kind of fact: the stored rotation is whatever the
+                // previous host happened to carry when the store was refreshed, which can be a
+                // mid-carry hand pitch (PanelGrab's Level carry yaws AND pitches with the wrist and
+                // only snaps back to upright on RELEASE). Standing it upright here costs the
+                // continuity guarantee nothing — a window at the same centre, facing the same way,
+                // just not tipped — and closes the one path by which a pitched window could still
+                // reach the player after the tilt term was removed.
+                chainRot = Upright(chainRot);
                 CanvasConversion.PlaceHost(panel, chainPos, chainRot,
                     PanelLayout.WorldScale * extraScale);
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) re-floated at the stored " +

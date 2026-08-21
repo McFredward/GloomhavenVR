@@ -259,6 +259,11 @@ internal static class ConfigCatalog
         Bind("wallfade", WallFadeTuning.Bind);
         Bind("worldui", WorldUIConfig.Bind);
         Bind("stereoscreen", FlatScreenStereo.BindConfig); // rides worldui's file — bind it AFTER
+        // ModBuild 189: [WorldUI] WindowLegibility lives on worldui's file too but is owned by the
+        // code that reads it (ModalFallback.9.Spawn.cs), so it binds late for the same reason the
+        // stereo compositor's entries do — and must be force-bound here, or a session in which no
+        // window has floated yet shows a hole where the window-size dial should be.
+        Bind("modalwindows", ModalFallback.BindWindowConfig);
         Bind("bars", ActorBars.BindConfig);
         Bind("buttons", ButtonTuning.Bind);
         Bind("cards", Cards.CardsConfig.Bind);

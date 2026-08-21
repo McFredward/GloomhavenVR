@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**68 patch classes, 97 patched methods.**
+**70 patch classes, 110 patched methods.**
 
 ## Board
 
@@ -128,6 +128,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `WorldspaceDisplayPanelBase.LateUpdate()` *(private)* | prefix | &nbsp; |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:45 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:46 |
+| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:277</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:111 |
 | `Character3DDisplayRefcount`<br/><sub>src/GloomhavenVR/WorldUI/Patches/Character3DDisplayRefcount.cs:115</sub> | `Character3DDisplayManager.Display(Component, ECharacter, string, string)` *(private)* | prefix | `WorldUIModule`:70 |
 | &nbsp; | `Character3DDisplayManager.Hide()` | prefix | &nbsp; |
 | &nbsp; | `Character3DDisplayManager.HideAll()` | prefix | &nbsp; |
@@ -159,6 +160,18 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `TakeDamagePanel.get_IsLethalDamage()` *(private)* | prefix | &nbsp; |
 | `TooltipRaiseGuard`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipRaiseGuard.cs:78</sub> | `UITooltipTarget.OnPointerEnter()` | prefix | `WorldUIModule`:50 |
 | &nbsp; | `UITooltip.Show()` | prefix | &nbsp; |
+| `TooltipWindowPatches`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TooltipWindowPatches.cs:45</sub> | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | `WorldUIModule`:77 |
+| &nbsp; | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float, float)` | prefix | &nbsp; |
+| &nbsp; | `RectTransformExtensions.DeltaPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | &nbsp; |
+| &nbsp; | `RectTransformExtensions.DeltaPositionToFitTheScreen(RectTransform, float)` | prefix | &nbsp; |
+| &nbsp; | `UILocalTooltip.RefreshPosition()` | postfix | &nbsp; |
+| &nbsp; | `UIPartyItemInventoryTooltip.RefreshPosition()` | postfix | &nbsp; |
+| &nbsp; | `UITempleSlotTooltip.Show()` | postfix | &nbsp; |
+| &nbsp; | `TooltipUI.ToggleEnable()` | postfix | &nbsp; |
+| &nbsp; | `UIShopItemSlot.OnHovered()` | postfix | &nbsp; |
+| &nbsp; | `UIPartyItemSlot.OnHovered()` | postfix | &nbsp; |
+| &nbsp; | `UITempleShopSlot.Select()` | postfix | &nbsp; |
+| &nbsp; | `UITempleShopSlot.Deselect()` | postfix | &nbsp; |
 | `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:342</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:47 |
 
 ## Registration sites
@@ -172,10 +185,11 @@ runtime, which is why a runtime audit could never do this job (see
 | `src/GloomhavenVR/Core/SceneRegistry.cs` | `ProceduralTileObserver_OnEnable_RegisterPatch`, `TilesOcclusionVolume_Start_RegisterPatch`, `UnityGameEditorDoorProp_Start_RegisterPatch` |
 | `src/GloomhavenVR/Core/WaterTerrainVR.cs` | `ProceduralBase_NotifyContentPlacementComplete_WaterPatch` |
 | `src/GloomhavenVR/Rig/RigModule.cs` | `CameraController_LateUpdate_Patch`, `CameraController_RefreshFocusPosition_Patch` |
+| `src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs` | `TravelShortcutGate` |
 | `src/GloomhavenVR/WorldUI/Patches/EscMenuInputBlock.cs` | `EscMenuEscapeSuppressor`, `ShowUIWindowSuppressor` |
 | `src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs` | `InputFieldActivateWatch`, `InputFieldDeactivateWatch` |
 | `src/GloomhavenVR/WorldUI/Patches/KeyboardAutoHideBlock.cs` | `KeyboardHideSuppressor` |
 | `src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs` | `SettingsClickExemption` |
-| `src/GloomhavenVR/WorldUI/WorldUIModule.cs` | `Character3DDisplayRefcount`, `InitiativeHoverCardBlock`, `InputManager_AssignGamepadBindings_Patch`, `InputManager_SetGamepadInputDevice_Patch`, `MapLocationSelectorGate`, `MouseWorldSurfaceCut`, `TakeDamagePanelSafety`, `TooltipRaiseGuard`, `UITextInfoPanel_Show_Patch`, `WorldspaceDisplayPanelBase_Patches` |
+| `src/GloomhavenVR/WorldUI/WorldUIModule.cs` | `Character3DDisplayRefcount`, `InitiativeHoverCardBlock`, `InputManager_AssignGamepadBindings_Patch`, `InputManager_SetGamepadInputDevice_Patch`, `MapLocationSelectorGate`, `MouseWorldSurfaceCut`, `TakeDamagePanelSafety`, `TooltipRaiseGuard`, `TooltipWindowPatches`, `UITextInfoPanel_Show_Patch`, `WorldspaceDisplayPanelBase_Patches` |
 
 The preloader (`GloomhavenVR.Preload.dll`) patches **no** assemblies (`TargetDLLs` is empty); it only installs the OpenXR natives + UnitySubsystems manifest.

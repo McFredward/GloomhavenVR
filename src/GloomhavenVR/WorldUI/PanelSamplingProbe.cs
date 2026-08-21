@@ -785,6 +785,19 @@ internal static class PanelSamplingProbe
     /// photograph are the control: whatever this number reads for them is the number that does not
     /// flicker.</para>
     ///
+    /// <para>WHAT MODBUILD 189 DID WITH THIS NUMBER, so the next reader does not re-derive it. Two
+    /// things, and only one of them cost anything. (1) A BUG: <c>DeriveWindowScale</c> runs at
+    /// convert time on the PRE-fit rect and was re-run after the content fit for the one-shot family
+    /// ONLY, so every other window kept a full-screen window's shrink on a narrow fitted rect —
+    /// 'New Party display' sat at <c>scale=0.083</c> (extraScale 0.417, i.e. 0.80 m / 1920 px) with
+    /// a 328x1080 rect for 100 s of that very log, drawn 0.137 m wide where its own rule asks for
+    /// 0.230 m. Fixed in <c>ModalFallback.TickWindowScaleRefit</c>; worth 1.68x of this number for
+    /// free. (2) A TRADE: <c>[WorldUI] WindowLegibility</c>, default 1.25. Nothing else can buy
+    /// rendered pixels — they are bought with SOLID ANGLE, so a nearer window at the same physical
+    /// size is the identical purchase, not a cheaper one, and 1:1 for a 1920 px window costs ~57° of
+    /// view, which is the width the user has already called too big. That sentence is the whole
+    /// ceiling of this problem and it belongs next to the number that measures it.</para>
+    ///
     /// <para>NOTE WHAT THIS BUILD CANNOT FIX. The mip bake reaches Sprites and Texture2D RawImages —
     /// the portraits, the frames, the ornamental bars. It does NOT reach text: uGUI Text and TMP
     /// draw from a font atlas through their own components, which this probe deliberately does not
@@ -811,8 +824,36 @@ internal static class PanelSamplingProbe
                 ? "below authored resolution — thin strokes are already lossy"
                 : "WELL below authored resolution — a 1 px authored stroke lands on less than "
                   + "two-thirds of a rendered pixel and will drop in and out as the head moves";
+
+        // ModBuild 189 — THE CAUSAL TERMS, on the same line as the symptom. Rounds 1-8 could each
+        // say a panel was undersampled; none could say BY WHICH FACTOR OF WHAT, so every proposed
+        // cure was arguable. Panel scale is a pure function of three things and nothing else:
+        //   panel scale  =  (authored px) x (eye distance)  /  (world size x eye px per radian)
+        // and the first three are all readable right here. Printing them turns the next hardware
+        // log from "still bad" into "the window is X m across at Y m, which is Z° — the size dial
+        // did/did not do what it claimed", which is the difference between a decidable round and a
+        // tenth guess. The APPLIED SCALE term is the one that caught ModBuild 189's actual bug: a
+        // 328 px window still carrying a 1920 px window's 0.417 shrink.
+        float worldScale = Mathf.Max(PanelLayout.WorldScale, 1e-4f);
+        Vector3 lossy = host.lossyScale;
+        float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        // Real metres: the diorama scale is on the rig, so world units / world scale is what a tape
+        // measure held at the eye would read — and it is the only size statement that survives a zoom.
+        float realW = r.width * lossy.x / worldScale;
+        float realH = r.height * lossy.y / worldScale;
+        float realDist = Vector3.Distance(host.position, head.transform.position) / worldScale;
+        // extraScale x the player's own two-hand resize factor, i.e. everything between the authored
+        // pixel and the metre that is NOT CanvasScaleMm and NOT the diorama scale.
+        float applied = metersPerPixel > 1e-9f ? lossy.x / (metersPerPixel * worldScale) : 0f;
+        float degW = 2f * Mathf.Atan2(realW * 0.5f, Mathf.Max(realDist, 1e-3f)) * Mathf.Rad2Deg;
+        float degH = 2f * Mathf.Atan2(realH * 0.5f, Mathf.Max(realDist, 1e-3f)) * Mathf.Rad2Deg;
+
         return $" host {r.width:F0}x{r.height:F0} uGUI px drawn into {pxW:F0}x{pxH:F0} rendered px "
-               + $"= panel scale {worst:F2} authored px per rendered px ({verdict});";
+               + $"= panel scale {worst:F2} authored px per rendered px ({verdict})"
+               + $" [CAUSE: {realW:F2}x{realH:F2} m at {realDist:F2} m = {degW:F0}°x{degH:F0}° of view, "
+               + $"applied scale {applied:F3} (host shrink x player resize), {metersPerPixel * 1000f:F2} mm/px; "
+               + $"reaching 1.00 from here needs {worst:F2}x more angle, i.e. {realW * worst:F2} m across "
+               + $"at the same distance];";
     }
 
     private static void AppendSurface(Surface s)

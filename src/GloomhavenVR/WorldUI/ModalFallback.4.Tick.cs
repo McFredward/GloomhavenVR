@@ -347,6 +347,26 @@ internal static partial class ModalFallback
     /// <summary>Converted-count the arc was last laid out for (change detector).</summary>
     private static int _lastArcCount = -1;
 
+    /// <summary>
+    /// The floated window carrying this ID, or null when no such window is currently a world-space
+    /// panel. ASKS THE FLOAT SET, not the game: a window can be open and not floated (the parent
+    /// won, the catch-all refused it, conversion failed), and something that wants to park content
+    /// INSIDE a floated host needs the host to actually exist in world space. Windows the user is
+    /// closing are excluded — their host is on its way out.
+    /// </summary>
+    internal static UIWindow? FloatedWindowWithId(UIWindowID id)
+    {
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.UserClosing || wp.Window == null || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+                continue;
+            if (wp.Window.ID == id)
+                return wp.Window;
+        }
+        return null;
+    }
+
     /// <summary>The floated guildmaster destination window, or null. Newest first — the game only
     /// ever has one mode active, so a second one can exist for at most the frames one is
     /// releasing while the next converts.</summary>

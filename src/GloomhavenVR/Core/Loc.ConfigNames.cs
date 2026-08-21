@@ -445,6 +445,7 @@ internal static partial class Loc
             ["WorldUI/CanvasScaleMm"] = Pair("Panel scale (mm/px)", "Tafel-Maßstab (mm/px)"),
             ["WorldUI/InitiativeDepthMaxSpreadPx"] = Pair("Initiative: depth (px)", "Initiative: Tiefe (px)"),
             ["WorldUI/HoverInfoScale"] = Pair("Hover info size", "Info-Karten: Größe"),
+            ["WorldUI/WindowLegibility"] = Pair("Window size / legibility", "Fenster: Größe & Lesbarkeit"),
             ["WorldUI/EnemyRevealBoardClearance"] = Pair("Enemy cards: clearance", "Gegnerkarte: Abstand (m)"),
             ["WorldUI/DesktopMirrorLeftEye"] = Pair("Monitor shows left eye", "Monitor: linkes Auge"),
             ["WorldUI/ShowIntro"] = Pair("Show intro in VR", "Intro in VR zeigen"),

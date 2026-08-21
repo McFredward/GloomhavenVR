@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using Script.GUI.Popups;
@@ -101,10 +102,31 @@ internal static partial class ModalFallback
     /// degenerate case of a table plane above the head).</summary>
     private const float MaxAboveEyeMeters = 0.10f;
 
-    /// <summary>Request B: max upward tilt (top toward the player, degrees) applied when the
-    /// clamp raised/pulled the window while the player looks steeply down — so the raised
-    /// panel still faces the eyes. Small enough to keep the upright reading look.</summary>
-    private const float MaxSpawnTiltDeg = 15f;
+    // MaxSpawnTiltDeg (15° upward tilt, top toward the player) IS GONE, AND THE ABSENCE IS THE
+    // INVARIANT — user ruling ModBuild 189, verbatim:
+    //
+    //   "Die Fenster die von Begin an spawnen sind in der pitch-achse zu eine gedreht, das soll
+    //    nicht sein. Ausschließlich die yaw achse."
+    //
+    // The constant existed for request B: when the board-plane / steep-gaze clamp RAISED a window
+    // while the player was reading the table, its top was tipped back toward the eyes so the raised
+    // panel still faced them. The reasoning was sound and the effect is exactly what he is
+    // rejecting — and it fired far more often than "occasionally", because looking down at the
+    // board (or at the map parchment) is the normal reading posture, so the steep-gaze clamp
+    // engages on most spawns and every clamped spawn came out pitched. It is visible in
+    // .planning/debug/flackern_story.jpg: the story window's top edge and inner picture frame both
+    // slope, and the quest log on the right is tipped out of upright.
+    //
+    // A NEW TILT TUNABLE HERE WOULD BE THE SAME BUG WITH A DIAL ON IT. What the tilt bought —
+    // "the raised panel still faces the eyes" — is bought instead by the placement clamps
+    // themselves: MaxSpawnPitchDeg (15°) already keeps a window near eye level rather than down at
+    // the board, so an upright panel there IS square to the gaze within a few degrees. The residual
+    // foreshortening of a perfectly upright panel seen from 15° above is cos 15° = 0.97 of its
+    // height, which nobody can see and which costs nothing in legibility.
+    //
+    // ENFORCED, NOT MERELY REMOVED: every pose this file produces goes through
+    // <see cref="Upright"/> as its LAST step, which strips any pitch/roll a future writer adds and
+    // prints what it measured on the MODAL SPAWN CLAMP line. See there.
 
     /// <summary>
     /// Request B: the board/table plane height, world units — the camera orbit focus the whole
@@ -520,8 +542,10 @@ internal static partial class ModalFallback
     ///
     /// BOARD-SAFE SPAWN CLAMP (request B): the raw gaze-following position is then clamped by
     /// <see cref="ClampSpawnPose"/> — never below/inside the board plane, never down a steep
-    /// gaze — and when the clamp engaged, a small upward tilt (top toward the player, capped at
-    /// <see cref="MaxSpawnTiltDeg"/>) keeps the raised panel facing the eyes. Event-gated ONLY:
+    /// gaze. (Until ModBuild 189 a clamped spawn ALSO got a small upward tilt so the raised panel
+    /// faced the eyes; that is the pitch the user rejected — see the MaxSpawnTiltDeg tombstone at
+    /// the top of this file. The final rotation now goes through <see cref="Upright"/> and is
+    /// yaw-only, measured, on every call.) Event-gated ONLY:
     /// this method runs at spawn, presence-regain refloat and lost-menu recall — never per
     /// frame — so grabbed placements persist (the placement-healing regression rule). One
     /// diagnostic line per call states the clamp decision for hardware-log verification.
@@ -669,23 +693,15 @@ internal static partial class ModalFallback
         }
         rot = Quaternion.LookRotation(flat.normalized, Vector3.up);
 
-        // Request B: when the clamp raised/pulled the window while the player looks steeply
-        // down, tilt its top slightly toward the player (positive local-X pitch tips the front
-        // face UP toward a head above the panel — PanelLayout's slot-tilt convention) so the
-        // raised panel still faces the eyes. Spawn-only, capped, never applied unclamped so the
-        // default upright look is untouched.
-        float tiltDeg = 0f;
-        if (clampReason != null || overlapNote != null || viewConeNote != null)
-        {
-            Vector3 toHead = headPos - pos;
-            float flatDist = Mathf.Sqrt(toHead.x * toHead.x + toHead.z * toHead.z);
-            float elevDeg = Mathf.Atan2(toHead.y, Mathf.Max(flatDist, 1e-3f)) * Mathf.Rad2Deg;
-            tiltDeg = Mathf.Clamp(elevDeg, 0f, MaxSpawnTiltDeg);
-            if (tiltDeg > 0.5f)
-                rot *= Quaternion.Euler(tiltDeg, 0f, 0f);
-            else
-                tiltDeg = 0f;
-        }
+        // YAW ONLY (user ruling ModBuild 189, see the MaxSpawnTiltDeg tombstone at the top of this
+        // file). The request-B upward tilt used to be applied HERE, on exactly the condition that a
+        // clamp had engaged. It is gone; what stands in its place is a MEASUREMENT, so the ruling is
+        // enforced by the code rather than remembered by a reader: Upright strips any pitch/roll the
+        // rotation carries and reports what it stripped, and the numbers go on the log line below
+        // whether or not anything was wrong (the "print the baseline too" rule).
+        float strippedPitch = 0f;
+        float strippedRoll = 0f;
+        rot = Upright(rot, ref strippedPitch, ref strippedRoll);
 
         // Request B diagnostic: ONE line per spawn/refloat/recall (this method is never called
         // per frame) stating the clamp decision — original pose → clamped pose, reason.
@@ -699,7 +715,14 @@ internal static partial class ModalFallback
                               $"({pos.x:F2},{pos.y:F2},{pos.z:F2})" +
                               (clampReason == null && overlapNote == null && viewConeNote == null
                                   ? " — unchanged (above the board plane, gaze within limits, no overlap)."
-                                  : $" — {clampReason ?? "no plane/gaze clamp"}; upward tilt {tiltDeg:F0}°.") +
+                                  : $" — {clampReason ?? "no plane/gaze clamp"}.") +
+                              // ModBuild 189: the spawn orientation is yaw-only by ruling, and this
+                              // is the proof, printed on every spawn/refloat/re-place whether or not
+                              // anything was stripped. A non-zero pitch/roll here means a NEW writer
+                              // upstream of Upright started authoring one — the log names it before
+                              // anybody has to photograph a sloping window again.
+                              $" UPRIGHT: yaw {rot.eulerAngles.y:F1}°, pitch/roll stripped " +
+                              $"{strippedPitch:F1}°/{strippedRoll:F1}° (yaw-only by user ruling)." +
                               (overlapNote == null
                                   ? " OVERLAP: none."
                                   : $" OVERLAP: {overlapNote}.") +
@@ -715,6 +738,79 @@ internal static partial class ModalFallback
         return true;
     }
 
+    /// <summary>True once the upright guard has already reported a non-yaw spawn rotation, so the
+    /// Warn below is a ONE-TIME regression alarm and not a per-spawn log flood.</summary>
+    private static bool _uprightWarned;
+
+    /// <summary>A stripped pitch/roll below this is measurement noise (quaternion round-trip through
+    /// LookRotation), not a writer authoring a tilt. Above it, something upstream regressed.</summary>
+    private const float UprightNoiseDeg = 0.5f;
+
+    /// <summary>
+    /// THE YAW-ONLY GUARANTEE, ENFORCED (user ruling ModBuild 189 — see the MaxSpawnTiltDeg
+    /// tombstone at the top of this file). Returns <paramref name="rot"/> with any pitch and roll
+    /// removed, and reports through <paramref name="pitchDeg"/> / <paramref name="rollDeg"/> exactly
+    /// how much it had to remove.
+    ///
+    /// <para>WHY A GUARD AND NOT JUST A DELETION. The 15° tilt was ONE of several things that write
+    /// a floated window's rotation, and the reason the report took nine builds to become actionable
+    /// is that nobody could say from the code which of them was responsible. Now they cannot
+    /// disagree: <see cref="ComputeHmdPose"/> is the single rotation authority for spawn, presence-
+    /// regain refloat and the final-geometry re-place, this is its last step, and the residual it
+    /// strips is printed on the MODAL SPAWN CLAMP line every single time. A future writer that
+    /// re-introduces a tilt is not "found by reading" — it is announced by its own log line, and
+    /// once by a Warn naming what the player will see.</para>
+    ///
+    /// <para>DEGENERATE CASE: a rotation looking straight up or down has no yaw to keep in its
+    /// forward vector, so the yaw is recovered from the panel's OWN up vector (which is horizontal
+    /// exactly then). Both degenerate at once is impossible for a unit quaternion, but the world
+    /// forward is there as the final fallback so this can never divide by zero.</para>
+    /// </summary>
+    private static Quaternion Upright(Quaternion rot, ref float pitchDeg, ref float rollDeg)
+    {
+        Vector3 flat = rot * Vector3.forward;
+        flat.y = 0f;
+        if (flat.sqrMagnitude < 1e-6f)
+        {
+            // Looking straight up/down: the face's own up vector carries the yaw instead.
+            flat = -(rot * Vector3.up);
+            flat.y = 0f;
+            if (flat.sqrMagnitude < 1e-6f)
+                flat = Vector3.forward;
+        }
+
+        Quaternion upright = Quaternion.LookRotation(flat.normalized, Vector3.up);
+        // The residual is what `upright` does NOT contain: express rot in the upright frame and read
+        // its x (pitch) and z (roll) back, wrapped to a signed ±180° so "2° up" does not print 358.
+        Vector3 residual = (Quaternion.Inverse(upright) * rot).eulerAngles;
+        pitchDeg = Mathf.DeltaAngle(0f, residual.x);
+        rollDeg = Mathf.DeltaAngle(0f, residual.z);
+
+        if (!_uprightWarned
+            && (Mathf.Abs(pitchDeg) > UprightNoiseDeg || Mathf.Abs(rollDeg) > UprightNoiseDeg))
+        {
+            _uprightWarned = true;
+            VRLog.Warn("WorldUI", "MODAL SPAWN: a floated window's spawn rotation arrived with "
+                                  + $"pitch {pitchDeg:F1}° / roll {rollDeg:F1}° — some writer upstream "
+                                  + "of the upright guard is authoring a tilt again. It was stripped, "
+                                  + "so the window still stands upright and nothing is lost this "
+                                  + "session; but the yaw-only ruling is now being maintained by this "
+                                  + "guard alone instead of by the placement code, and the next writer "
+                                  + "to bypass it will not be caught. Reported ONCE per session.");
+        }
+        return upright;
+    }
+
+    /// <summary>Upright with the measurement discarded — for the one caller that places a STORED
+    /// rotation (the level-message chain pose, <c>ModalFallback.8.Convert.cs</c>) and has no clamp
+    /// line of its own to print the residual on. The one-shot Warn above still fires.</summary>
+    private static Quaternion Upright(Quaternion rot)
+    {
+        float pitch = 0f;
+        float roll = 0f;
+        return Upright(rot, ref pitch, ref roll);
+    }
+
     /// <summary>
     /// Item 1 (size): derive the board-relative host shrink for a freshly converted window.
     /// The host renders at <c>widthPx × CanvasScaleMm × WorldScale × extraScale</c>; dividing by
@@ -726,13 +822,138 @@ internal static partial class ModalFallback
     /// </summary>
     private static float DeriveWindowScale(ConvertedPanel panel)
     {
+        // ModBuild 189: the legibility dial multiplies BOTH terms — the small-dialog cap and the
+        // board-relative target — because either can be the binding one. Multiplying only the target
+        // would leave every window already narrower than the board (the party roster, the quest log,
+        // the shop item card: all of them, i.e. exactly the ones measured worst) at the untouched
+        // 0.7 cap and the dial would look broken to the one person who moved it.
+        float legibility = WindowLegibilityLive();
+        float cap = WindowScaleFactor * legibility;
         float widthPx = panel.HostRect != null ? panel.HostRect.rect.width : 0f;
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         if (widthPx < 1f || metersPerPixel <= 0f)
-            return WindowScaleFactor;
-        float boardRelative = ModalTargetWidthMeters / (widthPx * metersPerPixel);
-        return Mathf.Clamp(Mathf.Min(WindowScaleFactor, boardRelative),
-            MinWindowScaleFactor, WindowScaleFactor);
+            return cap;
+        float boardRelative = ModalTargetWidthMeters * legibility / (widthPx * metersPerPixel);
+        return Mathf.Clamp(Mathf.Min(cap, boardRelative), MinWindowScaleFactor, cap);
+    }
+
+    // ---- THE LEGIBILITY DIAL (ModBuild 189) --------------------------------------------------
+
+    /// <summary>
+    /// Shipped default for <c>[WorldUI] WindowLegibility</c>. 1.25 puts the widest family (a
+    /// 1920 px window, which the board-relative rule pins at <see cref="ModalTargetWidthMeters"/>)
+    /// at 1.00 m instead of 0.80 m — ~45° across at the 1.2 m reading distance.
+    ///
+    /// <para>WHY EXACTLY 1.25, AND NOT MORE. The number is bounded from above by a ruling, not by
+    /// taste: <see cref="ModalTargetWidthMeters"/> exists because the previous ~1.3 m full-screen
+    /// slab read "too big" (see its doc). 1.3 m at 1.2 m is ~57° across; 1.25 lands at ~45°,
+    /// clearly on the accepted side of that line, and 1.6 would land back exactly on the rejected
+    /// one. It is bounded from below by the measurement: at 1.0 the hardware log's own PANEL
+    /// SAMPLING lines read 1.44-2.6 authored px per rendered px for the windows he photographed.</para>
+    ///
+    /// <para>AND IT CANNOT REACH 1:1 ON ITS OWN, WHICH IS THE HONEST HALF. Rendered pixels are
+    /// bought with SOLID ANGLE and nothing else — moving a window nearer at the same physical size
+    /// is the same purchase, not a cheaper one. A 1920-authored-px window drawn at one rendered
+    /// pixel per authored pixel on a 3072 px eye needs about 57° of view, i.e. precisely the size
+    /// he rejected. So the dial's job is to let HIM place that trade, and the default's job is to
+    /// take the free half of it without spending his ruling.</para>
+    /// </summary>
+    // NOT annotated `// => [WorldUI] WindowLegibility`: those annotations live only under
+    // src/GloomhavenVR/Defaults/ (scripts/rebase-defaults.py joins on them), and this lane does not
+    // own Defaults.WorldUI.cs. Until the line is moved there, a tuned WindowLegibility in a dropped
+    // cfg will be reported as UNMAPPED by `rebase-defaults.py check` instead of being applied.
+    internal const float DefaultWindowLegibility = GloomhavenVR.Defaults.WindowLegibility;
+
+    /// <summary>Dial floor: 1.0 reproduces the pre-dial geometry EXACTLY, so "off" is the size the
+    /// user already approved and nothing about the flow depends on the dial being raised. Shrinking
+    /// below it is deliberately not offered here — the two-hand resize already shrinks any single
+    /// window (<see cref="PanelGrabHandle.MinScale"/>), and a global setting whose low end makes a
+    /// measured legibility defect worse is not a comfort option.</summary>
+    private const float MinWindowLegibility = 1.0f;
+
+    /// <summary>Dial ceiling. 1.65 is where a 1920 px window reaches ~1:1 sampling AND where it is
+    /// back at the ~1.3 m width that read "too big"; 1.75 is a little past both, on purpose, so the
+    /// choice is genuinely his and the clamp is not secretly the answer.</summary>
+    private const float MaxWindowLegibility = 1.75f;
+
+    private static ConfigEntry<float>? _windowLegibility;
+    private static float _loggedWindowLegibility = float.NaN;
+
+    /// <summary>
+    /// Bind-once for this file's own <c>[WorldUI]</c> entry. Late binder on
+    /// <see cref="WorldUIConfig.FileHandle"/>, the same arrangement
+    /// <see cref="FlatScreenStereo.BindConfig"/> uses and for the same reason: the entry belongs to
+    /// the world-UI config file but is owned by the code that reads it. Force-bound by
+    /// <c>ConfigCatalog.EnsureBound</c> so the in-VR browser shows it even in a session where no
+    /// window has floated yet. Pure — binding touches no scene object.
+    /// </summary>
+    internal static void BindWindowConfig()
+    {
+        if (_windowLegibility != null)
+            return;
+        _windowLegibility = WorldUIConfig.FileHandle.Bind("WorldUI", "WindowLegibility",
+            DefaultWindowLegibility,
+            new ConfigDescription(
+                "How large floated windows (menus, story/event boxes, the quest log, the merchant "
+                + "and character screens) are drawn, as a factor of their shipped size. This is a "
+                + "LEGIBILITY dial, not a taste dial: a floated window is game UI authored at "
+                + "1920x1080 pixels, and how many of your headset's pixels each of those authored "
+                + "pixels gets is decided purely by how much of your view the window covers. At the "
+                + "shipped size the hardware measurement (PANEL SAMPLING in the log) reads 1.4-2.6 "
+                + "authored pixels crammed into one rendered pixel, which is what makes thin strokes "
+                + "and small glyphs drop in and out as your head moves ('Flackern') and what puts "
+                + "the moire cross-hatch on portrait art. 1.0 = exactly the pre-dial size; 1.25 "
+                + "(default) makes a full-width window ~1.0 m across at reading distance instead of "
+                + "0.80 m; ~1.65 is where such a window reaches one rendered pixel per authored "
+                + "pixel — and also where it covers ~57 degrees of your view, which is large. "
+                + "Bigger windows are more legible and more intrusive; there is no setting that is "
+                + "both. Read live at every spawn and re-fit, so open a window again to see a "
+                + "change. Your two-hand resize still rides on top of this and still wins.",
+                new AcceptableValueRange<float>(MinWindowLegibility, MaxWindowLegibility)));
+    }
+
+    /// <summary>
+    /// The dial's live value, clamped, with a ONE line per change (never per read — this runs from
+    /// every scale derivation). Falls back to the shipped default if the bind has not happened yet,
+    /// which is a real case: a window can convert before the config browser ever force-binds.
+    /// </summary>
+    private static float WindowLegibilityLive()
+    {
+        if (_windowLegibility == null)
+        {
+            try
+            {
+                BindWindowConfig();
+            }
+            catch (System.Exception ex)
+            {
+                // Reflection/lookup-failure house rule: ONE Warn naming the consequence, stand down.
+                if (float.IsNaN(_loggedWindowLegibility))
+                {
+                    _loggedWindowLegibility = DefaultWindowLegibility;
+                    VRLog.Warn("WorldUI", $"[WorldUI] WindowLegibility could not be bound "
+                                          + $"({ex.GetType().Name}) — floated windows use the shipped "
+                                          + $"{DefaultWindowLegibility:0.00}x and the dial has no "
+                                          + "effect this session. Nothing else changes.");
+                }
+                return DefaultWindowLegibility;
+            }
+        }
+        float v = Mathf.Clamp(_windowLegibility?.Value ?? DefaultWindowLegibility,
+            MinWindowLegibility, MaxWindowLegibility);
+        if (float.IsNaN(_loggedWindowLegibility) || Mathf.Abs(v - _loggedWindowLegibility) > 0.001f)
+        {
+            _loggedWindowLegibility = v;
+            VRLog.Info("WorldUI", $"MODAL WINDOW SIZE: legibility {v:0.00}x (default "
+                                  + $"{DefaultWindowLegibility:0.00}x, range {MinWindowLegibility:0.00}-"
+                                  + $"{MaxWindowLegibility:0.00}) — a full-width 1920 px window now "
+                                  + $"targets {ModalTargetWidthMeters * v:0.00} m across at the "
+                                  + $"{WindowDistanceMeters:0.0} m reading distance, i.e. "
+                                  + $"{2f * Mathf.Atan2(ModalTargetWidthMeters * v * 0.5f, WindowDistanceMeters) * Mathf.Rad2Deg:F0}° "
+                                  + "of view; narrower windows keep their own width and take the same "
+                                  + "factor. Applies to windows opened from now on.");
+        }
+        return v;
     }
 
     /// <summary>HMD-anchored placement at reading distance (DialogSurface pattern).
@@ -841,6 +1062,10 @@ internal static partial class ModalFallback
             // window, so a late correction can never yank a visible window around.
             if (wp.PoseRePlaceDone && wp.PoseRePlacedAtFit != wp.Panel.FitAppliedGeneration)
                 wp.PoseRePlaceDone = false;
+            // ModBuild 189, BEFORE the re-place so the clamps below see the corrected geometry in
+            // the SAME tick: give every content-fitted window the scale its own rule asks for, not
+            // only the one-shot-fitted ones step 5b covers. See TickWindowScaleRefit.
+            TickWindowScaleRefit(wp);
             TickPoseRePlaceOne(wp.Panel, wp.Grab, wp.Window, wp.ExtraScale,
                 wp.OneShotFitted && wp.ScaleReDerivedAtFit != wp.Panel.FitAppliedGeneration,
                 ref wp.SpawnAnchor, ref wp.PoseRePlaceDone);
@@ -852,6 +1077,93 @@ internal static partial class ModalFallback
         if (_errorPanel != null)
             TickPoseRePlaceOne(_errorPanel, _errorGrab, null, _errorExtraScale,
                 scalePending: false, ref _errorSpawnAnchor, ref _errorPoseRePlaceDone);
+    }
+
+    /// <summary>
+    /// THE HALF OF THE SCALE RE-DERIVATION THAT WAS NEVER WIRED (ModBuild 189) — and the single
+    /// biggest term in the reported "Flackern", measured, from his own hardware log.
+    ///
+    /// <para>WHAT THE LOG SAYS. <c>DeriveWindowScale</c> turns a window's WIDTH into its world size,
+    /// so it has to run on the width the window actually ends up with. It runs at CONVERT time, on
+    /// the captured pre-fit rect — for most windows the full 1920x1080 game canvas. Step 5b in
+    /// <c>ModalFallback.4.Tick.cs</c> re-runs it after the content fit, but only for
+    /// <c>OneShotFitted</c> windows (the ESC menu and the pause/options confirmations). Every OTHER
+    /// floated window keeps the scale derived from 1920 px forever, however narrow its fitted rect
+    /// turns out to be. From <c>.planning/debug/LogOutput.log</c>, one window, three lines:</para>
+    /// <code>
+    ///   Host rect fit '…New Party display': 1920x1080 → 328x1080 px
+    ///   MODAL DIAG '…New Party display' (age 101.0s): … scale=0.083 rect=328x1080
+    ///   PANEL SAMPLING 'New Party display': host 328x1080 … = panel scale 2.6-2.8
+    /// </code>
+    /// <para>0.083 is <c>0.001 m/px (CanvasScaleMm 1) × 198.6 world-scale × 0.417</c>, and 0.417 is
+    /// <c>ModalTargetWidthMeters / 1.92 m</c> — the scale for a 1920 px window, still in force on a
+    /// 328 px one. Its own rule asks for 0.700 there (328 px is far narrower than the board, so the
+    /// board-relative cap should never have engaged at all). The window is therefore drawn 0.137 m
+    /// wide where the shipped rule says 0.230 m: a 1.68x loss of rendered pixels per authored pixel,
+    /// on the family he photographed, for nothing. That is not a trade-off anybody chose and it is
+    /// not intrusiveness anybody bought — it is a stale intermediate.</para>
+    ///
+    /// <para>WHY IT IS SAFE TO WIDEN THE GATE. This is the SAME call step 5b makes, keyed on the
+    /// SAME <see cref="ConvertedPanel.FitAppliedGeneration"/>, and it runs immediately after 5b in
+    /// the same tick — so a one-shot window has already been handled and this sees the latch closed
+    /// and does nothing. For everyone else it fires once per APPLIED fit, and a window whose fitted
+    /// WIDTH did not change (the quest-preview popup grows only in height) derives the identical
+    /// number and is not written or logged at all. The user's own two-hand resize is untouched by
+    /// construction: <c>GrabbableModal</c> multiplies the grab factor ONTO this base
+    /// (<c>SyncHostToFrame</c>), so a window the player shrank to 0.5x stays at 0.5x of the
+    /// corrected size.</para>
+    ///
+    /// <para>WHAT IT DELIBERATELY DOES NOT DO: move the window. A late fit (this one landed at age
+    /// 101 s, long after the reveal) resizes the panel about its own centre and leaves the pose
+    /// alone — <see cref="TickPoseRePlaceOne"/> refuses to move a window that is already visible,
+    /// which is the standing ruling, and re-running the board clamps here would break it. A window
+    /// that grows late can therefore end up reaching lower toward the table than its spawn clamp
+    /// intended — and it CAN grow: the same log shows this window's rect going 328x1080 → 1920x1080
+    /// again when its nested character display expands, which correctly takes the scale back down.
+    /// That is the accepted cost of never yanking a visible window (the ModBuild 149 ruling), and
+    /// the escape from a window that ends up badly placed is the one it has always been: grab it,
+    /// or close it with the X / the escape chord.</para>
+    /// </summary>
+    private static void TickWindowScaleRefit(WindowPanel wp)
+    {
+        if (wp.Grab == null || !wp.Panel.IsAlive)
+            return;
+        // STRICTLY ADDITIVE, and this line is what makes it so: step 5b owns the one-shot family
+        // (ESC menu, pause/options confirmations) COMPLETELY, including the case where its own
+        // `FitOneShotApplied` guard holds it back because the fit landed inside the 2 % no-op
+        // tolerance. Re-deriving those here would also clear the `scalePending` flag
+        // TickPoseRePlaceOne waits on, i.e. it would change WHEN a window whose scale this lane
+        // never touched gets re-placed. This lane exists for the families that had no
+        // re-derivation at all; it does not get to reinterpret the one that did.
+        if (wp.OneShotFitted)
+            return;
+        if (wp.ScaleReDerivedAtFit == wp.Panel.FitAppliedGeneration)
+            return; // already derived for this exact fit generation (a previous tick's)
+        // A window whose fit has never produced a measurement has nothing to re-derive FROM: its
+        // rect is still the captured one, which is what convert already used.
+        if (!wp.Panel.FitEnabled || !wp.Panel.FitMeasuredOnce)
+            return;
+
+        float before = wp.ExtraScale;
+        float refit = DeriveWindowScale(wp.Panel);
+        wp.ScaleReDerivedAtFit = wp.Panel.FitAppliedGeneration;
+        if (Mathf.Abs(refit - before) <= 0.001f)
+            return; // identical (the usual case: the fit changed the height, not the width)
+
+        wp.ExtraScale = refit;
+        wp.Grab.SetExtraScale(refit);
+        Rect rect = wp.Panel.HostRect != null ? wp.Panel.HostRect.rect : default;
+        float mpp = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        VRLog.Info("WorldUI", "MODAL WINDOW SIZE: "
+                              + $"'{(wp.Window != null ? wp.Window.name : "<menu>")}' re-scaled to its "
+                              + $"FITTED rect {rect.width:F0}x{rect.height:F0} px (extraScale "
+                              + $"{before:F3} → {refit:F3}) — real size "
+                              + $"{rect.width * mpp * before:F2}x{rect.height * mpp * before:F2} m → "
+                              + $"{rect.width * mpp * refit:F2}x{rect.height * mpp * refit:F2} m, i.e. "
+                              + $"{refit / Mathf.Max(before, 1e-4f):F2}x the rendered pixels per "
+                              + "authored pixel. The convert-time scale was derived from the PRE-fit "
+                              + "rect; without this the window keeps a full-screen window's shrink on "
+                              + "a narrow one and is drawn well below its authored resolution.");
     }
 
     /// <summary>

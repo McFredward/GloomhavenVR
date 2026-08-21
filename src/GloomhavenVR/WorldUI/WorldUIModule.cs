@@ -68,6 +68,13 @@ internal sealed class WorldUIModule : IVRModule
         // rested on an inverted A-B-A test and is retracted in the patch header and in
         // RenderTargetProbe. See Character3DDisplayRefcount.
         VRSession.Harmony?.PatchAll(typeof(Patches.Character3DDisplayRefcount));
+        // ModBuild 191 (user report 2026-08-21, the merchant's item mouseovers): the SECOND tooltip
+        // family — UIPartyItemInventoryTooltip / UILocalTooltip / UITempleSlotTooltip / TooltipUI —
+        // never touches CanvasManager.tooltipCanvas, so WorldTooltips had never heard of it. Each of
+        // them ends its placement with DeltaWorldPositionToFitTheScreen against the FROZEN map
+        // camera, which on a floated window is a world X/Y translation of hundreds of units. See
+        // TooltipOnWindow for the whole diagnosis; these patches are the seams.
+        VRSession.Harmony?.PatchAll(typeof(Patches.TooltipWindowPatches));
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)
@@ -267,6 +274,13 @@ internal sealed class WorldUIModule : IVRModule
                 ("ActorBars.Late", ActorBars.LateTick),
                 ("WorldTooltips.Late", _tooltips.LateTick),
                 ("CanvasConversion.Late", CanvasConversion.LateTick), // test #21: 2D flatten after the game's tween writers
+                // ModBuild 191: the LOCAL tooltip family (item card hints and friends) hangs inside
+                // floated windows, which ModalFallback converts WITHOUT flatten2D — so a pooled item
+                // card's leftover local rotation renders as literal 3D. Rotation + local z only; the
+                // in-plane position is settled from the game's own placement calls (see
+                // TooltipOnWindow). After CanvasConversion.Late so a panel that flattens itself has
+                // already had its say, and before CanvasConversion.Order, which must stay last.
+                ("TooltipOnWindow.Late", TooltipOnWindow.LateTick),
                 // Task #4: re-face the hover hex-hint panels (PropInfoSurface docks them at a
                 // fixed cached-seat pose) to the LIVE head. Runs last so nothing re-rotates the
                 // host afterward; PropInfoSurface's Update placement already ran (position kept).
@@ -398,6 +412,10 @@ internal sealed class WorldUIModule : IVRModule
             TickGuard.Run("WorldUI.Shutdown.Keyboard", VRKeyboard.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.AvatarMirror", _avatarMirror.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.Tooltips", _tooltips.Shutdown, "WorldUI");
+            // ModBuild 191: hand back every local rotation / local z TooltipOnWindow clamped inside
+            // a floated window's tooltip subtree (same mutate-and-restore contract as the other two
+            // flatteners).
+            TickGuard.Run("WorldUI.Shutdown.TooltipOnWindow", TooltipOnWindow.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.HexHintFacing", _hexHintFacing.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.DevPanels", _devPanels.Shutdown, "WorldUI");
             // destroys the MR plates, restores every opacified alpha

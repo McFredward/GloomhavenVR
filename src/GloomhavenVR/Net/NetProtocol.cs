@@ -416,7 +416,94 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 189;
+    public const ushort ModBuild = 190;
+    // Build 190: A STALE SHRINK, A SCREEN-FIT THAT AIMED AT THE CAMERA, AND A CONFIRMATION THE GAME
+    // ALREADY HAD. (Three workers, isolated worktrees, split file ownership.)
+    // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
+    //
+    // ── THE UNDERSAMPLING HAD A BUG UNDER IT, NOT JUST A TRADE-OFF ────────────────────────
+    // The 189 measurement said the floated windows are drawn at roughly HALF their authored
+    // resolution (panel scale 1.99-3.39). The cause is not only "windows are small":
+    // DeriveWindowScale runs at CONVERT time on the PRE-FIT rect, and step 5b re-runs it after the
+    // content fit ONLY for OneShotFitted windows (the ESC/Options family). Everything else keeps
+    // the stale number forever. The log catches it red-handed: 'New Party display' fits
+    // 1920x1080 → 328x1080 and then holds extraScale 0.417 for 100 s — a 1920-px window's shrink
+    // still in force on a 328-px one. That alone is 1.68x of the defect, bought by nobody.
+    // TickWindowScaleRefit re-derives it after the fit for every other window (OneShotFitted
+    // explicitly skipped so 5b's family is untouched); two-hand resize is unaffected because the
+    // grab factor multiplies ONTO this base.
+    //
+    // AND THE REST IS A RULING, NOT A GUESS. New clamped dial [WorldUI] WindowLegibility, default
+    // 1.25, range 1.0-1.75, applied to both the cap and the target width. 1.0 reproduces today's
+    // geometry EXACTLY, so the off state breaks nothing. The honest arithmetic: one rendered pixel
+    // per authored pixel on a 1920-px window needs ~57° of view on this headset — which is the
+    // ~1.3 m slab he already rejected as too big. 1.25 (~45°) takes the free half and leaves the
+    // rest for him to spend. Predicted after this build: 'New Party display' 2.6 → ~1.24, the story
+    // window 1.65 → ~1.32, the quest log 1.44 → ~1.15 — all out of the "WELL below authored
+    // resolution" band. If they land there and he still reports Flackern, sampling density is
+    // measured out and round 10 starts elsewhere.
+    //
+    // ── PITCH ON SPAWN: ONE WRITER, AND NOW A RESIDUAL THAT IS PRINTED ────────────────────
+    // "Die Fenster die von Begin an spawnen sind in der pitch-achse zu einem gedreht, das soll nicht
+    // sein. Ausschließlich die yaw achse." One writer: `rot *= Quaternion.Euler(tiltDeg, 0, 0)` with
+    // MaxSpawnTiltDeg = 15, fired whenever ANY clamp engaged — and the steep-gaze clamp engages on
+    // most spawns, because looking down at the table IS the normal posture. Removed. ComputeHmdPose
+    // is the single rotation authority for spawn, presence-regain refloat and the final re-place,
+    // and its last step now reconstructs the pose from the flattened forward and MEASURES what it
+    // stripped: every MODAL SPAWN CLAMP line carries "UPRIGHT: yaw X°, pitch/roll stripped 0.0/0.0",
+    // with one Warn per session if that is ever non-zero. The level-message chain pose (which
+    // restores a stored rotation verbatim and could inherit a mid-carry wrist pitch) goes through
+    // the same step; position stays verbatim. NOT changed: a one-hand CARRY can still tip a window
+    // with the wrist and snaps upright on release — that is a different question and he has not
+    // asked it.
+    //
+    // ── THE ITEM TOOLTIPS: A GAME BUG THE MAP ROOM IS THE FIRST THING TO EXPOSE ───────────
+    // "Bei vielem passiert nichts und bei anderen sieht man den Mouseover 3D verdreht." There are
+    // TWO tooltip families and the mod covered one. Family A is the shared UITooltip singleton
+    // (WorldTooltips already lays it flat — that is the merchant's Price hint, the one that worked).
+    // Family B are LOCAL tooltips that never touch that canvas — UIPartyItemInventoryTooltip is the
+    // merchant's item card — and every one of them ends with
+    //     transform.position += rect.DeltaWorldPositionToFitTheScreen(camera, margin)
+    // whose body reads:
+    //     Vector2 vector = new Vector2(Screen.width - margin, Screen.height - margin);
+    //     Vector3 vector3 = camera.ScreenToWorldPoint(vector);      // Vector2 → Vector3, z = 0
+    // On ScreenToWorldPoint, z is DISTANCE FROM THE CAMERA. With z = 0 a perspective camera returns
+    // its own position, so the "delta to fit the screen" is really "the delta that drags this corner
+    // onto the camera". Flat, the rects are small and near that camera and it reads as a nudge. In
+    // the map room the rect is world metres at 198x rig scale and the camera is the map camera the
+    // mod FREEZES — so a full branch throws the box hundreds of world units away (NOTHING APPEARS)
+    // and a partial branch leaves it visible but askew (ROTATED, OFF THE WINDOW). Four branches,
+    // each clamped with Mathf.Max/Min, same line, same frame: exactly his two symptoms.
+    // The fix cuts THAT ONE TERM, and only when the rect resolves to a floated window. Every other
+    // term of the game's placement is kept, because the widget is SetParent'ed under the window's
+    // host and inherits plane, rotation and scale by PARENTING rather than by a pose the mod
+    // computes — the deliberate difference from the hover card, where the whole number was wrong.
+    // Plus a per-frame flatten of the owned subtree INCLUDING ITS ROOT (the root is the rect the
+    // game writes a world position on, so its z IS the out-of-plane error) and an in-plane clamp run
+    // as a POSTFIX on the game's own placement calls — never from LateTick, because two writers on
+    // the same x/y in two unordered LateUpdates is the alternating value that makes the two eyes
+    // disagree in MultiPass.
+    //
+    // ── THE CONFIRMATION THE GAME ALREADY HAD ─────────────────────────────────────────────
+    // He asked how the flat game does it. AdventureMapUIManager has a real travelButton
+    // (Reisen / Wiederholen) and a Cancel inside a `travelOptions` container — AND a single-player
+    // shortcut: OnSelectedMapLocation calls ConfirmTravel() outright when the same location is
+    // pressed twice, a branch the game itself disables online. In VR a second trigger pull on the
+    // same icon is far easier to produce than a mouse double-click, and the room never drew the flat
+    // HUD carrying the button — so the shortcut was the ONLY reachable commit path AND it committed
+    // without asking. Both halves fixed, per his rulings: the prefix reproduces the ONLINE branch
+    // byte-for-byte (store the callback, return — nothing invented), and `travelOptions` is parked
+    // inside the floated quest window, anchored to its bottom edge, and handed back verbatim on
+    // release — only while it is still ours, because winning a write war with the game over its own
+    // UI is a bug this project has already paid for.
+    //
+    // ── ROUTED FROM A WORKER, AND IT MATTERS MORE THAN IT LOOKS ───────────────────────────
+    // WindowLegibility's default now lives in Defaults/Defaults.WorldUI.cs with its
+    // `// => [WorldUI] WindowLegibility` annotation. scripts/rebase-defaults.py joins on that
+    // annotation, so a default declared beside its code instead is reported UNMAPPED and a tuned
+    // value in a dropped cfg is SILENTLY NOT APPLIED — which would have broken the standing
+    // "a dropped cfg is always against the NEWEST build" workflow without any error to show for it.
+    //
     // Build 189: THE PHOTOGRAPH WAS THE ANSWER ALL ALONG — IT IS UNDERSAMPLING, NOT FLICKER.
     // ***** THE BUNDLE IS UNCHANGED. Only the plugin DLL needs replacing. ***** Nothing on the wire.
     //

@@ -1695,6 +1695,24 @@ internal static partial class Loc
                 + "Infotafel-Größe): der Wert wird bei jedem Platzierungstick gelesen, eine offene Tafel ändert "
                 + "ihre Größe also sofort und das nächste Mouseover erscheint gleich in der neuen Größe — kein "
                 + "Neustart. Bereich 0.2-2.",
+            ["WorldUI/WindowLegibility"] =
+                "GRÖSSE der schwebenden Fenster (Menüs, Story-/Ereignisboxen, Questlog, Händler- und "
+                + "Charakterbildschirme) als Faktor ihrer bisherigen Größe. Das ist ein LESBARKEITS-"
+                + "Regler, kein Geschmacksregler: ein schwebendes Fenster ist Spiel-UI, die mit "
+                + "1920x1080 Pixeln gezeichnet wurde, und wie viele Pixel deiner Brille jeder dieser "
+                + "Pixel bekommt, hängt AUSSCHLIESSLICH davon ab, wie viel von deinem Sichtfeld das "
+                + "Fenster einnimmt. Bei der bisherigen Größe misst das Log (PANEL SAMPLING) 1,4-2,6 "
+                + "gezeichnete Pixel, die in EINEN dargestellten Pixel gequetscht werden — genau "
+                + "deshalb fallen dünne Striche und kleine Buchstaben beim Kopfbewegen heraus "
+                + "(\"Flackern\") und deshalb liegt ein Moiré-Gitter über Porträts. 1.0 = exakt die "
+                + "Größe von vor diesem Regler; 1.25 (Standard) macht ein volles Fenster ~1,00 m "
+                + "breit statt 0,80 m auf Lesedistanz; ~1.65 wäre ein dargestellter Pixel pro "
+                + "gezeichnetem Pixel — dann nimmt so ein Fenster aber auch ~57° deines Sichtfelds "
+                + "ein, und das ist viel. Größere Fenster sind besser lesbar UND aufdringlicher; "
+                + "beides zugleich gibt es nicht. Wird bei jedem Öffnen und jeder Inhaltsanpassung "
+                + "neu gelesen — ein bereits offenes Fenster ändert sich also erst beim nächsten "
+                + "Öffnen. Dein Zwei-Hand-Skalieren liegt weiterhin obendrauf und gewinnt. "
+                + "Bereich 1.0-1.75.",
             ["WorldUI/EnemyRevealBoardClearance"] =
                 "Wie weit die GEGNER-RUNDENENTHÜLLUNG (die Monster-Fähigkeitskarten, die gezeigt werden, "
                 + "nachdem alle ihre Wahl bestätigt haben) die Oberkante des KONTROLLBRETTS freihalten muss, in "

@@ -72,6 +72,14 @@ internal static partial class Defaults
     internal const float SquareCaps_Depth = 0f;                                         // => [SquareCaps] Depth
     internal const float SquareCaps_Travel = 0f;                                        // => [SquareCaps] Travel
 
+    // ---- WorldUI/ModalFallback.9.Spawn.cs ------------------------------------------
+    // ModBuild 190. THIS CONSTANT HAS TO LIVE HERE, not beside its code, and the reason is a
+    // workflow and not a style rule: dropped .cfg values are always read against the NEWEST build
+    // (standing user practice), and `scripts/rebase-defaults.py` maps a tuned key back to its
+    // shipped default THROUGH THIS FILE. A default declared anywhere else is reported UNMAPPED and
+    // the tuned value is silently not applied.
+    internal const float WindowLegibility = 1.25f;          // => [WorldUI] WindowLegibility
+
     // ---- WorldUI/FlatScreenStereo.2.Compositor.cs ----------------------------------
     internal const bool StereoScreen = true;               // => [WorldUI] StereoScreen
     internal const float ScreenDepthStrength = 1.0f;       // => [WorldUI] ScreenDepthStrength

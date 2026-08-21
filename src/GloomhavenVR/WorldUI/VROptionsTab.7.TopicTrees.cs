@@ -67,6 +67,11 @@ internal static partial class VROptionsTab
                     Entries = new[]
                     {
                         new BoardRef("WorldUI", "HoverInfoScale", perBoard: false),
+                        // ModBuild 189: the floated-window size/legibility dial. It belongs beside
+                        // CanvasScaleMm — both answer "how many of my headset's pixels does one
+                        // authored UI pixel get", one for the mod's own panels and one for the
+                        // game's windows.
+                        new BoardRef("WorldUI", "WindowLegibility", perBoard: false),
                         new BoardRef("WorldUI", "EnemyRevealBoardClearance", perBoard: false),
                         new BoardRef("WorldUI", "PanelMipBake", perBoard: false),
                         new BoardRef("WorldUI", "CanvasScaleMm", perBoard: false),
