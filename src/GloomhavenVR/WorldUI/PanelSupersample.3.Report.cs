@@ -1021,6 +1021,41 @@ internal static partial class PanelSupersample
         // symbols too. See the ledger's own header in PanelSupersample.2.Capture.cs.
         Sb.Append(e.DrawLedgerNote);
 
+        // ---- THE PHASE CENSUS (ModBuild 214) ----------------------------------------------------
+        Sb.Append(" PHASE CENSUS — DOES THE DRAWN SET CHANGE WITHIN ONE FRAME? This is the question "
+                  + "every earlier instrument in this class was structurally unable to ask, and the "
+                  + "user's own account is why it is now the question: \"Es flackert extrem dauerhaft "
+                  + "wenn Supersampling aus ist ... das Flackern kommt daher das die Elemente ständig "
+                  + "kurz sichtbar sind und dann wieder nicht.\" The elements are not missing, they "
+                  + "are being switched on and off; the supersampler photographs the window once per "
+                  + "frame and therefore FREEZES ONE PHASE of that oscillation, which is why a still "
+                  + "window shows a fixed broken picture and a carried one flickers again. THE BLIND "
+                  + "SPOT THAT FOLLOWS, stated plainly: the ink census is issued from the capture "
+                  + "camera's own onPostRender, i.e. IN LOCKSTEP with the capture, so it read "
+                  + "DREW = 217 on 47 of 47 ModBuild 213 readings while the eye was watching elements "
+                  + "come and go. A sampler synchronised to the artefact cannot see the artefact. "
+                  + "THIS FIELD re-reads the SAME cached graphics at EVERY camera's onPreCull in the "
+                  + "frame — our capture camera and both MultiPass eye passes among them — and "
+                  + "compares the SET, not just the count, because swapping one element for another "
+                  + "keeps the count and changes the picture. RESULT SINCE ENGAGE: ")
+          .Append(e.PhaseSamples).Append(" sample(s) over ").Append(e.PhaseFrames)
+          .Append(" sampled frame(s) (every ").Append(PhaseSampleEveryFrames)
+          .Append("th frame, over up to ").Append(MaxPhaseGraphics)
+          .Append(" cached graphic(s)), of which ").Append(e.PhaseDisagreeFrames)
+          .Append(" frame(s) had two cameras DISAGREE about which graphics draw")
+          .Append(e.PhaseWorstDelta > 0
+              ? $" — WORST: {e.PhaseWorstNote}."
+              : ".")
+          .Append(" HOW TO READ IT, both ways, so a zero is evidence and not silence: a NON-ZERO "
+                  + "disagreement count is the defect located — uGUI's own state changes between two "
+                  + "cameras of one frame, the eye passes see different pictures, and the next round "
+                  + "goes after the writer that moves it. A ZERO with a large sample count means the "
+                  + "renderer-side state is identical for every camera in the frame, so the "
+                  + "oscillation is NOT in whether the graphics draw, and the remaining suspect is "
+                  + "the draw call itself — what the camera put in the target versus what the quad "
+                  + "read out of it. A zero with a SMALL sample count means only that the window was "
+                  + "barely sampled and says nothing at all.");
+
         // ---- THE NON-TEXT GRAPHICS, READ AGAINST THE CAPTURE (ModBuild 210) ---------------------
         Sb.Append(" NON-TEXT GRAPHICS, READ AGAINST THE CAPTURE — the other half of the user's report "
                   + "and the half no census in this project has ever been able to answer. The ledger "

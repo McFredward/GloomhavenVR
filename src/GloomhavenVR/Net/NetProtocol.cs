@@ -416,7 +416,39 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 213;
+    public const ushort ModBuild = 214;
+    // Build 214: THE ELEMENTS ARE NOT MISSING — THEY ARE BEING SWITCHED ON AND OFF, AND THE FLICKER
+    // IS THAT SWITCHING. The user, and this reframes eight builds of measurement: "Es flackert extrem
+    // dauerhaft wenn Supersampling aus ist. Wenn es an ist ist exakt das selbe Flackern nur da wenn
+    // ich greife - ansonsten wird ein Stand 'eingefroren' (aber Animationen bleiben sichtbar). D.h.
+    // das Flackern kommt daher das die Elemente ständig kurz sichtbar sind und dann wieder nicht."
+    //
+    // TWO CONSEQUENCES, and both overturn a premise this class has been working from.
+    //   (1) The supersampler never fixed the flicker. It photographs the window ONCE per frame and
+    //       therefore freezes ONE PHASE of the oscillation — which is why a still window shows a
+    //       fixed broken picture while its animations keep running, and why carrying it brings the
+    //       flicker straight back. The defect is upstream of the supersampler entirely: it is there
+    //       with the supersampler switched off, constantly.
+    //   (2) EVERY CENSUS THIS PROJECT HAS BUILT SAMPLES IN LOCKSTEP WITH THAT FREEZE. The ink census
+    //       is issued from the capture camera's own onPostRender — the same instant the capture is
+    //       taken — so it read DREW = 217 on 47 of 47 ModBuild 213 readings while the eye was
+    //       watching elements come and go. A sampler synchronised to the artefact cannot see it.
+    //
+    // SO THIS BUILD IS THE INSTRUMENT AND NOTHING ELSE — no remedy ships, deliberately, after four
+    // failed fixes in a row. THE PHASE CENSUS re-reads the SAME cached set of Graphics at EVERY
+    // camera's onPreCull in the frame — our capture camera and both MultiPass eye passes among them —
+    // and compares the SET rather than the count, because swapping one element for another keeps the
+    // count and changes the picture. 256 cached graphics, every 4th frame, charged to the existing
+    // per-frame budget pool.
+    //
+    // HOW THE NEXT LOG DECIDES IT, both ways: a NON-ZERO disagreement count means uGUI's own state
+    // changes between two cameras of one frame and the next round goes after the writer. A ZERO with
+    // a large sample count means the renderer-side state is identical for every camera, the
+    // oscillation is NOT in whether the graphics draw, and the remaining suspect is the draw call —
+    // what the camera put into the target versus what the quad read out of it.
+    // Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 213: REVERT OF 212. The opaque capture clear is GONE and the window is transparent again.
     // The user, on 212: "Das hat das Problem NICHT behoben. Und sieht auch jetzt deutlich hässlicher
     // aus, ich mag es transparent mehr." So the a**2 double-multiply is REAL arithmetic, was really

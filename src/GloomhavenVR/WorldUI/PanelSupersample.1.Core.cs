@@ -1774,6 +1774,47 @@ internal static partial class PanelSupersample
         internal string DrawLedgerNote = string.Empty;
         internal int DrawLedgerLost, DrawLedgerGained, DrawLedgerTracked, DrawLedgerEvicted;
 
+        // ---- THE PHASE CENSUS (ModBuild 214) -----------------------------------------------------
+        //
+        // THE USER'S OWN ACCOUNT, and it reframes eight builds of measurement: "Es flackert extrem
+        // dauerhaft wenn Supersampling aus ist. Wenn es an ist ist exakt das selbe Flackern nur da
+        // wenn ich greife - ansonsten wird ein Stand 'eingefroren' (aber Animationen bleiben
+        // sichtbar). D.h. das Flackern kommt daher das die Elemente ständig kurz sichtbar sind und
+        // dann wieder nicht."
+        //
+        // So the elements are NOT missing. They are being switched on and off, continuously, and the
+        // flicker IS that switching. The supersampler never fixed it: it photographs the window once
+        // per frame and therefore freezes ONE PHASE of the oscillation. Carrying the window shifts
+        // the phase, which is why the flicker comes back only while it is grabbed.
+        //
+        // AND THAT IS WHY EVERY CENSUS SO FAR SAID THE STATE WAS PERFECTLY STABLE. The ink census is
+        // issued from the capture camera's own onPostRender — the SAME instant the capture is taken —
+        // so it samples in lockstep with the thing that freezes the picture. It read DREW = 217 on
+        // 47 of 47 readings while the eye was watching elements come and go. A sampler synchronised
+        // to the artefact cannot see the artefact.
+        //
+        // WHAT THIS MEASURES INSTEAD: the same cached set of Graphics, re-read at EVERY camera's
+        // onPreCull in the frame — our capture camera and both MultiPass eye passes among them — and
+        // compared. If the drawn set differs between two samples of ONE frame, the state oscillates
+        // inside the frame and that is the defect, named. If every sample of every frame agrees, the
+        // oscillation is not in uGUI's state at all and the next round goes to the draw call.
+
+        /// <summary>The graphics the last census walk found, cached so a phase sample costs no walk.
+        /// Bounded by <c>MaxPhaseGraphics</c>; a subset is enough to detect a set that flips.</summary>
+        internal readonly List<Graphic> PhaseGraphics = new(256);
+
+        /// <summary>The frame the current comparison belongs to, and the first sample taken in it.</summary>
+        internal int PhaseFrame = -1;
+        internal int PhaseFirstDrew;
+        internal int PhaseFirstSig;
+        internal string PhaseFirstCam = string.Empty;
+
+        /// <summary>Samples taken, frames in which two samples DISAGREED, the worst count difference
+        /// seen, and the pair of cameras that produced it. Cumulative since engage.</summary>
+        internal int PhaseSamples, PhaseFrames, PhaseDisagreeFrames, PhaseWorstDelta;
+        internal int PhaseLastDisagreeFrame = -1;
+        internal string PhaseWorstNote = string.Empty;
+
         // ---- THE RELEASE EDGE ITSELF (ModBuild 197) ---------------------------------------------
         // The user, after 196: "das Flackerproblem WÄHREND DER BEWEGUNG ist noch da — inklusive der
         // möglichen kaputten Darstellung, wenn man nach der Bewegung ABRUPT loslässt". ABRUPT is a

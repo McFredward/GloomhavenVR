@@ -2143,6 +2143,14 @@ internal static partial class PanelSupersample
         {
             if (cam == null || Entries.Count == 0 || _poolMask == 0)
                 return;
+            // ---- THE PHASE CENSUS (ModBuild 214) ---------------------------------------------
+            // BEFORE the own-camera branch and outside it: this has to run for EVERY camera in the
+            // frame, especially the two MultiPass eye passes, because the whole question is whether
+            // the drawn set differs between two cameras of one frame. Sampling only our own capture
+            // camera would reproduce exactly the blind spot this instrument exists to remove.
+            for (int pi = 0; pi < Entries.Count; pi++)
+                SamplePhaseFor(Entries[pi], cam);
+
             Entry? mine = EntryForCamera(cam);
             if (mine != null)
             {
@@ -2929,6 +2937,13 @@ internal static partial class PanelSupersample
     /// <summary>Stale inherited alphas one census will repair. A bound, not a policy: if a window ever
     /// needs more than this the line says so and the number itself is the finding.</summary>
     private const int MaxInheritedRepairsPerCensus = 512;
+
+    /// <summary>Graphics one phase sample re-reads, and how often a frame is sampled. 256 of ~900 is
+    /// a subset by design: a set that FLIPS shows up in any fair subset, and the sample has to be
+    /// cheap enough to run at EVERY camera's onPreCull without moving the frame time it is measuring.
+    /// Every 4th frame keeps the cost under a tenth of a percent of the budget.</summary>
+    private const int MaxPhaseGraphics = 256;
+    private const int PhaseSampleEveryFrames = 4;
 
     private const int MaxInkPlates = 24;
     private const int InkPlateSamples = 6;
@@ -3909,6 +3924,87 @@ internal static partial class PanelSupersample
     // evicted after DrawLedgerEvictAfter censuses and COUNTED as evictions rather than as losses.
 
     /// <summary>
+    /// <b>ONE PHASE SAMPLE: which of the cached graphics would draw AT THIS INSTANT.</b> Returns the
+    /// count and writes a set signature, so two samples of one frame can be compared both by how many
+    /// draw and by WHICH — a swap of one element for another keeps the count and changes the picture.
+    /// <para>No tree walk: the list was built by the census and is re-read in place. The clip test is
+    /// deliberately omitted (it needs the walk's inherited rect), so this measures the RENDERER-side
+    /// state only — which is exactly the half that can flip between two cameras of one frame.</para>
+    /// </summary>
+    private static int SamplePhase(Entry e, out int signature)
+    {
+        int drew = 0;
+        unchecked
+        {
+            int sig = 17;
+            for (int i = 0; i < e.PhaseGraphics.Count; i++)
+            {
+                Graphic g = e.PhaseGraphics[i];
+                if (g == null)
+                    continue;
+                bool draws = ClassifyDraw(g, e.Panel.HostRect!, clipEmpty: false, out float _)
+                             == DrawReason.Drawn;
+                if (draws)
+                {
+                    drew++;
+                    sig = sig * 31 + i;
+                }
+            }
+            signature = sig;
+        }
+        return drew;
+    }
+
+    /// <summary>
+    /// <b>THE COMPARISON THAT THE ink CENSUS CANNOT MAKE, because it samples in lockstep with the
+    /// capture.</b> Called from the GLOBAL <see cref="Camera.onPreCull"/> for every camera in the
+    /// frame — our capture camera and both MultiPass eye passes among them. The first sample of a
+    /// frame is the reference; every later one is compared against it.
+    /// <para>A disagreement means the set of graphics that would draw CHANGED between two cameras of
+    /// the SAME frame. That is the user's "die Elemente sind ständig kurz sichtbar und dann wieder
+    /// nicht" expressed as a number, and no instrument in this project could express it before.</para>
+    /// </summary>
+    private static void SamplePhaseFor(Entry e, Camera cam)
+    {
+        if (e.PhaseGraphics.Count == 0 || e.Panel.HostRect == null)
+            return;
+        int frame = Time.frameCount;
+        if (frame % PhaseSampleEveryFrames != 0)
+            return;
+
+        float started = Time.realtimeSinceStartup;
+        int drew = SamplePhase(e, out int sig);
+        e.PhaseSamples++;
+
+        if (e.PhaseFrame != frame)
+        {
+            e.PhaseFrame = frame;
+            e.PhaseFrames++;
+            e.PhaseFirstDrew = drew;
+            e.PhaseFirstSig = sig;
+            e.PhaseFirstCam = cam.name;
+        }
+        else if (sig != e.PhaseFirstSig)
+        {
+            // Counted once per FRAME, not once per sample: three cameras disagreeing is one event,
+            // and counting it three times would make the rate depend on how many cameras happen to
+            // render — which is a property of the scene and not of the defect.
+            if (e.PhaseDisagreeFrames == 0 || frame != e.PhaseLastDisagreeFrame)
+                e.PhaseDisagreeFrames++;
+            e.PhaseLastDisagreeFrame = frame;
+            int delta = Mathf.Abs(drew - e.PhaseFirstDrew);
+            if (delta >= e.PhaseWorstDelta)
+            {
+                e.PhaseWorstDelta = delta;
+                e.PhaseWorstNote = $"'{e.PhaseFirstCam}' saw {e.PhaseFirstDrew} of "
+                                   + $"{e.PhaseGraphics.Count} graphic(s) drawing and '{cam.name}' saw "
+                                   + $"{drew} in the SAME frame ({frame})";
+            }
+        }
+        ChargeInkBudget((Time.realtimeSinceStartup - started) * 1000.0);
+    }
+
+    /// <summary>
     /// A stable identity for a graphic that survives the object being destroyed and rebuilt. The
     /// hierarchy PATH from the host, not the instance id: uGUI rebuilds replace objects while the
     /// element on screen stays the same element to the user, and an instance id would report every
@@ -4040,6 +4136,11 @@ internal static partial class PanelSupersample
         int key = DrawPathHash(g.transform, host);
         if (!DrawSeen.Add(key))
             return;
+
+        // Cache a bounded subset for the ModBuild 214 phase census. Rebuilt with the ledger, so it
+        // follows the window's content instead of pinning objects that have gone.
+        if (e.PhaseGraphics.Count < MaxPhaseGraphics)
+            e.PhaseGraphics.Add(g);
 
         float cx = 0f, cy = 0f;
         bool haveRect = false;
@@ -4709,6 +4810,7 @@ internal static partial class PanelSupersample
         // walk (a degenerate frame, no host) must not leave the previous census's transitions standing
         // where the next line will print them as if they had just been measured.
         e.DrawLedgerNote = string.Empty;
+        e.PhaseGraphics.Clear();
         c.Plates.Clear();
         c.PlatesSeen = c.PlatesOutsideStrip = c.PlatesBlank = c.PlatesPresent = c.PlatesUnjudged = 0;
         c.PlateNote = string.Empty;
