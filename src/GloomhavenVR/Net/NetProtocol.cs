@@ -416,7 +416,91 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 207;
+    public const ushort ModBuild = 208;
+    // Build 208: THE CENSUS READ MIP 0. THE EYE DOES NOT READ MIP 0.
+    // (One worker plus integration.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── WHAT 207 SETTLED ────────────────────────────────────────────────────────────────
+    // The pairing across the session, verdict against glyph fates:
+    //     MAPPING VERIFIED |   0 EMPTY                                x13 readings
+    //     ARTEFACT         | 113 empty (alpha 0.035 / 0.160 / 0.400)  x9
+    //     MIXED            |  30-50 empty                             x3
+    // NOT ONE reading is both "components fully opaque, mapping verified" AND missing glyphs. The 13
+    // clean ones report 139 of 139 and 384 of 384. Every reading with holes has a component at an
+    // effective alpha the chain walk NAMES — `chain product 0.400 (TextMeshPro Text 0.400, Delete
+    // Button 1.000, …)`, a legitimately greyed-out button. And 0.035 x 203/255 = 7/255, below the
+    // 16/255 ink bar, so those glyphs are genuinely attenuated and not missing. `ComponentsHiddenBy
+    // GroupOnly` is 0, so the exclusion is not hiding anything either.
+    //
+    // ── AND TWO QUALIFICATIONS THE WORKER PUT ON MY OWN CONCLUSION ──────────────────────
+    // I told the user "the captured texture is correct". Both halves of that sentence were too broad,
+    // and the corrections are the reason this build exists rather than a fix:
+    //  1. IT IS ABOUT THE STRIP, NOT THE WINDOW. `MaxInkCensusTexels / RtH` gives ~668 texels of the
+    //     4040 available — about 16 % of the width. "139 of 139" is 139 glyphs INSIDE THAT STRIP.
+    //     Correct for what it measured; not a statement about the whole window.
+    //  2. IT WAS MEASURED AFTER THE BLIT. 207 read `e.MipRt` mip 0, i.e. downstream of
+    //     `Graphics.Blit(e.Rt, e.MipRt)`. The capture camera's own rasterisation into `e.Rt` had never
+    //     been read at all, so "the capture path is exonerated" was one stage ahead of the evidence.
+    //
+    // ── THE GAP THAT IS NOW THE WHOLE QUESTION ─────────────────────────────────────────
+    // **THE CENSUS READ MIP LEVEL 0. THE EYE DOES NOT READ MIP LEVEL 0.** The same log line reports
+    // this window at `trilinear MIP LOD 1.66` — the hardware samples levels 1 and 2, blended. So
+    // fourteen builds of measurement have all been taken on a level the player never sees.
+    // And there is history pointing straight at it: ModBuild 204 established that `ClearRt`'s
+    // `GL.Clear` clears the BOUND SURFACE, i.e. level 0 only, and that levels 1..N of a fresh display
+    // target held uninitialised VRAM until the first `GenerateMips()`. That one case was fixed. That
+    // the chain is correct on an ORDINARY frame has never been checked, and a thin glyph stroke is
+    // exactly what a bad mip level eats first.
+    //
+    // ── WHAT SHIPPED ────────────────────────────────────────────────────────────────────
+    // FOUR PLANES, ONE FRAME: `e.Rt` mip 0 (BEFORE the blit) and `e.MipRt` mips 0, 1 and 2. All four
+    // requested on the same frame is a correctness requirement and not a convenience — `ResolveAndMip`
+    // regenerates the chain from a fresh capture every frame, so planes read on different frames would
+    // be comparing different pictures. Every level-0 texel coordinate is scaled by 1/2^mip so all four
+    // judge the same glyphs in the same places.
+    //  * THE FINDING IS A COMPARISON, never an absolute: `inked at mip 0 AND empty at mip N AND above
+    //    the size floor at N`, with the characters named and their W x H at the level that lost them,
+    //    with denominators, and with a CONTROL in the other direction — a large count both ways is
+    //    threshold noise, not a chain fault.
+    //  * THE TRAP THIS MEASUREMENT COULD HAVE DIED ON: a glyph correctly minified is not a defect. A
+    //    quad under 3 texels on its smaller axis is BELOW THE FLOOR at that level and is neither inked
+    //    nor empty. And the report prints the counter-argument WITH A NUMBER so "it just averaged away"
+    //    cannot be used as an excuse: box filtering is linear, so at an INKED median of 203/255 a
+    //    stroke survives the 16/255 bar down to 0.079 texels — about 3.7 halvings below a one-texel
+    //    stroke, several levels past mip 2.
+    //  * THE BLIT IS ISOLATED at last: judged on both sides, `RESOLVE BLIT VERIFIED` / `THE RESOLVE
+    //    BLIT LOSES INK` / `NOT MEASURED`.
+    //
+    // ── AND I FIXED THE INSTRUMENT I MADE TOO EXPENSIVE ────────────────────────────────
+    // The 207 log reads `46.13 ms to judge 206 glyph(s)` and `22.98 ms to judge 139` against an
+    // 11.11 ms budget — my +/-4-advance search. The worker priced it: of 157,000 texel reads for a
+    // 139-glyph census, **125,000 were the ORIENTATION BAND PROFILE** sweeping the whole 2 Mtexel strip
+    // before a single glyph was looked at. ~18 ms of the 23 was the prologue. Now the profile DECIDES
+    // ONCE PER WINDOW at full strength (the guarantee is unchanged — an undecided first reading still
+    // refuses) and every census after runs a 2,500-sample confirmation that never gates and refuses
+    // outright if it ever flips. Plus a mod-wide 6.0 ms per-FRAME pool — a per-plane budget would have
+    // bounded a quarter of the problem, since all four callbacks can land on one frame — the search
+    // gated off when nothing is empty at mip 0, glyph and search cursors so nothing falls between
+    // censuses uncompared, and every deferral counted and printed.
+    //
+    // ── HOW TO READ THE NEXT LOG ───────────────────────────────────────────────────────
+    //   MIP CHAIN VERIFIED  -> the levels the eye reads carry what level 0 carries. The remaining
+    //                          stretch is the display quad and the eye: the RawImage material, the
+    //                          sampler state, the LOD bias, the stereo pass, the resolve into the eye
+    //                          target. Short, and never examined.
+    //   MIP CHAIN DEFECTIVE -> named characters with their size at the level that lost them, and
+    //                          `GenerateMips` in `ResolveAndMip` is where the work goes.
+    //   RESOLVE BLIT …      -> read this one first; it decides whether the capture camera's own
+    //                          rasterisation is finally exonerated or was never innocent.
+    //
+    // Four caveats stay on the record: the census sees ~16 % of the window's width; a budgeted census
+    // may judge ~50 of 139-384 glyphs, so a verdict is decided over a ROTATING SUBSET and every
+    // denominator is printed; fewer than 8 comparable glyphs prints UNDECIDED rather than clean; and
+    // mip 2 is the least robust plane, because at that level neighbouring glyphs sit ~3 texels apart
+    // and the background ring lands on them (the percentile biases toward "more page", which is the
+    // safe direction — an over-read background cannot invent a hole).
+    //
     // Build 207: THE CENSUS BORROWED THE BLIND SPOT IT WAS BUILT TO ESCAPE.
     // (One worker plus integration.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

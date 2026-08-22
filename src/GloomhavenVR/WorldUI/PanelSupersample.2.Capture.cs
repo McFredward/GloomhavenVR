@@ -2407,7 +2407,10 @@ internal static partial class PanelSupersample
         // ModBuild 205: the ink census's state dies with the entry too. A readback still in flight
         // then finds no record and discards itself (see OnInkRead), which is the correct outcome: its
         // texel coordinates describe a target that has just been released.
-        InkCensuses.Remove(e.Window);
+        // ModBuild 208: the budget is charged ONCE PER CENSUS, so it has to be handed back HERE and
+        // not in the callback — a window that dies with four planes outstanding would otherwise leak
+        // it and, at MaxInkCensusesInFlight = 1, wedge the instrument shut for the whole session.
+        ReleaseInkCensus(e.Window);
         int layer = e.Layer;
         ReleaseLayer(layer);
         e.Layer = -1;
@@ -2494,6 +2497,48 @@ internal static partial class PanelSupersample
     // Either answer is worth the build, which is why every path below that CANNOT answer says so in as
     // many words rather than printing a zero. A census that did not run must never look like a census
     // that ran and found nothing — that mistake is most of why the last eight rounds were unreadable.
+    //
+    // ---------------------------------------------------------------------------------------------
+    // ModBuild 208: THE CENSUS ANSWERED (2), AND THE ANSWER REDIRECTS THE WHOLE SEARCH.
+    // ---------------------------------------------------------------------------------------------
+    //
+    // The ModBuild 207 session paired every verdict with its glyph fates and the pairing is clean:
+    //
+    //     MAPPING VERIFIED | 0 EMPTY                             x13 readings
+    //     ARTEFACT         | 113 empty (alpha 0.035 / 0.160)     x9
+    //     MIXED            | 30-50 empty                         x3
+    //
+    // Not ONE reading is both "components fully opaque, mapping verified" and has empty glyphs. The 13
+    // clean readings report 139 of 139 and 384 of 384 — every glyph present — and every reading with
+    // missing glyphs has at least one component at an effective alpha of 0.035, 0.160 or 0.400, named
+    // by the chain walk. ComponentsHiddenByGroupOnly is 0, so the exclusion is not hiding anything
+    // either. THE CAPTURED TEXTURE IS CORRECT AT MIP LEVEL 0, which is branch (2) above: the loss is
+    // DOWNSTREAM of the capture, and the capture-content work of thirteen builds was aimed at the
+    // wrong half.
+    //
+    // AND THAT IS EXACTLY WHERE THE INSTRUMENT STOPPED LOOKING. The ModBuild 205-207 census read mip
+    // level 0 and nothing else, while the SAME log line reports this window at trilinear MIP LOD 1.66
+    // — the hardware samples levels 1 and 2 almost exclusively, blended. So the census has proven
+    // level 0 correct and has said NOTHING WHATSOEVER about the levels the player actually sees.
+    //
+    // There is history that makes the mip chain the first place to look rather than a speculative one:
+    // ModBuild 204 established that ClearRt's GL.Clear clears THE BOUND SURFACE, i.e. level 0 only,
+    // and that levels 1..N of a fresh display target held uninitialised VRAM until the first
+    // GenerateMips(). That specific case was fixed (mips generated at creation, the new pair primed
+    // before Reallocate returns). Nobody has ever verified that the chain is correct on an ORDINARY
+    // frame. This build does, and it also reads the CAPTURE target so the resolve blit is isolated:
+    //
+    //     plane 0  e.Rt     mip 0   — what the capture camera rasterised, BEFORE Graphics.Blit
+    //     plane 1  e.MipRt  mip 0   — after the blit; what ModBuild 205-207 measured, and only this
+    //     plane 2  e.MipRt  mip 1   — the eye reads here
+    //     plane 3  e.MipRt  mip 2   — and here
+    //
+    // THE TRAP IN THIS MEASUREMENT, and it has to be handled or the new numbers are worthless: a glyph
+    // correctly MINIFIED is not a defect. A stroke two texels wide at level 0 is half a texel at level
+    // 2 and legitimately averages away. So every level applies a SIZE FLOOR
+    // (<see cref="InkMinQuadTexels"/>), the glyphs under it are counted as BELOW THE FLOOR rather than
+    // as EMPTY, and the finding is never an absolute count at one level — it is the COMPARISON
+    // BETWEEN levels: "inked at mip 0, EMPTY at mip N despite being W x H texels there".
 
     /// <summary>
     /// <b>THE READBACK BUDGET, in texels, and it is what sizes the census STRIP.</b> 2,000,000 texels
@@ -2503,6 +2548,13 @@ internal static partial class PanelSupersample
     /// cost 48 MB and a full pipeline stall on the frame the user is complaining about, i.e. the
     /// instrument would manufacture the symptom it is measuring. <see cref="AsyncGPUReadback"/> never
     /// stalls the GPU and the result arrives some frames later, which is handled explicitly below.</para>
+    /// <para><b>ModBuild 208 spends this budget FOUR TIMES on one census</b> — see the plane table in
+    /// the header. Levels 1 and 2 are a quarter and a sixteenth of the area, so the total is
+    /// 2.0 + 2.0 + 0.5 + 0.125 = 4.625 Mtexel = 17.6 MB of readback staging for one census, against
+    /// the 15.3 MB two concurrent single-plane censuses cost before (both figures in the MiB the COST
+    /// line prints). <see cref="MaxInkCensusesInFlight"/> is therefore ONE, and it now counts CENSUSES
+    /// rather than requests; the peak rises by 15 %, which is the whole cost of the change and is
+    /// stated here rather than discovered.</para>
     /// </summary>
     private const int MaxInkCensusTexels = 2_000_000;
 
@@ -2762,20 +2814,189 @@ internal static partial class PanelSupersample
     private const int MaxInkWalkTransforms = 4096;
 
     /// <summary>
-    /// <b>READBACKS IN FLIGHT ACROSS THE WHOLE MOD, and this bound is not decorative.</b> The report
+    /// <b>CENSUSES IN FLIGHT ACROSS THE WHOLE MOD, and this bound is not decorative.</b> The report
     /// cadence is a single shared timer in <c>LateTick</c>, so EVERY engaged panel arms its census on
-    /// the SAME frame — with <see cref="EffectiveMaxPanels"/> at seven and
-    /// <see cref="MaxInkCensusTexels"/> at 8.0 MB per request, an unbounded version would put 56 MB of
-    /// readback staging in flight on one frame, every ten seconds, forever. Two at a time caps it at
-    /// 16 MB; the rest stay ARMED (not cancelled) and go out on the next frames, and every deferral is
-    /// counted and printed so a census that slipped is visible rather than silent.
+    /// the SAME frame — with <see cref="EffectiveMaxPanels"/> at seven and a census now costing 17.6 MB
+    /// of readback staging across its four planes, an unbounded version would put 123 MB in flight on
+    /// one frame, every ten seconds, forever. ONE census at a time caps it at 17.6 MB; the rest stay
+    /// ARMED (not cancelled) and go out on the next frames, and every deferral is counted and printed
+    /// so a census that slipped is visible rather than silent.
+    /// <para>ModBuild 208 changed the UNIT from requests to censuses. A census issues all four of its
+    /// planes ON ONE FRAME, and that is a correctness requirement rather than a convenience: the mip
+    /// chain is regenerated from a fresh capture every single frame (see
+    /// <see cref="ResolveAndMip"/>), so planes requested on different frames would compare DIFFERENT
+    /// pictures and the whole "inked at mip 0, empty at mip 1" finding would be an artefact of the
+    /// cadence. Splitting the four planes across frames to spread the cost is therefore not available,
+    /// and the cost is bounded by <see cref="InkJudgeBudgetMs"/> and a cursor instead.</para>
     /// </summary>
-    private const int MaxInkReadsInFlight = 2;
+    private const int MaxInkCensusesInFlight = 1;
 
-    /// <summary>How many ink readbacks are currently in flight, across every panel. Incremented at the
-    /// request and decremented in the callback — including on every failure path, or the census would
-    /// wedge itself shut after two errors.</summary>
+    /// <summary>How many ink CENSUSES are currently in flight, across every panel. Incremented once
+    /// when the planes go out and released exactly once by <see cref="EndInkCensus"/> — on the report
+    /// path, on every unanswerable path, and when a window stands down with a census outstanding.
+    /// Without that last one the budget would leak and the census would wedge itself shut for the
+    /// session while every line still claimed it was armed.</summary>
     private static int _inkInFlight;
+
+    // ---- THE MOD-WIDE PER-FRAME MILLISECOND POOL (ModBuild 208) ----------------------------------
+    // Reset lazily on the first consultation of a new frame rather than from a tick, so it cannot be
+    // wrong for a frame in which no tick ran and it needs no cooperation from any other lane.
+    private static int _inkBudgetFrame = -1;
+    private static double _inkBudgetSpentMs;
+
+    /// <summary>Milliseconds of <see cref="InkFrameBudgetMs"/> still unspent on THIS frame, across
+    /// every panel. Never negative.</summary>
+    private static double InkBudgetRemainingMs()
+    {
+        if (_inkBudgetFrame != Time.frameCount)
+        {
+            _inkBudgetFrame = Time.frameCount;
+            _inkBudgetSpentMs = 0.0;
+        }
+        return System.Math.Max(0.0, InkFrameBudgetMs - _inkBudgetSpentMs);
+    }
+
+    /// <summary>What ONE stage may take: its even share of what is left this frame, capped by
+    /// <paramref name="ceiling"/> and floored by <see cref="InkMinStageBudgetMs"/>.</summary>
+    private static double InkStageBudgetMs(int stagesStillToCome, double ceiling)
+        => System.Math.Max(InkMinStageBudgetMs,
+                           System.Math.Min(ceiling,
+                                           InkBudgetRemainingMs()
+                                           / System.Math.Max(1, stagesStillToCome + 1)));
+
+    private static void ChargeInkBudget(double ms)
+    {
+        if (_inkBudgetFrame != Time.frameCount)
+        {
+            _inkBudgetFrame = Time.frameCount;
+            _inkBudgetSpentMs = 0.0;
+        }
+        _inkBudgetSpentMs += ms;
+    }
+
+    // ---- THE FOUR PLANES ONE CENSUS READS (ModBuild 208) -----------------------------------------
+
+    /// <summary>Plane 0: <see cref="Entry.Rt"/> at mip 0 — what the capture camera rasterised, BEFORE
+    /// <c>Graphics.Blit</c>. Reading it is what isolates the resolve blit: identical here and at plane
+    /// 1 clears the blit, different accuses it.</summary>
+    private const int InkPlaneCapture = 0;
+
+    /// <summary>Plane 1: the DISPLAY target at mip 0 — the only plane ModBuild 205-207 ever read.</summary>
+    private const int InkPlaneMip0 = 1;
+
+    /// <summary>Planes 2 and 3: the display target at mip 1 and mip 2 — <b>the levels the eye actually
+    /// samples</b>. The same log line that carried the 207 census reports this window at trilinear MIP
+    /// LOD 1.66, so the hardware reads levels 1 and 2 blended and level 0 essentially not at all.</summary>
+    private const int InkPlaneMip1 = 2;
+    private const int InkPlaneMip2 = 3;
+
+    private const int InkPlanes = 4;
+
+    /// <summary>The order the planes are REQUESTED in. Callbacks may land in any order, so nothing
+    /// depends on this; it exists so the two full-resolution planes go out first and the cheap ones
+    /// trail them, which keeps the peak staging shorter-lived.</summary>
+    private static readonly int[] InkPlaneOrder =
+        { InkPlaneCapture, InkPlaneMip0, InkPlaneMip1, InkPlaneMip2 };
+
+    /// <summary>
+    /// <b>THE SIZE FLOOR, and it is THE trap in a per-level census.</b> A glyph correctly MINIFIED is
+    /// not a defect: a stroke two texels wide at level 0 is half a texel at level 2 and legitimately
+    /// averages into its background. A census that counted those as EMPTY would report a broken mip
+    /// chain on a perfect one.
+    /// <para><b>THREE TEXELS ON THE SMALLER AXIS, and the bar is about the INSTRUMENT, not about the
+    /// eye.</b> The interior of a quad is inset by <see cref="InkQuadInset"/> per side and sampled on
+    /// an <see cref="InkInnerSamples"/> grid, and the local background is a ring
+    /// <see cref="InkRingBandTexels"/> texels outside it. Under three texels the inset interior is a
+    /// single texel wide, the sample grid re-reads that one texel 144 times, and the ring overlaps the
+    /// quad's own ink — so the reading is decided by the instrument's geometry and not by the picture.
+    /// That is the same bar <see cref="CollectInkCandidate"/> already applies at level 0 (it drops
+    /// quads under two texels), raised by one texel because the ring contamination gets worse as
+    /// neighbouring glyphs close in under minification.</para>
+    /// <para><b>WHY THE FLOOR IS NOT A CONTRAST ARGUMENT.</b> Mip generation is a repeated 2x2 BOX
+    /// filter, which is linear: a stroke covering a fraction f of a texel contributes f times its full
+    /// deviation. Against a measured INKED median of ~200/255 and a <see cref="InkThreshold"/> of
+    /// 16/255, a stroke survives down to f = 0.08 texels — so minification alone does NOT explain a
+    /// glyph vanishing at level 1 or 2, and the report prints that arithmetic next to the counts so
+    /// "it just averaged away" cannot be asserted without a number. The floor exists to protect the
+    /// measurement, not to excuse the result.</para>
+    /// </summary>
+    private const float InkMinQuadTexels = 3f;
+
+    /// <summary>
+    /// <b>WHERE ModBuild 207's 46 MILLISECONDS ACTUALLY WENT, because the fix has to be aimed at the
+    /// right thing.</b> Its COST line prices a texel read on this machine at roughly 140 ns
+    /// (22.98 ms for a 139-glyph census, which is ~157,000 reads). Of those 157,000, the ORIENTATION
+    /// BAND PROFILE is 125,000 — it swept the whole 2 Mtexel strip at a fixed
+    /// <see cref="InkProfileStride"/> of 4. <b>The prologue was ~18 ms of the 23 and it ran before a
+    /// single glyph was looked at.</b> The per-glyph work was ~4 ms.
+    ///
+    /// <para><b>SO THE PROFILE IS RUN ONCE PER WINDOW, NOT ONCE PER CENSUS.</b> Row order is a
+    /// property of the graphics API and the texture layout — it is constant for the session, and
+    /// re-deriving it every ten seconds bought nothing. The FIRST census on a window runs the full
+    /// ModBuild 207 profile at the shipped stride and DECIDES; the guarantee is unchanged, and an
+    /// undecided first reading still refuses to report EMPTY counts exactly as before. Every census
+    /// after it runs a cheap CONFIRMATION at <see cref="InkConfirmProfileSamples"/> that never gates
+    /// anything — it only speaks if it decides clearly and DISAGREES, which is a finding in its own
+    /// right and is treated as one.</para>
+    ///
+    /// <para>2,500 samples is ~104 per <see cref="InkBands"/> band. That is deliberately too weak to
+    /// gate a census and quite strong enough to catch a flipped buffer, which is a total inversion of
+    /// the profile and not a marginal shift.</para>
+    /// </summary>
+    private const int InkConfirmProfileSamples = 2_500;
+
+    /// <summary>
+    /// <b>THE MOD-WIDE PER-FRAME BUDGET, and it is the one that actually binds.</b> A census issues all
+    /// four planes on ONE frame (see <see cref="MaxInkCensusesInFlight"/> for why it must), and
+    /// <c>AsyncGPUReadback</c> drains its completed-request queue per frame — so all four callbacks
+    /// can, and usually will, land on the SAME frame. A per-plane budget alone would therefore have
+    /// bounded a quarter of the problem and let four planes plus a search spend 14 ms on one frame.
+    /// <para>SIX MILLISECONDS of an 11.11 ms frame, shared by every plane and the search of every
+    /// panel. Each stage takes <c>remaining / (planes still outstanding + 1)</c>, clamped to
+    /// <see cref="InkJudgeBudgetMs"/> and floored at <see cref="InkMinStageBudgetMs"/> so a late stage
+    /// always makes some progress; planes that land on separate frames each see a fresh pool and take
+    /// their full share.</para>
+    /// </summary>
+    private const double InkFrameBudgetMs = 6.0;
+
+    /// <summary>The most any ONE plane's glyph loop may take, however much of the frame pool is free.
+    /// Two milliseconds is ~50 glyphs at the 140 ns per texel read the 207 log implies and the whole
+    /// census on any machine where a texel read costs what it ought to.</summary>
+    private const double InkJudgeBudgetMs = 2.0;
+
+    /// <summary>The neighbourhood search's own ceiling, spent after the judging on the mip 0 plane
+    /// only, and drawn from the same frame pool. A per-COMPONENT cursor resumes an overrun.</summary>
+    private const double InkSearchBudgetMs = 2.0;
+
+    /// <summary>The floor under every stage's share of <see cref="InkFrameBudgetMs"/>. A stage that
+    /// arrived after the pool was empty still judges a handful of glyphs rather than none, because a
+    /// plane that measured NOTHING contributes nothing to the level comparison and would quietly
+    /// shrink the denominator to zero. It is a floor and not a reservation: the overshoot is at most
+    /// one stage's worth, which the COST line prints.</summary>
+    private const double InkMinStageBudgetMs = 0.3;
+
+    /// <summary>How often the judging and search loops consult the clock.
+    /// <c>Time.realtimeSinceStartup</c> is a property call into the engine, so reading it per glyph
+    /// would itself be a measurable share of the budget it is protecting.</summary>
+    private const int InkBudgetCheckStride = 8;
+
+    /// <summary>
+    /// <b>GLYPHS ONE COMPONENT'S REGISTRATION SEARCH SCORES, and this is the other half of the cost
+    /// fix.</b> The search sweeps a 17x17 coarse grid and a 9x9 refinement; at
+    /// <see cref="MaxInkGlyphsPerComponent"/> = 96 glyphs and 16 samples each that is 444,000 texel
+    /// reads for ONE component, which is where the 46 ms came from.
+    /// <para>A whole-string fit AGGREGATES over glyphs — it asks at which offset the most of them find
+    /// ink — so it does not need every glyph to locate the peak, and 24 is already a 24-sample
+    /// majority test. The final per-glyph FOUND/ABSENT verdict at the fitted offset still re-tests
+    /// EVERY empty glyph on the full <see cref="InkInnerSamples"/> grid, so nothing that is reported
+    /// per glyph is measured to a lower standard. The flat-field and material-gain bars are taken
+    /// against the SCORED count rather than the glyph count, and both numbers are printed.</para>
+    /// </summary>
+    private const int InkSearchMaxGlyphs = 24;
+
+    /// <summary>How many "inked at mip 0, EMPTY at mip N" glyphs the line names with their characters
+    /// and their size at that level. The COUNT is always complete.</summary>
+    private const int MaxInkMipLostNamed = 16;
 
     /// <summary>One glyph quad, in RENDER-TARGET TEXEL space with y measured from the capture frame's
     /// BOTTOM edge — the same orientation the orthographic capture camera's viewport uses.</summary>
@@ -2833,6 +3054,19 @@ internal static partial class PanelSupersample
         internal int Empty;
         internal string EmptyChars = string.Empty;
         internal int EmptyNotNamed;
+
+        /// <summary>Of <see cref="InStrip"/>, how many the MIP 0 plane actually judged and how many
+        /// were under <see cref="InkMinQuadTexels"/>. <c>Ink + Empty == Judged</c>, and Judged can be
+        /// short of InStrip when the millisecond budget stopped the plane — both are printed, because
+        /// "14 with ink, 0 empty of 21" and "14 with ink, 7 empty of 21" are opposite readings.</summary>
+        internal int Judged;
+        internal int BelowFloor;
+
+        /// <summary>How many of this component's glyphs the registration search actually SCORED. The
+        /// search subsamples to <see cref="InkSearchMaxGlyphs"/>, so the flat-field and material-gain
+        /// bars are taken against this and not against <see cref="GlyphCount"/>.</summary>
+        internal int ScoreGlyphs;
+        internal int ScoreStride = 1;
 
         // ---- the slice of InkCensus.Glyphs this component owns, and its own scale ---------------
         // The glyph list is built component by component, so each component's glyphs are contiguous.
@@ -2905,12 +3139,158 @@ internal static partial class PanelSupersample
         internal string GroupNote = string.Empty;
     }
 
+    /// <summary>
+    /// <b>ONE SURFACE THE CENSUS READS — a texture and a mip level — and everything that plane's own
+    /// readback found.</b> See the plane table in this region's header.
+    /// <para>The per-glyph verdicts are held HERE rather than in one shared array because the whole
+    /// point of ModBuild 208 is the COMPARISON between planes: "inked at mip 0, EMPTY at mip 2" needs
+    /// both planes' answers to exist at the same time, and the <c>NativeArray</c> a readback delivers
+    /// is only valid inside its own callback.</para>
+    /// </summary>
+    private sealed class InkPlane
+    {
+        internal readonly int Index;
+
+        /// <summary>The mip level within its own texture. Every texel coordinate this plane uses is
+        /// the level-0 coordinate times <see cref="Scale"/>.</summary>
+        internal readonly int Mip;
+
+        /// <summary>True for the plane that reads <see cref="Entry.Rt"/> (the capture target) rather
+        /// than the display target.</summary>
+        internal readonly bool FromCapture;
+
+        internal readonly float Scale;
+        internal readonly string Short;
+        internal readonly string Label;
+
+        internal InkPlane(int index, int mip, bool fromCapture, string shortName, string label)
+        {
+            Index = index;
+            Mip = mip;
+            FromCapture = fromCapture;
+            Scale = 1f / (1 << mip);
+            Short = shortName;
+            Label = label;
+        }
+
+        // ---- whether this plane could be read at all, and why not -------------------------------
+        internal bool Available;
+        internal string Unavailable = string.Empty;
+
+        internal bool Requested, Landed, Failed;
+        internal string FailWhy = string.Empty;
+
+        // ---- the strip AT THIS LEVEL ------------------------------------------------------------
+        internal int X, W, H;
+        internal int RequestFrame, DeliveredFrame;
+        internal int ProfileStride;
+
+        // ---- what it measured -------------------------------------------------------------------
+        internal float Background;
+        internal float CorrAsIs, CorrFlip;
+        internal bool Decided, Flipped;
+
+        /// <summary>True when this plane ran the cheap CONFIRMATION profile because the window had
+        /// already decided its row order, false when it ran the full-strength deciding sweep. See
+        /// <see cref="InkConfirmProfileSamples"/>.</summary>
+        internal bool Confirming;
+
+        /// <summary>The glyph index this plane STARTED judging at, how many it judged, and how many it
+        /// left for the next census when <see cref="InkJudgeBudgetMs"/> ran out. A plane never
+        /// silently covers less than the line claims.</summary>
+        internal int JudgeFrom, Judged, Deferred;
+
+        internal int Ink, Empty;
+
+        /// <summary>Glyphs whose quad is under <see cref="InkMinQuadTexels"/> on an axis AT THIS
+        /// LEVEL. They are neither INKED nor EMPTY — a correctly minified glyph is not a defect and
+        /// this instrument cannot judge one, so it says so instead of counting it.</summary>
+        internal int BelowFloor;
+
+        /// <summary>The smallest and largest quad this plane could still judge, in texels, so a reader
+        /// can see how close the floor came to biting.</summary>
+        internal float SmallestJudged, LargestJudged;
+
+        internal float MedDevInk = -1f, MedDevEmpty = -1f;
+
+        /// <summary>The whole plane's time, and the share of it the fixed orientation prologue took.
+        /// Both are printed: a plane that spent its budget before reaching a glyph is a different
+        /// reading from one that spent it judging.</summary>
+        internal double JudgeMs, ProfileMs;
+
+        /// <summary>The share of <see cref="InkFrameBudgetMs"/> this plane's glyph loop was actually
+        /// granted, which is what <see cref="Overran"/> is measured against. Printed, because a plane
+        /// that got 0.3 ms and one that got 2.0 ms are completely different readings of the same
+        /// "budget spent" flag.</summary>
+        internal double BudgetMs;
+
+        internal bool Overran;
+
+        /// <summary>Per glyph: judged at all (above the floor and inside the budget), and inked.
+        /// Indexed in lockstep with <see cref="InkCensus.Glyphs"/>.</summary>
+        internal readonly bool[] Measured = new bool[MaxInkCensusGlyphs];
+        internal readonly bool[] Inked = new bool[MaxInkCensusGlyphs];
+
+        /// <summary>Per glyph: the local background measured at THIS level. The mip 0 plane's copy is
+        /// what the registration search reuses for every offset it tries.</summary>
+        internal readonly float[] Bg = new float[MaxInkCensusGlyphs];
+
+        internal void Reset()
+        {
+            Available = false;
+            Unavailable = string.Empty;
+            Requested = Landed = Failed = false;
+            FailWhy = string.Empty;
+            X = W = H = 0;
+            RequestFrame = DeliveredFrame = 0;
+            ProfileStride = 0;
+            Background = 0f;
+            CorrAsIs = CorrFlip = 0f;
+            Decided = Flipped = Confirming = false;
+            JudgeFrom = Judged = Deferred = 0;
+            Ink = Empty = BelowFloor = 0;
+            SmallestJudged = float.MaxValue;
+            LargestJudged = 0f;
+            MedDevInk = MedDevEmpty = -1f;
+            JudgeMs = ProfileMs = BudgetMs = 0.0;
+            Overran = false;
+            System.Array.Clear(Measured, 0, Measured.Length);
+            System.Array.Clear(Inked, 0, Inked.Length);
+        }
+    }
+
     /// <summary>Per-window census state: what is armed, what is in flight, and every counter the line
     /// is read against. Keyed by window name and NOT held on <see cref="Entry"/> for the same reason
     /// <see cref="TargetLife"/> is not — that type lives in <c>PanelSupersample.1.Core.cs</c>, which
     /// this lane does not own.</summary>
     private sealed class InkCensus
     {
+        // ---- THE FOUR PLANES (ModBuild 208) -----------------------------------------------------
+        internal readonly InkPlane[] Planes =
+        {
+            new InkPlane(InkPlaneCapture, 0, true, "CAPTURE",
+                         "the CAPTURE TARGET at mip 0 — what the capture camera rasterised, BEFORE "
+                         + "Graphics.Blit resolved it into the display target"),
+            new InkPlane(InkPlaneMip0, 0, false, "MIP 0",
+                         "the DISPLAY TARGET at mip 0 — after the resolve blit; the ONLY plane "
+                         + "ModBuild 205-207 ever read"),
+            new InkPlane(InkPlaneMip1, 1, false, "MIP 1",
+                         "the DISPLAY TARGET at mip 1 — one of the two levels the eye actually samples"),
+            new InkPlane(InkPlaneMip2, 2, false, "MIP 2",
+                         "the DISPLAY TARGET at mip 2 — the other level the eye actually samples"),
+        };
+
+        /// <summary>Planes still to land. The cross-plane comparison, the search and the report all
+        /// happen when this reaches zero, in whichever callback got there last.</summary>
+        internal int PlanesOutstanding;
+        internal int PlanesRequested, PlanesLanded, PlanesFailed;
+        internal long TexelsRequested;
+
+        /// <summary>The capture target's instance id at request time, checked at delivery exactly as
+        /// <see cref="TargetId"/> is.</summary>
+        internal int CaptureId;
+        internal int MipCount;
+
         // ---- what is scheduled ------------------------------------------------------------------
         internal int ArmedFrame = -1;
         internal string ArmedReason = string.Empty;
@@ -2982,8 +3362,16 @@ internal static partial class PanelSupersample
         internal float Background;
         internal bool Flipped;
         internal float CorrAsIs, CorrFlip;
+        internal bool OrientationDecided;
         internal string Orientation = "not measured yet";
         internal int TotalGlyphs, TotalInk, TotalEmpty;
+
+        /// <summary>Of <see cref="TotalGlyphs"/>, how many the MIP 0 plane actually judged, how many
+        /// were under <see cref="InkMinQuadTexels"/>, and how many the millisecond budget deferred to
+        /// the next census. <c>TotalInk + TotalEmpty == TotalJudged</c> by construction, and the line
+        /// prints all four so a shortened census can never read as a complete one.</summary>
+        internal int TotalJudged, TotalBelowFloor, TotalDeferred;
+
         internal float MedDevInk = -1f, MedDevEmpty = -1f;
         internal double BuildMs, ReadMs;
 
@@ -3055,6 +3443,74 @@ internal static partial class PanelSupersample
         /// visibility artefact and the verdict says so.</summary>
         internal float EmptyLowestAlpha = 1f;
 
+        // ---- THE LEVEL COMPARISON (ModBuild 208) -------------------------------------------------
+
+        /// <summary>
+        /// <b>THE FINDING, and it is a COMPARISON and never an absolute.</b> Glyphs INKED at mip 0 and
+        /// EMPTY at mip 1 / mip 2 while their quad at that level is comfortably above
+        /// <see cref="InkMinQuadTexels"/>. An absolute EMPTY count at mip 2 would be dominated by
+        /// glyphs that legitimately averaged away; this pair cannot be.
+        /// </summary>
+        internal int MipLost1, MipLost2;
+
+        /// <summary>How many glyphs the comparison could actually be made on, per level — inked at
+        /// mip 0 AND judged at that level. The denominator without which the counts above say nothing.</summary>
+        internal int MipCompared1, MipCompared2;
+
+        /// <summary>The lost glyphs, named with their size at the level that lost them.</summary>
+        internal string MipLostNote = string.Empty;
+
+        /// <summary>The reverse direction, which must be counted or "lost" is not a finding but a
+        /// threshold artefact: glyphs EMPTY at mip 0 and INKED at mip 1 / mip 2. Minification makes
+        /// thin ink DENSER per texel as often as it dilutes it, so a healthy chain produces a few of
+        /// these and the line prints them next to the losses.</summary>
+        internal int MipGained1, MipGained2;
+
+        /// <summary>THE RESOLVE BLIT, isolated: glyphs judged on both the capture plane and the mip 0
+        /// plane, and the two directions of disagreement between them.</summary>
+        internal int BlitCompared, BlitOnlyCapture, BlitOnlyMip;
+
+        internal string MipVerdict = "not measured yet";
+        internal string BlitVerdict = "not measured yet";
+
+        // ---- THE COST BOUND (ModBuild 208) -------------------------------------------------------
+
+        /// <summary>
+        /// <b>WHERE THE NEXT CENSUS RESUMES JUDGING.</b> The budget stops a plane mid-list; the
+        /// remainder is carried here rather than dropped, and the next census starts there.
+        /// <para>The glyph list is REBUILT by <see cref="BuildInkCensus"/> on every census, so this is
+        /// an index into a list that is only approximately the same one — the walk order is stable but
+        /// the window's own content is not. The line therefore prints the RANGE that was judged and
+        /// the count deferred, and never claims that a rotation covered the window exactly.</para>
+        /// </summary>
+        internal int GlyphCursor;
+
+        /// <summary>The cursor this census's planes all started from. Every plane of one census must
+        /// judge the SAME glyphs or the level comparison would compare different subsets, so the
+        /// cursor is frozen at issue time and only advanced afterwards.</summary>
+        internal int CensusCursor;
+
+        /// <summary>Where the neighbourhood search resumes, by component index.</summary>
+        internal int SearchCursor;
+
+        /// <summary>Whether the search ran at all this census, and why not when it did not.</summary>
+        internal bool SearchRan;
+        internal double SearchBudgetMs;
+        internal string SearchNote = string.Empty;
+        internal int SearchComponents, SearchDeferredComps;
+        internal double SearchMs;
+        internal bool SearchOverran;
+
+        /// <summary>The PREVIOUS census's level-comparison result, which is what gates the search.
+        /// The mip 0 buffer and the mip 1/2 buffers never coexist — each dies with its own callback —
+        /// so the gate cannot read this census's own comparison and reads the last one instead. The
+        /// first census after engage therefore always searches.</summary>
+        internal int LastMipLost = -1;
+
+        /// <summary>Judging time summed over the planes of this census, and the worst single plane.
+        /// Printed against <see cref="FrameBudgetMs"/> because a plane lands on its own frame.</summary>
+        internal double JudgeMsTotal, JudgeMsWorst;
+
         // ---- since engage -----------------------------------------------------------------------
         internal int Armed, Issued, Completed, Errors;
         internal int DroppedInFlight, DroppedStale, Unanswerable, Threw;
@@ -3086,10 +3542,11 @@ internal static partial class PanelSupersample
     private static readonly List<float> InkScratch = new(4096);
     private static readonly StringBuilder InkCharsSb = new(128);
 
-    // The mapping self-check's per-glyph working set, indexed in lockstep with InkCensus.Glyphs.
-    private static readonly float[] InkGlyphBg = new float[MaxInkCensusGlyphs];
-    private static readonly bool[] InkGlyphInked = new bool[MaxInkCensusGlyphs];
+    // The mapping self-check's per-glyph working set now lives on the PLANE (InkPlane.Bg / .Inked /
+    // .Measured), because ModBuild 208's whole finding is a comparison BETWEEN planes and a single
+    // shared array could only ever hold one of them.
     private static readonly StringBuilder InkFitSb = new(512);
+    private static readonly StringBuilder InkMipSb = new(512);
     private static readonly StringBuilder InkGroupSb = new(256);
     private static readonly StringBuilder InkAlphaSb = new(512);
 
@@ -3130,7 +3587,7 @@ internal static partial class PanelSupersample
         }
         if (c.ArmedFrame < 0)
             return;
-        if (c.InFlight || _inkInFlight >= MaxInkReadsInFlight)
+        if (c.InFlight || _inkInFlight >= MaxInkCensusesInFlight)
         {
             // Kept armed on purpose: the outstanding readback is a frame or two from landing and this
             // census then goes out immediately after it. Counted so a census that slipped is visible.
@@ -3148,14 +3605,39 @@ internal static partial class PanelSupersample
         {
             // If the throw came from AsyncGPUReadback.Request itself the global budget has already
             // been charged and no callback will ever land to hand it back — so it is handed back
-            // here. Without this, two such throws would wedge the census shut for the session.
-            if (c.InFlight && _inkInFlight > 0)
-                _inkInFlight--;
-            c.InFlight = false;
+            // here (EndInkCensus, called by ReportInkUnanswerable, releases it exactly once). Without
+            // that, two such throws would wedge the census shut for the session.
             c.Threw++;
             ReportInkUnanswerable(e, c, reason,
                 $"the census BUILD threw ({ex.GetType().Name}: {ex.Message})");
         }
+    }
+
+    /// <summary>
+    /// Release the mod-wide census budget exactly once, whatever ended this census. Every exit —
+    /// the report, every NOT ANSWERABLE path, and a window standing down with planes outstanding —
+    /// goes through here, because ModBuild 208 charges the budget ONCE PER CENSUS rather than once
+    /// per request and a leak would wedge the instrument shut for the session while every line still
+    /// claimed it was armed.
+    /// </summary>
+    private static void EndInkCensus(InkCensus c)
+    {
+        if (!c.InFlight)
+            return;
+        c.InFlight = false;
+        c.PlanesOutstanding = 0;
+        if (_inkInFlight > 0)
+            _inkInFlight--;
+    }
+
+    /// <summary>Drop a window's census state, releasing the budget first. Called from
+    /// <see cref="StandDown"/>: a readback still in flight then finds no record and discards itself,
+    /// which is correct, but the budget it charged must not go with it.</summary>
+    private static void ReleaseInkCensus(string window)
+    {
+        if (InkCensuses.TryGetValue(window, out InkCensus c))
+            EndInkCensus(c);
+        InkCensuses.Remove(window);
     }
 
     private static void IssueInkCensus(Entry e, InkCensus c, string reason)
@@ -3191,6 +3673,8 @@ internal static partial class PanelSupersample
         c.Reason = reason;
         c.RequestFrame = Time.frameCount;
         c.TargetId = src.GetInstanceID();
+        c.CaptureId = e.Rt != null ? e.Rt.GetInstanceID() : 0;
+        c.MipCount = src.mipmapCount;
         c.RtW = e.RtW;
         c.RtH = e.RtH;
         c.FrameW = e.Frame.width;
@@ -3199,17 +3683,165 @@ internal static partial class PanelSupersample
         // Frame.yMin, so a frame that keeps its size and MOVES its origin re-maps every glyph without
         // changing a single number the previous staleness test compared. See InkCensus.FrameAtRequest.
         c.FrameAtRequest = e.Frame;
-        c.InFlight = true;
         c.Gen++;
         c.Issued++;
+
+        // ---- WHICH OF THE FOUR PLANES CAN BE READ, AND WHY THE OTHERS CANNOT (ModBuild 208) ------
+        PrepareInkPlanes(e, c, src);
+
+        // Every plane of one census must judge the SAME glyphs or the level comparison would compare
+        // different subsets of the window. The cursor is therefore frozen here and only advanced when
+        // the census is complete.
+        c.CensusCursor = c.Glyphs.Count > 0 ? c.GlyphCursor % c.Glyphs.Count : 0;
+        c.PlanesOutstanding = 0;
+        c.PlanesRequested = 0;
+        c.PlanesFailed = 0;
+        c.PlanesLanded = 0;
+        c.TexelsRequested = 0;
+        c.MipLost1 = c.MipLost2 = c.MipCompared1 = c.MipCompared2 = 0;
+        c.MipGained1 = c.MipGained2 = 0;
+        c.BlitCompared = c.BlitOnlyCapture = c.BlitOnlyMip = 0;
+        c.MipLostNote = string.Empty;
+        c.JudgeMsTotal = 0.0;
+        c.JudgeMsWorst = 0.0;
+
+        // Count the planes BEFORE issuing any of them. If the first callback landed while the count
+        // still read 1, PlanesOutstanding would hit zero and the census would report on one plane.
+        for (int i = 0; i < InkPlaneOrder.Length; i++)
+        {
+            if (c.Planes[InkPlaneOrder[i]].Available)
+                c.PlanesOutstanding++;
+        }
+        if (c.PlanesOutstanding == 0)
+        {
+            // Cannot happen — InkSource has already established that the mip 0 plane's texture is
+            // readable — but a census that reported nothing and said nothing would be exactly the
+            // failure mode this whole region exists to make impossible.
+            ReportInkUnanswerable(e, c, reason,
+                "not one of the four census planes could be read, which contradicts the source check "
+                + "that has already passed and therefore means this instrument is broken rather than "
+                + "the picture");
+            return;
+        }
+
+        c.InFlight = true;
         _inkInFlight++;
 
         string window = e.Window;
         int gen = c.Gen;
-        // mip 0, the strip in x, the FULL height in y (see MinInkStripTexels for why that is a
-        // correctness requirement and not a convenience), one slice in z.
-        AsyncGPUReadback.Request(src, 0, c.StripX, c.StripW, 0, c.StripH, 0, 1, TextureFormat.RGBA32,
-                                 req => OnInkRead(window, gen, req));
+        for (int i = 0; i < InkPlaneOrder.Length; i++)
+        {
+            InkPlane p = c.Planes[InkPlaneOrder[i]];
+            if (!p.Available)
+                continue;
+            // PrepareInkPlanes only marks the capture plane Available after establishing e.Rt is
+            // non-null, single-sample and the same size as the display target.
+            RenderTexture tex = p.FromCapture ? e.Rt! : src;
+            int plane = p.Index;
+            p.RequestFrame = Time.frameCount;
+            try
+            {
+                // The strip in x at THIS level, the FULL height in y (see MinInkStripTexels for why
+                // that is a correctness requirement and not a convenience), one slice in z.
+                AsyncGPUReadback.Request(tex, p.Mip, p.X, p.W, 0, p.H, 0, 1, TextureFormat.RGBA32,
+                                         req => OnInkRead(window, gen, plane, req));
+                p.Requested = true;
+                c.PlanesRequested++;
+                c.TexelsRequested += (long)p.W * p.H;
+            }
+            catch (System.Exception ex)
+            {
+                // A plane that never got a request will never get a callback either, so its share of
+                // PlanesOutstanding is handed back here or the census would never complete.
+                p.Failed = true;
+                p.FailWhy = $"AsyncGPUReadback.Request threw ({ex.GetType().Name}: {ex.Message})";
+                c.PlanesFailed++;
+                c.PlanesOutstanding--;
+            }
+        }
+        if (c.PlanesOutstanding <= 0)
+        {
+            ReportInkUnanswerable(e, c, reason,
+                $"every one of the {c.PlanesRequested + c.PlanesFailed} census plane(s) was refused by "
+                + "AsyncGPUReadback.Request itself, so no readback is coming and nothing was measured");
+        }
+    }
+
+    /// <summary>
+    /// <b>DECIDE WHICH OF THE FOUR PLANES THIS CENSUS CAN READ, AND RECORD WHY THE OTHERS CANNOT.</b>
+    /// An unavailable plane is never silent: its reason is printed on the census line, because "mip 2
+    /// reported nothing" and "mip 2 does not exist on this target" are opposite readings.
+    /// <para>The strip at mip level m is the level-0 strip shifted down by m. That is exact rather
+    /// than approximate: <c>floor(a/k) + floor(b/k) &lt;= floor((a+b)/k)</c>, so a strip that fits
+    /// inside the level-0 target still fits inside every level of it.</para>
+    /// </summary>
+    private static void PrepareInkPlanes(Entry e, InkCensus c, RenderTexture shown)
+    {
+        for (int i = 0; i < c.Planes.Length; i++)
+            c.Planes[i].Reset();
+
+        bool fallback = !ReferenceEquals(shown, e.MipRt);
+        int mipCount = shown.mipmapCount;
+
+        for (int i = 0; i < c.Planes.Length; i++)
+        {
+            InkPlane p = c.Planes[i];
+            int m = p.Mip;
+            p.X = c.StripX >> m;
+            p.W = Mathf.Max(1, c.StripW >> m);
+            p.H = Mathf.Max(1, c.StripH >> m);
+
+            if (p.FromCapture)
+            {
+                if (e.Rt == null)
+                {
+                    p.Unavailable = "this panel has no capture target right now, so the resolve blit "
+                                    + "cannot be isolated";
+                    continue;
+                }
+                if (fallback)
+                {
+                    p.Unavailable = "the display target IS the capture target on the MipFallback path, "
+                                    + "so there is no blit between them to isolate — plane MIP 0 below "
+                                    + "already reads this texture";
+                    continue;
+                }
+                if (e.Rt.antiAliasing > 1)
+                {
+                    p.Unavailable = $"the capture target is MULTISAMPLED (antiAliasing "
+                                    + $"{e.Rt.antiAliasing}x) and a multisampled render target cannot "
+                                    + "be read back at all, so the blit cannot be isolated on this "
+                                    + "machine";
+                    continue;
+                }
+                if (e.Rt.width != c.RtW || e.Rt.height != c.RtH)
+                {
+                    p.Unavailable = $"the capture target is {e.Rt.width}x{e.Rt.height} against the "
+                                    + $"display target's {c.RtW}x{c.RtH}, so the same texel "
+                                    + "coordinates do not name the same place in both and comparing "
+                                    + "them would invent a disagreement";
+                    continue;
+                }
+                p.Available = true;
+                continue;
+            }
+
+            if (m >= mipCount)
+            {
+                p.Unavailable = $"the display target carries {mipCount} mip level(s), so level {m} "
+                                + "does not exist. READ THAT AS A FINDING BEFORE READING IT AS A GAP: "
+                                + "a display target with no mip chain is the ModBuild 192 falsifier's "
+                                + "own subject and the eye then minifies an unfiltered level 0";
+                continue;
+            }
+            if (m > 0 && (p.W < 8 || p.H < 8))
+            {
+                p.Unavailable = $"the census strip is only {p.W}x{p.H} texels at this level, under the "
+                                + "8x8 needed for the orientation band profile to mean anything";
+                continue;
+            }
+            p.Available = true;
+        }
     }
 
     /// <summary>
@@ -3243,11 +3875,13 @@ internal static partial class PanelSupersample
             return null;
         }
         note = ReferenceEquals(shown, e.MipRt)
-            ? "the RESOLVED, MIPPED DISPLAY TARGET at mip 0 — the exact texture the display quad "
-              + "samples, so an EMPTY verdict here is upstream of the resolve, the mip chain, the quad "
-              + "and the eye"
+            ? "the RESOLVED, MIPPED DISPLAY TARGET — the exact texture the display quad samples. "
+              + "ModBuild 208 reads it at mip 0, 1 AND 2 and reads the CAPTURE target beside it, so "
+              + "the census now spans the resolve blit and the two levels the eye actually reads "
+              + "instead of stopping at the level it does not"
             : "the CAPTURE TARGET directly (MipFallback: the mipped display target was refused, so the "
-              + "quad shows this texture as well)";
+              + "quad shows this texture as well — and there is then neither a blit nor a mip chain "
+              + "to census, which the plane table below states rather than leaves blank)";
         return shown;
     }
 
@@ -3690,39 +4324,46 @@ internal static partial class PanelSupersample
     /// it was taken from was re-allocated, possibly with an error. All three are handled here and all
     /// three are COUNTED, so no outcome of this instrument can be silent.
     /// </summary>
-    private static void OnInkRead(string window, int gen, AsyncGPUReadbackRequest req)
+    private static void OnInkRead(string window, int gen, int plane, AsyncGPUReadbackRequest req)
     {
         try
         {
-            // FIRST, and on every path out of this method: one request has landed. If this were done
-            // only on the success paths, two errors in a row would leave the global budget permanently
-            // exhausted and the census would go silent for the rest of the session while every line
-            // still claimed it was armed.
-            if (_inkInFlight > 0)
-                _inkInFlight--;
+            // The mod-wide budget is charged ONCE PER CENSUS from ModBuild 208 and is released by
+            // EndInkCensus on every exit — including StandDown, which is why a window that died while
+            // this was in flight does not leak it here.
             if (!InkCensuses.TryGetValue(window, out InkCensus c))
                 return; // the window stood down while this was in flight; its state died with it
             if (!c.InFlight || c.Gen != gen)
                 return; // superseded
-            c.InFlight = false;
+            InkPlane p = c.Planes[plane];
+            if (p.Landed || p.Failed)
+                return; // a duplicate callback for a plane already accounted for
+            c.PlanesOutstanding--;
             Entry? e = EntryForWindow(window);
             if (e == null)
             {
                 c.DroppedStale++;
+                EndInkCensus(c);
                 return;
             }
             if (req.hasError)
             {
+                // ONE plane failing is not the census failing. It is recorded, the line names it, and
+                // the remaining planes still answer — a mip 2 readback the driver refused must not
+                // silently become "mip 2 lost every glyph".
+                p.Failed = true;
+                p.FailWhy = "the AsyncGPUReadback came back with request.hasError — the GPU refused or "
+                            + "aborted the copy, so NOTHING may be concluded about this plane in "
+                            + "either direction";
+                c.PlanesFailed++;
                 c.Errors++;
-                ReportInkUnanswerable(e, c, c.Reason,
-                    "the AsyncGPUReadback came back with request.hasError — the GPU refused or aborted "
-                    + "the copy, so there is no image to judge and NOTHING may be concluded from this "
-                    + "census in either direction");
+                FinishInkPlane(e, c);
                 return;
             }
             RenderTexture shown = DisplayTexture(e);
             if (shown == null || shown.GetInstanceID() != c.TargetId
-                || e.RtW != c.RtW || e.RtH != c.RtH)
+                || e.RtW != c.RtW || e.RtH != c.RtH
+                || (p.FromCapture && (e.Rt == null || e.Rt.GetInstanceID() != c.CaptureId)))
             {
                 // The mesh positions were mapped through the frame and target that existed when the
                 // request went out; a re-allocation between then and now makes every texel coordinate
@@ -3764,32 +4405,45 @@ internal static partial class PanelSupersample
                 return;
             }
             Unity.Collections.NativeArray<Color32> data = req.GetData<Color32>();
-            long need = (long)c.StripW * c.StripH;
+            long need = (long)p.W * p.H;
             if (data.Length < need)
             {
+                p.Failed = true;
+                p.FailWhy = $"the readback delivered {data.Length} texel(s) against the {need} asked "
+                            + $"for ({p.W}x{p.H}), so the buffer cannot be indexed safely";
+                c.PlanesFailed++;
                 c.Errors++;
-                ReportInkUnanswerable(e, c, c.Reason,
-                    $"the readback delivered {data.Length} texel(s) against the {need} asked for "
-                    + $"({c.StripW}x{c.StripH}), so the buffer cannot be indexed safely");
+                FinishInkPlane(e, c);
                 return;
             }
             float started = Time.realtimeSinceStartup;
-            bool answered = EvaluateInkCensus(e, c, data, out string? why);
-            c.ReadMs = (Time.realtimeSinceStartup - started) * 1000.0;
-            c.DeliveredFrame = Time.frameCount;
+            bool answered = EvaluateInkPlane(e, c, p, data, out string? why);
+            p.JudgeMs = (Time.realtimeSinceStartup - started) * 1000.0;
+            p.DeliveredFrame = Time.frameCount;
+            c.JudgeMsTotal += p.JudgeMs;
+            if (p.JudgeMs > c.JudgeMsWorst)
+                c.JudgeMsWorst = p.JudgeMs;
             if (!answered)
             {
+                // The ORIENTATION SELF-CHECK on the MIP 0 plane is the only thing that can refuse
+                // here, and it refuses for the whole census rather than for one plane: a census that
+                // could not establish which way up the buffer is would read the mirrored row of every
+                // glyph on every plane, and the level comparison would then be a comparison of two
+                // wrong answers.
                 ReportInkUnanswerable(e, c, c.Reason, why!);
                 return;
             }
-            c.Completed++;
-            ReportInkCensus(e, c);
+            if (!p.Failed)
+            {
+                p.Landed = true;
+                c.PlanesLanded++;
+            }
+            FinishInkPlane(e, c);
         }
         catch (System.Exception ex)
         {
             if (InkCensuses.TryGetValue(window, out InkCensus c2))
             {
-                c2.InFlight = false;
                 c2.Threw++;
                 ReportInkUnanswerable(EntryForWindow(window), c2, c2.Reason,
                     $"the census EVALUATION threw ({ex.GetType().Name}: {ex.Message})");
@@ -3798,15 +4452,86 @@ internal static partial class PanelSupersample
     }
 
     /// <summary>
-    /// Judge every censused glyph against the delivered image. Returns false — with a reason — when
+    /// One plane is accounted for. When the last one is, do the CROSS-PLANE work — which is the whole
+    /// of ModBuild 208 — and report.
+    /// <para>The neighbourhood search happens here rather than in the mip 0 callback for a reason
+    /// worth stating: it needs the mip 0 buffer, which is dead by now, so it does NOT run at this
+    /// point. It ran (or was gated out) inside <see cref="EvaluateInkPlane"/> while its buffer was
+    /// alive. This method only assembles what the planes found.</para>
+    /// </summary>
+    private static void FinishInkPlane(Entry e, InkCensus c)
+    {
+        if (c.PlanesOutstanding > 0)
+            return;
+        c.DeliveredFrame = Time.frameCount;
+        c.ReadMs = c.JudgeMsTotal + c.SearchMs;
+
+        InkPlane mip0 = c.Planes[InkPlaneMip0];
+        if (!mip0.Landed)
+        {
+            ReportInkUnanswerable(e, c, c.Reason,
+                "the MIP 0 plane — the one every ModBuild 205-207 census read, and the reference every "
+                + "other plane is compared against — did not land ("
+                + (mip0.FailWhy.Length > 0 ? mip0.FailWhy : "no reason recorded")
+                + "), so there is no baseline to compare the mip levels to and nothing may be "
+                + "concluded about the chain in either direction");
+            return;
+        }
+
+        CompareInkPlanes(c);
+        BuildMappingVerdict(c);
+        BuildMipVerdict(c);
+        BuildBlitVerdict(c);
+
+        // THE CURSOR ADVANCES BY THE LEAST ANY LANDED PLANE COVERED, never by the most. A plane that
+        // got further than its siblings still only contributes to the level comparison over the range
+        // they all reached, so advancing past that would leave a band of glyphs no census ever
+        // compares — which is exactly the silent truncation this whole region forbids.
+        int covered = int.MaxValue;
+        for (int i = 0; i < c.Planes.Length; i++)
+        {
+            InkPlane p = c.Planes[i];
+            if (p.Landed && p.Judged + p.BelowFloor < covered)
+                covered = p.Judged + p.BelowFloor;
+        }
+        if (covered == int.MaxValue || covered <= 0)
+            covered = 0;
+        c.GlyphCursor = c.Glyphs.Count > 0
+            ? (c.CensusCursor + covered) % c.Glyphs.Count
+            : 0;
+        c.LastMipLost = c.MipLost1 + c.MipLost2;
+
+        c.Completed++;
+        ReportInkCensus(e, c);
+    }
+
+    /// <summary>
+    /// Judge every censused glyph against ONE delivered plane. Returns false — with a reason — when
     /// the orientation self-check cannot decide which way up the buffer is, because a census that
     /// reads the mirrored row of every glyph would produce a confident, wrong answer.
+    ///
+    /// <para><b>EVERY TEXEL COORDINATE HERE IS THE LEVEL-0 ONE TIMES <see cref="InkPlane.Scale"/>.</b>
+    /// The glyph list is built once, in level-0 texels, and each plane scales it — so the four planes
+    /// are by construction judging THE SAME GLYPHS in the same places, which is the only way the
+    /// level comparison means anything.</para>
+    ///
+    /// <para><b>THE BUDGET (ModBuild 208).</b> The per-glyph loop stops after
+    /// <see cref="InkJudgeBudgetMs"/> and carries the rest to the next census. Every plane of one
+    /// census starts at the SAME cursor (<see cref="InkCensus.CensusCursor"/>) so that a budget
+    /// overrun narrows the compared set rather than misaligning it.</para>
     /// </summary>
-    private static bool EvaluateInkCensus(Entry e, InkCensus c,
-                                          Unity.Collections.NativeArray<Color32> data, out string? why)
+    private static bool EvaluateInkPlane(Entry e, InkCensus c, InkPlane p,
+                                         Unity.Collections.NativeArray<Color32> data, out string? why)
     {
         why = null;
-        int w = c.StripW, h = c.StripH;
+        int w = p.W, h = p.H;
+        int n = c.Glyphs.Count;
+        bool isMip0 = p.Index == InkPlaneMip0;
+        // THE PLANE'S DEADLINE STARTS HERE, not at the glyph loop. The orientation profile is a fixed
+        // prologue of up to InkMaxProfileSamples texel reads and at ModBuild 207's measured ~140 ns a
+        // read it is the single most expensive thing in this method; a budget that started after it
+        // would be a budget in name only.
+        float started = Time.realtimeSinceStartup;
 
         // ---- the strip's own background level, as a MEDIAN over a coarse grid -------------------
         InkScratch.Clear();
@@ -3816,49 +4541,111 @@ internal static partial class PanelSupersample
             for (int x = gridStride / 2; x < w && InkScratch.Count < 4096; x += gridStride)
                 InkScratch.Add(InkValue(data[y * w + x]));
         }
-        c.Background = InkMedian(InkScratch);
+        p.Background = InkMedian(InkScratch);
 
         // ---- THE ORIENTATION SELF-CHECK ---------------------------------------------------------
         // AsyncGPUReadback returns the source texture's own layout and Unity does not flip it, so
         // whether row 0 is the bottom or the top of the image is a property of the graphics API and
         // must be MEASURED, never assumed. See MinInkStripTexels for why the strip is full height (it
         // makes the placement identical under both conventions, leaving only the row order).
+        //
+        // ModBuild 208 runs it PER PLANE rather than once. The row order is a property of the API and
+        // ought to be identical on all four, so a plane that disagrees with its siblings is itself a
+        // finding — and a plane that cannot decide on its own borrows the census's decision rather
+        // than guessing, saying so on the line.
         for (int b = 0; b < InkBands; b++)
         {
             InkBandPredicted[b] = 0f;
             InkBandMeasured[b] = 0f;
         }
-        for (int i = 0; i < c.Glyphs.Count; i++)
+        for (int i = 0; i < n; i++)
         {
             InkGlyph g = c.Glyphs[i];
-            float centre = (g.Y0 + g.Y1) * 0.5f;
+            float centre = (g.Y0 + g.Y1) * 0.5f * p.Scale;
             int band = Mathf.Clamp((int)(centre * InkBands / h), 0, InkBands - 1);
-            InkBandPredicted[band] += (g.X1 - g.X0) * (g.Y1 - g.Y0);
+            InkBandPredicted[band] += (g.X1 - g.X0) * (g.Y1 - g.Y0) * p.Scale * p.Scale;
         }
-        for (int y = 0; y < h; y += InkProfileStride)
+        // DECIDE ONCE PER WINDOW, CONFIRM CHEAPLY AFTER THAT — see InkConfirmProfileSamples. The
+        // deciding sweep is ModBuild 207's exactly (fixed stride 4, ~125k texel reads, ~18 ms of the
+        // 23 that log reported) and it runs on the FIRST census only; every census after it pays 2,500
+        // samples for a cross-check that never gates anything.
+        p.Confirming = c.OrientationDecided;
+        int profileStride = p.Confirming
+            ? Mathf.Max(InkProfileStride,
+                        Mathf.CeilToInt(Mathf.Sqrt((float)w * h / InkConfirmProfileSamples)))
+            : InkProfileStride;
+        p.ProfileStride = profileStride;
+        for (int y = 0; y < h; y += profileStride)
         {
             int band = Mathf.Clamp(y * InkBands / h, 0, InkBands - 1);
             int row = y * w;
-            for (int x = 0; x < w; x += InkProfileStride)
+            for (int x = 0; x < w; x += profileStride)
             {
-                if (Mathf.Abs(InkValue(data[row + x]) - c.Background) >= InkThreshold)
+                if (Mathf.Abs(InkValue(data[row + x]) - p.Background) >= InkThreshold)
                     InkBandMeasured[band] += 1f;
             }
         }
-        c.CorrAsIs = InkCorrelation(InkBandPredicted, InkBandMeasured, false);
-        c.CorrFlip = InkCorrelation(InkBandPredicted, InkBandMeasured, true);
-        float best = Mathf.Max(c.CorrAsIs, c.CorrFlip);
-        float margin = Mathf.Abs(c.CorrAsIs - c.CorrFlip);
-        if (best < InkOrientMinCorrelation || margin < InkOrientMinMargin)
+        p.CorrAsIs = InkCorrelation(InkBandPredicted, InkBandMeasured, false);
+        p.CorrFlip = InkCorrelation(InkBandPredicted, InkBandMeasured, true);
+        float best = Mathf.Max(p.CorrAsIs, p.CorrFlip);
+        float margin = Mathf.Abs(p.CorrAsIs - p.CorrFlip);
+        p.Decided = best >= InkOrientMinCorrelation && margin >= InkOrientMinMargin;
+
+        if (p.Confirming)
         {
+            // THE STORED DECISION GOVERNS. This plane's own profile is 2,500 samples — deliberately
+            // too weak to gate a census and quite strong enough to catch a flipped buffer, which is a
+            // total inversion of the profile and not a marginal shift.
+            p.Flipped = c.Flipped;
+            if (p.Decided && (p.CorrFlip > p.CorrAsIs) != c.Flipped)
+            {
+                // A CONFIRMATION THAT DECIDED THE OTHER WAY IS A FINDING, NOT A TIE-BREAK. Two planes
+                // of one texture cannot honestly disagree about row order, so one of the two readings
+                // is wrong and this instrument cannot say which. It refuses.
+                string clash = "ITS ORIENTATION CONFIRMATION DISAGREES WITH THE DECISION THIS WINDOW "
+                               + "ALREADY MADE: the stored row order is "
+                               + (c.Flipped ? "row 0 = TOP" : "row 0 = BOTTOM")
+                               + $" and this plane's own profile says the opposite ({p.CorrAsIs:F2} as "
+                               + $"delivered against {p.CorrFlip:F2} reversed). Two planes of one "
+                               + "texture cannot honestly disagree about which way up a readback "
+                               + "buffer is, so ONE of the two readings is wrong and nothing here can "
+                               + "say which";
+                if (!isMip0)
+                {
+                    p.Failed = true;
+                    p.FailWhy = clash + ", so this plane contributes NOTHING rather than a possibly "
+                                + "mirrored reading";
+                    c.PlanesFailed++;
+                    return true;
+                }
+                c.Orientation = "CONTRADICTED";
+                why = clash + ". The census is DROPPED rather than judged on either of them, and the "
+                      + "next reading re-derives the row order from scratch";
+                c.OrientationDecided = false;
+                return false;
+            }
+        }
+        else if (!p.Decided)
+        {
+            if (!isMip0)
+            {
+                p.Failed = true;
+                p.FailWhy = "its own orientation self-check could not decide which way up the buffer "
+                            + $"is (correlation {p.CorrAsIs:F2} as delivered against {p.CorrFlip:F2} "
+                            + $"reversed, needing {InkOrientMinCorrelation:F2} and a "
+                            + $"{InkOrientMinMargin:F2} margin) and no plane had decided yet, so it "
+                            + "contributes NOTHING rather than a mirrored reading";
+                c.PlanesFailed++;
+                return true;
+            }
             c.Orientation = "UNDECIDED";
             why = "THE ORIENTATION SELF-CHECK COULD NOT DECIDE WHICH WAY UP THE READBACK BUFFER IS. "
                   + "AsyncGPUReadback returns the source texture's own layout and Unity does not flip "
                   + "it, so row 0 is the bottom of the image on some graphics APIs and the top on "
                   + "others; a census that guesses reads the MIRRORED row of every glyph and answers "
                   + "confidently and wrongly. The check correlates the ink bands the MESH predicts "
-                  + $"against the ink bands actually measured, as delivered ({c.CorrAsIs:F2}) and "
-                  + $"reversed ({c.CorrFlip:F2}), over {InkBands} bands of the strip; it needs a best "
+                  + $"against the ink bands actually measured, as delivered ({p.CorrAsIs:F2}) and "
+                  + $"reversed ({p.CorrFlip:F2}), over {InkBands} bands of the strip; it needs a best "
                   + $"correlation of at least {InkOrientMinCorrelation:F2} and a margin of at least "
                   + $"{InkOrientMinMargin:F2} and got {best:F2} / {margin:F2}. THE TWO READINGS THAT "
                   + "PRODUCE THIS: the censused text is confined to one horizontal band (nothing to "
@@ -3867,62 +4654,141 @@ internal static partial class PanelSupersample
                   + "treating this as a mere instrument failure";
             return false;
         }
-        c.Flipped = c.CorrFlip > c.CorrAsIs;
-        c.Orientation = c.Flipped
-            ? $"row 0 of the readback is the TOP of the image (mesh-vs-image band correlation "
-              + $"{c.CorrFlip:F2} reversed against {c.CorrAsIs:F2} as delivered), so every glyph is "
-              + "sampled from the mirrored row"
-            : $"row 0 of the readback is the BOTTOM of the image (mesh-vs-image band correlation "
-              + $"{c.CorrAsIs:F2} as delivered against {c.CorrFlip:F2} reversed), i.e. the same "
-              + "orientation the orthographic capture camera's viewport uses";
+        else
+        {
+            // THE DECIDING SWEEP, once per window: ModBuild 207's full-strength profile, and it fixes
+            // the row order for the session.
+            p.Flipped = p.CorrFlip > p.CorrAsIs;
+            c.OrientationDecided = true;
+            c.Flipped = p.Flipped;
+            c.CorrAsIs = p.CorrAsIs;
+            c.CorrFlip = p.CorrFlip;
+            c.Orientation = (p.Flipped
+                ? $"row 0 of the readback is the TOP of the image (mesh-vs-image band correlation "
+                  + $"{p.CorrFlip:F2} reversed against {p.CorrAsIs:F2} as delivered), so every glyph is "
+                  + "sampled from the mirrored row"
+                : $"row 0 of the readback is the BOTTOM of the image (mesh-vs-image band correlation "
+                  + $"{p.CorrAsIs:F2} as delivered against {p.CorrFlip:F2} reversed), i.e. the same "
+                  + "orientation the orthographic capture camera's viewport uses")
+                + $" — DECIDED by the full-strength sweep on the {p.Short} plane and then held for "
+                + "this window, because row order is a property of the graphics API and the texture "
+                + "layout and does not change between frames. ModBuild 207 re-derived it every census "
+                + "and that sweep was ~18 ms of its 23 ms cost; every census after this one pays "
+                + $"{InkConfirmProfileSamples} samples for a CONFIRMATION that never gates anything "
+                + "and refuses the census outright if it ever decides the other way";
+        }
 
         // ---- the per-glyph verdict, AND the ink centroid that judges the mapping -----------------
         InkDevInk.Clear();
         InkDevEmpty.Clear();
-        for (int i = 0; i < c.Comps.Count; i++)
+        if (isMip0)
         {
-            InkComponent reset = c.Comps[i];
-            reset.Ink = 0;
-            reset.Empty = 0;
-            reset.EmptyChars = string.Empty;
-            reset.EmptyNotNamed = 0;
-            reset.Absent = 0;
-            reset.FoundOffset = 0;
-            reset.Ambiguous = 0;
-            reset.EmptyNearStripEdge = 0;
-            reset.FitDx = 0f;
-            reset.FitDy = 0f;
-            reset.FitPassAtBest = 0;
-            reset.FitPassAtZero = 0;
-            reset.FitNote = string.Empty;
-            reset.SpanX = 0f;
-            reset.SpanY = 0f;
-            reset.FlatField = false;
+            for (int i = 0; i < c.Comps.Count; i++)
+            {
+                InkComponent reset = c.Comps[i];
+                reset.Ink = 0;
+                reset.Empty = 0;
+                reset.Judged = 0;
+                reset.BelowFloor = 0;
+                reset.EmptyChars = string.Empty;
+                reset.EmptyNotNamed = 0;
+                reset.Absent = 0;
+                reset.FoundOffset = 0;
+                reset.Ambiguous = 0;
+                reset.EmptyNearStripEdge = 0;
+                reset.FitDx = 0f;
+                reset.FitDy = 0f;
+                reset.FitPassAtBest = 0;
+                reset.FitPassAtZero = 0;
+                reset.ScoreGlyphs = 0;
+                reset.FitNote = string.Empty;
+                reset.SpanX = 0f;
+                reset.SpanY = 0f;
+                reset.FlatField = false;
+            }
+            c.TotalGlyphs = n;
+            c.TotalInk = 0;
+            c.TotalEmpty = 0;
+            c.CentroidCount = 0;
+            c.CentroidDxSum = 0;
+            c.CentroidDySum = 0;
+            c.CentroidDxLow = float.MaxValue;
+            c.CentroidDxHigh = float.MinValue;
+            c.CentroidDyLow = float.MaxValue;
+            c.CentroidDyHigh = float.MinValue;
         }
-        c.TotalGlyphs = c.Glyphs.Count;
-        c.TotalInk = 0;
-        c.TotalEmpty = 0;
-        c.CentroidCount = 0;
-        c.CentroidDxSum = 0;
-        c.CentroidDySum = 0;
-        c.CentroidDxLow = float.MaxValue;
-        c.CentroidDxHigh = float.MinValue;
-        c.CentroidDyLow = float.MaxValue;
-        c.CentroidDyHigh = float.MinValue;
 
-        for (int i = 0; i < c.Glyphs.Count; i++)
+        p.JudgeFrom = c.CensusCursor;
+        p.ProfileMs = (Time.realtimeSinceStartup - started) * 1000.0;
+        ChargeInkBudget(p.ProfileMs);
+
+        // THIS PLANE'S SHARE OF THE FRAME. The four planes of a census can all land on the SAME frame
+        // — AsyncGPUReadback drains its completed queue per frame and they were all requested on one —
+        // so a per-plane ceiling alone would have bounded a quarter of the problem. The share is what
+        // is left this frame divided by the planes still to come, capped at InkJudgeBudgetMs and
+        // floored at InkMinStageBudgetMs so a late plane still measures SOMETHING: a plane that
+        // measured nothing contributes nothing to the level comparison and would shrink its
+        // denominator to zero without ever saying so.
+        double budgetMs = InkStageBudgetMs(c.PlanesOutstanding + (isMip0 ? 1 : 0), InkJudgeBudgetMs);
+        p.BudgetMs = budgetMs;
+        float glyphStart = Time.realtimeSinceStartup;
+        int processed = 0;
+        for (int k = 0; k < n; k++)
         {
+            // THE BUDGET, checked every InkBudgetCheckStride glyphs. Time.realtimeSinceStartup is a
+            // call into the engine, so reading it per glyph would be a measurable share of the budget
+            // it is protecting.
+            if (k > 0 && (k % InkBudgetCheckStride) == 0
+                && (Time.realtimeSinceStartup - glyphStart) * 1000.0 >= budgetMs)
+            {
+                p.Overran = true;
+                break;
+            }
+            int i = (c.CensusCursor + k) % n;
             InkGlyph g = c.Glyphs[i];
-            float bg = InkLocalBackground(data, c, g);
-            InkGlyphBg[i] = bg;
-            float dev = InkQuadScore(data, c, g, 0f, 0f, InkInnerSamples, bg,
+            processed++;
+
+            // ---- THE SIZE FLOOR — see InkMinQuadTexels. A correctly minified glyph is not a defect
+            // and this instrument cannot judge one, so it is counted as BELOW THE FLOOR and is
+            // neither INKED nor EMPTY. Without this, level 2 would report a broken mip chain on a
+            // perfect one and the whole build would be an artefact of its own geometry.
+            float qw = (g.X1 - g.X0) * p.Scale;
+            float qh = (g.Y1 - g.Y0) * p.Scale;
+            float minor = Mathf.Min(qw, qh);
+            if (minor < InkMinQuadTexels)
+            {
+                p.BelowFloor++;
+                if (isMip0 && g.Comp >= 0 && g.Comp < c.Comps.Count)
+                    c.Comps[g.Comp].BelowFloor++;
+                continue;
+            }
+            if (minor < p.SmallestJudged) p.SmallestJudged = minor;
+            if (minor > p.LargestJudged) p.LargestJudged = minor;
+
+            float bg = InkLocalBackground(data, p, g);
+            p.Bg[i] = bg;
+            float dev = InkQuadScore(data, p, g, 0f, 0f, InkInnerSamples, bg,
                                      out float cx, out float cy, out _);
             bool ink = dev >= InkThreshold;
-            InkGlyphInked[i] = ink;
+            p.Measured[i] = true;
+            p.Inked[i] = ink;
+            p.Judged++;
+            if (ink)
+            {
+                p.Ink++;
+                InkDevInk.Add(dev);
+            }
+            else
+            {
+                p.Empty++;
+                InkDevEmpty.Add(dev);
+            }
+            if (!isMip0)
+                continue;
+
             if (ink)
             {
                 c.TotalInk++;
-                InkDevInk.Add(dev);
                 // REQUIREMENT 1: MEASURE THE OFFSET, DO NOT ASSUME IT IS ZERO. This is the cheap,
                 // sub-texel estimate — where the ink actually sits inside a quad the census says has
                 // ink. It carries the glyph's own shape asymmetry as well as any displacement, which
@@ -3939,11 +4805,11 @@ internal static partial class PanelSupersample
             else
             {
                 c.TotalEmpty++;
-                InkDevEmpty.Add(dev);
             }
             if (g.Comp < 0 || g.Comp >= c.Comps.Count)
                 continue;
             InkComponent comp = c.Comps[g.Comp];
+            comp.Judged++;
             if (ink)
             {
                 comp.Ink++;
@@ -3966,22 +4832,35 @@ internal static partial class PanelSupersample
                 }
             }
         }
-        if (c.CentroidCount == 0)
-        {
-            c.CentroidDxLow = c.CentroidDxHigh = c.CentroidDyLow = c.CentroidDyHigh = 0f;
-        }
+        p.Deferred = n - processed;
+        ChargeInkBudget((Time.realtimeSinceStartup - glyphStart) * 1000.0);
+        if (p.SmallestJudged > p.LargestJudged)
+            p.SmallestJudged = 0f;
+
         InkScratch.Clear();
         InkScratch.AddRange(InkDevInk);
-        c.MedDevInk = InkMedian(InkScratch);
+        p.MedDevInk = InkMedian(InkScratch);
         InkScratch.Clear();
         InkScratch.AddRange(InkDevEmpty);
-        c.MedDevEmpty = InkMedian(InkScratch);
+        p.MedDevEmpty = InkMedian(InkScratch);
+
+        if (!isMip0)
+            return true;
+
+        if (c.CentroidCount == 0)
+            c.CentroidDxLow = c.CentroidDxHigh = c.CentroidDyLow = c.CentroidDyHigh = 0f;
+        c.Background = p.Background;
+        c.MedDevInk = p.MedDevInk;
+        c.MedDevEmpty = p.MedDevEmpty;
+        c.TotalJudged = p.Judged;
+        c.TotalBelowFloor = p.BelowFloor;
+        c.TotalDeferred = p.Deferred;
 
         // ---- THE ALPHA EVIDENCE FOR THE COMPONENTS THAT PRODUCED EMPTIES ------------------------
         BuildInkAlphaEvidence(c);
         // ---- REQUIREMENT 2: SEARCH A NEIGHBOURHOOD BEFORE DECLARING EMPTY -----------------------
-        FitInkComponents(data, c);
-        BuildMappingVerdict(c);
+        // It runs HERE and nowhere else: it needs this plane's buffer, which dies with this callback.
+        FitInkComponents(data, c, p);
         return true;
     }
 
@@ -4048,7 +4927,8 @@ internal static partial class PanelSupersample
     /// few texels away, and re-measuring a ring per offset would multiply the cost by twenty for no
     /// information.</para>
     /// </summary>
-    private static void FitInkComponents(Unity.Collections.NativeArray<Color32> data, InkCensus c)
+    private static void FitInkComponents(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+                                         InkPlane p)
     {
         c.EmptyAbsent = 0;
         c.EmptyFoundOffset = 0;
@@ -4069,14 +4949,96 @@ internal static partial class PanelSupersample
         c.AliasCount = 0;
         c.AliasDxSum = 0;
         c.AliasDySum = 0;
+        c.SearchRan = false;
+        c.SearchComponents = 0;
+        c.SearchDeferredComps = 0;
+        c.SearchOverran = false;
+        c.SearchMs = 0.0;
         int searched = 0;
         int named = 0;
 
-        for (int ci = 0; ci < c.Comps.Count; ci++)
+        // ---- THE GATE (ModBuild 208), and it is most of the cost fix -----------------------------
+        // The search exists for ONE purpose: to decide whether a glyph EMPTY at its predicted place is
+        // absent or displaced. It has nothing to say about a glyph that HAS ink at mip 0, and it has
+        // nothing to add once the level comparison has located the loss in the mip chain — at that
+        // point the next round works on GenerateMips and not on a registration offset.
+        //
+        // The gate reads the PREVIOUS census's comparison rather than this one's, and that is forced
+        // rather than sloppy: this search needs the mip 0 buffer, the comparison needs the mip 1/2
+        // buffers, and no two readback buffers are ever alive at the same instant. The first census
+        // after engage therefore always searches, and the line says which census's evidence gated it.
+        if (c.TotalEmpty == 0)
         {
+            c.SearchNote = "NOT RUN, and there was nothing to run it on: no glyph was EMPTY at mip 0, "
+                           + "so there is no missing ink for a positional search to look for. This is "
+                           + "the shape of all thirteen clean ModBuild 207 readings";
+            c.FitNote = " (no component needed a fit.)";
+            return;
+        }
+        if (c.LastMipLost > 0)
+        {
+            for (int ci = 0; ci < c.Comps.Count; ci++)
+            {
+                InkComponent skip = c.Comps[ci];
+                if (skip.Empty == 0)
+                    continue;
+                skip.Ambiguous += skip.Empty;
+                c.EmptyNotSearched += skip.Empty;
+                c.EmptyAmbiguous += skip.Empty;
+                skip.FitNote = "not searched (the mip-chain finding gates the search out)";
+            }
+            c.SearchNote = $"NOT RUN — the PREVIOUS census on this window found {c.LastMipLost} "
+                           + "glyph(s) inked at mip 0 and EMPTY at a mip level the eye reads, which "
+                           + "locates the loss in the mip chain. A registration search over the mip 0 "
+                           + "plane cannot add to that and costs 3 ms of an 11.11 ms frame, so it is "
+                           + "gated out and its EMPTY glyphs are left UNCLASSIFIED rather than "
+                           + "silently called absent. It resumes as soon as a census reads 0 lost";
+            c.FitNote = " (the search was gated out; no component was fitted.)";
+            return;
+        }
+
+        c.SearchRan = true;
+        // The search draws from the SAME per-frame pool the planes do, and it is the last stage of the
+        // census, so it asks for the whole remainder capped at its own ceiling.
+        double searchBudget = InkStageBudgetMs(0, InkSearchBudgetMs);
+        c.SearchBudgetMs = searchBudget;
+        float searchStarted = Time.realtimeSinceStartup;
+        int compCount = c.Comps.Count;
+        int startComp = compCount > 0 ? c.SearchCursor % compCount : 0;
+        bool overran = false;
+
+        for (int step = 0; step < compCount; step++)
+        {
+            int ci = (startComp + step) % compCount;
+            // THE SEARCH CURSOR AND ITS BUDGET. A component is either searched completely or not at
+            // all — a half-swept score field has an argmax that means nothing — so the deadline is
+            // consulted BETWEEN components and the remainder is carried to the next census, which
+            // resumes at the component the budget stopped on rather than starting over.
+            if (c.SearchComponents > 0
+                && (Time.realtimeSinceStartup - searchStarted) * 1000.0 >= searchBudget)
+            {
+                overran = true;
+                c.SearchOverran = true;
+                for (int rest = step; rest < compCount; rest++)
+                {
+                    InkComponent left = c.Comps[(startComp + rest) % compCount];
+                    if (left.Empty == 0)
+                        continue;
+                    left.Ambiguous += left.Empty;
+                    c.EmptyNotSearched += left.Empty;
+                    c.EmptyAmbiguous += left.Empty;
+                    left.FitNote = $"DEFERRED — the {searchBudget:F2} ms search budget was spent "
+                                   + "before this component was reached; it is carried to the next "
+                                   + "census and is NOT counted as absent";
+                    c.SearchDeferredComps++;
+                }
+                c.SearchCursor = ci;
+                break;
+            }
             InkComponent comp = c.Comps[ci];
             if (comp.Empty == 0)
                 continue;
+            c.SearchComponents++;
             if (searched + comp.GlyphCount > MaxInkSearchGlyphs)
             {
                 // The cap must never be able to manufacture the more alarming verdict, so an
@@ -4087,6 +5049,31 @@ internal static partial class PanelSupersample
                 continue;
             }
             searched += comp.GlyphCount;
+
+            // ---- THE SCORED SUBSET — see InkSearchMaxGlyphs. A whole-string fit AGGREGATES, so it
+            // locates its peak from a stratified sample; the per-glyph verdict at the fitted offset
+            // still re-tests every EMPTY glyph on the full grid further down. This is what takes one
+            // component's coarse sweep from 444,000 texel reads to 111,000.
+            comp.ScoreStride = Mathf.Max(1, Mathf.CeilToInt(comp.GlyphCount / (float)InkSearchMaxGlyphs));
+            comp.ScoreGlyphs = 0;
+            for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount;
+                 gi += comp.ScoreStride)
+            {
+                if (p.Measured[gi])
+                    comp.ScoreGlyphs++;
+            }
+            if (comp.ScoreGlyphs == 0)
+            {
+                // Every glyph of this component was left unjudged by the millisecond budget or fell
+                // under the size floor, so there is nothing to score an offset against.
+                comp.Ambiguous += comp.Empty;
+                c.EmptyNotSearched += comp.Empty;
+                c.EmptyAmbiguous += comp.Empty;
+                comp.FitNote = "not searched (none of its glyphs was judged on this plane, so the "
+                               + "score field would have no samples in it)";
+                NameInkFit(comp, ref named);
+                continue;
+            }
 
             // ---- THE WINDOW, in this component's own units, CLAMPED TO WHAT THE STRIP CAN SERVE --
             // Widening the window from one advance to four makes strip-edge clipping four times as
@@ -4125,13 +5112,13 @@ internal static partial class PanelSupersample
             // ---- STAGE 1: the whole window at half-advance steps ---------------------------------
             float coarseX = Mathf.Max(1f, comp.SpanX * 2f / (InkCoarseSteps - 1));
             float coarseY = Mathf.Max(1f, comp.SpanY * 2f / (InkCoarseSteps - 1));
-            bool usable = InkSearchGrid(data, c, comp, 0f, 0f, coarseX, coarseY, InkCoarseSteps,
+            bool usable = InkSearchGrid(data, c, p, comp, 0f, 0f, coarseX, coarseY, InkCoarseSteps,
                                         out float bdx, out float bdy, out int bestPass,
                                         out bool onBorder, out int unavailable);
             // The SCORE AT ZERO is measured explicitly and always, so the line can show whether the
             // field has a peak at all. ModBuild 206 printed it only on the paths that reached a fit,
             // which is precisely the set of readings that did NOT need it.
-            comp.FitPassAtZero = Mathf.Max(0, InkScoreAt(data, c, comp, 0f, 0f));
+            comp.FitPassAtZero = Mathf.Max(0, InkScoreAt(data, c, p, comp, 0f, 0f));
             comp.FitPassAtBest = bestPass;
             comp.FitDx = bdx;
             comp.FitDy = bdy;
@@ -4156,7 +5143,12 @@ internal static partial class PanelSupersample
             // unreachable — 21 of 21, 19 of 19 and 130 of 130 EMPTY glyphs classified as nothing at
             // all. A flat field is "nothing here", and it is the STRONGEST form of absent: no ink
             // within four glyph advances and three line heights of where the mesh says this text is.
-            int flatBar = Mathf.Max(1, Mathf.CeilToInt(comp.GlyphCount * InkFlatFieldFraction));
+            // ModBuild 208: THE DENOMINATOR IS THE SCORED SUBSET, NOT THE GLYPH COUNT. The search now
+            // scores at most InkSearchMaxGlyphs of a component's glyphs, so a bar taken against the
+            // full count would be unreachable on a long string and every one of them would come back
+            // FLAT FIELD — i.e. GENUINELY ABSENT — which is the alarming verdict, manufactured by a
+            // cost optimisation. Both numbers are printed.
+            int flatBar = Mathf.Max(1, Mathf.CeilToInt(comp.ScoreGlyphs * InkFlatFieldFraction));
             if (bestPass < flatBar)
             {
                 comp.FlatField = true;
@@ -4164,7 +5156,8 @@ internal static partial class PanelSupersample
                 c.EmptyAbsent += comp.Empty;
                 comp.FitNote = $"FLAT FIELD — the best offset anywhere in the searched "
                                + $"{comp.SpanX:F0}x{comp.SpanY:F0}-texel window finds ink in only "
-                               + $"{comp.FitPassAtBest} of {comp.GlyphCount} glyph(s) "
+                               + $"{comp.FitPassAtBest} of the {comp.ScoreGlyphs} glyph(s) scored "
+                               + $"(every {comp.ScoreStride} of {comp.GlyphCount}) "
                                + $"({comp.FitPassAtZero} at the predicted position), below the "
                                + $"{flatBar}-glyph bar, so there is NO PEAK to chase and the argmax "
                                + "carries no information wherever it landed. Its EMPTY glyphs have no "
@@ -4177,7 +5170,7 @@ internal static partial class PanelSupersample
             // A boundary argmax only means "the peak may be cut off" when there IS a peak — i.e. when
             // it scores MATERIALLY better than the null hypothesis. Otherwise it is noise on a nearly
             // flat field and must not disqualify the component.
-            int materialBar = Mathf.Max(1, Mathf.CeilToInt(comp.GlyphCount * InkMaterialGainFraction));
+            int materialBar = Mathf.Max(1, Mathf.CeilToInt(comp.ScoreGlyphs * InkMaterialGainFraction));
             bool better = bestPass - comp.FitPassAtZero >= materialBar;
             if (onBorder && better)
             {
@@ -4186,7 +5179,7 @@ internal static partial class PanelSupersample
                 comp.FitNote = $"a REAL peak is being cut off: the best offset ({comp.FitDx:F1},"
                                + $"{comp.FitDy:F1}) sits on the boundary of the searched "
                                + $"{comp.SpanX:F0}x{comp.SpanY:F0}-texel window and scores "
-                               + $"{comp.FitPassAtBest} of {comp.GlyphCount} against "
+                               + $"{comp.FitPassAtBest} of the {comp.ScoreGlyphs} scored against "
                                + $"{comp.FitPassAtZero} at zero, a gain of "
                                + $"{comp.FitPassAtBest - comp.FitPassAtZero} over a {materialBar} bar, "
                                + "so the true match may lie further out and the window needs widening "
@@ -4201,7 +5194,7 @@ internal static partial class PanelSupersample
                 c.EmptyAbsent += comp.Empty;
                 comp.FitNote = "the predicted position IS the best registration in the whole searched "
                                + $"{comp.SpanX:F0}x{comp.SpanY:F0}-texel window ({comp.FitPassAtZero} "
-                               + $"of {comp.GlyphCount} pass there, and the best offset anywhere "
+                               + $"of the {comp.ScoreGlyphs} scored pass there, and the best offset anywhere "
                                + $"manages {comp.FitPassAtBest}, under the {materialBar}-glyph "
                                + "material-gain bar), so its EMPTY glyphs are genuinely absent from "
                                + "the capture";
@@ -4212,7 +5205,7 @@ internal static partial class PanelSupersample
             // ---- STAGE 2: refine inside the winning stage-1 cell ---------------------------------
             // A window four advances wide cannot also resolve a fraction of an advance out of one
             // grid, so the coarse pass locates the cell and this pass resolves inside it.
-            if (InkSearchGrid(data, c, comp, bdx, bdy, coarseX * 2f / (InkFineSteps - 1),
+            if (InkSearchGrid(data, c, p, comp, bdx, bdy, coarseX * 2f / (InkFineSteps - 1),
                               coarseY * 2f / (InkFineSteps - 1), InkFineSteps,
                               out float fdx2, out float fdy2, out int finePass, out _, out _))
             {
@@ -4241,7 +5234,7 @@ internal static partial class PanelSupersample
                                + "the string re-registered onto its own neighbouring letters, which an "
                                + "is-there-ink test cannot tell from the truth. THE OFFSET IS PRINTED "
                                + "ANYWAY because it is informative even though the classification "
-                               + $"stays ambiguous: {comp.FitPassAtBest} of {comp.GlyphCount} pass "
+                               + $"stays ambiguous: {comp.FitPassAtBest} of the {comp.ScoreGlyphs} scored pass "
                                + $"there against {comp.FitPassAtZero} at zero";
                 NameInkFit(comp, ref named);
                 continue;
@@ -4258,7 +5251,10 @@ internal static partial class PanelSupersample
 
             for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount; gi++)
             {
-                if (InkGlyphInked[gi])
+                // A glyph this plane never judged — under the size floor, or past the millisecond
+                // budget — has Inked = false, which is indistinguishable from EMPTY here. Skipping it
+                // is what stops the budget from manufacturing ABSENT verdicts.
+                if (!p.Measured[gi] || p.Inked[gi])
                     continue;
                 InkGlyph g = c.Glyphs[gi];
                 // REQUIREMENT 3b: an EMPTY glyph within one advance of a strip edge is not a clean
@@ -4274,8 +5270,8 @@ internal static partial class PanelSupersample
                 // and there does not move it — but the per-glyph FOUND/ABSENT verdict is reported next
                 // to the INKED/EMPTY verdict and must be measured to the same standard, or a thin
                 // glyph would be called absent by a test the primary verdict would have passed.
-                float s = InkQuadScore(data, c, g, comp.FitDx, comp.FitDy, InkInnerSamples,
-                                       InkGlyphBg[gi], out _, out _, out bool clipped);
+                float s = InkQuadScore(data, p, g, comp.FitDx, comp.FitDy, InkInnerSamples,
+                                       p.Bg[gi], out _, out _, out bool clipped);
                 if (clipped)
                 {
                     comp.Ambiguous++;
@@ -4293,7 +5289,7 @@ internal static partial class PanelSupersample
                 }
             }
             comp.FitNote = $"registers best at ({comp.FitDx:F1},{comp.FitDy:F1}) texels, where "
-                           + $"{comp.FitPassAtBest} of {comp.GlyphCount} glyph(s) find ink against "
+                           + $"{comp.FitPassAtBest} of the {comp.ScoreGlyphs} scored glyph(s) find ink against "
                            + $"{comp.FitPassAtZero} at the predicted position, over a searched "
                            + $"{comp.SpanX:F0}x{comp.SpanY:F0}-texel window";
             NameInkFit(comp, ref named);
@@ -4303,6 +5299,19 @@ internal static partial class PanelSupersample
             c.FitDxLow = c.FitDxHigh = c.FitDyLow = c.FitDyHigh = 0f;
         c.FitNote = InkFitSb.Length > 0 ? InkFitSb.ToString() : " (no component needed a fit.)";
         InkFitSb.Length = 0;
+        c.SearchMs = (Time.realtimeSinceStartup - searchStarted) * 1000.0;
+        if (!overran)
+            c.SearchCursor = 0;
+        c.SearchNote = overran
+            ? $"RAN and OVERRAN: {c.SearchComponents} component(s) searched in "
+              + $"{c.SearchMs:F2} ms against the {searchBudget:F2} ms it was granted of the per-frame pool, and "
+              + $"{c.SearchDeferredComps} component(s) were DEFERRED to the next census, which resumes "
+              + $"at component {c.SearchCursor} of {compCount}. Their EMPTY glyphs are counted as "
+              + "UNCLASSIFIED and explicitly NOT as absent — a budget must never be able to "
+              + "manufacture the more alarming verdict"
+            : $"RAN COMPLETE: {c.SearchComponents} component(s) with EMPTY glyphs searched in "
+              + $"{c.SearchMs:F2} ms against the {searchBudget:F2} ms it was granted of the per-frame pool, scoring at most "
+              + $"{InkSearchMaxGlyphs} glyph(s) per component";
     }
 
     /// <summary>Append one component's fit sentence to the report, up to the naming cap. The COUNTS are
@@ -4324,7 +5333,7 @@ internal static partial class PanelSupersample
     /// not print the same character.</para>
     /// </summary>
     private static bool InkSearchGrid(Unity.Collections.NativeArray<Color32> data, InkCensus c,
-                                      InkComponent comp, float centreDx, float centreDy,
+                                      InkPlane p, InkComponent comp, float centreDx, float centreDy,
                                       float stepX, float stepY, int steps,
                                       out float bestDx, out float bestDy, out int bestPass,
                                       out bool onBorder, out int unavailable)
@@ -4342,7 +5351,7 @@ internal static partial class PanelSupersample
             for (int i = 0; i < steps; i++)
             {
                 float dx = centreDx + (i - half) * stepX;
-                int pass = InkScoreAt(data, c, comp, dx, dy);
+                int pass = InkScoreAt(data, c, p, comp, dx, dy);
                 if (pass < 0)
                 {
                     unavailable++;
@@ -4362,24 +5371,269 @@ internal static partial class PanelSupersample
         return bestPass >= 0 && unavailable <= steps * steps * 2 / 5;
     }
 
-    /// <summary>How many of <paramref name="comp"/>'s glyphs find ink with the whole string shifted by
-    /// (<paramref name="dx"/>, <paramref name="dy"/>) texels, or -1 when any of them ran off the census
-    /// strip at that offset. Uses the search's coarse sample grid; the final per-glyph judgement at the
-    /// fitted offset re-tests on the full grid.</summary>
+    /// <summary>How many of <paramref name="comp"/>'s SCORED glyphs find ink with the whole string
+    /// shifted by (<paramref name="dx"/>, <paramref name="dy"/>) texels, or -1 when any of them ran off
+    /// the census strip at that offset. Uses the search's coarse sample grid; the final per-glyph
+    /// judgement at the fitted offset re-tests on the full grid.
+    /// <para>ModBuild 208: it walks every <see cref="InkComponent.ScoreStride"/>'th glyph rather than
+    /// all of them (see <see cref="InkSearchMaxGlyphs"/>) and skips any glyph this plane did not judge,
+    /// so the returned count is out of <see cref="InkComponent.ScoreGlyphs"/> — which is what the
+    /// flat-field and material-gain bars are taken against.</para></summary>
     private static int InkScoreAt(Unity.Collections.NativeArray<Color32> data, InkCensus c,
-                                  InkComponent comp, float dx, float dy)
+                                  InkPlane p, InkComponent comp, float dx, float dy)
     {
         int pass = 0;
-        for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount; gi++)
+        int stride = Mathf.Max(1, comp.ScoreStride);
+        for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount; gi += stride)
         {
-            float s = InkQuadScore(data, c, c.Glyphs[gi], dx, dy, InkSearchCoarseSamples,
-                                   InkGlyphBg[gi], out _, out _, out bool clipped);
+            if (!p.Measured[gi])
+                continue;
+            float s = InkQuadScore(data, p, c.Glyphs[gi], dx, dy, InkSearchCoarseSamples,
+                                   p.Bg[gi], out _, out _, out bool clipped);
             if (clipped)
                 return -1;
             if (s >= InkThreshold)
                 pass++;
         }
         return pass;
+    }
+
+    /// <summary>
+    /// <b>THE MEASUREMENT ModBuild 208 EXISTS FOR: compare the planes against each other, glyph by
+    /// glyph.</b>
+    ///
+    /// <para>The comparison is between LEVELS and never against an absolute. An absolute EMPTY count
+    /// at mip 2 would be dominated by glyphs that legitimately averaged away, which is why the size
+    /// floor exists and why every count here has its own denominator: a glyph enters a comparison only
+    /// when BOTH planes judged it — above the floor at both levels, and inside the millisecond budget
+    /// at both.</para>
+    ///
+    /// <para>Both DIRECTIONS are counted. "Inked at mip 0, empty at mip N" is the finding; "empty at
+    /// mip 0, inked at mip N" is its control, and it is not a defect at all — box-filtering thin ink
+    /// concentrates it into fewer texels as often as it dilutes it, so a healthy chain produces a few
+    /// of these. A reading with a large count in BOTH directions is threshold noise and not a mip
+    /// chain fault, and the verdict says so rather than reporting only the alarming half.</para>
+    /// </summary>
+    private static void CompareInkPlanes(InkCensus c)
+    {
+        InkPlane mip0 = c.Planes[InkPlaneMip0];
+        InkMipSb.Length = 0;
+        int named = 0;
+        int n = c.Glyphs.Count;
+
+        for (int which = 0; which < 2; which++)
+        {
+            InkPlane p = c.Planes[which == 0 ? InkPlaneMip1 : InkPlaneMip2];
+            if (!p.Landed)
+                continue;
+            int compared = 0, lost = 0, gained = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (!mip0.Measured[i] || !p.Measured[i])
+                    continue;
+                compared++;
+                if (mip0.Inked[i] && !p.Inked[i])
+                {
+                    lost++;
+                    if (named < MaxInkMipLostNamed)
+                    {
+                        named++;
+                        InkGlyph g = c.Glyphs[i];
+                        InkMipSb.Append(named > 1 ? ", " : " ")
+                                .Append('\'').Append(g.Ch).Append("' at mip ").Append(p.Mip)
+                                .Append(" (")
+                                .Append(((g.X1 - g.X0) * p.Scale).ToString("F1")).Append(" x ")
+                                .Append(((g.Y1 - g.Y0) * p.Scale).ToString("F1"))
+                                .Append(" texels there)");
+                    }
+                }
+                else if (!mip0.Inked[i] && p.Inked[i])
+                {
+                    gained++;
+                }
+            }
+            if (which == 0)
+            {
+                c.MipCompared1 = compared;
+                c.MipLost1 = lost;
+                c.MipGained1 = gained;
+            }
+            else
+            {
+                c.MipCompared2 = compared;
+                c.MipLost2 = lost;
+                c.MipGained2 = gained;
+            }
+        }
+        int totalLost = c.MipLost1 + c.MipLost2;
+        c.MipLostNote =
+            c.MipCompared1 + c.MipCompared2 == 0
+                ? " (NOT ONE GLYPH COULD BE COMPARED — read that as a gap in the measurement, never as "
+                  + "a clean chain: either no mip level landed, or every glyph fell under the size "
+                  + "floor at every level. The plane table above says which.)"
+                : totalLost == 0
+                    ? " (none — no glyph inked at mip 0 was empty at a level the eye reads.)"
+                    : InkMipSb.ToString()
+                      + (totalLost > named ? $", and {totalLost - named} more not named." : ".");
+        InkMipSb.Length = 0;
+
+        // ---- THE RESOLVE BLIT, ISOLATED ---------------------------------------------------------
+        // Graphics.Blit(e.Rt, e.MipRt) sits between the two full-resolution planes and is a straight
+        // copy with a default material; identical readings on both sides clear it, and a disagreement
+        // accuses it. Nothing in this class has ever measured across it.
+        InkPlane cap = c.Planes[InkPlaneCapture];
+        if (!cap.Landed)
+            return;
+        for (int i = 0; i < n; i++)
+        {
+            if (!mip0.Measured[i] || !cap.Measured[i])
+                continue;
+            c.BlitCompared++;
+            if (cap.Inked[i] && !mip0.Inked[i])
+                c.BlitOnlyCapture++;
+            else if (!cap.Inked[i] && mip0.Inked[i])
+                c.BlitOnlyMip++;
+        }
+    }
+
+    /// <summary>
+    /// <b>STATE THE MIP-CHAIN VERDICT, CHOSEN BY THE NUMBERS.</b> There is deliberately no branch
+    /// that ends in silence, and the two honest undecided forms are as explicit as the two decisive
+    /// ones — a level that could not be read must never look like a level that read clean.
+    /// </summary>
+    private static void BuildMipVerdict(InkCensus c)
+    {
+        InkPlane mip1 = c.Planes[InkPlaneMip1];
+        InkPlane mip2 = c.Planes[InkPlaneMip2];
+        int lost = c.MipLost1 + c.MipLost2;
+        int gained = c.MipGained1 + c.MipGained2;
+        int compared = c.MipCompared1 + c.MipCompared2;
+
+        // The floor arithmetic, printed on every branch. Mip generation is a repeated 2x2 BOX filter
+        // and box filtering is LINEAR, so a stroke covering a fraction f of a texel keeps f of its
+        // deviation. Against this census's own INKED median that gives the level at which minification
+        // alone would legitimately erase a glyph — and it is far past level 2, which is what makes a
+        // loss at level 1 or 2 a finding rather than an expected minification.
+        float inkMedian = c.MedDevInk >= 0f ? c.MedDevInk * 255f : -1f;
+        string physics = inkMedian > 0f
+            ? $"THE AVERAGING ARGUMENT, WITH A NUMBER IN IT: mip generation is a repeated 2x2 BOX "
+              + $"filter and box filtering is linear, so a stroke keeps the fraction of a texel it "
+              + $"covers. At this census's INKED median of {inkMedian:F1}/255 a stroke survives the "
+              + $"{InkThreshold * 255f:F0}/255 ink bar down to {InkThreshold * 255f / inkMedian:F3} "
+              + "texels of coverage, i.e. roughly "
+              + $"{Mathf.Log(inkMedian / (InkThreshold * 255f), 2f):F1} halvings below a one-texel "
+              + "stroke — several levels past mip 2. 'It just averaged away' is therefore NOT "
+              + "available as an explanation at these levels and is not being used as one"
+            : "THE AVERAGING ARGUMENT CANNOT BE CHECKED on this reading, because no glyph was judged "
+              + "INKED at mip 0 and there is no ink median to scale against";
+
+        if (!mip1.Landed && !mip2.Landed)
+        {
+            c.MipVerdict =
+                "MIP CHAIN NOT MEASURED — neither level the eye reads could be censused, so this "
+                + "reading says NOTHING about the chain in either direction and must not be pooled "
+                + "with one that does. MIP 1: "
+                + (mip1.Available
+                    ? (mip1.FailWhy.Length > 0 ? mip1.FailWhy : "requested but never delivered")
+                    : mip1.Unavailable)
+                + ". MIP 2: "
+                + (mip2.Available
+                    ? (mip2.FailWhy.Length > 0 ? mip2.FailWhy : "requested but never delivered")
+                    : mip2.Unavailable)
+                + ".";
+            return;
+        }
+
+        string coverage = $"THE DENOMINATORS: {c.MipCompared1} glyph(s) could be compared at mip 1 and "
+                          + $"{c.MipCompared2} at mip 2 — a glyph enters a comparison only when BOTH "
+                          + "levels judged it, i.e. it is above the "
+                          + $"{InkMinQuadTexels:F0}-texel size floor at both and inside the share of "
+                          + $"the {InkFrameBudgetMs:F1} ms per-frame pool each was granted. Of "
+                          + $"{c.TotalGlyphs} glyph(s) in the census the MIP 0 plane judged "
+                          + $"{c.TotalJudged}, left {c.TotalBelowFloor} under the floor and deferred "
+                          + $"{c.TotalDeferred} to the next census.";
+
+        if (compared < 8)
+        {
+            c.MipVerdict =
+                $"MIP CHAIN UNDECIDED — only {compared} glyph(s) in total could be compared between "
+                + "mip 0 and the levels the eye reads, which is too few for either verdict. That is a "
+                + "statement about the SIZE FLOOR and the budget, not about the chain: at these levels "
+                + "the window's glyphs are mostly under the "
+                + $"{InkMinQuadTexels:F0}-texel bar this instrument needs to judge one at all. "
+                + coverage + " " + physics + ".";
+            return;
+        }
+
+        if (lost == 0)
+        {
+            c.MipVerdict =
+                "MIP CHAIN VERIFIED — the levels the eye samples carry the same glyphs level 0 does. "
+                + $"NOT ONE of the {compared} comparable glyph(s) is inked at mip 0 and empty at mip 1 "
+                + $"or mip 2 ({c.MipLost1} at mip 1, {c.MipLost2} at mip 2), so the loss is NOT in the "
+                + "mip chain and the next place to look is the display quad or the eye — the RawImage "
+                + "material, the sampler state, the mip LOD bias, the stereo pass, or the resolve into "
+                + "the eye target. This exonerates the chain in the same way ModBuild 207 exonerated "
+                + $"the mip 0 capture. THE CONTROL, which must be read with it: {gained} glyph(s) went "
+                + "the OTHER way (empty at mip 0, inked at a lower level), which is what box-filtering "
+                + "thin ink into fewer texels does and is not a defect; a large count in both "
+                + "directions would mean the ink threshold is sitting inside the noise and neither "
+                + "number could be trusted. " + coverage + " " + physics + ".";
+            return;
+        }
+
+        c.MipVerdict =
+            $"MIP CHAIN DEFECTIVE — {lost} glyph(s) inked at level 0 are EMPTY at level 1 or 2 at "
+            + $"sizes well above the averaging floor ({c.MipLost1} of {c.MipCompared1} at mip 1, "
+            + $"{c.MipLost2} of {c.MipCompared2} at mip 2), so the chain is where the picture is lost. "
+            + "THE CHARACTERS AND THEIR SIZE AT THE LEVEL THAT LOST THEM:" + c.MipLostNote
+            + $" READ THE CONTROL BEFORE ACTING: {gained} glyph(s) went the OTHER way (empty at mip 0, "
+            + "inked at a lower level). If that number is comparable to the losses this is threshold "
+            + "noise around the ink bar and NOT a chain fault; if it is small next to them the losses "
+            + "are one-directional and real. " + coverage + " " + physics
+            + ". WHERE TO WORK: GenerateMips() runs in ResolveAndMip on every capture and ModBuild 204 "
+            + "already found one way for levels 1..N to hold something other than a filtered level 0 "
+            + "(GL.Clear clears the BOUND SURFACE, i.e. level 0 only). That case was fixed at "
+            + "allocation; this is the ordinary-frame case, which nobody has ever verified.";
+    }
+
+    /// <summary>Isolate the resolve blit. See <see cref="CompareInkPlanes"/> — this only phrases what
+    /// it counted, and it phrases NOT MEASURED as loudly as either finding.</summary>
+    private static void BuildBlitVerdict(InkCensus c)
+    {
+        InkPlane cap = c.Planes[InkPlaneCapture];
+        if (!cap.Landed)
+        {
+            c.BlitVerdict = "RESOLVE BLIT NOT MEASURED — "
+                            + (cap.Available
+                                ? (cap.FailWhy.Length > 0 ? cap.FailWhy
+                                                          : "requested but never delivered")
+                                : cap.Unavailable)
+                            + ", so nothing follows about Graphics.Blit in either direction.";
+            return;
+        }
+        if (c.BlitCompared == 0)
+        {
+            c.BlitVerdict = "RESOLVE BLIT UNDECIDED — the capture plane landed but not one glyph was "
+                            + "judged on BOTH it and the mip 0 plane, so there is nothing to compare.";
+            return;
+        }
+        if (c.BlitOnlyCapture == 0 && c.BlitOnlyMip == 0)
+        {
+            c.BlitVerdict = $"RESOLVE BLIT VERIFIED — all {c.BlitCompared} glyph(s) judged on both "
+                            + "sides give the SAME verdict before and after Graphics.Blit, so the "
+                            + "resolve is not where anything is lost and the capture target and the "
+                            + "display target's level 0 carry the same picture.";
+            return;
+        }
+        c.BlitVerdict = $"THE RESOLVE BLIT LOSES INK — of {c.BlitCompared} glyph(s) judged on both "
+                        + $"sides, {c.BlitOnlyCapture} are INKED in the capture target and EMPTY in "
+                        + $"the display target after the blit, and {c.BlitOnlyMip} go the other way. "
+                        + "Graphics.Blit(e.Rt, e.MipRt) is a straight copy with the default material, "
+                        + "so a one-directional disagreement here is a format, sRGB or MSAA-resolve "
+                        + "fault and not a filtering one — the two targets are both "
+                        + "RenderTextureFormat.Default with sRGB=False by construction, so whichever "
+                        + "of those is untrue is the finding.";
     }
 
     /// <summary>
@@ -4496,6 +5750,20 @@ internal static partial class PanelSupersample
                   + "reading with EMPTY glyphs and this same centroid would be a displacement, not "
                   + "missing ink.";
         }
+        // ModBuild 208: A SEARCH THAT NEVER RAN MUST NOT PRINT AS A SEARCH THAT FOUND NOTHING. With the
+        // gate closed every EMPTY glyph lands in AMBIGUOUS, so `classified` is non-zero and both
+        // fractions are zero — which would have fallen through to MIXED and read as a per-component
+        // displacement finding. That is precisely the "a census that did not run must never look like a
+        // census that ran and found nothing" rule this whole region is built on.
+        if (!c.SearchRan && c.TotalEmpty > 0)
+        {
+            return $"UNDECIDED ON THE EMPTIES, because the neighbourhood search DID NOT RUN on this "
+                   + $"census: {c.SearchNote}. All {c.TotalEmpty} EMPTY glyph(s) are therefore "
+                   + "UNCLASSIFIED — not absent, not displaced, not measured. The centroid over the "
+                   + $"glyphs that DO have ink still reads {centroid}, and that half of the mapping "
+                   + "check is unaffected. READ THE MIP CHAIN VERDICT INSTEAD: when the gate is what "
+                   + "closed the search, that verdict is the reason it closed.";
+        }
         if (classified == 0)
         {
             return $"UNDECIDED, because all {c.TotalEmpty} EMPTY glyph(s) fell outside "
@@ -4560,12 +5828,12 @@ internal static partial class PanelSupersample
     /// and re-measuring a ring per offset would multiply the search cost by twenty for no
     /// information.</para>
     /// </summary>
-    private static float InkLocalBackground(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+    private static float InkLocalBackground(Unity.Collections.NativeArray<Color32> data, InkPlane p,
                                             InkGlyph g)
     {
-        int w = c.StripW, h = c.StripH;
-        float x0 = g.X0 - c.StripX, x1 = g.X1 - c.StripX;
-        float y0 = g.Y0, y1 = g.Y1;
+        int w = p.W, h = p.H;
+        float x0 = g.X0 * p.Scale - p.X, x1 = g.X1 * p.Scale - p.X;
+        float y0 = g.Y0 * p.Scale, y1 = g.Y1 * p.Scale;
 
         // ---- the local background: a ring just outside the quad ---------------------------------
         int ring = 0;
@@ -4577,13 +5845,13 @@ internal static partial class PanelSupersample
         int strideY = Mathf.Max(1, (ry1 - ry0) / 12);
         for (int x = rx0; x <= rx1 && ring < InkRing.Length; x += strideX)
         {
-            AddRingSample(data, w, h, c, x, ry0, ref ring);
-            AddRingSample(data, w, h, c, x, ry1, ref ring);
+            AddRingSample(data, w, h, p, x, ry0, ref ring);
+            AddRingSample(data, w, h, p, x, ry1, ref ring);
         }
         for (int y = ry0; y <= ry1 && ring < InkRing.Length; y += strideY)
         {
-            AddRingSample(data, w, h, c, rx0, y, ref ring);
-            AddRingSample(data, w, h, c, rx1, y, ref ring);
+            AddRingSample(data, w, h, p, rx0, y, ref ring);
+            AddRingSample(data, w, h, p, rx1, y, ref ring);
         }
         // ---- and which END of that ring is the background ---------------------------------------
         // A plain MEDIAN is wrong here, and wrong in the expensive direction. A glyph in the middle of
@@ -4598,10 +5866,17 @@ internal static partial class PanelSupersample
         // dark page or dark text on a light one, and the ring percentile is taken on the PAGE side —
         // the 25th percentile for a dark page, the 75th for a light one. Contamination by neighbouring
         // ink then pushes samples AWAY from the value being read, so it cannot corrupt the estimate.
+        //
+        // ModBuild 208, and it is why the ring survives minification: at mip 2 neighbouring glyphs sit
+        // ~3 texels apart, so a ring 2 texels outside a quad lands squarely on them. The percentile is
+        // taken on the PAGE side precisely so contamination by neighbouring ink pushes samples AWAY
+        // from the value being read — the estimate degrades towards "more page", never towards "more
+        // ink", and an over-read background is the direction that would make this instrument report a
+        // hole where there is none.
         if (ring < 4)
-            return c.Background; // the quad sits against the strip edge; the strip-wide median stands in
+            return p.Background; // the quad sits against the strip edge; the plane-wide median stands in
         System.Array.Sort(InkRing, 0, ring);
-        bool darkPage = c.Background < 0.5f;
+        bool darkPage = p.Background < 0.5f;
         return darkPage ? InkRing[ring / 4] : InkRing[ring - 1 - ring / 4];
     }
 
@@ -4618,16 +5893,19 @@ internal static partial class PanelSupersample
     /// how a search that ran off the edge becomes AMBIGUOUS instead of silently scoring low — an
     /// out-of-strip offset would otherwise look exactly like an offset with no ink at it.</para>
     /// </summary>
-    private static float InkQuadScore(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+    private static float InkQuadScore(Unity.Collections.NativeArray<Color32> data, InkPlane p,
                                       InkGlyph g, float dx, float dy, int n, float bg,
                                       out float cx, out float cy, out bool clipped)
     {
-        int w = c.StripW, h = c.StripH;
+        int w = p.W, h = p.H;
         cx = 0f;
         cy = 0f;
         clipped = false;
-        float x0 = g.X0 - c.StripX + dx, x1 = g.X1 - c.StripX + dx;
-        float y0 = g.Y0 + dy, y1 = g.Y1 + dy;
+        // The quad is in LEVEL-0 texels and this plane may be a mip level, so both the quad and the
+        // strip origin are scaled. (dx, dy) are in THIS plane's texels: the registration search only
+        // ever runs on the mip 0 plane, where the two are the same thing.
+        float x0 = g.X0 * p.Scale - p.X + dx, x1 = g.X1 * p.Scale - p.X + dx;
+        float y0 = g.Y0 * p.Scale + dy, y1 = g.Y1 * p.Scale + dy;
         float insetX = (x1 - x0) * InkQuadInset;
         float insetY = (y1 - y0) * InkQuadInset;
         float ix0 = x0 + insetX, ix1 = x1 - insetX;
@@ -4645,7 +5923,7 @@ internal static partial class PanelSupersample
                 clipped = true;
                 continue;
             }
-            int row = (c.Flipped ? (h - 1 - py) : py) * w;
+            int row = (p.Flipped ? (h - 1 - py) : py) * w;
             for (int sx = 0; sx < n; sx++)
             {
                 float fx = ix0 + (ix1 - ix0) * (sx + 0.5f) / n;
@@ -4678,11 +5956,11 @@ internal static partial class PanelSupersample
     }
 
     private static void AddRingSample(Unity.Collections.NativeArray<Color32> data, int w, int h,
-                                      InkCensus c, int x, int y, ref int ring)
+                                      InkPlane p, int x, int y, ref int ring)
     {
         if (ring >= InkRing.Length || x < 0 || x >= w || y < 0 || y >= h)
             return;
-        int row = (c.Flipped ? (h - 1 - y) : y) * w;
+        int row = (p.Flipped ? (h - 1 - y) : y) * w;
         InkRing[ring++] = InkValue(data[row + x]);
     }
 

@@ -505,13 +505,19 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void ReportInkCensus(Entry e, InkCensus c)
     {
+        // The census is over, whatever it found. ModBuild 208 charges the mod-wide budget once per
+        // census, so it is handed back HERE rather than in a callback.
+        EndInkCensus(c);
+
         // Worst first — the components with the most EMPTY glyphs are the ones the next round works
         // on. The COUNTS are always complete; only the sentences are capped, and the line says by how
         // much (this project has shipped five remedies that quietly covered part of their subject).
         //
         // THIS SORT INVALIDATES InkGlyph.Comp, which indexes into this list. That is safe and only
         // because of two facts, both worth stating rather than rediscovering: the glyph list is fully
-        // consumed by EvaluateInkCensus before this method is reached, and BOTH lists are cleared and
+        // consumed by EvaluateInkPlane and CompareInkPlanes before this method is reached (ModBuild
+        // 208 moved the cross-plane comparison in front of this sort for exactly that reason), and
+        // BOTH lists are cleared and
         // rebuilt by BuildInkCensus at the start of every census. Nothing reads Comps by index after
         // this point.
         c.Comps.Sort((a, b) => b.Empty != a.Empty ? b.Empty.CompareTo(a.Empty)
@@ -525,7 +531,16 @@ internal static partial class PanelSupersample
           .Append(" frame(s) later; AsyncGPUReadback, so the GPU was never stalled). THE VERDICT: ")
           .Append(c.TotalGlyphs).Append(" glyph quad(s) the SUBMITTED MESH says are there, ")
           .Append(c.TotalInk).Append(" WITH INK in the captured texture, ").Append(c.TotalEmpty)
-          .Append(" EMPTY, across ").Append(c.Comps.Count).Append(" text component(s).");
+          .Append(" EMPTY, across ").Append(c.Comps.Count).Append(" text component(s)")
+          .Append(c.TotalBelowFloor > 0 || c.TotalDeferred > 0
+              ? $" — of {c.TotalGlyphs} the MIP 0 plane JUDGED {c.TotalJudged}, left "
+                + $"{c.TotalBelowFloor} under the {InkMinQuadTexels:F0}-texel size floor and DEFERRED "
+                + $"{c.TotalDeferred} to the next census, so INK + EMPTY sums to the judged count and "
+                + "not to the mesh count"
+              : string.Empty)
+          .Append('.');
+
+        AppendInkPlanes(e, c);
 
         int named = 0;
         for (int i = 0; i < c.Comps.Count && named < MaxInkComponentsReported; i++)
@@ -536,6 +551,9 @@ internal static partial class PanelSupersample
               .Append(comp.InStrip).Append(" glyph(s) in the mesh")
               .Append(comp.MeshGlyphs != comp.InStrip
                   ? $" inside the census strip of {comp.MeshGlyphs} it carries"
+                  : string.Empty)
+              .Append(comp.Judged != comp.InStrip
+                  ? $" of which {comp.Judged} judged at mip 0 ({comp.BelowFloor} under the size floor)"
                   : string.Empty)
               .Append(", ").Append(comp.Ink).Append(" with ink, ").Append(comp.Empty).Append(" EMPTY")
               .Append(comp.Empty > 0 ? ": " + comp.EmptyChars : string.Empty)
@@ -590,6 +608,43 @@ internal static partial class PanelSupersample
                   + "healthy reading has the EMPTY median in the single digits and the INKED median in "
                   + "three.");
 
+        // ---- THE LEVEL COMPARISON (ModBuild 208) — THE FIELD THIS BUILD EXISTS FOR ---------------
+        Sb.Append(" THE LEVELS THE EYE ACTUALLY READS. ModBuild 205-207 censused mip level 0 and "
+                  + "nothing else, while the same log line reported this window at trilinear MIP LOD "
+                  + "1.66 — the hardware samples levels 1 and 2 blended and level 0 essentially not at "
+                  + "all. So thirteen builds proved level 0 correct and said NOTHING about the levels "
+                  + "the player sees. THE FINDING IS A COMPARISON AND NEVER AN ABSOLUTE, because an "
+                  + "absolute EMPTY count at mip 2 would be dominated by glyphs that legitimately "
+                  + "averaged away: GLYPHS INKED AT MIP 0 AND EMPTY AT A LEVEL THE EYE READS — ")
+          .Append(c.MipLost1).Append(" of ").Append(c.MipCompared1).Append(" comparable at MIP 1, ")
+          .Append(c.MipLost2).Append(" of ").Append(c.MipCompared2)
+          .Append(" comparable at MIP 2. THE CHARACTERS, WITH THEIR SIZE AT THE LEVEL THAT LOST THEM:")
+          .Append(c.MipLostNote)
+          .Append(" THE CONTROL, in the other direction, and it must be read with them: ")
+          .Append(c.MipGained1 + c.MipGained2)
+          .Append(" glyph(s) were EMPTY at mip 0 and INKED at a lower level (")
+          .Append(c.MipGained1).Append(" at mip 1, ").Append(c.MipGained2)
+          .Append(" at mip 2). That is NOT a defect — box-filtering thin ink concentrates it into "
+                  + "fewer texels as often as it dilutes it — but a count comparable to the losses "
+                  + "means the ink bar is sitting inside the noise and NEITHER number may be trusted. "
+                  + "THE SIZE FLOOR, which is the trap in this whole measurement: a glyph correctly "
+                  + "MINIFIED is not a defect (a two-texel stroke at level 0 is half a texel at level "
+                  + "2), so a quad under ")
+          .Append(InkMinQuadTexels.ToString("F0"))
+          .Append(" texels on its smaller axis at a level is counted BELOW THE FLOOR at that level "
+                  + "and is neither INKED nor EMPTY there. The bar is about this INSTRUMENT and not "
+                  + "about the eye: under three texels the inset interior is one texel wide, the "
+                  + "sample grid re-reads it 144 times and the background ring overlaps the quad's own "
+                  + "ink, so the reading would be decided by the instrument's geometry. Each plane "
+                  + "above prints how many it excluded and the smallest quad it still judged.");
+
+        Sb.Append(" THE RESOLVE BLIT, ISOLATED (ModBuild 208): the pipeline is capture camera -> "
+                  + "e.Rt, Graphics.Blit(e.Rt, e.MipRt), GenerateMips(). Reading e.Rt beside e.MipRt "
+                  + "mip 0 puts the blit between two measured planes for the first time — ")
+          .Append(c.BlitCompared).Append(" glyph(s) judged on both sides, ")
+          .Append(c.BlitOnlyCapture).Append(" INKED before the blit and EMPTY after it, ")
+          .Append(c.BlitOnlyMip).Append(" the other way round. ").Append(c.BlitVerdict);
+
         // ---- THE MAPPING SELF-CHECK (ModBuild 206) ----------------------------------------------
         // WHY IT IS HERE: the ModBuild 205 census answered, and the shape of the answer forced this.
         // The SAME component — 'Quest freischalten', 17 glyphs, ONE mesh, ONE draw call — reported
@@ -629,9 +684,13 @@ internal static partial class PanelSupersample
           .Append(" GENUINELY ABSENT (nothing within the search window either), ")
           .Append(c.EmptyFoundOffset).Append(" FOUND OFFSET, ").Append(c.EmptyAmbiguous)
           .Append(" AMBIGUOUS (of which ").Append(c.EmptyNotSearched)
-          .Append(" were never searched because the ").Append(MaxInkSearchGlyphs)
-          .Append("-glyph search cap bit — a cap must never be able to manufacture the more alarming "
-                  + "verdict, so those are NOT counted as absent), and ")
+          .Append(" were never searched at all — the ").Append(MaxInkSearchGlyphs)
+          .Append("-glyph search cap bit, the ").Append(c.SearchBudgetMs.ToString("F2"))
+          .Append(" ms the search was granted of the per-frame pool was spent, or the ModBuild 208 "
+                  + "gate skipped the search because "
+                  + "the previous census had already located the loss in the mip chain; the SEARCH "
+                  + "field under COST says which. A cap, a budget or a gate must never be able to "
+                  + "manufacture the more alarming verdict, so those are NOT counted as absent), and ")
           .Append(c.EmptyNearStripEdge)
           .Append(" sit within one glyph advance of a strip edge (an OVERLAY count, not a fourth "
                   + "bucket: a partially covered quad is not a clean reading whichever bucket it "
@@ -779,11 +838,60 @@ internal static partial class PanelSupersample
           .Append(". Every count above is therefore a count over WHAT WAS CENSUSED, and the excluded "
                   + "figures are printed so it can never be read as a count over the whole window.");
 
-        Sb.Append(" COST: ").Append(c.BuildMs.ToString("F2"))
-          .Append(" ms to build the glyph list on the request frame and ")
-          .Append(c.ReadMs.ToString("F2")).Append(" ms to judge ").Append(c.TotalGlyphs)
-          .Append(" glyph(s) on the delivery frame, against an ").Append(FrameBudgetMs.ToString("F2"))
-          .Append(" ms budget; three censuses per release plus one per 10 s report. SINCE ENGAGE: ")
+        // ---- THE COST, AND IT IS BOUNDED NOW (ModBuild 208) --------------------------------------
+        // The 207 log read "46.13 ms to judge 206 glyph(s)" and "22.98 ms to judge 139 glyph(s)" on
+        // the delivery frame against an 11.11 ms budget — an instrument that exists to measure a
+        // rendering complaint was causing 2-4x frame overruns of its own. Every stage now has a
+        // millisecond budget, a cursor and a printed deferral count.
+        Sb.Append(" COST, BOUNDED: ").Append(c.BuildMs.ToString("F2"))
+          .Append(" ms to build the glyph list on the request frame; ")
+          .Append(c.JudgeMsTotal.ToString("F2")).Append(" ms of judging summed over ")
+          .Append(c.PlanesLanded).Append(" plane(s), WORST SINGLE PLANE ")
+          .Append(c.JudgeMsWorst.ToString("F2")).Append(" ms; ").Append(c.SearchMs.ToString("F2"))
+          .Append(" ms of neighbourhood search against the ").Append(c.SearchBudgetMs.ToString("F2"))
+          .Append(" ms it was granted. THE WHOLE CENSUS THEREFORE COST ")
+          .Append((c.JudgeMsTotal + c.SearchMs).ToString("F2"))
+          .Append(" ms of delivery-side work against a mod-wide PER-FRAME POOL of ")
+          .Append(InkFrameBudgetMs.ToString("F1")).Append(" ms and an ")
+          .Append(FrameBudgetMs.ToString("F2"))
+          .Append(" ms frame. THE POOL IS WHAT BINDS, AND IT HAS TO BE: all four planes are requested "
+                  + "on ONE frame (the mip chain is regenerated from a fresh capture every frame, so "
+                  + "planes read on different frames would compare different pictures) and "
+                  + "AsyncGPUReadback drains its completed queue per frame, so all four callbacks CAN "
+                  + "land together. Each stage takes what is left of the pool divided by the stages "
+                  + "still to come, capped at ").Append(InkJudgeBudgetMs.ToString("F1"))
+          .Append(" ms and floored at ").Append(InkMinStageBudgetMs.ToString("F1"))
+          .Append(" ms so a late stage still measures SOMETHING — a plane that measured nothing "
+                  + "contributes nothing to the level comparison and would shrink its denominator to "
+                  + "zero. Each plane above prints the share it was granted. ModBuild 207 spent 46.13 "
+                  + "and 22.98 ms on this same work, and ~18 ms of that was the ORIENTATION PROFILE "
+                  + "re-deriving a row order that is constant for the session; it is now decided once "
+                  + "per window and merely confirmed afterwards. WHAT WAS DEFERRED, never silently: ")
+          .Append(c.TotalDeferred)
+          .Append(" glyph(s) were left unjudged by the millisecond budget and are carried to the next "
+                  + "census, which resumes at glyph ").Append(c.GlyphCursor).Append(" of ")
+          .Append(c.TotalGlyphs).Append(" (this census started at ").Append(c.CensusCursor)
+          .Append("; the cursor advances by the LEAST any plane covered, so no band of glyphs can "
+                  + "fall between two censuses uncompared). THE SEARCH: ").Append(c.SearchNote)
+          .Append(". THE GATE ON IT — the search exists only to decide whether a glyph EMPTY at its "
+                  + "predicted place is absent or displaced, so it is skipped when nothing is empty "
+                  + "and skipped when the PREVIOUS census located the loss in the mip chain (this "
+                  + "census's own mip 1/2 buffers and its mip 0 buffer are never alive at the same "
+                  + "instant, so the gate cannot read its own comparison; the previous reading was ")
+          .Append(c.LastMipLost < 0 ? "none yet — the first census after engage always searches"
+                                    : $"{c.LastMipLost} lost")
+          .Append("). It also scores at most ").Append(InkSearchMaxGlyphs)
+          .Append(" glyph(s) per component instead of all ").Append(MaxInkGlyphsPerComponent)
+          .Append(", which is what takes one component's coarse sweep from 444,000 texel reads to "
+                  + "111,000 — a whole-string fit AGGREGATES, so it locates its peak from a "
+                  + "stratified sample, and the per-glyph FOUND/ABSENT verdict at the fitted offset "
+                  + "still re-tests every empty glyph on the full grid. THE READBACK: ")
+          .Append(c.PlanesRequested).Append(" plane(s) requested totalling ")
+          .Append(c.TexelsRequested).Append(" texel(s) = ")
+          .Append((c.TexelsRequested * 4f / (1024f * 1024f)).ToString("F1"))
+          .Append(" MB of staging, ").Append(c.PlanesLanded).Append(" landed, ")
+          .Append(c.PlanesFailed).Append(" failed. Three censuses per release plus one per 10 s "
+                  + "report. SINCE ENGAGE: ")
           .Append(c.Armed).Append(" armed, ").Append(c.Issued).Append(" issued, ").Append(c.Completed)
           .Append(" completed, ").Append(c.Errors).Append(" readback error(s), ")
           .Append(c.DroppedStale)
@@ -795,10 +903,12 @@ internal static partial class PanelSupersample
                   + "itself the same re-mapping that would displace the picture the eye sees), ")
           .Append(c.DroppedInFlight)
           .Append(" deferred because a readback was still in flight (the mod-wide budget is ")
-          .Append(MaxInkReadsInFlight)
-          .Append(" at a time, because the 10 s report cadence is ONE shared timer and every engaged "
-                  + "panel arms on the same frame — a deferred census stays armed and goes out on a "
-                  + "later frame, it is never cancelled), ").Append(c.Unanswerable)
+          .Append(MaxInkCensusesInFlight)
+          .Append(" CENSUS at a time from ModBuild 208 — the unit changed from requests to censuses "
+                  + "because one census is now four planes and 17.6 MB of staging — because the 10 s "
+                  + "report cadence is ONE shared timer and every engaged panel arms on the same "
+                  + "frame; a deferred census stays armed and goes out on a later frame, it is never "
+                  + "cancelled), ").Append(c.Unanswerable)
           .Append(" reported NOT ANSWERABLE, ").Append(c.Threw).Append(" threw.");
 
         Sb.Append(" HOW TO READ IT — AND THIS LINE IS DECISIVE IN BOTH DIRECTIONS. (1) GLYPHS EMPTY IN "
@@ -810,8 +920,12 @@ internal static partial class PanelSupersample
                   + "user still sees them missing, means THE CAPTURE IS CORRECT and the loss is "
                   + "DOWNSTREAM: the resolve blit, the mip chain, the display quad or the eye. That "
                   + "exonerates thirteen builds of capture-content work in one line and moves the "
-                  + "entire search to the display side, where no counter in this class has ever "
-                  + "looked. (3) THIS LINE CAN NEVER MEAN 'INCONCLUSIVE'. If the census could not run "
+                  + "entire search to the display side. ModBuild 208 measures the FIRST TWO of those "
+                  + "four — see the RESOLVE BLIT and MIP CHAIN verdicts — so branch (2) is no longer "
+                  + "a list of four suspects but at most two, and if both of those verdicts read "
+                  + "VERIFIED the remaining pair is the display quad's material and sampler state and "
+                  + "the stereo eye pass, neither of which any counter in this class has ever "
+                  + "looked at. (3) THIS LINE CAN NEVER MEAN 'INCONCLUSIVE'. If the census could not run "
                   + "— no readback support, the target re-allocated under it, the orientation check "
                   + "undecided, the caps biting, a multisampled source — it prints a NOT ANSWERABLE "
                   + "line naming WHICH, and this line is not printed at all. (4) READ THE THREE "
@@ -838,11 +952,82 @@ internal static partial class PanelSupersample
                   + "median, i.e. whether the gaps are faint or bare. They are different readings of "
                   + "different numbers and only one of them was ever chased.");
 
-        // ---- REQUIREMENT 4: THE VERDICT, LAST AND IN ONE SENTENCE, CHOSEN BY THE NUMBERS ---------
+        Sb.Append(" (7) AND THE ONE THING THAT CHANGED IN ModBuild 208: the census now reads the "
+                  + "levels the eye SAMPLES, not only the level it does not. The ModBuild 207 session "
+                  + "paired every verdict with its glyph fates and the pairing was clean — 13 readings "
+                  + "of MAPPING VERIFIED with 0 EMPTY, 9 of ARTEFACT with 113 empty at effective "
+                  + "alpha 0.035/0.160, 3 MIXED — with not ONE reading that was both fully opaque and "
+                  + "missing glyphs. THE MIP 0 CAPTURE IS CORRECT, which is branch (2) above, and the "
+                  + "next question is entirely the MIP CHAIN VERDICT below. If that reads VERIFIED "
+                  + "too, the whole capture side is exonerated and the remaining suspects are the "
+                  + "display quad's material and sampler state, the mip LOD bias, and the stereo eye "
+                  + "pass — none of which any counter in this class has ever measured.");
+
+        // ---- REQUIREMENT 4: THE VERDICTS, LAST AND EACH IN ONE SENTENCE, CHOSEN BY THE NUMBERS ---
         Sb.Append(" MAPPING VERDICT: ").Append(c.MappingVerdict);
+        Sb.Append(" MIP CHAIN VERDICT: ").Append(c.MipVerdict);
 
         VRLog.Info(Scope, Sb.ToString());
         Sb.Length = 0;
+    }
+
+    /// <summary>
+    /// <b>THE FOUR PLANES SIDE BY SIDE ON ONE LINE — the shape that makes ModBuild 208 readable in a
+    /// glance.</b> A plane that could not be read prints WHY in the same position a count would have
+    /// been, because "mip 2 lost every glyph" and "mip 2 does not exist" must never look alike.
+    /// </summary>
+    private static void AppendInkPlanes(Entry e, InkCensus c)
+    {
+        Sb.Append(" THE PLANES, SIDE BY SIDE (mip 0 is what every previous build measured; MIP 1 and "
+                  + "MIP 2 are what the eye actually samples at this window's trilinear LOD of ")
+          .Append(Mathf.Max(0f, Mathf.Log(Mathf.Max(e.TexelsPerRenderedPx, 1e-4f), 2f)).ToString("F2"))
+          .Append(", out of ").Append(c.MipCount).Append(" level(s) the display target carries):");
+        for (int i = 0; i < InkPlaneOrder.Length; i++)
+        {
+            InkPlane p = c.Planes[InkPlaneOrder[i]];
+            Sb.Append(' ').Append(p.Short).Append(": ");
+            if (!p.Available)
+            {
+                Sb.Append("NOT READ — ").Append(p.Unavailable).Append('.');
+                continue;
+            }
+            if (p.Failed)
+            {
+                Sb.Append("FAILED — ").Append(p.FailWhy).Append('.');
+                continue;
+            }
+            if (!p.Landed)
+            {
+                Sb.Append("requested but never delivered.");
+                continue;
+            }
+            Sb.Append(p.Ink).Append(" of ").Append(p.Judged).Append(" judged inked, ")
+              .Append(p.Empty).Append(" empty, ").Append(p.BelowFloor)
+              .Append(" below the ").Append(InkMinQuadTexels.ToString("F0")).Append("-texel floor")
+              .Append(p.Deferred > 0 ? $", {p.Deferred} deferred by the budget" : string.Empty)
+              .Append(" (strip ").Append(p.W).Append('x').Append(p.H).Append(" at x=").Append(p.X)
+              .Append("; smallest quad still judged ").Append(p.SmallestJudged.ToString("F1"))
+              .Append(" texels; background ").Append((p.Background * 255f).ToString("F1"))
+              .Append("/255; INKED median ")
+              .Append(p.MedDevInk >= 0f ? (p.MedDevInk * 255f).ToString("F1") + "/255"
+                                        : "n/a (no glyph on this plane was judged INKED)")
+              .Append(", EMPTY median ")
+              .Append(p.MedDevEmpty >= 0f ? (p.MedDevEmpty * 255f).ToString("F1") + "/255"
+                                          : "n/a (no glyph on this plane was judged EMPTY)")
+              .Append("; orientation ")
+              .Append(p.Decided
+                  ? (p.Flipped ? "row 0 = TOP" : "row 0 = BOTTOM")
+                  : "undecided on its own data, borrowed from the reference plane")
+              .Append(", correlation ").Append(p.CorrAsIs.ToString("F2")).Append(" as delivered / ")
+              .Append(p.CorrFlip.ToString("F2")).Append(" reversed; profile stride ")
+              .Append(p.ProfileStride).Append(p.Confirming ? " (a CONFIRMATION sweep)"
+                                                           : " (the DECIDING sweep)")
+              .Append("; judged in ").Append(p.JudgeMs.ToString("F2"))
+              .Append(" ms of which ").Append(p.ProfileMs.ToString("F2"))
+              .Append(" ms was the orientation prologue, against a granted share of ")
+              .Append(p.BudgetMs.ToString("F2")).Append(" ms")
+              .Append(p.Overran ? ", BUDGET SPENT" : string.Empty).Append(").");
+        }
     }
 
     /// <summary>
@@ -856,6 +1041,10 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void ReportInkUnanswerable(Entry? e, InkCensus c, string reason, string why)
     {
+        // Same as ReportInkCensus: this census is over and its share of the mod-wide budget goes back
+        // here. If it did not, MaxInkCensusesInFlight = 1 would mean ONE refusal silences the
+        // instrument for the rest of the session — while every line still claimed it was armed.
+        EndInkCensus(c);
         c.Unanswerable++;
         float now = Time.unscaledTime;
         bool sameReason = string.Equals(c.LastUnanswerable, why, System.StringComparison.Ordinal);
