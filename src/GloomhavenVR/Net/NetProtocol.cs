@@ -416,7 +416,140 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 200;
+    public const ushort ModBuild = 201;
+    // Build 201: THE TWO BROKEN SUB-VIEWS ARE THE ONLY TWO THAT ARE SCALED, AND THE MOONLIT ROOM
+    // HAS NO LIGHT AT ALL. (Four workers, isolated worktrees.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── (4) THE USER ISOLATED THE VARIABLE FOR US, AND THE CORRELATION IS COMPLETE ────────
+    // He asked: "Nur bei dem Character (erster Knopf) und bei den Perks (letzter Knopf) tritt das
+    // Flackern auf … Was macht diese zwei Fenster anders als die anderen Submenus?"
+    // ANSWER: they are the only two content roots in the mod carrying a non-unit `localScale` —
+    // perks 0.494, character selector 0.487; the other four sub-views sit at 1.000 and none of them
+    // flickers. And the supersample render target is sized from the HOST frame, so a subtree at 0.487
+    // receives `2.00 x 0.487 = 0.97` render-target texels per ITS OWN authored pixel while its four
+    // unscaled siblings IN THE SAME WINDOW receive 2.00. **Those two views are the only content the
+    // mod captures BELOW the band-limit floor ModBuild 198 added to stop exactly this shimmer.**
+    // HIS SECOND SENTENCE WAS WORTH MORE THAN ANY INSTRUMENT: "mittlerweile taucht es auch initial
+    // kaputt auf wenn man das Fenster öffnet". That removes the drag, the pose gap and the release
+    // from the picture — the mechanism is present in a STATIC frame. And it is: this window's capture
+    // frame WANDERS across eight distinct heights (1080/1082/1099/1107/1109/1110/1200/1453) while the
+    // quest log holds 390x880 on all 31 readings and the esc menu 405x1080 on all 3. **24 of its 31
+    // reallocations fall in report windows whose motion field reads `0 of ~900 comparisons`.** Every
+    // frame change re-derives the projection, so the authored->texel SUB-PIXEL PHASE MOVES; at 0.97
+    // texels/px that re-rolls, glyph by glyph, which strokes land on a texel centre and survive. That
+    // is "ziemlich random, hängt davon ab wann man loslässt" and the broken-on-open case, one cause.
+    // FIXES, from two sides. Capture: the frame's overspill past the host rect is quantised to a
+    // 32-px grid per EDGE (not the centre — centring would inflate every window and break the
+    // ON/OFF-geometry-identical promise) and the rate to multiples of 0.25, so a frame change shifts
+    // the image by WHOLE TEXELS. Predicted from the session's own data: seven of the eight heights
+    // collapse to one, 31 reallocations become ~3. And the band-limit floor now applies to the
+    // CONTENT, not the host: the rate is asked as `BandLimitFactor / minContentScale`, and a sub-view
+    // switch is itself a reallocation trigger — nothing about the host changes when he presses a tab,
+    // so neither the old dirty flag nor the frame test could ever see it.
+    // Fit: the sub-view pose is solved ONCE per open and then frozen, like the host size, the pin and
+    // the seam. The 200 log's perks open shows `3 sub-view scale write(s), 7 re-seat(s), 19 column
+    // re-assert(s)` DURING the open — the window was written 29 times while he dragged it, and the
+    // capture re-resolves on every drag. A capture racing a pose write is the other half of the same
+    // randomness.
+    // THE CAPTURE SIDE SAYS PLAINLY THAT IT CANNOT FINISH THIS: reaching the band limit for a 0.487
+    // subtree needs `2.00/0.487 = 4.11`, i.e. a 7049 px frame, and both the 4096 dimension cap and the
+    // 160 MB panel budget refuse it (8192 does not help — VRAM binds at ~2.6). Reachable is ~2.4,
+    // which lifts that subtree from 0.97 to ~1.2. Real, but not the fix. **The complete cure is for
+    // the subtree not to be scaled**, which is a ruling the user has to make (below).
+    // ALSO FALSIFIED, and it was my hypothesis: the TMP sub-mesh family. All 82 readings of
+    // `ScanTmpSubMeshes` report `OFF THE PRIVATE CAPTURE LAYER = 0`. The high "culled" count was an
+    // instrument fault of mine — it counted the EMPTY POOLED children TMP keeps per material
+    // reference. They now have their own denominator and are excluded from the defect counters.
+    //
+    // ── (3) I RETRACT THE "PERKS IS MOSTLY A BLUR PLATE" CLAIM — 14 px, NOT 1100 ─────────
+    // I told the user the perks view's 1620 px was mostly a full-screen backdrop with a ~512 px content
+    // column, and offered that as the way out. THE HARDWARE CENSUS SAYS OTHERWISE, verbatim:
+    //     perks    — WITHOUT them the view would need 1613x1080 px   (from 1627: 14 px, 0.9 %)
+    //     selector — WITHOUT them the view would need 1648x1080 px   (from 1648: ZERO)
+    // My "512 px" was the width of ONE CONTRIBUTOR in a ModBuild-196 top-3 line, never of the union —
+    // and that misreading had been the premise of THREE separate proposals across three rounds. Struck
+    // from the region note.
+    // The character selector's 1477 px `Character3D/RawImage` cannot be separated either: removing every
+    // full-frame plate moves its union by nothing at all, so the x extremes are NOT the pictorial
+    // elements, and the prefab places the portrait and the stat rows relative to one another. A new
+    // CONTENT EXTREMES census now names the two graphics that actually define the union in x, so this
+    // cannot be argued a fourth time from one contributor's width.
+    // WHY THE PERKS PLATE IS NOT IN THE HIDE SET, both lines measured and neither changed:
+    // `ModalFallback.8.Convert.cs:72-77` `WantsTransparentBackground` does not list `PartyPanel` at all;
+    // and even opted in it would miss, because `CanvasConversion.2.Adopt.BackgroundCoverFraction` is
+    // 0.85 and the plate covers 1620 of 1920 = 0.844. BOTH patches are needed or neither works, the
+    // second is global, and `perks.jpg` now has TWO candidate explanations (a surviving plate, or the
+    // 0.97-texel glyph lottery). Shipping both remedies at once would make the next log unreadable, so
+    // NEITHER SHIPPED — they are named with their measurements instead.
+    // (3) IS A RULING, NOT A BUG. Four ways to draw a 1648 px view beside a 328 px column in a 1.00 m
+    // frame, and there is no fifth: 0.487 (today, nothing overlaps, small); 1.000 with 845 px hanging
+    // out = 1.74 m / 72° across (past a slab width he has already called too big — that ruling is what
+    // created `ModalTargetWidthMeters`); scrolling at 1.000 (49 % of a view designed to be read at
+    // once, plus a pan gesture that would fight PanelGrab); or hiding the column (the same surprise he
+    // rejected as (2a) last round). Deliberately not chosen for him.
+    //
+    // ── (5) THE HOVER CONTENT THAT MOVED THE WINDOW IS OURS ──────────────────────────────
+    // `TooltipOnWindow` RAISES the hover preview out of where the game put it and re-parents it under
+    // the conversion target — its own line, 18x in the log. That is why it belonged to none of the six
+    // serialised sub-view roots. Counted over all 79 fit lines the base reading resolves completely:
+    // 27x 328x1080 (the real column), 50x 896…1230 (column + a raised `FullAbilityCard`), 2x 1155/1159
+    // (column + a raised item tooltip). NOTHING LEFT OVER — so the rule is an IDENTITY, not a residue.
+    // Detection is by six COMPONENT TYPES, never by name and never by "not one of the six", and
+    // deliberately not by the nested Canvas (ModBuild 194 proved a Canvas outlives its own hide).
+    // Transient graphics are still DRAWN and the hit rect and capture frame still grow to cover them —
+    // they are barred only from the MEASURE, so they can move nothing: not the host size, not the pin,
+    // not the seam, not a scale, not a seat.
+    // TWO MORE WRITERS FOUND WHILE THERE. The column re-assert was the one write exempt from the settle
+    // gate: 47 in one session, **32 of them exactly +15 px** (the raised preview hanging below the
+    // column) and the rest spread -150…+150 (the window's own show animation ramp). BOTH had to go — a
+    // repeating +15 would have passed a settle gate on its own.
+    //
+    // ── (1) THE LEGS ARE INNOCENT: THE MOONLIT ROOM HAS NO LIGHT ────────────────────────
+    // His nested clause carried the diagnosis: "die Tischbeine UND DIE SEITE DES TISCHES". The light
+    // census, quoted whole: 3 enabled lights, exactly ONE reaches the tabletop's layer —
+    // `'Map Directional Light' Directional intensity 1.20 mask 0x700DFE37 → table layer 0 LIT, mod
+    // layer 27 not lit  <-- DISCRIMINATES`; the other two (7.85, 2.60, mask 0x00020100) reach neither.
+    // Our legs sit on layer 0 with the tabletop's own material object, so they agree with the table BY
+    // CONSTRUCTION — which is exactly why he saw both wrong.
+    // AND THE ROOM HAS NO REALTIME LIGHT AT ALL. `SkyAlternative` creates zero `Light` objects; the moon
+    // is the authored constant `EnvironmentsBuilder.MoonDir` (az 40°, alt 40°) BAKED INTO THE BUNDLE'S
+    // SHADERS. A game light versus a baked moon — no shading choice on our prop can close it.
+    // FIX: while a bundled 3D style stands in the map room, the game's map directional is aimed along
+    // the room's own moon. The light is chosen FROM LIVE MASKS, not by name (enabled, directional, mask
+    // reaches layer 0, mask does NOT reach the mod layer, and the transform has NO CHILDREN — a rotation
+    // would drag them, the one way this could displace something). Original rotation cached BEFORE any
+    // write and restored verbatim on gate close, style change, OffBlack, MR, scenario end, VR stop and
+    // teardown. Level-triggered, and after 4 foreign corrections it RESTORES THE ORIGINAL AND CONCEDES,
+    // logging that the game fights for the transform — the standing no-write-war ruling.
+    // INTENSITY AND COLOUR DELIBERATELY NOT TOUCHED: `_DirCol` is a bake term multiplying albedo under
+    // the room's near-black ambient, not a realtime intensity. The forest's (0.70,0.79,0.94) would
+    // barely move the table while the CELLAR'S (0.048,0.070,0.128) WOULD TAKE IT TO NEAR BLACK. Both
+    // are measured and logged so the next round decides with numbers.
+    // Scenarios are out of scope by one predicate: re-aiming a dungeon's suns would re-shadow the game's
+    // own level, and nothing measured supports that.
+    //
+    // ── (2) THE TABLE HAS AN UNDERSIDE ──────────────────────────────────────────────────
+    // One closed box, 12 triangles (prop 48 -> 60), same mesh, same material, ONE draw call. Bottom face
+    // 1 mm above the slab's own `bounds.min.y` (the lowest point anywhere in the mesh, so the panel can
+    // never stand proud); rim 2 mm inside the side faces (flush would be coplanar and same-facing — a
+    // rim-length z-fight) and deliberately smaller than the legs' 20 mm inset so it is never coplanar
+    // with a leg either. A BOX AND NOT A QUAD: a bare inset quad leaves an open slot round the rim, and
+    // a ray up through it lands on the UNLIT PARCHMENT — the same bright leak reduced to a hairline.
+    // Not welded to the parchment; measured from the tabletop's bounds only.
+    //
+    // ── RESIDUALS ─────────────────────────────────────────────────────────────────────────
+    // * The legs still wear ARBITRARY ATLAS PAGES (the mitred-corner lines in his photo). The slab's mesh
+    //   is not CPU-readable so its UV window cannot be measured, and `GH_Map_Table_D` is a game texture
+    //   not in this repo, so no sub-rect can be PROVED. A guess landing on the atlas background would be
+    //   worse than the wrong page. The log now prints CPU-READABLE per texture slot — the one runtime
+    //   test that settles it.
+    // * `SkyAlternative` now exposes `TryRoomFloorY`, `PlacedRoomRoot` and `TryRoomMoonDirection`, but
+    //   `MapTableLegs` still finds the room by NAME. Routing them is pure robustness with no user-visible
+    //   effect and was deferred rather than done at the end of a four-lane round.
+    // * That window's content union reaches 1976x1453 around a 1143x1080 host and is permanently
+    //   CLAMPED — ~33 % of its RT width is spent outside the visible frame, and content IS being cropped.
+    //
     // Build 200: THE WINDOW IS NOT BLURRED, IT IS SMALL; AND THE MISSING GLYPHS LIVE ON CHILD
     // OBJECTS NOTHING EVER SCANNED. (Three workers, isolated worktrees.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

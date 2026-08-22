@@ -6,9 +6,10 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI.MapRoom;
 
 /// <summary>
-/// THE MAP TABLE'S LEGS — four legs, one at each corner of the table the campaign map lies on,
-/// built PROCEDURALLY at runtime as one mesh, standing on the floor of the bundled 3D environment
-/// and present ONLY in the two bundled 3D environments.
+/// THE MAP TABLE'S LEGS AND ITS UNDERSIDE — four legs, one at each corner of the table the campaign
+/// map lies on, plus a panel that closes the game slab's open bottom, built PROCEDURALLY at runtime
+/// as ONE mesh, standing on the floor of the bundled 3D environment and present ONLY in the two
+/// bundled 3D environments.
 ///
 /// <para>USER, verbatim (translated), against ModBuild 197: "There really are no benches, I must
 /// have dreamt that. But I don't like your benches — remove them again and close the topic for now.
@@ -115,8 +116,11 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// same predicate the MR readability treatment keys off, so there is no second switch to drift.</para>
 ///
 /// <para>IT MOVES NOTHING, AND IT CANNOT MOVE A WINDOW. This class only READS: the table renderer's
-/// bounds and material, the environment room root's position, the parchment's bounds, the solved
-/// seat's scale, the head camera's culling mask and the scene's lights. It writes no game transform,
+/// bounds, material and lighting flags, the environment room root's position, the environment's own
+/// <c>_MoonDir</c> constant (through <c>sharedMaterials</c>, NEVER <c>materials</c> — the latter
+/// instantiates a per-renderer copy and would leave the environment wearing clones this class then
+/// leaks), the parchment's bounds, the solved seat's scale, the head camera's culling mask, and the
+/// scene's lights with their transforms. It writes no game transform,
 /// no game material, no rig value, and it has no Update of its own — it is world-fixed furniture, so
 /// after the build frame <see cref="Tick"/> is two field reads and a reference compare. No collider,
 /// deliberately: the laser's pick path must not start finding furniture. The two per-leg probes
@@ -146,9 +150,43 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// packets — and a client on a different environment simply has none, which is a presentation
 /// difference exactly like the environment itself already is.</para>
 ///
-/// <para>COST: one combined mesh, <see cref="TriangleCount"/> triangles, ONE MeshRenderer with ONE
-/// material = ONE draw call, built once, no per-frame allocation and no shadow pass. Four legs of
-/// four different lengths cost exactly the same as four of one length — the extra shaft ModBuild 200
+/// <para>MODBUILD 201, FAULT 2: THE TABLE HAD NO BOTTOM, AND THE MAP SHOWED THROUGH IT. The user,
+/// verbatim (translated): "The table has no real underside — you can see through it from below, and
+/// you also see the map lying on the table. I want it to have a tabletop from below as well, so you
+/// cannot see through." (<c>.planning/debug/tisch_unten.jpg</c>.) <c>GH_Map_TableTop_Lg</c> draws a
+/// top face and four side faces and nothing underneath, so from below the board is an open shell;
+/// and what shows through it is the parchment, which <c>MapParchment</c> draws UNLIT — an unlit
+/// surface is at full brightness from either side, which is exactly why the map reads as a lit panel
+/// hanging inside the table. <see cref="Underside"/> closes it with one CLOSED box of
+/// <see cref="UndersideTriangleCount"/> triangles in the same mesh, the same material and the same
+/// draw call, living entirely INSIDE the slab's own AABB so it cannot be seen from above, cannot
+/// z-fight and cannot change the silhouette the user has already accepted. It is NOT welded to the
+/// parchment: the map is still excluded by identity and by the 30 mm board test, both of which still
+/// run, and ModBuild 199 was burnt on exactly that confusion.</para>
+///
+/// <para>MODBUILD 201, FAULT 1: THE LIGHTING IS NOT THIS PROP'S TO FIX, AND THE CENSUS NOW PROVES
+/// IT. The user: "the table legs AND THE SIDE OF THE TABLE are lit from the other side ... I would
+/// like the lighting to match the environment." ModBuild 200's census answers the first half in one
+/// reading — <c>3 enabled light(s) in the scene; 1 of them light layer 0 and layer 27 DIFFERENTLY.
+/// 'Map Directional Light' Directional intensity 1.20 mask 0x700DFE37 → table layer 0 LIT</c>, and
+/// the other two enabled lights (mask <c>0x00020100</c>) reach NEITHER layer. So exactly one light
+/// reaches the tabletop, the legs stand on the tabletop's layer wearing the tabletop's own material,
+/// and THE LEGS AND THE TABLE AGREE. What they disagree with is the ROOM — and the room has no
+/// realtime light at all: <c>SkyAlternative</c> creates none, and its moon is the authored constant
+/// <c>EnvironmentsBuilder.MoonDir</c> baked into the bundle's shaders. A game light versus a baked
+/// moon is not a difference a prop can close by shading itself differently; closing it means
+/// re-aiming that GAME light along MoonDir while a 3D style is live and restoring it when the style
+/// closes, which belongs to the class that owns both the moon and the style lifecycle. This file
+/// does the two things it honestly can: it copies the tabletop's own lighting INPUTS onto the prop
+/// (<see cref="MirrorTableShading"/>) so the two cannot drift, and it MEASURES the disagreement —
+/// <see cref="TryMeasureMoonDirection"/> reads the room's own <c>_MoonDir</c> and
+/// <see cref="DescribeLights"/> prints the angle between it and the light that actually reaches the
+/// table, so the next round argues from a number instead of from a photograph.</para>
+///
+/// <para>COST: one combined mesh, <see cref="TriangleCount"/> triangles (<c>4 x 12</c> for the legs
+/// plus <see cref="UndersideTriangleCount"/> for the underside), ONE MeshRenderer with ONE material
+/// = ONE draw call, built once, no per-frame allocation and no shadow pass. Four legs of four
+/// different lengths cost exactly the same as four of one length — the extra shaft ModBuild 200
 /// buries in the slab is hidden geometry, not extra geometry.</para>
 /// </summary>
 internal sealed class MapTableLegs
@@ -308,6 +346,61 @@ internal sealed class MapTableLegs
     /// </summary>
     internal const float FootSinkMeters = 0.025f;
 
+    // ---- THE UNDERSIDE, IN REAL METRES -------------------------------------------------------
+    // The user, verbatim (translated): "The table has no real underside — you can see through it
+    // from below, and you also see the map lying on the table. I want it to have a tabletop from
+    // below as well, so you cannot see through." The game's GH_Map_TableTop_Lg draws a top face and
+    // four side faces and nothing at the bottom, so from underneath the board is an open shell and
+    // the parchment — which this mod draws UNLIT, i.e. at full brightness from either side — shows
+    // straight through it. See .planning/debug/tisch_unten.jpg.
+    //
+    // THE PANEL IS A CLOSED BOX INSIDE THE SLAB'S OWN AABB, and every one of the three numbers below
+    // exists to keep it there. It is not welded to the parchment and it never touches it: ModBuild
+    // 199 was burnt treating the decal as the table, and the parchment is excluded from this class
+    // by identity in TryFindTable and by the 30 mm board test, both of which still run.
+
+    /// <summary>
+    /// How far ABOVE the tabletop slab's own <c>bounds.min.y</c> the underside panel's bottom face
+    /// sits, real metres.
+    ///
+    /// <para>NOT below it, which is the whole point. <c>bounds.min.y</c> is the LOWEST POINT ANYWHERE
+    /// in the slab's mesh, so a panel placed at or above it can never stand proud of the board and
+    /// can never make the table look thicker than the one the user has already accepted. 1 mm
+    /// (0.2 world units at this rig scale) is also enough to keep it off the plane of any bottom face
+    /// the slab may carry but not draw — a back-facing polygon is culled rather than z-fought, but a
+    /// coincident plane is a coin toss this class does not need to enter.</para>
+    /// </summary>
+    private const float UndersideClearanceMeters = 0.001f;
+
+    /// <summary>
+    /// The underside panel's own board thickness, real metres — it is a BOX and not a bare quad, and
+    /// that is what closes the rim.
+    ///
+    /// <para>A single down-facing quad inset from the slab's edge leaves an open slot all the way
+    /// round: a ray coming up through that slot enters the hollow board, meets the top face from
+    /// BEHIND (culled) and lands on the unlit parchment — i.e. exactly the bright leak being fixed,
+    /// reduced to a hairline. The four side walls of a box close it for every ray that does not
+    /// already start inside the wood. 12 mm is a plausible board and stays two orders of magnitude
+    /// inside the slab's measured 148 mm, so the box lives entirely within the slab's AABB.</para>
+    /// </summary>
+    private const float UndersideThicknessMeters = 0.012f;
+
+    /// <summary>
+    /// How far the underside panel's rim stands INSIDE the slab's side faces, real metres.
+    ///
+    /// <para>Two conflicting requirements meet here and 2 mm is where they cross. Flush (0 mm) would
+    /// put the panel's four side walls exactly on the slab's own side faces — coplanar, same-facing,
+    /// z-fighting along the whole rim. Deeply inset would open the slot the box exists to close and
+    /// would also read as a shrunken underside. 2 mm is invisible on a 1.549 m table, cannot
+    /// z-fight, and cannot poke out unless the slab's side face is recessed from its own AABB by more
+    /// than 2 mm — which the photograph rules out: the side face runs flush and vertical from the top
+    /// chamfer to the bottom moulding (.planning/debug/tisch_falsches_licht.jpg, near corner).</para>
+    ///
+    /// <para>It is deliberately SMALLER than <see cref="EdgeInsetMeters"/> (20 mm), so the panel's
+    /// walls are never coplanar with a leg's outer face either. The legs stand 18 mm proud of it.</para>
+    /// </summary>
+    private const float UndersideEdgeInsetMeters = 0.002f;
+
     /// <summary>Bounds on the derived leg height, real metres. Shorter than this and the table is
     /// sitting on the floor; taller and something measured the wrong plane. Either way the numbers
     /// are wrong, and a refusal with a log line is worth more than geometry stretching to the
@@ -380,8 +473,11 @@ internal sealed class MapTableLegs
     /// <summary>One leg at each corner of the tabletop.</summary>
     internal const int LegCount = 4;
 
-    /// <summary>Triangles in the finished prop: 4 legs x 6 quads x 2.</summary>
-    internal const int TriangleCount = LegCount * 12;
+    /// <summary>Triangles in the UNDERSIDE panel: one closed box, 6 quads x 2.</summary>
+    internal const int UndersideTriangleCount = 12;
+
+    /// <summary>Triangles in the finished prop: 4 legs x 6 quads x 2, plus the underside box.</summary>
+    internal const int TriangleCount = LegCount * 12 + UndersideTriangleCount;
 
     /// <summary>
     /// The two BUNDLED 3D environments — the only styles that put a room with a floor around the
@@ -721,6 +817,9 @@ internal sealed class MapTableLegs
             Box(centre, new Vector3(side, _legHeight[i], side));
         }
 
+        // THE UNDERSIDE, in the SAME mesh, the SAME material and the SAME draw call as the legs.
+        Underside(top, floorY, scale, anchoredHeadY, side, out string undersideSource);
+
         _mesh = new Mesh { name = "GloomhavenVR.MapTableLegs" };
         _mesh.SetVertices(_verts);
         _mesh.SetNormals(_norms);
@@ -743,10 +842,9 @@ internal sealed class MapTableLegs
             _ownsMaterial = true;
         }
         mr.sharedMaterial = _material;
-        // Scenery. The map room has no shadow-casting light of its own, so a shadow pass would be a
-        // second pass over 48 triangles for nothing.
-        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        mr.receiveShadows = false;
+        // HOW THIS PROP IS **LIT** IS COPIED FROM THE TABLETOP; HOW IT **LIGHTS OTHERS** IS NOT.
+        // See MirrorTableShading for the split and why it is drawn there.
+        string shadingSource = MirrorTableShading(table, mr);
         // NO COLLIDER, deliberately: the laser's pick path must not start finding furniture.
 
         // THE LEGS GO ON THE TABLE'S OWN LAYER, and that RESOLVES ModBuild 198's stated open risk
@@ -760,7 +858,7 @@ internal sealed class MapTableLegs
         Report(style, mixedReality, seat, parch, table, top, floorY, side, cornerX, cornerZ, scale,
                weld, headInset, anchoredHeadY, slabThickness, tallest, shortest, headsMeasured,
                floorsMeasured, gapFree, skinIndex, layer, floorSource, materialSource, uvSource,
-               layerSource, candidates);
+               layerSource, candidates, undersideSource, shadingSource);
     }
 
     // ---- the two per-leg probes ------------------------------------------------------------------
@@ -1039,11 +1137,20 @@ internal sealed class MapTableLegs
                 try { t = m.GetTexture(pn); }
                 catch { continue; }
                 shown++;
+                // isReadable IS THE ATLAS QUESTION. The legs are mapped over the whole 0..1 sheet
+                // because the slab's mesh is not CPU-readable, so they land on arbitrary atlas pages
+                // (the mitred-corner and inset-panel lines on the near leg). Choosing a plain plank
+                // sub-rectangle instead would have to be PROVED from the texture, and this flag says
+                // whether the texture can be inspected at all at runtime. If it ever reads
+                // CPU-readable, one mip-level GetPixels is enough to find the flattest wood page.
+                string readable = t is Texture2D t2
+                    ? (t2.isReadable ? "CPU-READABLE" : "not CPU-readable")
+                    : "not a Texture2D";
                 sb.Append($"\n{indent}    {pn} = "
                           + (t == null
                              ? "<null>"
                              : $"'{t.name}' {t.width}x{t.height} {t.GetType().Name} wrap={t.wrapMode} "
-                               + $"filter={t.filterMode} mips={t.mipmapCount}"));
+                               + $"filter={t.filterMode} mips={t.mipmapCount} {readable}"));
             }
         }
         return sb.ToString();
@@ -1105,6 +1212,74 @@ internal sealed class MapTableLegs
         return tableLayer;
     }
 
+    /// <summary>
+    /// COPY HOW THE TABLETOP IS **LIT**; DO NOT COPY HOW IT **LIGHTS OTHERS**. That split is the
+    /// whole rule here, and it is the one lighting change this file can honestly make.
+    ///
+    /// <para>The prop wears the tabletop's own material object and stands on the tabletop's own
+    /// layer (see <see cref="ChooseLayer"/>), so it already sees the same lights. What it did NOT
+    /// share until now is the rest of the per-renderer lighting contract: ModBuild 198..200 forced
+    /// <c>receiveShadows = false</c> and left <c>lightProbeUsage</c> / <c>reflectionProbeUsage</c> at
+    /// the defaults Unity gives a freshly created MeshRenderer. Those are INPUTS — they decide how
+    /// much light this surface collects — and if the tabletop's differ, two objects with one material
+    /// under one light set still come out at different brightnesses. They are copied.</para>
+    ///
+    /// <para><c>shadowCastingMode</c> is deliberately NOT copied and stays <c>Off</c>. It is an
+    /// OUTPUT: it decides what this prop does to the GAME's other renderers, and this class's whole
+    /// standing claim is that it changes nothing outside itself. Leaving it off also keeps the cost
+    /// claim true — no second pass over the mesh — and costs nothing visually, because the one light
+    /// that reaches this layer does not reach the environment room's floor (its mask is printed in
+    /// the census two lines below).</para>
+    ///
+    /// <para>IT ALSO MEASURES THE ONE THING THAT COULD STILL SPLIT THEM: whether the tabletop is
+    /// LIGHTMAPPED. A baked renderer takes its ambient from a lightmap chart that a procedural mesh
+    /// with no UV2 cannot share, and copying the index would sample someone else's chart. So the
+    /// state is reported rather than copied, and the report says what it would mean.</para>
+    /// </summary>
+    private static string MirrorTableShading(MeshRenderer table, MeshRenderer mine)
+    {
+        var before = new System.Text.StringBuilder(64);
+        try
+        {
+            before.Append($"receiveShadows={mine.receiveShadows}, lightProbes={mine.lightProbeUsage}, "
+                          + $"reflectionProbes={mine.reflectionProbeUsage}");
+            mine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mine.receiveShadows = table.receiveShadows;
+            mine.lightProbeUsage = table.lightProbeUsage;
+            mine.reflectionProbeUsage = table.reflectionProbeUsage;
+            int lm = table.lightmapIndex;
+            // Unity's two sentinels for "no lightmap": -1 and 65535. 65534 is the "lightmapped but
+            // the map is not loaded" marker, which is still a baked renderer.
+            bool lightmapped = lm >= 0 && lm < 65535;
+            return $"the prop is LIT by exactly the tabletop's own rules — receiveShadows="
+                   + $"{mine.receiveShadows}, lightProbeUsage={mine.lightProbeUsage}, "
+                   + $"reflectionProbeUsage={mine.reflectionProbeUsage}, all COPIED from "
+                   + $"'{table.name}' (a fresh MeshRenderer would have had {before}). Those three are "
+                   + "INPUTS: they decide how much light this surface collects, and two objects with "
+                   + "one material under one light set still differ if they differ. shadowCastingMode "
+                   + "is deliberately NOT copied and stays Off — it is an OUTPUT, it would change what "
+                   + "this prop does to the GAME's renderers, and this class changes nothing outside "
+                   + $"itself. THE TABLETOP'S lightmapIndex IS {lm}, i.e. it is "
+                   + (lightmapped
+                      ? "BAKED. That is a difference this class CANNOT close: a baked renderer takes "
+                        + "its ambient from a lightmap chart, and a procedural mesh with no UV2 has no "
+                        + "chart of its own — copying the index would sample the TABLE's chart at the "
+                        + "legs' coordinates, i.e. arbitrary baked light. If the legs read at a "
+                        + "visibly different brightness from the slab they hold up, THIS LINE IS THE "
+                        + "REASON and the fix is a bake, not a flag"
+                      : "NOT baked, so its shading is entirely realtime and the legs, on its layer "
+                        + "with its material and now its lighting flags, are shaded by exactly the "
+                        + "same arithmetic. Any remaining difference between the prop and the ROOM is "
+                        + "therefore not about this prop — see the census below");
+        }
+        catch (System.Exception ex)
+        {
+            return $"copying the tabletop's lighting flags threw ({ex.GetType().Name}: {ex.Message}), "
+                   + "so the prop keeps a fresh MeshRenderer's defaults and may collect a different "
+                   + "amount of ambient than the slab it holds up";
+        }
+    }
+
     /// <summary>Set a whole (two-deep) subtree to one layer. <c>VRLayers.Apply</c> would force the
     /// MOD layer, which is exactly the thing <see cref="ChooseLayer"/> decides against.</summary>
     private static void SetLayerRecursive(Transform t, int layer)
@@ -1114,15 +1289,124 @@ internal sealed class MapTableLegs
             SetLayerRecursive(t.GetChild(i), layer);
     }
 
+    /// <summary>The environment shaders' authored "direction TOWARD the moon", in the carrying
+    /// renderer's OBJECT space. Declared by <c>EnvStars.shader</c>, <c>EnvStarPoints.shader</c> and
+    /// <c>EnvPuddle.shader</c>, and written once at bake time from
+    /// <c>EnvironmentsBuilder.MoonDir</c>. See <see cref="TryMeasureMoonDirection"/>.</summary>
+    private static readonly int MoonDirId = Shader.PropertyToID("_MoonDir");
+
     /// <summary>
-    /// THE LIGHT CENSUS — the evidence behind <see cref="ChooseLayer"/>, printed whether or not it
-    /// mattered. For every enabled light in the scene it prints the type, the intensity and the
-    /// culling mask, and it counts the lights that DISTINGUISH the tabletop's layer from the mod
-    /// layer. A count of zero means the layer never mattered here; a count above zero means ModBuild
-    /// 198's legs really were lit differently from the table they held up, and that this build's
-    /// layer choice is what fixed it.
+    /// THE ROOM'S OWN MOON DIRECTION, MEASURED — not assumed, and not copied into this file.
+    ///
+    /// <para>The user's complaint about the lighting is a statement about a DIRECTION ("although the
+    /// moon shines from the other side, the table legs and the side of the table are lit from the
+    /// other side"), and until now this census could only print which LAYERS a light reached. So the
+    /// moon is read from the environment itself: <c>SkyAlternative</c>'s sky and room branches are
+    /// found by the names that class authors — the same by-name compromise
+    /// <see cref="TryFindRoomFloor"/> already documents — and the first shared material under either
+    /// that declares <c>_MoonDir</c> is asked for it. That value is the authored constant
+    /// <c>EnvironmentsBuilder.MoonDir</c> baked into the bundle, so this reads the SAME number the
+    /// moon sprite, the light shafts and the water glints read; it is not a second copy that can
+    /// drift, which is the frequency-scrub bug class this project has already paid for.</para>
+    ///
+    /// <para>It is a direction in the carrying renderer's object space and the sky branch is rotated
+    /// to the board's yaw, so it is turned into world space by the renderer's ROTATION. Rotation and
+    /// not the full matrix on purpose: a direction pushed through a non-uniformly scaled
+    /// <c>localToWorldMatrix</c> comes out skewed, and the shader itself consumes the constant in
+    /// object space where only the rotation separates the two frames. The renderer's lossy scale is
+    /// printed so a reader can see whether that assumption held.</para>
+    ///
+    /// <para>READ-ONLY, and that word is load-bearing: <c>sharedMaterials</c>, never
+    /// <c>materials</c> — the latter INSTANTIATES a copy per renderer and would leave the
+    /// environment wearing clones this class then leaks. One sweep, on the build frame, and it stops
+    /// at the first answer.</para>
     /// </summary>
-    private static string DescribeLights(int tableLayer, int modLayer, string indent)
+    internal static bool TryMeasureMoonDirection(SkyStyle style, out Vector3 world, out string source)
+    {
+        world = Vector3.up;
+        source = "no environment branch in the scene carries a _MoonDir, so the room's own moon "
+                 + "direction could not be measured this build";
+        string[] roots =
+        {
+            "GloomhavenVR.SkyAlternative.Sky." + style,
+            "GloomhavenVR.SkyAlternative.Room." + style,
+        };
+        try
+        {
+            for (int n = 0; n < roots.Length; n++)
+            {
+                GameObject? go = GameObject.Find(roots[n]);
+                if (go == null)
+                    continue;
+                Renderer[] rs = go.GetComponentsInChildren<Renderer>(true);
+                for (int i = 0; i < rs.Length; i++)
+                {
+                    Renderer r = rs[i];
+                    if (r == null)
+                        continue;
+                    Material[] mats = r.sharedMaterials;
+                    for (int m = 0; m < mats.Length; m++)
+                    {
+                        Material? mat = mats[m];
+                        if (mat == null || !mat.HasProperty(MoonDirId))
+                            continue;
+                        Vector4 v = mat.GetVector(MoonDirId);
+                        var local = new Vector3(v.x, v.y, v.z);
+                        if (local.sqrMagnitude < 1e-6f)
+                            continue;
+                        world = (r.transform.rotation * local).normalized;
+                        Vector3 ls = r.transform.lossyScale;
+                        source = $"MEASURED off the environment itself: '{mat.name}' on renderer "
+                                 + $"'{r.name}' under '{roots[n]}' declares _MoonDir "
+                                 + $"({local.x:F3}, {local.y:F3}, {local.z:F3}) in object space — the "
+                                 + "authored EnvironmentsBuilder.MoonDir baked into the bundle, i.e. "
+                                 + "the very number the moon sprite, the light shafts and the water "
+                                 + $"glints read. Rotated into world space by that renderer it points "
+                                 + $"{Bearing(world)}. (Renderer lossy scale ({ls.x:F2}, {ls.y:F2}, "
+                                 + $"{ls.z:F2}); the rotation alone is used, so a non-uniform scale "
+                                 + "there would be the one thing that could bend this reading.)";
+                        return true;
+                    }
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            source = $"reading the environment's _MoonDir threw ({ex.GetType().Name}: {ex.Message}), "
+                     + "so the room's own moon direction is unknown this build";
+        }
+        return false;
+    }
+
+    /// <summary>A world direction as a compass bearing and an elevation, both in degrees, because
+    /// "lit from the other side" is a statement about angles and a vector is not readable as one.
+    /// Azimuth is measured from +Z through +X, exactly as Unity's own yaw is.</summary>
+    private static string Bearing(Vector3 d)
+    {
+        Vector3 n = d.sqrMagnitude > 1e-9f ? d.normalized : Vector3.up;
+        float az = Mathf.Atan2(n.x, n.z) * Mathf.Rad2Deg;
+        float alt = Mathf.Asin(Mathf.Clamp(n.y, -1f, 1f)) * Mathf.Rad2Deg;
+        return $"az {az:F1} deg, alt {alt:F1} deg ({n.x:F3}, {n.y:F3}, {n.z:F3})";
+    }
+
+    /// <summary>
+    /// THE LIGHT CENSUS — and since ModBuild 201 it answers WHICH WAY, not only which layer, because
+    /// that is the question the user actually asked.
+    ///
+    /// <para>ModBuild 199 shipped this census to settle one thing: do the legs disagree with the
+    /// TABLE? It answers that completely — every enabled light with its culling mask, and a count of
+    /// the lights that reach the tabletop's layer and the mod layer DIFFERENTLY. What it could not
+    /// answer is the user's actual sentence, which is about a direction: "although the moon shines
+    /// from the other side, the table legs AND THE SIDE OF THE TABLE are lit from the other side".
+    /// So every light now also prints the direction it comes FROM as a bearing and an elevation, the
+    /// room's own moon is measured (<see cref="TryMeasureMoonDirection"/>), and the angle between the
+    /// strongest light that reaches the tabletop and that moon is printed as a single number.</para>
+    ///
+    /// <para>THE WHOLE DISTRIBUTION IS PRINTED, up to <see cref="LightCap"/>, and the tail is counted
+    /// rather than dropped silently — a census that shows only the interesting rows is a census that
+    /// agrees with whatever you already believe.</para>
+    /// </summary>
+    private static string DescribeLights(int tableLayer, int modLayer, SkyStyle style, string indent)
     {
         Light[] lights;
         try { lights = Object.FindObjectsOfType<Light>(); }
@@ -1130,9 +1414,15 @@ internal sealed class MapTableLegs
         {
             return $"{indent}the light census threw ({ex.GetType().Name}) — no verdict.";
         }
+
+        bool haveMoon = TryMeasureMoonDirection(style, out Vector3 moon, out string moonSource);
+
         int tableBit = 1 << tableLayer, modBit = 1 << modLayer;
-        int discriminating = 0, enabledCount = 0, named = 0;
-        var sb = new StringBuilder(192);
+        int discriminating = 0, enabledCount = 0, named = 0, litTableCount = 0;
+        float strongest = -1f;
+        Vector3 strongestDir = Vector3.up;
+        string strongestName = "<none>";
+        var sb = new StringBuilder(384);
         for (int i = 0; i < lights.Length; i++)
         {
             Light l = lights[i];
@@ -1144,23 +1434,89 @@ internal sealed class MapTableLegs
             bool splits = litsTable != litsMod;
             if (splits)
                 discriminating++;
-            if (named < LightCap && (splits || named < 3))
+            // The direction light ARRIVES FROM, i.e. the direction you look to see the source. For a
+            // directional light that is -forward; for a point/spot it is only meaningful at a place,
+            // so the bearing is printed for directionals and the position for the rest.
+            Vector3 from = -l.transform.forward;
+            if (litsTable)
             {
-                named++;
-                sb.Append($"\n{indent}  '{l.name}' {l.type} intensity {l.intensity:F2} "
-                          + $"mask 0x{l.cullingMask:X8} → table layer {tableLayer} "
-                          + $"{(litsTable ? "LIT" : "not lit")}, mod layer {modLayer} "
-                          + $"{(litsMod ? "LIT" : "not lit")}{(splits ? "  <-- DISCRIMINATES" : "")}");
+                litTableCount++;
+                if (l.type == LightType.Directional && l.intensity > strongest)
+                {
+                    strongest = l.intensity;
+                    strongestDir = from;
+                    strongestName = l.name;
+                }
             }
+            if (named >= LightCap)
+                continue;
+            named++;
+            Color c = l.color;
+            sb.Append($"\n{indent}  '{l.name}' {l.type} intensity {l.intensity:F2} colour "
+                      + $"({c.r:F2}, {c.g:F2}, {c.b:F2}) shadows {l.shadows} mask 0x{l.cullingMask:X8}"
+                      + $" — comes FROM {(l.type == LightType.Directional ? Bearing(from) : $"position ({l.transform.position.x:F1}, {l.transform.position.y:F1}, {l.transform.position.z:F1}), range {l.range:F1}")}"
+                      + $" → table layer {tableLayer} {(litsTable ? "LIT" : "not lit")}, mod layer "
+                      + $"{modLayer} {(litsMod ? "LIT" : "not lit")}"
+                      + (splits ? "  <-- DISCRIMINATES" : ""));
         }
+
+        string verdict;
+        if (litTableCount == 0)
+        {
+            verdict = $"NOTHING lights layer {tableLayer} at all, so the tabletop and this prop are "
+                      + "both on ambient alone — if the wood reads flat, that is why.";
+        }
+        else if (!haveMoon || strongest < 0f)
+        {
+            verdict = $"{litTableCount} light(s) reach layer {tableLayer}, and the prop is on that "
+                      + "layer with the tabletop's own material and lighting flags, so the PROP AND "
+                      + "THE TABLE AGREE BY CONSTRUCTION. Whether they agree with the ROOM could not "
+                      + "be decided this build: " + moonSource;
+        }
+        else
+        {
+            float angle = Vector3.Angle(strongestDir, moon);
+            verdict = $"{litTableCount} light(s) reach layer {tableLayer}; the strongest directional "
+                      + $"one is '{strongestName}' at intensity {strongest:F2}, arriving from "
+                      + $"{Bearing(strongestDir)}. THE ROOM'S MOON STANDS AT {Bearing(moon)}. THE TWO "
+                      + $"ARE {angle:F0} DEGREES APART. The prop is on the tabletop's layer, wears the "
+                      + "tabletop's material object and now copies the tabletop's lighting flags, so "
+                      + "the PROP AND THE TABLE AGREE; what that angle measures is the TABLE against "
+                      + "the ROOM, and it is a GAME light against a BAKED moon. This class cannot "
+                      + "close it: the environment carries no realtime light at all (SkyAlternative "
+                      + "creates none — the moon is an authored constant baked into the bundle's "
+                      + "shaders), and the light that does reach the tabletop belongs to the game's "
+                      + "map scene. Closing it means re-aiming that game light along MoonDir while a "
+                      + "3D style is live, and restoring it when the style closes — which is "
+                      + "SkyAlternative's business, since it owns both the moon and the style "
+                      + "lifecycle, and is NOT reachable from this file. "
+                      + (angle > 45f
+                         ? "AT THIS ANGLE THE USER'S REPORT IS CONFIRMED IN NUMBERS: the table and its "
+                           + "legs really are lit from somewhere the moon is not."
+                         : "At this angle the two are broadly in agreement, so a remaining complaint "
+                           + "about the lighting is about intensity or colour and not direction.");
+        }
+
         return $"{indent}{enabledCount} enabled light(s) in the scene; {discriminating} of them "
                + $"light layer {tableLayer} and layer {modLayer} DIFFERENTLY. "
                + (discriminating == 0
                   ? "So the layer never changed the shading here and ModBuild 198's stated risk was "
-                    + "real but unrealised — the pale legs were the MATERIAL, and only the material."
+                    + "real but unrealised — the pale legs were the MATERIAL, and only the material. "
                   : "So ModBuild 198's legs WERE lit by a different light set than the table they held "
                     + "up, exactly as that build's open-risk note predicted; putting them on the "
-                    + "table's own layer is what removes it.")
+                    + "table's own layer is what removes it. ")
+               + verdict
+               + $"\n{indent}  the moon : {moonSource}"
+               + $"\n{indent}  ambient  : mode {RenderSettings.ambientMode}, intensity "
+               + $"{RenderSettings.ambientIntensity:F2}, sky ({RenderSettings.ambientSkyColor.r:F2}, "
+               + $"{RenderSettings.ambientSkyColor.g:F2}, {RenderSettings.ambientSkyColor.b:F2}), flat "
+               + $"({RenderSettings.ambientLight.r:F2}, {RenderSettings.ambientLight.g:F2}, "
+               + $"{RenderSettings.ambientLight.b:F2}) — this is the floor every DOWN-facing face "
+               + "gets, including the new underside panel, and it is shared with the tabletop."
+               + (named < enabledCount
+                  ? $"\n{indent}  ({enabledCount - named} further enabled light(s) not named; the cap "
+                    + $"is {LightCap}. The counts above cover ALL {enabledCount}.)"
+                  : "")
                + sb;
     }
 
@@ -1577,6 +1933,78 @@ internal sealed class MapTableLegs
     // ---- geometry ----------------------------------------------------------------------------
 
     /// <summary>
+    /// THE UNDERSIDE — one closed box that gives the game's hollow tabletop a bottom, appended to the
+    /// legs' own mesh so the whole prop is still ONE draw call.
+    ///
+    /// <para>THE FAULT. <c>GH_Map_TableTop_Lg</c> draws a top face and four side faces and nothing
+    /// underneath, so seen from below the board is an open shell. Worse, what shows through it is the
+    /// campaign map: <c>MapParchment</c> puts this mod's own UNLIT material on the parchment, and an
+    /// unlit surface is at full brightness from either side, so the map reads as a lit panel floating
+    /// inside the table (.planning/debug/tisch_unten.jpg). The user's ruling: "I want it to have a
+    /// tabletop from below as well, so you cannot see through."</para>
+    ///
+    /// <para>WHERE IT GOES, AND WHY THAT PLACE CANNOT BE SEEN FROM ABOVE. The box lives entirely
+    /// inside the slab's own AABB: its bottom face is <see cref="UndersideClearanceMeters"/> ABOVE
+    /// <c>bounds.min.y</c> — the lowest point anywhere in the slab's mesh — and its rim is
+    /// <see cref="UndersideEdgeInsetMeters"/> inside the slab's side faces. Every point of it is
+    /// therefore below the slab's drawn top face and inside its drawn side faces, so from any eye at
+    /// or above the tabletop the slab itself is in the way. It also cannot change the silhouette the
+    /// user has already accepted: nothing of it reaches the AABB.</para>
+    ///
+    /// <para>WHY A BOX AND NOT A QUAD. A bare quad inset from the edge leaves an open slot round the
+    /// rim, and a ray up through that slot enters the hollow board and lands on the unlit parchment —
+    /// the same bright leak, reduced to a hairline. The four side walls close it. See
+    /// <see cref="UndersideThicknessMeters"/>.</para>
+    ///
+    /// <para>IT DOES NOT TOUCH THE PARCHMENT, AND THAT IS DELIBERATE. ModBuild 199 was burnt treating
+    /// the decal as the table; the parchment is still excluded from <see cref="TryFindTable"/> by
+    /// IDENTITY and by the <see cref="MinTableThicknessMeters"/> board test, and this box is measured
+    /// from the slab's bounds only. It is not welded to, parented to, or offset from the map.</para>
+    ///
+    /// <para>THE LEGS PASS THROUGH IT, which is what makes them read as joined. Each leg's head is at
+    /// <paramref name="anchoredHeadY"/>, far above this box, and the leg's shaft pierces the bottom
+    /// face; the part inside the box is enclosed by opaque geometry and the part above it is inside
+    /// the slab. No hole is cut and none is needed.</para>
+    ///
+    /// <para>COST: <see cref="UndersideTriangleCount"/> triangles, no collider, no second material and
+    /// no second renderer.</para>
+    /// </summary>
+    private void Underside(Bounds top, float floorY, float scale, float anchoredHeadY, float legSide,
+                           out string source)
+    {
+        float inset = UndersideEdgeInsetMeters * scale;
+        float bottom = top.min.y + UndersideClearanceMeters * scale;
+        // The board is capped so it can never reach the leg-head plane, i.e. it stays inside the
+        // slab whatever bounds the sweep hands back.
+        float headroom = Mathf.Max(anchoredHeadY - bottom, UndersideClearanceMeters * scale);
+        float thickness = Mathf.Min(UndersideThicknessMeters * scale, headroom);
+        // A slab so small that the rim inset would cross is clamped to the leg section rather than
+        // inverted; that is ugly and bounded, and TryFindTable's own tests make it unreachable.
+        float sizeX = Mathf.Max(Mathf.Abs(top.size.x) - 2f * inset, legSide);
+        float sizeZ = Mathf.Max(Mathf.Abs(top.size.z) - 2f * inset, legSide);
+        var centre = new Vector3(0f, bottom + thickness * 0.5f - floorY, 0f);
+        Box(centre, new Vector3(sizeX, thickness, sizeZ));
+
+        source = $"one CLOSED box of {UndersideTriangleCount} triangles, {sizeX / scale:F3} x "
+                 + $"{thickness / scale:F3} x {sizeZ / scale:F3} m ({sizeX:F1} x {thickness:F1} x "
+                 + $"{sizeZ:F1} world units), bottom face at y={bottom:F2} — that is "
+                 + $"{UndersideClearanceMeters * 1000f:F0} mm ABOVE the slab's own bounds.min.y "
+                 + $"(y={top.min.y:F2}) and {(top.max.y - bottom) / scale * 1000f:F0} mm below its top "
+                 + $"face (y={top.max.y:F2}), with its rim {UndersideEdgeInsetMeters * 1000f:F0} mm "
+                 + "inside the slab's side faces. EVERY POINT OF IT IS INSIDE THE SLAB'S OWN AABB, so "
+                 + "it cannot be seen from any eye at or above the tabletop (the slab's drawn top and "
+                 + "side faces are in the way), it cannot change the silhouette the user accepted, and "
+                 + "it cannot z-fight: it shares no plane with the slab, with the parchment or with a "
+                 + $"leg (a leg's outer face stands {EdgeInsetMeters * 1000f:F0} mm in, this rim "
+                 + $"{UndersideEdgeInsetMeters * 1000f:F0} mm). It is a BOX and not a quad because a "
+                 + "bare quad leaves an open slot round the rim and a ray up through that slot lands "
+                 + "on the UNLIT parchment — the same bright leak as a hairline. THE PARCHMENT IS NOT "
+                 + "TOUCHED: this is measured from the tabletop's bounds only, and the map is still "
+                 + "excluded by identity and by the 30 mm board test. The four legs PIERCE the bottom "
+                 + "face and are enclosed above it, which is why no hole is cut";
+    }
+
+    /// <summary>
     /// One closed axis-aligned box: six quads, 24 vertices, 12 triangles, hard edges (each face
     /// carries its own normals). <paramref name="size"/> is a full size per axis, in world units,
     /// and <paramref name="centre"/> doubles as the box's UV origin so each leg carries its own copy
@@ -1658,7 +2086,8 @@ internal sealed class MapTableLegs
                         float cornerZ, float scale, float weld, float headInset, float anchoredHeadY,
                         float slabThickness, float tallest, float shortest, int headsMeasured,
                         int floorsMeasured, int gapFree, int skinIndex, int layer, string floorSource,
-                        string materialSource, string uvSource, string layerSource, string tableSurvey)
+                        string materialSource, string uvSource, string layerSource, string tableSurvey,
+                        string undersideSource, string shadingSource)
     {
         // THE WINDING GATE, ON THE FINISHED SOLID. Cheap (48 triangles) and it runs once.
         float volume = 0f;
@@ -1687,8 +2116,10 @@ internal sealed class MapTableLegs
 
         VRLog.Info(Scope,
             $"MAP TABLE LEGS built: {LegCount} leg(s), one at each CORNER of the game's own tabletop, "
-            + $"{TriangleCount} triangles in ONE combined mesh on ONE MeshRenderer with ONE material "
-            + "= 1 DRAW CALL, no collider, no Update, world-fixed (nothing here follows the head).\n"
+            + $"PLUS an UNDERSIDE panel, {TriangleCount} triangles ({LegCount * 12} legs + "
+            + $"{UndersideTriangleCount} underside) in ONE combined mesh on ONE MeshRenderer with ONE "
+            + "material = 1 DRAW CALL, no collider, no Update, world-fixed (nothing here follows the "
+            + "head).\n"
             + $"  gate      : {DescribeGate(style, mixedReality, true)} The gate is re-evaluated EVERY "
             + "FRAME (two field reads), so switching [Sky] Style at runtime builds or tears these "
             + "down on the NEXT FRAME, not on the next room entry.\n"
@@ -1726,6 +2157,18 @@ internal sealed class MapTableLegs
             + $"{slabThickness / scale * 1000f:F0} mm thickness), and where an underside WAS probed the "
             + $"head is capped at {weld / scale * 1000f:F1} mm below the top face as well.\n"
             + $"  per leg   : {DescribeLegs(top, floorY, scale, headsMeasured, floorsMeasured, gapFree)}\n"
+            + $"  underside : {undersideSource}. THE USER'S REPORT: \"the table has no real underside "
+            + "— you can see through it from below, and you also see the map lying on the table\" "
+            + "(.planning/debug/tisch_unten.jpg). The game's slab draws a top face and four sides and "
+            + "NOTHING underneath, and what shows through is the parchment, which this mod draws "
+            + "UNLIT — an unlit surface is at full brightness from either side, which is why the map "
+            + "reads as a lit panel hanging inside the table. DISPROOF: if you can still see through "
+            + "the table from below, this box is not being built (the triangle count above would read "
+            + $"{LegCount * 12} and not {TriangleCount}) or the slab's bounds are not the board. If a "
+            + "rim of the underside is visible from ABOVE, the slab's side face is recessed from its "
+            + $"own AABB by more than {UndersideEdgeInsetMeters * 1000f:F0} mm and that is the number "
+            + "to raise. If a hairline of the MAP shows round the rim from below, the box's walls are "
+            + "too short and UndersideThicknessMeters is the number to raise.\n"
             + $"  material  : {materialSource}.\n"
             + $"{DescribeMaterials(table, "the TABLETOP renderer:", "              ")}\n"
             + $"              the legs wear mat[{skinIndex}] of that list, the same object.\n"
@@ -1733,6 +2176,19 @@ internal sealed class MapTableLegs
             + $"{tallest / _uvWorldPerV:F2} UV unit(s) of grain down its length and "
             + $"{side / _uvWorldPerU:F2} across its face; mapping mode "
             + $"{(_uvTile ? "TILE (sampler wraps, no window)" : $"FIT (window {_uvRect.xMin:F3}..{_uvRect.xMax:F3}, {_uvRect.yMin:F3}..{_uvRect.yMax:F3})")}.\n"
+            + "  atlas     : OPEN, AND DELIBERATELY LEFT OPEN. Because the slab's mesh is not "
+            + "CPU-readable its UV window cannot be measured, so the prop is mapped over the WHOLE "
+            + "0..1 sheet and samples whatever atlas pages fall under it — the mitred-corner and "
+            + "inset-panel lines the user can see on the near leg. Right wood, wrong page. Picking a "
+            + "plain plank sub-rectangle instead would have to be PROVED from the texture rather than "
+            + "guessed, and the texture is a GAME asset that is not in this repository; the "
+            + "'CPU-readable' flag printed for each texture in the dump above is the one runtime test "
+            + "that can settle it. If _MainTex ever reads CPU-READABLE, one GetPixels at a coarse mip "
+            + "is enough to find the flattest wood block and FIT the prop into it; while it reads NOT "
+            + "CPU-readable, any sub-rectangle would be a guess, and a guess that lands on the "
+            + "atlas's background would be worse than the wrong page. THE UNDERSIDE PANEL INHERITS "
+            + "THIS: it is far larger than a leg, so at TILE density it repeats the sheet across "
+            + "itself. It is also the darkest surface on the prop and is seen only from below.\n"
             + $"  the floor : each foot is cut {FootSinkMeters * 1000f:F0} mm "
             + $"({FootSinkMeters * scale:F1} world units) under the ground READ AT ITS OWN CORNER — the "
             + $"four values are in the per-leg rows above, and {floorsMeasured} of {LegCount} were "
@@ -1757,9 +2213,13 @@ internal sealed class MapTableLegs
             + $"{volumeCubicMetres:F5} m^3, {disagreeing} triangle(s) disagreeing with their own "
             + $"normal — winding gate {(woundRight ? "PASSED" : "FAILED")}.\n"
             + $"  layer     : {layerSource}.\n"
-            + $"{DescribeLights(layer, VRLayers.ModLayer, "              ")}\n"
+            + $"  shading   : {shadingSource}.\n"
+            + $"{DescribeLights(layer, VRLayers.ModLayer, style, "              ")}\n"
             + "  the player: NOT MOVED and not moveable from here — this class reads the seat, the "
-            + "table and the room and writes to none of them. IT ALSO TOUCHES NO WINDOW: it never "
+            + "table, the room, the room's own _MoonDir (through sharedMaterials, never materials, so "
+            + "no clone is created) and the scene's lights, and writes to NONE of them. The only "
+            + "writes this build makes anywhere are to ITS OWN MeshRenderer's lighting flags. IT ALSO "
+            + "TOUCHES NO WINDOW: it never "
             + "names a Canvas, a ConvertedPanel, a GrabbableModal or ModalFallback, holds no reference "
             + "that could reach one, and creates exactly one GameObject of its own with a MeshFilter "
             + "and a MeshRenderer on it. ModBuild 198's 'all floating windows moved below the table' "

@@ -46,7 +46,11 @@ internal static partial class PanelSupersample
                 + $"frame{(e.ExpandClamped ? "; CLAMPED — content IS being cropped" : "")})"
               : " (= the host rect: no content draws outside it)")
           .Append(" -> RT ").Append(e.RtW).Append('x').Append(e.RtH)
-          .Append(" (factor ").Append(e.Factor.ToString("F2")).Append("), capture MSAA ")
+          // BOTH numbers, because from ModBuild 201 they can differ: Factor is the band-limited
+          // config value and EffectiveFactor is the rate the target was actually sized from, after
+          // the content-scale boost and after the dimension and VRAM ceilings cut it back.
+          .Append(" (base factor ").Append(e.Factor.ToString("F2")).Append(", target sized at ")
+          .Append(e.EffectiveFactor.ToString("F2")).Append("), capture MSAA ")
           .Append(captureAa)
           .Append("x -> mipped display target: mips ").Append(mips)
           .Append(mips > 1 ? " RESOLVED+GENERATED after every capture"
@@ -102,6 +106,7 @@ internal static partial class PanelSupersample
           .Append(e.NestedCaptured).Append('/').Append(e.NestedTotal)
           .Append(" nested canvas(es) on the capture layer.");
 
+        AppendContentScale(e);
         AppendContentIntegrity(e);
         AppendCapturePath(e);
         AppendMotionBudget(e);
@@ -391,6 +396,77 @@ internal static partial class PanelSupersample
     }
 
     /// <summary>
+    /// <b>THE CONTENT-SCALE FIELD — ModBuild 201, and it is the answer to the user's own question:
+    /// "what do these two windows do differently from the other sub-menus?"</b>
+    ///
+    /// <para>Everything about why is on <see cref="Entry.MinContentScale"/>. What this field must do
+    /// is print the WHOLE DISTRIBUTION with its count, never one summary number: last round's
+    /// <c>RESAMPLE VERDICT WORST</c> was quoted as an operating point when it was a minimum, and that
+    /// cost a build. So: LOWEST / MEAN / HIGHEST over N readings, plus the DERIVED quantity that
+    /// actually decides the picture — texels per authored pixel FOR THE SCALED SUBTREE — next to the
+    /// band limit it is being judged against.</para>
+    /// </summary>
+    private static void AppendContentScale(Entry e)
+    {
+        float mean = e.ContentScaleReadings > 0 ? e.ContentScaleSum / e.ContentScaleReadings : 1f;
+        float rate = Mathf.Max(e.AchievedFactor, 0.01f);
+        Sb.Append(" CONTENT SCALE (ModBuild 201 — the field that answers 'what do the character and "
+                  + "perks views do differently from the other four'): the smallest SUBSTANTIAL "
+                  + "content scale inside this window's capture frame is ")
+          .Append(e.MinContentScale.ToString("F3"))
+          .Append(e.MinContentScale < ScaledContentThreshold
+              ? $" ('{e.MinContentScaleName}', {e.MinContentScaleArea:F0} uGUI px², measured against "
+                + $"an area floor of {MinScaledAreaFraction:P0} of the host rect)"
+              : " (nothing substantial in this window is downscaled at all)")
+          .Append(", out of ").Append(e.ContentScaleSamples)
+          .Append(" graphic(s) the last frame measurement could read a scale from, ")
+          .Append(e.ScaledGraphics).Append(" of them below ")
+          .Append(ScaledContentThreshold.ToString("F2")).Append(" (largest ")
+          .Append(e.ScaledGraphicsArea.ToString("F0"))
+          .Append(" uGUI px²). THE WHOLE DISTRIBUTION SINCE ENGAGE, because the last reading is not "
+                  + "the operating point: LOWEST ")
+          .Append(e.MinContentScaleLowest.ToString("F3")).Append(", MEAN ")
+          .Append(mean.ToString("F3")).Append(", HIGHEST ")
+          .Append(e.MinContentScaleHighest.ToString("F3")).Append(", over ")
+          .Append(e.ContentScaleReadings).Append(" reading(s) (")
+          .Append(e.ContentScaleUnmeasured)
+          .Append(" measurement(s) produced no scale sample at all and are excluded, so an "
+                  + "UNMEASURED window can never read as an unscaled one). WHAT IT COSTS: the render "
+                  + "target is sized from the HOST frame, so a subtree at scale s receives "
+                  + "rate x s texels per ITS OWN authored pixel. RATE asked ")
+          .Append(e.AskedFactor.ToString("F2")).Append(" (base ").Append(e.Factor.ToString("F2"))
+          .Append(" / ").Append(e.MinContentScale.ToString("F3")).Append("), GOT ")
+          .Append(rate.ToString("F2"))
+          .Append(e.AskedFactor > rate + 1e-3f
+              ? $" — CUT DOWN by the {MaxRtDimension} px per-axis ceiling and the "
+                + $"{Mb(MaxPanelVramBytes)} MB per-panel budget, not by choice"
+              : " — nothing cut it down")
+          .Append("; so host-scale content is captured at ").Append(rate.ToString("F2"))
+          .Append(" texels per authored px and the smallest-scaled subtree at ")
+          .Append((rate * e.MinContentScale).ToString("F2")).Append(", against a band limit of ")
+          .Append(BandLimitedTexelsPerPixel.ToString("F2"))
+          .Append(rate * e.MinContentScale < BandLimitedTexelsPerPixel - 0.01f
+              ? ". THE SECOND NUMBER IS BELOW THE BAND LIMIT AND THIS PATH CANNOT REACH IT: at "
+                + "13.3 bytes per texel a 160 MB panel is ~12.6 Mtexel, and a 1715x1107 capture "
+                + "frame is already 1.9 Mpx, so the rate ceiling is about 2.5 whatever is asked. "
+                + "That subtree is therefore rasterised at or near ONE texel per authored pixel — "
+                + "the un-supersampled state the ModBuild 198 floor exists to abolish — and no "
+                + "capture setting can finish the job. The only complete cure is for the sub-view "
+                + "not to be scaled."
+              : ". Both are at or above the band limit, so this window's rasterisation is "
+                + "band-limited for every subtree in it.")
+          .Append(" THE FRAME IS QUANTISED to ").Append(FrameQuantumPx.ToString("F0"))
+          .Append(" authored px and the rate to ").Append(RateQuantum.ToString("F2"))
+          .Append(", so a frame that grows or shrinks shifts the captured image by a WHOLE number of "
+                  + "texels and the sub-texel rasterisation phase never moves — which is what stops "
+                  + "the picture re-rolling on the measurement cadence. Frame changes since engage: ")
+          .Append(e.Reallocations).Append(" re-allocation(s) over ").Append(e.ContentMeasures)
+          .Append(" measurement(s); on a quantised frame those two numbers should now diverge "
+                  + "sharply, and if they do not, the frame is being moved by something this grid "
+                  + "does not cover.");
+    }
+
+    /// <summary>
     /// THE CONTENT-INTEGRITY FIELD — the ModBuild 196 answer to <i>"beim Loslassen kann es passieren,
     /// dass die dargestellte Anzeige kaputt ist"</i>. Every number here carries the comparison count
     /// it came from on the same line, because that is the only way "the instrument never ran",
@@ -453,16 +529,28 @@ internal static partial class PanelSupersample
                   + "is missing from the capture' are not in contradiction — they are measurements of "
                   + "two different objects): ")
           .Append(e.SubMeshesSeen)
-          .Append(" sub-mesh(es) on the last scan, of which ").Append(e.SubMeshesInactive)
+          .Append(" sub-mesh(es) on the last scan, of which ").Append(e.SubMeshesEmpty)
+          .Append(" EMPTY AND POOLED (ModBuild 201's correction: TMP keeps one child per material "
+                  + "reference the string has EVER needed and empties the surplus, and an empty one "
+                  + "is legitimately culled, transparent and untextured — its normal life looks "
+                  + "exactly like the abuse. The ModBuild 200 log read '19 sub-mesh(es), of which 17 "
+                  + "culled/transparent' on the character window and 0-of-0 or 0-of-1 everywhere "
+                  + "else, and that gap was NOT evidence: the character window is simply the only "
+                  + "one with enough text to pool any). THE REAL DENOMINATOR IS THE ")
+          .Append(e.SubMeshesInUse)
+          .Append(" THAT CARRY VERTICES, of which ").Append(e.SubMeshesInactive)
           .Append(" INACTIVE, ").Append(e.SubMeshesCulled)
           .Append(" CULLED or fully transparent, ").Append(e.SubMeshesNoTexture)
           .Append(" with NO MATERIAL OR NO BOUND TEXTURE, and ").Append(e.SubMeshesWrongLayer)
-          .Append(" NOT ON THIS PANEL'S PRIVATE CAPTURE LAYER ").Append(e.Layer)
+          .Append(" (counted over ALL ").Append(e.SubMeshesSeen)
+          .Append(", pooled included) NOT ON THIS PANEL'S PRIVATE CAPTURE LAYER ").Append(e.Layer)
           .Append(" — that last count is glyphs that are present in the mesh, present in the eye and "
                   + "MISSING FROM THE TEXTURE, and it is REPAIRED ON SIGHT rather than reported "
-                  + "(unconditional, never gated on a defect count). A denominator of 0 means this "
-                  + "window's text needs a single material and this family CANNOT be its fault, which "
-                  + "is a different finding from 'they were all clean'. Worst: ")
+                  + "(unconditional, never gated on a defect count, and deliberately BEFORE the "
+                  + "pooled test so a surplus child that the next string fills is never filled on "
+                  + "the wrong layer). A denominator of 0 means this window's text needs a single "
+                  + "material and this family CANNOT be its fault, which is a different finding from "
+                  + "'they were all clean'. Worst: ")
           .Append(e.SubMeshWorst.Length > 0 ? e.SubMeshWorst
                                             : "none — every sub-mesh was active, drawn, textured and "
                                               + "on the capture layer")
@@ -682,12 +770,23 @@ internal static partial class PanelSupersample
                    ? $", raised to the {BandLimitFactor:F2} band-limit floor because the config value "
                      + "is still the shipped default"
                    : ", taken verbatim — this is a value the user set")
+               + (e.AskedFactor > e.Factor + 0.01f
+                   ? $", RAISED to {e.AskedFactor:F2} because this window's smallest substantial "
+                     + $"content is drawn at {e.MinContentScale:F3} of host scale and the render "
+                     + "target is sized from the HOST — see the CONTENT SCALE field"
+                   : string.Empty)
                + $"), ACHIEVED {e.AchievedFactor:F2}"
-               + (e.AchievedFactor < e.Factor - 0.01f
+               + (e.AchievedFactor < Mathf.Min(e.AskedFactor, e.Factor) - 0.01f
                    ? $" — LOWER THAN ASKED because the {MaxRtDimension} px per-axis ceiling clipped "
                      + $"a {e.Frame.width:F0}x{e.Frame.height:F0} capture frame, so the fix is only "
                      + "partly in force on this window"
-                   : " (nothing clipped it)")
+                   : e.AchievedFactor < e.AskedFactor - 0.01f
+                       ? $" — the {e.AskedFactor:F2} ask was cut back by the {MaxRtDimension} px "
+                         + "per-axis ceiling and the VRAM budget, so the scaled subtree is at "
+                         + $"{(e.AchievedFactor * e.MinContentScale):F2} texels per its own authored "
+                         + $"px against a {BandLimitedTexelsPerPixel:F2} band limit — read the "
+                         + "CONTENT SCALE field, it says whether that is reachable at all"
+                       : " (nothing clipped it)")
                + ". CAVEAT ON EVERY LEVEL-0 FIGURE ABOVE: it is a LOWER BOUND, because anisotropic "
                + $"filtering (aniso {AnisoLevel}) selects the LOD from the MINOR axis' rate, so a "
                + "window yawed away from the head reads MORE level 0 than this line states;";

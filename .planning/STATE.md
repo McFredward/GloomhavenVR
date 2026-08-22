@@ -126,6 +126,39 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 201** (bundle UNCHANGED — plugin DLL only) — the two broken sub-views are the only two that
+  are scaled, and the moonlit room has no light at all. *(Four workers.)* **Nothing on the wire.**
+  * **THE USER ISOLATED THE VARIABLE.** He asked what the character and perks views do differently from
+    the four that work. Answer: **they are the only two carrying a non-unit `localScale`** (0.487 /
+    0.494). The RT is sized from the HOST, so a 0.487 subtree gets `2.00 × 0.487 = 0.97` texels per its
+    own authored pixel while its four unscaled siblings **in the same window** get 2.00 — the only
+    content the mod captures *below* the band-limit floor added to stop exactly this shimmer.
+  * **"IT IS ALSO BROKEN ON OPEN" WAS WORTH MORE THAN ANY INSTRUMENT** — it removes the drag, the pose
+    gap and the release at a stroke. The capture frame wanders across **eight distinct heights** while
+    every other window holds one, and **24 of 31 reallocations happen at `0 of ~900` motion**. Each
+    change re-derives the projection, so the sub-pixel phase re-rolls and glyph strokes survive or
+    vanish by lottery. Fixed by quantising the frame to whole texels and by applying the band limit to
+    the **content** scale rather than the host.
+  * **I RETRACT "PERKS IS MOSTLY A BLUR PLATE".** The census: removing every full-frame plate saves
+    **14 px of 1627** (0.9 %) on perks and **zero** on the selector. My "512 px content column" was the
+    width of *one contributor* in a top-3 line, and that misreading had been the premise of **three**
+    proposals across three rounds.
+  * **THE HOVER CONTENT THAT MOVED THE WINDOW IS OURS** — `TooltipOnWindow` raises the preview under the
+    conversion target. All 79 base readings resolve completely (27 column / 50 + raised card / 2 +
+    raised tooltip), **nothing left over**, so the exclusion is an identity and not a residue. Also
+    found: the column re-assert was the one write exempt from the settle gate — 47 writes, **32 of them
+    exactly +15 px**, which a settle gate alone would have passed.
+  * **THE MOONLIT ROOM HAS NO REALTIME LIGHT.** Exactly one of three enabled lights reaches the
+    tabletop's layer, and our legs share that layer and material — so they agree with the table *by
+    construction*, which is why he saw **both** wrong. The moon is a **baked shader constant**, not a
+    light, so no shading choice on the prop could ever close it. The game's map directional is now
+    aimed along it, chosen from live masks and required childless, with a 4-strike concede.
+  * **`_DirCol` IS A BAKE TERM, NOT AN INTENSITY** — transferring it would take the *cellar's* table to
+    near black. Measured and logged rather than shipped.
+  * **(3) IS A RULING, NOT A BUG.** Four ways to draw a 1648 px view beside a 328 px column in a 1.00 m
+    frame, no fifth: 0.487 (small), 1.000 at **72°** (a width he already rejected), scrolling at 49 %
+    visible, or hiding the column (the surprise he rejected last round). Not chosen for him.
+
 - **ModBuild 200** (bundle UNCHANGED — plugin DLL only) — the window is not blurred, it is small; and the
   missing glyphs live on child objects nothing ever scanned. *(Three workers.)* **Nothing on the wire.**
   * **I READ `WORST` AS THE OPERATING POINT AND IT IS THE TAIL.** I quoted `0.95 … 1.12 texels per eye

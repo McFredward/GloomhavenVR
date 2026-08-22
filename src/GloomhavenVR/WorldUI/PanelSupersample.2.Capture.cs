@@ -346,7 +346,16 @@ internal static partial class PanelSupersample
         // that one RT texel corresponds to one authored pixel times the factor. A geometry change
         // forces the check regardless of the fraction, so a release-time re-fit can never leave a
         // stale target behind.
-        if (dirty
+        // ModBuild 201: A CHANGE OF CONTENT SCALE IS A REALLOCATION TRIGGER IN ITS OWN RIGHT. The
+        // character window swaps between six sub-views inside ONE host rect of a fixed 1143x1080; two
+        // of those six are written to a scale near 0.49 and four to 1.000. Nothing about the HOST
+        // changes when the user presses a different tab, so neither `dirty` (which watches the host
+        // transform) nor the frame test above can see it — and yet the rate the render target must be
+        // sized for changes by a factor of two. Without this line the boost would be applied only if
+        // the sub-view that happened to be open at the last reallocation was the scaled one.
+        bool scaleChanged = Mathf.Abs(e.MinContentScale - e.ScaleAtAllocation)
+                            > 0.02f * Mathf.Max(e.ScaleAtAllocation, 0.01f);
+        if (dirty || scaleChanged
             || Mathf.Abs(frame.width - e.Authored.x) > e.Authored.x * RectChangeFraction
             || Mathf.Abs(frame.height - e.Authored.y) > e.Authored.y * RectChangeFraction)
         {
@@ -371,8 +380,8 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void RecordAchievedFactor(Entry e)
     {
-        float w = e.Frame.width > 1f ? e.RtW / e.Frame.width : e.Factor;
-        float h = e.Frame.height > 1f ? e.RtH / e.Frame.height : e.Factor;
+        float w = e.Frame.width > 1f ? e.RtW / e.Frame.width : e.EffectiveFactor;
+        float h = e.Frame.height > 1f ? e.RtH / e.Frame.height : e.EffectiveFactor;
         e.AchievedFactor = Mathf.Min(w, h);
     }
 
@@ -519,29 +528,79 @@ internal static partial class PanelSupersample
         t.localScale = host.lossyScale;
     }
 
-    private static void Reallocate(Entry e, Rect frame)
+    /// <summary>
+    /// <b>THE CAPTURE RATE, IN TEXELS PER AUTHORED PIXEL — and from ModBuild 201 it answers to the
+    /// CONTENT'S scale, not to the host's.</b>
+    ///
+    /// <para>The whole argument is on <see cref="Entry.MinContentScale"/>. In one line: the render
+    /// target is sized from the host frame, so a subtree the content fit drew at 0.487 received
+    /// <c>2.00 x 0.487 = 0.97</c> texels per authored pixel while its unscaled siblings in the same
+    /// window received 2.00 — the band-limit floor was in force for four of the character window's
+    /// six sub-views and silently absent for the two the user reports as broken. Asking for
+    /// <c>BandLimitFactor / MinContentScale</c> puts the floor back where it belongs.</para>
+    ///
+    /// <para><b>AND IT SAYS WHAT IT DID NOT GET.</b> The ask is cut down, in order, by
+    /// <see cref="MaxRtDimension"/>, by the VRAM budget and by <see cref="RateQuantum"/> — on the
+    /// character window an ask of 4.11 comes back as roughly 2.4. Both numbers are recorded
+    /// (<see cref="Entry.AskedFactor"/>, <see cref="Entry.EffectiveFactor"/>) and both are printed, so
+    /// a boost that was refused can never be read as one that was granted. That matters here more
+    /// than usual: the reachable rate does NOT restore the band limit for a 0.487 subtree, and the
+    /// report must not imply that it does.</para>
+    /// </summary>
+    private static void ResolveRate(Entry e, Rect frame, ref int msaa, long budget,
+                                    out float rate, out int rtW, out int rtH, out long vram)
     {
-        int rtW = Mathf.Clamp(Mathf.RoundToInt(frame.width * e.Factor), 16, MaxRtDimension);
-        int rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * e.Factor), 16, MaxRtDimension);
-        if (rtW == e.RtW && rtH == e.RtH)
-        {
-            e.Authored = frame.size;
-            return;
-        }
-        int msaa = e.Msaa;
-        long budget = System.Math.Min(MaxPanelVramBytes,
-            MaxTotalVramBytes - (_vramTotal - e.VramBytes));
-        long vram = VramBytesFor(rtW, rtH, msaa);
+        float scale = Mathf.Clamp(e.MinContentScale, MinContentScaleFloor, 1f);
+        float asked = e.Factor / scale;
+        e.AskedFactor = asked;
+
+        // THE DIMENSION CEILING, applied to the RATE rather than to the pixel counts, so that what
+        // comes out is still a quantised rate and the texel grid stays locked to the authored grid.
+        float ceiling = Mathf.Min(MaxRtDimension / Mathf.Max(frame.width, 1f),
+                                  MaxRtDimension / Mathf.Max(frame.height, 1f));
+        rate = Mathf.Min(asked, ceiling);
+        rate = Mathf.Floor(rate / RateQuantum) * RateQuantum;
+        rate = Mathf.Max(rate, RateQuantum);
+
+        rtW = Mathf.Clamp(Mathf.RoundToInt(frame.width * rate), 16, MaxRtDimension);
+        rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * rate), 16, MaxRtDimension);
+        vram = VramBytesFor(rtW, rtH, msaa);
         while (msaa > 1 && vram > budget)
         {
             msaa /= 2;
             vram = VramBytesFor(rtW, rtH, msaa);
+        }
+        // THE STEP-DOWN. Floors at MinStepDownFactor, which is the pre-ModBuild-201 behaviour: a
+        // window that cannot afford the boost still gets everything it had before, never less.
+        while (rate > MinStepDownFactor + 1e-3f && vram > budget)
+        {
+            rate = Mathf.Max(MinStepDownFactor, rate - RateQuantum);
+            rtW = Mathf.Clamp(Mathf.RoundToInt(frame.width * rate), 16, MaxRtDimension);
+            rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * rate), 16, MaxRtDimension);
+            vram = VramBytesFor(rtW, rtH, msaa);
+        }
+    }
+
+    private static void Reallocate(Entry e, Rect frame)
+    {
+        int msaa = e.Msaa;
+        long budget = System.Math.Min(MaxPanelVramBytes,
+            MaxTotalVramBytes - (_vramTotal - e.VramBytes));
+        ResolveRate(e, frame, ref msaa, budget, out float rate, out int rtW, out int rtH,
+                    out long vram);
+        if (rtW == e.RtW && rtH == e.RtH)
+        {
+            e.Authored = frame.size;
+            e.EffectiveFactor = rate;
+            e.ScaleAtAllocation = e.MinContentScale;
+            return;
         }
         if (vram > budget)
         {
             // Keep the existing target; the image merely resamples a little. Recording the new size
             // as `Authored` is what stops this from being re-tried (and re-logged) every frame.
             e.Authored = frame.size;
+            e.ScaleAtAllocation = e.MinContentScale;
             return;
         }
 
@@ -549,6 +608,7 @@ internal static partial class PanelSupersample
         if (rt == null)
         {
             e.Authored = frame.size; // as above: do not retry a refused allocation per frame
+            e.ScaleAtAllocation = e.MinContentScale;
             return;
         }
         long previous = e.VramBytes;
@@ -566,6 +626,8 @@ internal static partial class PanelSupersample
         e.RtW = rtW;
         e.RtH = rtH;
         e.Authored = frame.size;
+        e.EffectiveFactor = rate;
+        e.ScaleAtAllocation = e.MinContentScale;
         RecordAchievedFactor(e);
         e.Reallocations++;
         if (old != null)
@@ -585,7 +647,14 @@ internal static partial class PanelSupersample
                           + $"overspill {e.ExpandX:F0}x{e.ExpandY:F0}). A reallocation is REQUIRED for "
                           + "correctness, not just for sharpness: the target must match the frame the "
                           + "camera projects into it, or the window resamples through the wrong "
-                          + "number of texels for as long as the mismatch lasts.");
+                          + "number of texels for as long as the mismatch lasts. RATE: asked "
+                          + $"{e.AskedFactor:F2} texels per authored px (base {e.Factor:F2} raised by "
+                          + $"the smallest content scale in this frame, {e.MinContentScale:F3} — see "
+                          + "Entry.MinContentScale), GOT " + rate.ToString("F2")
+                          + ", so the smallest-scaled subtree in this window is captured at "
+                          + (rate * e.MinContentScale).ToString("F2")
+                          + " texels per ITS OWN authored px against a band limit of "
+                          + $"{BandLimitedTexelsPerPixel:F2}.");
     }
 
     /// <summary>
@@ -1006,11 +1075,35 @@ internal static partial class PanelSupersample
             // the photograph, and it is the one the release repair has never been able to see.
             + $"; and {e.SubMeshesSeen} TMP SUB-MESH(ES) — the child objects that draw a second atlas "
             + "page, a fallback font or an inline sprite, and that every count above is blind to — of "
-            + $"which {e.SubMeshesInactive} inactive, {e.SubMeshesCulled} culled/transparent, "
-            + $"{e.SubMeshesNoTexture} with no bound texture and {e.SubMeshesWrongLayer} OFF THE "
-            + $"PRIVATE CAPTURE LAYER {e.Layer} (present in the mesh, present in the eye, missing "
-            + "from the texture — repaired on sight, never gated on a count)"
+            + $"which {e.SubMeshesEmpty} EMPTY AND POOLED (ModBuild 201: TMP keeps one child per "
+            + "material reference the string has ever needed and empties the surplus, and an empty "
+            + "one is legitimately culled, transparent and untextured — the ModBuild 200 reading of "
+            + "'19 of which 17 culled' on this window was that, not a defect), leaving "
+            + $"{e.SubMeshesInUse} that CARRY VERTICES as the real denominator, of which "
+            + $"{e.SubMeshesInactive} inactive, {e.SubMeshesCulled} culled/transparent, "
+            + $"{e.SubMeshesNoTexture} with no bound texture; and {e.SubMeshesWrongLayer} of all "
+            + $"{e.SubMeshesSeen} OFF THE PRIVATE CAPTURE LAYER {e.Layer} (present in the mesh, "
+            + "present in the eye, missing from the texture — repaired on sight, never gated on a "
+            + "count)"
             + (e.SubMeshWorst.Length > 0 ? $", worst: {e.SubMeshWorst}" : ", no worst")
+            // THE CONTENT-SCALE READING AT THE RELEASE INSTANT (ModBuild 201) — the field that
+            // answers the user's own question. Full argument on Entry.MinContentScale.
+            + $". CONTENT SCALE AT THIS RELEASE: the smallest substantial content scale in this "
+            + $"window is {e.MinContentScale:F3}"
+            + (e.MinContentScale < ScaledContentThreshold
+                ? $" ('{e.MinContentScaleName}'), so that subtree is captured at "
+                  + $"{(Mathf.Max(e.AchievedFactor, 0.01f) * e.MinContentScale):F2} texels per ITS "
+                  + $"OWN authored px while the rest of the window gets {e.AchievedFactor:F2} — "
+                  + $"against a band limit of {BandLimitedTexelsPerPixel:F2}. THAT ASYMMETRY IS THE "
+                  + "COMPLETE CORRELATION with the report: the two sub-views the user names are the "
+                  + "two the content fit scales, and they are the only content in this mod captured "
+                  + "at about one texel per authored pixel"
+                : " — nothing substantial in this window is downscaled, so every subtree in it is "
+                  + "captured at the same rate")
+            + $". DISTRIBUTION SINCE ENGAGE: LOWEST {e.MinContentScaleLowest:F3}, MEAN "
+            + $"{(e.ContentScaleReadings > 0 ? e.ContentScaleSum / e.ContentScaleReadings : 1f):F3}, "
+            + $"HIGHEST {e.MinContentScaleHighest:F3} over {e.ContentScaleReadings} reading(s) "
+            + $"({e.ContentScaleUnmeasured} unmeasured and excluded)"
             + $". THE REPAIR THEN RE-GENERATED {e.ReleaseRegenComponents} of {e.TextComponents} "
             + $"component(s) in {e.ReleaseRegenMs:F2} ms (cap {MaxRegeneratePerScan}) — ModBuild 196 "
             + "re-generated at most ONE component per release because it gated the regeneration on "

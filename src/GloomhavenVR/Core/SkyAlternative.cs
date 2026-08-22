@@ -853,6 +853,12 @@ internal static class SkyAlternative
         EnsureEnvironment(style, anchor);
         TickEnvClock(); // the shared-clock walk — one float compare once settled (EnvClockSeconds)
 
+        // THE ONE GAME LIGHT THAT HAS TO AGREE WITH THE ROOM'S MOON (see TickMapLight). Ticked here,
+        // AFTER EnsureEnvironment, because the aim is derived from the PLACED room's own moon and the
+        // room is what EnsureEnvironment lands. Steady-state cost while it holds the light: one
+        // Quaternion.Angle compare; in a scenario (where it never engages): four bool compares.
+        TickMapLight(style);
+
         // ENV SOUND — the environment HEARD. Ticked here, after TickEnvClock, and the order matters:
         // every sound it schedules (the drip landing, the rat crossing, an apparition's cue) is a
         // function of EnvClockSeconds, so it must run on the clock value for THIS frame rather than
@@ -2110,6 +2116,568 @@ internal static class SkyAlternative
         Shader.SetGlobalFloat(GhvrTimeOfsId, 0f);
     }
 
+    // ---- the room's moon, and the one game light that has to agree with it ---------------------
+
+    /// <summary>
+    /// THE ROOM'S MOON, MEASURED OFF THE ROOM — never a second copy of the constant.
+    ///
+    /// <para>The environment's whole lighting rig is baked around ONE authored direction
+    /// (<c>EnvironmentsBuilder.MoonDir</c> = (0.49262, 0.64279, 0.58686), i.e. 40 deg above the
+    /// horizon on a bearing 40 deg east of north, in the room's OWN frame). It reaches the runtime
+    /// only as material data: the star dome, the star points and the puddle declare it as
+    /// <c>_MoonDir</c>, and every room material that carries the baked light rig declares the same
+    /// vector as <c>_DirDir</c> together with the moonlight COLOUR it was baked with,
+    /// <c>_DirCol</c> (<c>BuildEnvironmentRooms.ApplyRig</c> writes both, the second one straight
+    /// from <c>LightRig.dirCol</c>).</para>
+    ///
+    /// <para>SO IT IS READ, NOT RESTATED. Hard-coding the vector here would be a second copy of a
+    /// bundled constant in a file that cannot be rebuilt with the bundle — the exact shape of the
+    /// bug class this project has already paid for twice. What is read is the number the shaders
+    /// themselves consume, so the light this aims can never disagree with the moon you can see.</para>
+    ///
+    /// <para>OBJECT SPACE → WORLD: the constant is authored in the CARRYING renderer's object space
+    /// (<c>ApplyRig</c> pushes the world direction through <c>xf.InverseTransformDirection</c> at
+    /// bake time), so it comes back with that renderer's ROTATION alone — a direction pushed through
+    /// a non-uniformly scaled matrix comes out skewed, and rotation is all that separates the two
+    /// frames for a unit direction. This is deliberately the same reconstruction
+    /// <c>MapTableLegs.TryMeasureMoonDirection</c> performs, so the two classes print one number.</para>
+    ///
+    /// <para>READ-ONLY: <c>sharedMaterials</c>, never <c>materials</c> — the latter instantiates a
+    /// clone per renderer and would leave the environment wearing copies this class then leaks. The
+    /// sweep runs ONCE per activation (the answer is cached; the room is world-fixed and the sky
+    /// wears the same board yaw, so it cannot change) and stops at the first material that answers.</para>
+    ///
+    /// <para><paramref name="moonlight"/> is the room's authored moonlight COLOUR when the material
+    /// that answered also declares one, and <c>Color.clear</c> when it does not. It is reported and
+    /// NOT applied — see <see cref="TickMapLight"/> on why the intensity and the tint are left
+    /// alone this round.</para>
+    /// </summary>
+    internal static bool TryRoomMoonDirection(out Vector3 worldTowardMoon, out Color moonlight,
+                                              out string source)
+    {
+        if (_moonMeasured)
+        {
+            worldTowardMoon = _moonWorld;
+            moonlight = _moonCol;
+            source = _moonSource;
+            return true;
+        }
+
+        worldTowardMoon = Vector3.up;
+        moonlight = Color.clear;
+        source = "no environment room is placed, so there is no moon to read";
+
+        GameObject? room = _roomGo;
+        if (!_roomPlaced || room == null)
+            return false;
+
+        try
+        {
+            // Pass 1: the ROOM branch. _MoonDir wins when a room material carries it (the puddle);
+            // otherwise the baked light rig's own _DirDir answers, which is the very term that
+            // shades the trees and the ground.
+            if (ReadMoonFrom(room, out worldTowardMoon, out moonlight, out source))
+            {
+                _moonMeasured = true;
+                _moonWorld = worldTowardMoon;
+                _moonCol = moonlight;
+                _moonSource = source;
+                return true;
+            }
+            // Pass 2: the SKY branch (the star dome's _MoonDir). It wears the same board yaw as the
+            // room from TryPlaceRoom onwards, so it is the same world direction — this is the
+            // fallback, not a second opinion.
+            GameObject? sky = _skyGo;
+            if (sky != null && ReadMoonFrom(sky, out worldTowardMoon, out moonlight, out source))
+            {
+                _moonMeasured = true;
+                _moonWorld = worldTowardMoon;
+                _moonCol = moonlight;
+                _moonSource = source;
+                return true;
+            }
+            source = "no material under either environment branch declares _MoonDir or _DirDir, so "
+                     + "the room's own moon direction could not be measured — a bundle older than "
+                     + "the baked light rig, or a plugin/bundle mismatch";
+        }
+        catch (System.Exception ex)
+        {
+            source = $"reading the environment's moon direction threw ({ex.GetType().Name}: "
+                     + $"{ex.Message}), so it is unknown";
+        }
+        return false;
+    }
+
+    /// <summary>The room-root accessor the two by-name lookups in
+    /// <c>WorldUI/MapRoom/MapTableLegs.cs</c> and its neighbour exist for want of (they resolve
+    /// <c>"GloomhavenVR.SkyAlternative.Room." + style</c> through <c>GameObject.Find</c> and say in
+    /// their own doc that a rename here would silently break them). Non-null ONLY while the room is
+    /// PLACED: an unplaced room stands at identity with an unresolved pose, and everything a caller
+    /// would measure off it — a floor, a raycast, a direction — would be measured against a lie.</summary>
+    internal static Transform? PlacedRoomRoot => _roomPlaced && _roomGo != null ? _roomGo.transform : null;
+
+    /// <summary>
+    /// THE ENVIRONMENT ROOM'S FLOOR PLANE, exactly — the placed room root's own world Y.
+    ///
+    /// <para><see cref="TryPlaceRoom"/> computes <c>floorY = boardUndersideY − floatGap</c>, writes
+    /// it straight into the room's transform and never writes that transform again ("WORLD-FIXED
+    /// from now on"), and the content lane authors both rooms with their floor at local y = 0. So
+    /// this IS the plane, to the bit — not an estimate.</para>
+    ///
+    /// <para>False while no room is placed, which is the honest answer for the frames before
+    /// <see cref="TryPlaceRoom"/> lands: a caller that stands something on a guessed floor stands it
+    /// in the wrong place.</para>
+    /// </summary>
+    internal static bool TryRoomFloorY(out float y)
+    {
+        Transform? root = PlacedRoomRoot;
+        if (root == null)
+        {
+            y = 0f;
+            return false;
+        }
+        y = root.position.y;
+        return true;
+    }
+
+    /// <summary>One branch's worth of the moon sweep (see <see cref="TryRoomMoonDirection"/>).
+    /// <c>_MoonDir</c> returns immediately; a <c>_DirDir</c> hit is remembered as the fallback so a
+    /// later <c>_MoonDir</c> can still win. A <c>_DirDir</c> pointing straight up is REFUSED: that
+    /// is the shader's unset default, and the same "a property nobody ever wrote" trap already cost
+    /// this bundle its trunk rim light once.</summary>
+    private static bool ReadMoonFrom(GameObject branch, out Vector3 world, out Color moonlight,
+                                     out string source)
+    {
+        world = Vector3.up;
+        moonlight = Color.clear;
+        source = string.Empty;
+
+        Vector3 rigDir = Vector3.zero;
+        Color rigCol = Color.clear;
+        string rigSource = string.Empty;
+        bool haveRig = false;
+
+        Renderer[] renderers = branch.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer r = renderers[i];
+            if (r == null)
+                continue;
+            Material[] mats = r.sharedMaterials;
+            for (int m = 0; m < mats.Length; m++)
+            {
+                Material? mat = mats[m];
+                if (mat == null)
+                    continue;
+
+                if (mat.HasProperty(MoonDirId))
+                {
+                    Vector4 v = mat.GetVector(MoonDirId);
+                    var local = new Vector3(v.x, v.y, v.z);
+                    if (local.sqrMagnitude > 1e-6f)
+                    {
+                        world = (r.transform.rotation * local).normalized;
+                        moonlight = mat.HasProperty(DirColId) ? mat.GetColor(DirColId) : Color.clear;
+                        source = $"MEASURED off the environment: '{mat.name}' on renderer '{r.name}' "
+                                 + $"under '{branch.name}' declares _MoonDir ({local.x:F3}, "
+                                 + $"{local.y:F3}, {local.z:F3}) in its own object space — the "
+                                 + "authored EnvironmentsBuilder.MoonDir baked into the bundle, i.e. "
+                                 + "the very number the moon sprite, the light shafts and the water "
+                                 + $"glints read. In world space it points {Bearing(world)}";
+                        return true;
+                    }
+                }
+
+                if (!haveRig && mat.HasProperty(DirDirId))
+                {
+                    Vector4 v = mat.GetVector(DirDirId);
+                    var local = new Vector3(v.x, v.y, v.z);
+                    if (local.sqrMagnitude > 1e-6f)
+                    {
+                        Vector3 w = (r.transform.rotation * local).normalized;
+                        if (Mathf.Abs(w.y) < 0.99f) // not the shader's unset straight-up default
+                        {
+                            haveRig = true;
+                            rigDir = w;
+                            rigCol = mat.HasProperty(DirColId) ? mat.GetColor(DirColId) : Color.clear;
+                            rigSource = $"MEASURED off the environment: '{mat.name}' on renderer "
+                                        + $"'{r.name}' under '{branch.name}' declares _DirDir "
+                                        + $"({local.x:F3}, {local.y:F3}, {local.z:F3}) in its own "
+                                        + "object space — the direction the BAKED LIGHT RIG shades "
+                                        + "this room with, written from EnvironmentsBuilder.MoonDir "
+                                        + $"at bake time. In world space it points {Bearing(w)}";
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!haveRig)
+            return false;
+        world = rigDir;
+        moonlight = rigCol;
+        source = rigSource;
+        return true;
+    }
+
+    /// <summary>A world direction as a compass bearing and an elevation, in degrees, because "lit
+    /// from the other side" is a statement about angles and a vector cannot be read as one. Azimuth
+    /// is measured from +Z through +X, exactly as Unity's own yaw is — and deliberately in the same
+    /// convention as <c>MapTableLegs</c>'s light census, so the two logs can be compared line for
+    /// line rather than re-derived.</summary>
+    private static string Bearing(Vector3 d)
+    {
+        Vector3 n = d.sqrMagnitude > 1e-9f ? d.normalized : Vector3.up;
+        float az = Mathf.Atan2(n.x, n.z) * Mathf.Rad2Deg;
+        float alt = Mathf.Asin(Mathf.Clamp(n.y, -1f, 1f)) * Mathf.Rad2Deg;
+        return $"az {az:F1} deg, alt {alt:F1} deg ({n.x:F3}, {n.y:F3}, {n.z:F3})";
+    }
+
+    /// <summary>
+    /// THE MAP ROOM'S TABLE IS LIT FROM THE WRONG SIDE, AND ONLY A LIGHT CAN FIX IT.
+    ///
+    /// <para>USER REPORT (ModBuild 200 hardware round, translated): "The table legs have the wrong
+    /// ambient light. Although the moon shines from the other side, the table legs AND THE SIDE OF
+    /// THE TABLE are lit from the other side. I want the lighting to match the environment."</para>
+    ///
+    /// <para>WHAT THE LIGHT CENSUS IN <c>MapTableLegs</c> MEASURED, and why the answer is here. The
+    /// mod's legs do NOT disagree with the game's tabletop — they are on the tabletop's own layer,
+    /// wear its material object and copy its lighting flags, so the two agree by construction. BOTH
+    /// disagree with the ROOM, and the reason is structural: the moonlit environment has NO REALTIME
+    /// LIGHT AT ALL. This class creates zero <c>Light</c> objects; the moon is an authored constant
+    /// baked into the bundle's shaders. So it is a GAME light against a BAKED moon, and no shading
+    /// choice on the mod's prop can close that angle. The fix has to be in the light — and the light
+    /// lifecycle belongs to whoever owns the style lifecycle and the moon, which is this file.</para>
+    ///
+    /// <para>WHAT IT DOES: while a bundled 3D style stands in the 3D MAP ROOM, the game's own
+    /// directional light that lights the map furniture is aimed along the room's own moon
+    /// (<c>rotation = LookRotation(-moonWorld)</c> — a directional light travels the way it faces, so
+    /// facing the negated "toward the moon" direction makes it ARRIVE from the moon). Its original
+    /// rotation is cached on the first write and restored VERBATIM when the gate closes.</para>
+    ///
+    /// <para>WHY IT CANNOT TOUCH THE ROOM ITSELF, confirmed from the live mask rather than asserted:
+    /// only a light whose culling mask reaches the game furniture layer
+    /// (<see cref="GameFurnitureLayer"/>) and does NOT reach the mod layer is eligible
+    /// (<see cref="FindTableLight"/>). The environment, the parchment, the icons, the button rail
+    /// and every window are on the mod layer, so a light that cannot see them cannot change them no
+    /// matter where it points. The hardware census read that mask as <c>0x700DFE37</c>: bit 0 set,
+    /// bit 27 clear.</para>
+    ///
+    /// <para>WHY THE 3D MAP ROOM ONLY. That is the surface the report is about, and it is the scene
+    /// whose light the census identified. A SCENARIO's directional lights shade the dungeon the
+    /// game itself authored, with its own shadows; re-aiming those is a different, much larger
+    /// change that nobody has asked for and that no measurement in this round supports. The gate is
+    /// one predicate and can be widened in one line if a later report asks for it.</para>
+    ///
+    /// <para>LEVEL-TRIGGERED, AND IT NEVER WINS A WRITE WAR. The steady state compares the light's
+    /// live rotation against what we last wrote and does nothing while they agree. If the game
+    /// re-aims that transform itself, each disagreement is counted and corrected at most
+    /// <see cref="MaxLightCorrections"/> times; past that the mod CONCEDES — it restores the
+    /// original rotation, says so in the log, and never writes again for this visit. Two writers
+    /// alternating on one transform is a standing project ruling against: in MultiPass the two eyes
+    /// can land on different sides of the flip.</para>
+    ///
+    /// <para>INTENSITY AND COLOUR ARE DELIBERATELY NOT TOUCHED, and the reasoning is in the log
+    /// rather than in taste. The report is about a DIRECTION, and direction is what this changes.
+    /// The room's authored moonlight colour IS measured and printed next to the light's own colour
+    /// and intensity, so the next hardware round can decide with numbers — but transferring it is
+    /// not the one-line change it looks like: <c>_DirCol</c> is a term in a custom unlit bake that
+    /// multiplies albedo under the room's own near-black ambient, not a realtime Unity light
+    /// intensity, and the cellar's value (0.048, 0.070, 0.128) would take the table to near black
+    /// while the forest's (0.70, 0.79, 0.94) would barely move it. Shipping that transfer on
+    /// arithmetic nobody has verified would be exactly the "correct at t=0, wrong everywhere else"
+    /// class this project keeps paying for.</para>
+    ///
+    /// <para>NOTHING ELSE MOVES: the only write is <c>rotation</c> on a Light transform that is
+    /// required to have NO CHILDREN (a rotation would carry a child with it, and that is the one way
+    /// this could displace something) — never a position, never a scale, never the rig, never the
+    /// player, never a mod object. The room is not re-seated and does not re-orient: the aim is
+    /// derived from the ROOM's own moon, so it is a function of the board yaw and the authored
+    /// constant, and of nothing the head does.</para>
+    ///
+    /// <para>MULTIPLAYER: local presentation only. Every client derives the same aim from its own
+    /// style dial and its own board-derived room yaw, with nothing on the wire — the same argument
+    /// that already makes the moon itself agree between peers.</para>
+    /// </summary>
+    private static void TickMapLight(SkyStyle style)
+    {
+        // THE GATE. Level-triggered on the gate itself: the moment the map room closes, the style
+        // changes, the room is gone or mixed reality takes over, the light goes back verbatim.
+        if (!WorldUI.MapRoom.MapRoomDriver.Active || !_roomPlaced || _roomGo == null)
+        {
+            ReleaseMapLight("the gate closed — the 3D map room is no longer standing with a placed "
+                            + "environment room", conceded: false);
+            return;
+        }
+        if (_mapLightConceded)
+            return; // the game owns that transform; we said so once and stay off it
+
+        if (!TryRoomMoonDirection(out Vector3 moon, out Color moonCol, out string moonSource))
+        {
+            if (!_mapLightRefusedLogged)
+            {
+                _mapLightRefusedLogged = true;
+                VRLog.Warn("Core", $"MAP LIGHT: NOT aiming the game's map light — {moonSource}. The "
+                                   + "table keeps the map scene's own lighting, which is the state "
+                                   + "the user reported; this line is the reason.");
+            }
+            return;
+        }
+
+        string survey = string.Empty;
+        Light? light = _mapLight;
+        if (light == null)
+        {
+            if (_mapLightAimed)
+            {
+                // Unity fake-null: the light died with its scene, and took our write with it. There
+                // is nothing to restore and nothing left of ours.
+                _mapLightAimed = false;
+                VRLog.Info("Core", "MAP LIGHT: the light we had aimed is gone (its scene unloaded) — "
+                                   + "nothing to restore, the scene took both its rotation and our "
+                                   + "write. Re-acquiring on the scan cadence.");
+            }
+            if (Time.frameCount < _mapLightScanNextFrame)
+                return;
+            _mapLightScanNextFrame = Time.frameCount + ScanIntervalFrames;
+
+            light = FindTableLight(out survey);
+            if (light == null)
+            {
+                if (!_mapLightRefusedLogged)
+                {
+                    _mapLightRefusedLogged = true;
+                    VRLog.Warn("Core", $"MAP LIGHT: no eligible game light to aim — {survey} The table "
+                                       + "keeps the map scene's own lighting.");
+                }
+                return;
+            }
+            _mapLight = light;
+            _mapLightOriginal = light.transform.rotation; // CACHED BEFORE THE FIRST WRITE
+            _mapLightAimed = false;
+            _mapLightRefusedLogged = false;
+        }
+
+        Transform t = light.transform;
+        var target = Quaternion.LookRotation(-moon, Vector3.up);
+
+        // STEADY STATE — one Quaternion.Angle compare, no write.
+        if (_mapLightAimed && Quaternion.Angle(t.rotation, _mapLightWrote) <= LightAgreementEpsilonDeg)
+            return;
+
+        if (_mapLightAimed)
+        {
+            // Somebody else wrote that transform. Correct a bounded number of times, then concede.
+            _mapLightCorrections++;
+            if (_mapLightCorrections > MaxLightCorrections)
+            {
+                ReleaseMapLight($"THE GAME FIGHTS FOR THIS TRANSFORM: '{light.name}' was re-aimed by "
+                                + $"something other than this class {_mapLightCorrections} time(s), "
+                                + $"past the {MaxLightCorrections}-correction budget. CONCEDED — the "
+                                + "original rotation is back and this class will not write it again "
+                                + "this visit, because two writers alternating on one transform can "
+                                + "land the two MultiPass eyes on different sides of the flip. The "
+                                + "table keeps the map scene's own lighting and the report stands",
+                                conceded: true);
+                return;
+            }
+        }
+
+        Vector3 hadFrom = -t.forward;
+        float angleBefore = Vector3.Angle(hadFrom, moon);
+        t.rotation = target;
+        _mapLightWrote = target;
+        float angleAfter = Vector3.Angle(-t.forward, moon);
+        bool first = !_mapLightAimed;
+        _mapLightAimed = true;
+
+        if (!first)
+        {
+            VRLog.Info("Core", $"MAP LIGHT: '{light.name}' had been re-aimed away from our value (it "
+                               + $"arrived from {Bearing(hadFrom)}, {angleBefore:F0} deg off the moon) "
+                               + $"— corrected back, correction {_mapLightCorrections} of "
+                               + $"{MaxLightCorrections}. Past that budget this class concedes the "
+                               + "transform rather than alternate with another writer.");
+            return;
+        }
+
+        Color lc = light.color;
+        VRLog.Info("Core", $"MAP LIGHT: aimed the game's '{light.name}' along the room's own moon "
+                           + $"(style {style}). BEFORE it arrived from {Bearing(hadFrom)}; THE ROOM'S "
+                           + $"MOON STANDS AT {Bearing(moon)}; the two were {angleBefore:F0} DEGREES "
+                           + $"APART and are {angleAfter:F1} deg apart now. MapTableLegs' light census "
+                           + "measures that same pairing from the other side, in the same azimuth "
+                           + "convention and off the same measured moon, so the two lines are MEANT "
+                           + "to agree: a census taken BEFORE this line must print the BEFORE angle "
+                           + "above (the census is a one-shot on the leg-build frame), one taken "
+                           + "after must print ~0, and any third number is a bug in one of them. "
+                           + $"THE LIGHT: {light.type} intensity {light.intensity:F2} colour "
+                           + $"({lc.r:F2}, {lc.g:F2}, {lc.b:F2}) shadows {light.shadows} mask "
+                           + $"0x{light.cullingMask:X8}; it reaches game layer {GameFurnitureLayer} "
+                           + $"and NOT the mod layer {VRLayers.ModLayer}, so the environment room, "
+                           + "the parchment, the icons, the button rail and every window are outside "
+                           + "its reach by construction and CANNOT have moved. ROTATION ONLY — no "
+                           + "position, no scale, no parent, and the transform carries no children. "
+                           + $"NOT CHANGED: intensity and colour. The room's own authored moonlight "
+                           + $"colour measures ({moonCol.r:F3}, {moonCol.g:F3}, {moonCol.b:F3}) "
+                           + $"{(moonCol == Color.clear ? "(not declared by the material that answered)" : "(_DirCol, the term the baked rig shades this room with)")} "
+                           + "— reported so the next round can judge the brightness with numbers, "
+                           + "not transferred, because that is a bake term against albedo under a "
+                           + "near-black ambient and not a realtime light intensity. RESTORED "
+                           + "VERBATIM when the map room closes, the style leaves Cellar/SwampNight, "
+                           + "mixed reality takes over, the rig tears down or the scene changes. "
+                           + $"MOON: {moonSource}. LIGHT: {survey}");
+    }
+
+    /// <summary>
+    /// The ONE game light this class is allowed to aim, chosen from the LIVE culling masks rather
+    /// than by name (a name is not a contract, and the census's <c>'Map Directional Light'</c> is
+    /// the game's string, not ours). Eligible = enabled, active, DIRECTIONAL, its mask reaches the
+    /// game furniture layer <see cref="GameFurnitureLayer"/> and does NOT reach the mod layer, and
+    /// its transform has NO CHILDREN. The strongest such light wins, which is the same light the
+    /// census calls "the strongest directional one that reaches the table layer".
+    ///
+    /// <para>THE MOD-LAYER TEST IS THE SAFETY PROOF, not a filter: a light that could see the mod
+    /// layer would re-shade the environment room itself when re-aimed, and the whole argument for
+    /// touching a game light at all is that it cannot. THE CHILD TEST IS THE OTHER ONE: rotating a
+    /// transform rotates its children, so a light with children is refused rather than risk moving
+    /// something the report never mentioned.</para>
+    ///
+    /// <para><c>FindObjectsOfType</c> is a heap sweep and is therefore run at most once per
+    /// <see cref="ScanIntervalFrames"/> frames and never again once a light is held — the same
+    /// throttle the sky-sphere scan uses, for the same reason (ModBuild 196: one unthrottled
+    /// FindObjectOfType cost 12 ms a frame).</para>
+    /// </summary>
+    private static Light? FindTableLight(out string survey)
+    {
+        Light[] lights;
+        try
+        {
+            lights = Object.FindObjectsOfType<Light>();
+        }
+        catch (System.Exception ex)
+        {
+            survey = $"the light sweep threw ({ex.GetType().Name}: {ex.Message}).";
+            return null;
+        }
+
+        int furnitureBit = 1 << GameFurnitureLayer;
+        int modBit = VRLayers.ModLayerMask;
+        Light? best = null;
+        int directional = 0, missFurniture = 0, seesMod = 0, hasChildren = 0;
+        for (int i = 0; i < lights.Length; i++)
+        {
+            Light l = lights[i];
+            if (l == null || !l.enabled || !l.gameObject.activeInHierarchy)
+                continue;
+            if (l.type != LightType.Directional)
+                continue;
+            directional++;
+            if ((l.cullingMask & furnitureBit) == 0) { missFurniture++; continue; }
+            if ((l.cullingMask & modBit) != 0) { seesMod++; continue; }
+            if (l.transform.childCount != 0) { hasChildren++; continue; }
+            if (best == null || l.intensity > best.intensity)
+                best = l;
+        }
+
+        survey = best != null
+            ? $"chosen from {directional} enabled directional light(s) as the strongest one whose "
+              + $"mask reaches game layer {GameFurnitureLayer} and NOT mod layer {VRLayers.ModLayer} "
+              + $"({missFurniture} never reach the furniture layer, {seesMod} would also reach the "
+              + $"mod layer and were REFUSED for that reason, {hasChildren} carry children and were "
+              + "refused so a rotation cannot drag anything with it)."
+            : $"{directional} enabled directional light(s) exist and none is eligible: "
+              + $"{missFurniture} do not reach game layer {GameFurnitureLayer} at all, {seesMod} "
+              + $"would also reach mod layer {VRLayers.ModLayer} (aiming one of those would re-shade "
+              + $"the environment room itself, which is the whole thing this must not do), and "
+              + $"{hasChildren} carry children.";
+        return best;
+    }
+
+    /// <summary>
+    /// Give the game light back, verbatim. Called from the gate (map room closed, room gone, style
+    /// left the two bundled 3D styles), from <see cref="DespawnEnvironment"/> (style change, mixed
+    /// reality, scenario end, VR stop, rig teardown) and from the concede path.
+    ///
+    /// <para><paramref name="conceded"/> = true keeps the correction count and BLOCKS re-aiming for
+    /// the rest of this visit; the ordinary release clears both, so the next time the map room opens
+    /// the class tries again from scratch. A fake-null light is skipped rather than written: the
+    /// scene took the transform and our write with it.</para>
+    /// </summary>
+    private static void ReleaseMapLight(string why, bool conceded)
+    {
+        if (_mapLight == null && !_mapLightAimed && !_mapLightConceded && !_mapLightRefusedLogged)
+            return; // nothing held — the ordinary scenario/menu path, four bool compares
+
+        Light? l = _mapLight;
+        bool alive = l != null;
+        bool hadAimed = _mapLightAimed;
+        if (alive && hadAimed)
+            l!.transform.rotation = _mapLightOriginal; // VERBATIM, the value cached before our first write
+
+        int corrections = _mapLightCorrections;
+        string name = alive ? l!.name : "the light";
+        _mapLight = null;
+        _mapLightAimed = false;
+        _mapLightScanNextFrame = 0;
+        _mapLightRefusedLogged = false;
+        _mapLightConceded = conceded;
+        if (!conceded)
+            _mapLightCorrections = 0;
+
+        if (!hadAimed)
+            return; // never wrote anything, so there is nothing to report
+        VRLog.Info("Core", $"MAP LIGHT: released '{name}' — {why}. "
+                           + (alive
+                              ? "Its original rotation is back, bit for bit; nothing of ours is left "
+                                + "on a game object."
+                              : "It had already died with its scene, so there was nothing to write "
+                                + "back and nothing of ours survives.")
+                           + $" Corrections made while we held it: {corrections}.");
+    }
+
+    /// <summary>The layer the game's map furniture — the table this report is about — is drawn on.
+    /// 0 is Unity's built-in Default layer, and the hardware census read the map table's renderer on
+    /// exactly that layer. It is used as a MASK TEST against the live light, never as an assumption:
+    /// a light that does not reach it is not eligible, and the survey line says how many were
+    /// rejected for it.</summary>
+    private const int GameFurnitureLayer = 0;
+
+    /// <summary>Below this the light is still wearing the rotation we wrote (float round-trip
+    /// through a quaternion, not a foreign write).</summary>
+    private const float LightAgreementEpsilonDeg = 0.05f;
+
+    /// <summary>How many foreign writes to that transform this class corrects before conceding it
+    /// entirely (class doc, LEVEL-TRIGGERED). Small on purpose: the point of the budget is to detect
+    /// a per-frame writer within a few frames, not to out-write it.</summary>
+    private const int MaxLightCorrections = 4;
+
+    // The game light we aimed, and everything needed to give it back untouched. _mapLightOriginal is
+    // written ONCE, when the light is acquired and before any write of ours.
+    private static Light? _mapLight;
+    private static Quaternion _mapLightOriginal = Quaternion.identity;
+    private static Quaternion _mapLightWrote = Quaternion.identity;
+    private static bool _mapLightAimed;
+    private static bool _mapLightConceded;
+    private static int _mapLightCorrections;
+    private static int _mapLightScanNextFrame;
+    private static bool _mapLightRefusedLogged;
+
+    /// <summary>The moon, measured once per activation off the environment's own materials (see
+    /// <see cref="TryRoomMoonDirection"/>) — the room is world-fixed and the sky wears the same
+    /// board yaw, so the answer cannot change while one activation stands. Cleared by
+    /// <see cref="ResetRoomState"/>.</summary>
+    private static bool _moonMeasured;
+    private static Vector3 _moonWorld = Vector3.up;
+    private static Color _moonCol = Color.clear;
+    private static string _moonSource = "not measured yet";
+
+    /// <summary>The baked light rig's direction and colour, as the room's own materials declare them
+    /// (<c>BuildEnvironmentRooms.ApplyRig</c>), plus the sky's <c>_MoonDir</c>. Read-only.</summary>
+    private static readonly int DirDirId = Shader.PropertyToID("_DirDir");
+    private static readonly int DirColId = Shader.PropertyToID("_DirCol");
+    private static readonly int MoonDirId = Shader.PropertyToID("_MoonDir");
+
     // ---- deactivate ---------------------------------------------------------------------------
 
     /// <summary>Clear the room branch's placement bookkeeping (spawn, style switch, teardown).</summary>
@@ -2123,6 +2691,12 @@ internal static class SkyAlternative
         _nextRoomProbeFrame = 0;
         _implausibleWarned = false;
         _skyYawFromBoard = false; // a fresh activation owes the sky a board yaw again
+        // The moon was measured off THIS activation's materials at THIS activation's yaw — a fresh
+        // room must measure it again rather than inherit a direction from a room that is gone.
+        _moonMeasured = false;
+        _moonWorld = Vector3.up;
+        _moonCol = Color.clear;
+        _moonSource = "not measured yet";
     }
 
     /// <summary>
@@ -2142,6 +2716,14 @@ internal static class SkyAlternative
     /// </summary>
     private static void DespawnEnvironment()
     {
+        // THE GAME LIGHT GOES BACK FIRST, and before anything of ours is destroyed: this is the ONE
+        // game object this feature ever writes, and "no environment shown" must mean "no trace of us
+        // on a game object" for it exactly as it does for the two branch roots. It covers every
+        // teardown at once — style change, OffBlack, mixed reality, scenario/map-room end, VR stop,
+        // rig teardown — because all of them funnel through here.
+        ReleaseMapLight("the environment stood down (style change, mixed reality, the room closed, "
+                        + "or the rig tore down)", conceded: false);
+
         if (_skyGo != null)
         {
             Object.Destroy(_skyGo);
@@ -2170,7 +2752,12 @@ internal static class SkyAlternative
     /// Default would keep the latch and the next OffBlack settle would never re-log.</summary>
     private static void Deactivate()
     {
-        if (!_active && !_blackShown && _skyGo == null && _roomGo == null && _hiddenSphere == null)
+        // _mapLight is part of the test for the same reason _blackShown is: it is state on a GAME
+        // object, and an early-out that skips DespawnEnvironment while we still hold a light would
+        // leave our rotation on it. It can only be non-null while _active, so this costs one null
+        // compare on the idle path and closes the hole by construction rather than by argument.
+        if (!_active && !_blackShown && _skyGo == null && _roomGo == null && _hiddenSphere == null
+            && _mapLight == null)
             return;
 
         RestoreGameSphere();

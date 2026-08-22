@@ -83,6 +83,12 @@ internal static partial class PanelSupersample
     ///
     /// <para>Never throws. If anything is missing the frame falls back to the host rect, i.e.
     /// exactly ModBuild 192's behaviour.</para>
+    ///
+    /// <para><b>ModBuild 201 ALSO MEASURES THE CONTENT'S OWN SCALE HERE</b>, in the same walk, because
+    /// this is the only place that already knows both a child's authored rect and where that rect
+    /// LANDS in host space. See <see cref="Entry.MinContentScale"/> for what that number is for and
+    /// what the ModBuild 200 hardware log said about it. It also QUANTISES the frame it produces —
+    /// see <see cref="FrameQuantumPx"/>, which is the flicker half of this round.</para>
     /// </summary>
     private static void MeasureFrame(Entry e)
     {
@@ -94,6 +100,17 @@ internal static partial class PanelSupersample
         float started = Time.realtimeSinceStartup;
         Rect hostRect = host.rect;
         Rect union = hostRect;
+        // THE CONTENT-SCALE CENSUS (ModBuild 201). Accumulated across the walk, committed at the end.
+        float minScale = 1f;
+        float minScaleArea = 0f;
+        string minScaleName = string.Empty;
+        int scaleSamples = 0;
+        int subCritical = 0;
+        float subCriticalArea = 0f;
+        // A graphic must cover at least this much of the host rect before it is allowed to lower the
+        // number — see MinScaledAreaFraction for why a bare minimum over every graphic is the wrong
+        // statistic and would let one decorative pip quadruple every window's render target.
+        float areaFloor = Mathf.Abs(hostRect.width * hostRect.height) * MinScaledAreaFraction;
 
         ContentStack.Clear();
         ContentStack.Add(new ClipFrame(panel.HostGo.transform, Unbounded));
@@ -137,7 +154,41 @@ internal static partial class PanelSupersample
                     }
                     var graphic = t.GetComponent<Graphic>();
                     if (Draws(graphic) && Intersect(clip, bounds, out Rect visible))
+                    {
                         union = Union(union, visible);
+                        // THE SCALE OF THIS GRAPHIC'S OWN AUTHORED PIXELS, in host-local pixels. The
+                        // two quantities are already in hand: `local` is the rect the artist authored
+                        // and `bounds` is where it landed. Their ratio IS the accumulated scale chain
+                        // between the two, without touching a single extra transform.
+                        Rect local = rt.rect;
+                        if (local.width > 1f && local.height > 1f)
+                        {
+                            float sx = bounds.width / local.width;
+                            float sy = bounds.height / local.height;
+                            // A ROTATED child measures as its bounding box, so its two ratios diverge
+                            // and neither is a scale. Skip it rather than report a fiction; the axis-
+                            // aligned siblings in the same subtree carry the same scale anyway.
+                            if (sx > 1e-4f && sy > 1e-4f
+                                && Mathf.Abs(sx - sy) <= 0.05f * Mathf.Max(sx, sy))
+                            {
+                                float s = Mathf.Min(sx, sy);
+                                float area = Mathf.Abs(visible.width * visible.height);
+                                scaleSamples++;
+                                if (s < ScaledContentThreshold)
+                                {
+                                    subCritical++;
+                                    if (area > subCriticalArea)
+                                        subCriticalArea = area;
+                                }
+                                if (area >= areaFloor && s < minScale)
+                                {
+                                    minScale = s;
+                                    minScaleArea = area;
+                                    minScaleName = t.name;
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -148,12 +199,31 @@ internal static partial class PanelSupersample
 
         // THE CLAMP — the one place content can still be lost, so it keeps the host rect centred and
         // gives away as much of the overspill as the budget allows, edge by edge.
-        float padX = hostRect.width * (MaxContentExpansion - 1f) * 0.5f;
-        float padY = hostRect.height * (MaxContentExpansion - 1f) * 0.5f;
-        float xMin = Mathf.Max(union.xMin, hostRect.xMin - padX);
-        float xMax = Mathf.Min(union.xMax, hostRect.xMax + padX);
-        float yMin = Mathf.Max(union.yMin, hostRect.yMin - padY);
-        float yMax = Mathf.Min(union.yMax, hostRect.yMax + padY);
+        //
+        // ModBuild 201: WHAT IS QUANTISED IS THE OVERSPILL, NOT THE ABSOLUTE EDGE — see
+        // FrameQuantumPx for why the frame must sit on a grid at all, and read this paragraph for why
+        // the grid is anchored on the HOST RECT'S OWN EDGES rather than on its centre. A host rect is
+        // 390x880 or 1143x1080 uGUI px; its half-extents are not multiples of anything. Snapping
+        // absolute edges to a grid would therefore inflate EVERY window (390x880 -> 448x896) and turn
+        // this path's "the capture frame IS the host rect, so ON and OFF geometry are identical"
+        // promise into a permanent GROWN reading on windows that overspill by nothing at all.
+        // Quantising the overspill instead keeps a non-overspilling frame EXACTLY the host rect, and
+        // still delivers the property the grid is for: between two measurements the host rect does
+        // not move, so every frame edge differs from the last only by a whole number of grid cells,
+        // and with the rate quantised to RateQuantum that is a whole number of texels.
+        // The expansion limit is rounded OUTWARD too, never inward: this grid must not be able to
+        // crop a single pixel more than ModBuild 200 already did. It costs at most one grid cell of
+        // extra transparent margin on a window that was already at the limit.
+        float padX = QuantiseUp(hostRect.width * (MaxContentExpansion - 1f) * 0.5f);
+        float padY = QuantiseUp(hostRect.height * (MaxContentExpansion - 1f) * 0.5f);
+        float left = Mathf.Clamp(QuantiseUp(hostRect.xMin - union.xMin), 0f, padX);
+        float right = Mathf.Clamp(QuantiseUp(union.xMax - hostRect.xMax), 0f, padX);
+        float down = Mathf.Clamp(QuantiseUp(hostRect.yMin - union.yMin), 0f, padY);
+        float up = Mathf.Clamp(QuantiseUp(union.yMax - hostRect.yMax), 0f, padY);
+        float xMin = hostRect.xMin - left;
+        float xMax = hostRect.xMax + right;
+        float yMin = hostRect.yMin - down;
+        float yMax = hostRect.yMax + up;
         bool clamped = xMin > union.xMin + 0.5f || xMax < union.xMax - 0.5f
                        || yMin > union.yMin + 0.5f || yMax < union.yMax - 0.5f;
         Rect frame = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
@@ -167,6 +237,8 @@ internal static partial class PanelSupersample
         e.ExpandClamped = clamped;
         e.ContentMeasures++;
         e.LastMeasureFrame = Time.frameCount;
+        RecordContentScale(e, minScale, minScaleArea, minScaleName, scaleSamples,
+                           subCritical, subCriticalArea);
         e.ContentMs += (Time.realtimeSinceStartup - started) * 1000.0;
 
         if (clamped && !e.ExpandClampWarned)
@@ -184,6 +256,50 @@ internal static partial class PanelSupersample
                               + "genuinely lives that far outside its own frame, raise "
                               + "MaxContentExpansion (and expect the VRAM cost to follow), or switch "
                               + "[WorldUI] PanelSupersample off for this session.");
+        }
+    }
+
+    /// <summary>Snap an overspill (always &gt;= 0) UP to the capture-frame grid — see
+    /// <see cref="FrameQuantumPx"/>. Every use rounds OUTWARD, so quantising the capture frame can
+    /// only ever grow it and can never crop content that ModBuild 200 kept.</summary>
+    private static float QuantiseUp(float v) => Mathf.Ceil(v / FrameQuantumPx) * FrameQuantumPx;
+
+    /// <summary>
+    /// Commit the content-scale census this measurement produced, and keep the whole distribution of
+    /// it — because the summary field of the previous round was quoted as an operating point and was
+    /// not one. See <see cref="Entry.MinContentScale"/>.
+    /// </summary>
+    private static void RecordContentScale(Entry e, float minScale, float area, string name,
+                                           int samples, int subCritical, float subCriticalArea)
+    {
+        // A window whose walk found no measurable rect at all keeps the previous reading rather than
+        // silently resetting to 1.0 — an unmeasured window and an unscaled one must not print alike.
+        if (samples <= 0)
+        {
+            e.ContentScaleUnmeasured++;
+            return;
+        }
+        minScale = Mathf.Clamp(minScale, MinContentScaleFloor, 1f);
+        e.MinContentScale = minScale;
+        e.MinContentScaleArea = area;
+        e.MinContentScaleName = name;
+        e.ContentScaleSamples = samples;
+        e.ScaledGraphics = subCritical;
+        e.ScaledGraphicsArea = subCriticalArea;
+
+        e.ContentScaleReadings++;
+        e.ContentScaleSum += minScale;
+        if (e.ContentScaleReadings == 1)
+        {
+            e.MinContentScaleLowest = minScale;
+            e.MinContentScaleHighest = minScale;
+        }
+        else
+        {
+            if (minScale < e.MinContentScaleLowest)
+                e.MinContentScaleLowest = minScale;
+            if (minScale > e.MinContentScaleHighest)
+                e.MinContentScaleHighest = minScale;
         }
     }
 
@@ -392,6 +508,8 @@ internal static partial class PanelSupersample
         e.MeshWorst = string.Empty;
         e.MeshWorstBad = 0;
         e.SubMeshesSeen = 0;
+        e.SubMeshesEmpty = 0;
+        e.SubMeshesInUse = 0;
         e.SubMeshesInactive = 0;
         e.SubMeshesCulled = 0;
         e.SubMeshesWrongLayer = 0;
@@ -728,7 +846,43 @@ internal static partial class PanelSupersample
                 continue;
             e.SubMeshesSeen++;
 
+            // THE REPAIR, FIRST AND UNCONDITIONAL — before the emptiness test below can skip
+            // anything. Only when this panel actually holds a private layer; a refused panel has
+            // Layer < 0 and its subtree must stay exactly where the game put it. Deliberately NOT
+            // behind the in-use test: an empty pooled sub-mesh that the next string fills would
+            // otherwise be filled ON THE WRONG LAYER and stay there until the next sweep cadence,
+            // which is the exact window this repair was added to close.
             int bad = 0;
+            if (layer >= 0 && c.gameObject.layer != layer)
+            {
+                e.SubMeshesWrongLayer++;
+                bad++;
+                if (!IsRecorded(e, c))
+                    e.Relayered.Add(new LayerRecord { Transform = c, OriginalLayer = c.gameObject.layer });
+                c.gameObject.layer = layer;
+            }
+
+            // THE DENOMINATOR ModBuild 200 DID NOT HAVE, and without which its own numbers cannot be
+            // read at all. TMP POOLS these objects: it creates one per material reference the string
+            // has EVER needed and leaves the surplus in place with an emptied mesh. A pooled sub-mesh
+            // is legitimately culled, legitimately transparent and legitimately without a texture —
+            // its normal life looks exactly like the abuse. The ModBuild 200 log read
+            // "19 TMP SUB-MESH(ES) ... of which 17 culled/transparent" on the character window and
+            // 0 of 0 or 0 of 1 on every other window, and that difference is NOT evidence of a defect
+            // until the empty ones are subtracted — the character window is simply the only window
+            // with enough text to pool any. A sub-mesh whose MESH carries vertices is one the text
+            // engine actually handed glyphs to; only those can be missing from the picture, and only
+            // those are counted below.
+            Mesh? mesh = sub.mesh;
+            if (mesh == null || mesh.vertexCount == 0)
+            {
+                e.SubMeshesEmpty++;
+                if (bad > 0 && e.SubMeshWorst.Length == 0)
+                    e.SubMeshWorst = Describe(c.gameObject.name, t.text);
+                continue;
+            }
+            e.SubMeshesInUse++;
+
             if (!c.gameObject.activeInHierarchy)
             {
                 e.SubMeshesInactive++;
@@ -747,17 +901,6 @@ internal static partial class PanelSupersample
             {
                 e.SubMeshesNoTexture++;
                 bad++;
-            }
-
-            // THE REPAIR. Only when this panel actually holds a private layer; a refused panel has
-            // Layer < 0 and its subtree must stay exactly where the game put it.
-            if (layer >= 0 && c.gameObject.layer != layer)
-            {
-                e.SubMeshesWrongLayer++;
-                bad++;
-                if (!IsRecorded(e, c))
-                    e.Relayered.Add(new LayerRecord { Transform = c, OriginalLayer = c.gameObject.layer });
-                c.gameObject.layer = layer;
             }
 
             if (bad > 0 && e.SubMeshWorst.Length == 0)

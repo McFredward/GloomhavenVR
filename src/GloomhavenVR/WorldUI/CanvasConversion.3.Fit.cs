@@ -1140,10 +1140,15 @@ internal static partial class CanvasConversion
     //   equipment + party inventory column            1136 px   two 512 px columns side by side
     //   ability cards                                 1066 px   scroll viewport 722 px
     //   perks                                         1920 px   'New UIPerksWindow Variant' 1620x1080
-    //                                                           (mostly a full-screen 'Blur' plate;
-    //                                                            its real content column is 512 px)
     //   character selector                            1920 px   'Campaign … Assembly Variant' 1620 px
     //                                                           with a 1477 px 'Character3D/RawImage'
+    //
+    // ** THE 196-ERA GLOSS ON THE PERKS ROW IS FALSIFIED — SEE THE ModBuild 201 BLOCK BELOW. ** Until
+    // this build that row ended with "(mostly a full-screen 'Blur' plate; its real content column is
+    // 512 px)". ModBuild 200's own BACKDROP CENSUS measured it on hardware and it is not true: with
+    // EVERY full-frame plate excluded the perks view still needs 1613x1080 px and the character
+    // selector still needs 1648x1080 px. The 512 px was a reading of ONE contributor, never of the
+    // union, and it has now been the premise of three separate proposals.
     //   battle goals                                   NOT MEASURED — it was never opened in the
     //                                                  logged session (it is a scenario-start view).
     //                                                  It is a full-screen UIBattleGoalPickerWindow
@@ -1356,6 +1361,160 @@ internal static partial class CanvasConversion
     // That is why the fit counts foreign overwrites of its own pose exactly (not statistically) and
     // CONCEDES after FixedFitMaxReAsserts of them rather than fight — see the concede branch. Losing
     // the sub-view placement costs a sub-view that spills; winning a write war costs stereo rivalry.
+    //
+    // =============================================================================================
+    // ModBuild 201 — NOTHING MAY MOVE BECAUSE OF A MOUSEOVER, AND THE 512 px PREMISE IS DEAD
+    // =============================================================================================
+    //
+    // USER REPORTS THIS ROUND (translated):
+    //   (3) "The menu with the character is now suddenly scaled very small and no longer matches the
+    //       size of the character images next to it."                    → the 0.487 selector.
+    //   (4) "The flicker on moving only occurs with the CHARACTER (first button) and the PERKS (last
+    //       button). By now it also comes up broken INITIALLY … it is quite random, it depends on
+    //       when you release."                                            → those same two views.
+    //   (5) "In the card-selection sub-menu, hovering the lower options shows the cards at the bottom
+    //       — and that immediately triggers a shift of the whole window. … Nothing may shift because
+    //       of mouseovers."
+    //
+    // (3) AND (4) NAME EXACTLY THE TWO SUB-VIEWS THAT ARE SCALED AT ALL, which is the whole of the
+    // correlation and is why this block exists. The 200 hardware log's own distribution, counted
+    // rather than sampled (79 FIXED FIT lines, .planning/debug/LogOutput.log):
+    //
+    //   'Character Ability Cards Display Variant'   61 lines  need 749x1080  scale 1.000
+    //   'Character Items Equipment Content'          8 lines  need 543x1080  scale 1.000 (one 0.981)
+    //   'Campaign Adventure Party Assembly Variant'  7 lines  need 1648      scale 0.487
+    //   'New UIPerksWindow Variant'                  1 line   need 1627      scale 0.494
+    //
+    // ---------------------------------------------------------------------------------------------
+    // WHY THE TWO WIDE VIEWS STILL CANNOT REACH 1.000, MEASURED RATHER THAN ARGUED
+    // ---------------------------------------------------------------------------------------------
+    //
+    // Two openings were proposed for getting them to 1.000. THE 200 LOG FALSIFIES BOTH, and both are
+    // falsified by the same instrument the 199 round shipped precisely so that the next round would
+    // not have to infer again — the BACKDROP CENSUS. Its two lines, verbatim:
+    //
+    //   perks:     "2 full-frame plate(s) inside it, the largest 'New UIPerksWindow Variant' at
+    //               1620x1080 px; WITHOUT them the view would need 1613x1080 px"
+    //   selector:  "2 full-frame plate(s) inside it, the largest 'Display' at 1620x1080 px;
+    //               WITHOUT them the view would need 1648x1080 px"
+    //
+    //   * "PERKS is mostly a full-screen Blur backdrop around a ~512 px content column, so DISABLING
+    //     the plate (not merely un-measuring it — CanvasConversion.4.Lifecycle.cs already hides
+    //     backing plates via panel.HiddenBackgrounds) fits it at 1.000." FALSE. Removing every
+    //     full-frame plate takes perks from 1627 to 1613 px — 14 px, 0.9 %. The 512 px was one
+    //     contributor's width in a ModBuild 196 top-3 line, never the union's. It is NOT a route to
+    //     scale 1.000 and must not be sold as one a fourth time.
+    //
+    //     AND WHILE WE ARE HERE — WHY THE PERKS PLATE IS NOT IN panel.HiddenBackgrounds, since that
+    //     was the other half of the question and the answer is two exact lines, neither of them in
+    //     this file (so neither is changed here):
+    //       1. ModalFallback.WantsTransparentBackground lists ESCMenu, Options, OptionsSubmenu,
+    //          ViceOptionsSubmenu, ResultsPanel, RewardsPanel, AdventureCompletionPanel and the four
+    //          MenuConfirmations. UIWindowID.PartyPanel is not among them, so ConvertedPanel
+    //          .HideBackground is never even set for the character screen and the sweep never looks
+    //          at it. It is NOT, as one might assume, that the perks view was inactive at convert
+    //          time: CanvasConversion.4.Lifecycle re-runs HideFullScreenBackground on the
+    //          BackgroundSweepNextFrame cadence, so a plate that appears with a tab WOULD be caught.
+    //       2. Even opted in it would miss by a hair. That sweep requires a graphic to cover
+    //          BackgroundCoverFraction = 0.85 of the window frame on BOTH axes; the plate is
+    //          1620 px of an authored 1920 px frame = 0.844. The fit's own plate test uses 0.80/0.95
+    //          and does catch it, which is why the census can see a plate the hide sweep cannot.
+    //     Worth proposing on its own merits — a full-window blur veil means nothing on a floated
+    //     window with a transparent frame, and 'perks.jpg' is a DARK RECTANGLE with a few glyph
+    //     fragments in it, which is what a surviving 1620x1080 plate over missing content looks like
+    //     — but it is a change to two files this lane does not own and it buys 14 px of width.
+    //   * "The SELECTOR's width is a 1477 px Character3D/RawImage, i.e. pictorial content that could
+    //     be scaled while the text beside it stays at 1.000." FALSE as a width argument: the census
+    //     removes every full-frame plate and the union does not move at all (1648 → 1648), so the
+    //     union's extremes are NOT the big pictorial elements. Splitting a sub-view into
+    //     independently-scaled children also breaks the game's own layout contract — the portrait and
+    //     the stat rows are placed by the prefab relative to one another, and scaling one of them
+    //     leaves a hole exactly where the other one expects a neighbour. It is not done.
+    //
+    // So the four ways out listed in the 200 block above remain the only four, and this build still
+    // takes (1): 0.487, no gap, no overlap, column untouched. (3) THEREFORE REMAINS OPEN AND IT IS A
+    // RULING, NOT A BUG: at a 1.00 m window, 1.20 m away, with the 328 px column visible, 1648 px of
+    // content cannot be drawn at 1.000 — option (3) of that list draws 1.74 m / 72° across, past the
+    // ~1.3 m slab he has already called too big (see ModalFallback's ModalTargetWidthMeters doc), and
+    // option (4) makes the column vanish under him. A comment is not consent and neither is a doc
+    // comment's headroom: growing the drawn window toward a size he rejected is his call to make.
+    //
+    // WHAT IS SHIPPED INSTEAD, so the next round decides that with data: the census now names the
+    // graphics that DEFINE the content union's left and right extremes, with their rects. "1613 px
+    // wide" is a number nobody can act on; "'X' at 1620x412 px is the left extreme and 'Y' the right"
+    // is. If those extremes turn out to be a second backdrop that merely failed the 95 %-height plate
+    // test, the plate route comes back alive with evidence behind it.
+    //
+    // ---------------------------------------------------------------------------------------------
+    // (5) NOTHING MAY MOVE BECAUSE OF A MOUSEOVER — THREE THINGS COULD, AND ALL THREE ARE CLOSED
+    // ---------------------------------------------------------------------------------------------
+    //
+    // THE CONTAMINATION IS OURS, AND THE LOG NAMES IT. TooltipOnWindow RAISES a hover preview out of
+    // wherever the game put it and re-parents it directly under the conversion target's child so it
+    // draws on top — its own line, 18 times in the 200 log: "LOCAL TOOLTIP 'FullAbilityCard
+    // (ability-card hover preview)' laid FLAT ON its OWNING floated window … it hangs under 'New
+    // Party display'", with "the box hangs at sibling 10 of 10" 19 times. That is why the preview
+    // belongs to NONE of the six serialized sub-view roots and lands in the BASE union: we moved it
+    // there. The distribution of the base reading over the same 79 lines:
+    //
+    //   328x1080 px, 135-139 graphics   27 lines   the real character column
+    //   896x1080…1230 px, 157-172       50 lines   column + a RAISED FullAbilityCard hover preview
+    //   1155/1159x1080 px, 146-149       2 lines   column + a RAISED UIPartyItemInventoryTooltip
+    //
+    // Every one of the 52 contaminated readings is accounted for by the two families the mod's own
+    // LOCAL TOOLTIP lines name. Nothing is left over, so the rule below is an identity and not a
+    // residue. What that contamination MOVED, all of it visible in the same lines:
+    //
+    //   * THE COLUMN. The base pin is the base union's bottom-LEFT corner and the correction was
+    //     re-derived and written EVERY pass with no settle gate at all: 47 "the character column
+    //     re-aligned by 0,N px" writes in one session, counted — 32 of them exactly +15 px, the rest
+    //     spread over -11, -13, -14, -15, -30, -42, -60, -64, -135 and -150. x never moved (the
+    //     preview opens to the RIGHT of the column, so it only extends the union's right edge); y
+    //     moved because the preview hangs BELOW it. THAT IS HIS "the whole window shifts", and note
+    //     that the repeating +15 would have passed a settle gate on its own — it is the EXCLUSION
+    //     that kills that one, and the gate that kills the ramp. Both are needed.
+    //   * THE OPEN SUB-VIEW'S SCALE. The equipment view measures 543 px, and once measured 819 px
+    //     with the item hint inside it — 819 > the 803 px slot, so the fit wrote scale 0.981 and
+    //     re-seated the view. A mouseover changed the size of the thing being hovered.
+    //   * THE SEAM was already immune (captured once, ModBuild 200) and stays exactly as it is.
+    //
+    // THE RULE. A graphic is TRANSIENT if any ancestor up to the fit root carries one of six game
+    // component types (see TransientFamilyOf). Matched BY COMPONENT TYPE — the same table this repo
+    // already argues for at TooltipOnWindow.cs:510-531, extended with UIItemModifiersTooltip — never
+    // by name, never by "it is not one of the six", and never by the nested Canvas the game adds to a
+    // full card (ModBuild 194 proved that Canvas outlives its own hide). Transient graphics count
+    // toward NEITHER the base union NOR any sub-view union, and the count is printed every line, so
+    // "nothing shifted" and "the rule never fired" cannot look alike.
+    //
+    // AND THE SAFETY NET, because an exclusion that empties a bucket is worse than the contamination:
+    // both unions are built twice, clean and raw, and a bucket whose CLEAN reading has no graphics
+    // falls back to the raw one and says so in the line. The one family that could plausibly empty a
+    // bucket is FullAbilityCard — if the character screen showed full cards permanently, excluding
+    // them would delete the ability-card view. It does not:
+    // UIPartyCharacterAbilityCardsDisplay.cs:355/363 calls ToggleFullCard(false) and
+    // ToggleFullCardPreview(false) on every spawned row, so a full card in this window is ALWAYS a
+    // hover, and the log agrees (the ability-card view's need is 749x1080 on all 61 of its lines
+    // while the base swings by 568 px underneath it).
+    //
+    // TWO MORE THINGS THAT COULD MOVE, AND NOW CANNOT:
+    //
+    //   * THE COLUMN RE-ASSERT IS BEHIND THE SETTLE GATE. Even with every tooltip excluded the base
+    //     still slides while the window's OWN show animation runs — the same 79 lines have the clean
+    //     328x1080 column reading its bottom edge at y = -540, -525, -480 and -405, and the HIT RECT
+    //     line names the mover ("FURTHEST OUTSIDE the frame: 'New Party display/Party Display UI ' by
+    //     30 px", ramping 30 → 90 → 120 → 150 → 30). A ramp never repeats a value, which is exactly
+    //     what FixedFitSettleChecks was written to reject, and the base was the one write exempt from
+    //     it. It is not exempt any more (the pre-reveal first fit still is, as before).
+    //   * THE SUB-VIEW POSE IS SOLVED ONCE PER OPEN SET AND THEN FROZEN, like the host size, the pin
+    //     and the seam. While the same tabs stay open the scale and the seat are constants, not
+    //     re-derived quantities — so no measurement of any kind can re-scale or re-seat a view that
+    //     is already up. This is the half of (4) that is ours: the 200 log's perks open shows "3
+    //     sub-view scale write(s), 7 sub-view re-seat(s), 19 column re-assert(s)" DURING the open,
+    //     i.e. the window was still being written 29 times while he was dragging it, and the
+    //     supersample capture re-resolves on drag. "It is quite random, it depends on when you
+    //     release" is what a capture that races a pose write looks like. The freeze releases the
+    //     moment the set of open sub-views changes, which is the only event that may legitimately
+    //     ask for a different scale.
 
     /// <summary>
     /// The fixed host WIDTH (uGUI px) of a fixed-size window: the widest host that still renders its
@@ -1811,6 +1970,17 @@ internal static partial class CanvasConversion
         internal Vector2 Min, Max;
         internal int Graphics;
 
+        /// <summary>The same union built WITHOUT the transient-content rule (ModBuild 201) — the
+        /// fallback used when the clean reading has no graphics at all, so an exclusion can never
+        /// delete a sub-view. <see cref="UsedRawUnion"/> says which one the pass used.</summary>
+        internal Vector2 RawMin, RawMax;
+        internal int RawGraphics;
+        internal bool UsedRawUnion;
+
+        /// <summary>Transient graphics dropped from THIS member this pass, cumulative over its
+        /// life — so "no mouseover was ignored" and "no mouseover happened" are different logs.</summary>
+        internal int TransientDropped;
+
         /// <summary>Host-local position of the member's own origin (its pivot).</summary>
         internal Vector2 Pivot;
 
@@ -1849,6 +2019,13 @@ internal static partial class CanvasConversion
         /// construction; a second member open at the same time keeps its own offset from it, which
         /// is its own arrangement and not a gap this fit introduced.</summary>
         internal float GapPx, OverlapPx;
+
+        /// <summary>ModBuild 201 — THE FROZEN SEAT. Once a solution has been written for the open
+        /// set this member belongs to, its host-local offset is a CONSTANT for as long as that set
+        /// stays open: no later measurement may re-seat a view that is already on screen. Cleared by
+        /// <see cref="FixedFitState.ReleaseSolution"/> when the open set changes.</summary>
+        internal Vector2 FrozenWantShift;
+        internal bool WantFrozen;
     }
 
     /// <summary>Per-panel state of the fixed-size fit — the captured size, the pinned column corner,
@@ -1893,6 +2070,59 @@ internal static partial class CanvasConversion
         internal Vector2 BaseMin, BaseMax;
         internal int BaseGraphics;
 
+        /// <summary>The base union built WITHOUT the transient-content rule, and whether the pass had
+        /// to fall back to it because the clean reading was empty (ModBuild 201 safety net).</summary>
+        internal Vector2 BaseRawMin, BaseRawMax;
+        internal int BaseRawGraphics;
+        internal bool BaseUsedRawUnion;
+
+        // ---- the ModBuild 201 mouseover ledger -------------------------------------------------
+
+        /// <summary>Transient graphics (hover previews, item hints, modifier flyouts) this pass
+        /// refused to measure, and the running total over this window's life. Printed on every line
+        /// BECAUSE zero and never-checked must not look alike — the whole of report (5) is that a
+        /// mouseover can no longer move anything, and a rule that never fires proves nothing.</summary>
+        internal int TransientThisPass;
+        internal int TransientIgnored;
+
+        /// <summary>Bit per family index of <see cref="TransientFamilyOf"/> seen so far, and the
+        /// widest transient graphic's owning family + rect this pass — so the line NAMES what was
+        /// ignored instead of only counting it.</summary>
+        internal int TransientFamilyMask;
+        internal string TransientWidest = string.Empty;
+        internal Vector2 TransientWidestSize;
+
+        // ---- the ModBuild 201 content-extreme census (diagnostic, decides nothing) -------------
+
+        /// <summary>The non-plate, non-transient graphics that DEFINE the open sub-view group's
+        /// content union in x — the measurement the "can perks reach 1.000?" question needs and has
+        /// never had. A width alone cannot be acted on; the two graphics that produce it can.</summary>
+        internal string ContentLeftName = string.Empty, ContentRightName = string.Empty;
+        internal Vector2 ContentLeftSize, ContentRightSize;
+        internal float ContentLeftX, ContentRightX;
+
+        // ---- the ModBuild 201 solution freeze ---------------------------------------------------
+
+        /// <summary>Signature of the set of sub-views the frozen solution was solved for. A change of
+        /// signature — and NOTHING else — releases the freeze.</summary>
+        internal int SolutionSignature;
+
+        /// <summary>Signature of the set of sub-views open on the LAST measured pass. Compared with
+        /// <see cref="SolutionSignature"/> to decide whether the freeze still applies.</summary>
+        internal int OpenSignature;
+        internal bool SolutionFrozen;
+        internal float FrozenScale = 1f;
+        internal Vector2 FrozenGroupShift;
+
+        /// <summary>Drop the frozen sub-view solution (the open set changed). The members keep their
+        /// homes and their written poses; only the SOLUTION is re-opened for one more solve.</summary>
+        internal void ReleaseSolution()
+        {
+            SolutionFrozen = false;
+            for (int i = 0; i < Views.Count; i++)
+                Views[i].WantFrozen = false;
+        }
+
         /// <summary>The sub-views the game currently has open inside this window.</summary>
         internal readonly List<SubViewFit> Views = new(4);
 
@@ -1904,6 +2134,12 @@ internal static partial class CanvasConversion
         /// the settle gate (see <see cref="FixedFitSettleChecks"/>).</summary>
         internal float PendingScale = 1f;
         internal Vector2 PendingShift;
+
+        /// <summary>The COLUMN correction of the previous check (ModBuild 201). The base re-assert is
+        /// behind the same gate as the sub-view pose now, and this is the quantity that has to
+        /// repeat: an animation ramp produces a different correction every sample and is therefore
+        /// never written, while a real dislocation produces the same one twice and is.</summary>
+        internal Vector2 PendingBaseShift;
         internal int PendingChecks;
 
         // ---- last sub-view report, for the log ------------------------------------------------
@@ -2208,18 +2444,30 @@ internal static partial class CanvasConversion
 
         // The settle gate — one candidate must repeat before it is written. Exempt on the very first
         // fit of this window's life: that one runs pre-reveal and must land before the window pops
-        // in, exactly like the undamped first fit of the growth path. The HOST SIZE and the COLUMN
-        // PIN are exempt too: neither is derived from a sub-view measurement, so neither can be
-        // chasing an animation, and the column must be where it belongs before the window is shown.
+        // in, exactly like the undamped first fit of the growth path. The HOST SIZE stays exempt:
+        // it is not derived from any content measurement at all (it is the window's own authored
+        // frame, clamped), so it cannot be chasing anything.
+        //
+        // ModBuild 201: THE COLUMN PIN IS NO LONGER EXEMPT. 199/200 exempted it on the reasoning that
+        // it is not derived from a sub-view measurement and therefore cannot chase an animation. The
+        // first half is true and the conclusion does not follow: the correction is derived from the
+        // BASE union, and the base slides under the window's own show/hide animation — the 200 log
+        // has the clean 328x1080 column reading its bottom edge at y = -540, -525, -480 and -405 and
+        // the HIT RECT line names 'Party Display UI ' ramping 30 → 150 px past the frame. 47 column
+        // re-alignments were written in one session, two of them 135 and 150 px, and that is what the
+        // user sees as the window shifting. A ramp never repeats a value; a real dislocation does.
         bool first = !panel.FitMeasuredOnce;
-        if (viewWrong && !hostWrong && !baseWrong && !first)
+        if ((viewWrong || baseWrong) && !hostWrong && !first)
         {
             bool same = Mathf.Abs(wantScale - fx.PendingScale) <= FixedFitScaleEpsilon
                         && Mathf.Abs(groupShift.x - fx.PendingShift.x) <= FixedFitShiftEpsilonPx
-                        && Mathf.Abs(groupShift.y - fx.PendingShift.y) <= FixedFitShiftEpsilonPx;
+                        && Mathf.Abs(groupShift.y - fx.PendingShift.y) <= FixedFitShiftEpsilonPx
+                        && Mathf.Abs(baseShift.x - fx.PendingBaseShift.x) <= FixedFitShiftEpsilonPx
+                        && Mathf.Abs(baseShift.y - fx.PendingBaseShift.y) <= FixedFitShiftEpsilonPx;
             fx.PendingChecks = same ? fx.PendingChecks + 1 : 1;
             fx.PendingScale = wantScale;
             fx.PendingShift = groupShift;
+            fx.PendingBaseShift = baseShift;
             if (fx.PendingChecks < FixedFitSettleChecks)
             {
                 fx.Deferred++;
@@ -2269,6 +2517,15 @@ internal static partial class CanvasConversion
                 v.Written = true;
                 v.WrittenScale = wantScale;
                 v.WrittenShift = v.WantShift;
+                // ModBuild 201: freeze what we just wrote. Not on the pre-reveal FIRST fit — that one
+                // is exempt from the settle gate and may well be looking at a show animation, and a
+                // pose frozen out of an animation frame would stay wrong for the window's whole life.
+                // The first gated write, ~0.8 s later, is the one that becomes the constant.
+                if (!first)
+                {
+                    v.FrozenWantShift = v.WantShift;
+                    v.WantFrozen = true;
+                }
                 placed++;
             }
             if (placed > 0)
@@ -2283,6 +2540,16 @@ internal static partial class CanvasConversion
                              $"x={fx.ColumnSeamX:F0} ({placed} root(s) placed; the column was not touched)");
                 fx.ViewScale = wantScale;
                 fx.ViewShift = groupShift;
+                if (!first)
+                {
+                    fx.FrozenScale = wantScale;
+                    fx.FrozenGroupShift = groupShift;
+                    fx.SolutionSignature = fx.OpenSignature;
+                    fx.SolutionFrozen = true;
+                    wrote.Append(". This placement is now FROZEN for as long as this set of sub-views "
+                                 + "stays open — no later measurement may re-scale or re-seat a view "
+                                 + "that is already on screen");
+                }
             }
         }
 
@@ -2436,23 +2703,37 @@ internal static partial class CanvasConversion
     {
         fx.BaseVisible = false;
         fx.BaseGraphics = 0;
+        fx.BaseRawGraphics = 0;
+        fx.BaseUsedRawUnion = false;
         fx.ViewPlates = 0;
         fx.PlateName = string.Empty;
         fx.PlateSize = Vector2.zero;
         fx.ViewContentNeed = Vector2.zero;
+        fx.TransientThisPass = 0;
+        fx.TransientWidest = string.Empty;
+        fx.TransientWidestSize = Vector2.zero;
+        fx.ContentLeftName = string.Empty;
+        fx.ContentRightName = string.Empty;
         Vector2 baseMin = new(float.MaxValue, float.MaxValue);
         Vector2 baseMax = new(float.MinValue, float.MinValue);
+        Vector2 baseRawMin = new(float.MaxValue, float.MaxValue);
+        Vector2 baseRawMax = new(float.MinValue, float.MinValue);
         Vector2 contentMin = new(float.MaxValue, float.MaxValue);
         Vector2 contentMax = new(float.MinValue, float.MinValue);
         int contentGraphics = 0;
         float plateArea = 0f;
+        float widestTransient = 0f;
 
         for (int i = 0; i < fx.Views.Count; i++)
         {
             SubViewFit v = fx.Views[i];
             v.Graphics = 0;
+            v.RawGraphics = 0;
+            v.UsedRawUnion = false;
             v.Min = new Vector2(float.MaxValue, float.MaxValue);
             v.Max = new Vector2(float.MinValue, float.MinValue);
+            v.RawMin = new Vector2(float.MaxValue, float.MaxValue);
+            v.RawMax = new Vector2(float.MinValue, float.MinValue);
             if (!v.Visible || v.View == null)
                 continue;
             // The home is RE-READ until the first write: a show animation can still be driving this
@@ -2479,6 +2760,7 @@ internal static partial class CanvasConversion
 
         ClipperMemo.Clear();
         AuthoredOffsetMemo.Clear();
+        TransientMemo.Clear();
         FixedFitGraphics.Clear();
         root.GetComponentsInChildren(includeInactive: false, FixedFitGraphics);
         for (int i = 0; i < FixedFitGraphics.Count; i++)
@@ -2489,12 +2771,44 @@ internal static partial class CanvasConversion
             if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax))
                 continue;
 
+            // ModBuild 201, report (5): a hover preview, an item hint or a modifier flyout is DRAWN
+            // and is deliberately allowed to reach outside the frame — the hit rect and the capture
+            // frame both follow it — but it may not be MEASURED, because every quantity this fit
+            // writes is derived from a measurement and a measurement that a mouseover can change is
+            // a mouseover that can move the window.
+            int transient = TransientFamilyOf(g.transform, root);
+            if (transient != 0)
+            {
+                fx.TransientThisPass++;
+                fx.TransientFamilyMask |= 1 << transient;
+                float tw = gMax.x - gMin.x;
+                if (tw > widestTransient)
+                {
+                    widestTransient = tw;
+                    fx.TransientWidest = TransientFamilyNames[transient];
+                    fx.TransientWidestSize = gMax - gMin;
+                }
+            }
+
             SubViewFit? owner = OwningSubView(fx, g.transform, root);
             if (owner == null)
             {
+                baseRawMin = Vector2.Min(baseRawMin, gMin);
+                baseRawMax = Vector2.Max(baseRawMax, gMax);
+                fx.BaseRawGraphics++;
+                if (transient != 0)
+                    continue;
                 baseMin = Vector2.Min(baseMin, gMin);
                 baseMax = Vector2.Max(baseMax, gMax);
                 fx.BaseGraphics++;
+                continue;
+            }
+            owner.RawMin = Vector2.Min(owner.RawMin, gMin);
+            owner.RawMax = Vector2.Max(owner.RawMax, gMax);
+            owner.RawGraphics++;
+            if (transient != 0)
+            {
+                owner.TransientDropped++;
                 continue;
             }
             owner.Min = Vector2.Min(owner.Min, gMin);
@@ -2520,17 +2834,61 @@ internal static partial class CanvasConversion
             // comparable with the needs quoted in the region note whatever we have written.
             float a = Mathf.Max(owner.Applied, 0.01f);
             Vector2 p0 = owner.Pivot - owner.AppliedShift;
-            contentMin = Vector2.Min(contentMin, p0 + (gMin - owner.Pivot) / a);
-            contentMax = Vector2.Max(contentMax, p0 + (gMax - owner.Pivot) / a);
+            Vector2 cMin = p0 + (gMin - owner.Pivot) / a;
+            Vector2 cMax = p0 + (gMax - owner.Pivot) / a;
+            // ModBuild 201: NAME the two graphics that define the content union in x. "1613 px wide
+            // with the backdrop removed" is a number nobody can act on; "this graphic is its left
+            // edge and that one its right" is what decides whether the wide views can ever reach
+            // scale 1.000, and no round has ever had it.
+            if (contentGraphics == 0 || cMin.x < contentMin.x)
+            {
+                fx.ContentLeftName = g.gameObject.name;
+                fx.ContentLeftSize = new Vector2(w, h) / a;
+                fx.ContentLeftX = cMin.x;
+            }
+            if (contentGraphics == 0 || cMax.x > contentMax.x)
+            {
+                fx.ContentRightName = g.gameObject.name;
+                fx.ContentRightSize = new Vector2(w, h) / a;
+                fx.ContentRightX = cMax.x;
+            }
+            contentMin = Vector2.Min(contentMin, cMin);
+            contentMax = Vector2.Max(contentMax, cMax);
             contentGraphics++;
         }
         FixedFitGraphics.Clear();
+        fx.TransientIgnored += fx.TransientThisPass;
 
+        // THE SAFETY NET. An exclusion that empties a bucket is worse than the contamination it
+        // removes, so both readings are kept and the raw one is used — loudly — when the clean one
+        // measured nothing at all. See the ModBuild 201 block: the only family that could plausibly
+        // do this is FullAbilityCard, and the character screen never shows a full card except on
+        // hover, so this is expected to stay at zero forever.
         if (fx.BaseGraphics > 0 && baseMax.x > baseMin.x && baseMax.y > baseMin.y)
         {
             fx.BaseVisible = true;
             fx.BaseMin = baseMin;
             fx.BaseMax = baseMax;
+        }
+        else if (fx.BaseRawGraphics > 0 && baseRawMax.x > baseRawMin.x && baseRawMax.y > baseRawMin.y)
+        {
+            fx.BaseVisible = true;
+            fx.BaseUsedRawUnion = true;
+            fx.BaseMin = baseRawMin;
+            fx.BaseMax = baseRawMax;
+            fx.BaseGraphics = fx.BaseRawGraphics;
+        }
+        fx.BaseRawMin = baseRawMin;
+        fx.BaseRawMax = baseRawMax;
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            SubViewFit v = fx.Views[i];
+            if (!v.Visible || v.Graphics > 0 || v.RawGraphics == 0 || v.RawMax.x <= v.RawMin.x)
+                continue;
+            v.UsedRawUnion = true;
+            v.Min = v.RawMin;
+            v.Max = v.RawMax;
+            v.Graphics = v.RawGraphics;
         }
         if (contentGraphics > 0 && contentMax.x > contentMin.x)
             fx.ViewContentNeed = contentMax - contentMin;
@@ -2585,6 +2943,109 @@ internal static partial class CanvasConversion
     /// <see cref="TryMeasureContent"/> owns that one and both run inside the same fit pass.</summary>
     private static readonly List<Graphic> FixedFitGraphics = new(128);
 
+    // =============================================================================================
+    // ModBuild 201 — TRANSIENT CONTENT, IDENTIFIED BY COMPONENT TYPE
+    // =============================================================================================
+
+    /// <summary>Human name per family index of <see cref="TransientFamilyOf"/>; index 0 is
+    /// "not transient" and is never printed.</summary>
+    private static readonly string[] TransientFamilyNames =
+    {
+        string.Empty,
+        "FullAbilityCard (the ability-card hover preview)",
+        "UIPartyItemInventoryTooltip (the item-card hint)",
+        "UILocalTooltip and its subclasses (UIItemLocalTooltip, UIQuestEnemyStatsPopup)",
+        "UIItemModifiersTooltip (the modifier flyout on an item card)",
+        "UITempleSlotTooltip (the blessing hint)",
+        "TooltipUI (the ExtendedButton hint)",
+    };
+
+    /// <summary>
+    /// WHICH TRANSIENT FAMILY THIS GRAPHIC BELONGS TO, or 0 for real window content — the whole of
+    /// report (5), "nothing may shift because of mouseovers".
+    ///
+    /// <para><b>IT IS AN IDENTITY, NOT A RESIDUE.</b> ModBuild 200 could only say "these ~35 graphics
+    /// belong to none of the six serialized sub-view roots", which is a statement about what they are
+    /// NOT and would silently swallow any future window furniture that happens to sit outside a
+    /// sub-view. This asks the game's own component types instead, exactly the table
+    /// <c>TooltipOnWindow</c> already argues for at its family-table comment — with
+    /// <c>UILocalTooltip</c> listed as the BASE so its three subclasses are one entry, and with
+    /// <c>UIItemModifiersTooltip</c> added, which is the one family in the game that table is
+    /// missing.</para>
+    ///
+    /// <para>THE TEST IS CONTAINMENT AND THAT IS CORRECT HERE, which is worth stating because this
+    /// repo has twice shipped the opposite mistake. "Containment is not identity" is a rule about
+    /// DECIDING WHAT AN OBJECT IS: <c>GetComponentInParent&lt;UIWindow&gt;</c> must never be used to
+    /// answer "is this a window root". Here the question is genuinely about the ancestor — the marker
+    /// component sits on the tooltip's own root and the graphic being judged is a descendant of it,
+    /// so "does this graphic belong to a tooltip subtree" IS an ancestor question. The walk stops at
+    /// the fit root, so nothing outside the window can ever answer it.</para>
+    ///
+    /// <para>WHY NOT THE NESTED CANVAS. <c>AbilityCardUI.ToggleFullCardPreview</c> adds a
+    /// <c>Canvas</c> with <c>overrideSorting</c> and <c>sortingOrder 10</c> on show and destroys it on
+    /// hide, which looks like a perfect state flag. It is not: ModBuild 194 established that the
+    /// mod's own <c>GraphicRaycaster</c> adoption keeps that <c>Canvas</c> alive past the hide, so it
+    /// would report "hovering" forever. The component that MEANS "this is a full card" never lies.</para>
+    ///
+    /// <para>Walked once per transform per pass through <see cref="TransientMemo"/> — siblings share
+    /// their whole ancestor chain, exactly like <see cref="AuthoredOffset"/>, so a ~250-transform
+    /// window costs one six-way <c>TryGetComponent</c> probe per transform at the ~2.5 Hz fit
+    /// cadence and nothing at all on the 99 % of frames that are not fit passes.</para>
+    /// </summary>
+    private static int TransientFamilyOf(Transform? node, Transform root)
+    {
+        if (node == null || ReferenceEquals(node, root))
+            return 0;
+        if (TransientMemo.TryGetValue(node, out int memo))
+            return memo;
+        int family = SelfTransientFamily(node);
+        if (family == 0)
+            family = TransientFamilyOf(node.parent, root);
+        TransientMemo[node] = family;
+        return family;
+    }
+
+    /// <summary>The six type probes, in the order the 200 hardware log's own LOCAL TOOLTIP lines make
+    /// likely, so the common case exits first. <c>TryGetComponent</c> matches subclasses, which is
+    /// why <c>UILocalTooltip</c> covers three families in one probe and does not allocate.</summary>
+    private static int SelfTransientFamily(Transform t)
+    {
+        if (t.TryGetComponent<FullAbilityCard>(out _))
+            return 1;
+        if (t.TryGetComponent<UIPartyItemInventoryTooltip>(out _))
+            return 2;
+        if (t.TryGetComponent<UILocalTooltip>(out _))
+            return 3;
+        if (t.TryGetComponent<UIItemModifiersTooltip>(out _))
+            return 4;
+        if (t.TryGetComponent<UITempleSlotTooltip>(out _))
+            return 5;
+        if (t.TryGetComponent<TooltipUI>(out _))
+            return 6;
+        return 0;
+    }
+
+    /// <summary>Per-pass memo of <see cref="TransientFamilyOf"/>, cleared with the clipper and
+    /// authored-offset memos at the start of every split measure (subtrees are re-parented between
+    /// passes — TooltipOnWindow raises a hover preview out of its own view and back).</summary>
+    private static readonly Dictionary<Transform, int> TransientMemo = new(128);
+
+    /// <summary>The families seen so far, spelled out for the log — a bitmask in a hardware log is a
+    /// number somebody has to decode against a source file that may have moved on by then.</summary>
+    private static string DescribeTransientFamilies(int mask)
+    {
+        var sb = new System.Text.StringBuilder(96);
+        for (int i = 1; i < TransientFamilyNames.Length; i++)
+        {
+            if ((mask & (1 << i)) == 0)
+                continue;
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append(TransientFamilyNames[i]);
+        }
+        return sb.Length > 0 ? sb.ToString() : "no family";
+    }
+
     /// <summary>
     /// SOLVE THE GROUP TRANSFORM for whatever sub-views are open: one uniform scale and one
     /// translation, applied to every member so their arrangement RELATIVE TO EACH OTHER is preserved
@@ -2617,6 +3078,7 @@ internal static partial class CanvasConversion
         Vector2 min = new(float.MaxValue, float.MaxValue);
         Vector2 max = new(float.MinValue, float.MinValue);
         int members = 0;
+        int signature = 0;
         for (int i = 0; i < fx.Views.Count; i++)
         {
             SubViewFit v = fx.Views[i];
@@ -2630,9 +3092,33 @@ internal static partial class CanvasConversion
             min = Vector2.Min(min, v.NaturalMin);
             max = Vector2.Max(max, v.NaturalMax);
             members++;
+            // Order-independent (the collector's order follows the display's serialized field order,
+            // which is stable, but nothing here should depend on that) and cheap: XOR of the members'
+            // instance IDs plus the count, which distinguishes "equipment alone" from "equipment plus
+            // the inventory column" — the one open-set change this window actually makes.
+            signature ^= v.View != null ? v.View.GetInstanceID() : 0;
         }
         if (members == 0)
+        {
+            // Every tab closed. The freeze is released HERE rather than only on a signature change,
+            // so the grain is "once per OPEN" and not "once per session": closing perks and opening
+            // it again re-solves it (its content may genuinely differ — a different character), while
+            // hovering inside a view that stays open never can. Without this the signature of a
+            // re-opened view would match the one it had before and the stale solution would stand.
+            fx.OpenSignature = 0;
+            if (fx.SolutionFrozen)
+                fx.ReleaseSolution();
             return false;
+        }
+        signature = signature * 31 + members;
+        fx.OpenSignature = signature;
+
+        // ModBuild 201: THE ONLY EVENT THAT MAY RE-OPEN A SOLVED PLACEMENT is the set of open
+        // sub-views changing. Anything else — a hover, a show animation, a list that grew a row, a
+        // re-measure that landed one pixel differently — finds the scale and the seat already
+        // decided and leaves them alone. See the (5) block in the region note for what used to move.
+        if (fx.SolutionFrozen && fx.SolutionSignature != signature)
+            fx.ReleaseSolution();
 
         Vector2 natural = max - min;
         fx.ViewNeed = natural;
@@ -2648,45 +3134,66 @@ internal static partial class CanvasConversion
         float slot = Mathf.Max(frameRight - seam, fx.Size.x * FixedFitMinSlotFraction);
         fx.ViewSlotPx = slot;
 
-        // Fitted against the FULL fixed height, not against it minus a margin: every one of these
-        // sub-views is a full-height 1080 px view, so charging them a vertical margin would scale
-        // even the ones that fit (1056/1080 = 0.978) and no state of this window would ever read
-        // "1.000" again — the one number the next hardware log has to be able to trust.
-        wantScale = Mathf.Clamp(
-            Mathf.Min(1f, Mathf.Min(slot / natural.x, fx.Size.y / natural.y)),
-            FixedFitMinContentScale, 1f);
-
         Vector2 c = (min + max) * 0.5f;
-        Vector2 scaledMin = c + (min - c) * wantScale;
-        Vector2 scaledMax = c + (max - c) * wantScale;
-        // Host pivot is centred, so the frame's right edge is +Size.x/2 and its centre line is y = 0.
-        // THE SEAT: the group's LEFT edge lands exactly on the seam. No margin is charged on either
-        // side of it — a margin here is the gap he asked to be rid of, and on the right it would
-        // only shrink a full-bleed view for a stripe of frame nobody can see (the window has no
-        // visible backing plate; empty frame is transparent).
-        groupShift = new Vector2(
-            seam - scaledMin.x,
-            -(scaledMin.y + scaledMax.y) * 0.5f);
+        if (fx.SolutionFrozen)
+        {
+            // FROZEN: the scale and the seat are constants for as long as this set of sub-views is
+            // open. Nothing below re-derives them — the report further down is still computed
+            // against the LIVE geometry on purpose, so a view that changed under a frozen seat shows
+            // up as a non-zero gap in the log instead of being silently corrected.
+            wantScale = fx.FrozenScale;
+            groupShift = fx.FrozenGroupShift;
+        }
+        else
+        {
+            // Fitted against the FULL fixed height, not against it minus a margin: every one of these
+            // sub-views is a full-height 1080 px view, so charging them a vertical margin would scale
+            // even the ones that fit (1056/1080 = 0.978) and no state of this window would ever read
+            // "1.000" again — the one number the next hardware log has to be able to trust.
+            wantScale = Mathf.Clamp(
+                Mathf.Min(1f, Mathf.Min(slot / natural.x, fx.Size.y / natural.y)),
+                FixedFitMinContentScale, 1f);
 
+            Vector2 scaledMin = c + (min - c) * wantScale;
+            Vector2 scaledMax = c + (max - c) * wantScale;
+            // Host pivot is centred, so the frame's right edge is +Size.x/2 and its centre line is
+            // y = 0. THE SEAT: the group's LEFT edge lands exactly on the seam. No margin is charged
+            // on either side of it — a margin here is the gap he asked to be rid of, and on the right
+            // it would only shrink a full-bleed view for a stripe of frame nobody can see (the window
+            // has no visible backing plate; empty frame is transparent).
+            groupShift = new Vector2(
+                seam - scaledMin.x,
+                -(scaledMin.y + scaledMax.y) * 0.5f);
+        }
+
+        float leftEdge = float.MaxValue, rightEdge = float.MinValue;
         for (int i = 0; i < fx.Views.Count; i++)
         {
             SubViewFit v = fx.Views[i];
             if (!v.Visible)
                 continue;
-            v.WantShift = c + (v.NaturalPivot - c) * wantScale + groupShift - v.NaturalPivot;
-            v.SeatedMin = c + (v.NaturalMin - c) * wantScale + groupShift;
-            v.SeatedMax = c + (v.NaturalMax - c) * wantScale + groupShift;
+            // Expressed about the member's OWN pivot, which is what the write actually does (scale
+            // about the pivot, then move the pivot). Algebraically identical to the group form
+            // c + (NaturalMin - c)·s + groupShift when WantShift is the solved one, and still exact
+            // when WantShift is a frozen constant — which the group form would not be.
+            v.WantShift = fx.SolutionFrozen && v.WantFrozen
+                ? v.FrozenWantShift
+                : c + (v.NaturalPivot - c) * wantScale + groupShift - v.NaturalPivot;
+            Vector2 origin = v.NaturalPivot + v.WantShift;
+            v.SeatedMin = origin + (v.NaturalMin - v.NaturalPivot) * wantScale;
+            v.SeatedMax = origin + (v.NaturalMax - v.NaturalPivot) * wantScale;
             v.GapPx = Mathf.Max(0f, v.SeatedMin.x - seam);
             v.OverlapPx = Mathf.Max(0f, seam - v.SeatedMin.x);
+            leftEdge = Mathf.Min(leftEdge, v.SeatedMin.x);
+            rightEdge = Mathf.Max(rightEdge, v.SeatedMax.x);
         }
 
         // THE GROUP'S REPORT, worst case over the open members. Both of the first two are 0 by
         // construction and are printed anyway: "0 px" and "never measured" must not look alike, and
         // the whole of reports (a) and (c) is these two numbers.
-        float leftEdge = scaledMin.x + groupShift.x;
         fx.ViewGapPx = Mathf.Max(0f, leftEdge - seam);
         fx.ViewOverlapPx = Mathf.Max(0f, seam - leftEdge);
-        fx.ViewSpillPx = Mathf.Max(0f, (scaledMax.x + groupShift.x) - frameRight);
+        fx.ViewSpillPx = Mathf.Max(0f, rightEdge - frameRight);
         return true;
     }
 
@@ -2822,7 +3329,19 @@ internal static partial class CanvasConversion
         {
             Vector2 bs = fx.BaseMax - fx.BaseMin;
             column = $"the CHARACTER COLUMN renders {bs.x:F0}x{bs.y:F0} px from ({fx.BaseMin.x:F0},"
-                     + $"{fx.BaseMin.y:F0}) [{fx.BaseGraphics} graphic(s)]";
+                     + $"{fx.BaseMin.y:F0}) [{fx.BaseGraphics} graphic(s)]"
+                     + (fx.BaseUsedRawUnion
+                         ? " ** MEASURED WITH TRANSIENT CONTENT INCLUDED: every non-sub-view graphic "
+                           + "under the target this pass belonged to a hover/tooltip family, so the "
+                           + "clean reading was empty and the raw one was used rather than losing the "
+                           + "column entirely. This is not expected to happen — report it **"
+                         : fx.BaseRawGraphics > fx.BaseGraphics
+                             ? $" — {fx.BaseRawGraphics - fx.BaseGraphics} further graphic(s) were "
+                               + $"drawn under the target and IGNORED as transient (raw union "
+                               + $"{fx.BaseRawMax.x - fx.BaseRawMin.x:F0}x"
+                               + $"{fx.BaseRawMax.y - fx.BaseRawMin.y:F0} px); the column is measured "
+                               + "from the clean one, so a mouseover cannot move it"
+                             : string.Empty);
             if (fx.BasePinned)
             {
                 Vector2 drift = fx.BaseMin - fx.BasePin;
@@ -2893,9 +3412,24 @@ internal static partial class CanvasConversion
                 if (!v.Visible || v.View == null)
                     continue;
                 listed++;
+                float need = v.NaturalMax.x - v.NaturalMin.x;
                 view += $" [{v.View.name}: rect {v.SeatedMin.x:F0}..{v.SeatedMax.x:F0} x "
-                        + $"{v.SeatedMin.y:F0}..{v.SeatedMax.y:F0} px, scale {scale:F3}, gap "
-                        + $"{v.GapPx:F0} px, overlap {v.OverlapPx:F0} px"
+                        + $"{v.SeatedMin.y:F0}..{v.SeatedMax.y:F0} px, SCALE {scale:F3} — "
+                        // Report (3) and (4) are both about WHICH views are scaled and WHY, so every
+                        // member states its own reason rather than leaving it to be inferred from the
+                        // group's numbers. Only two of the six have ever read anything but 1.000.
+                        + (scale >= 0.999f
+                            ? $"1.000 because its {need:F0} px fit the {fx.ViewSlotPx:F0} px slot "
+                              + "beside the column untouched"
+                            : $"SCALED because its {need:F0} px cannot fit the {fx.ViewSlotPx:F0} px "
+                              + "slot at 1.000; the column keeps its size and only this view adapts")
+                        + $", gap {v.GapPx:F0} px, overlap {v.OverlapPx:F0} px"
+                        + (v.TransientDropped > 0
+                            ? $", {v.TransientDropped} transient graphic(s) ignored inside it"
+                            : string.Empty)
+                        + (v.UsedRawUnion
+                            ? ", ** measured WITH transient content (the clean reading was empty) **"
+                            : string.Empty)
                         + (mmPerPx > 0f
                             ? $", {mmPerPx * scale:F3} mm per authored px = "
                               + $"{mmPerPx * scale * FixedFitBodyCapPx * MmToArcMinAtReadingDistance:F1}' "
@@ -2910,19 +3444,53 @@ internal static partial class CanvasConversion
                 ? $". BACKDROP CENSUS (diagnostic, it decides nothing): {fx.ViewPlates} full-frame "
                   + $"plate(s) inside it, the largest '{fx.PlateName}' at {fx.PlateSize.x:F0}x"
                   + $"{fx.PlateSize.y:F0} px; WITHOUT them the view would need "
-                  + $"{fx.ViewContentNeed.x:F0}x{fx.ViewContentNeed.y:F0} px. Excluding them from the "
-                  + "measure was considered and REJECTED: the plate would still be RENDERED at full "
-                  + "size and hang outside the window frame"
+                  + $"{fx.ViewContentNeed.x:F0}x{fx.ViewContentNeed.y:F0} px — and if that is not "
+                  + "materially narrower than the need above, then DISABLING the backdrop cannot get "
+                  + "this view to scale 1.000, whatever else it may be worth doing (ModBuild 200 "
+                  + "measured 1627 → 1613 px for perks and 1648 → 1648 px for the selector, which is "
+                  + "what killed that proposal)"
                 : ". BACKDROP CENSUS: no full-frame plate inside it, so its width is all content";
+            // ModBuild 201 — WHAT ACTUALLY MAKES THE VIEW THAT WIDE. The two graphics at the content
+            // union's x extremes, by name and rect, in the sub-view's own natural space. This is the
+            // measurement the "can the wide views reach 1.000?" question has been argued from
+            // twice without ever having: if these two turn out to be a second backdrop that merely
+            // failed the 95 %-height plate test, the plate route is alive again with evidence behind
+            // it; if they are the list and the stat column, it is dead for good.
+            view += fx.ContentLeftName.Length > 0
+                ? $". CONTENT EXTREMES (diagnostic): the union's LEFT edge x={fx.ContentLeftX:F0} px "
+                  + $"is '{fx.ContentLeftName}' ({fx.ContentLeftSize.x:F0}x{fx.ContentLeftSize.y:F0} "
+                  + $"px) and its RIGHT edge x={fx.ContentRightX:F0} px is '{fx.ContentRightName}' "
+                  + $"({fx.ContentRightSize.x:F0}x{fx.ContentRightSize.y:F0} px)"
+                : ". CONTENT EXTREMES: none measured (every graphic in the view was a full-frame plate "
+                  + "or transient)";
         }
+
+        // THE MOUSEOVER LEDGER (report 5). Printed on EVERY line, including the zero, because "no
+        // mouseover moved anything" and "the rule was never reached" are the two states this whole
+        // round is about telling apart — the same reason the comparison count sits next to the
+        // deviation count.
+        string transientLedger =
+            $"MOUSEOVER LEDGER: {fx.TransientThisPass} transient graphic(s) refused this pass, "
+            + $"{fx.TransientIgnored} over this window's life"
+            + (fx.TransientFamilyMask != 0
+                ? $", from {DescribeTransientFamilies(fx.TransientFamilyMask)}"
+                : ", no hover/tooltip family has been seen inside this window yet")
+            + (fx.TransientWidest.Length > 0
+                ? $"; the widest one this pass was {fx.TransientWidest} at "
+                  + $"{fx.TransientWidestSize.x:F0}x{fx.TransientWidestSize.y:F0} px"
+                : string.Empty)
+            + ". Transient content is still DRAWN and the hit rect and the capture frame still grow "
+            + "to cover it — it is only barred from the MEASURE, so it can move neither the host "
+            + "size, nor the column's pin, nor the seam, nor a sub-view's scale or seat";
 
         VRLog.Info("WorldUI",
             $"FIXED FIT '{(panel.HostGo != null ? panel.HostGo.name : "?")}' {verdict}: host pinned at " +
             $"{fx.Size.x:F0}x{fx.Size.y:F0} px = {physical}" +
             (mmPerPx > 0f ? $" ({mmPerPx:F3} mm per authored px)" : string.Empty) +
-            $"; {column}; {seam}; {view}" +
+            $"; {column}; {seam}; {view}; {transientLedger}" +
             (wrote.Length > 0 ? $"; wrote {wrote}" : "; wrote nothing") +
-            $". fixed fit: {fx.Comparisons} comparison(s) made, {fx.Deviations} deviation(s) found, " +
+            $". PLACEMENT: {(fx.SolutionFrozen ? "FROZEN — the scale and the seat are constants until the set of open sub-views changes" : fx.ViewName == "none" ? "no sub-view open, nothing to place" : "solving (not frozen yet — the first gated write freezes it)")}." +
+            $" fixed fit: {fx.Comparisons} comparison(s) made, {fx.Deviations} deviation(s) found, " +
             $"{fx.Deferred} deferred by the settle gate, {fx.HostWrites} host-size write(s), " +
             $"{fx.BaseWrites} column re-assert(s), {fx.ScaleWrites} sub-view scale write(s), " +
             $"{fx.Shifts} sub-view re-seat(s), {fx.ReAsserts} foreign overwrite(s) of a pose we had " +

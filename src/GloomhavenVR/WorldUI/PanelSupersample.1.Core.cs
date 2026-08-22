@@ -550,6 +550,85 @@ internal static partial class PanelSupersample
     private const float MaxContentExpansion = 2f;
 
     /// <summary>
+    /// <b>THE CAPTURE FRAME IS QUANTISED TO THIS GRID (host-local uGUI px), AND THAT IS THE FLICKER
+    /// HALF OF ModBuild 201.</b>
+    ///
+    /// <para><b>WHAT THE ModBuild 200 LOG SHOWS.</b> Every window in that session holds a rock-steady
+    /// capture frame — <c>Quest Log Manager</c> 390x880 on every one of its state lines,
+    /// <c>UI Map Esc Menu</c> 405x1080 on every one of its. The character window does not:
+    /// 1964x1453, then 1715x1080, 1109, 1082, 1110, 1200, 1099, 1107 — its height wanders by up to
+    /// 120 authored px across the session, because <see cref="MeasureFrame"/> takes the union of what
+    /// LIVE content draws and that window's content animates and scrolls. <b>It is the only window
+    /// whose frame moves, and it is the only window the user reports as flickering.</b></para>
+    ///
+    /// <para><b>WHY A MOVING FRAME IS A DEFECT AND NOT JUST AN ALLOCATION CHURN.</b> The capture
+    /// camera is orthographic and framed on <c>Frame</c>; the render target is
+    /// <c>round(Frame.size * Factor)</c>. So the mapping from an authored pixel to a render-target
+    /// TEXEL is <c>(authored - Frame.min) * Factor</c> — and <c>Frame.min</c> is an arbitrary float
+    /// that the union hands over. When the frame wanders by 19 px, every authored pixel in the window
+    /// lands on a DIFFERENT SUB-TEXEL PHASE, and the whole image is re-rasterised at a new phase. For
+    /// content that has texels to spare that is invisible. For content sampled at about one texel per
+    /// authored pixel it decides, glyph by glyph and hairline by hairline, which strokes land on a
+    /// texel centre and survive and which fall between two and disappear. That is a re-roll of the
+    /// picture on the measurement cadence — every 15 frames while still, every 2 frames while the
+    /// geometry is changing — and it is precisely the user's <i>"es ist ziemlich zufällig, es kommt
+    /// darauf an, wann man loslässt"</i> and his <i>"mit etwas Glück kann ich es wieder lesen"</i>.
+    /// The capture is otherwise pose-invariant, so nothing else in this path can produce a picture
+    /// that changes while the canvas underneath it does not.</para>
+    ///
+    /// <para><b>WHAT THE GRID DOES, AND WHAT IT IS ANCHORED ON.</b> What is quantised is the frame's
+    /// OVERSPILL PAST THE HOST RECT, per edge, rounded OUTWARD (never inward — this must not be able
+    /// to crop a pixel ModBuild 200 kept), and the expansion limit is rounded outward too. It is
+    /// deliberately NOT the absolute edge: a host rect is 390x880 or 1143x1080 px and its half-
+    /// extents are multiples of nothing, so snapping absolute edges would inflate EVERY window
+    /// (390x880 -> 448x896) and destroy this path's "the capture frame IS the host rect, so the
+    /// dial's ON and OFF geometry are identical" promise on windows that overspill by nothing at all.
+    /// Anchored on the host edges, a non-overspilling frame stays exactly the host rect and the
+    /// property the grid exists for still holds: the host rect does not move between two content
+    /// measurements, so every frame edge differs from the last by a whole number of grid cells, and
+    /// with the rate quantised to <see cref="RateQuantum"/> that is a whole number of TEXELS. The
+    /// residual phase drift is the rounding of <c>hostWidth * rate</c> to an integer texel count,
+    /// which is under 0.01 authored px across a 1143 px window — against the arbitrary fractional
+    /// offsets an unquantised union hands over today.</para>
+    ///
+    /// <para>32 px, against windows of 390–1964 px: coarse enough that the observed 19–120 px wander
+    /// costs at most one or two grid steps, fine enough that the worst-case wasted margin is 31 px on
+    /// an edge — under 2 % of the smallest window here, i.e. below
+    /// <see cref="RectChangeFraction"/>'s own reallocation threshold.</para>
+    /// </summary>
+    private const float FrameQuantumPx = 32f;
+
+    /// <summary>
+    /// The capture rate (render-target texels per authored pixel) is quantised to a multiple of this.
+    /// <para>It exists only to keep <see cref="FrameQuantumPx"/>'s promise once the rate is no longer
+    /// a round number: with a 32 px grid and a rate that is a multiple of 0.25, one grid cell is a
+    /// whole number of texels (32 x 0.25 = 8), so <c>round(Frame.size * rate)</c> is exact and the
+    /// texel grid stays locked to the authored grid. Without it, a rate of, say, 2.388 (what
+    /// <see cref="MaxRtDimension"/> leaves for the character window) would put a fresh fractional
+    /// offset back into the mapping and undo the quantisation.</para>
+    /// </summary>
+    private const float RateQuantum = 0.25f;
+
+    /// <summary>
+    /// A graphic must cover at least this fraction of the host rect before it is allowed to lower
+    /// <see cref="Entry.MinContentScale"/> and therefore raise the whole window's render target.
+    /// <para>A bare minimum over every graphic is the wrong statistic: one decorative pip authored at
+    /// 512 px and drawn at 24 would read 0.05 and ask for a 40x render target. 1 % of a 1143x1080
+    /// host is a 111x111 px element — small enough that every real sub-view and every plate inside
+    /// one qualifies, large enough that no icon can hijack the allocation.</para>
+    /// </summary>
+    private const float MinScaledAreaFraction = 0.01f;
+
+    /// <summary>Below this scale a graphic is counted as MATERIALLY DOWNSCALED in the report's
+    /// content-scale census. Purely a reporting threshold; it gates nothing.</summary>
+    private const float ScaledContentThreshold = 0.95f;
+
+    /// <summary>Hard floor on <see cref="Entry.MinContentScale"/>. Caps the boost this can ask for at
+    /// <c>BandLimitFactor / 0.25 = 8x</c> BEFORE the dimension and VRAM ceilings cut it down, so a
+    /// pathological measurement can never turn into a pathological allocation request.</summary>
+    private const float MinContentScaleFloor = 0.25f;
+
+    /// <summary>
     /// While a window is being MOVED, RESIZED or RE-FACED — and for this many frames after the last
     /// change — the capture-layer sweep runs on the faster <see cref="MovingSweepIntervalFrames"/>
     /// cadence instead of on <see cref="SweepIntervalFrames"/>.
@@ -808,6 +887,92 @@ internal static partial class PanelSupersample
         /// and the state line says so every report.</summary>
         internal bool ExpandClamped;
         internal bool ExpandClampWarned;
+
+        // ---- the content-scale census (ModBuild 201) --------------------------------------------
+
+        /// <summary>
+        /// <b>THE SMALLEST SCALE AT WHICH THIS WINDOW DRAWS A SUBSTANTIAL PIECE OF CONTENT, relative
+        /// to its own host. THIS IS THE ANSWER TO "WHAT DO THOSE TWO VIEWS DO DIFFERENTLY".</b>
+        ///
+        /// <para>The map room's character window hosts six sub-views. The ModBuild 200 log's own
+        /// FIXED FIT lines give each one's scale: the perks view and the mercenary selector are
+        /// written to <c>0.496</c> and <c>0.487</c> (<i>"the open sub-view group needs 1648x1080 px at
+        /// scale 1 and fits a 803 px slot ... at scale 0.487 — SCALED TO FIT the slot"</i>); the other
+        /// four sit at <c>1.000</c>. The user reports exactly those two as broken and exactly the
+        /// other four as fine. The correlation is complete.</para>
+        ///
+        /// <para><b>AND THE CAPTURE PATH TURNS THAT SCALE STRAIGHT INTO A SAMPLING RATE.</b> The
+        /// render target is sized from the HOST frame: <c>Rt = Frame.size * Factor</c>. So every
+        /// authored pixel of an UNSCALED sub-view gets <see cref="BandLimitFactor"/> = 2.00 texels,
+        /// and every authored pixel of the 0.487 sub-view gets <c>2.00 x 0.487 = 0.97</c>. <b>Those
+        /// two sub-views are the only content in this mod that is captured at ONE texel per authored
+        /// pixel — which is exactly the un-supersampled state that the ModBuild 198 band-limit floor
+        /// exists to abolish, and exactly the state the whole shimmer complaint came from.</b> At that
+        /// rate there is no headroom above Nyquist at all: a hairline or a glyph stem either lands on
+        /// a texel centre or falls between two, and nothing downstream — not the mip chain, not
+        /// anisotropy, not the eye — can put back a stroke the rasteriser never wrote. Combine it with
+        /// a capture frame whose phase moves (<see cref="FrameQuantumPx"/>) and the picture re-rolls
+        /// on every measurement: <i>perks.jpg</i>, a view that is almost entirely blank with a few
+        /// surviving glyph fragments.</para>
+        ///
+        /// <para><b>WHAT THIS FIELD IS USED FOR, AND THE HONEST LIMIT OF IT.</b>
+        /// <see cref="EffectiveFactor"/> asks for <c>BandLimitFactor / MinContentScale</c> so that the
+        /// SCALED subtree, not the host, is what gets 2.00 texels per authored pixel. On the character
+        /// window that is an ask of 4.11 against a 1715x1107 capture frame — 7049 px wide, which
+        /// <see cref="MaxRtDimension"/> (4096) and <see cref="MaxPanelVramBytes"/> (160 MB at
+        /// 13.3 bytes per texel, i.e. ~12.6 Mtexel) both refuse. The reachable rate is about 2.4–2.6,
+        /// which lifts that sub-view from 0.97 to roughly 1.2 texels per authored pixel. That is a
+        /// real improvement and it is NOT the band limit, so the report prints the achieved
+        /// per-subtree rate as its own number rather than letting the host's 2.00 stand in for it.
+        /// <b>Within this path's budget, a 0.487-scaled subtree CANNOT be given its band limit back.
+        /// The only complete cure is for the sub-view not to be scaled at all.</b></para>
+        /// </summary>
+        internal float MinContentScale = 1f;
+
+        /// <summary>Host-local area (uGUI px²) of the graphic that produced
+        /// <see cref="MinContentScale"/>, and its name — so a suspicious reading can be traced to an
+        /// object instead of argued about.</summary>
+        internal float MinContentScaleArea;
+        internal string MinContentScaleName = string.Empty;
+
+        /// <summary>How many graphics the last frame measurement was able to read a scale from. A
+        /// zero here means the census did not run, which must never read as "nothing is scaled".</summary>
+        internal int ContentScaleSamples;
+
+        /// <summary>Measurements that produced no scale sample at all. Kept so an unmeasured window
+        /// and an unscaled one print differently.</summary>
+        internal int ContentScaleUnmeasured;
+
+        /// <summary>How many graphics the last measurement found below
+        /// <see cref="ScaledContentThreshold"/>, and the largest host-local area among them.</summary>
+        internal int ScaledGraphics;
+        internal float ScaledGraphicsArea;
+
+        /// <summary>THE WHOLE DISTRIBUTION of <see cref="MinContentScale"/> since engage, because the
+        /// last reading is not the operating point and a summary field quoted as one has already cost
+        /// this project a round. Printed as LOWEST / MEAN / HIGHEST with the count.</summary>
+        internal int ContentScaleReadings;
+        internal float ContentScaleSum;
+        internal float MinContentScaleLowest = 1f;
+        internal float MinContentScaleHighest = 1f;
+
+        /// <summary>
+        /// THE RATE THE RENDER TARGET IS ACTUALLY SIZED FROM — <see cref="Factor"/> raised by
+        /// <c>1 / MinContentScale</c> and then cut down by <see cref="MaxRtDimension"/>, by the VRAM
+        /// budget and by <see cref="RateQuantum"/>. Equal to <see cref="Factor"/> on every window
+        /// whose content is unscaled, which is every window but one.
+        /// </summary>
+        internal float EffectiveFactor;
+
+        /// <summary>What <see cref="EffectiveFactor"/> WOULD have been if nothing had cut it down.
+        /// Printed next to it so a request that was refused never reads like one that was granted.</summary>
+        internal float AskedFactor;
+
+        /// <summary>The <see cref="MinContentScale"/> the current render target was sized for. A
+        /// sub-view switch changes the content scale without touching the host rect or the capture
+        /// frame, so this — not the frame — is what notices that the allocation is now for the wrong
+        /// content.</summary>
+        internal float ScaleAtAllocation = 1f;
 
         // ---- motion tracking (the ModBuild 192 "flackert beim Verschieben" case) ---------------
         internal bool HasPoseSnapshot;
@@ -1072,6 +1237,25 @@ internal static partial class PanelSupersample
         /// count below. Zero means the window's text needs no second material at all, and that is a
         /// different statement from "they were all fine".</summary>
         internal int SubMeshesSeen;
+
+        /// <summary>
+        /// <b>POOLED SUB-MESHES — the denominator ModBuild 200 was missing, and without it that
+        /// build's own numbers could not be read.</b> TMP creates one sub-mesh child per material
+        /// reference a string has EVER needed and leaves the surplus in place with an EMPTIED mesh. A
+        /// pooled sub-mesh is legitimately culled, legitimately transparent and legitimately without a
+        /// bound texture — its normal life looks exactly like the abuse every counter below is
+        /// hunting. The ModBuild 200 log read <c>19 TMP SUB-MESH(ES) ... of which 17
+        /// culled/transparent</c> on the character window and <c>0 of 0</c> or <c>0 of 1</c> on every
+        /// other window in the session; that gap is NOT evidence, because the character window is
+        /// simply the only one with enough text to pool any. From ModBuild 201 the counters below are
+        /// scoped to <see cref="SubMeshesInUse"/> and this holds the rest.
+        /// </summary>
+        internal int SubMeshesEmpty;
+
+        /// <summary>Sub-meshes whose mesh actually carries vertices — glyphs the text engine handed
+        /// over and that CAN therefore be missing from the picture. The real denominator for every
+        /// count below.</summary>
+        internal int SubMeshesInUse;
 
         /// <summary>Sub-meshes whose GameObject was INACTIVE, so their quads drew nothing.</summary>
         internal int SubMeshesInactive;
@@ -1659,43 +1843,33 @@ internal static partial class PanelSupersample
         // "resized" to the very next LateTick and reallocate for nothing.
         e.Authored = frame.size;
 
-        int rtW = Mathf.Clamp(Mathf.RoundToInt(frame.width * factor), 16, MaxRtDimension);
-        int rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * factor), 16, MaxRtDimension);
-
-        // The MSAA step-down now answers to the SESSION headroom as well as to the per-panel cap.
-        // Before ModBuild 193 it only saw the per-panel cap, so a window that could have fitted at
-        // MSAA 2x or 1x was refused outright once the session filled — the cap message then blamed
-        // MaxPanels for what was really a budget decision. A degraded-MSAA panel still gets the
-        // supersampled rasterization AND the mip chain, which is the whole of the fix; MSAA only
-        // resolves the RT's own internal edges.
-        int msaa = PreferredMsaa;
-        long budget = System.Math.Min(MaxPanelVramBytes, MaxTotalVramBytes - _vramTotal);
-        long vram = VramBytesFor(rtW, rtH, msaa);
-        int askedMsaa = msaa;
-        while (msaa > 1 && vram > budget)
-        {
-            msaa /= 2;
-            vram = VramBytesFor(rtW, rtH, msaa);
-        }
-
-        // THE FACTOR STEP-DOWN (ModBuild 198) — and it exists because this build REMOVED the lever
-        // the loop above used to be. With PreferredMsaa at 4 a window that did not fit was degraded
-        // 4x -> 2x -> 1x, a 3.4x reduction, and was refused only after that; at PreferredMsaa 1 that
-        // loop cannot step at all, so without this a memory-pressured window would go straight from
+        // THE RATE, THE MSAA STEP-DOWN AND THE FACTOR STEP-DOWN, in one place shared with
+        // Reallocate (ModBuild 201 — before it, engaging and re-allocating derived the render-target
+        // size by two separate copies of this arithmetic, and only one of them stepped down).
+        //
+        // The MSAA step-down answers to the SESSION headroom as well as to the per-panel cap. Before
+        // ModBuild 193 it only saw the per-panel cap, so a window that could have fitted at MSAA 2x
+        // or 1x was refused outright once the session filled — the cap message then blamed MaxPanels
+        // for what was really a budget decision. A degraded-MSAA panel still gets the supersampled
+        // rasterization AND the mip chain, which is the whole of the fix; MSAA only resolves the RT's
+        // own internal edges.
+        //
+        // THE FACTOR STEP-DOWN (ModBuild 198) exists because ModBuild 198 REMOVED the lever the MSAA
+        // loop used to be. With PreferredMsaa at 4 a window that did not fit was degraded 4x -> 2x ->
+        // 1x, a 3.4x reduction, and was refused only after that; at PreferredMsaa 1 that loop cannot
+        // step at all, so without this a memory-pressured window would go straight from
         // "supersampled" to "refused, keeps today's shimmer" — a graceful degradation silently traded
-        // for an outage. Stepping the FACTOR is the same shape of concession and a better one: a
-        // window at factor 1.5 still has half the fix, and one at 1.0 is exactly ModBuild 197's
-        // behaviour rather than nothing at all. What it actually got is on the engage line and in the
-        // report's ACHIEVED field, so a degraded window never reads like a full-strength one.
-        float askedFactor = factor;
-        while (factor > MinStepDownFactor + 1e-3f && vram > budget)
-        {
-            factor = Mathf.Max(MinStepDownFactor, factor - FactorStepDown);
-            rtW = Mathf.Clamp(Mathf.RoundToInt(frame.width * factor), 16, MaxRtDimension);
-            rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * factor), 16, MaxRtDimension);
-            vram = VramBytesFor(rtW, rtH, msaa);
-        }
-        e.Factor = factor;
+        // for an outage. Stepping the RATE is the same shape of concession and a better one: a window
+        // at 1.5 still has half the fix, and one at 1.0 is exactly ModBuild 197's behaviour rather
+        // than nothing at all. What it actually got is on the engage line and in the report's
+        // ACHIEVED field, so a degraded window never reads like a full-strength one.
+        int msaa = PreferredMsaa;
+        int askedMsaa = msaa;
+        long budget = System.Math.Min(MaxPanelVramBytes, MaxTotalVramBytes - _vramTotal);
+        ResolveRate(e, frame, ref msaa, budget, out factor, out int rtW, out int rtH, out long vram);
+        float askedFactor = e.AskedFactor;
+        e.EffectiveFactor = factor;
+        e.ScaleAtAllocation = e.MinContentScale;
         if (vram > budget)
         {
             Refused.Add(panel.HostGo.GetInstanceID());
@@ -1788,16 +1962,27 @@ internal static partial class PanelSupersample
                   + $"was raised to the {BandLimitFactor:F2} band-limit floor"
                 : $"{e.ConfigFactor:F2} RT texels per authored px is a value the USER SET, so it was "
                   + "taken verbatim and the band-limit floor did not apply")
+            + (e.MinContentScale < ScaledContentThreshold
+                ? $", then RAISED to {askedFactor:F2} because this window's smallest substantial "
+                  + $"content is drawn at {e.MinContentScale:F3} of host scale "
+                  + $"('{e.MinContentScaleName}', {e.MinContentScaleArea:F0} uGUI px²), which would "
+                  + $"otherwise leave that subtree at {(e.Factor * e.MinContentScale):F2} texels per "
+                  + "ITS OWN authored px — see Entry.MinContentScale"
+                : string.Empty)
             + (factor < askedFactor - 1e-3f
-                ? $", then STEPPED DOWN {askedFactor:F2} -> {factor:F2} to fit the {Mb(budget)} MB "
-                  + $"left for this panel (floor {MinStepDownFactor:F2} = ModBuild 197's behaviour); "
-                  + "below 2.00 the eye still reads some unfiltered mip level 0, so the carried-window "
-                  + "flicker is only partly removed on THIS window"
+                ? $", then CUT DOWN {askedFactor:F2} -> {factor:F2} by the {MaxRtDimension} px "
+                  + $"per-axis ceiling and the {Mb(budget)} MB left for this panel (floor "
+                  + $"{MinStepDownFactor:F2} = ModBuild 197's behaviour); below 2.00 the eye still "
+                  + "reads some unfiltered mip level 0, so the carried-window flicker is only partly "
+                  + "removed on THIS window"
                 : string.Empty)
             + $"; the target achieves {e.AchievedFactor:F2}"
-            + (e.AchievedFactor < e.Factor - 0.01f
-                ? $", LOWER than the {e.Factor:F2} asked, because the {MaxRtDimension} px per-axis "
-                  + $"ceiling clipped this {frame.width:F0}x{frame.height:F0} capture frame."
+            + (e.MinContentScale < ScaledContentThreshold
+                ? $" for host-scale content and {(e.AchievedFactor * e.MinContentScale):F2} for the "
+                  + $"{e.MinContentScale:F3}-scaled subtree, against a band limit of "
+                  + $"{BandLimitedTexelsPerPixel:F2} — if the second number is below the band limit "
+                  + "then NO capture setting within this path's budget can reach it and the only "
+                  + "complete cure is for that sub-view not to be scaled."
                 : ".")
             + " WHY THIS NUMBER IS THE FIX: at one texel per authored pixel the eye resamples this "
             + "window at ~1 texel per rendered pixel, and a bilinear resample at that rate has a "
