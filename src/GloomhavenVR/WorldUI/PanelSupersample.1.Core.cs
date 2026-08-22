@@ -950,6 +950,86 @@ internal static partial class PanelSupersample
     /// is the shortest run that is not a single reading.</summary>
     private const int FrameOutlierShrinkRunMeasurements = 2;
 
+    // ---- THE GROWTH CLAMP (ModBuild 205) --------------------------------------------------------
+
+    /// <summary>
+    /// <b>THE WIDEST CAPTURE FRAME, PER AXIS, THAT STILL ACHIEVES THE BAND LIMIT — and the correction
+    /// of the one rule ModBuild 204 got wrong.</b>
+    /// <c>MaxRtDimension / BandLimitedTexelsPerPixel = 4096 / 2.00 = <b>2048</b></c> uGUI px.
+    ///
+    /// <para><b>WHAT 204 SHIPPED AND WHAT IT COST.</b> 204 made the capture frame GROW immediately and
+    /// unconditionally, and it fixed what it was built for: re-allocations fell from 58 in 62 s to 0-6
+    /// per session. But the hardware log then carried 204's own warning — the party window
+    /// <c>GREW its capture frame to 2052x1464 uGUI px, and that growth stepped the achievable capture
+    /// rate from 2.00 down to 1.75</c> — with <c>ACHIEVED 1.75</c> on 15 of 70 readings,
+    /// <c>NOT BAND-LIMITED</c> on 39 of 90 verdicts, and targets allocated at 3591x2562, 3591x2618 and
+    /// 3927x2618 alongside the intended 4040x2992. The arithmetic is a cliff, not a slope: at a 2020 px
+    /// frame the per-axis ceiling is <c>4096 / 2020 = 2.027</c> -> <b>2.00</b>, and at 2052 px — ONE
+    /// <see cref="FrameQuantumPx"/> more — it is <c>1.996</c> -> <b>1.75</b>, because
+    /// <see cref="RateQuantum"/> is 0.25 and there is no 1.95. The cliff sat 28 px from the operating
+    /// point and "grow immediately" walked off it; the shrink hysteresis, doing exactly what it was
+    /// told, then HELD it there (the dead band is one quantum and the way back is one quantum).</para>
+    ///
+    /// <para><b>WHY THAT IS THE WORST TRADE THIS CLASS CAN MAKE.</b> <see cref="BandLimitFactor"/>'s
+    /// header is the argument in full: below the band limit a 1-px glyph stroke exists or does not
+    /// exist depending on the sub-texel phase, a moving window sweeps that phase, and on release it
+    /// LOCKS at whatever the hand left behind — <i>"the state as it was during the flickering gets
+    /// FROZEN, which can lead to certain elements not being displayed"</i>. That IS the defect under
+    /// investigation. What the growth was buying is overspill: content that lies OUTSIDE the host rect,
+    /// i.e. outside the window's own frame. <b>Resolution for the whole window outranks overspill.</b>
+    /// So a growth is now clamped to this budget and the crop is logged edge by edge, with the graphic
+    /// that set each edge (<see cref="ExtremeRecord"/>) — see <c>ClampFrameToBandLimit</c>.</para>
+    ///
+    /// <para><b>AND THE CLAMP ONLY EVER ACTS WHEN IT ACTUALLY BUYS THE BAND LIMIT.</b> If an axis of
+    /// the HOST RECT alone is already past this budget, no amount of cropping can reach 2.00 — cropping
+    /// there would be pure loss — so the clamp stands down completely on both axes and the frame is the
+    /// full measured union again. Cropping content is justified by saving the band limit and by nothing
+    /// else.</para>
+    ///
+    /// <para><b>THE RESIDUAL, STATED AS NUMBERS, BECAUSE CLAMPING IS A MITIGATION AND NOT A CURE.</b>
+    /// The 28 px margin exists because ModBuild 202 widened this host from 1143 to <b>1988</b> authored
+    /// px, which cut its rate ceiling from <c>4096/1143 = 3.58</c> to <c>4096/1988 = 2.06</c>. Every
+    /// number below is arithmetic on the constants in this file, and NONE of the caps are changed here
+    /// — they are reported so the integrator can decide:
+    /// <list type="bullet">
+    /// <item><b>HOST WIDTH FOR ONE FULL <see cref="FrameQuantumPx"/> OF GROWTH HEADROOM: 1984 px.</b>
+    /// The frame must satisfy <c>host + overspill + 32 &lt;= 2048</c>; at the measured 32 px of X
+    /// overspill that is a host of 1984 — <b>4 px narrower than today</b>. Today's 1988 leaves 2020 and
+    /// a 28 px margin, i.e. not quite one quantum, which is the whole bug.</item>
+    /// <item><b>HOST WIDTH FOR ONE FULL <see cref="RateQuantum"/> OF HEADROOM (ceiling 2.25): 1788
+    /// px.</b> <c>4096 / 2.25 = 1820.4</c>, so the FRAME must be &lt;= 1820 px; at 32 px of overspill
+    /// the host is 1788 — 200 px narrower than today, and still 645 px wider than ModBuild 201's
+    /// 1143.</item>
+    /// <item><b><see cref="MaxRtDimension"/> FOR RATE 2.00 TO SURVIVE THE CURRENT FRAME: 4104 px.</b>
+    /// The asked frame is 2052x1464, so X needs <c>2052 x 2.00 = 4104</c> and Y needs 2928; the next
+    /// tier a driver actually advertises is 8192. <b>The VRAM cap does NOT bind there:</b>
+    /// <c>VramBytesFor</c> is 13.33 bytes per texel (4 colour + 4 depth/stencil + 4 + 4/3 mipped
+    /// display), so 4104x2928 = 12,016,512 texels = <b>152.8 MB</b> against
+    /// <see cref="MaxPanelVramBytes"/> = 160 MB — 4.5 % spare. The DIMENSION cap is what binds
+    /// today.</item>
+    /// <item><b>BUT THE VRAM CAP IS THE VERY NEXT WALL.</b> 160 MB / 13.33 B = 12,582,912 texels, i.e.
+    /// at rate 2.00 a frame AREA of 3,145,728 uGUI px². The committed 2020x1496 frame is 3,021,920
+    /// (96.1 % of it). At 2052 px wide the height at which the VRAM cap forces 2.00 -> 1.75 is
+    /// <c>3,145,728 / 2052 = 1533</c> px — <b>69 px, barely two quanta, above today's frame</b>. So
+    /// raising <see cref="MaxRtDimension"/> alone buys this window about two quanta of Y before
+    /// <see cref="MaxPanelVramBytes"/> takes over, and the real budget is
+    /// <c>min(MaxPanelVramBytes, MaxTotalVramBytes - others)</c>, which is SMALLER whenever a second
+    /// large panel is open.</item>
+    /// </list></para>
+    /// </summary>
+    private const float BandLimitFrameBudgetPx = MaxRtDimension / BandLimitedTexelsPerPixel;
+
+    /// <summary>How many band-limit clamp STATE CHANGES one window prints in full before the sentences
+    /// stop. EIGHT. The clamp is expected to change state once or twice in a session — it is a function
+    /// of the host rect and the content union, both of which settle — but a window whose content
+    /// genuinely oscillates across the budget would otherwise print a paragraph every
+    /// <see cref="ContentMeasureIntervalFrames"/> frames, and this project does not ship an instrument
+    /// that can flood the log. THE COUNT ITSELF IS NEVER CAPPED: the CAPTURE FRAME line carries the
+    /// live crop and the total number of state changes on every report, so silence here can never be
+    /// read as "it stopped happening" — exactly the standing rule that a truncated instrument must not
+    /// read clean.</summary>
+    private const int MaxBandClampLines = 8;
+
     // ---- state -------------------------------------------------------------------------------
 
     private static readonly List<Entry> Entries = new(MaxPanels);
@@ -2139,6 +2219,35 @@ internal static partial class PanelSupersample
         /// instead of only showing up as a worse picture.</summary>
         internal float FrameRateCeiling;
         internal bool RateCeilingWarned;
+
+        // ---- THE GROWTH CLAMP (ModBuild 205) ---------------------------------------------------
+
+        /// <summary>uGUI px of MEASURED overspill the band-limit clamp refused to frame on each edge at
+        /// the last measurement — see <see cref="BandLimitFrameBudgetPx"/>. All four are 0 whenever the
+        /// whole ask fits under the budget, which is every window except a host rect within one
+        /// <see cref="FrameQuantumPx"/> of 2048 px on an axis. <b>Non-zero means content the player
+        /// could see is cropped</b>, deliberately, to keep the whole window band-limited; it is never
+        /// silent (a Warn on the first clamp, an Info on every later change of it, and the live values
+        /// on the CAPTURE FRAME line).</summary>
+        internal float CropLeft;
+        internal float CropRight;
+        internal float CropDown;
+        internal float CropUp;
+
+        /// <summary>The crop that was last LOGGED, so the trade is recorded once per clamp STATE and
+        /// not once per measurement, and the release back to an unclamped frame is recorded too.
+        /// Initialised to the unclamped state, so a window that never clamps never logs.</summary>
+        internal float LoggedCropLeft;
+        internal float LoggedCropRight;
+        internal float LoggedCropDown;
+        internal float LoggedCropUp;
+
+        /// <summary>Clamp STATE CHANGES logged on this window, and how many shrinks bypassed the
+        /// hysteresis because the held frame was costing the band limit or costing cropped content
+        /// (see <c>ShrinkRecoversBandLimit</c>). A rising bypass count is the one thing that could
+        /// re-open a flap, so it is counted rather than assumed absent.</summary>
+        internal int BandClamps;
+        internal int BandLimitShrinks;
 
         // ---- THE REGENERATION RESUME CURSOR (ModBuild 204) -------------------------------------
 

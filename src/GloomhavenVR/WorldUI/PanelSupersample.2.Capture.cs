@@ -4,8 +4,10 @@
 // restated here.
 
 using System.Collections.Generic;
+using System.Text;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
@@ -1792,6 +1794,13 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void ReportRelease(Entry e, int gateFrames)
     {
+        // ModBuild 205: ARM THE TWO RELEASE READINGS OF THE INK CENSUS — one on this very frame (the
+        // release edge) and one InkSettleFrames frames later. The user reports the picture FREEZING on
+        // release, so those two readings are what separate a transient broken image from a latched
+        // one, and no earlier instrument in this class could express that sentence about the CAPTURED
+        // IMAGE at all. Both are issued from the capture camera's onPostRender, so each reads the
+        // frame it names. See the ink-census block at the foot of this file.
+        ArmInkCensusForRelease(e);
         // MEASURE THE RESAMPLE AT THE RELEASE INSTANT (ModBuild 198), before anything else on this
         // line is computed. Two things follow from doing it here rather than reading the last 10 s
         // report: the RENDERED-eye-px figures below stop reading -1 on a release that lands before
@@ -2158,6 +2167,13 @@ internal static partial class PanelSupersample
             // resolve + mip. Recorded here and in PrimeNewTarget and nowhere else — the invariant
             // must never be inferred from a frame count or from "the camera was enabled".
             NoteCaptureCompleted(e);
+            // ModBuild 205: THE INK CENSUS IS ISSUED HERE, and this is the only instant in the frame
+            // at which it can be. The readback must read THIS frame's resolved image, so it has to be
+            // requested AFTER ResolveAndMip and BEFORE any eye pass — which is exactly where this
+            // callback sits (the capture camera is at depth = -200). Requesting it from LateUpdate
+            // instead would read the PREVIOUS frame's picture and every release-edge reading would be
+            // one frame stale, on the one edge the whole instrument exists to measure.
+            ServiceInkCensus(e);
             e.Captures++;
             if (e.LastCaptureStart > 0f)
                 e.CaptureMs += (Time.realtimeSinceStartup - e.LastCaptureStart) * 1000.0;
@@ -2347,6 +2363,16 @@ internal static partial class PanelSupersample
         return null;
     }
 
+    private static Entry? EntryForWindow(string window)
+    {
+        for (int i = 0; i < Entries.Count; i++)
+        {
+            if (string.Equals(Entries[i].Window, window, System.StringComparison.Ordinal))
+                return Entries[i];
+        }
+        return null;
+    }
+
     private static void RestoreMaskedCameras()
     {
         if (MaskedCameras.Count == 0)
@@ -2378,6 +2404,10 @@ internal static partial class PanelSupersample
         // are all "since engage" and a re-engaged window is a new engagement — carrying them over
         // would make the FILL LATENCY distribution and the trigger census describe two lifetimes.
         Lives.Remove(e.Window);
+        // ModBuild 205: the ink census's state dies with the entry too. A readback still in flight
+        // then finds no record and discards itself (see OnInkRead), which is the correct outcome: its
+        // texel coordinates describe a target that has just been released.
+        InkCensuses.Remove(e.Window);
         int layer = e.Layer;
         ReleaseLayer(layer);
         e.Layer = -1;
@@ -2430,6 +2460,1119 @@ internal static partial class PanelSupersample
         e.DisplayGo = null!;
         e.Rt = null!;
         e.MipRt = null!;
+    }
+
+    // =============================================================================================
+    // THE PER-GLYPH INK CENSUS OF THE CAPTURED RENDER TARGET (ModBuild 205)
+    // =============================================================================================
+    //
+    // WHY THIS EXISTS, AND WHY IT IS THE ONLY THING LEFT TO BUILD.
+    //
+    // Thirteen builds have measured the STATE around the missing glyphs and every single reading is
+    // clean, on the newest hardware log as much as on the first: 1 text-source defect in ~3500 glyph
+    // lookups and that one a legitimate U+200B; 0 SUBMITTED-MESH defects out of ~3900 glyph quads
+    // (unwritten, zero-area, collapsed UV rect, outside the atlas, non-finite: all zero); 0 CULL FLAG
+    // in every bucket on components and sub-meshes alike; the TMP parent -> sub-mesh cull invariant
+    // reading "REPAIRED: 0 sub-mesh(es) since engage" with baseline 0, drag min 0 max 0 over 192
+    // samples, at release 0 and settled 0; 0 sub-meshes on the wrong capture layer; content scale
+    // 1.000 over hundreds of readings; 0 font atlas repacks; 0 captures before uGUI's canvas rebuild;
+    // draw order, over-paint and foreign renderers all measured and all clean. THREE separate
+    // root-cause hypotheses have been falsified by measurement in three consecutive builds, and both
+    // prior audits ended on the same sentence: the instrument must move from state inspection to a
+    // PER-ELEMENT READBACK OF THE CAPTURE RT. Nobody has ever looked at what is actually IN the image.
+    //
+    // WHAT THIS ANSWERS, IN ONE LINE PER COMPONENT: the mesh says there should be a glyph quad HERE —
+    // is there ink in the captured texture at that place, or not?
+    //
+    //   * GLYPHS EMPTY IN THE CAPTURE  => the loss happens AT OR BEFORE rasterisation into our render
+    //     target. The capture path or the game's submission is guilty and the next round works there.
+    //   * GLYPHS PRESENT WITH INK, and the user still sees them missing => the capture is CORRECT and
+    //     the loss is DOWNSTREAM: the resolve, the mip chain, the quad, or the eye. Thirteen builds of
+    //     work on the capture content are exonerated in one line and the search moves to the display
+    //     side.
+    //
+    // Either answer is worth the build, which is why every path below that CANNOT answer says so in as
+    // many words rather than printing a zero. A census that did not run must never look like a census
+    // that ran and found nothing — that mistake is most of why the last eight rounds were unreadable.
+
+    /// <summary>
+    /// <b>THE READBACK BUDGET, in texels, and it is what sizes the census STRIP.</b> 2,000,000 texels
+    /// = 8.0 MB at RGBA32, requested asynchronously and at most once every
+    /// <see cref="ReportIntervalSeconds"/> per window plus twice per release.
+    /// <para>A blocking <c>ReadPixels</c> of this window's whole 4040x2992 target during a drag would
+    /// cost 48 MB and a full pipeline stall on the frame the user is complaining about, i.e. the
+    /// instrument would manufacture the symptom it is measuring. <see cref="AsyncGPUReadback"/> never
+    /// stalls the GPU and the result arrives some frames later, which is handled explicitly below.</para>
+    /// </summary>
+    private const int MaxInkCensusTexels = 2_000_000;
+
+    /// <summary>
+    /// <b>THE CENSUS REGION IS A FULL-HEIGHT VERTICAL STRIP, AND THAT IS A CORRECTNESS DECISION, NOT
+    /// A CONVENIENCE ONE.</b>
+    ///
+    /// <para><c>AsyncGPUReadback</c> returns the data in the SOURCE TEXTURE'S OWN LAYOUT and Unity does
+    /// not flip it, so whether row 0 of the returned buffer is the BOTTOM or the TOP row of the image
+    /// is a graphics-API property, not something this file may assume. Worse, the same ambiguity
+    /// applies to the <c>y</c> argument of a sub-rect request: a region asked for at <c>y = 500</c>
+    /// under a top-down convention is a DIFFERENT part of the window than under a bottom-up one, and
+    /// no amount of flipping the returned rows can repair having read the wrong band of the image.
+    /// This project has already shipped a probe that was INVERTED against its own doc comment, named a
+    /// wrong root cause with confidence and cost two builds ("verify the instrument first").</para>
+    ///
+    /// <para><b>A FULL-HEIGHT STRIP IS IDENTICAL UNDER BOTH CONVENTIONS</b> — <c>y = 0</c>,
+    /// <c>height = RtH</c> selects the whole image either way — so the PLACEMENT ambiguity is gone by
+    /// construction and only the ROW ORDER of the returned buffer is left. That is decided per census,
+    /// from the data itself, by <see cref="InkOrientation"/>: the mesh predicts where the ink bands
+    /// are, and the correlation of that prediction against the measured band profile as-is and
+    /// reversed says which way up the buffer is. If neither wins clearly the census REFUSES to report
+    /// EMPTY counts and says which check failed.</para>
+    ///
+    /// <para>The price is that only <see cref="MaxInkCensusTexels"/> / RtH texels of WIDTH fit — about
+    /// 668 on this window's 2992-texel-tall target, i.e. ~334 authored px at the shipped factor 2.
+    /// Glyphs outside the strip are COUNTED and named as excluded, never silently dropped.</para>
+    /// </summary>
+    private const int MinInkStripTexels = 64;
+
+    /// <summary>Text components the candidate walk will consider at all. The party window carries up
+    /// to 297; this bounds the build cost and the surplus is reported as skipped.</summary>
+    private const int MaxInkCandidateComponents = 64;
+
+    /// <summary>Glyph quads recorded per candidate component, and in total across one census. 384
+    /// glyphs x ~96 texel samples each is ~37k texel reads, i.e. well under a millisecond, and the
+    /// measured cost is printed on the line so this can be revisited with a number.</summary>
+    private const int MaxInkGlyphsPerComponent = 96;
+    private const int MaxInkCensusGlyphs = 384;
+
+    /// <summary>How many components the line names in full, worst (most EMPTY) first. The totals are
+    /// always printed with their denominators; only the sentences are capped.</summary>
+    private const int MaxInkComponentsReported = 6;
+
+    /// <summary>How many EMPTY characters one component names. Beyond this the line says how many more
+    /// there were — the count is never truncated, only the character list.</summary>
+    private const int MaxInkEmptyNamed = 24;
+
+    /// <summary>Frames after the RELEASE-EDGE census at which the SETTLED census is taken. THIRTY,
+    /// which is <see cref="SweepAfterMotionFrames"/> and <see cref="SubMeshCullSettleFrames"/> — the
+    /// same window this class already calls "moving, or settling from a move" — so the settled reading
+    /// is by construction the first one taken outside the drag. The user reports the picture FREEZING
+    /// on release, so "at the release edge" and "a third of a second later" are the two readings that
+    /// decide whether the broken image is transient or latched.</summary>
+    private const int InkSettleFrames = 30;
+
+    /// <summary>
+    /// <b>THE INK THRESHOLD: how far a texel inside a glyph quad must deviate from that quad's OWN
+    /// LOCAL BACKGROUND before it counts as ink.</b> 16/255 = 6.3 % of full range.
+    ///
+    /// <para><b>WHY NOT THE ALPHA CHANNEL, even though the capture clears to transparent black.</b>
+    /// The capture camera clears to <c>(0,0,0,0)</c> (see <see cref="BuildCamera"/>), so on bare
+    /// background alpha IS the cleanest signal — but this window's text is drawn ON TOP OF opaque dark
+    /// plates, where alpha reads 1.0 both on the glyph and on the plate beside it. Alpha alone would
+    /// call every glyph on a plate "ink" and the census would answer PRESENT for a photograph full of
+    /// holes. The measurement therefore uses PREMULTIPLIED LUMINANCE — <c>lum x alpha</c> — which
+    /// degenerates to alpha over the transparent clear (background 0) and to plain luminance over an
+    /// opaque plate, and is signed-agnostic because the test is on the ABSOLUTE deviation from the
+    /// local background. Light text on dark and dark text on light are both caught.</para>
+    ///
+    /// <para><b>WHY THIS NUMBER, measured rather than picked.</b> ModBuild 196 measured the
+    /// photograph's own pixels: where the missing <i>d h e</i> of "Gesundheit" belong the peak
+    /// luminance is 24 against a 20 background and a 147 ink — i.e. a genuine gap deviates by 4/255
+    /// and a genuine glyph by 127/255. 16/255 sits an order of magnitude below the ink and four times
+    /// above the gap. <b>AND IT IS NOT TAKEN ON TRUST:</b> the report prints the threshold AND the
+    /// median deviation of the "with ink" set next to the median of the "EMPTY" set, so a wrong
+    /// choice is visible on the line instead of silently deciding the build.</para>
+    /// </summary>
+    private const float InkThreshold = 16f / 255f;
+
+    /// <summary>How far a glyph quad is shrunk before its interior is sampled, per side. A TMP glyph
+    /// quad carries the SDF padding of its atlas entry, so its outer 10-20 % is background by
+    /// construction on nearly every glyph; sampling it would put background inside the "interior" set
+    /// and pull the maximum deviation down for thin glyphs only. 0.15 is inside the padding of this
+    /// game's Sarala-Regular SDF atlas and still leaves the full stem of an 'l' or an 'i'.</summary>
+    private const float InkQuadInset = 0.15f;
+
+    /// <summary>Interior samples per axis inside one glyph quad (so up to 64 per glyph), and the width
+    /// in texels of the ring just OUTSIDE the quad from which the local background is taken. The ring
+    /// background is a MEDIAN, not a mean, so an adjacent glyph intruding into the ring cannot drag
+    /// the estimate onto the ink.</summary>
+    private const int InkInnerSamples = 8;
+    private const int InkRingBandTexels = 2;
+
+    /// <summary>Bands the orientation self-check splits the strip into, the stride at which the
+    /// measured band profile is sampled, and the two bars the verdict must clear: an absolute
+    /// correlation and a margin over the reversed reading. Below either, the orientation is UNDECIDED
+    /// and the census reports NOT ANSWERABLE rather than guessing which way up the buffer is.</summary>
+    private const int InkBands = 24;
+    private const int InkProfileStride = 4;
+    private const float InkOrientMinCorrelation = 0.35f;
+    private const float InkOrientMinMargin = 0.15f;
+
+    /// <summary>Transforms one candidate walk may visit. The party window's subtree is ~2700, so this
+    /// is a hard bound rather than a real limit; when it bites the line says so.</summary>
+    private const int MaxInkWalkTransforms = 4096;
+
+    /// <summary>
+    /// <b>READBACKS IN FLIGHT ACROSS THE WHOLE MOD, and this bound is not decorative.</b> The report
+    /// cadence is a single shared timer in <c>LateTick</c>, so EVERY engaged panel arms its census on
+    /// the SAME frame — with <see cref="EffectiveMaxPanels"/> at seven and
+    /// <see cref="MaxInkCensusTexels"/> at 8.0 MB per request, an unbounded version would put 56 MB of
+    /// readback staging in flight on one frame, every ten seconds, forever. Two at a time caps it at
+    /// 16 MB; the rest stay ARMED (not cancelled) and go out on the next frames, and every deferral is
+    /// counted and printed so a census that slipped is visible rather than silent.
+    /// </summary>
+    private const int MaxInkReadsInFlight = 2;
+
+    /// <summary>How many ink readbacks are currently in flight, across every panel. Incremented at the
+    /// request and decremented in the callback — including on every failure path, or the census would
+    /// wedge itself shut after two errors.</summary>
+    private static int _inkInFlight;
+
+    /// <summary>One glyph quad, in RENDER-TARGET TEXEL space with y measured from the capture frame's
+    /// BOTTOM edge — the same orientation the orthographic capture camera's viewport uses.</summary>
+    private struct InkGlyph
+    {
+        internal int Comp;
+        internal char Ch;
+        internal float X0, Y0, X1, Y1;
+    }
+
+    /// <summary>One node of the candidate walk, carrying the CLIP RECT inherited from its ancestors
+    /// (host-local uGUI px). See <see cref="InkCensus.GlyphsClipped"/> for why a census that ignored
+    /// clipping would answer the whole investigation wrongly.</summary>
+    private struct InkFrame
+    {
+        internal readonly Transform T;
+        internal readonly Rect Clip;
+        internal readonly bool ClipEmpty;
+
+        internal InkFrame(Transform t, Rect clip, bool clipEmpty)
+        {
+            T = t;
+            Clip = clip;
+            ClipEmpty = clipEmpty;
+        }
+    }
+
+    /// <summary>A candidate text component found by the walk, and the slice of
+    /// <see cref="InkCandidates"/> that holds its glyph quads.</summary>
+    private struct InkCandidateComp
+    {
+        internal string Name;
+        internal string Text;
+        internal int MeshGlyphs;
+        internal int First;
+        internal int Count;
+        internal float CentreX;
+    }
+
+    /// <summary>One censused component and what the readback found for it.</summary>
+    private sealed class InkComponent
+    {
+        internal string Name = string.Empty;
+        internal string Text = string.Empty;
+        internal int MeshGlyphs;
+        internal int InStrip;
+        internal int Ink;
+        internal int Empty;
+        internal string EmptyChars = string.Empty;
+        internal int EmptyNotNamed;
+    }
+
+    /// <summary>Per-window census state: what is armed, what is in flight, and every counter the line
+    /// is read against. Keyed by window name and NOT held on <see cref="Entry"/> for the same reason
+    /// <see cref="TargetLife"/> is not — that type lives in <c>PanelSupersample.1.Core.cs</c>, which
+    /// this lane does not own.</summary>
+    private sealed class InkCensus
+    {
+        // ---- what is scheduled ------------------------------------------------------------------
+        internal int ArmedFrame = -1;
+        internal string ArmedReason = string.Empty;
+        internal int SettleFrame = -1;
+
+        // ---- what is in flight ------------------------------------------------------------------
+        internal bool InFlight;
+        internal int Gen;
+        internal string Reason = string.Empty;
+        internal int RequestFrame;
+        internal int TargetId;
+        internal int RtW, RtH;
+        internal int StripX, StripW, StripH;
+
+        internal readonly List<InkGlyph> Glyphs = new(MaxInkCensusGlyphs);
+        internal readonly List<InkComponent> Comps = new(16);
+
+        // ---- what the build had to leave out ----------------------------------------------------
+        internal int ComponentsFound;
+        internal int ComponentsSkippedCap;
+        internal int GlyphsOutsideStrip;
+        internal int GlyphsSkippedCap;
+        internal bool WalkTruncated;
+
+        /// <summary>
+        /// <b>GLYPH QUADS EXCLUDED BECAUSE A MASK OR A SCROLL VIEWPORT CLIPS THEM, AND THIS COUNTER IS
+        /// LOAD-BEARING.</b> uGUI's <see cref="RectMask2D"/> and <see cref="Mask"/> discard fragments
+        /// in the SHADER, so a label scrolled out of a viewport keeps a perfectly good quad in the
+        /// submitted mesh and puts no pixels down — legitimately. A census that did not exclude those
+        /// would report them EMPTY, and "glyphs are missing from the capture" is the verdict that sends
+        /// the next round to work on the capture path. This window is full of scroll viewports, so
+        /// without this the instrument would have manufactured its own answer.
+        /// </summary>
+        internal int GlyphsClipped;
+
+        /// <summary>Text components excluded because uGUI/TMP has switched them off at the renderer
+        /// (the cull flag, own alpha, inherited alpha, or an authored alpha of 0) or because an
+        /// ancestor mask clips them away entirely. Their glyphs are legitimately absent from the
+        /// capture and counting them as EMPTY would be the same manufactured answer. Every prior
+        /// instrument in this class reads 0 for the renderer half, so a non-zero value here is itself
+        /// worth reading rather than a quiet shrinking of the census.</summary>
+        internal int ComponentsNotDrawn;
+
+        // ---- the last completed result ----------------------------------------------------------
+        internal int DeliveredFrame;
+        internal string SourceNote = string.Empty;
+        internal float FrameW, FrameH, RateX, RateY;
+        internal float Background;
+        internal bool Flipped;
+        internal float CorrAsIs, CorrFlip;
+        internal string Orientation = "not measured yet";
+        internal int TotalGlyphs, TotalInk, TotalEmpty;
+        internal float MedDevInk = -1f, MedDevEmpty = -1f;
+        internal double BuildMs, ReadMs;
+
+        // ---- since engage -----------------------------------------------------------------------
+        internal int Armed, Issued, Completed, Errors;
+        internal int DroppedInFlight, DroppedStale, Unanswerable, Threw;
+        internal string LastUnanswerable = string.Empty;
+        internal float UnanswerableNextPrint;
+    }
+
+    private static readonly Dictionary<string, InkCensus> InkCensuses = new(8);
+
+    private static InkCensus InkOf(Entry e)
+    {
+        if (!InkCensuses.TryGetValue(e.Window, out InkCensus c))
+        {
+            c = new InkCensus();
+            InkCensuses[e.Window] = c;
+        }
+        return c;
+    }
+
+    // Scratch, all reused and all cleared by their own users — nothing here allocates per frame.
+    private static readonly List<InkFrame> InkWalk = new(256);
+    private static readonly List<InkGlyph> InkCandidates = new(1024);
+    private static readonly List<InkCandidateComp> InkCandidateComps = new(MaxInkCandidateComponents);
+    private static readonly float[] InkRing = new float[128];
+    private static readonly float[] InkBandPredicted = new float[InkBands];
+    private static readonly float[] InkBandMeasured = new float[InkBands];
+    private static readonly List<float> InkDevInk = new(MaxInkCensusGlyphs);
+    private static readonly List<float> InkDevEmpty = new(MaxInkCensusGlyphs);
+    private static readonly List<float> InkScratch = new(4096);
+    private static readonly StringBuilder InkCharsSb = new(128);
+
+    /// <summary>Arm a census for this window. It is ISSUED later in the same frame, from the capture
+    /// camera's own <see cref="Camera.onPostRender"/> — i.e. after <see cref="ResolveAndMip"/> has
+    /// finished, so the readback reads THIS frame's resolved image and not the previous one.</summary>
+    private static void ArmInkCensus(Entry e, string reason)
+    {
+        InkCensus c = InkOf(e);
+        c.ArmedFrame = Time.frameCount;
+        c.ArmedReason = reason;
+        c.Armed++;
+    }
+
+    /// <summary>Arm the two release readings: one at the release edge itself and one
+    /// <see cref="InkSettleFrames"/> frames later. Called from <see cref="ReportRelease"/>, i.e. on
+    /// the exact frame the settle gate opened.</summary>
+    private static void ArmInkCensusForRelease(Entry e)
+    {
+        ArmInkCensus(e, "the RELEASE EDGE (the frame the settle gate opened)");
+        InkOf(e).SettleFrame = Time.frameCount + InkSettleFrames;
+    }
+
+    /// <summary>
+    /// Issue an armed census, from the capture camera's <see cref="Camera.onPostRender"/>. Never
+    /// throws: a failure here costs this census and nothing else, and is counted so it can never read
+    /// as a census that came back clean.
+    /// </summary>
+    private static void ServiceInkCensus(Entry e)
+    {
+        InkCensus c = InkOf(e);
+        if (c.SettleFrame >= 0 && Time.frameCount >= c.SettleFrame)
+        {
+            c.SettleFrame = -1;
+            ArmInkCensus(e, $"{InkSettleFrames} frame(s) AFTER the release edge (the SETTLED reading — "
+                            + "the user reports the picture FREEZING on release, so this reading and "
+                            + "the release-edge one are what decide transient against latched)");
+        }
+        if (c.ArmedFrame < 0)
+            return;
+        if (c.InFlight || _inkInFlight >= MaxInkReadsInFlight)
+        {
+            // Kept armed on purpose: the outstanding readback is a frame or two from landing and this
+            // census then goes out immediately after it. Counted so a census that slipped is visible.
+            c.DroppedInFlight++;
+            return;
+        }
+        string reason = c.ArmedReason;
+        c.ArmedFrame = -1;
+        c.ArmedReason = string.Empty;
+        try
+        {
+            IssueInkCensus(e, c, reason);
+        }
+        catch (System.Exception ex)
+        {
+            // If the throw came from AsyncGPUReadback.Request itself the global budget has already
+            // been charged and no callback will ever land to hand it back — so it is handed back
+            // here. Without this, two such throws would wedge the census shut for the session.
+            if (c.InFlight && _inkInFlight > 0)
+                _inkInFlight--;
+            c.InFlight = false;
+            c.Threw++;
+            ReportInkUnanswerable(e, c, reason,
+                $"the census BUILD threw ({ex.GetType().Name}: {ex.Message})");
+        }
+    }
+
+    private static void IssueInkCensus(Entry e, InkCensus c, string reason)
+    {
+        if (!SystemInfo.supportsAsyncGPUReadback)
+        {
+            ReportInkUnanswerable(e, c, reason,
+                "this GPU / graphics API reports NO AsyncGPUReadback support "
+                + $"(SystemInfo.supportsAsyncGPUReadback = false on {SystemInfo.graphicsDeviceType}), "
+                + "and a blocking ReadPixels of a "
+                + $"{e.RtW}x{e.RtH} target during a drag would stall the pipeline on the very frames "
+                + "this bug lives on — so no census can be taken on this machine at all");
+            return;
+        }
+
+        RenderTexture? src = InkSource(e, out string sourceNote, out string? refusal);
+        if (src == null)
+        {
+            ReportInkUnanswerable(e, c, reason, refusal!);
+            return;
+        }
+
+        float started = Time.realtimeSinceStartup;
+        if (!BuildInkCensus(e, c, out string? why))
+        {
+            c.BuildMs = (Time.realtimeSinceStartup - started) * 1000.0;
+            ReportInkUnanswerable(e, c, reason, why!);
+            return;
+        }
+        c.BuildMs = (Time.realtimeSinceStartup - started) * 1000.0;
+
+        c.SourceNote = sourceNote;
+        c.Reason = reason;
+        c.RequestFrame = Time.frameCount;
+        c.TargetId = src.GetInstanceID();
+        c.RtW = e.RtW;
+        c.RtH = e.RtH;
+        c.FrameW = e.Frame.width;
+        c.FrameH = e.Frame.height;
+        c.InFlight = true;
+        c.Gen++;
+        c.Issued++;
+        _inkInFlight++;
+
+        string window = e.Window;
+        int gen = c.Gen;
+        // mip 0, the strip in x, the FULL height in y (see MinInkStripTexels for why that is a
+        // correctness requirement and not a convenience), one slice in z.
+        AsyncGPUReadback.Request(src, 0, c.StripX, c.StripW, 0, c.StripH, 0, 1, TextureFormat.RGBA32,
+                                 req => OnInkRead(window, gen, req));
+    }
+
+    /// <summary>
+    /// Which texture the census reads, and why that one. It is the RESOLVED, MIPPED DISPLAY TARGET at
+    /// mip 0 — i.e. the exact texture the <see cref="RawImage"/> quad samples — so "ink present here"
+    /// is precisely the boundary between the capture side and the display side, which is the whole
+    /// point of the instrument.
+    /// <para>A MULTISAMPLED render target cannot be read back at all, so the
+    /// <see cref="Entry.MipFallback"/> case (the quad shows the capture target directly) is answerable
+    /// only while that target is single-sample. It is at <see cref="PreferredMsaa"/> 1, and if a
+    /// future build raises it this says NOT ANSWERABLE instead of reading something else.</para>
+    /// </summary>
+    private static RenderTexture? InkSource(Entry e, out string note, out string? refusal)
+    {
+        note = string.Empty;
+        refusal = null;
+        RenderTexture shown = DisplayTexture(e);
+        if (shown == null)
+        {
+            refusal = "this panel has no display render target at all right now (both the mipped "
+                      + "display target and the capture target read null), so there is no captured "
+                      + "image to census";
+            return null;
+        }
+        if (shown.antiAliasing > 1)
+        {
+            refusal = $"the texture the quad samples is MULTISAMPLED (antiAliasing {shown.antiAliasing}x) "
+                      + "and a multisampled render target cannot be read back — this only happens on "
+                      + "the MipFallback path (the mipped display target was refused), and the census "
+                      + "refuses rather than reading a different texture than the eye does";
+            return null;
+        }
+        note = ReferenceEquals(shown, e.MipRt)
+            ? "the RESOLVED, MIPPED DISPLAY TARGET at mip 0 — the exact texture the display quad "
+              + "samples, so an EMPTY verdict here is upstream of the resolve, the mip chain, the quad "
+              + "and the eye"
+            : "the CAPTURE TARGET directly (MipFallback: the mipped display target was refused, so the "
+              + "quad shows this texture as well)";
+        return shown;
+    }
+
+    /// <summary>
+    /// <b>MAP THE MESH INTO TEXELS, FROM THE SAME TWO VALUES <see cref="SyncProjection"/> USES.</b>
+    ///
+    /// <para>The authoritative values are <see cref="Entry.Frame"/> (the capture frame, in HOST-LOCAL
+    /// uGUI px) and <see cref="Entry.RtW"/>/<see cref="Entry.RtH"/> (the target's real dimensions).
+    /// <see cref="SyncProjection"/> centres the orthographic camera on <c>Frame.center</c>, sets
+    /// <c>orthographicSize = Frame.height * hostScale / 2</c> and <c>aspect = Frame.width /
+    /// Frame.height</c> — so the camera's viewport IS <c>Frame</c>, exactly, and the render target
+    /// spans it. The authored-to-texel rate is therefore <c>RtW / Frame.width</c> and
+    /// <c>RtH / Frame.height</c>, which is character for character the pair
+    /// <see cref="RecordAchievedFactor"/> already reports as the ACHIEVED factor.</para>
+    ///
+    /// <para><b>WHY THOSE AND NOT THE CONFIG FACTOR.</b> <c>[WorldUI] PanelSupersampleFactor</c>, the
+    /// band-limit floor, the content-scale boost, <see cref="RateQuantum"/>, the VRAM step-down and the
+    /// <see cref="MaxRtDimension"/> clip all sit BETWEEN the configured factor and the target that was
+    /// actually allocated — five places the two can diverge, and this class already prints "asked 2.00,
+    /// achieved 1.31" lines where they do. Deriving the mapping from the ALLOCATED target and the
+    /// COMMITTED frame means the census and the capture camera cannot disagree however those five
+    /// move.</para>
+    ///
+    /// <para>The per-component transform is one matrix, <c>host.worldToLocalMatrix *
+    /// tmp.localToWorldMatrix</c>, so a rotated or nested text object is handled exactly rather than
+    /// approximately, and each glyph costs four <c>MultiplyPoint3x4</c> calls.</para>
+    /// </summary>
+    private static bool BuildInkCensus(Entry e, InkCensus c, out string? why)
+    {
+        why = null;
+        c.Glyphs.Clear();
+        c.Comps.Clear();
+        InkCandidates.Clear();
+        InkCandidateComps.Clear();
+        c.ComponentsFound = 0;
+        c.ComponentsSkippedCap = 0;
+        c.GlyphsOutsideStrip = 0;
+        c.GlyphsSkippedCap = 0;
+        c.GlyphsClipped = 0;
+        c.ComponentsNotDrawn = 0;
+        c.WalkTruncated = false;
+
+        ConvertedPanel panel = e.Panel;
+        RectTransform? host = panel.HostRect;
+        if (host == null || panel.HostGo == null)
+        {
+            why = "the panel's host RectTransform is gone, so mesh space cannot be mapped into texels";
+            return false;
+        }
+        Rect frame = e.Frame;
+        if (frame.width < 1f || frame.height < 1f || e.RtW < 2 || e.RtH < 2)
+        {
+            why = $"the capture frame ({frame.width:F0}x{frame.height:F0} uGUI px) or the render target "
+                  + $"({e.RtW}x{e.RtH}) is degenerate, so no authored-to-texel mapping exists";
+            return false;
+        }
+        c.RateX = e.RtW / frame.width;
+        c.RateY = e.RtH / frame.height;
+
+        // ---- gather every text component's glyph quads, in texel space --------------------------
+        InkWalk.Clear();
+        InkWalk.Add(new InkFrame(panel.HostGo.transform, Unbounded, clipEmpty: false));
+        int visited = 0;
+        int tmpSeen = 0;
+        Transform? camT = e.CamGo != null ? e.CamGo.transform : null;
+        while (InkWalk.Count > 0)
+        {
+            int last = InkWalk.Count - 1;
+            InkFrame node = InkWalk[last];
+            InkWalk.RemoveAt(last);
+            Transform t = node.T;
+            if (t == null || !t.gameObject.activeInHierarchy)
+                continue;
+            if (ReferenceEquals(t, camT))
+                continue;
+            if (++visited > MaxInkWalkTransforms)
+            {
+                c.WalkTruncated = true;
+                break;
+            }
+            // The same foreign-subtree rule the frame measurement, the layer sweep and the over-paint
+            // census use: a real Renderer or Camera in here belongs to somebody else.
+            if (!ReferenceEquals(t, panel.HostGo.transform)
+                && (t.GetComponent<Renderer>() != null || t.GetComponent<Camera>() != null))
+                continue;
+
+            // THE INHERITED CLIP, resolved exactly as MeasureContentCore resolves it and with the same
+            // helpers, so the two censuses cannot disagree about what a scroll viewport hides. The
+            // childCount guard is not an optimisation: a mask on a LEAF clips nothing, and a text
+            // component IS a leaf, so its own node never narrows its own clip.
+            Rect clip = node.Clip;
+            bool clipEmpty = node.ClipEmpty;
+            var rt = t as RectTransform;
+            if (!clipEmpty && rt != null && t.childCount > 0 && ClipsChildren(t)
+                && TryHostLocalBounds(host, rt, out Rect clipBounds))
+            {
+                if (!Intersect(clip, clipBounds, out clip))
+                    clipEmpty = true;
+            }
+
+            var tmp = t.GetComponent<TMPro.TMP_Text>();
+            if (tmp != null)
+            {
+                tmpSeen++;
+                if (InkCandidateComps.Count >= MaxInkCandidateComponents)
+                    c.ComponentsSkippedCap++;
+                else
+                    CollectInkCandidate(e, c, host, frame, tmp, clip, clipEmpty);
+            }
+
+            for (int i = t.childCount - 1; i >= 0; i--)
+                InkWalk.Add(new InkFrame(t.GetChild(i), clip, clipEmpty));
+        }
+        InkWalk.Clear();
+        c.ComponentsFound = tmpSeen;
+
+        if (InkCandidateComps.Count == 0)
+        {
+            why = "the walk found NO censusable TextMeshPro component in this window's subtree — "
+                  + $"{visited} transform(s) visited, {tmpSeen} TMP component(s) seen, of which "
+                  + $"{c.ComponentsNotDrawn} were excluded because the renderer had switched them off "
+                  + "(cull flag or alpha 0) or a mask hid them entirely, and "
+                  + $"{c.GlyphsClipped} individual glyph quad(s) were clipped away by a viewport. "
+                  + "THIS IS A STATEMENT ABOUT THE WINDOW AND NOT ABOUT THE CAPTURE: it says the "
+                  + "window had no drawable text to look for, not that its text was missing";
+            return false;
+        }
+
+        // ---- the strip: full height, width bounded by the readback budget, centred on the busiest
+        // component so the census lands where the most text is.
+        int stripW = Mathf.Clamp(MaxInkCensusTexels / Mathf.Max(e.RtH, 1), MinInkStripTexels, e.RtW);
+        int seed = 0;
+        for (int i = 1; i < InkCandidateComps.Count; i++)
+        {
+            if (InkCandidateComps[i].Count > InkCandidateComps[seed].Count)
+                seed = i;
+        }
+        int stripX = Mathf.Clamp(Mathf.RoundToInt(InkCandidateComps[seed].CentreX - stripW * 0.5f),
+                                 0, Mathf.Max(0, e.RtW - stripW));
+        c.StripX = stripX;
+        c.StripW = stripW;
+        c.StripH = e.RtH;
+
+        // ---- keep the glyphs that fall wholly inside it -----------------------------------------
+        for (int i = 0; i < InkCandidateComps.Count; i++)
+        {
+            InkCandidateComp cand = InkCandidateComps[i];
+            var comp = new InkComponent
+            {
+                Name = cand.Name,
+                Text = cand.Text,
+                MeshGlyphs = cand.MeshGlyphs,
+            };
+            int compIndex = c.Comps.Count;
+            for (int g = cand.First; g < cand.First + cand.Count; g++)
+            {
+                InkGlyph gl = InkCandidates[g];
+                if (gl.X0 < stripX || gl.X1 > stripX + stripW || gl.Y0 < 0f || gl.Y1 > e.RtH)
+                {
+                    c.GlyphsOutsideStrip++;
+                    continue;
+                }
+                if (c.Glyphs.Count >= MaxInkCensusGlyphs)
+                {
+                    c.GlyphsSkippedCap++;
+                    continue;
+                }
+                gl.Comp = compIndex;
+                c.Glyphs.Add(gl);
+                comp.InStrip++;
+            }
+            if (comp.InStrip > 0)
+                c.Comps.Add(comp);
+        }
+        InkCandidates.Clear();
+        InkCandidateComps.Clear();
+
+        if (c.Glyphs.Count == 0)
+        {
+            why = $"every one of this window's glyph quads fell OUTSIDE the {stripW}x{e.RtH}-texel "
+                  + $"census strip at x={stripX} ({c.GlyphsOutsideStrip} excluded). The strip is "
+                  + "full-height by construction (see MinInkStripTexels) and its WIDTH is what the "
+                  + $"{MaxInkCensusTexels}-texel readback budget leaves against a {e.RtH}-texel-tall "
+                  + "target, so this is a budget outcome and not a fault of the capture";
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Record one text component's visible glyph quads in texel space. Reads the SUBMITTED
+    /// MESH (<c>meshInfo[m].vertices</c>), not the layout record, and applies exactly the bounds test
+    /// <see cref="ScanTmpMesh"/> uses — a quad that was never written into this generation is not a
+    /// quad the picture can be missing.</summary>
+    private static void CollectInkCandidate(Entry e, InkCensus c, RectTransform host, Rect frame,
+                                            TMPro.TMP_Text t, Rect clip, bool clipEmpty)
+    {
+        if (!t.isActiveAndEnabled || string.IsNullOrEmpty(t.text))
+            return;
+        // A component uGUI/TMP has switched off at the renderer draws nothing LEGITIMATELY, and
+        // counting its glyphs as EMPTY would manufacture the very verdict this instrument exists to
+        // decide. Same three disjoint reasons NoteRendererState uses, collapsed here because the
+        // census only needs "does it draw at all" — the split is already reported by that field.
+        CanvasRenderer cr = t.canvasRenderer;
+        if (cr == null || cr.cull || cr.GetAlpha() <= 0.004f || cr.GetInheritedAlpha() <= 0.004f
+            || t.color.a <= 0.004f)
+        {
+            c.ComponentsNotDrawn++;
+            return;
+        }
+        if (clipEmpty)
+        {
+            c.ComponentsNotDrawn++;
+            return;
+        }
+        TMPro.TMP_TextInfo? info = t.textInfo;
+        if (info == null || info.characterInfo == null || info.meshInfo == null)
+            return;
+
+        Matrix4x4 toHost = host.worldToLocalMatrix * t.transform.localToWorldMatrix;
+        int first = InkCandidates.Count;
+        int meshGlyphs = 0;
+        float sumX = 0f;
+        int n = Mathf.Min(info.characterCount, info.characterInfo.Length);
+        for (int i = 0; i < n; i++)
+        {
+            TMPro.TMP_CharacterInfo ci = info.characterInfo[i];
+            if (!ci.isVisible || char.IsWhiteSpace(ci.character) || char.IsControl(ci.character))
+                continue;
+            int m = ci.materialReferenceIndex;
+            if (m < 0 || m >= info.meshInfo.Length)
+                continue;
+            TMPro.TMP_MeshInfo mi = info.meshInfo[m];
+            Vector3[] verts = mi.vertices;
+            int v = ci.vertexIndex;
+            if (verts == null || v < 0 || v + 3 >= mi.vertexCount || v + 3 >= verts.Length)
+                continue;
+            Vector3 p0 = verts[v], p1 = verts[v + 1], p2 = verts[v + 2], p3 = verts[v + 3];
+            if (!Finite(p0) || !Finite(p1) || !Finite(p2) || !Finite(p3))
+                continue;
+            meshGlyphs++;
+            if (InkCandidates.Count - first >= MaxInkGlyphsPerComponent)
+            {
+                c.GlyphsSkippedCap++;
+                continue;
+            }
+
+            Vector3 h0 = toHost.MultiplyPoint3x4(p0);
+            Vector3 h1 = toHost.MultiplyPoint3x4(p1);
+            Vector3 h2 = toHost.MultiplyPoint3x4(p2);
+            Vector3 h3 = toHost.MultiplyPoint3x4(p3);
+            float minX = Mathf.Min(Mathf.Min(h0.x, h1.x), Mathf.Min(h2.x, h3.x));
+            float maxX = Mathf.Max(Mathf.Max(h0.x, h1.x), Mathf.Max(h2.x, h3.x));
+            float minY = Mathf.Min(Mathf.Min(h0.y, h1.y), Mathf.Min(h2.y, h3.y));
+            float maxY = Mathf.Max(Mathf.Max(h0.y, h1.y), Mathf.Max(h2.y, h3.y));
+
+            // CLIPPED GLYPHS ARE NOT MISSING GLYPHS — see InkCensus.GlyphsClipped. The test is
+            // WHOLLY-INSIDE rather than intersecting on purpose: a glyph half-clipped by a viewport
+            // edge would read as partial ink and there is no honest verdict for it, so it is excluded
+            // and counted like any other exclusion.
+            if (minX < clip.xMin || maxX > clip.xMax || minY < clip.yMin || maxY > clip.yMax)
+            {
+                c.GlyphsClipped++;
+                continue;
+            }
+
+            var g = new InkGlyph
+            {
+                Ch = ci.character,
+                X0 = (minX - frame.xMin) * c.RateX,
+                X1 = (maxX - frame.xMin) * c.RateX,
+                Y0 = (minY - frame.yMin) * c.RateY,
+                Y1 = (maxY - frame.yMin) * c.RateY,
+            };
+            // A quad under two texels on either axis cannot be judged: its interior after the inset is
+            // a single texel and the ring around it overlaps its own ink. Excluded, and it counts as
+            // outside the census rather than as a finding.
+            if (g.X1 - g.X0 < 2f || g.Y1 - g.Y0 < 2f)
+            {
+                c.GlyphsOutsideStrip++;
+                continue;
+            }
+            sumX += (g.X0 + g.X1) * 0.5f;
+            InkCandidates.Add(g);
+        }
+
+        int count = InkCandidates.Count - first;
+        if (count <= 0)
+            return;
+        InkCandidateComps.Add(new InkCandidateComp
+        {
+            Name = t.gameObject.name,
+            Text = t.text,
+            MeshGlyphs = meshGlyphs,
+            First = first,
+            Count = count,
+            CentreX = sumX / count,
+        });
+    }
+
+    /// <summary>
+    /// The readback landed — possibly several frames after it was requested, possibly after the target
+    /// it was taken from was re-allocated, possibly with an error. All three are handled here and all
+    /// three are COUNTED, so no outcome of this instrument can be silent.
+    /// </summary>
+    private static void OnInkRead(string window, int gen, AsyncGPUReadbackRequest req)
+    {
+        try
+        {
+            // FIRST, and on every path out of this method: one request has landed. If this were done
+            // only on the success paths, two errors in a row would leave the global budget permanently
+            // exhausted and the census would go silent for the rest of the session while every line
+            // still claimed it was armed.
+            if (_inkInFlight > 0)
+                _inkInFlight--;
+            if (!InkCensuses.TryGetValue(window, out InkCensus c))
+                return; // the window stood down while this was in flight; its state died with it
+            if (!c.InFlight || c.Gen != gen)
+                return; // superseded
+            c.InFlight = false;
+            Entry? e = EntryForWindow(window);
+            if (e == null)
+            {
+                c.DroppedStale++;
+                return;
+            }
+            if (req.hasError)
+            {
+                c.Errors++;
+                ReportInkUnanswerable(e, c, c.Reason,
+                    "the AsyncGPUReadback came back with request.hasError — the GPU refused or aborted "
+                    + "the copy, so there is no image to judge and NOTHING may be concluded from this "
+                    + "census in either direction");
+                return;
+            }
+            RenderTexture shown = DisplayTexture(e);
+            if (shown == null || shown.GetInstanceID() != c.TargetId
+                || e.RtW != c.RtW || e.RtH != c.RtH)
+            {
+                // The mesh positions were mapped through the frame and target that existed when the
+                // request went out; a re-allocation between then and now makes every texel coordinate
+                // in this result describe a texture that no longer exists. Dropped, and said so.
+                c.DroppedStale++;
+                ReportInkUnanswerable(e, c, c.Reason,
+                    "the render target was RE-ALLOCATED between the request and its delivery (was "
+                    + $"{c.RtW}x{c.RtH} id {c.TargetId}, now "
+                    + $"{(shown != null ? shown.width : 0)}x{(shown != null ? shown.height : 0)} id "
+                    + $"{(shown != null ? shown.GetInstanceID() : 0)}), so every texel coordinate in "
+                    + "this result describes a texture that no longer exists and the result is DROPPED "
+                    + "rather than mapped onto the new one");
+                return;
+            }
+            Unity.Collections.NativeArray<Color32> data = req.GetData<Color32>();
+            long need = (long)c.StripW * c.StripH;
+            if (data.Length < need)
+            {
+                c.Errors++;
+                ReportInkUnanswerable(e, c, c.Reason,
+                    $"the readback delivered {data.Length} texel(s) against the {need} asked for "
+                    + $"({c.StripW}x{c.StripH}), so the buffer cannot be indexed safely");
+                return;
+            }
+            float started = Time.realtimeSinceStartup;
+            bool answered = EvaluateInkCensus(e, c, data, out string? why);
+            c.ReadMs = (Time.realtimeSinceStartup - started) * 1000.0;
+            c.DeliveredFrame = Time.frameCount;
+            if (!answered)
+            {
+                ReportInkUnanswerable(e, c, c.Reason, why!);
+                return;
+            }
+            c.Completed++;
+            ReportInkCensus(e, c);
+        }
+        catch (System.Exception ex)
+        {
+            if (InkCensuses.TryGetValue(window, out InkCensus c2))
+            {
+                c2.InFlight = false;
+                c2.Threw++;
+                ReportInkUnanswerable(EntryForWindow(window), c2, c2.Reason,
+                    $"the census EVALUATION threw ({ex.GetType().Name}: {ex.Message})");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Judge every censused glyph against the delivered image. Returns false — with a reason — when
+    /// the orientation self-check cannot decide which way up the buffer is, because a census that
+    /// reads the mirrored row of every glyph would produce a confident, wrong answer.
+    /// </summary>
+    private static bool EvaluateInkCensus(Entry e, InkCensus c,
+                                          Unity.Collections.NativeArray<Color32> data, out string? why)
+    {
+        why = null;
+        int w = c.StripW, h = c.StripH;
+
+        // ---- the strip's own background level, as a MEDIAN over a coarse grid -------------------
+        InkScratch.Clear();
+        int gridStride = Mathf.Max(16, Mathf.Max(w, h) / 64);
+        for (int y = gridStride / 2; y < h && InkScratch.Count < 4096; y += gridStride)
+        {
+            for (int x = gridStride / 2; x < w && InkScratch.Count < 4096; x += gridStride)
+                InkScratch.Add(InkValue(data[y * w + x]));
+        }
+        c.Background = InkMedian(InkScratch);
+
+        // ---- THE ORIENTATION SELF-CHECK ---------------------------------------------------------
+        // AsyncGPUReadback returns the source texture's own layout and Unity does not flip it, so
+        // whether row 0 is the bottom or the top of the image is a property of the graphics API and
+        // must be MEASURED, never assumed. See MinInkStripTexels for why the strip is full height (it
+        // makes the placement identical under both conventions, leaving only the row order).
+        for (int b = 0; b < InkBands; b++)
+        {
+            InkBandPredicted[b] = 0f;
+            InkBandMeasured[b] = 0f;
+        }
+        for (int i = 0; i < c.Glyphs.Count; i++)
+        {
+            InkGlyph g = c.Glyphs[i];
+            float centre = (g.Y0 + g.Y1) * 0.5f;
+            int band = Mathf.Clamp((int)(centre * InkBands / h), 0, InkBands - 1);
+            InkBandPredicted[band] += (g.X1 - g.X0) * (g.Y1 - g.Y0);
+        }
+        for (int y = 0; y < h; y += InkProfileStride)
+        {
+            int band = Mathf.Clamp(y * InkBands / h, 0, InkBands - 1);
+            int row = y * w;
+            for (int x = 0; x < w; x += InkProfileStride)
+            {
+                if (Mathf.Abs(InkValue(data[row + x]) - c.Background) >= InkThreshold)
+                    InkBandMeasured[band] += 1f;
+            }
+        }
+        c.CorrAsIs = InkCorrelation(InkBandPredicted, InkBandMeasured, false);
+        c.CorrFlip = InkCorrelation(InkBandPredicted, InkBandMeasured, true);
+        float best = Mathf.Max(c.CorrAsIs, c.CorrFlip);
+        float margin = Mathf.Abs(c.CorrAsIs - c.CorrFlip);
+        if (best < InkOrientMinCorrelation || margin < InkOrientMinMargin)
+        {
+            c.Orientation = "UNDECIDED";
+            why = "THE ORIENTATION SELF-CHECK COULD NOT DECIDE WHICH WAY UP THE READBACK BUFFER IS. "
+                  + "AsyncGPUReadback returns the source texture's own layout and Unity does not flip "
+                  + "it, so row 0 is the bottom of the image on some graphics APIs and the top on "
+                  + "others; a census that guesses reads the MIRRORED row of every glyph and answers "
+                  + "confidently and wrongly. The check correlates the ink bands the MESH predicts "
+                  + $"against the ink bands actually measured, as delivered ({c.CorrAsIs:F2}) and "
+                  + $"reversed ({c.CorrFlip:F2}), over {InkBands} bands of the strip; it needs a best "
+                  + $"correlation of at least {InkOrientMinCorrelation:F2} and a margin of at least "
+                  + $"{InkOrientMinMargin:F2} and got {best:F2} / {margin:F2}. THE TWO READINGS THAT "
+                  + "PRODUCE THIS: the censused text is confined to one horizontal band (nothing to "
+                  + "correlate), or the strip carries almost no ink at all — and the SECOND of those "
+                  + "is itself a finding, so read the measured-band total on the next line before "
+                  + "treating this as a mere instrument failure";
+            return false;
+        }
+        c.Flipped = c.CorrFlip > c.CorrAsIs;
+        c.Orientation = c.Flipped
+            ? $"row 0 of the readback is the TOP of the image (mesh-vs-image band correlation "
+              + $"{c.CorrFlip:F2} reversed against {c.CorrAsIs:F2} as delivered), so every glyph is "
+              + "sampled from the mirrored row"
+            : $"row 0 of the readback is the BOTTOM of the image (mesh-vs-image band correlation "
+              + $"{c.CorrAsIs:F2} as delivered against {c.CorrFlip:F2} reversed), i.e. the same "
+              + "orientation the orthographic capture camera's viewport uses";
+
+        // ---- the per-glyph verdict --------------------------------------------------------------
+        InkDevInk.Clear();
+        InkDevEmpty.Clear();
+        for (int i = 0; i < c.Comps.Count; i++)
+        {
+            c.Comps[i].Ink = 0;
+            c.Comps[i].Empty = 0;
+            c.Comps[i].EmptyChars = string.Empty;
+            c.Comps[i].EmptyNotNamed = 0;
+        }
+        c.TotalGlyphs = c.Glyphs.Count;
+        c.TotalInk = 0;
+        c.TotalEmpty = 0;
+        for (int i = 0; i < c.Glyphs.Count; i++)
+        {
+            InkGlyph g = c.Glyphs[i];
+            float dev = InkGlyphDeviation(data, c, g);
+            bool ink = dev >= InkThreshold;
+            if (ink)
+            {
+                c.TotalInk++;
+                InkDevInk.Add(dev);
+            }
+            else
+            {
+                c.TotalEmpty++;
+                InkDevEmpty.Add(dev);
+            }
+            if (g.Comp < 0 || g.Comp >= c.Comps.Count)
+                continue;
+            InkComponent comp = c.Comps[g.Comp];
+            if (ink)
+            {
+                comp.Ink++;
+            }
+            else
+            {
+                comp.Empty++;
+                if (comp.Empty <= MaxInkEmptyNamed)
+                {
+                    InkCharsSb.Length = 0;
+                    InkCharsSb.Append(comp.EmptyChars);
+                    if (InkCharsSb.Length > 0)
+                        InkCharsSb.Append(',');
+                    InkCharsSb.Append('\'').Append(g.Ch).Append('\'');
+                    comp.EmptyChars = InkCharsSb.ToString();
+                }
+                else
+                {
+                    comp.EmptyNotNamed++;
+                }
+            }
+        }
+        InkScratch.Clear();
+        InkScratch.AddRange(InkDevInk);
+        c.MedDevInk = InkMedian(InkScratch);
+        InkScratch.Clear();
+        InkScratch.AddRange(InkDevEmpty);
+        c.MedDevEmpty = InkMedian(InkScratch);
+        return true;
+    }
+
+    /// <summary>
+    /// The largest absolute deviation of any interior texel of <paramref name="g"/> from the LOCAL
+    /// background measured on the ring just outside it. See <see cref="InkThreshold"/> for why the
+    /// measurement is premultiplied luminance against a local background and not the alpha channel.
+    /// </summary>
+    private static float InkGlyphDeviation(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+                                           InkGlyph g)
+    {
+        int w = c.StripW, h = c.StripH;
+        float x0 = g.X0 - c.StripX, x1 = g.X1 - c.StripX;
+        float y0 = g.Y0, y1 = g.Y1;
+        float insetX = (x1 - x0) * InkQuadInset;
+        float insetY = (y1 - y0) * InkQuadInset;
+        float ix0 = x0 + insetX, ix1 = x1 - insetX;
+        float iy0 = y0 + insetY, iy1 = y1 - insetY;
+
+        // ---- the local background: the MEDIAN of a ring just outside the quad -------------------
+        int ring = 0;
+        int rx0 = Mathf.FloorToInt(x0) - InkRingBandTexels;
+        int rx1 = Mathf.CeilToInt(x1) + InkRingBandTexels;
+        int ry0 = Mathf.FloorToInt(y0) - InkRingBandTexels;
+        int ry1 = Mathf.CeilToInt(y1) + InkRingBandTexels;
+        int strideX = Mathf.Max(1, (rx1 - rx0) / 12);
+        int strideY = Mathf.Max(1, (ry1 - ry0) / 12);
+        for (int x = rx0; x <= rx1 && ring < InkRing.Length; x += strideX)
+        {
+            AddRingSample(data, w, h, c, x, ry0, ref ring);
+            AddRingSample(data, w, h, c, x, ry1, ref ring);
+        }
+        for (int y = ry0; y <= ry1 && ring < InkRing.Length; y += strideY)
+        {
+            AddRingSample(data, w, h, c, rx0, y, ref ring);
+            AddRingSample(data, w, h, c, rx1, y, ref ring);
+        }
+        // ---- and which END of that ring is the background ---------------------------------------
+        // A plain MEDIAN is wrong here, and wrong in the expensive direction. A glyph in the middle of
+        // a word has its left and right ring columns sitting on its NEIGHBOURS' ink, so up to half the
+        // ring can be ink; the median then lands between page and ink, an EMPTY quad deviates from it,
+        // and the census reports INK PRESENT for a hole. That is precisely the false all-clear that
+        // would wrongly exonerate the capture path, which is the one answer this instrument must not
+        // be able to give by accident.
+        //
+        // The polarity is not guessed either: the strip-wide background (a median over the whole
+        // strip, which is dominated by page and not by glyphs) says whether this is light text on a
+        // dark page or dark text on a light one, and the ring percentile is taken on the PAGE side —
+        // the 25th percentile for a dark page, the 75th for a light one. Contamination by neighbouring
+        // ink then pushes samples AWAY from the value being read, so it cannot corrupt the estimate.
+        float bg;
+        if (ring >= 4)
+        {
+            System.Array.Sort(InkRing, 0, ring);
+            bool darkPage = c.Background < 0.5f;
+            bg = darkPage ? InkRing[ring / 4] : InkRing[ring - 1 - ring / 4];
+        }
+        else
+        {
+            bg = c.Background; // the quad sits against the strip edge; the strip-wide median stands in
+        }
+
+        float worst = 0f;
+        for (int sy = 0; sy < InkInnerSamples; sy++)
+        {
+            float fy = iy0 + (iy1 - iy0) * (sy + 0.5f) / InkInnerSamples;
+            int py = Mathf.FloorToInt(fy);
+            if (py < 0 || py >= h)
+                continue;
+            int row = (c.Flipped ? (h - 1 - py) : py) * w;
+            for (int sx = 0; sx < InkInnerSamples; sx++)
+            {
+                float fx = ix0 + (ix1 - ix0) * (sx + 0.5f) / InkInnerSamples;
+                int px = Mathf.FloorToInt(fx);
+                if (px < 0 || px >= w)
+                    continue;
+                float d = Mathf.Abs(InkValue(data[row + px]) - bg);
+                if (d > worst)
+                    worst = d;
+            }
+        }
+        return worst;
+    }
+
+    private static void AddRingSample(Unity.Collections.NativeArray<Color32> data, int w, int h,
+                                      InkCensus c, int x, int y, ref int ring)
+    {
+        if (ring >= InkRing.Length || x < 0 || x >= w || y < 0 || y >= h)
+            return;
+        int row = (c.Flipped ? (h - 1 - y) : y) * w;
+        InkRing[ring++] = InkValue(data[row + x]);
+    }
+
+    /// <summary>PREMULTIPLIED LUMINANCE, 0..1 — see <see cref="InkThreshold"/>. Over the transparent
+    /// clear this degenerates to alpha (background 0); over an opaque plate it is plain luminance.</summary>
+    private static float InkValue(Color32 p)
+        => (0.299f * p.r + 0.587f * p.g + 0.114f * p.b) * p.a / (255f * 255f);
+
+    private static float InkMedian(List<float> values)
+    {
+        if (values.Count == 0)
+            return -1f;
+        values.Sort();
+        return values[values.Count / 2];
+    }
+
+    /// <summary>Pearson correlation of the predicted band profile against the measured one, optionally
+    /// reversed. Returns 0 when either profile is flat, which the caller treats as UNDECIDED.</summary>
+    private static float InkCorrelation(float[] predicted, float[] measured, bool reverse)
+    {
+        int n = predicted.Length;
+        double sa = 0, sb = 0;
+        for (int i = 0; i < n; i++)
+        {
+            sa += predicted[i];
+            sb += measured[i];
+        }
+        double ma = sa / n, mb = sb / n;
+        double num = 0, da = 0, db = 0;
+        for (int i = 0; i < n; i++)
+        {
+            double a = predicted[i] - ma;
+            double b = measured[reverse ? n - 1 - i : i] - mb;
+            num += a * b;
+            da += a * a;
+            db += b * b;
+        }
+        if (da <= 1e-12 || db <= 1e-12)
+            return 0f;
+        return (float)(num / System.Math.Sqrt(da * db));
     }
 
     private static void Fail(System.Exception ex, string where)

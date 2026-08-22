@@ -163,6 +163,25 @@ internal static partial class PanelSupersample
     /// asymmetry is the whole point, and it is why the shrink side carries every condition.</item>
     /// </list></para>
     /// </para>
+    ///
+    /// <para><b>MODBUILD 205 — THE ONE CORRECTION TO THE ABOVE, AND IT IS TO THE GROWTH RULE.</b> 204's
+    /// hysteresis worked: re-allocations fell from 58 in 62 s to 0-6 per session. What "grow immediately
+    /// and unconditionally" did NOT know is that this window's rate ceiling has a cliff 28 px away —
+    /// 2020 px of frame gives 2.00 texels per authored pixel and 2052 px gives 1.75, with nothing in
+    /// between, because <see cref="RateQuantum"/> is 0.25. The 204 hardware log therefore carries 204's
+    /// own warning (<c>GREW its capture frame to 2052x1464 ... stepped the achievable capture rate from
+    /// 2.00 down to 1.75 ... BELOW the 2.00 band limit</c>), <c>ACHIEVED 1.75</c> on 15 of 70 readings
+    /// and <c>NOT BAND-LIMITED</c> on 39 of 90 verdicts — and then the shrink hysteresis, doing exactly
+    /// what it was told, held the window there, because the way back is one quantum and the dead band is
+    /// one quantum. <b>Growth is still immediate and unconditional; what it is no longer allowed to do
+    /// is buy overspill with the band limit.</b> A candidate frame is cut down to
+    /// <see cref="BandLimitFrameBudgetPx"/> (which carries the whole argument, the rejected framings and
+    /// the residual as numbers), the crop is given back to the edges proportionally to what each asked
+    /// for and logged edge by edge with the graphic that set it, and a shrink that recovers the band
+    /// limit or recovers cropped content is exempt from the dead band and the run
+    /// (<see cref="ShrinkRecoversBandLimit"/>). RESOLUTION FOR THE WHOLE WINDOW OUTRANKS OVERSPILL:
+    /// content outside the host rect is outside the window's own frame, while the band limit governs
+    /// every pixel the user actually reads.</para>
     /// </summary>
     private static void MeasureFrame(Entry e)
     {
@@ -317,19 +336,40 @@ internal static partial class PanelSupersample
         // under it (the content fit walks this window 328 -> 716 -> 1920 uGUI px in one session) and
         // that must be followed exactly and immediately, while the only part of the frame the CONTENT
         // union decides — and therefore the only part that can flap — is the overspill.
-        ApplyFrameHysteresis(e, padX, padY, needLeft, needRight, needDown, needUp);
-        float xMin = hostRect.xMin - e.HoldLeft;
-        float xMax = hostRect.xMax + e.HoldRight;
-        float yMin = hostRect.yMin - e.HoldDown;
-        float yMax = hostRect.yMax + e.HoldUp;
+        ApplyFrameHysteresis(e, hostRect, padX, padY, needLeft, needRight, needDown, needUp);
+
+        // ---- THE GROWTH CLAMP (ModBuild 205) ----------------------------------------------------
+        // RESOLUTION FOR THE WHOLE WINDOW OUTRANKS OVERSPILL. The held overspill is the ASK; what the
+        // frame is actually built from is the ask cut down to whatever still keeps the achievable rate
+        // at or above the band limit (BandLimitFrameBudgetPx, which carries the whole argument and the
+        // residual numbers). The clamp is applied HERE rather than inside the hysteresis, and applied
+        // on EVERY measurement rather than only on a change, for three reasons that all matter:
+        //   (1) it is a pure function of the live host rect and the four holds, so a host rect that
+        //       grows under a fixed overspill is caught by exactly the same code path as a growth of
+        //       the overspill itself — there is no "committed frame change" it can slip past;
+        //   (2) the holds stay a clean record of what the CONTENT asked for, so the 204 hysteresis
+        //       arithmetic (grow / dead band / run / outlier) is untouched and keeps working on the
+        //       measured need rather than on a truncated echo of itself — clamping the holds instead
+        //       would make every subsequent measurement re-read as a fresh GROWTH, which would reset
+        //       the shrink run forever and quietly disable the shrink side;
+        //   (3) it is idempotent, so nothing can accumulate.
+        Rect frame = ClampFrameToBandLimit(hostRect, e.HoldLeft, e.HoldRight, e.HoldDown, e.HoldUp,
+                                           out float giveLeft, out float giveRight,
+                                           out float giveDown, out float giveUp);
+        e.CropLeft = e.HoldLeft - giveLeft;
+        e.CropRight = e.HoldRight - giveRight;
+        e.CropDown = e.HoldDown - giveDown;
+        e.CropUp = e.HoldUp - giveUp;
+        if (frame.width < 1f || frame.height < 1f)
+            frame = hostRect;
         // CLAMPED is judged against the frame that is actually COMMITTED, not against the raw need:
         // the question the field answers is "is visible content outside the rectangle the camera
         // frames", and after this build those two rectangles are no longer the same thing.
-        bool clamped = xMin > union.xMin + 0.5f || xMax < union.xMax - 0.5f
-                       || yMin > union.yMin + 0.5f || yMax < union.yMax - 0.5f;
-        Rect frame = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
-        if (frame.width < 1f || frame.height < 1f)
-            frame = hostRect;
+        bool clamped = frame.xMin > union.xMin + 0.5f || frame.xMax < union.xMax - 0.5f
+                       || frame.yMin > union.yMin + 0.5f || frame.yMax < union.yMax - 0.5f;
+        // The trade, once per clamp STATE: what was asked, what was committed, what rate that saved,
+        // and how many px were cropped on each edge by which graphic. A silent crop is unacceptable.
+        NoteBandLimitClamp(e, hostRect, frame);
 
         // A COMMITTED CHANGE is a change of the RECTANGLE, whatever produced it — a hysteresis grow,
         // a hysteresis shrink, or the host rect moving under a fixed overspill. That is what costs a
@@ -338,11 +378,14 @@ internal static partial class PanelSupersample
                             || Mathf.Abs(frame.xMax - e.Frame.xMax) > 0.5f
                             || Mathf.Abs(frame.yMin - e.Frame.yMin) > 0.5f
                             || Mathf.Abs(frame.yMax - e.Frame.yMax) > 0.5f;
+        // The host rect is committed BEFORE the change note, which reads it: after ModBuild 205 that
+        // note's sub-band-limit warning names the host rect as the only remaining cause, and naming
+        // the PREVIOUS measurement's host rect there would point at the wrong number.
+        e.HostRectAtMeasure = hostRect;
         if (frameChanged)
             NoteFrameChange(e, frame);
 
         e.Frame = frame;
-        e.HostRectAtMeasure = hostRect;
         e.ExpandX = Mathf.Max(0f, frame.width - hostRect.width);
         e.ExpandY = Mathf.Max(0f, frame.height - hostRect.height);
         e.ExpandClamped = clamped;
@@ -358,6 +401,13 @@ internal static partial class PanelSupersample
         if (clamped && !e.ExpandClampWarned)
         {
             e.ExpandClampWarned = true;
+            float bandCrop = e.CropLeft + e.CropRight + e.CropDown + e.CropUp;
+            string bandNote = bandCrop > 0.5f
+                ? $" NOTE: {bandCrop:F0} px of that is the ModBuild 205 BAND-LIMIT CLAMP and not the "
+                  + "expansion limit — the CLAMPED ITS CAPTURE FRAME line prices that crop edge by "
+                  + "edge and names the graphic on each one. Raising MaxContentExpansion would not "
+                  + "give it back; the levers there are the host's authored size and MaxRtDimension."
+                : string.Empty;
             VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: '{e.Window}' draws content that reaches "
                               + $"{union.width:F0}x{union.height:F0} uGUI px around a "
                               + $"{hostRect.width:F0}x{hostRect.height:F0} host rect — more than the "
@@ -369,7 +419,7 @@ internal static partial class PanelSupersample
                               + "unbounded frame is an unbounded allocation. If this window's content "
                               + "genuinely lives that far outside its own frame, raise "
                               + "MaxContentExpansion (and expect the VRAM cost to follow), or switch "
-                              + "[WorldUI] PanelSupersample off for this session.");
+                              + "[WorldUI] PanelSupersample off for this session." + bandNote);
         }
     }
 
@@ -455,6 +505,11 @@ internal static partial class PanelSupersample
     /// <item><b>AN OUTLIER GROWTH IS ADOPTED IN FULL AND MARKED.</b> See
     /// <see cref="FrameOutlierGrowQuanta"/> for how it is released again, which is the answer to "a
     /// window must not ratchet upward forever".</item>
+    /// <item><b>ModBuild 205: A SHRINK THAT RECOVERS THE BAND LIMIT — OR RECOVERS CROPPED CONTENT —
+    /// TAKES NEITHER THE DEAD BAND NOR THE RUN.</b> Rules 2 and 3 arbitrate between frames that are
+    /// equally good; one that costs resolution or costs content is not. See
+    /// <see cref="ShrinkRecoversBandLimit"/>, and <see cref="BandLimitFrameBudgetPx"/> for why 204's
+    /// growth rule made that case reachable at all.</item>
     /// </list>
     ///
     /// <para><b>WHAT THIS DOES TO THE TWO CEILINGS, stated because holding a frame LARGER than the
@@ -479,7 +534,7 @@ internal static partial class PanelSupersample
     /// frame, and <see cref="FrameOutlierGrowQuanta"/> is the lever.</item>
     /// </list></para>
     /// </summary>
-    private static void ApplyFrameHysteresis(Entry e, float padX, float padY,
+    private static void ApplyFrameHysteresis(Entry e, Rect hostRect, float padX, float padY,
                                              float needLeft, float needRight,
                                              float needDown, float needUp)
     {
@@ -511,6 +566,28 @@ internal static partial class PanelSupersample
             {
                 // An ordinary growth REPLACES a pending outlier: the frame is now large because
                 // ordinary content asked for it, so it must be given back on the ordinary run length.
+                e.FrameOutlierPending = false;
+            }
+            return;
+        }
+
+        // ---- THE BAND-LIMIT BYPASS (ModBuild 205) -----------------------------------------------
+        // A frame that costs the band limit — or that is paying for its overspill in CROPPED content
+        // — is not equally good as the smaller one, and the run exists only to arbitrate between two
+        // EQUALLY GOOD frames. See ShrinkRecoversBandLimit for the whole rule and for why it cannot
+        // re-open the ModBuild 203 flap.
+        if (ShrinkRecoversBandLimit(e, hostRect, needLeft, needRight, needDown, needUp))
+        {
+            e.HoldLeft = needLeft;
+            e.HoldRight = needRight;
+            e.HoldDown = needDown;
+            e.HoldUp = needUp;
+            e.ShrinkRun = 0;
+            e.FrameShrinks++;
+            e.BandLimitShrinks++;
+            if (e.FrameOutlierPending)
+            {
+                e.FrameOutlierReleases++;
                 e.FrameOutlierPending = false;
             }
             return;
@@ -612,6 +689,278 @@ internal static partial class PanelSupersample
         float raw = Mathf.Min(MaxRtDimension / Mathf.Max(frame.width, 1f),
                               MaxRtDimension / Mathf.Max(frame.height, 1f));
         return Mathf.Max(RateQuantum, Mathf.Floor(raw / RateQuantum) * RateQuantum);
+    }
+
+    // ---- THE GROWTH CLAMP (ModBuild 205) --------------------------------------------------------
+
+    /// <summary>
+    /// <b>THE CAPTURE FRAME A HOST RECT AND FOUR ASKED OVERSPILLS ACTUALLY GET — cut down, on the
+    /// <see cref="FrameQuantumPx"/> grid, to whatever still achieves
+    /// <see cref="BandLimitedTexelsPerPixel"/>.</b> The rule, the measured failure it corrects and the
+    /// residual numbers are all on <see cref="BandLimitFrameBudgetPx"/>.
+    ///
+    /// <para><b>WHY A BUDGET IN PIXELS IS EXACTLY EQUIVALENT TO THE RATE TEST</b>, i.e. why this does
+    /// not need to call <see cref="FrameRateCeilingFor"/> per candidate: that function is
+    /// <c>floor(min(4096/w, 4096/h) / 0.25) * 0.25</c>, and <c>floor(x/0.25)*0.25 &gt;= 2.00</c> iff
+    /// <c>x &gt;= 2.00</c> iff <c>w &lt;= 4096/2.00</c> and <c>h &lt;= 4096/2.00</c>. So "frame within
+    /// the budget on both axes" and "achieved rate at or above the band limit" are the SAME predicate,
+    /// and the largest frame satisfying it is the largest grid multiple that fits the budget — which is
+    /// what <see cref="SplitAllowance"/> hands out.</para>
+    ///
+    /// <para><b>THE ARITHMETIC IS <see cref="ResolveRate"/>'S, VERIFIED LINE BY LINE</b> (that method
+    /// lives in PanelSupersample.2.Capture.cs, another lane's file). It computes
+    /// <c>ceiling = Mathf.Min(MaxRtDimension / Mathf.Max(frame.width, 1f), MaxRtDimension /
+    /// Mathf.Max(frame.height, 1f))</c>, then <c>rate = Mathf.Min(asked, ceiling)</c>, then
+    /// <c>Mathf.Floor(rate / RateQuantum) * RateQuantum</c>, then <c>Mathf.Max(rate, RateQuantum)</c>.
+    /// <see cref="FrameRateCeilingFor"/> is that expression with <c>asked</c> removed — identical
+    /// constants, identical <c>Mathf.Max(.., 1f)</c> guards, identical floor-then-clamp order — so the
+    /// two agree on every frame for which the DIMENSION is what binds, which is the only case this
+    /// clamp claims to govern. <b>What it deliberately does not model:</b> the ask
+    /// (<c>Factor / MinContentScale</c>, always &gt;= <see cref="BandLimitFactor"/>, so it can never be
+    /// the thing that pushes the achieved rate below the band limit) and the VRAM step-down loop, which
+    /// can still take the rate down when <see cref="MaxPanelVramBytes"/> binds — see
+    /// <see cref="BandLimitFrameBudgetPx"/>, where that wall is priced at 69 px of frame height above
+    /// today's operating point. A frame this clamp calls safe can therefore still lose the band limit
+    /// to VRAM, and no frame arithmetic can prevent that; the report line prints the ACHIEVED rate, not
+    /// this ceiling, and the two are compared on the resample line.</para>
+    /// </summary>
+    private static Rect ClampFrameToBandLimit(Rect hostRect, float left, float right,
+                                              float down, float up,
+                                              out float giveLeft, out float giveRight,
+                                              out float giveDown, out float giveUp)
+    {
+        float allowX = AllowanceFor(hostRect.width);
+        float allowY = AllowanceFor(hostRect.height);
+        // ONE AXIS PAST THE BUDGET STANDS THE WHOLE CLAMP DOWN. The rate is the MINIMUM over both axes,
+        // so if either axis alone is already past the budget the band limit is unreachable whatever is
+        // cropped — and cropping content that buys nothing is pure loss. Cropping is justified by
+        // saving the band limit and by nothing else.
+        if (allowX < 0f || allowY < 0f)
+        {
+            allowX = -1f;
+            allowY = -1f;
+        }
+        SplitAllowance(left, right, allowX, out giveLeft, out giveRight);
+        SplitAllowance(down, up, allowY, out giveDown, out giveUp);
+        return Rect.MinMaxRect(hostRect.xMin - giveLeft, hostRect.yMin - giveDown,
+                               hostRect.xMax + giveRight, hostRect.yMax + giveUp);
+    }
+
+    /// <summary>How much overspill one axis may still spend and stay band-limited, on the
+    /// <see cref="FrameQuantumPx"/> grid. <b>-1 means NO BOUND</b> — the host rect alone is already past
+    /// <see cref="BandLimitFrameBudgetPx"/> on this axis, so nothing can be bought here and nothing is
+    /// taken away. Zero is a real answer and is not the same thing: it means the band limit IS reachable
+    /// and costs the whole of this axis' overspill.</summary>
+    private static float AllowanceFor(float hostExtent)
+    {
+        float spare = BandLimitFrameBudgetPx - Mathf.Max(hostExtent, 0f);
+        if (spare < -0.5f)
+            return -1f;
+        if (spare < FrameQuantumPx)
+            return 0f;
+        return Mathf.Floor(spare / FrameQuantumPx) * FrameQuantumPx;
+    }
+
+    /// <summary>
+    /// <b>GIVE THE ALLOWANCE BACK TO THE TWO EDGES OF ONE AXIS, PROPORTIONALLY TO WHAT EACH ASKED
+    /// FOR</b>, in whole <see cref="FrameQuantumPx"/> quanta. A negative allowance means unbounded and
+    /// every ask is granted verbatim.
+    /// <para>Whole quanta because the grid is the reason the frame does not re-roll the sub-texel phase
+    /// on every measurement (<see cref="FrameQuantumPx"/>): handing an edge 22 px because that is its
+    /// proportional share would give the phase back exactly what the grid took away. The leftover
+    /// quantum a two-bucket largest-remainder split can produce goes to the larger remainder, then to
+    /// the larger ask, then to the first edge — deterministic at every step, because a tie broken by
+    /// float order would make the crop itself flap.</para>
+    /// </summary>
+    private static void SplitAllowance(float askA, float askB, float allowance,
+                                       out float giveA, out float giveB)
+    {
+        int qa = Mathf.Max(0, Mathf.RoundToInt(askA / FrameQuantumPx));
+        int qb = Mathf.Max(0, Mathf.RoundToInt(askB / FrameQuantumPx));
+        int cap = allowance < 0f ? int.MaxValue : Mathf.Max(0, Mathf.RoundToInt(allowance / FrameQuantumPx));
+        int total = qa + qb;
+        if (total <= cap)
+        {
+            // The whole ask fits: hand back the asks THEMSELVES, not their quantised echo, so a window
+            // that is nowhere near the budget — which is every window whose host rect is more than one
+            // quantum inside 2048 px on both axes — is bit-for-bit what ModBuild 204 committed.
+            giveA = askA;
+            giveB = askB;
+            return;
+        }
+        int ga = cap * qa / total;
+        int gb = cap * qb / total;
+        if (ga + gb < cap)
+        {
+            int ra = cap * qa - ga * total;
+            int rb = cap * qb - gb * total;
+            if (ra > rb || (ra == rb && qa >= qb))
+                ga++;
+            else
+                gb++;
+        }
+        giveA = Mathf.Min(ga, qa) * FrameQuantumPx;
+        giveB = Mathf.Min(gb, qb) * FrameQuantumPx;
+    }
+
+    /// <summary>
+    /// <b>IS THIS SHRINK ONE THE HYSTERESIS IS NOT ALLOWED TO ARBITRATE?</b> True in exactly one case,
+    /// stated two ways because the clamp can pay for a frame in two currencies: the frame committed
+    /// right now is <b>below the band limit</b> and the candidate restores it, or the frame committed
+    /// right now is <b>CROPPING content</b> that the candidate would not crop.
+    ///
+    /// <para><b>WHY IT CANNOT RE-OPEN THE ModBuild 203 FLAP.</b> That flap was 2020x1464 against
+    /// 2020x1496 — 28 measurements each way in 62 s. Both legs sit at rate ceiling 2.00, and both are
+    /// far inside the Y allowance (host height 1080 leaves <c>floor((2048-1080)/32)*32 = 960</c> px of
+    /// Y overspill against the 384-416 px actually asked), so BOTH crops are zero. Neither clause can
+    /// therefore be true on either leg: a band-limit-restoring shrink is a different event by
+    /// construction, and the dead band still owns the flap exactly as ModBuild 204 shipped it.</para>
+    ///
+    /// <para><b>WHAT IT COSTS, and why the run's per-edge maximum is not used here.</b> This branch
+    /// adopts a SINGLE measurement's need instead of a run maximum, so a need that dips for one
+    /// measurement and comes back can cost one extra frame change. That is bounded and it is the right
+    /// side to err on: growth is immediate and unconditional (rule 1), so the return trip is one
+    /// measurement, whereas the state this branch escapes is a frame that is either reading unfiltered
+    /// mip level 0 or hiding content — permanently, because the dead band is one quantum and the way
+    /// back out of a one-quantum overshoot is one quantum. <see cref="Entry.BandLimitShrinks"/> counts
+    /// every use so a hardware log can say whether it ever fires twice on the same window.</para>
+    ///
+    /// <para><b>ON REACHABILITY, honestly.</b> With the growth clamp in place the FIRST clause is
+    /// normally unreachable: a frame below the band limit can no longer be committed unless the host
+    /// rect ALONE is past the budget, and in that case the clamp has stood down and no shrink of the
+    /// overspill can restore the limit either — so the clause is a guard, not a mechanism, and it is
+    /// written the way the rule is written rather than the way today's call graph happens to be. The
+    /// SECOND clause is the live one, and it is live precisely because of the clamp: with an X
+    /// allowance of one quantum, an ask of L32/R32 is committed as L32/R0 with 32 px cropped, and a
+    /// later honest need of L0/R32 is a ONE-QUANTUM shrink that the dead band would refuse forever
+    /// while the cropped content stayed invisible.</para>
+    /// </summary>
+    private static bool ShrinkRecoversBandLimit(Entry e, Rect hostRect, float needLeft,
+                                                float needRight, float needDown, float needUp)
+    {
+        Rect held = ClampFrameToBandLimit(hostRect, e.HoldLeft, e.HoldRight, e.HoldDown, e.HoldUp,
+                                          out float hl, out float hr, out float hd, out float hu);
+        Rect want = ClampFrameToBandLimit(hostRect, needLeft, needRight, needDown, needUp,
+                                          out float nl, out float nr, out float nd, out float nu);
+        float heldCrop = (e.HoldLeft - hl) + (e.HoldRight - hr) + (e.HoldDown - hd) + (e.HoldUp - hu);
+        float wantCrop = (needLeft - nl) + (needRight - nr) + (needDown - nd) + (needUp - nu);
+        if (wantCrop < heldCrop - 0.5f)
+            return true;
+        return FrameRateCeilingFor(held) < BandLimitedTexelsPerPixel - 1e-3f
+               && FrameRateCeilingFor(want) >= BandLimitedTexelsPerPixel - 1e-3f;
+    }
+
+    /// <summary>
+    /// <b>PRICE THE TRADE, ONCE PER CLAMP STATE.</b> A bounded coverage must be logged — this project
+    /// has the standing rule — and a crop is the most expensive kind of bound there is, so the line
+    /// carries everything a reader needs to decide whether the trade was right: the frame that was
+    /// asked for, the frame that was committed, the rate that bought, and how many uGUI px were cropped
+    /// on EACH edge together with the graphic that set that edge (<see cref="ExtremeRecord"/>, which
+    /// ModBuild 204 already records for exactly this kind of question).
+    /// <para>Keyed on the crop CHANGING, not on the measurement: a steady clamp says so once, and the
+    /// release back to a whole frame is one more line rather than silence. The first clamp on a window
+    /// is a Warn with the full argument; every later change is an Info, so a window whose crop moves
+    /// cannot flood the log with warnings, and the sentences stop after
+    /// <see cref="MaxBandClampLines"/> while the count does not.</para>
+    /// </summary>
+    private static void NoteBandLimitClamp(Entry e, Rect hostRect, Rect frame)
+    {
+        if (Mathf.Abs(e.CropLeft - e.LoggedCropLeft) < 0.5f
+            && Mathf.Abs(e.CropRight - e.LoggedCropRight) < 0.5f
+            && Mathf.Abs(e.CropDown - e.LoggedCropDown) < 0.5f
+            && Mathf.Abs(e.CropUp - e.LoggedCropUp) < 0.5f)
+            return;
+        e.LoggedCropLeft = e.CropLeft;
+        e.LoggedCropRight = e.CropRight;
+        e.LoggedCropDown = e.CropDown;
+        e.LoggedCropUp = e.CropUp;
+        e.BandClamps++;
+
+        // The sentences are bounded (MaxBandClampLines); the COUNT and the live crop are not — they are
+        // on every CAPTURE FRAME line — so going quiet here can never read as "it stopped".
+        if (e.BandClamps > MaxBandClampLines)
+            return;
+
+        float crop = e.CropLeft + e.CropRight + e.CropDown + e.CropUp;
+        float askedW = hostRect.width + e.HoldLeft + e.HoldRight;
+        float askedH = hostRect.height + e.HoldDown + e.HoldUp;
+        Rect asked = new(0f, 0f, askedW, askedH);
+        float askedCeiling = FrameRateCeilingFor(asked);
+        float nowCeiling = FrameRateCeilingFor(frame);
+        if (crop < 0.5f)
+        {
+            VRLog.Info(Scope, $"PANEL SUPERSAMPLE: '{e.Window}' NO LONGER CLAMPS its capture frame — "
+                              + $"the whole measured overspill (L{e.HoldLeft:F0} R{e.HoldRight:F0} "
+                              + $"D{e.HoldDown:F0} U{e.HoldUp:F0} px) now fits inside the "
+                              + $"{BandLimitFrameBudgetPx:F0} px band-limit budget, so the committed "
+                              + $"frame is the full {frame.width:F0}x{frame.height:F0} uGUI px at "
+                              + $"{nowCeiling:F2} texels per authored px. Clamp state changes on this "
+                              + $"window so far: {e.BandClamps}.");
+            return;
+        }
+
+        FrameSb.Length = 0;
+        FrameSb.Append("PANEL SUPERSAMPLE: '").Append(e.Window)
+               .Append("' CLAMPED ITS CAPTURE FRAME to keep the whole window band-limited. ASKED ")
+               .Append(askedW.ToString("F0")).Append('x').Append(askedH.ToString("F0"))
+               .Append(" uGUI px (host rect ").Append(hostRect.width.ToString("F0")).Append('x')
+               .Append(hostRect.height.ToString("F0")).Append(" + measured overspill L")
+               .Append(e.HoldLeft.ToString("F0")).Append(" R").Append(e.HoldRight.ToString("F0"))
+               .Append(" D").Append(e.HoldDown.ToString("F0")).Append(" U")
+               .Append(e.HoldUp.ToString("F0")).Append("), COMMITTED ")
+               .Append(frame.width.ToString("F0")).Append('x').Append(frame.height.ToString("F0"))
+               .Append(". THE RATE THAT SAVED: ").Append(askedCeiling.ToString("F2")).Append(" -> ")
+               .Append(nowCeiling.ToString("F2"))
+               .Append(" render-target texels per authored pixel, against a band limit of ")
+               .Append(BandLimitedTexelsPerPixel.ToString("F2")).Append(" — ").Append(MaxRtDimension)
+               .Append(" px per axis over the frame, quantised to ").Append(RateQuantum.ToString("F2"))
+               .Append(", so there is nothing between 2.00 and 1.75 and ")
+               .Append(BandLimitFrameBudgetPx.ToString("F0"))
+               .Append(" px is the widest frame that still reaches the limit. WHAT IT COST, per edge:");
+        for (int i = 0; i < 4; i++)
+        {
+            float px = i == EdgeLeft ? e.CropLeft
+                     : i == EdgeRight ? e.CropRight
+                     : i == EdgeDown ? e.CropDown
+                     : e.CropUp;
+            ExtremeRecord rec = ExtremeScratch[i];
+            FrameSb.Append(' ').Append(EdgeNames[i]).Append(' ').Append(px.ToString("F0"))
+                   .Append(px < 0.5f ? " px cropped" : " px CROPPED")
+                   .Append(", edge set by '").Append(rec.Valid ? rec.Name : "(no reading)")
+                   .Append("' at ").Append(RectText(rec.Rect)).Append(i < 3 ? ";" : ".");
+        }
+        // The lever named is the lever on the axis that actually bit — a Y crop is not answered by a
+        // narrower host, and a line that says otherwise sends the next round at the wrong number.
+        bool xBit = e.CropLeft + e.CropRight > 0.5f;
+        float hostExtent = xBit ? hostRect.width : hostRect.height;
+        float frameExtent = xBit ? frame.width : frame.height;
+        FrameSb.Append(" WHY THIS IS THE RIGHT WAY ROUND: content outside the host rect is by "
+                       + "definition outside the window's own frame, while the band limit governs "
+                       + "every pixel the user actually reads — below it a 1-px glyph stroke exists or "
+                       + "does not depending on the sub-texel phase, and on release that phase LOCKS "
+                       + "at whatever the hand left behind (see BandLimitFactor). THE LEVERS, in "
+                       + "order: (1) what draws outside the host rect — the edge names above; (2) the "
+                       + "host's AUTHORED ")
+               .Append(xBit ? "WIDTH" : "HEIGHT")
+               .Append(", which is the real cause — this host is ")
+               .Append(hostExtent.ToString("F0")).Append(" px on that axis and a host of ")
+               .Append(Mathf.Max(0f, BandLimitFrameBudgetPx - (frameExtent - hostExtent)
+                                     - FrameQuantumPx).ToString("F0"))
+               .Append(" px would leave a full ").Append(FrameQuantumPx.ToString("F0"))
+               .Append(" px quantum of growth headroom instead of ")
+               .Append((BandLimitFrameBudgetPx - frameExtent).ToString("F0"))
+               .Append(" px; (3) MaxRtDimension, which would have to be ")
+               .Append(Mathf.CeilToInt(Mathf.Max(askedW, askedH) * BandLimitedTexelsPerPixel))
+               .Append(" px for the ASKED frame to hold the band limit (the 160 MB per-panel VRAM cap "
+                       + "does not bind until the frame reaches 3,145,728 uGUI px² at rate 2.00 — see "
+                       + "BandLimitFrameBudgetPx, where both walls are priced). Clamp state changes on "
+                       + "this window so far: ")
+               .Append(e.BandClamps).Append('.');
+        if (e.BandClamps == 1)
+            VRLog.Warn(Scope, FrameSb.ToString());
+        else
+            VRLog.Info(Scope, FrameSb.ToString());
+        FrameSb.Length = 0;
     }
 
     // ---- THE EXTREMES (ModBuild 204, part 3) ----------------------------------------------------
@@ -727,11 +1076,16 @@ internal static partial class PanelSupersample
                               + "exactly the ModBuild 198 defect, for as long as the frame stays this "
                               + "wide. THE HEADROOM IS SMALL BY CONSTRUCTION: at 2020 px this window "
                               + "sits at 2.03 and one 32 px quantum of extra width takes it to 1.996. "
-                              + "THE LEVERS, in order: find what draws outside the host rect (the "
-                              + "EXTREMES field on this window's CAPTURE FRAME line names it), then "
-                              + "MaxContentExpansion, then MaxRtDimension. This is warned ONCE per "
-                              + "window; the CAPTURE FRAME line carries the live ceiling every "
-                              + "report.");
+                              + "AND THE ModBuild 205 GROWTH CLAMP DID NOT PREVENT IT, which narrows "
+                              + "the cause to ONE thing: an axis of the HOST RECT ALONE is at or past "
+                              + $"the {BandLimitFrameBudgetPx:F0} px band-limit budget (this host is "
+                              + $"{e.HostRectAtMeasure.width:F0}x{e.HostRectAtMeasure.height:F0}), so "
+                              + "there is no overspill left to give back and the clamp correctly stood "
+                              + "down rather than crop content for nothing. THE LEVERS, in order: the "
+                              + "host's AUTHORED size (the window fit, not this class), then "
+                              + "MaxRtDimension. Content that draws outside the host rect is NOT the "
+                              + "cause in this branch. This is warned ONCE per window; the CAPTURE "
+                              + "FRAME line carries the live ceiling every report.");
         }
     }
 
@@ -3081,7 +3435,10 @@ internal static partial class PanelSupersample
                      + "is shortened)"
                    : FrameShrinkRunMeasurements.ToString())
                .Append(", dead band ").Append(FrameShrinkDeadBandQuanta).Append(" quantum(a) = ")
-               .Append((FrameShrinkDeadBandQuanta * FrameQuantumPx).ToString("F0")).Append(" px; ")
+               .Append((FrameShrinkDeadBandQuanta * FrameQuantumPx).ToString("F0")).Append(" px (")
+               .Append(e.BandLimitShrinks)
+               .Append(" shrink(s) BYPASSED it because the held frame was costing the band limit or "
+                       + "costing cropped content); ")
                .Append(e.FrameOutlierGrowths).Append(" outlier growth(s) past ")
                .Append(FrameOutlierGrowQuanta).Append(" quanta in one step, ")
                .Append(e.FrameOutlierReleases).Append(" of them released again. ")
@@ -3102,8 +3459,22 @@ internal static partial class PanelSupersample
                .Append(ceiling < BandLimitedTexelsPerPixel - 1e-3f
                    ? " — BELOW THE BAND LIMIT: this frame is wide enough that the dimension ceiling, "
                      + "not the config, is what sets the rate, and the eye is reading unfiltered mip "
-                     + "level 0 again"
+                     + "level 0 again. After ModBuild 205 that can only happen when an axis of the "
+                     + "HOST RECT ALONE is past the "
+                     + BandLimitFrameBudgetPx.ToString("F0") + " px budget, where cropping buys "
+                     + "nothing and the clamp stands down"
                    : " — at or above it, so growth has not cost this window its band limit")
+               .Append(". BAND-LIMIT CLAMP (ModBuild 205, budget ")
+               .Append(BandLimitFrameBudgetPx.ToString("F0")).Append(" px per axis): ")
+               .Append(e.CropLeft + e.CropRight + e.CropDown + e.CropUp > 0.5f
+                   ? "BITING — measured overspill CROPPED by L" + e.CropLeft.ToString("F0")
+                     + " R" + e.CropRight.ToString("F0") + " D" + e.CropDown.ToString("F0")
+                     + " U" + e.CropUp.ToString("F0") + " px to keep the whole window band-limited, "
+                     + "which is the deliberate trade (resolution for every pixel the user reads "
+                     + "outranks overspill outside the host rect) and is priced edge by edge, with the "
+                     + "graphic on each edge, on this window's CLAMPED ITS CAPTURE FRAME line"
+                   : "not biting — the whole measured overspill is framed")
+               .Append(", ").Append(e.BandClamps).Append(" clamp state change(s) logged")
                .Append(". FRAME CHANGES: ").Append(e.FrameChanges).Append(" committed since engage; "
                        + "LAST CHANGE: ").Append(e.FrameChangeNote)
                .Append(" CONTENT OUTSIDE THE COMMITTED FRAME: ")

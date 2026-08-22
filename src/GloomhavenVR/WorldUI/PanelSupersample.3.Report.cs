@@ -482,6 +482,235 @@ internal static partial class PanelSupersample
         e.ReleasesThisWindow = 0;
         e.ReleaseGateFramesMax = 0;
         e.LongestMotionRun = 0;
+
+        // ModBuild 205: THE THIRD OF THE INK CENSUS'S THREE MOMENTS. The other two are the release
+        // edge and thirty frames after it (armed in ReportRelease); this one is the ordinary cadence,
+        // and it exists so a window that has NOT been touched for ten minutes still says what is in
+        // its captured image. The window in the ModBuild 196 photograph had been standing still when
+        // it was photographed, so "it only moved ten minutes ago" must not mean "measured ten minutes
+        // ago". The census is ISSUED from the capture camera's onPostRender later in this same frame
+        // and its line arrives a frame or two after that, with both frame numbers on it.
+        ArmInkCensus(e, "the ordinary 10 s report cadence (a SETTLED window, no drag involved)");
+    }
+
+    /// <summary>
+    /// <b>ONE LINE PER COMPLETED INK CENSUS — the measurement thirteen builds of clean state readings
+    /// have been pointing at, and the first one in this class that looks at the CAPTURED IMAGE.</b>
+    ///
+    /// <para>The whole argument, the caps and every constant's derivation live with the machinery at
+    /// the foot of <c>PanelSupersample.2.Capture.cs</c>; this method only has to make the answer
+    /// unmissable and un-mis-readable. The shape that ends the investigation in one hardware session
+    /// is a single sentence of the form <i>"'Gebundene Gegenstände:' — 21 glyph(s) in the mesh, 14
+    /// with ink, 7 EMPTY: 'u','n','e','s','t','ä','d'"</i>.</para>
+    /// </summary>
+    private static void ReportInkCensus(Entry e, InkCensus c)
+    {
+        // Worst first — the components with the most EMPTY glyphs are the ones the next round works
+        // on. The COUNTS are always complete; only the sentences are capped, and the line says by how
+        // much (this project has shipped five remedies that quietly covered part of their subject).
+        //
+        // THIS SORT INVALIDATES InkGlyph.Comp, which indexes into this list. That is safe and only
+        // because of two facts, both worth stating rather than rediscovering: the glyph list is fully
+        // consumed by EvaluateInkCensus before this method is reached, and BOTH lists are cleared and
+        // rebuilt by BuildInkCensus at the start of every census. Nothing reads Comps by index after
+        // this point.
+        c.Comps.Sort((a, b) => b.Empty != a.Empty ? b.Empty.CompareTo(a.Empty)
+                                                  : b.InStrip.CompareTo(a.InStrip));
+
+        Sb.Length = 0;
+        Sb.Append("PANEL SUPERSAMPLE INK CENSUS '").Append(e.Window).Append('\'').Append(OpenViewTag(e))
+          .Append(": ").Append(c.Reason).Append(" — requested on frame ").Append(c.RequestFrame)
+          .Append(", delivered on frame ").Append(c.DeliveredFrame).Append(" (")
+          .Append(c.DeliveredFrame - c.RequestFrame)
+          .Append(" frame(s) later; AsyncGPUReadback, so the GPU was never stalled). THE VERDICT: ")
+          .Append(c.TotalGlyphs).Append(" glyph quad(s) the SUBMITTED MESH says are there, ")
+          .Append(c.TotalInk).Append(" WITH INK in the captured texture, ").Append(c.TotalEmpty)
+          .Append(" EMPTY, across ").Append(c.Comps.Count).Append(" text component(s).");
+
+        int named = 0;
+        for (int i = 0; i < c.Comps.Count && named < MaxInkComponentsReported; i++)
+        {
+            InkComponent comp = c.Comps[i];
+            named++;
+            Sb.Append(" '").Append(InkLabel(comp.Text)).Append("' (").Append(comp.Name).Append(") — ")
+              .Append(comp.InStrip).Append(" glyph(s) in the mesh")
+              .Append(comp.MeshGlyphs != comp.InStrip
+                  ? $" inside the census strip of {comp.MeshGlyphs} it carries"
+                  : string.Empty)
+              .Append(", ").Append(comp.Ink).Append(" with ink, ").Append(comp.Empty).Append(" EMPTY")
+              .Append(comp.Empty > 0 ? ": " + comp.EmptyChars : string.Empty)
+              .Append(comp.EmptyNotNamed > 0 ? $" (+{comp.EmptyNotNamed} more not named)" : string.Empty)
+              .Append('.');
+        }
+        if (c.Comps.Count > named)
+            Sb.Append(" (").Append(c.Comps.Count - named).Append(" further component(s) censused and "
+                      + "not named here; the counts above them are complete.)");
+
+        // ---- HOW THE MEASUREMENT WAS MADE, so a wrong choice is visible rather than silent --------
+        Sb.Append(" HOW INK WAS DECIDED: a glyph counts as INKED when any interior texel of its quad "
+                  + "deviates from that quad's OWN LOCAL BACKGROUND by at least ")
+          .Append((InkThreshold * 255f).ToString("F0")).Append("/255 (")
+          .Append((InkThreshold * 100f).ToString("F1"))
+          .Append(" %) in PREMULTIPLIED LUMINANCE (lum x alpha). Alpha alone was rejected: this "
+                  + "window's text sits on OPAQUE dark plates where alpha reads 1.0 on the glyph and "
+                  + "on the plate beside it, so an alpha test would call every glyph present in a "
+                  + "picture full of holes; premultiplied luminance degenerates to alpha over the "
+                  + "transparent clear and to plain luminance over a plate, and the test is on the "
+                  + "ABSOLUTE deviation so light-on-dark and dark-on-light are both caught. The local "
+                  + "background is the MEDIAN of a ring ")
+          .Append(InkRingBandTexels).Append(" texel(s) outside the quad (a median, so an adjacent "
+                  + "glyph intruding into the ring cannot drag the estimate onto ink); the quad's "
+                  + "interior is inset by ")
+          .Append((InkQuadInset * 100f).ToString("F0")).Append(" % per side to clear the SDF padding, "
+                  + "and is sampled on an ").Append(InkInnerSamples).Append('x').Append(InkInnerSamples)
+          .Append(" grid. READ THE THRESHOLD AGAINST THE DATA, NOT ON TRUST: the MEDIAN deviation of "
+                  + "the glyphs called INKED is ")
+          .Append(c.MedDevInk >= 0f ? (c.MedDevInk * 255f).ToString("F1") : "n/a")
+          .Append("/255 and of the glyphs called EMPTY is ")
+          .Append(c.MedDevEmpty >= 0f ? (c.MedDevEmpty * 255f).ToString("F1") : "n/a")
+          .Append("/255, against the ").Append((InkThreshold * 255f).ToString("F0"))
+          .Append("/255 bar and a strip background of ")
+          .Append((c.Background * 255f).ToString("F1"))
+          .Append("/255. If those two medians are not an order of magnitude apart, the threshold is "
+                  + "the thing to question and NOTHING below may be concluded — ModBuild 196 measured "
+                  + "the photograph's own pixels at 4/255 for a gap and 127/255 for a glyph, so a "
+                  + "healthy reading has the EMPTY median in the single digits and the INKED median in "
+                  + "three.");
+
+        Sb.Append(" ORIENTATION SELF-CHECK: ").Append(c.Orientation)
+          .Append(". This is MEASURED and not assumed because AsyncGPUReadback returns the source "
+                  + "texture's own layout and Unity does not flip it; a census that guessed would read "
+                  + "the mirrored row of every glyph and answer confidently and wrongly, which is a "
+                  + "mistake this project has already paid two builds for. The census strip is FULL "
+                  + "HEIGHT precisely so the row order is the ONLY ambiguity left (y=0, height=RtH "
+                  + "selects the same texels under either convention), and the verdict comes from "
+                  + "correlating the ink bands the mesh predicts against the ink bands measured, over ")
+          .Append(InkBands).Append(" bands, needing at least ")
+          .Append(InkOrientMinCorrelation.ToString("F2")).Append(" correlation and a ")
+          .Append(InkOrientMinMargin.ToString("F2")).Append(" margin.");
+
+        Sb.Append(" THE MAPPING, from the same two values SyncProjection uses: the capture frame is ")
+          .Append(c.FrameW.ToString("F0")).Append('x').Append(c.FrameH.ToString("F0"))
+          .Append(" host-local uGUI px and the target is ").Append(c.RtW).Append('x').Append(c.RtH)
+          .Append(" texels, so the authored-to-texel rate is ").Append(c.RateX.ToString("F3"))
+          .Append(" x ").Append(c.RateY.ToString("F3"))
+          .Append(" — character for character the pair RecordAchievedFactor reports as the ACHIEVED "
+                  + "factor. The configured factor is deliberately NOT used: the band-limit floor, the "
+                  + "content-scale boost, RateQuantum, the VRAM step-down and the ")
+          .Append(MaxRtDimension).Append(" px axis ceiling all sit between it and the target that was "
+                  + "actually allocated, and deriving the mapping from the ALLOCATED target and the "
+                  + "COMMITTED frame is what makes it impossible for this census and the capture "
+                  + "camera to disagree. Source texture: ").Append(c.SourceNote).Append('.');
+
+        Sb.Append(" WHAT WAS LEFT OUT, never silently: the census strip is ").Append(c.StripW)
+          .Append('x').Append(c.StripH).Append(" texels at x=").Append(c.StripX).Append(" of ")
+          .Append(c.RtW).Append(" (the ").Append(MaxInkCensusTexels)
+          .Append("-texel readback budget divided by the target's height, i.e. ")
+          .Append((c.StripW * c.StripH * 4f / (1024f * 1024f)).ToString("F1"))
+          .Append(" MB per request); ").Append(c.GlyphsOutsideStrip)
+          .Append(" glyph quad(s) fell outside it or were under two texels on an axis, ")
+          .Append(c.GlyphsClipped)
+          .Append(" were CLIPPED AWAY by a mask or a scroll viewport (uGUI clips in the SHADER, so a "
+                  + "scrolled-out label keeps a perfect quad in the submitted mesh and draws nothing "
+                  + "LEGITIMATELY — counting those as EMPTY would have manufactured this instrument's "
+                  + "own verdict, and this window is full of scroll viewports), ")
+          .Append(c.GlyphsSkippedCap).Append(" hit the per-component (").Append(MaxInkGlyphsPerComponent)
+          .Append(") or per-census (").Append(MaxInkCensusGlyphs).Append(") glyph cap, ")
+          .Append(c.ComponentsNotDrawn)
+          .Append(" text component(s) were excluded because the renderer had switched them off (cull "
+                  + "flag, own/inherited/authored alpha 0) or a mask hid them entirely, ")
+          .Append(c.ComponentsSkippedCap).Append(" text component(s) of ").Append(c.ComponentsFound)
+          .Append(" hit the ").Append(MaxInkCandidateComponents).Append("-component cap")
+          .Append(c.WalkTruncated
+              ? $", and the subtree walk hit its {MaxInkWalkTransforms}-transform ceiling so the "
+                + "component list itself is a LOWER BOUND"
+              : string.Empty)
+          .Append(". Every count above is therefore a count over WHAT WAS CENSUSED, and the excluded "
+                  + "figures are printed so it can never be read as a count over the whole window.");
+
+        Sb.Append(" COST: ").Append(c.BuildMs.ToString("F2"))
+          .Append(" ms to build the glyph list on the request frame and ")
+          .Append(c.ReadMs.ToString("F2")).Append(" ms to judge ").Append(c.TotalGlyphs)
+          .Append(" glyph(s) on the delivery frame, against an ").Append(FrameBudgetMs.ToString("F2"))
+          .Append(" ms budget; three censuses per release plus one per 10 s report. SINCE ENGAGE: ")
+          .Append(c.Armed).Append(" armed, ").Append(c.Issued).Append(" issued, ").Append(c.Completed)
+          .Append(" completed, ").Append(c.Errors).Append(" readback error(s), ")
+          .Append(c.DroppedStale)
+          .Append(" dropped because the target was re-allocated between request and delivery, ")
+          .Append(c.DroppedInFlight)
+          .Append(" deferred because a readback was still in flight (the mod-wide budget is ")
+          .Append(MaxInkReadsInFlight)
+          .Append(" at a time, because the 10 s report cadence is ONE shared timer and every engaged "
+                  + "panel arms on the same frame — a deferred census stays armed and goes out on a "
+                  + "later frame, it is never cancelled), ").Append(c.Unanswerable)
+          .Append(" reported NOT ANSWERABLE, ").Append(c.Threw).Append(" threw.");
+
+        Sb.Append(" HOW TO READ IT — AND THIS LINE IS DECISIVE IN BOTH DIRECTIONS. (1) GLYPHS EMPTY IN "
+                  + "THE CAPTURE means the loss happens AT OR BEFORE rasterisation into our render "
+                  + "target: the capture path or the game's own submission is guilty, every state "
+                  + "instrument in this class is measuring the wrong stage, and the next round works "
+                  + "between the mesh upload and the capture camera's rasteriser — the characters "
+                  + "named above are the sample to work from. (2) GLYPHS PRESENT WITH INK, while the "
+                  + "user still sees them missing, means THE CAPTURE IS CORRECT and the loss is "
+                  + "DOWNSTREAM: the resolve blit, the mip chain, the display quad or the eye. That "
+                  + "exonerates thirteen builds of capture-content work in one line and moves the "
+                  + "entire search to the display side, where no counter in this class has ever "
+                  + "looked. (3) THIS LINE CAN NEVER MEAN 'INCONCLUSIVE'. If the census could not run "
+                  + "— no readback support, the target re-allocated under it, the orientation check "
+                  + "undecided, the caps biting, a multisampled source — it prints a NOT ANSWERABLE "
+                  + "line naming WHICH, and this line is not printed at all. (4) READ THE THREE "
+                  + "MOMENTS TOGETHER: the release edge, thirty frames later, and the settled cadence. "
+                  + "The user's report is that the picture FREEZES broken on release, so 'EMPTY at the "
+                  + "release edge and INKED thirty frames later' is a transient the eye saw for a third "
+                  + "of a second, while 'EMPTY at both' is a LATCHED image and a different bug.");
+
+        VRLog.Info(Scope, Sb.ToString());
+        Sb.Length = 0;
+    }
+
+    /// <summary>
+    /// <b>THE CENSUS COULD NOT ANSWER, AND SAYS WHICH.</b> There is deliberately no third state: a
+    /// census either prints <see cref="ReportInkCensus"/>'s verdict or prints this, naming the exact
+    /// reason. Five remedies in this project have shipped covering only part of their subject and
+    /// reading clean; an instrument that fell over must never be mistaken for one that found nothing.
+    /// <para>Throttled on the REASON: the same refusal repeats at most once per
+    /// <see cref="ReportIntervalSeconds"/>, while a NEW reason prints immediately. A window with no
+    /// text would otherwise print three identical lines every ten seconds forever.</para>
+    /// </summary>
+    private static void ReportInkUnanswerable(Entry? e, InkCensus c, string reason, string why)
+    {
+        c.Unanswerable++;
+        float now = Time.unscaledTime;
+        bool sameReason = string.Equals(c.LastUnanswerable, why, System.StringComparison.Ordinal);
+        if (sameReason && now < c.UnanswerableNextPrint)
+            return;
+        c.LastUnanswerable = why;
+        c.UnanswerableNextPrint = now + ReportIntervalSeconds;
+        VRLog.Warn(Scope, "PANEL SUPERSAMPLE INK CENSUS NOT ANSWERABLE '"
+                          + (e != null ? e.Window : "(window gone)") + "'"
+                          + (e != null ? OpenViewTag(e) : string.Empty)
+                          + ": the census asked for at " + (reason.Length > 0 ? reason : "an unnamed moment")
+                          + " produced NO reading, because " + why + ". THE CONSEQUENCE, stated so this "
+                          + "cannot be read as a clean result: NOTHING follows about the captured "
+                          + "image from this census in EITHER direction — it is not evidence that the "
+                          + "glyphs are present and it is not evidence that they are missing. "
+                          + $"SINCE ENGAGE: {c.Completed} census(es) completed, {c.Unanswerable} "
+                          + $"unanswerable, {c.Errors} readback error(s), {c.DroppedStale} dropped on a "
+                          + $"re-allocation, {c.Threw} threw. Nothing about the capture, the mip chain, "
+                          + "the layer isolation, input or multiplayer is affected by this instrument "
+                          + "either way — it only reads.");
+    }
+
+    /// <summary>The string a component is named by on the census line, trimmed so one very long label
+    /// cannot make the line unreadable. Newlines and rich-text angle brackets are flattened for the
+    /// same reason.</summary>
+    private static string InkLabel(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return "(empty)";
+        const int max = 48;
+        string s = text.Replace('\n', ' ').Replace('\r', ' ').Replace('<', '{').Replace('>', '}');
+        return s.Length <= max ? s : s.Substring(0, max) + "...";
     }
 
     /// <summary>

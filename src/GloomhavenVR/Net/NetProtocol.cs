@@ -416,7 +416,104 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 204;
+    public const ushort ModBuild = 205;
+    // Build 205: THIRTEEN BUILDS OF CLEAN STATE. NOW LOOK AT THE PICTURE ITSELF.
+    // (Two workers on isolated worktrees plus integration.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── THE REPORT ───────────────────────────────────────────────────────────────────────
+    // "Das Problem ist nicht behoben. Auch beim ersten Anklicken flackert es nun für eine halbe
+    // Sekunde und friert dann einen (unter Umständen) kaputten Stand ein. Das Fenster herumzuschieben
+    // löst das Flackern immer noch genau so aus." Screenshot: kaputt.jpg.
+    //
+    // ── WHAT ModBuild 204 GOT RIGHT, AND WHAT IT BROKE ──────────────────────────────────
+    // RIGHT: the capture-frame flap is gone. Re-allocations fell from 58 in 62 s to 0-6 per session.
+    // WRONG, AND IT IS MINE: "grow immediately, shrink reluctantly" walked this window off a cliff it
+    // was 28 px away from. The per-axis ceiling is 4096/width and the rate is quantised to 0.25, so
+    // width 2020 gives 2.00 and width 2052 — ONE 32-px quantum more — gives 1.996 -> floor -> 1.75.
+    // There is nothing in between. The 204 log carries the warning the same build shipped:
+    //     GREW its capture frame to 2052x1464 uGUI px, and that growth stepped the achievable capture
+    //     rate from 2.00 down to 1.75 render-target texels per authored pixel — BELOW the band limit
+    // and the consequence: ACHIEVED 1.75 on 15 of 70 readings, NOT BAND-LIMITED on 39 of 90 verdicts,
+    // targets at 3591x2562 and 3927x2618 beside the intended 4040x2992. Then the shrink hysteresis —
+    // doing exactly what I told it to — HELD IT THERE. Below the band limit, this class's own
+    // BandLimitFactor header says a 1-px glyph stroke exists or does not by sub-texel phase, that a
+    // moving window sweeps that phase and that on release it LOCKS. I added a cause of the shape I
+    // was hunting, while hunting it.
+    // FIXED HERE: resolution outranks overspill. A growth that would cost the band limit is clamped to
+    // the largest 32-px-grid frame that keeps rate >= 2.00, the allowance is split per edge in
+    // proportion to what each edge asked, and WHAT WAS CROPPED IS LOGGED EDGE BY EDGE WITH THE
+    // GRAPHIC THAT SET THAT EDGE. A shrink that RESTORES the band limit (or un-crops content) bypasses
+    // the dead band and the run. The clamp stands down when the host rect ALONE is past the budget,
+    // because there the limit is unreachable and cropping buys nothing.
+    //
+    // ── THE THIRD FALSIFIED ROOT CAUSE IN THREE BUILDS ──────────────────────────────────
+    // ModBuild 204 shipped the TMP parent->sub-mesh cull invariant on the strength of two decompiled
+    // quotations that are both true: TMP_SubMeshUI.Cull IS an empty override, and the only writer of a
+    // sub-mesh's cull flag IS inside TextMeshProUGUI's change-guard. The latch is real. IT DOES NOT
+    // HAPPEN HERE. The repair ran all session and never fired once:
+    //     REPAIRED: 0 sub-mesh(es) since engage (0 UN-HIDDEN)
+    //     MOVING vs SETTLED: baseline 0, during the drag min 0 max 0 over 192 sample(s),
+    //                        at the release edge 0, settled +30 frames 0
+    // and the split buckets read 0 CULL FLAG everywhere, on components and sub-meshes alike. The
+    // instrument built to prove the hypothesis disproved it instead, which is the instrument working
+    // and the diagnosis failing. Keep the repair: it is correct, unconditional, costs 0.004 ms/frame,
+    // and the latch is a real TMP defect that this window simply does not currently trigger.
+    //
+    // ── THE METHOD CHANGES, BECAUSE THE METHOD IS WHAT KEEPS FAILING ────────────────────
+    // Three consecutive root causes falsified by their own instruments: the sibling-canvas sorting tie
+    // (19 of 20 canvases carry overrideSorting=false), the full-frame plate over-paint (PAINTS OVER 0,
+    // the visible plate is a legitimate backdrop), the TMP cull latch (0 of 0). And in the SAME 205
+    // log: text source clean, submitted mesh 0 defects of ~3900 quads, atlas repacks 0, captures
+    // before the canvas rebuild 0, capture layer 0 wrong, content scale 1.000, draw order clean,
+    // foreign renderers 0. THIRTEEN BUILDS OF PERFECT STATE AND A BROKEN PICTURE.
+    // Nobody has ever looked at what is IN the captured image. Both prior audits ended on that
+    // sentence independently. So this build stops proposing mechanisms and measures the picture.
+    //
+    // THE INK CENSUS. Per glyph: the SUBMITTED MESH says a quad is here — is there ink in the
+    // captured texture at that place? Read with AsyncGPUReadback (never ReadPixels; a blocking read of
+    // a 4040x2992 target mid-drag would be worse than the bug), from e.MipRt mip 0 — the exact texture
+    // the display quad samples — in the capture camera's own onPostRender, right after ResolveAndMip.
+    // The mapping comes from e.Frame and e.RtW/RtH, the same two values SyncProjection frames the
+    // camera from, so the census and the camera cannot disagree. Three moments per release: the
+    // release edge, +30 frames, and the report cadence — because "EMPTY at the edge and INKED thirty
+    // frames later" is a transient, while "EMPTY at both" is a latched image and a different bug.
+    // Four decisions in it that are the difference between an answer and a confident wrong answer:
+    //   * INK IS NOT ALPHA. This window's text sits on OPAQUE dark plates where alpha reads 1.0 on the
+    //     glyph and on the plate beside it, so an alpha test would call every glyph present in a
+    //     picture full of holes. It is premultiplied luminance against the quad's OWN local ring
+    //     background, on ABSOLUTE deviation, so light-on-dark and dark-on-light both work.
+    //   * THE RING BACKGROUND IS A PERCENTILE, NOT A MEDIAN — a neighbouring glyph intruding into the
+    //     ring would otherwise drag the estimate onto ink and manufacture a false PRESENT.
+    //   * ORIENTATION IS MEASURED, NOT ASSUMED. AsyncGPUReadback returns the source layout and Unity
+    //     does not flip it. The strip is FULL HEIGHT so row order is the only ambiguity left, and it
+    //     is settled by correlating the ink bands the mesh predicts against the bands measured, needing
+    //     0.35 correlation and a 0.15 margin. A census that guessed would read the mirrored row of
+    //     every glyph and answer confidently and wrongly — this project has paid two builds for
+    //     exactly that class of mistake (EyeFrameProbe, the A-B-A flicker probe).
+    //   * MASK-CLIPPED GLYPHS ARE EXCLUDED AND COUNTED. uGUI clips in the SHADER, so a scrolled-out
+    //     label keeps a perfect quad and legitimately draws nothing. This window is full of scroll
+    //     viewports; without the exclusion the instrument would have manufactured its own verdict.
+    // Every cap — strip width, glyphs per component, glyphs per census, components, walk — is counted
+    // and printed, so no count can be read as covering the whole window. And the line can never mean
+    // "inconclusive": if it cannot run it prints NOT ANSWERABLE naming which of eleven reasons.
+    //
+    // THE VERDICT IS DECISIVE IN BOTH DIRECTIONS, WHICH IS WHY IT IS WORTH A BUILD:
+    //   * GLYPHS EMPTY IN THE CAPTURE  -> the loss is at or before rasterisation into our target. The
+    //     next round works between the mesh upload and the capture camera, with the named characters
+    //     as the sample.
+    //   * GLYPHS PRESENT WITH INK      -> the capture is CORRECT and the loss is downstream: the
+    //     resolve, the mip chain, the quad, or the eye. That exonerates thirteen builds of
+    //     capture-content work in one line and moves the whole search to a side no counter in this
+    //     class has ever looked at.
+    //
+    // ── THE RESIDUAL, AS A NUMBER, FOR THE USER TO RULE ON ──────────────────────────────
+    // The 28-px margin exists because ModBuild 202 widened the host from 1143 to 1988 authored px,
+    // cutting the raw ceiling from 3.58 to 2.06. A host of 1984 px — FOUR PIXELS narrower, reachable
+    // by taking the frame padding from 12 to 8 and leaving the 328 px column and the 1648 px slot
+    // untouched — restores a full 32-px quantum of growth headroom. NOT DONE: 1988 is a width the user
+    // approved, and after three wrong diagnoses an approved number does not move without his word.
+    //
     // Build 204: THE DRAG FLICKER AND THE FROZEN PICTURE ARE TWO DIFFERENT BUGS, AND BOTH ARE NAMED.
     // (Two workers on isolated worktrees plus integration.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
