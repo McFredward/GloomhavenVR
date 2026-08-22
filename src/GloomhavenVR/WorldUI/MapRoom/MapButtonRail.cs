@@ -69,6 +69,50 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// catch-all's known-HUD list — the rail IS its VR surface, the same relationship the card fans
 /// have to <c>CardsHandManager</c>.</para>
 ///
+/// <para>=====================================================================</para>
+/// <para>THE SYMBOLS ARE MIP-BAKED (ModBuild 199) — user report: <i>"Wende den selben
+/// Aliasing-Fix auf die SYMBOLE AUF DEN BUTTONS an (die Animation soll aber erhalten bleiben) —
+/// sie sind spürbar die einzigen Elemente mit noch extremem Aliasing."</i></para>
+///
+/// <para>IT IS NOT THE WINDOW FIX, AND THAT IS THE POINT. ModBuild 198's window fix raised
+/// <c>PanelSupersample</c>'s factor so a converted canvas is rendered into a RenderTexture above
+/// its authored resolution and the eye lands on a real mip level of that TARGET. There is no
+/// canvas and no render target on a cap: a symbol here is a world-space <see cref="SpriteRenderer"/>
+/// quad textured DIRECTLY from the game's uGUI art. The game imports that art as "Sprite (2D and
+/// UI)", which generates no mip chain — every one of the 49 distinct game textures the shared bake
+/// cache has measured on hardware reported <c>mips 1</c>. Against a mipless source, raising a
+/// render resolution makes the aliasing WORSE, not better: the quad's footprint in source texels is
+/// unchanged while its pixel footprint shrinks, so more source texels are dropped per pixel. The
+/// defect is in the DATA and so is the fix — a mip chain, trilinear filtering and anisotropy, via
+/// the same <c>CardFaceMipBake</c> cache the card faces, the panels and the map icons already
+/// share (one VRAM ceiling, one set of refusal rules, and an atlas a card already paid for is
+/// free here).</para>
+///
+/// <para>ANISOTROPY IS THE TERM THAT MATTERS MOST ON THESE CAPS, and it is why a mip chain alone
+/// would not have been enough. <see cref="CapTiltDegrees"/> is 0 — the user's own ruling that the
+/// buttons must lie FLAT on the table — so a cap face is NEVER seen head-on. It is always read at
+/// a grazing angle from a seat at the table edge, which stretches the sampling footprint along one
+/// axis; trilinear alone must then pick the mip for the worse axis and blur the better one. The
+/// baked copies carry aniso 8.</para>
+///
+/// <para>THE ANIMATION IS UNTOUCHED — the user's explicit condition. Nothing about WHAT is sampled
+/// changed: <see cref="SampleState"/> still reads the game's <c>Image.sprite</c>, <c>color</c>,
+/// <c>CanvasGroup.alpha</c> and <c>localScale</c> every frame, the highlight pulse is still copied
+/// live off the object the game's <c>LoopAnimator</c> drives, and the press travel
+/// (<see cref="TickTravel"/>) is not in this path at all. Only the sprite INSTANCE written to our
+/// own renderer changed, to a pixel-identical copy on a mipmapped texture with the same rect,
+/// pivot, pixels-per-unit and 9-slice border. AND THE BAKE CANNOT GO STALE: there is no cached
+/// "the icon for this cap". The cache is keyed by the GAME's sprite instance and is asked again
+/// the moment that reference changes, so a runtime symbol swap
+/// (<c>UIGuildmasterButton.SetMode</c> → <c>Initialize</c>), a new highlight sprite or a
+/// notification pip resolves in the frame the game assigns it — see
+/// <see cref="ResolveSprite"/>.</para>
+///
+/// <para>MEASURED, NOT ASSUMED: <c>MAP BUTTON ICON SAMPLING</c> prints source texels per rendered
+/// pixel for every cap symbol on screen, against the same 1.35x threshold and through the same
+/// per-eye projection as <c>MAP ICON SAMPLING</c> and <c>PANEL SAMPLING</c>, with the comparison
+/// count, the worst value and the threshold on one line.</para>
+///
 /// <para>INPUT: fingertip through the shared <see cref="VRInteractables"/> registry, laser through
 /// a geometric <c>Collider.Raycast</c> scan over this rail's own caps. Deliberately NOT through
 /// <c>RayInteractor.Mask</c>: the map room keeps that mask narrow on purpose (see
@@ -142,6 +186,31 @@ internal sealed class MapButtonRail
     /// <summary>Socket depth, real metres.</summary>
     private const float SocketDepthMeters = 0.010f;
 
+    // ---- the aliasing fix and its instrument (ModBuild 199) -----------------------------------
+
+    /// <summary>
+    /// Source texels per rendered pixel at or above which a surface is dropping source texels every
+    /// frame. Copied AS A VALUE from <c>MapIconLayer.SuspectMinification</c> and
+    /// <c>PanelSamplingProbe</c> so the button report, the map-icon report and the panel report are
+    /// all the same quantity against the same threshold and can be read side by side.
+    /// </summary>
+    private const float SuspectMinification = 1.35f;
+
+    /// <summary>Seconds between MAP BUTTON ICON SAMPLING lines. Long, because the caps do not move
+    /// and neither does the seat — this is a state report, not a trace.</summary>
+    private const float SamplingReportSeconds = 20f;
+
+    /// <summary>
+    /// NEW bake first-asks this rail may START in one frame. Same value and same reason as
+    /// <c>PanelMipBake.MaxArrivalBakesPerFrame</c>: a first-sight sprite off an atlas this session
+    /// has not read back yet costs a full-atlas GPU readback, and in VR a stutter is worse than the
+    /// aliasing it removes. Over the cap the cap keeps the game's ORIGINAL sprite for that frame —
+    /// aliased but ON TIME, never blank — and its source reference is left stale so the very next
+    /// frame retries it. Eight caps share one guildmaster atlas in practice, so this binds at most
+    /// on the frame the rail is first built.
+    /// </summary>
+    private const int MaxIconBakesPerFrame = 2;
+
     private sealed class Cap
     {
         internal UIGuildmasterButton Button = null!;
@@ -165,6 +234,15 @@ internal sealed class MapButtonRail
         internal SpriteRenderer? Glow;
         internal SpriteRenderer? Badge;
         internal TMP_Text? Fallback;
+
+        /// <summary>The GAME sprite each world copy was last RESOLVED from (ModBuild 199 mip swap).
+        /// The world renderer no longer wears the game's own sprite instance, so the old
+        /// "renderer.sprite != image.sprite" change gate would fire every single frame; the gate is
+        /// now this remembered SOURCE reference. Left deliberately STALE when a bake is deferred by
+        /// the per-frame rate cap, which is what makes the next frame retry that exact graphic.</summary>
+        internal Sprite? IconSource;
+        internal Sprite? GlowSource;
+        internal Sprite? BadgeSource;
 
         internal MapButtonPoke Poke = null!;
         internal float IconWorldSize;
@@ -232,6 +310,17 @@ internal sealed class MapButtonRail
 
         SampleState();
         TickLaser();
+
+        // THE ALIASING INSTRUMENT (ModBuild 199). On its own slow cadence and only when a head
+        // camera exists — it measures, it never treats, so a tick that finds nothing is a finding
+        // and says so on its own line.
+        float now = Time.unscaledTime;
+        if (now >= _nextSamplingReport)
+        {
+            _nextSamplingReport = now + SamplingReportSeconds;
+            MeasureIcons(Rig.VRRigDriver.HeadCamera);
+            LogIconSampling();
+        }
     }
 
     /// <summary>Tear the rail down. Idempotent; the only exit.</summary>
@@ -389,7 +478,7 @@ internal sealed class MapButtonRail
             _reported = true;
             VRLog.Info(Scope, $"MAP TABLE BUTTONS: {built} cap(s) standing on the table rim at {origin}, "
                               + $"{RailInsetMeters:F3} m (real) outside the map's near edge on the seat's "
-                              + $"own view side {side}, {CapSizeMeters * 100f:F0} mm faces tilted "
+                              + $"own view side {side}, {CapSizeMeters * 1000f:F0} mm faces tilted "
                               + $"{CapTiltDegrees:F0}° up, rig scale {_scale:F2}. The set was READ off the "
                               + "live UIGuildmasterHUD (component type, not a name list). "
                               + $"{withIcon}/{built} carry the game's own icon Image and {withGlow}/{built} "
@@ -599,8 +688,11 @@ internal sealed class MapButtonRail
             // UIInfoTools.GetGuildmasterModeSprite on every SetMode.
             if (c.Icon != null && c.IconImage != null)
             {
-                if (c.Icon.sprite != c.IconImage.sprite)
-                    c.Icon.sprite = c.IconImage.sprite;
+                // ModBuild 199: the sprite the world quad wears is the MIP-BAKED equivalent of
+                // whatever the game currently has on its Image (see ResolveSprite). Everything below —
+                // tint, alpha, the scale animation — is unchanged and still read live, so the swap
+                // changes only WHICH TEXELS are sampled, never what is animated.
+                ResolveSprite(c.Icon, c.IconImage.sprite, ref c.IconSource);
                 Color tint = c.IconImage.color;
                 tint.a *= groupAlpha * (live ? 1f : 0.35f);
                 if (c.Icon.color != tint)
@@ -623,8 +715,7 @@ internal sealed class MapButtonRail
                     c.Glow.enabled = glowing;
                 if (glowing)
                 {
-                    if (c.Glow.sprite != c.HighlightImage!.sprite)
-                        c.Glow.sprite = c.HighlightImage.sprite;
+                    ResolveSprite(c.Glow, c.HighlightImage!.sprite, ref c.GlowSource);
                     Color gc = c.HighlightImage.color;
                     gc.a *= groupAlpha;
                     if (c.Glow.color != gc)
@@ -646,8 +737,7 @@ internal sealed class MapButtonRail
                     c.Badge.enabled = badge;
                 if (badge && c.NotificationImage != null)
                 {
-                    if (c.Badge.sprite != c.NotificationImage.sprite)
-                        c.Badge.sprite = c.NotificationImage.sprite;
+                    ResolveSprite(c.Badge, c.NotificationImage.sprite, ref c.BadgeSource);
                     Color bc = c.NotificationImage.color;
                     bc.a *= groupAlpha;
                     if (c.Badge.color != bc)
@@ -672,6 +762,289 @@ internal sealed class MapButtonRail
                                         : NativeButtonSkin.LabelColor * 0.45f;
             }
         }
+    }
+
+    // ---- THE ALIASING FIX: mip-baked copies of the game's own symbols -------------------------
+
+    /// <summary>Source sprite ids this rail has already offered to the shared bake cache. A FIRST
+    /// ask may trigger a full-atlas GPU readback and therefore costs one of the per-frame bake
+    /// slots; every later ask is a dictionary hit inside the cache and is free. Mirrors
+    /// <c>PanelMipBake.Asked</c> exactly, including its bounded growth — the guildmaster bar has
+    /// eight modes and one highlight sprite.</summary>
+    private static readonly HashSet<int> AskedSprites = new(16);
+
+    private static int _bakeBudgetFrame = -1;
+    private static int _bakeBudget;
+
+    // Instrument counters — see LogIconSampling.
+    private float _nextSamplingReport;
+    private int _deferredBakes;
+    private int _measuredIcons;
+    private int _underSampledIcons;
+    private int _miplessIcons;
+    private int _bakedIcons;
+    private float _worstMinification;
+    private string _worstIconWhat = string.Empty;
+
+    /// <summary>
+    /// Point one world quad at the MIP-BAKED equivalent of the game sprite it mirrors, and remember
+    /// which GAME sprite that resolution came from.
+    ///
+    /// <para>WHY THE GATE MOVED. Before ModBuild 199 the gate was
+    /// <c>renderer.sprite != image.sprite</c> — fine while the two were the same object. Now the
+    /// renderer wears a DIFFERENT (baked) instance, so that test would be true on every frame
+    /// forever. The gate is the remembered SOURCE reference instead, which is the same shape
+    /// <c>PanelMipBake</c>'s arrival watch uses and is exactly one reference compare per graphic per
+    /// frame in the steady state — no allocation, no cache lookup, nothing.</para>
+    ///
+    /// <para>THE ANIMATION IS UNTOUCHED, and this is the mechanism by which that is true. The
+    /// game's <c>Image.sprite</c> is still read every single frame; when the game swaps a symbol
+    /// (<c>UIGuildmasterButton.SetMode</c> → <c>Initialize</c>) the reference changes, this fires,
+    /// and the cap follows in that frame. There is NO cached "the icon for this cap" — the cache is
+    /// keyed by the game's own sprite instance, so a bake can never go stale: a sprite the game
+    /// never assigns again is simply never asked for again, and a sprite the game DOES assign
+    /// resolves through the same lookup as the first time. Tint, alpha, the icon's scale animation
+    /// and the highlight pulse are read on their own lines and are not touched here at all.</para>
+    ///
+    /// <para>DEFERRED, NEVER BLANK. When the per-frame first-ask budget is spent the ORIGINAL
+    /// sprite is assigned immediately — the cap shows the right symbol on the right frame, merely
+    /// aliased — and <paramref name="source"/> is NOT recorded, so the next frame retries it and
+    /// upgrades in place. The count of deferrals is on the report line.</para>
+    /// </summary>
+    private void ResolveSprite(SpriteRenderer target, Sprite? source, ref Sprite? lastSource)
+    {
+        if (ReferenceEquals(source, lastSource))
+            return;
+        bool settled = TrySharpen(source, out Sprite? use);
+        if (!ReferenceEquals(target.sprite, use))
+            target.sprite = use;
+        if (settled)
+            lastSource = source;   // resolved for good; asked about again only on the next game swap
+        else
+            _deferredBakes++;      // budget spent this frame — lastSource stays stale, retried next
+    }
+
+    /// <summary>
+    /// The mip-baked equivalent of <paramref name="source"/>, or the source itself.
+    ///
+    /// <para>WHY A BAKE AND NOT THE WINDOW FIX. <c>PanelSupersample</c> raises the RESOLUTION a
+    /// canvas is rendered into so the eye lands on a real mip level of the RENDER TARGET. There is
+    /// no canvas and no render target here: a cap symbol is a world-space <see cref="SpriteRenderer"/>
+    /// quad textured directly from the game's uGUI art, which the game imports as "Sprite (2D and
+    /// UI)" with mip generation off — every one of the 49 distinct game textures the shared bake
+    /// cache has measured on hardware reported <c>mips 1</c>. Against a MIPLESS source no render
+    /// target resolution helps: raising it only shrinks the footprint further and drops MORE source
+    /// texels. The defect is in the data, so the fix is in the data — a mip chain, trilinear
+    /// filtering and anisotropy, which is additionally the term that matters most here because
+    /// these caps lie FLAT on the table (<see cref="CapTiltDegrees"/> = 0) and are therefore always
+    /// read at a grazing angle, the exact case trilinear alone cannot serve.</para>
+    ///
+    /// <para>Returns false when the per-frame first-ask budget is spent, in which case the caller
+    /// shows the original. The cache's own refusals (an already-mipped source; a rotated or
+    /// tight-packed atlas placement whose rectangular copy would drag in its neighbours' pixels —
+    /// the v3 card-corruption rule) are NOT deferrals: they are final, they return the game's own
+    /// sprite, and the slot settles so nothing is asked twice.</para>
+    /// </summary>
+    private static bool TrySharpen(Sprite? source, out Sprite? use)
+    {
+        use = source;
+        if (source == null)
+            return true;
+        if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value)
+            return true; // OFF is exactly the pre-199 build: the game's own sprite, settled
+        if (Cards.CardFaceMipBake.IsBakedSprite(source))
+            return true; // already one of ours (a re-entrant read) — nothing to do
+
+        int id = source.GetInstanceID();
+        if (!AskedSprites.Contains(id))
+        {
+            int frame = Time.frameCount;
+            if (_bakeBudgetFrame != frame)
+            {
+                _bakeBudgetFrame = frame;
+                _bakeBudget = MaxIconBakesPerFrame;
+            }
+            if (_bakeBudget <= 0)
+                return false; // deferred — caller shows the original this frame and retries next
+            _bakeBudget--;
+            AskedSprites.Add(id);
+        }
+
+        try
+        {
+            Sprite? baked = Cards.CardFaceMipBake.ReplacementFor(source);
+            if (baked != null)
+                use = baked;
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn(Scope, $"MAP TABLE BUTTON icon '{source.name}' could not be mip-baked "
+                              + $"({ex.GetType().Name}: {ex.Message}) — the cap keeps the game's own "
+                              + "mipless sprite, i.e. the pre-199 look, never worse. The slot is settled "
+                              + "so this is not retried every frame.");
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// THE MEASUREMENT — source texels per rendered pixel for every cap symbol on screen, through
+    /// the LEFT eye's projection against the real per-eye target. The formula is copied AS A VALUE
+    /// from <c>MapIconLayer.MeasureIcon</c> (which copied it from <c>PanelSamplingProbe</c>), so
+    /// this number, the map icons' number and the panels' number are the same quantity and can be
+    /// compared directly.
+    ///
+    /// <para>THE TEXEL COUNT IS THE SPRITE'S OWN RECT, not the atlas dimensions — a 96x96 symbol on
+    /// a 2048x2048 atlas minifies as 96x96. Both are printed so the two can never be confused.</para>
+    ///
+    /// <para>A corner behind the near plane is SKIPPED rather than reported (a viewport point behind
+    /// the eye is mirrored garbage), and a quad under one pixel is skipped as unmeasurable. Both
+    /// show up as a shortfall between the cap count and the measured count on the report line.</para>
+    /// </summary>
+    private void MeasureIcons(Camera? head)
+    {
+        _measuredIcons = 0;
+        _underSampledIcons = 0;
+        _miplessIcons = 0;
+        _bakedIcons = 0;
+        _worstMinification = 0f;
+        _worstIconWhat = string.Empty;
+        if (head == null || !EyeTarget(out float eyePxW, out float eyePxH))
+            return;
+
+        Camera.MonoOrStereoscopicEye eye = UnityEngine.XR.XRSettings.isDeviceActive
+            ? Camera.MonoOrStereoscopicEye.Left
+            : Camera.MonoOrStereoscopicEye.Mono;
+
+        for (int i = 0; i < _caps.Count; i++)
+        {
+            Cap c = _caps[i];
+            SpriteRenderer? sr = c.Icon;
+            if (sr == null || !sr.enabled || !sr.gameObject.activeInHierarchy || sr.sprite == null)
+                continue;
+
+            // The quad's own corners. size is the SpriteRenderer's sliced draw size in the
+            // renderer's local frame; lossyScale carries any scale on the chain (the rail root is
+            // unit-scaled, so this is 1 today and would still be right if it stopped being).
+            Transform t = sr.transform;
+            Vector3 ls = t.lossyScale;
+            Vector3 right = t.right * (sr.size.x * ls.x * 0.5f);
+            Vector3 up = t.up * (sr.size.y * ls.y * 0.5f);
+            Vector3 p = t.position;
+            Vector3 v00 = head.WorldToViewportPoint(p - right - up, eye);
+            Vector3 v10 = head.WorldToViewportPoint(p + right - up, eye);
+            Vector3 v01 = head.WorldToViewportPoint(p - right + up, eye);
+            if (v00.z <= 0f || v10.z <= 0f || v01.z <= 0f)
+                continue;
+            float pxW = PixelDistance(v00, v10, eyePxW, eyePxH);
+            float pxH = PixelDistance(v00, v01, eyePxW, eyePxH);
+            if (pxW < 1f || pxH < 1f)
+                continue;
+
+            Sprite shown = sr.sprite;
+            float texelsW = shown.rect.width;
+            float texelsH = shown.rect.height;
+            float min = Mathf.Max(texelsW / Mathf.Max(pxW, 0.01f), texelsH / Mathf.Max(pxH, 0.01f));
+
+            _measuredIcons++;
+            if (min >= SuspectMinification)
+                _underSampledIcons++;
+            bool baked = Cards.CardFaceMipBake.IsBakedSprite(shown);
+            Texture2D? tex = shown.texture;
+            int mips = tex != null ? tex.mipmapCount : 1;
+            if (baked)
+                _bakedIcons++;
+            else if (mips <= 1)
+                _miplessIcons++;
+
+            if (min <= _worstMinification)
+                continue;
+            _worstMinification = min;
+            _worstIconWhat =
+                $"cap '{(c.Button != null ? c.Button.GuildmasterMode.ToString() : "?")}' sprite "
+                + $"'{shown.name}' {texelsW:F0}x{texelsH:F0} texels (on a "
+                + $"{(tex != null ? tex.width : 0)}x{(tex != null ? tex.height : 0)} texture) into "
+                + $"{pxW:F0}x{pxH:F0} px = {min:F2}x, mips={mips} "
+                + $"{(tex != null ? tex.filterMode.ToString() : "?")} aniso "
+                + $"{(tex != null ? tex.anisoLevel : 0)}"
+                + (baked ? ", MIP-BAKED" : ", NOT BAKED");
+        }
+    }
+
+    /// <summary>The per-eye render target this frame, in pixels — copied AS A VALUE from
+    /// <c>MapIconLayer.EyeTarget</c> so every sampling report in the mod divides by the same
+    /// denominator. Falls back to the desktop window when XR is not running, which is what makes
+    /// the number readable in a flat-screen dev run.</summary>
+    private static bool EyeTarget(out float pxW, out float pxH)
+    {
+        float viewport = Mathf.Clamp(UnityEngine.XR.XRSettings.renderViewportScale, 0.01f, 1f);
+        int w = UnityEngine.XR.XRSettings.eyeTextureWidth;
+        int h = UnityEngine.XR.XRSettings.eyeTextureHeight;
+        if (w < 2 || h < 2)
+        {
+            w = Screen.width;
+            h = Screen.height;
+            viewport = 1f;
+        }
+        pxW = w * viewport;
+        pxH = h * viewport;
+        return pxW >= 2f && pxH >= 2f;
+    }
+
+    private static float PixelDistance(Vector3 a, Vector3 b, float eyePxW, float eyePxH)
+    {
+        float dx = (b.x - a.x) * eyePxW;
+        float dy = (b.y - a.y) * eyePxH;
+        return Mathf.Sqrt(dx * dx + dy * dy);
+    }
+
+    /// <summary>
+    /// THE LINE THAT DECIDES THE BUTTON-ICON QUESTION WITH NUMBERS. It carries, on one line, the
+    /// comparison COUNT, the LARGEST value and the THRESHOLD — so "never ran", "ran and found
+    /// nothing" and "found something" can never look alike.
+    ///
+    /// <para>HOW TO READ IT, in the order the numbers settle the question:</para>
+    /// <list type="number">
+    ///   <item><b>measured 0 of N caps</b> — the instrument RAN but nothing was projectable: the
+    ///   rail is off screen, behind the eye, or under a pixel. It is not a silent scan; the cap
+    ///   count on the same line says how many existed.</item>
+    ///   <item><b>mips=1 and NOT BAKED on the worst cap</b> — the swap did not happen for that
+    ///   sprite. Either [WorldUI] PanelMipBake is off, or the shared cache REFUSED it (a rotated or
+    ///   tight-packed atlas placement, or the VRAM ceiling), and the MIP BAKE / MIP BAKE SKIP lines
+    ///   above name which.</item>
+    ///   <item><b>MIP-BAKED with the minification still high</b> — this is the WORKING state, not a
+    ///   failure. The number says how far the symbol is minified; the mip chain plus aniso is what
+    ///   makes that safe. Only if he still reports shimmer at this state is the cause something
+    ///   else, and then the next lever is the symbol's authored size on the cap
+    ///   (<c>IconFraction</c>), not another filter.</item>
+    ///   <item><b>deferred &gt; 0 persistently</b> — the per-frame first-ask cap, not the seam, is
+    ///   the bottleneck; raise <see cref="MaxIconBakesPerFrame"/> only if the Perf SPIKE lines show
+    ///   no new hitch.</item>
+    /// </list>
+    /// </summary>
+    private void LogIconSampling()
+    {
+        VRLog.Info(Scope,
+            $"MAP BUTTON ICON SAMPLING: {_measuredIcons} of {_caps.Count} cap symbol(s) measured, "
+            + $"{_underSampledIcons} at or above the {SuspectMinification:F2}x threshold; WORST "
+            + $"{_worstMinification:F2}x — "
+            + (_worstIconWhat.Length > 0 ? _worstIconWhat : "nothing measurable this tick (the rail is "
+                                                            + "off screen or behind the eye)")
+            + $". OF THE MEASURED: {_bakedIcons} sample a MIP-BAKED trilinear/aniso copy, "
+            + $"{_miplessIcons} are still drawn from a MIPLESS game texture; {_deferredBakes} bake(s) "
+            + $"deferred so far by the {MaxIconBakesPerFrame}-first-ask/frame cap (a deferred cap shows "
+            + "the game's ORIGINAL sprite that frame — aliased but on time, never blank — and is "
+            + "upgraded on the next frame). "
+            + "THE QUANTITY IS source texels per rendered pixel, max of the two axes, through the LEFT "
+            + "eye's projection against the real per-eye target — the SAME quantity MAP ICON SAMPLING "
+            + "and PANEL SAMPLING report, so the three are directly comparable. The texel count is the "
+            + "SPRITE'S OWN RECT, not the atlas it lives on; both are printed. "
+            + "WHY A BAKE AND NOT THE WINDOW SUPERSAMPLE: a cap symbol is a world-space SpriteRenderer "
+            + "quad textured straight from the game's uGUI art, not a canvas rendered into a target — "
+            + "raising a render resolution against a MIPLESS source only drops more source texels. "
+            + "ANISO IS THE TERM THAT MATTERS MOST HERE: these caps lie FLAT on the table "
+            + $"({CapTiltDegrees:F0}° tilt), so they are always read at a grazing angle, which is "
+            + "exactly the case trilinear alone cannot serve. "
+            + "Bake budget now " + Cards.CardFaceMipBake.BudgetSummary + ".");
     }
 
     // ---- hover, reference-counted across the two hands and the beam ---------------------------

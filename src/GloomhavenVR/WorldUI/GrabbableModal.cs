@@ -306,6 +306,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         Transform host = _panel.HostGo.transform;
         SyncHostToFrame(host, factor, metersPerPixel, worldScale);
+        // POSE-GAP INSTRUMENT (see LateSyncHost): remember what UPDATE published, so the LateUpdate
+        // re-sync can say how far the window moved in between — i.e. how stale the pose is for every
+        // consumer that samples it during Update.
+        _updatePos = host.position;
+        _updatePosValid = true;
 
         // DIAG SPAM FIX: while the host is being carried/moved, its position changes every
         // frame, so CanvasConversion's change-gated MODAL DIAG snapshot (host pos rounded to
@@ -358,8 +363,37 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             return;
         float factor = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
-        SyncHostToFrame(_panel.HostGo.transform, factor, metersPerPixel, _spawnWorldScale);
+        Transform host = _panel.HostGo.transform;
+
+        // POSE-GAP INSTRUMENT (ModBuild 199). The re-sync above exists because the frame can move
+        // AFTER the module's Update. This measures how much it actually does, in the window's OWN
+        // AUTHORED PIXELS — which is the unit the complaint is in: a gap of N px means every consumer
+        // that sampled the host pose during Update (PanelSupersample.Tick runs at the end of
+        // CanvasConversion.Tick, in Update) is working from a pose N authored pixels behind what the
+        // eye will be shown this frame. Still windows read 0 by construction; only a drag can move
+        // the needle, which is exactly the interval under suspicion. Two floats and a subtract.
+        float unit = metersPerPixel * _spawnWorldScale * _extraScale * factor;
+        if (_updatePosValid && unit > 1e-9f)
+        {
+            float gapPx = Vector3.Distance(host.position, _updatePos) / unit;
+            _panel.PoseGapSamples++;
+            _panel.PoseGapSumPx += gapPx;
+            if (gapPx > _panel.PoseGapWorstPx)
+                _panel.PoseGapWorstPx = gapPx;
+            if (gapPx > PoseGapThresholdPx)
+                _panel.PoseGapOverOnePx++;
+        }
+        _updatePosValid = false;
+
+        SyncHostToFrame(host, factor, metersPerPixel, _spawnWorldScale);
     }
+
+    /// <summary>One authored window pixel — the smallest gap that can move a rendered texel.</summary>
+    internal const float PoseGapThresholdPx = 1f;
+
+    // POSE-GAP INSTRUMENT state: the host position Update published this frame.
+    private Vector3 _updatePos;
+    private bool _updatePosValid;
 
     /// <summary>
     /// Mod-owned holder component whose ONLY job is the LateUpdate host re-sync (see
@@ -378,40 +412,27 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// snapshot fires at most ~1/s per panel WHILE the host pose is actually changing (a
     /// carry/laser-drag/recall); a static host keeps Diagnostic permanently ON, so every
     /// state CHANGE (open/close/adopt, canvas/order flips, the settle line after a drag
-    /// ends) still logs immediately and unthrottled. Diagnostic also gates the per-frame
-    /// adopted-sorting re-assert in CanvasConversion — while a panel is mid-drag that guard
-    /// runs at the throttle cadence instead, which the 30-frame adoption sweep already
-    /// backstops (pre-guard behavior, only ever during active movement of THIS panel).
+    /// ends) still logs immediately and unthrottled.
     ///
-    /// <para><b>ModBuild 198 — A SECOND, INDEPENDENT CAUSE OF "THE FLICKER IS BACK WHILE THE WINDOW
-    /// IS IN MY HAND" LIVES IN THIS METHOD, AND IT IS NOT FIXED HERE. READ THIS BEFORE THE NEXT
-    /// ROUND.</b> <c>ConvertedPanel.Diagnostic</c> is named for LOG VERBOSITY but
-    /// <c>CanvasConversion.4.Lifecycle.cs</c> uses it as a gate on REAL PER-FRAME WORK — three
-    /// separate pieces of it: <c>AdoptNestedCanvases</c> (its per-frame path, which otherwise falls
-    /// back to the 30-frame sweep cadence), <c>ReassertConversionFrame</c>, and above all
-    /// <c>ReassertAdoptedSorting</c>, whose own comment three lines above the call site reads
-    /// <i>"FLICKER FIX (modal hosts only) ... Re-assert every frame for the (few) modal hosts"</i>.
-    /// Setting <c>Diagnostic = false</c> below therefore switches that every-frame flicker fix down to
-    /// roughly 1 Hz <b>for exactly as long as the player is holding the window</b> — which is
-    /// precisely the condition the user reports the flicker under. The paragraph above knew about the
-    /// coupling and judged it backstopped; that judgement covers the LAYER half (and today the layer
-    /// half is covered outright, because <c>PanelSupersample</c> owns these panels' layers and sweeps
-    /// them on its own motion cadence) but NOT the SORTING half, which has no other writer.</para>
+    /// <para><b>ModBuild 199 — THE THROTTLE NOW OWNS THE LOG AND NOTHING ELSE.</b> Until ModBuild 198
+    /// <c>ConvertedPanel.Diagnostic</c> was named for LOG VERBOSITY but was ALSO the gate
+    /// <c>CanvasConversion.4.Lifecycle.cs</c> used for three pieces of REAL PER-FRAME WORK: the
+    /// every-frame <c>AdoptNestedCanvases</c> path, <c>ReassertConversionFrame</c>, and
+    /// <c>ReassertAdoptedSorting</c>, whose own comment at the call site reads <i>"FLICKER FIX (modal
+    /// hosts only) ... Re-assert every frame for the (few) modal hosts"</i>. Clearing the flag below
+    /// therefore ran that every-frame fix at roughly 1 Hz <b>for exactly as long as the player held
+    /// the window</b> — the one interval the user reports the flicker under. The two concerns are
+    /// separate fields now (<c>ConvertedPanel.PerFrameGuards</c> is the work gate and nothing
+    /// throttles it), so a log throttle can never again throttle a fix. This method may turn the log
+    /// off as aggressively as it likes.</para>
     ///
-    /// <para><b>WHY IT WAS NOT CHANGED IN ModBuild 198, so the next round does not re-derive it.</b>
-    /// (1) The fix needs a field that separates "log this panel" from "keep this panel's per-frame
-    /// guards running" — i.e. a new flag on <c>ConvertedPanel</c> and a change at the four
-    /// <c>Lifecycle</c> call sites, both of which are another lane's files. (2) Simply keeping
-    /// <c>Diagnostic</c> true during a drag is NOT the fix: it restores hundreds of MODAL DIAG lines
-    /// per drag AND puts <c>ReassertAdoptedSorting</c> + <c>ReassertConversionFrame</c> back on every
-    /// frame of a drag, and the ModBuild 197 hardware log measures those drags already dropping 40-50 %
-    /// of their frames (e.g. "14 of 24", "9 of 19", "8 of 18" over the 16.67 ms threshold) — so the
-    /// naive version pays for one flicker cause with more judder. (3) ModBuild 198's measured primary
-    /// cause is elsewhere and is fixed there (see <c>PanelSupersample.BandLimitFactor</c>): the
-    /// displayed image was being resampled at ~1 RT texel per rendered eye pixel, whose sub-texel
-    /// phase is constant while still and sweeps while carried. If the user still reports the flicker
-    /// after that fix, THIS is the next thing to take, and it wants a <c>ConvertedPanel</c> field
-    /// rather than a change here.</para>
+    /// <para><b>AND THE COUPLING IS NOT THE SAME CLAIM AS THE CAUSE.</b> The guard can only have
+    /// caused a visible defect if it CORRECTS something while a window moves.
+    /// <c>CanvasConversion.TickGuardBudget</c> counts exactly that and prints the MOVING correction
+    /// rate; the ModBuild 198 hardware log already suggests the answer is "almost never" (the
+    /// overrideSorting re-clear branch fired 3 times in a whole session, all on one canvas, which
+    /// then conceded permanently and never entered that branch again). Read the MODAL GUARD BUDGET
+    /// line before building anything else on this.</para>
     /// </summary>
     private void ThrottleDiagWhileMoving(Transform host)
     {
@@ -422,6 +443,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                       || Quaternion.Angle(host.rotation, _diagLastRot) > 0.5f;
         _diagLastPos = host.position;
         _diagLastRot = host.rotation;
+
+        // Publish the motion state for the guard-budget instrument. This is the SAME epsilon the log
+        // throttle uses, so "MOVING" in the budget line means exactly what "throttled" used to mean —
+        // otherwise the instrument would be measuring a different interval than the one under
+        // suspicion. HELD is narrower and is reported alongside: a window can move without a hand on
+        // it (a recall, a presence-regain refloat), and only the HELD case is the user's complaint.
+        _panel.GuardHostMoving = moving;
+        _panel.GuardHostHeld = _handle != null && _handle.IsGrabbed;
 
         if (!moving)
         {
@@ -436,6 +465,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
         else
         {
+            // LOG ONLY. ConvertedPanel.PerFrameGuards stays true through this write (Diagnostic's
+            // setter latches the work gate on and never off), so the per-frame modal maintenance
+            // keeps running at full rate for the whole drag.
             _panel.Diagnostic = false; // swallow the per-frame pos-churn lines
         }
     }

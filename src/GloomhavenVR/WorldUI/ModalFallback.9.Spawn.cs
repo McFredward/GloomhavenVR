@@ -191,9 +191,10 @@ internal static partial class ModalFallback
     /// Returns the human-readable clamp reason, or null when the pose passed through unchanged.
     /// </summary>
     private static string? ClampSpawnPose(Vector3 headPos, Vector3 headForward, ref Vector3 pos,
-        float scale, Vector2 half, float maxPitchDeg)
+        float scale, Vector2 half, float maxPitchDeg, out HeightDecision height)
     {
         string? reason = null;
+        height = HeightDecision.None(headPos.y, pos.y, half.y);
 
         // 1. Steep-gaze pitch clamp (placement direction, not the panel's own rotation).
         //    The limit is per-family now: level-message windows follow the gaze deeper
@@ -227,22 +228,91 @@ internal static partial class ModalFallback
         //    board's TOP edge — not just its pivot the plane — so a tall window is never buried in
         //    the board. Raise the CENTER to boardTop + half-height; cap near eye level so it never
         //    rises overhead (readability wins in the degenerate table-above-head case).
+        //
+        //    THE REASON STRING NAMES THE TERM THAT ACTUALLY DECIDED. Until ModBuild 199 it printed
+        //    the board-top formula and appended ", capped near eye level" when the cap had won — so
+        //    the sentence quoted an expression it had NOT evaluated, and the ModBuild 198 log
+        //    contains five lines stating "board plane 0.00 + top-clear 0.30 m × scale 198.12 +
+        //    half-height 55.72" (= 115.16) beside the result −134.74. Nobody could check that line
+        //    against its own arithmetic, which is why a window at ankle height shipped. Every
+        //    candidate is now printed with its value and the winner is named; see HeightDecision.
         if (TryGetBoardPlaneY(out float boardY))
         {
-            float floorY = boardY + BoardTopClearanceMeters * scale + half.y;
-            float eyeCap = headPos.y + MaxAboveEyeMeters * scale;
-            float minY = Mathf.Min(floorY, eyeCap); // readability wins in the degenerate case
-            if (pos.y < minY)
+            float boardTopFloorY = boardY + BoardTopClearanceMeters * scale + half.y;
+            float eyeCapY = headPos.y + MaxAboveEyeMeters * scale;
+            bool eyeCapWon = eyeCapY < boardTopFloorY; // readability wins in the degenerate case
+            float targetY = eyeCapWon ? eyeCapY : boardTopFloorY;
+            bool raised = pos.y < targetY;
+            height = new HeightDecision
             {
-                string floor = $"raised y {pos.y:F2} → {minY:F2} so its bottom clears the board top " +
-                               $"(board plane {boardY:F2} + top-clear {BoardTopClearanceMeters:F2} m × scale " +
-                               $"{scale:F2} + half-height {half.y:F2}" +
-                               (minY < floorY ? ", capped near eye level" : "") + ")";
+                Have = true,
+                EyeY = headPos.y,
+                BoardY = boardY,
+                HalfHeight = half.y,
+                BoardTopFloorY = boardTopFloorY,
+                EyeCapY = eyeCapY,
+                TargetY = targetY,
+                EyeCapWon = eyeCapWon,
+                Raised = raised,
+                FromY = pos.y,
+            };
+            if (raised)
+            {
+                string floor = eyeCapWon
+                    ? $"raised y {pos.y:F2} → {targetY:F2} — THE EYE CAP DECIDED IT: eye level "
+                      + $"{headPos.y:F2} + {MaxAboveEyeMeters:F2} m × scale {scale:F2} = {eyeCapY:F2}, "
+                      + $"which is BELOW the board-top floor of {boardTopFloorY:F2} (board plane "
+                      + $"{boardY:F2} + top-clear {BoardTopClearanceMeters:F2} m × scale {scale:F2} + "
+                      + $"half-height {half.y:F2}), so the window is readable rather than fully clear "
+                      + "of the board"
+                    : $"raised y {pos.y:F2} → {targetY:F2} — THE BOARD-TOP FLOOR DECIDED IT: board "
+                      + $"plane {boardY:F2} + top-clear {BoardTopClearanceMeters:F2} m × scale "
+                      + $"{scale:F2} + half-height {half.y:F2} = {boardTopFloorY:F2}, which is below "
+                      + $"the eye cap of {eyeCapY:F2}, so its bottom clears the board top";
                 reason = reason == null ? floor : $"{reason}; {floor}";
-                pos.y = minY;
+                pos.y = targetY;
             }
         }
         return reason;
+    }
+
+    /// <summary>
+    /// EVERY TERM THE SPAWN HEIGHT WAS DECIDED FROM, so the MODAL SPAWN CLAMP line can be checked
+    /// against the room rather than only against itself. Both candidates are carried whether or not
+    /// they fired, together with the eye level and the board plane they were built from — the "print
+    /// the baseline too" rule, applied to the one number the user photographs when it is wrong.
+    /// </summary>
+    private struct HeightDecision
+    {
+        /// <summary>False when no board/table plane was found, i.e. no height clamp ran at all.</summary>
+        public bool Have;
+
+        /// <summary>The eye level the clamp measured from, world units. THE FIELD THE ModBuild 198
+        /// LINE DID NOT PRINT, and the one that was wrong.</summary>
+        public float EyeY;
+
+        public float BoardY;
+        public float HalfHeight;
+
+        /// <summary>Candidate 1 — the centre height at which the window's BOTTOM clears the board top.</summary>
+        public float BoardTopFloorY;
+
+        /// <summary>Candidate 2 — eye level plus <see cref="MaxAboveEyeMeters"/>, the readability cap.</summary>
+        public float EyeCapY;
+
+        /// <summary>The lower of the two, i.e. the floor the pose was actually held to.</summary>
+        public float TargetY;
+
+        /// <summary>Which candidate won — true = the eye cap, false = the board-top floor.</summary>
+        public bool EyeCapWon;
+
+        /// <summary>Whether the pose was below <see cref="TargetY"/> and therefore actually moved.</summary>
+        public bool Raised;
+
+        public float FromY;
+
+        internal static HeightDecision None(float eyeY, float fromY, float halfHeight) =>
+            new() { Have = false, EyeY = eyeY, FromY = fromY, HalfHeight = halfHeight };
     }
 
     // ---- SPAWN OVERLAP AVOIDANCE (user request A) ---------------------------------------------
@@ -568,6 +638,11 @@ internal static partial class ModalFallback
         /// so the replay can re-apply the hard cone clamp against the SAME angle the spawn claimed
         /// rather than re-deriving it from a registry that may have been narrowed since.</summary>
         public float ArcYawDeg;
+
+        /// <summary><see cref="HeadPos"/>'s HEIGHT was substituted at spawn because the head camera
+        /// carried no tracked XR pose (see <see cref="HeadEyeHeight"/>). Carried so the replay's log
+        /// line repeats the fact instead of presenting the replayed head as a fresh measurement.</summary>
+        public bool HeadSubstituted;
     }
 
     /// <summary>
@@ -617,6 +692,12 @@ internal static partial class ModalFallback
         string arcWhy = "";
         bool arcPlaced = false;   // holds a reservation → the reservation, not a box test, deconflicts it
         bool arcGoverned = false; // the map room's cone decided this placement
+        // Did this spawn have to substitute the player's eye height because the head camera carried
+        // no tracked pose? Stored on the anchor so a REPLAY reports it too — the replay uses the
+        // corrected head by construction (it replays HeadPos), and a log line that did not say so
+        // would look like a second, independent measurement agreeing with the first.
+        bool headSubstituted = false;
+        string headEyeNote = string.Empty;
         if (replay.HasValue)
         {
             // Replay: the placement inputs are frozen, only the geometry changed.
@@ -633,6 +714,11 @@ internal static partial class ModalFallback
             arcPlaced = arcSlot >= 0;
             arcGoverned = a.ArcGoverned;
             arcYawDeg = a.ArcYawDeg;
+            headSubstituted = a.HeadSubstituted;
+            if (headSubstituted)
+                headEyeNote = "HEAD HEIGHT WAS SUBSTITUTED AT SPAWN and this replay inherits that "
+                              + "same corrected head by construction — it is not a second, "
+                              + "independent measurement agreeing with the first";
             arcWhy = "replayed against the final fitted geometry — the ANGLE is unchanged";
             // AND THE RESERVED WIDTH IS RE-MEASURED, DOWNWARD ONLY. This call is the one moment the
             // window's FINAL fitted size exists while it is still render-hidden, and the claim it
@@ -658,6 +744,17 @@ internal static partial class ModalFallback
             Transform h = head.transform;
             headPos = h.position;
             fwd = h.forward;
+            // THE VERTICAL REFERENCE MUST COME FROM A HEAD, NOT FROM A CAMERA THAT HAPPENS TO BE
+            // CALLED ONE. ModBuild 198's report — "Alle Fenster spawnen jetzt UNTER dem Tisch",
+            // photograph Tischbeine.jpg — is this read: the map room converts its permanent windows
+            // during the map scene's LOAD, and for those frames the head camera still sits at the
+            // rig root with an untouched localPosition, which in the map rig IS the tracking floor.
+            // Every clamp below measures from headPos, so a head on the floor floors the whole
+            // placement; the eye cap then held the window 0.10 m above the FLOOR and the log line
+            // said "capped near eye level" while meaning ankle level. Correct the height (only the
+            // height — the horizontal position and the forward stay the camera's own) and SAY SO on
+            // this spawn's clamp line, so the substitution can never be silent.
+            headSubstituted = HeadEyeHeight.CorrectVerticalReference(head, ref headPos, out headEyeNote);
             // Placement follows the full gaze (so it lands where the player is looking, overlapping
             // the primary), with a small right+down stagger per stacked window. Level-message
             // windows (tutorial boxes/strips) float CLOSER for readability (user report 2026-08-02);
@@ -768,9 +865,11 @@ internal static partial class ModalFallback
             ArcSlot = arcSlot,
             ArcGoverned = arcGoverned,
             ArcYawDeg = arcYawDeg,
+            HeadSubstituted = headSubstituted,
         };
         float maxPitchDeg = levelMessage ? LevelMsgMaxSpawnPitchDeg : MaxSpawnPitchDeg;
-        string? clampReason = ClampSpawnPose(headPos, fwd, ref pos, scale, halfSize, maxPitchDeg);
+        string? clampReason = ClampSpawnPose(headPos, fwd, ref pos, scale, halfSize, maxPitchDeg,
+            out HeightDecision height);
 
         // User request A: never spawn INSIDE the control board or another open modal —
         // raise / swing laterally toward free space (spawn/refloat/recall only, never per
@@ -892,10 +991,41 @@ internal static partial class ModalFallback
 
         // Request B diagnostic: ONE line per spawn/refloat/recall (this method is never called
         // per frame) stating the clamp decision — original pose → clamped pose, reason.
-        bool haveBoard = TryGetBoardPlaneY(out float by);
-        // Board-top clearance actually applied: the CENTER floor that keeps the window BOTTOM above
-        // the board top (boardY + top-clear×scale + half-height), capped near eye level.
-        float boardTopFloorY = haveBoard ? by + BoardTopClearanceMeters * scale + halfSize.y : float.NaN;
+        //
+        // THE HEIGHT DECISION IS PRINTED IN FULL AND IN BOTH UNITS, and that is a ModBuild 199
+        // requirement rather than a nicety. The 198 line carried "boardPlaneY=0.00,
+        // boardTopClear=0.30m+halfH55.72 (window-bottom floorY=115.16, eyeCap +0.10m)" beside a
+        // result of −134.74: every term of the losing candidate, none of the winning one. It could
+        // not be checked against its own output, so five spawns at ankle height passed review. What
+        // follows prints the eye level, the board plane, the half-height, BOTH candidates, the
+        // winner and the result — each as a world y AND as real metres above the player's own
+        // tracking floor, which is the only frame in which "under the table" is a statement about
+        // the room. Recomputing nothing: every number comes off the HeightDecision the clamp filled.
+        bool haveFloor = HeadEyeHeight.TryTrackingFloorY(out float floorRefY);
+        float unitScale = scale; // `scale` is an out parameter and cannot be captured by the local function
+        string Wu(float y) => haveFloor && unitScale > 1e-4f
+            ? $"{y:F2} wu ({(y - floorRefY) / unitScale:F2} m)"
+            : $"{y:F2} wu";
+        string heightBlock = height.Have
+            ? " HEIGHT DECISION"
+              + (haveFloor
+                  ? $" (world units, and real metres above the tracking floor at y={floorRefY:F2}, "
+                    + $"scale {scale:F2})"
+                  : " (world units; no rig root, so no tracking floor to express metres against)")
+              + $": raw gaze y {Wu(rawPos.y)}"
+              + $" | y at the plane clamp {Wu(height.FromY)} (after any steep-gaze flatten)"
+              + $" | eye level {Wu(height.EyeY)}"
+              + $" | board plane {Wu(height.BoardY)}"
+              + $" | half-height {height.HalfHeight:F2} wu"
+              + $" | CANDIDATE board-top floor = board plane + {BoardTopClearanceMeters:F2} m × scale + "
+              + $"half-height = {Wu(height.BoardTopFloorY)}"
+              + $" | CANDIDATE eye cap = eye level + {MaxAboveEyeMeters:F2} m × scale = {Wu(height.EyeCapY)}"
+              + $" | WINNER {(height.EyeCapWon ? "EYE CAP" : "BOARD-TOP FLOOR")} (the lower of the two) "
+              + $"⇒ target {Wu(height.TargetY)}"
+              + $" | {(height.Raised ? "RAISED to the target" : "NOT raised (the raw pose was already at or above it)")}"
+              + $" ⇒ RESULT {Wu(pos.y)}."
+            : $" HEIGHT DECISION: no board/table plane in reach, so no height clamp ran — the pose "
+              + $"kept its raw height, RESULT {Wu(pos.y)}.";
         VRLog.Info("WorldUI", "MODAL SPAWN CLAMP" +
                               (replay.HasValue ? " (RE-PLACE at the FINAL fitted geometry)" : "") + ": pose " +
                               $"({rawPos.x:F2},{rawPos.y:F2},{rawPos.z:F2}) → " +
@@ -922,10 +1052,11 @@ internal static partial class ModalFallback
                               (mapConeNote == null
                                   ? ""
                                   : $" MAP-CONE: {mapConeNote}.") +
-                              $" boardPlaneY={(haveBoard ? by.ToString("F2") : "n/a")}, " +
-                              $"boardTopClear={BoardTopClearanceMeters:F2}m+halfH{halfSize.y:F2} " +
-                              $"(window-bottom floorY={(haveBoard ? boardTopFloorY.ToString("F2") : "n/a")}, " +
-                              $"eyeCap +{MaxAboveEyeMeters:F2}m, maxPitch {maxPitchDeg:F0}°), " +
+                              // The head this whole line measured from — stated whenever it was not
+                              // the one the headset reported, and silent otherwise.
+                              (headSubstituted ? $" {headEyeNote}." : "") +
+                              heightBlock +
+                              $" maxPitch {maxPitchDeg:F0}°, " +
                               $"dist={distanceMeters:F2}m{(levelMessage ? " (level-message)" : "")}, " +
                               $"scale={scale:F2}, stagger={staggerIndex}.");
 

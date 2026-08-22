@@ -1202,22 +1202,66 @@ internal static partial class CanvasConversion
     // each side, so a second window will overlap it at this reading distance. That was already true
     // whenever a tab was open; it is now true always.
     //
-    // WHAT "THE SUB-VIEWS ADAPT" MEANS MECHANICALLY, AND WHAT IT COSTS. Content that does not fit the
-    // fixed host is SCALED DOWN into it (a uniform localScale on the conversion target), not clipped
-    // and not left to spill. Only the two full-screen sub-views ever reach that branch: they land at
-    // ~0.58, i.e. ~0.51 of authored size once the panel scale is applied — which is what they are
-    // drawn at TODAY (0.521 at a 1920 px host), so those two views lose nothing and the other five
-    // states gain back the 1.68x they used to lose whenever a wide tab was open. Scaling is chosen
-    // over letting them spill because the perks view's own 512 px content column would otherwise
-    // render ~76 px OUTSIDE the window frame, and over clipping because clipping hides content.
+    // WHAT "THE SUB-VIEWS ADAPT" MEANS MECHANICALLY — AND THE ONE-LEVEL-DOWN MISTAKE ModBuild 198
+    // SHIPPED. 198 scaled the whole converted subtree (a uniform localScale on the CONVERSION TARGET)
+    // whenever the measured union did not fit the pinned host. That branch worked exactly as
+    // designed: the host really did stay at 1143x1080 for the whole session (its own log: 5 APPLIED,
+    // 22 STABLE, one host-size write). And the user reported the same complaint a third time, because
+    // the conversion target's subtree CONTAINS THE CHARACTER COLUMN. Opening perks wrote
+    // `content scale 1.000 → 0.595`; closing it wrote `0.595 → 1.000`. The column the user was
+    // looking at shrank to 59.5 % and jumped back — from where he sits, the window scaled into
+    // another size. Pinning the frame while rescaling everything inside it does not satisfy "die
+    // Größe ändert sich nicht"; it moves the change one level down. It also moved the column
+    // SIDEWAYS: the union's left-edge pin re-derived a ±400 px target shift on every tab change
+    // (log: +400, -400, +401, -401), because a scaled union has a different left edge.
     //
-    // WHY THE ModBuild 196 CONVERGED GUARD IS NOT REOPENED. This branch never calls
-    // <see cref="ApplyFitConverging"/> and never calls <see cref="FlushPendingLayout"/> — the two
-    // things the perpetual re-fit loop was made of. Its settled state is a pure comparison: the host
-    // already IS the fixed size, the content already sits where it is put, and the content scale is
-    // already the one the measurement asks for, so the pass returns having written nothing and
-    // measured nothing it could disturb. The guard's own code and every other window's path are
-    // untouched.
+    // ModBuild 199 SPLITS THE SUBTREE INSTEAD, which is what the user asked for in his own words
+    // ("stattdessen sollen sich die SUBMENUS an eine fixe Größe anpassen" — the frame stays put and
+    // what was already on screen stays the size it was; only the newly-opened view adapts):
+    //
+    //   THE BASE — everything under the target that is NOT an open sub-view, i.e. the character
+    //   column, the party name and the gold row — is NEVER SCALED and its bottom-left corner is
+    //   PINNED ONCE and only ever re-asserted onto that same corner. Not re-derived, not re-centred,
+    //   not recomputed from a union that a sub-view can change. That is a guarantee, not a tendency:
+    //   there is no expression anywhere in the fixed-fit branch that can make the column a different
+    //   size, and the FIXED FIT line prints the column's own rendered size and corner next to the
+    //   ones it was pinned at so a hardware log states it rather than implying it.
+    //
+    //   THE OPEN SUB-VIEW is scaled and seated on its OWN root (the GameObject NewPartyDisplayUI
+    //   serialises), against the frame's RIGHT edge. One rule, no modes: a view that fits in the
+    //   empty space beside the column lands there untouched, a view that is too wide overlaps the
+    //   column by exactly the amount it is too wide — which is what the flat game does with these
+    //   views anyway. Measured off the 196/198 logs, against a 1143 px frame with 12 px margins:
+    //   enhancement cards 388 px and equipment 532 px and ability cards 738 px and equipment +
+    //   inventory 808 px all seat beside the column at scale 1.000 (they used to be drawn at 0.595
+    //   whenever a wide tab had been open); perks and the character selector are 1620 px roots and
+    //   seat at 1119/1620 = 0.69, which is LARGER than the 0.595 they are drawn at today.
+    //
+    // THE COST, STATED. The two full-screen views cover the column while they are open — deliberately,
+    // and the log prints how many px of it they cover. The alternative was to fit them into the ~800
+    // px left of the column, which is 0.49 and illegible, and the alternative to THAT was to let them
+    // spill, which crops content. Scaling the sub-view rather than clipping it is the user's own
+    // instruction. Everything else in the window keeps full size at all times.
+    //
+    // WHY THE ModBuild 196 CONVERGED GUARD IS NOT REOPENED, AND STILL IS NOT BY THE 199 SPLIT. This
+    // branch never calls <see cref="ApplyFitConverging"/> and never calls
+    // <see cref="FlushPendingLayout"/> — the two things the perpetual re-fit loop was made of, because
+    // the loop was made of a forced LayoutRebuilder pass that the game's own LayoutGroups then answered
+    // with a fresh layout, which the next fit measured, which forced another rebuild. Nothing in the
+    // 199 split adds one: the extra work it does is a second PASS OVER GRAPHICS (world-corner reads,
+    // no writes at all — see MeasureFixedFitParts, which deliberately does not go through
+    // TryMeasureContent), and its three writes are a host sizeDelta, a target anchoredPosition and a
+    // sub-view localScale/anchoredPosition. None of those is a layout rebuild. Its settled state is a
+    // pure comparison: the host already IS the fixed size, the column is already on its pinned corner,
+    // and the open sub-view is already at the scale and seat the measurement asks for — so the pass
+    // returns having written nothing and disturbed nothing. The guard's own code and every other
+    // window's path are untouched.
+    //
+    // The ONE way the loop could come back is a sub-view root that sits inside a LayoutGroup, which
+    // would re-drive the anchoredPosition we write and make us write it again ~2.5 times a second.
+    // That is why the fit counts foreign overwrites of its own pose exactly (not statistically) and
+    // CONCEDES after FixedFitMaxReAsserts of them rather than fight — see the concede branch. Losing
+    // the sub-view placement costs a sub-view that spills; winning a write war costs stereo rivalry.
 
     /// <summary>
     /// The fixed host WIDTH (uGUI px) of a fixed-size window: the widest host that still renders its
@@ -1247,6 +1291,35 @@ internal static partial class CanvasConversion
     private const float FixedFitShiftEpsilonPx = 1f;
 
     /// <summary>
+    /// FULL-FRAME BACKDROP PLATE — a single graphic that spans essentially the whole authored window
+    /// frame. The perks sub-view's 1620x1080 <c>Blur</c> is one; a content column never is.
+    ///
+    /// <para><b>THIS DECIDES NOTHING. IT IS PRINTED, NOT APPLIED — and that is the answer to the
+    /// question ModBuild 198 raised and deferred.</b> The proposal was to leave such plates OUT of
+    /// the measured need, on the observation that the perks view's 1620 px is mostly plate around a
+    /// ~512 px content column, so the two "1920 px" sub-views would drop to something that fits. The
+    /// measurement is right and the conclusion does not follow: excluding the plate from the MEASURE
+    /// does not stop the plate being RENDERED. Fit the 512 px column at scale 1 and the 1620 px plate
+    /// is still drawn at 1620 px inside a 1143 px window — and this panel's supersample capture
+    /// deliberately GROWS its frame to cover content drawn outside the host rect (the ModBuild 198
+    /// log: "CAPTURE FRAME 1727x1453, GROWN by 584x373 px to cover content drawn outside the host
+    /// frame"), so the excess is not quietly clipped: a dim slab would hang ~240 px past each side of
+    /// the window. That trades a legibility complaint for a "there is a grey rectangle around my
+    /// window" complaint, which is not an improvement, and it would have shipped as one.</para>
+    ///
+    /// <para>Making it work needs the plate SCALED to the frame while its content column is scaled
+    /// separately — i.e. knowing, per sub-view, which child is backdrop and which is content. That is
+    /// prefab data, it differs for all six views, and the one measurement anybody has of it is a
+    /// single top-contributor line. So the plate census is MEASURED AND LOGGED this round instead of
+    /// acted on: the next round gets the real backdrop-versus-content split for every sub-view the
+    /// user opens, from hardware, rather than another inference. The second full-screen view settles
+    /// it on its own either way — the character selector's 1477 px is a <c>Character3D/RawImage</c>,
+    /// which is content, so plate exclusion could never have fixed that one.</para>
+    /// </summary>
+    private const float FixedFitPlateWidthFraction = 0.80f;
+    private const float FixedFitPlateHeightFraction = 0.95f;
+
+    /// <summary>
     /// Consecutive fit checks a NEW layout candidate (content scale + alignment shift) must repeat
     /// before it is written. The fit samples every <see cref="FitCheckIntervalFrames"/> frames
     /// (~0.4 s), so this is ~0.8 s — and it is what keeps the equipment view's slide-in animation
@@ -1256,6 +1329,14 @@ internal static partial class CanvasConversion
     /// second sample. The FIRST fit of a window's life is exempt (it must land before the reveal).
     /// </summary>
     private const int FixedFitSettleChecks = 2;
+
+    /// <summary>
+    /// How many times the fit may find its own sub-view pose overwritten before it stops writing it.
+    /// The count only rises when the SOLUTION was unchanged and the pose was not, which a tab change
+    /// cannot produce — so this is a fight counter, not a churn counter, and 8 of them is several
+    /// seconds of one. See the concede branch in <see cref="ApplyFixedFitCore"/>.
+    /// </summary>
+    private const int FixedFitMaxReAsserts = 8;
 
     /// <summary>How often a settled fixed-size window restates its counters, so a hardware log can
     /// tell "never ran" (no line at all) from "stable" from "still resizing".</summary>
@@ -1584,8 +1665,62 @@ internal static partial class CanvasConversion
             FixedFitGateLogs.Remove(dead[i]);
     }
 
-    /// <summary>Per-panel state of the fixed-size fit — the captured size, the content scale we
-    /// ourselves wrote, the settle gate, and the counters every log line carries.</summary>
+    /// <summary>
+    /// ONE MEMBER OF THE ACTIVE SUB-VIEW GROUP — a game sub-view root we place, plus the pose it had
+    /// before we ever touched it. Everything we write is written ABSOLUTELY (home + our offset), never
+    /// incrementally, so a pass that finds the member somewhere else corrects it exactly instead of
+    /// accumulating; and <see cref="ReleaseFixedFit"/> can put it back exactly.
+    /// </summary>
+    private sealed class SubViewFit
+    {
+        /// <summary>The sub-view's own root (the GameObject its <c>UIWindow</c>/display component
+        /// sits on). Unity-null once the game destroys it → dropped.</summary>
+        internal Transform? View;
+
+        /// <summary>The pose the sub-view has when we are not placing it. RE-READ every pass until
+        /// the first write: a show animation (<c>LeanTweenGuiAnimationSettingScale/Move</c> can drive
+        /// a serialized <c>RectTransform</c> target's <c>localScale</c>/<c>anchoredPosition</c>) is
+        /// still in flight when we FIRST see the sub-view, and the settle gate holds our first write
+        /// off for ~0.8 s — so by the time it freezes, the home is the settled one.</summary>
+        internal Vector3 HomeScale = Vector3.one;
+        internal Vector2 HomeAnchored;
+        internal bool Written;
+
+        // ---- live, refilled by every measure pass -------------------------------------------
+        internal bool Visible;
+        internal Vector2 Min, Max;
+        internal int Graphics;
+
+        /// <summary>Host-local position of the member's own origin (its pivot).</summary>
+        internal Vector2 Pivot;
+
+        /// <summary>Scale factor and host-local offset currently ON the member relative to its home —
+        /// read back off the transform, not remembered, so somebody else's write is visible.</summary>
+        internal float Applied = 1f;
+        internal Vector2 AppliedShift;
+
+        /// <summary>Host-local units per parent-local unit, for converting a wanted offset into an
+        /// <c>anchoredPosition</c>.</summary>
+        internal float HostPerParent = 1f;
+
+        // ---- solved by SolveSubViewPlacement, in host-local px --------------------------------
+
+        /// <summary>The member's geometry with OUR scale and offset undone — what it would measure
+        /// if this fit had never touched it.</summary>
+        internal Vector2 NaturalMin, NaturalMax, NaturalPivot;
+
+        /// <summary>The host-local offset from the member's natural pose that the group transform
+        /// asks for. Written as <c>HomeAnchored + WantShift / HostPerParent</c>.</summary>
+        internal Vector2 WantShift;
+
+        /// <summary>The pose we last WROTE for this member. Finding the member somewhere else while
+        /// this is unchanged is a foreign write and nothing else — see the concede branch.</summary>
+        internal float WrittenScale = 1f;
+        internal Vector2 WrittenShift;
+    }
+
+    /// <summary>Per-panel state of the fixed-size fit — the captured size, the pinned column corner,
+    /// the sub-view group we place, the settle gate, and the counters every log line carries.</summary>
     private sealed class FixedFitState
     {
         /// <summary>Host GameObject this entry belongs to (Unity-null once destroyed → pruned).</summary>
@@ -1597,10 +1732,26 @@ internal static partial class CanvasConversion
 
         internal bool SizeCaptured;
 
-        /// <summary>The uniform scale WE wrote on the conversion target (1 = untouched). Read by
-        /// <see cref="ReassertConversionFrame"/> so the frame guard maintains this value instead of
-        /// fighting it back to 1 every frame.</summary>
-        internal float ContentScale = 1f;
+        /// <summary>THE COLUMN'S PIN: the host-local BOTTOM-LEFT corner the base union (everything
+        /// that is not an open sub-view — in practice the character column, the party name and the
+        /// gold row) is held at, captured once and then only ever re-asserted. The bottom-left corner
+        /// rather than the centre on purpose: a base that grows a row at the top must not slide the
+        /// whole column downward to keep a centre.</summary>
+        internal Vector2 BasePin;
+        internal bool BasePinned;
+        internal Vector2 BaseSizeAtPin;
+
+        // ---- live base reading, refilled by every measure pass (the proof line) ---------------
+        internal bool BaseVisible;
+        internal Vector2 BaseMin, BaseMax;
+        internal int BaseGraphics;
+
+        /// <summary>The sub-views the game currently has open inside this window.</summary>
+        internal readonly List<SubViewFit> Views = new(4);
+
+        /// <summary>Group scale and group alignment we last wrote (host-local px).</summary>
+        internal float ViewScale = 1f;
+        internal Vector2 ViewShift;
 
         /// <summary>Candidate of the previous check, and how many consecutive checks it has held —
         /// the settle gate (see <see cref="FixedFitSettleChecks"/>).</summary>
@@ -1608,12 +1759,30 @@ internal static partial class CanvasConversion
         internal Vector2 PendingShift;
         internal int PendingChecks;
 
+        // ---- last sub-view report, for the log ------------------------------------------------
+        internal string ViewName = "none";
+        internal Vector2 ViewNeed;
+        internal Vector2 ViewContentNeed;
+        internal int ViewPlates;
+        internal string PlateName = string.Empty;
+        internal Vector2 PlateSize;
+        internal float ViewOverlapPx;
+
         internal int Comparisons;
         internal int Deviations;
         internal int Deferred;
         internal int HostWrites;
+        internal int BaseWrites;
         internal int ScaleWrites;
         internal int Shifts;
+
+        /// <summary>How often a pass found OUR sub-view pose overwritten by somebody else — the
+        /// write-war counter. A number that climbs every pass means the game is animating the root we
+        /// place and the next round must place something else instead.</summary>
+        internal int ReAsserts;
+
+        /// <summary>The write war has been conceded, and said so once.</summary>
+        internal bool ConcededLogged;
 
         internal float LastLogTime = float.NegativeInfinity;
     }
@@ -1654,29 +1823,12 @@ internal static partial class CanvasConversion
     }
 
     /// <summary>
-    /// The uniform scale the fixed-size fit has DELIBERATELY written on this panel's conversion
-    /// target (1 for every other panel, and for a fixed-size panel whose content fits). It exists so
-    /// <see cref="ReassertConversionFrame"/> — which runs every frame for modal hosts and whose
-    /// whole job is to undo a scale the GAME drove (ModBuild 23: the target found at 0.14) — can
-    /// tell our own scale from that drift instead of fighting it back to 1 sixty times a second.
-    /// Looked up rather than stored on the panel because this lane does not own ConvertedPanel.cs.
-    /// </summary>
-    private static float FitContentScale(ConvertedPanel panel)
-    {
-        if (panel.HostGo == null)
-            return 1f;
-        return FixedFits.TryGetValue(panel.HostGo.GetInstanceID(), out FixedFitState? fx) && fx != null
-            ? fx.ContentScale
-            : 1f;
-    }
-
-    /// <summary>
     /// HAND A PANEL BACK TO THE GROWTH PATH. Called on every fit of a panel that is NOT (or is no
     /// longer) a fixed-size window — in practice the moment the map room is torn down under a
-    /// character screen that is somehow still converted. Without it the entry would keep answering
-    /// <see cref="FitContentScale"/> with a scale nobody maintains any more, and the per-frame frame
-    /// guard would hold the window at that scale forever. Costs one dictionary lookup on a table
-    /// that is empty for every other window in the game.
+    /// character screen that is somehow still converted. Every sub-view pose we wrote is put back
+    /// exactly (we kept each one's home), because nothing else in the mod knows we moved them and the
+    /// growth path would otherwise measure a window whose sub-views are permanently shrunk. Costs one
+    /// dictionary lookup on a table that is empty for every other window in the game.
     /// </summary>
     private static void ReleaseFixedFit(ConvertedPanel panel)
     {
@@ -1686,16 +1838,27 @@ internal static partial class CanvasConversion
         if (!FixedFits.TryGetValue(id, out FixedFitState? fx) || fx == null)
             return;
         FixedFits.Remove(id);
-        if (panel.Target != null && Mathf.Abs(fx.ContentScale - 1f) > FixedFitScaleEpsilon)
+
+        int restored = 0;
+        for (int i = 0; i < fx.Views.Count; i++)
         {
-            panel.Target.localScale = Vector3.one;
-            VRLog.Info("WorldUI", $"FIXED FIT RELEASED '{panel.HostGo.name}': this window is no longer the " +
-                                  "map room's permanent character screen, so its content scale " +
-                                  $"({fx.ContentScale:F3}) is restored to 1 and the normal growth fit takes " +
-                                  $"over. fixed fit: {fx.Comparisons} comparison(s) made, {fx.Deviations} " +
-                                  $"deviation(s) found, {fx.HostWrites} host-size write(s), {fx.ScaleWrites} " +
-                                  "content-scale write(s).");
+            SubViewFit v = fx.Views[i];
+            if (!v.Written || v.View == null)
+                continue;
+            v.View.localScale = v.HomeScale;
+            if (v.View is RectTransform vr)
+                vr.anchoredPosition = v.HomeAnchored;
+            restored++;
         }
+        if (restored == 0)
+            return;
+        VRLog.Info("WorldUI", $"FIXED FIT RELEASED '{panel.HostGo.name}': this window is no longer the " +
+                              "map room's permanent character screen, so the " + restored +
+                              " sub-view(s) this fit had placed are restored to the pose the game gave " +
+                              "them and the normal growth fit takes over. fixed fit: " +
+                              $"{fx.Comparisons} comparison(s) made, {fx.Deviations} deviation(s) found, " +
+                              $"{fx.HostWrites} host-size write(s), {fx.BaseWrites} column re-assert(s), " +
+                              $"{fx.ScaleWrites} sub-view scale write(s), {fx.ReAsserts} foreign overwrite(s).");
     }
 
     /// <summary>
@@ -1704,30 +1867,34 @@ internal static partial class CanvasConversion
     /// the content is fitted INTO it instead of the other way round. See the region note above for
     /// the measurement, the choice of size and the trade that was accepted.
     ///
-    /// <para>THREE THINGS ARE WRITTEN, EACH ONLY WHEN IT IS WRONG:</para>
+    /// <para>THREE THINGS ARE WRITTEN, EACH ONLY WHEN IT IS WRONG, AND EACH ON A DIFFERENT OBJECT —
+    /// which is the whole correction ModBuild 199 makes:</para>
     /// <list type="number">
     /// <item>the HOST SIZE, once, at the first fit (and never again — nothing else writes it);</item>
-    /// <item>a uniform CONTENT SCALE on the conversion target, only when the measured content does
-    /// not fit the fixed host, so a full-screen sub-view lands inside the frame instead of spilling
-    /// out of it;</item>
-    /// <item>the target's anchoredPosition, to LEFT-ALIGN the content in the fixed host (and centre
-    /// it vertically).</item>
+    /// <item>the conversion TARGET's anchoredPosition, to seat the BASE — the character column and
+    /// the furniture around it — on a corner captured once. Its SCALE is never written: the target's
+    /// subtree contains the column, and scaling it is exactly what made the user report the same
+    /// complaint three builds running;</item>
+    /// <item>a uniform localScale and an anchoredPosition on each OPEN SUB-VIEW's own root, so the
+    /// thing that just appeared adapts to the frame and nothing that was already on screen does.</item>
     /// </list>
     ///
-    /// <para>WHY LEFT-ALIGNED AND NOT CENTRED — and this is the part that makes a mostly-empty
-    /// window bearable. The character COLUMN is the leftmost element of the union in every measured
-    /// state (the log's top-contributor lists show 'Party Display UI' at the left edge with the
-    /// cards, the equipment and the perks views all extending to its right). Centring the union
-    /// would slide that column left and right across the frame every time a tab opened — a fixed
-    /// frame with moving content, which is the same complaint in a different costume. Pinning the
-    /// union's LEFT edge keeps the column exactly where it is, permanently, and every sub-view opens
-    /// into the empty space to its right: the window becomes a board that things appear on.</para>
+    /// <para>WHY THE BASE IS PINNED BY A CORNER AND NOT BY A UNION. ModBuild 198 pinned the LEFT EDGE
+    /// OF THE WHOLE UNION, on the reasoning that the column is the union's leftmost element in every
+    /// measured state and would therefore stay put. It is the leftmost element — and it still moved,
+    /// because the union it was pinned by is measured AFTER the content scale, so a tab change
+    /// re-derived a ±400 px target shift (its own log: +400, −400, +401, −401). A quantity that is
+    /// re-derived from something a sub-view can change is not a pin. This one is captured once, from
+    /// the base alone, and afterwards only ever re-asserted onto the same corner — bottom-left rather
+    /// than centre, so a base that grows a row at the top does not slide the column down to keep a
+    /// centre. The empty space is always to the RIGHT of the column, which is where every sub-view
+    /// opens: the window becomes a board that things appear on.</para>
     ///
     /// <para>THE HOST IS NEVER RE-POSED BY THIS (ModBuild 193 ruling, "windows must not move once
-    /// spawned"). Nothing here touches the host transform; the two position writes are the target's
+    /// spawned"). Nothing here touches the host transform; every position write is an
     /// anchoredPosition INSIDE the host. The applied-fit generation — which is what re-arms
     /// ModalFallback's pose re-place — is advanced only when the HOST SIZE itself changed, i.e. once
-    /// per window life, before the reveal. A tab change re-scales and re-aligns content inside a
+    /// per window life, before the reveal. A tab change re-scales and re-seats a sub-view inside a
     /// host that keeps its rect, so it cannot re-arm a placement at all.</para>
     /// </summary>
     private static bool ApplyFixedFit(ConvertedPanel panel, RectTransform root,
@@ -1735,6 +1902,12 @@ internal static partial class CanvasConversion
     {
         FixedFitState fx = GetFixedFit(panel);
         fx.Comparisons++;
+        return ApplyFixedFitCore(panel, root, fx, size, center);
+    }
+
+    private static bool ApplyFixedFitCore(ConvertedPanel panel, RectTransform root,
+        FixedFitState fx, Vector2 size, Vector2 center)
+    {
 
         // The measure and both writes below are expressed in the conversion frame, so it is repaired
         // BEFORE anything reads the measurement — exactly as ApplyFitConverging does, and one step
@@ -1772,31 +1945,104 @@ internal static partial class CanvasConversion
         }
 
         Rect host = panel.HostRect.rect;
-        float scale = fx.ContentScale;
 
-        // What the content WOULD measure with no fit scale on it — the measure reads world corners,
-        // so everything it reports is already multiplied by whatever scale we last wrote.
-        Vector2 need = size / Mathf.Max(scale, 0.01f);
-        float wantScale = Mathf.Clamp(
-            Mathf.Min(1f, Mathf.Min(fx.Size.x / Mathf.Max(need.x, 1f), fx.Size.y / Mathf.Max(need.y, 1f))),
-            FixedFitMinContentScale, 1f);
-        Vector2 shift = FixedFitShift(fx, size, center);
+        // SPLIT THE SUBTREE. Everything below this line distinguishes the BASE (the character column
+        // and the window furniture around it — what is on screen no matter which tab is open) from
+        // the SUB-VIEW GROUP (what the game just opened). ModBuild 198 did not make this distinction
+        // and scaled their union; that is why the column shrank to 59.5 % whenever perks opened.
+        CollectActiveSubViews(panel, fx);
+        MeasureFixedFitParts(panel, root, fx);
 
+        // ---- 1. THE HOST SIZE, once -----------------------------------------------------------
         bool hostWrong = Mathf.Abs(host.width - fx.Size.x) > FitNoWriteEpsilonPx
                          || Mathf.Abs(host.height - fx.Size.y) > FitNoWriteEpsilonPx;
-        bool scaleWrong = Mathf.Abs(wantScale - scale) > FixedFitScaleEpsilon;
-        bool shiftWrong = Mathf.Abs(shift.x) > FixedFitShiftEpsilonPx
-                          || Mathf.Abs(shift.y) > FixedFitShiftEpsilonPx;
 
-        if (!hostWrong && !scaleWrong && !shiftWrong)
+        // ---- 2. THE COLUMN'S PIN, captured once and only ever re-asserted ----------------------
+        Vector2 baseShift = Vector2.zero;
+        bool baseWrong = false;
+        if (fx.BaseVisible)
+        {
+            Vector2 baseSize = fx.BaseMax - fx.BaseMin;
+            if (!fx.BasePinned && baseSize.x >= 32f && baseSize.y >= 32f)
+            {
+                // Left edge inside the fixed frame, vertically centred AT THE MOMENT OF THE PIN. The
+                // fixed size is the reference and not the live host rect: on the very first fit the
+                // host is still the pre-fit 1920 px frame.
+                fx.BasePin = new Vector2(-fx.Size.x * 0.5f + FitContentPaddingPx, -baseSize.y * 0.5f);
+                fx.BaseSizeAtPin = baseSize;
+                fx.BasePinned = true;
+            }
+            if (fx.BasePinned)
+            {
+                baseShift = fx.BasePin - fx.BaseMin;
+                baseWrong = Mathf.Abs(baseShift.x) > FixedFitShiftEpsilonPx
+                            || Mathf.Abs(baseShift.y) > FixedFitShiftEpsilonPx;
+            }
+        }
+
+        // ---- 3. THE SUB-VIEW GROUP -------------------------------------------------------------
+        bool havePlacement = SolveSubViewPlacement(fx, out float wantScale, out Vector2 groupShift);
+        bool viewWrong = false;
+        if (havePlacement)
+        {
+            for (int i = 0; i < fx.Views.Count; i++)
+            {
+                SubViewFit v = fx.Views[i];
+                if (!v.Visible)
+                    continue;
+                if (Mathf.Abs(v.Applied - wantScale) > FixedFitScaleEpsilon
+                    || Mathf.Abs(v.WantShift.x - v.AppliedShift.x) > FixedFitShiftEpsilonPx
+                    || Mathf.Abs(v.WantShift.y - v.AppliedShift.y) > FixedFitShiftEpsilonPx)
+                    viewWrong = true;
+                // Somebody else moved what we placed — counted before the settle gate can hide it.
+                // The test is exact rather than statistical: this member was written by us, and it is
+                // no longer at the pose WE wrote. A tab change cannot produce that (a different tab
+                // is a different member, and a member we have never written has nothing to compare).
+                if (v.Written
+                    && (Mathf.Abs(v.Applied - v.WrittenScale) > FixedFitScaleEpsilon
+                        || Mathf.Abs(v.AppliedShift.x - v.WrittenShift.x) > FixedFitShiftEpsilonPx
+                        || Mathf.Abs(v.AppliedShift.y - v.WrittenShift.y) > FixedFitShiftEpsilonPx))
+                    fx.ReAsserts++;
+            }
+
+            // THE CIRCUIT BREAKER, and it is here because of a rule this repo has paid for twice:
+            // never win a write war. If something else re-drives these roots every frame (a
+            // LayoutGroup on their parent, a show animation that never ends), re-writing our pose
+            // ~2.5 times a second forever makes the sub-view flicker between two placements and, on a
+            // MultiPass rig, makes the two eyes disagree. Past the threshold we CONCEDE: the sub-view
+            // is left exactly where the game puts it (it will spill, which is visible and honest) and
+            // the line below says so, so the next round replaces the thing we place instead of
+            // guessing that a fight is happening.
+            if (fx.ReAsserts >= FixedFitMaxReAsserts)
+            {
+                if (!fx.ConcededLogged)
+                {
+                    fx.ConcededLogged = true;
+                    VRLog.Warn("WorldUI",
+                        $"FIXED FIT CONCEDED '{(panel.HostGo != null ? panel.HostGo.name : "?")}': the " +
+                        $"sub-view pose this fit writes has been overwritten by the game {fx.ReAsserts} " +
+                        "time(s) while the solution itself did not change, so something else owns " +
+                        $"'{fx.ViewName}'s localScale/anchoredPosition. The fit stops placing sub-views " +
+                        "rather than fight for them — the character column is UNAFFECTED (it is pinned " +
+                        "by the conversion target, which nothing else writes), so the fixed size still " +
+                        "holds; the open sub-view will simply be drawn at the size the game gives it " +
+                        "and may reach outside the frame. The next round must place a root the game " +
+                        "does not drive.");
+                }
+                viewWrong = false;
+            }
+        }
+
+        if (!hostWrong && !baseWrong && !viewWrong)
         {
             // SETTLED — and settled here means "nothing was written and nothing was disturbed":
             // no ApplyFitConverging, no ForceRebuildLayoutImmediate, so the ModBuild 196 re-fit loop
             // has nothing to run on.
             fx.PendingChecks = 0;
-            fx.PendingScale = scale;
-            fx.PendingShift = Vector2.zero;
-            LogFixedFit(panel, fx, need, wantScale, "STABLE", string.Empty, throttled: true);
+            fx.PendingScale = wantScale;
+            fx.PendingShift = groupShift;
+            panel.FitContentPadding = Vector2.Max(Vector2.zero, (fx.Size - size) * 0.5f);
+            LogFixedFit(panel, fx, wantScale, "STABLE", string.Empty, throttled: true);
             return true;
         }
 
@@ -1804,66 +2050,82 @@ internal static partial class CanvasConversion
 
         // The settle gate — one candidate must repeat before it is written. Exempt on the very first
         // fit of this window's life: that one runs pre-reveal and must land before the window pops
-        // in, exactly like the undamped first fit of the growth path.
+        // in, exactly like the undamped first fit of the growth path. The HOST SIZE and the COLUMN
+        // PIN are exempt too: neither is derived from a sub-view measurement, so neither can be
+        // chasing an animation, and the column must be where it belongs before the window is shown.
         bool first = !panel.FitMeasuredOnce;
-        if (!first)
+        if (viewWrong && !hostWrong && !baseWrong && !first)
         {
             bool same = Mathf.Abs(wantScale - fx.PendingScale) <= FixedFitScaleEpsilon
-                        && Mathf.Abs(shift.x - fx.PendingShift.x) <= FixedFitShiftEpsilonPx
-                        && Mathf.Abs(shift.y - fx.PendingShift.y) <= FixedFitShiftEpsilonPx;
+                        && Mathf.Abs(groupShift.x - fx.PendingShift.x) <= FixedFitShiftEpsilonPx
+                        && Mathf.Abs(groupShift.y - fx.PendingShift.y) <= FixedFitShiftEpsilonPx;
             fx.PendingChecks = same ? fx.PendingChecks + 1 : 1;
             fx.PendingScale = wantScale;
-            fx.PendingShift = shift;
+            fx.PendingShift = groupShift;
             if (fx.PendingChecks < FixedFitSettleChecks)
             {
                 fx.Deferred++;
                 // Throttled, so a window that defers FOREVER (a sub-view whose measurement never
                 // repeats) still says so instead of going silent — the third state the counters
                 // exist to separate.
-                LogFixedFit(panel, fx, need, wantScale, "DEFERRED", string.Empty, throttled: true);
+                LogFixedFit(panel, fx, wantScale, "DEFERRED", string.Empty, throttled: true);
                 return true; // measured fine — the candidate has simply not repeated yet
             }
         }
         fx.PendingChecks = 0;
 
-        var wrote = new System.Text.StringBuilder(96);
+        var wrote = new System.Text.StringBuilder(128);
         if (hostWrong)
         {
             wrote.Append($"host {host.width:F0}x{host.height:F0} → {fx.Size.x:F0}x{fx.Size.y:F0} px");
             panel.HostRect.sizeDelta = fx.Size;
             fx.HostWrites++;
         }
-        if (scaleWrong)
-        {
-            // A uniform scale about the target's own (centred) pivot. It changes no layout rect, so
-            // it needs no layout rebuild — the measure reads world corners, which are already
-            // current — and clipping is unaffected because every clipper scales with its children.
-            // That is why this branch charges ZERO forced rebuilds to the panel.
-            panel.Target.localScale = Vector3.one * wantScale;
-            fx.ContentScale = wantScale;
-            fx.ScaleWrites++;
-            wrote.Append(wrote.Length > 0 ? "; " : string.Empty)
-                 .Append($"content scale {scale:F3} → {wantScale:F3} (the sub-view asks for " +
-                         $"{need.x:F0}x{need.y:F0} px in a {fx.Size.x:F0}x{fx.Size.y:F0} px window)");
-            // Re-derive the alignment in the geometry that now exists: the scale moved the content.
-            if (TryMeasureContent(panel, root, out Vector2 nextSize, out Vector2 nextCenter))
-            {
-                size = nextSize;
-                center = nextCenter;
-                shift = FixedFitShift(fx, size, center);
-                shiftWrong = Mathf.Abs(shift.x) > FixedFitShiftEpsilonPx
-                             || Mathf.Abs(shift.y) > FixedFitShiftEpsilonPx;
-            }
-        }
-        if (shiftWrong)
+        if (baseWrong)
         {
             // Target-local, inside the host. The host transform is never touched — see the ruling
-            // quoted in this method's doc.
-            panel.Target.anchoredPosition += shift;
-            fx.Shifts++;
+            // quoted in this method's doc. This moves the sub-views with it, which is why their own
+            // placement is deferred to the next check rather than computed against a stale frame.
+            panel.Target.anchoredPosition += baseShift / Mathf.Max(HostPerParentUnits(panel, panel.Target), 1e-4f);
+            fx.BaseWrites++;
             wrote.Append(wrote.Length > 0 ? "; " : string.Empty)
-                 .Append($"content re-aligned by {shift.x:F0},{shift.y:F0} px (left edge pinned, " +
-                         "vertically centred)");
+                 .Append($"the character column re-aligned by {baseShift.x:F0},{baseShift.y:F0} px onto " +
+                         $"its pinned corner ({fx.BasePin.x:F0},{fx.BasePin.y:F0})");
+        }
+        else if (viewWrong && havePlacement)
+        {
+            int placed = 0;
+            for (int i = 0; i < fx.Views.Count; i++)
+            {
+                SubViewFit v = fx.Views[i];
+                if (!v.Visible || v.View == null)
+                    continue;
+                // ABSOLUTE, never incremental: home + our own offset. A pass that finds the member
+                // somewhere else therefore corrects it exactly instead of drifting, and the home we
+                // kept is what ReleaseFixedFit puts back.
+                v.View.localScale = new Vector3(v.HomeScale.x * wantScale, v.HomeScale.y * wantScale,
+                    v.HomeScale.z * wantScale);
+                if (v.View is RectTransform vr)
+                    vr.anchoredPosition = v.HomeAnchored
+                                          + v.WantShift / Mathf.Max(v.HostPerParent, 1e-4f);
+                v.Written = true;
+                v.WrittenScale = wantScale;
+                v.WrittenShift = v.WantShift;
+                placed++;
+            }
+            if (placed > 0)
+            {
+                if (Mathf.Abs(wantScale - fx.ViewScale) > FixedFitScaleEpsilon)
+                    fx.ScaleWrites++;
+                else
+                    fx.Shifts++;
+                wrote.Append(wrote.Length > 0 ? "; " : string.Empty)
+                     .Append($"sub-view '{fx.ViewName}' scale {fx.ViewScale:F3} → {wantScale:F3} and " +
+                             $"seated at {groupShift.x:F0},{groupShift.y:F0} px ({placed} root(s) placed; " +
+                             "the column was not touched)");
+                fx.ViewScale = wantScale;
+                fx.ViewShift = groupShift;
+            }
         }
 
         // What the surfaces that pin this host by a rect EDGE must subtract — derived, never
@@ -1873,25 +2135,394 @@ internal static partial class CanvasConversion
         if (hostWrong)
         {
             // ONLY a host-size change re-derives the window's world scale and re-arms the pose
-            // re-place. A content re-scale or re-alignment leaves the host rect exactly as it was,
+            // re-place. A sub-view re-scale or re-alignment leaves the host rect exactly as it was,
             // so it must not advance the generation — that is what keeps a tab change from being
             // able to ask for a placement at all.
             panel.FitAppliedGeneration++;
         }
-        LogFixedFit(panel, fx, need, fx.ContentScale, "APPLIED", wrote.ToString(), throttled: false);
+        LogFixedFit(panel, fx, wantScale, "APPLIED", wrote.ToString(), throttled: false);
         return true;
     }
 
-    /// <summary>The target shift that pins the measured union's LEFT edge to the fixed host's left
-    /// edge (plus the measure's own padding) and centres it vertically. See
-    /// <see cref="ApplyFixedFit"/> for why left and not centre.</summary>
-    private static Vector2 FixedFitShift(FixedFitState fx, Vector2 size, Vector2 center)
+    /// <summary>
+    /// WHICH SUB-VIEWS THE GAME CURRENTLY HAS OPEN INSIDE THIS WINDOW — asked of the game's own
+    /// serialized references, never of the hierarchy and never by name.
+    ///
+    /// <para><c>NewPartyDisplayUI</c> holds all six of them as <c>[SerializeField]</c>s with public
+    /// accessors (<c>AbilityCardsDisplay</c>, <c>EnhancementCardsDisplay</c>, <c>PerkManager</c>,
+    /// <c>CharacterSelector</c>, <c>ItemInventoryDisplay</c>, <c>BattleGoalWindow</c>), so "which
+    /// object is the sub-view's root" is a fact the prefab already states. <c>ActiveDisplay</c> —
+    /// the game's own <c>DisplayType</c> — is deliberately NOT the test: it has no value for the
+    /// enhancement-cards view and its <c>LEVELUP</c> value names a window that lives outside this
+    /// panel, so it answers a question one notch away from the one that matters. The question that
+    /// matters is "is this root being DRAWN inside the window we are fitting", and that is answered
+    /// exactly by <c>activeInHierarchy</c> (a <c>UIWindow</c> deactivates its own GameObject once its
+    /// alpha tween reaches zero — UIWindow.cs:746) plus a descendant test against the conversion
+    /// target.</para>
+    ///
+    /// <para>A candidate nested inside another candidate is dropped: the group transform must be
+    /// applied once per independent root or the inner one would be scaled twice.</para>
+    /// </summary>
+    private static void CollectActiveSubViews(ConvertedPanel panel, FixedFitState fx)
     {
-        // The measured size carries the fit padding on both sides; the union's own left edge is
-        // therefore center - size/2 + padding.
-        float unionMinX = center.x - size.x * 0.5f + s_lastMeasurePadding.x;
-        float wantMinX = -fx.Size.x * 0.5f + s_lastMeasurePadding.x;
-        return new Vector2(wantMinX - unionMinX, -center.y);
+        for (int i = 0; i < fx.Views.Count; i++)
+            fx.Views[i].Visible = false;
+
+        NewPartyDisplayUI? display;
+        try
+        {
+            display = NewPartyDisplayUI.PartyDisplay;
+        }
+        catch (System.Exception)
+        {
+            return;
+        }
+        if (display == null)
+            return;
+
+        SubViewCandidates.Clear();
+        try
+        {
+            AddSubViewCandidate(panel, display.AbilityCardsDisplay);
+            AddSubViewCandidate(panel, display.EnhancementCardsDisplay);
+            AddSubViewCandidate(panel, display.PerkManager);
+            AddSubViewCandidate(panel, display.CharacterSelector);
+            AddSubViewCandidate(panel, display.ItemInventoryDisplay);
+            AddSubViewCandidate(panel, display.BattleGoalWindow);
+        }
+        catch (System.Exception)
+        {
+            SubViewCandidates.Clear();
+            return;
+        }
+
+        // Drop a candidate that lives inside another candidate.
+        for (int i = SubViewCandidates.Count - 1; i >= 0; i--)
+        {
+            for (int j = 0; j < SubViewCandidates.Count; j++)
+            {
+                if (i == j)
+                    continue;
+                if (FixedFitLevelsUp(SubViewCandidates[i], SubViewCandidates[j]) > 0)
+                {
+                    SubViewCandidates.RemoveAt(i);
+                    break;
+                }
+            }
+        }
+
+        for (int i = 0; i < SubViewCandidates.Count; i++)
+        {
+            Transform t = SubViewCandidates[i];
+            SubViewFit? entry = null;
+            for (int j = 0; j < fx.Views.Count; j++)
+            {
+                if (ReferenceEquals(fx.Views[j].View, t))
+                {
+                    entry = fx.Views[j];
+                    break;
+                }
+            }
+            if (entry == null)
+            {
+                entry = new SubViewFit { View = t };
+                fx.Views.Add(entry);
+            }
+            entry.Visible = true;
+        }
+        SubViewCandidates.Clear();
+
+        // Forget members whose GameObject the game destroyed, so the table cannot grow without bound
+        // across a session of opening and closing tabs.
+        for (int i = fx.Views.Count - 1; i >= 0; i--)
+        {
+            if (fx.Views[i].View == null)
+                fx.Views.RemoveAt(i);
+        }
+    }
+
+    private static readonly List<Transform> SubViewCandidates = new(8);
+
+    private static void AddSubViewCandidate(ConvertedPanel panel, Component? c)
+    {
+        if (c == null || panel.Target == null)
+            return;
+        Transform t = c.transform;
+        if (ReferenceEquals(t, panel.Target) || !c.gameObject.activeInHierarchy)
+            return;
+        if (FixedFitLevelsUp(t, panel.Target) <= 0)
+            return; // not inside the window we are fitting
+        for (int i = 0; i < SubViewCandidates.Count; i++)
+        {
+            if (ReferenceEquals(SubViewCandidates[i], t))
+                return;
+        }
+        SubViewCandidates.Add(t);
+    }
+
+    /// <summary>
+    /// THE SPLIT MEASURE — one walk over the window's visible graphics that fills THREE unions
+    /// instead of one: the BASE (nothing that belongs to an open sub-view), each open SUB-VIEW, and
+    /// each sub-view's content WITHOUT its full-frame backdrop plates.
+    ///
+    /// <para>It deliberately does not go through <see cref="TryMeasureContent"/>: that method fills a
+    /// dozen <c>s_last*</c> statics the fit log reads, and calling it three more times per pass would
+    /// leave the diagnostics describing whichever sub-call ran last. It shares the per-graphic
+    /// visibility verdict (<see cref="TryGetVisibleHostRect"/>) and the mod-owned-cue-art skip, so
+    /// what it counts as visible is byte-for-byte what the main measure counts.</para>
+    ///
+    /// <para>THE PLATE TEST IS A DIAGNOSTIC AND NOTHING ELSE — no write anywhere in this file reads
+    /// <c>ContentNeed</c>. See <see cref="FixedFitPlateWidthFraction"/> for the argument.</para>
+    /// </summary>
+    private static void MeasureFixedFitParts(ConvertedPanel panel, RectTransform root, FixedFitState fx)
+    {
+        fx.BaseVisible = false;
+        fx.BaseGraphics = 0;
+        fx.ViewPlates = 0;
+        fx.PlateName = string.Empty;
+        fx.PlateSize = Vector2.zero;
+        fx.ViewContentNeed = Vector2.zero;
+        Vector2 baseMin = new(float.MaxValue, float.MaxValue);
+        Vector2 baseMax = new(float.MinValue, float.MinValue);
+        Vector2 contentMin = new(float.MaxValue, float.MaxValue);
+        Vector2 contentMax = new(float.MinValue, float.MinValue);
+        int contentGraphics = 0;
+        float plateArea = 0f;
+
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            SubViewFit v = fx.Views[i];
+            v.Graphics = 0;
+            v.Min = new Vector2(float.MaxValue, float.MaxValue);
+            v.Max = new Vector2(float.MinValue, float.MinValue);
+            if (!v.Visible || v.View == null)
+                continue;
+            // The home is RE-READ until the first write: a show animation can still be driving this
+            // root's scale/position when we first see it, and the settle gate holds our first write
+            // off for ~0.8 s — long enough for a LeanTween show to have landed.
+            if (!v.Written)
+            {
+                v.HomeScale = v.View.localScale;
+                if (v.View is RectTransform hr)
+                    v.HomeAnchored = hr.anchoredPosition;
+            }
+            v.HostPerParent = HostPerParentUnits(panel, v.View);
+            float home = Mathf.Abs(v.HomeScale.x) > 1e-4f ? v.HomeScale.x : 1f;
+            v.Applied = v.View.localScale.x / home;
+            v.AppliedShift = v.View is RectTransform ar
+                ? (ar.anchoredPosition - v.HomeAnchored) * v.HostPerParent
+                : Vector2.zero;
+            v.Pivot = panel.HostRect.InverseTransformPoint(v.View.position);
+        }
+
+        // A full-frame plate is judged against the window's OWN authored frame, which is the same
+        // rect the growth path clamps its union into.
+        Vector2 frame = panel.Target.rect.size;
+
+        ClipperMemo.Clear();
+        AuthoredOffsetMemo.Clear();
+        FixedFitGraphics.Clear();
+        root.GetComponentsInChildren(includeInactive: false, FixedFitGraphics);
+        for (int i = 0; i < FixedFitGraphics.Count; i++)
+        {
+            Graphic g = FixedFitGraphics[i];
+            if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                continue;
+            if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax))
+                continue;
+
+            SubViewFit? owner = OwningSubView(fx, g.transform, root);
+            if (owner == null)
+            {
+                baseMin = Vector2.Min(baseMin, gMin);
+                baseMax = Vector2.Max(baseMax, gMax);
+                fx.BaseGraphics++;
+                continue;
+            }
+            owner.Min = Vector2.Min(owner.Min, gMin);
+            owner.Max = Vector2.Max(owner.Max, gMax);
+            owner.Graphics++;
+
+            float w = gMax.x - gMin.x, h = gMax.y - gMin.y;
+            bool plate = frame.x > 1f && frame.y > 1f
+                         && w >= frame.x * FixedFitPlateWidthFraction
+                         && h >= frame.y * FixedFitPlateHeightFraction;
+            if (plate)
+            {
+                fx.ViewPlates++;
+                if (w * h > plateArea)
+                {
+                    plateArea = w * h;
+                    fx.PlateSize = new Vector2(w, h);
+                    fx.PlateName = g.gameObject.name;
+                }
+                continue;
+            }
+            // In the sub-view's NATURAL space (our own scale and offset undone), so the census is
+            // comparable with the needs quoted in the region note whatever we have written.
+            float a = Mathf.Max(owner.Applied, 0.01f);
+            Vector2 p0 = owner.Pivot - owner.AppliedShift;
+            contentMin = Vector2.Min(contentMin, p0 + (gMin - owner.Pivot) / a);
+            contentMax = Vector2.Max(contentMax, p0 + (gMax - owner.Pivot) / a);
+            contentGraphics++;
+        }
+        FixedFitGraphics.Clear();
+
+        if (fx.BaseGraphics > 0 && baseMax.x > baseMin.x && baseMax.y > baseMin.y)
+        {
+            fx.BaseVisible = true;
+            fx.BaseMin = baseMin;
+            fx.BaseMax = baseMax;
+        }
+        if (contentGraphics > 0 && contentMax.x > contentMin.x)
+            fx.ViewContentNeed = contentMax - contentMin;
+
+        // Name the widest open sub-view, for the log.
+        fx.ViewName = "none";
+        fx.ViewNeed = Vector2.zero;
+        fx.ViewOverlapPx = 0f;
+        float widest = 0f;
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            SubViewFit v = fx.Views[i];
+            if (!v.Visible || v.Graphics == 0 || v.View == null || v.Max.x <= v.Min.x)
+            {
+                v.Visible = false;
+                continue;
+            }
+            float w = v.Max.x - v.Min.x;
+            if (w <= widest)
+                continue;
+            widest = w;
+            fx.ViewName = v.View.name;
+        }
+    }
+
+    /// <summary>Which open sub-view a graphic belongs to, or null for the base. Walks up to the fit
+    /// root; ≤ 6 candidates and a shallow uGUI tree, ~2.5 passes per second.</summary>
+    private static SubViewFit? OwningSubView(FixedFitState fx, Transform node, Transform root)
+    {
+        int guard = 0;
+        for (Transform? t = node; t != null && guard < 64; t = t.parent, guard++)
+        {
+            for (int i = 0; i < fx.Views.Count; i++)
+            {
+                SubViewFit v = fx.Views[i];
+                if (v.Visible && ReferenceEquals(v.View, t))
+                    return v;
+            }
+            if (ReferenceEquals(t, root))
+                return null;
+        }
+        return null;
+    }
+
+    /// <summary>Scratch for the split measure. Separate from <see cref="GraphicScratch"/> because
+    /// <see cref="TryMeasureContent"/> owns that one and both run inside the same fit pass.</summary>
+    private static readonly List<Graphic> FixedFitGraphics = new(128);
+
+    /// <summary>
+    /// SOLVE THE GROUP TRANSFORM for whatever sub-views are open: one uniform scale and one
+    /// translation, applied to every member so their arrangement RELATIVE TO EACH OTHER is preserved
+    /// exactly (member <c>i</c> is scaled about its own pivot and its pivot is then moved as if the
+    /// whole group had scaled about the group centre — the composition of the two IS a group scale).
+    /// False when nothing is open, which is the window's most common state and needs no writes.
+    ///
+    /// <para>THE SEAT IS THE FRAME'S RIGHT EDGE, and that single rule replaces the "beside or on top"
+    /// decision a mode switch would have had to make. A narrow sub-view (enhancement cards 388 px,
+    /// equipment 532 px) lands entirely in the empty space to the right of the column and never
+    /// touches it; a wide one overlaps the column by exactly the amount it is too wide, which is what
+    /// the flat game does with these views anyway (the perks window is a 1620 px plate over a 1920 px
+    /// canvas — it covers the party display there too). Nothing hops between two placements, so
+    /// nothing on screen can jump when the difference is a few pixels.</para>
+    ///
+    /// <para>WHAT IT IS SOLVED AGAINST: the sub-view's NATURAL geometry, reconstructed by undoing our
+    /// own scale and offset — <c>p0 = P0 + (p - P) / applied</c>. The measure reads world corners, so
+    /// everything it reports already carries whatever we last wrote; solving against the raw reading
+    /// would compound our own scale every pass.</para>
+    /// </summary>
+    private static bool SolveSubViewPlacement(FixedFitState fx,
+        out float wantScale, out Vector2 groupShift)
+    {
+        wantScale = 1f;
+        groupShift = Vector2.zero;
+
+        Vector2 min = new(float.MaxValue, float.MaxValue);
+        Vector2 max = new(float.MinValue, float.MinValue);
+        int members = 0;
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            SubViewFit v = fx.Views[i];
+            if (!v.Visible)
+                continue;
+            float applied = Mathf.Max(v.Applied, 0.01f);
+            Vector2 p0 = v.Pivot - v.AppliedShift;
+            v.NaturalMin = p0 + (v.Min - v.Pivot) / applied;
+            v.NaturalMax = p0 + (v.Max - v.Pivot) / applied;
+            v.NaturalPivot = p0;
+            min = Vector2.Min(min, v.NaturalMin);
+            max = Vector2.Max(max, v.NaturalMax);
+            members++;
+        }
+        if (members == 0)
+            return false;
+
+        Vector2 natural = max - min;
+        fx.ViewNeed = natural;
+        if (natural.x < 1f || natural.y < 1f)
+            return false;
+
+        // Fitted against the FULL fixed size, not against it minus a margin: every one of these
+        // sub-views is a full-height 1080 px view, so charging them a vertical margin would scale
+        // even the ones that fit (1056/1080 = 0.978) and no state of this window would ever read
+        // "1.000" again — the one number the next hardware log has to be able to trust.
+        wantScale = Mathf.Clamp(
+            Mathf.Min(1f, Mathf.Min(fx.Size.x / natural.x, fx.Size.y / natural.y)),
+            FixedFitMinContentScale, 1f);
+
+        Vector2 c = (min + max) * 0.5f;
+        Vector2 scaledMin = c + (min - c) * wantScale;
+        Vector2 scaledMax = c + (max - c) * wantScale;
+        // Host pivot is centred, so the frame's right edge is +Size.x/2 and its centre line is y = 0.
+        // The margin is whatever is left over, capped at the fit padding: a view that fills the frame
+        // sits flush (it is a full-bleed view and a 12 px stripe of frame beside it would look like a
+        // mistake), a narrower one gets the same 12 px breathing room the column has on the left.
+        float margin = Mathf.Min(FitContentPaddingPx,
+            Mathf.Max(0f, (fx.Size.x - (scaledMax.x - scaledMin.x)) * 0.5f));
+        groupShift = new Vector2(
+            fx.Size.x * 0.5f - margin - scaledMax.x,
+            -(scaledMin.y + scaledMax.y) * 0.5f);
+
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            SubViewFit v = fx.Views[i];
+            if (!v.Visible)
+                continue;
+            v.WantShift = c + (v.NaturalPivot - c) * wantScale + groupShift - v.NaturalPivot;
+        }
+
+        // How far the seated sub-view reaches back over the column — the number that says whether a
+        // tab covers the character list or sits beside it. Diagnostic only.
+        float leftEdge = scaledMin.x + groupShift.x;
+        fx.ViewOverlapPx = fx.BaseVisible ? Mathf.Max(0f, fx.BaseMax.x - leftEdge) : 0f;
+        return true;
+    }
+
+    /// <summary>Host-local units per parent-local unit for <paramref name="node"/> — what a wanted
+    /// host-local offset must be divided by to become an <c>anchoredPosition</c> delta. 1 for every
+    /// transform in an unscaled chain, which is what <see cref="ReassertConversionFrame"/> keeps the
+    /// conversion target at; derived rather than assumed because a wrong factor here would move a
+    /// window's content by a wrong amount silently.</summary>
+    private static float HostPerParentUnits(ConvertedPanel panel, Transform node)
+    {
+        if (panel.HostRect == null)
+            return 1f;
+        float hostScale = panel.HostRect.lossyScale.x;
+        Transform? parent = node.parent;
+        float parentScale = parent != null ? parent.lossyScale.x : hostScale;
+        if (Mathf.Abs(hostScale) < 1e-6f || Mathf.Abs(parentScale) < 1e-6f)
+            return 1f;
+        return parentScale / hostScale;
     }
 
     /// <summary>
@@ -1901,9 +2532,18 @@ internal static partial class CanvasConversion
     /// window), STABLE (comparisons climbing, host writes stuck at 1, deviations flat), and STILL
     /// RESIZING (host writes climbing). The comparison count is always printed next to the deviation
     /// count for exactly that reason.
+    ///
+    /// <para><b>WHAT ModBuild 199 ADDED, AND WHY.</b> The 198 line printed the HOST size and the
+    /// UNION's need, and both were correct while the user's actual complaint went unrecorded: the
+    /// character column was being rescaled inside a host that never moved. This line now prints THE
+    /// COLUMN'S OWN RENDERED SIZE AND CORNER next to the corner it was pinned at, so "the column is a
+    /// constant size" and "the column is being rescaled" are two visibly different logs and no round
+    /// after this one has to infer which happened. It also prints what the open sub-view needs WITH
+    /// and WITHOUT full-frame backdrop plates, which is the measurement the blur-plate question was
+    /// argued from and never had.</para>
     /// </summary>
-    private static void LogFixedFit(ConvertedPanel panel, FixedFitState fx, Vector2 need,
-        float scale, string verdict, string wrote, bool throttled)
+    private static void LogFixedFit(ConvertedPanel panel, FixedFitState fx, float scale,
+        string verdict, string wrote, bool throttled)
     {
         float now = Time.unscaledTime;
         if (throttled && now - fx.LastLogTime < FixedFitStableLogSeconds)
@@ -1919,19 +2559,74 @@ internal static partial class CanvasConversion
             ? $"{fx.Size.x * unit / rig:F2} x {fx.Size.y * unit / rig:F2} m"
             : "physical size unknown (no rig scale yet)";
 
+        // THE PROOF. Not the host, not the union: the column itself, in the size it is DRAWN, against
+        // the size it was drawn at when it was pinned. Equal numbers = the user's complaint is gone.
+        string column;
+        if (!fx.BaseVisible)
+        {
+            column = "the character column measured NOTHING this pass (no visible non-sub-view "
+                     + "graphic under the target) — the pin cannot be checked";
+        }
+        else
+        {
+            Vector2 bs = fx.BaseMax - fx.BaseMin;
+            column = $"the CHARACTER COLUMN renders {bs.x:F0}x{bs.y:F0} px from ({fx.BaseMin.x:F0},"
+                     + $"{fx.BaseMin.y:F0}) [{fx.BaseGraphics} graphic(s)]";
+            if (fx.BasePinned)
+            {
+                Vector2 drift = fx.BaseMin - fx.BasePin;
+                Vector2 grew = bs - fx.BaseSizeAtPin;
+                column += $", pinned at ({fx.BasePin.x:F0},{fx.BasePin.y:F0}) at "
+                          + $"{fx.BaseSizeAtPin.x:F0}x{fx.BaseSizeAtPin.y:F0} px → "
+                          + (Mathf.Abs(drift.x) <= 1f && Mathf.Abs(drift.y) <= 1f
+                             && Mathf.Abs(grew.x) <= 1f && Mathf.Abs(grew.y) <= 1f
+                              ? "SAME SIZE, SAME PLACE as when it was pinned (this is what the user "
+                                + "asked for: the column is never scaled and never re-derived)"
+                              : $"MOVED by {drift.x:F0},{drift.y:F0} px and GREW by {grew.x:F0},"
+                                + $"{grew.y:F0} px since the pin — if this line ever reports a size "
+                                + "change, the column is being rescaled again and that IS the bug");
+            }
+            else
+            {
+                column += " (not pinned yet)";
+            }
+        }
+
+        string view;
+        if (fx.ViewName == "none")
+        {
+            view = "no sub-view is open, so nothing is scaled and the spare width is empty frame to "
+                   + "the right of the column";
+        }
+        else
+        {
+            view = $"the open sub-view '{fx.ViewName}' needs {fx.ViewNeed.x:F0}x{fx.ViewNeed.y:F0} px "
+                   + $"at scale 1 and is drawn at {scale:F3}"
+                   + (scale >= 0.999f
+                       ? " (it fits beside the column untouched)"
+                       : " (SCALED TO FIT the frame — the column keeps its size, only this view adapts)")
+                   + $", seated against the frame's right edge and covering {fx.ViewOverlapPx:F0} px of "
+                   + "the column";
+            view += fx.ViewPlates > 0
+                ? $". BACKDROP CENSUS (diagnostic, it decides nothing): {fx.ViewPlates} full-frame "
+                  + $"plate(s) inside it, the largest '{fx.PlateName}' at {fx.PlateSize.x:F0}x"
+                  + $"{fx.PlateSize.y:F0} px; WITHOUT them the view would need "
+                  + $"{fx.ViewContentNeed.x:F0}x{fx.ViewContentNeed.y:F0} px. Excluding them from the "
+                  + "measure was considered and REJECTED: the plate would still be RENDERED at full "
+                  + "size and hang outside the window frame"
+                : ". BACKDROP CENSUS: no full-frame plate inside it, so its width is all content";
+        }
+
         VRLog.Info("WorldUI",
             $"FIXED FIT '{(panel.HostGo != null ? panel.HostGo.name : "?")}' {verdict}: host pinned at " +
-            $"{fx.Size.x:F0}x{fx.Size.y:F0} px = {physical}; the sub-view on screen needs " +
-            $"{need.x:F0}x{need.y:F0} px at scale 1, so it is drawn at content scale {scale:F3}" +
-            (scale >= 0.999f
-                ? " (it fits — the spare width is empty frame to the right of the character column)"
-                : " (SCALED TO FIT — this is a full-screen sub-view; it is drawn at about the size " +
-                  "it had before this window stopped resizing)") +
+            $"{fx.Size.x:F0}x{fx.Size.y:F0} px = {physical}; {column}; {view}" +
             (wrote.Length > 0 ? $"; wrote {wrote}" : "; wrote nothing") +
             $". fixed fit: {fx.Comparisons} comparison(s) made, {fx.Deviations} deviation(s) found, " +
             $"{fx.Deferred} deferred by the settle gate, {fx.HostWrites} host-size write(s), " +
-            $"{fx.ScaleWrites} content-scale write(s), {fx.Shifts} re-alignment(s) — the host size is " +
-            "written ONCE and the host is never re-posed.");
+            $"{fx.BaseWrites} column re-assert(s), {fx.ScaleWrites} sub-view scale write(s), " +
+            $"{fx.Shifts} sub-view re-seat(s), {fx.ReAsserts} foreign overwrite(s) of a pose we had " +
+            "written — the host size is written ONCE, the host is never re-posed, and the conversion " +
+            "target itself is never scaled.");
     }
 
     // =============================================================================================
@@ -2249,12 +2944,15 @@ internal static partial class CanvasConversion
 
         // 1. SCALE — the round-7 headline. A drifted scale corrupts the measure itself (the union
         //    is read through world corners), so it is corrected before anything else looks at it.
-        //    THE REFERENCE IS NOT ALWAYS 1: the fixed-size window deliberately scales its target to
-        //    fit a full-screen sub-view into a host that must not resize (see FitContentScale). This
-        //    guard runs every frame for modal hosts, so comparing against a hard-coded 1 would turn
-        //    that fit into a write war and undo it sixty times a second. Every other panel reads
-        //    1 here and is byte-for-byte unchanged.
-        float want = FitContentScale(panel);
+        //    THE REFERENCE IS 1 FOR EVERY PANEL, INCLUDING THE FIXED-SIZE ONE. ModBuild 198 made an
+        //    exception here because its fixed-size branch scaled the conversion TARGET to fit a
+        //    full-screen sub-view — and that exception is exactly what the user reported for the
+        //    third time: the target's subtree contains the permanently-visible character column, so
+        //    scaling it to fit a sub-view rescaled the column too. ModBuild 199 scales the SUB-VIEW's
+        //    own root instead and never touches the target, so this guard is back to holding every
+        //    converted target at 1 — and it now actively PROTECTS the column, because a target scale
+        //    is once again unambiguously drift (ModBuild 23 found this very target at 0.14).
+        const float want = 1f;
         Vector3 scale = t.localScale;
         if (Mathf.Abs(scale.x - want) > 0.001f || Mathf.Abs(scale.y - want) > 0.001f
             || Mathf.Abs(scale.z - want) > 0.001f)

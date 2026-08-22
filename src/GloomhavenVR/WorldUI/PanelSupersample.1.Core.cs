@@ -1516,8 +1516,20 @@ internal static partial class PanelSupersample
             ? WorldUIConfig.PanelSupersampleFactor.Value
             : Defaults.PanelSupersampleFactor;
         // Mathf.Approximately, not ==, because BepInEx round-trips the value through the .cfg text.
-        floored = Mathf.Approximately(configured, Defaults.PanelSupersampleFactor)
-                  && configured < BandLimitFactor;
+        // ModBuild 199: THE FLOOR NO LONGER ASKS WHETHER THE VALUE LOOKS LIKE THE DEFAULT.
+        // ModBuild 198 wrote `Mathf.Approximately(configured, Defaults.PanelSupersampleFactor)` here,
+        // so that a value the user had tuned would be taken verbatim. I verified that logic against
+        // the source and told the user the remedy would run. It did not: all 153 RESAMPLE VERDICT
+        // lines of the next hardware log read `config 1.00, taken verbatim — this is a value the user
+        // set`, because his cfg holds a hand-written 1.0 that is not bit-equal to the constant. The
+        // whole ModBuild 198 experiment silently did not execute — the second time in three builds a
+        // remedy shipped behind a condition that was never true.
+        // A factor below the band limit is not a preference, it is a no-op: at 1.0 the capture target
+        // is the window's own resolution and nothing is band-limited. So the floor is unconditional
+        // now, and it SAYS SO ON EVERY REPORT LINE (see FactorFloored) naming the value it overrode,
+        // rather than being a silent correction. If a deliberate 1.0 is ever wanted, it needs its own
+        // explicit escape — not the accident of matching a constant.
+        floored = configured < BandLimitFactor;
         return Mathf.Clamp(floored ? BandLimitFactor : configured, 0.5f, 2f);
     }
 

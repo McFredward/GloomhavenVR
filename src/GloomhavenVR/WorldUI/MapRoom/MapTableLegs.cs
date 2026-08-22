@@ -28,13 +28,33 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///   'GH_Map_TableTop_Lg' L0 size (306.88, 29.29, 454.81) = 1.55 x 0.15 x 2.30 m,
 ///                        centre offset (0.00, -0.08, 0.00) m from the map's centre/top
 /// </code>
-/// <para>A 1.55 x 2.30 m wooden slab 0.15 m thick whose TOP FACE sits 5 mm under the parchment: that
+/// <para>A 1.55 x 2.30 m wooden slab 0.15 m thick whose TOP FACE sits 6 mm under the parchment: that
 /// is the tabletop the player sees, it belongs to the GAME (layer 0, excluded from nothing, drawn by
 /// the same forward head camera that draws everything else here), and it has no legs. So the legs
 /// are placed at the corners of THAT renderer's world bounds and are skinned with THAT renderer's own
-/// sharedMaterial — literally the same material object, so "the same texture as the table" is an
-/// identity and not a match. <see cref="TryFindTable"/> re-derives it by measurement every time this
-/// builds and never by name, and <see cref="DescribeCandidates"/> prints what it considered.</para>
+/// material object, so "the same texture as the table" is an identity and not a match.
+/// <see cref="TryFindTable"/> re-derives it by measurement every time this builds and never by
+/// name.</para>
+///
+/// <para>MODBUILD 198 STOOD THEM ON THE MAP INSTEAD, AND ALL FOUR REJECTED FAULTS ARE THAT ONE
+/// MISTAKE. Its own hardware line names the renderer it chose: <c>'GH_Campaign_Map' ... 0.96 x 0.00 x
+/// 1.20 m ... material 'GloomhavenVR.MapRoom.MapUnlit.0'</c> — the PARCHMENT, wearing the unlit
+/// override this mod itself puts on it. The sweep had no test for "is not the parchment" (its doc
+/// claimed one; its code had none) and broke ties by preferring the SMALLEST footprint, which the map
+/// wins. Everything the user reported follows mechanically:</para>
+/// <list type="bullet">
+///   <item>"die 4 Ecken der Karte, nicht die 4 Ecken des Holztisches" — the corners came from the
+///   map's 0.96 x 1.20 m AABB instead of the table's 1.55 x 2.30 m one.</item>
+///   <item>"ich will das die Beine eben diese Textur der Holzplatte haben" — the legs took submesh 0
+///   of that renderer, i.e. the CAMPAIGN MAP's unlit material. The pale cream in the photograph is
+///   the parchment's border. The UV window was never the problem; the material was.</item>
+///   <item>"die Tischbeine schauen etwas oben raus" — the head was welded 5 mm up from the underside
+///   of a 0.6 mm sheet, i.e. 4.4 mm above the map's visible face.</item>
+/// </list>
+/// <para>Two independent measurements now make that impossible: identity (the parchment renderer, its
+/// transform and its whole chain are excluded) and thickness (a candidate must be a BOARD of at least
+/// <see cref="MinTableThicknessMeters"/>, against a 0.6 mm map and a 148 mm table). Either one alone
+/// would have changed 198's answer.</para>
 ///
 /// <para>THEY STAND ON THE ROOM'S FLOOR, NOT ON THE PLAYER'S. Those are two different planes and the
 /// gap between them is why the bench class buried its feet. The room is placed by the diorama rule
@@ -62,12 +82,28 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// virtual floor plane would visibly miss the real one. <c>MixedReality.BackingsWanted</c> is the
 /// same predicate the MR readability treatment keys off, so there is no second switch to drift.</para>
 ///
-/// <para>IT MOVES NOTHING. This class only READS: the table renderer's bounds and material, the
-/// environment room root's position, the parchment's bounds and the solved seat's scale. It writes
-/// no game transform, no game material, no rig value, and it has no Update of its own — it is
-/// world-fixed furniture, so after the build frame <see cref="Tick"/> is two field reads and a
-/// reference compare. No collider, deliberately: the laser's pick path must not start finding
-/// furniture.</para>
+/// <para>IT MOVES NOTHING, AND IT CANNOT MOVE A WINDOW. This class only READS: the table renderer's
+/// bounds and material, the environment room root's position, the parchment's bounds, the solved
+/// seat's scale, the head camera's culling mask and the scene's lights. It writes no game transform,
+/// no game material, no rig value, and it has no Update of its own — it is world-fixed furniture, so
+/// after the build frame <see cref="Tick"/> is two field reads and a reference compare. No collider,
+/// deliberately: the laser's pick path must not start finding furniture.</para>
+///
+/// <para>THAT MATTERS BECAUSE OF WHAT ELSE SHIPPED IN 198: every floating window moved to below the
+/// table in the same build. It was not this class. Nothing here names or can reach a Canvas, a
+/// <c>ConvertedPanel</c>, a <c>GrabbableModal</c>, <c>ModalFallback</c>, <c>PanelPlacement</c>, the
+/// seat's POSE (only its <c>Scale</c> and <c>FloorPosition</c> are read, never written) or the rig.
+/// The only objects it creates are its own root and one child holding a MeshFilter and a
+/// MeshRenderer, and the only property it sets on anything pre-existing is none. The report line
+/// states this so a future round does not have to re-derive it.</para>
+///
+/// <para>AND THE LEGS SHARE THE TABLE'S LAYER, not the mod layer every other prop in this room uses.
+/// ModBuild 198 shipped that difference as a written-down open risk ("a realtime light whose culling
+/// mask excludes the mod layer would light the two differently"). A leg is part of the table and
+/// wears the table's own material object; the only way two such objects are guaranteed to shade alike
+/// is to be reachable by one set of lights. <see cref="ChooseLayer"/> takes the table's layer after
+/// READING the head camera's mask to confirm it is drawn, and <see cref="DescribeLights"/> prints the
+/// census that says whether the difference ever mattered.</para>
 ///
 /// <para>MULTIPLAYER: nothing on the wire and nothing to disagree about. Every input is game-scene
 /// state plus this client's own local style dial, so two clients build byte-identical legs with zero
@@ -80,6 +116,12 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 internal sealed class MapTableLegs
 {
     private const string Scope = "MapRoom";
+
+    /// <summary>The prop root's GameObject name. It is a CONSTANT rather than a literal because
+    /// <see cref="TryFindTable"/> now has to recognise this prop's own geometry: the legs may stand on
+    /// the game's layer (see <see cref="ChooseLayer"/>), so the sweep's mod-layer test no longer
+    /// excludes them and a rebuild could otherwise consider a leg as a tabletop candidate.</summary>
+    private const string RootName = "GloomhavenVR.MapTableLegs";
 
     // ---- THE LEG, IN REAL METRES -------------------------------------------------------------
     // Everything here is multiplied by the rig scale EXACTLY ONCE, in Build, and never again. This
@@ -95,10 +137,49 @@ internal sealed class MapTableLegs
     /// angles, and a large inset reads as a pedestal rather than as a corner leg.</summary>
     internal const float EdgeInsetMeters = 0.02f;
 
-    /// <summary>How far the leg's top pushes UP into the tabletop, real metres. Parts that share a
-    /// face exactly z-fight along it; 5 mm of overlap is invisible at any distance a player can
-    /// reach at a table and guarantees no daylight between leg and top.</summary>
+    /// <summary>
+    /// How far the leg's head pushes up into the SLAB, measured from the slab's UNDERSIDE, real
+    /// metres. Parts that share a face exactly z-fight along it; 5 mm of overlap is invisible and
+    /// guarantees no daylight at the joint.
+    ///
+    /// <para>THE REFERENCE FACE IS THE UNDERSIDE, AND ModBuild 198 SHIPPED THE OTHER ONE. There it
+    /// read <c>top.min.y + WeldMeters</c> where <c>top</c> was — because of the selection bug fixed
+    /// in <see cref="TryFindTable"/> — the PARCHMENT's bounds, a 0.6 mm decal. 5 mm up from the
+    /// underside of a 0.6 mm sheet is 4.4 mm ABOVE its visible face, which is precisely the four pale
+    /// rectangles the user photographed sitting ON the map ("Die Tischbeine schauen etwas oben raus").
+    /// Against the REAL slab the same arithmetic is safe by two orders of magnitude — 5 mm into a
+    /// 148 mm board leaves the leg head 143 mm BELOW the top face — and
+    /// <see cref="WeldMaxThicknessFraction"/> makes that structural rather than lucky.</para>
+    /// </summary>
     internal const float WeldMeters = 0.005f;
+
+    /// <summary>
+    /// The weld is additionally capped at this fraction of the slab's MEASURED thickness, so the leg
+    /// head can never reach the top face no matter what the sweep hands back. At the real tabletop
+    /// (148 mm) the cap is 37 mm and <see cref="WeldMeters"/>'s 5 mm wins; at a 10 mm ledge the cap
+    /// wins and the head stops 2.5 mm up. A leg can only ever emerge from the top of a slab if this
+    /// number is raised to 1.
+    /// </summary>
+    internal const float WeldMaxThicknessFraction = 0.25f;
+
+    /// <summary>
+    /// The minimum THICKNESS a candidate tabletop must have, real metres — and this one constant is
+    /// what makes the difference between the four faults the user reported and none of them.
+    ///
+    /// <para>ModBuild 198's sweep accepted anything "slab-shaped" (thickness at most
+    /// <see cref="SlabThicknessFactor"/> of its smaller horizontal extent) and then preferred the
+    /// SMALLEST survivor. The parchment satisfies both: it is 0.962 x 1.200 m and 0.6 mm thick, so it
+    /// is the most slab-shaped and the smallest thing in the scene that contains its own footprint —
+    /// and the class had no test that excluded it. The hardware log is unambiguous:
+    /// <c>'GH_Campaign_Map' ... 0.96 x 0.00 x 1.20 m ... material 'GloomhavenVR.MapRoom.MapUnlit.0'</c>
+    /// — the legs were stood at the MAP's corners and skinned with the MOD's own map material. All of
+    /// (a) wrong corners, (b) pale, (c) poking through follow from that one line.</para>
+    ///
+    /// <para>30 mm is chosen against the two real measurements and not between them: the parchment is
+    /// 0.6 mm (50x under) and the tabletop is 148 mm (5x over), so no plausible re-authoring of either
+    /// asset crosses it. A TABLE IS A BOARD; A MAP IS A DECAL, and that is a difference of kind.</para>
+    /// </summary>
+    internal const float MinTableThicknessMeters = 0.03f;
 
     /// <summary>
     /// How far below the room's floor PLANE each foot is cut, real metres — and this number is 25 mm
@@ -143,10 +224,27 @@ internal sealed class MapTableLegs
     /// <inheritdoc cref="MinMetresPerUv"/>
     private const float MaxMetresPerUv = 20f;
 
-    /// <summary>Fraction trimmed off each side of the table's measured UV rectangle before the legs
-    /// are mapped into it. The tabletop's texture may be one region of a shared atlas; staying off
-    /// its own border is what keeps a leg from sampling the neighbouring page.</summary>
-    private const float UvRectInset = 0.15f;
+    /// <summary>
+    /// How much of the 0..1 sheet the tabletop's own UVs must span, per axis, before the texture is
+    /// judged to be the table's OWN and therefore safe to repeat. Above this the legs TILE it at the
+    /// top's texel density; below it the texture is one page of an atlas and the legs FIT inside that
+    /// page instead. See <see cref="AdoptTableUvs"/> for why those are the only two honest options.
+    /// </summary>
+    private const float FullSheetThreshold = 0.90f;
+
+    /// <summary>Fraction trimmed off each side of an ATLAS PAGE's measured UV rectangle before the
+    /// legs are fitted into it — a bilinear-bleed margin only, not a search window. Small, because in
+    /// FIT mode nothing can leave the rectangle anyway; it only keeps the filter from reaching a
+    /// texel of the neighbouring page.</summary>
+    private const float AtlasPageInset = 0.02f;
+
+    /// <summary>How many texture properties per material the material dump names before it stops.
+    /// The dump exists to answer "which texture is actually on the legs", and a game shader can carry
+    /// a dozen unused slots.</summary>
+    private const int TexturePropCap = 12;
+
+    /// <summary>How many scene lights the light census names before it stops.</summary>
+    private const int LightCap = 8;
 
     /// <summary>A candidate tabletop must be a SLAB: its thickness at most this fraction of its
     /// smaller horizontal extent. This is what rejects the map's fog volume, which is as tall as it
@@ -206,6 +304,10 @@ internal sealed class MapTableLegs
     private Vector2 _uvCentre = new(0.5f, 0.5f);
     private float _uvWorldPerU = 1f;
     private float _uvWorldPerV = 1f;
+    /// <summary>TILE mode (the texture is the table's own and repeats) rather than FIT mode (it is
+    /// one page of an atlas and the legs are scaled to sit inside it). See <see cref="AdoptTableUvs"/>.
+    /// </summary>
+    private bool _uvTile = true;
     private int _retryFrame = int.MinValue;
     private SkyStyle _lastStyle = (SkyStyle)(-1);
     private bool _lastMixedReality;
@@ -363,7 +465,8 @@ internal sealed class MapTableLegs
         if (Mathf.Max(Mathf.Abs(parch.size.x), Mathf.Abs(parch.size.z)) < MapRoomSeat.MinUsableExtent)
             return;
 
-        if (!TryFindTable(parch, scale, out MeshRenderer? table, out string candidates) || table == null)
+        if (!TryFindTable(parchment, parch, scale, out MeshRenderer? table, out string candidates)
+            || table == null)
         {
             Refuse("NOT BUILT: no tabletop was found. " + candidates);
             return;
@@ -376,7 +479,16 @@ internal sealed class MapTableLegs
 
         Bounds top = table.bounds;
         float footY = floorY - FootSinkMeters * scale;
-        float legTopY = top.min.y + WeldMeters * scale;
+        // THE LEG HEAD STOPS INSIDE THE SLAB, MEASURED FROM ITS UNDERSIDE. top.min.y is the real
+        // board's bottom face (the sweep now guarantees a board and not a decal — see
+        // MinTableThicknessMeters), and the weld is additionally capped at a quarter of the measured
+        // thickness, so no arithmetic here can put the head through the top face. ModBuild 198's own
+        // line is the counter-example this replaces: 5 mm up from the underside of a 0.6 mm parchment
+        // is 4.4 mm ABOVE it.
+        float slabThickness = Mathf.Abs(top.size.y);
+        float weld = Mathf.Min(WeldMeters * scale, slabThickness * WeldMaxThicknessFraction);
+        float legTopY = top.min.y + weld;
+        float headBelowTopFace = top.max.y - legTopY;
         float legHeight = legTopY - footY;
         if (legHeight < MinLegHeightMeters * scale || legHeight > MaxLegHeightMeters * scale)
         {
@@ -394,16 +506,20 @@ internal sealed class MapTableLegs
         // anchoring the vertical to the floor is what makes "standing on the floor" structural
         // rather than arithmetic that can drift.
         var origin = new Vector3(top.center.x, footY, top.center.z);
-        _root = new GameObject("GloomhavenVR.MapTableLegs");
+        _root = new GameObject(RootName);
         _root.transform.SetPositionAndRotation(origin, Quaternion.identity);
 
         _verts.Clear();
         _norms.Clear();
         _uvs.Clear();
         _tris.Clear();
-        AdoptTableUvs(table, top, scale, out string uvSource);
 
         float side = LegSideMeters * scale;
+        // Pick the SKIN before the UVs, because the UV decision depends on the texture that skin
+        // carries (its wrap mode decides whether the grain may repeat at all).
+        Material? skin = PickTableMaterial(table, out int skinIndex, out string materialSource);
+        AdoptTableUvs(table, skin, top, scale, legHeight, side, out string uvSource);
+
         float inset = (LegSideMeters * 0.5f + EdgeInsetMeters) * scale;
         // Guard a table so small the insets cross: the legs then sit on the centre line rather than
         // outside the top, which is ugly but bounded.
@@ -433,25 +549,12 @@ internal sealed class MapTableLegs
         geo.transform.SetParent(_root.transform, worldPositionStays: false);
         geo.AddComponent<MeshFilter>().sharedMesh = _mesh;
         var mr = geo.AddComponent<MeshRenderer>();
-        _material = table.sharedMaterial;
+        _material = skin;
         _ownsMaterial = false;
-        string materialSource;
-        if (_material != null)
-        {
-            materialSource = $"the tabletop's OWN sharedMaterial '{_material.name}' "
-                             + $"(shader '{(_material.shader != null ? _material.shader.name : "<null>")}', "
-                             + $"{table.sharedMaterials.Length} submesh material(s) on it) — the SAME "
-                             + "material object, not a copy and not a match, so the legs cannot drift "
-                             + "from the table's look and cost no extra material";
-        }
-        else
+        if (_material == null)
         {
             _material = WoodFallbackMaterial();
             _ownsMaterial = true;
-            materialSource = "FALLBACK wood (GloomhavenVR/BoardLit over the button-rail cap colour) — "
-                             + "the tabletop renderer carries NO sharedMaterial, which should be "
-                             + "impossible for a visible slab. The legs will NOT match the table; "
-                             + "read this line before tuning anything else.";
         }
         mr.sharedMaterial = _material;
         // Scenery. The map room has no shadow-casting light of its own, so a shadow pass would be a
@@ -460,15 +563,17 @@ internal sealed class MapTableLegs
         mr.receiveShadows = false;
         // NO COLLIDER, deliberately: the laser's pick path must not start finding furniture.
 
-        // The head camera's mask is the game map camera's mask OR'd with the mod layer, so this is
-        // what makes the prop visible at all (MapRoomDriver.ResolveMapMask).
-        VRLayers.Apply(_root);
+        // THE LEGS GO ON THE TABLE'S OWN LAYER, and that RESOLVES ModBuild 198's stated open risk
+        // rather than measuring it again. See ChooseLayer.
+        int layer = ChooseLayer(table, out string layerSource);
+        SetLayerRecursive(_root.transform, layer);
 
         _builtAgainstParchment = parchment;
         _builtAgainstTable = table;
         _lastRefusal = "";
         Report(style, mixedReality, seat, parch, table, top, floorY, footY, legHeight, side,
-               cornerX, cornerZ, scale, floorSource, materialSource, uvSource, candidates);
+               cornerX, cornerZ, scale, weld, headBelowTopFace, slabThickness, skinIndex, layer,
+               floorSource, materialSource, uvSource, layerSource, candidates);
     }
 
     /// <summary>
@@ -486,23 +591,300 @@ internal sealed class MapTableLegs
             : WorldUIAssets.CreateFlatMaterial(ButtonTuning.CapWellColor * woodBoost);
     }
 
+    // ---- the skin ------------------------------------------------------------------------------
+
+    /// <summary>
+    /// WHICH OF THE TABLETOP'S MATERIALS THE LEGS WEAR — the first one that actually carries a main
+    /// texture, and its index is logged.
+    ///
+    /// <para>ModBuild 198 took <c>sharedMaterial</c>, i.e. submesh 0, unconditionally. On the renderer
+    /// it wrongly picked that was <c>GloomhavenVR.MapRoom.MapUnlit.0</c> — one of the FOUR unlit
+    /// materials this mod itself puts on the parchment — so the legs were painted with the campaign
+    /// map. Submesh 0 of a multi-material prop is not reliably its surface material either (it is
+    /// often a trim or an edge), so the choice is made by a MEASUREMENT: a material that draws no
+    /// texture cannot carry the wood, and the first one that does is taken.</para>
+    ///
+    /// <para>The result is the game's OWN material object, shared not copied, so the legs cannot drift
+    /// from the table's look and cost no extra material. <see cref="Release"/>'s
+    /// <c>_ownsMaterial</c> flag is what keeps this class from ever destroying it.</para>
+    /// </summary>
+    private static Material? PickTableMaterial(MeshRenderer table, out int index, out string source)
+    {
+        index = -1;
+        Material[] mats;
+        try { mats = table.sharedMaterials; }
+        catch (System.Exception ex)
+        {
+            source = $"reading the tabletop's materials threw ({ex.GetType().Name}: {ex.Message}), so "
+                     + "the legs wear the FALLBACK wood and will NOT match the table";
+            return null;
+        }
+
+        Material? textured = null, anyMaterial = null;
+        int texturedIndex = -1, anyIndex = -1;
+        for (int i = 0; i < mats.Length; i++)
+        {
+            Material? m = mats[i];
+            if (m == null)
+                continue;
+            if (anyMaterial == null) { anyMaterial = m; anyIndex = i; }
+            if (textured != null)
+                continue;
+            Texture? t = null;
+            try { t = m.mainTexture; }
+            catch { /* a shader with no _MainTex throws nothing, but a broken one might */ }
+            if (t != null) { textured = m; texturedIndex = i; }
+        }
+
+        Material? pick = textured ?? anyMaterial;
+        index = textured != null ? texturedIndex : anyIndex;
+        if (pick == null)
+        {
+            source = $"the tabletop renderer carries {mats.Length} material slot(s) and every one of "
+                     + "them is NULL, which should be impossible for a visible slab — the legs wear "
+                     + "the FALLBACK wood (GloomhavenVR/BoardLit over the button-rail cap colour) and "
+                     + "will NOT match the table. Read this line before tuning anything else.";
+            return null;
+        }
+        source = $"the tabletop's OWN material object mat[{index}] '{pick.name}' "
+                 + $"(shader '{(pick.shader != null ? pick.shader.name : "<null>")}'), shared and not "
+                 + $"copied, chosen out of {mats.Length} slot(s) because it is the FIRST that actually "
+                 + (textured != null
+                    ? "draws a main texture — a slot with no texture cannot be carrying the wood"
+                    : "exists; NONE of the slots draws a main texture, so the legs will take whatever "
+                      + "flat colour this material is and the grain will be missing")
+                 + ". ModBuild 198 took slot 0 of the WRONG RENDERER and got "
+                 + "'GloomhavenVR.MapRoom.MapUnlit.0' — this mod's own map material — which is why the "
+                 + "legs came out pale";
+        return pick;
+    }
+
+    /// <summary>
+    /// FULL DUMP of a renderer's materials, shaders, keywords and every texture slot with the
+    /// texture's name, size and wrap mode. This is the instrument that decides "wrong material" from
+    /// "wrong UV window" in one reading, and it is printed for the tabletop AND for the finished legs
+    /// so the two can be compared without a hardware round.
+    /// </summary>
+    private static string DescribeMaterials(MeshRenderer? r, string who, string indent)
+    {
+        if (r == null)
+            return $"{indent}{who}: <no renderer>";
+        var sb = new StringBuilder(256);
+        Material[] mats;
+        try { mats = r.sharedMaterials; }
+        catch (System.Exception ex)
+        {
+            return $"{indent}{who} '{r.name}': reading sharedMaterials threw ({ex.GetType().Name}).";
+        }
+        sb.Append($"{indent}{who} '{r.name}' L{r.gameObject.layer} enabled={r.enabled} "
+                  + $"{mats.Length} material slot(s)");
+        for (int i = 0; i < mats.Length; i++)
+        {
+            Material? m = mats[i];
+            if (m == null)
+            {
+                sb.Append($"\n{indent}  mat[{i}] <null>");
+                continue;
+            }
+            Shader? sh = m.shader;
+            string keywords;
+            try { keywords = string.Join(" ", m.shaderKeywords); }
+            catch { keywords = "<unreadable>"; }
+            // THE PASS NAMES MATTER HERE. The head camera renders FORWARD while the game's own map
+            // camera is DeferredShading, and this room has already lost a renderer to that difference
+            // once (MapParchment exists because the parchment has no forward pass). The table is
+            // visible in the user's photograph, so its material demonstrably HAS one — this prints
+            // the proof rather than relying on the photograph.
+            string passes;
+            try
+            {
+                var ps = new StringBuilder(48);
+                for (int q = 0; q < m.passCount; q++)
+                    ps.Append(q > 0 ? ", " : "").Append(m.GetPassName(q));
+                passes = ps.ToString();
+            }
+            catch { passes = "<unreadable>"; }
+            sb.Append($"\n{indent}  mat[{i}] '{m.name}' shader '{(sh != null ? sh.name : "<null>")}' "
+                      + $"queue {m.renderQueue} passes [{passes}] mainScale ({m.mainTextureScale.x:F3},"
+                      + $"{m.mainTextureScale.y:F3}) mainOffset ({m.mainTextureOffset.x:F3},"
+                      + $"{m.mainTextureOffset.y:F3}) keywords [{keywords}]");
+            if (sh == null)
+                continue;
+            int count;
+            try { count = sh.GetPropertyCount(); }
+            catch { continue; }
+            int shown = 0;
+            for (int p = 0; p < count && shown < TexturePropCap; p++)
+            {
+                if (sh.GetPropertyType(p) != UnityEngine.Rendering.ShaderPropertyType.Texture)
+                    continue;
+                string pn = sh.GetPropertyName(p);
+                Texture? t;
+                try { t = m.GetTexture(pn); }
+                catch { continue; }
+                shown++;
+                sb.Append($"\n{indent}    {pn} = "
+                          + (t == null
+                             ? "<null>"
+                             : $"'{t.name}' {t.width}x{t.height} {t.GetType().Name} wrap={t.wrapMode} "
+                               + $"filter={t.filterMode} mips={t.mipmapCount}"));
+            }
+        }
+        return sb.ToString();
+    }
+
+    // ---- the layer -----------------------------------------------------------------------------
+
+    /// <summary>
+    /// THE LEGS GO ON THE TABLE'S OWN LAYER — which closes ModBuild 198's one stated open risk by
+    /// CONSTRUCTION instead of leaving it for the next photograph.
+    ///
+    /// <para>198 put them on the mod layer because every other prop this room builds does, and then
+    /// wrote the risk down: "a realtime light whose own culling mask excludes the mod layer would
+    /// light the two differently ... legs of the right wood at visibly the wrong BRIGHTNESS". A leg
+    /// is not a mod prop that happens to sit near a table — it is PART OF the table, wearing the
+    /// table's own material object, and the only way two objects with one material are guaranteed to
+    /// shade identically is for them to be on one layer. So the table's layer is taken and the risk
+    /// stops existing.</para>
+    ///
+    /// <para>IT IS ONLY TAKEN IF IT IS VISIBLE, and that is read rather than assumed:
+    /// <c>MapRoomDriver.ResolveMapMask</c> is the exact mask the head camera runs with (the game map
+    /// camera's own mask OR the mod layer), and the tabletop's layer is in it if and only if the table
+    /// itself is drawn — which it demonstrably is, since the user photographed it. If the mask ever
+    /// says otherwise the mod layer is used instead and the log says so, so the worst case is 198's
+    /// behaviour and never an invisible prop.</para>
+    ///
+    /// <para>NOTHING ELSE KEYS OFF THE MOD LAYER FOR THIS PROP: it has no collider (so no raycast
+    /// path can find it either way), it is not a WorldUI panel, and <see cref="TryFindTable"/> — the
+    /// one place that filters by layer — excludes this prop by identity as well, so legs on layer 0
+    /// cannot be mistaken for a tabletop on a later rebuild.</para>
+    /// </summary>
+    private static int ChooseLayer(MeshRenderer table, out string source)
+    {
+        int mod = VRLayers.ModLayer;
+        int tableLayer = table.gameObject.layer;
+        int mask = MapRoomDriver.ResolveMapMask(null, out _);
+        if (tableLayer == mod)
+        {
+            source = $"layer {tableLayer} — the tabletop is ALREADY on the mod layer, so there is "
+                     + "nothing to reconcile";
+            return tableLayer;
+        }
+        if ((mask & (1 << tableLayer)) == 0)
+        {
+            source = $"layer {mod} (the MOD layer) — the tabletop is on layer {tableLayer}, but the "
+                     + $"head camera's culling mask 0x{mask:X8} does NOT contain that layer, so legs "
+                     + "put there would be invisible. Falling back to the mod layer reproduces "
+                     + "ModBuild 198's behaviour exactly, INCLUDING its open lighting risk: if the "
+                     + "legs then read as the right wood at the wrong brightness, that is this line.";
+            return mod;
+        }
+        source = $"layer {tableLayer} — THE TABLETOP'S OWN, not the mod layer {mod} that every other "
+                 + "prop in this room uses. The legs wear the table's own material object, and two "
+                 + "objects with one material shade identically only if one light set reaches both; "
+                 + "sharing the layer makes that true by construction instead of by hope. The head "
+                 + $"camera's mask 0x{mask:X8} was READ (MapRoomDriver.ResolveMapMask) and contains "
+                 + "the layer, so the prop is drawn. This RESOLVES the open risk ModBuild 198 wrote "
+                 + "down rather than measuring it again";
+        return tableLayer;
+    }
+
+    /// <summary>Set a whole (two-deep) subtree to one layer. <c>VRLayers.Apply</c> would force the
+    /// MOD layer, which is exactly the thing <see cref="ChooseLayer"/> decides against.</summary>
+    private static void SetLayerRecursive(Transform t, int layer)
+    {
+        t.gameObject.layer = layer;
+        for (int i = 0; i < t.childCount; i++)
+            SetLayerRecursive(t.GetChild(i), layer);
+    }
+
+    /// <summary>
+    /// THE LIGHT CENSUS — the evidence behind <see cref="ChooseLayer"/>, printed whether or not it
+    /// mattered. For every enabled light in the scene it prints the type, the intensity and the
+    /// culling mask, and it counts the lights that DISTINGUISH the tabletop's layer from the mod
+    /// layer. A count of zero means the layer never mattered here; a count above zero means ModBuild
+    /// 198's legs really were lit differently from the table they held up, and that this build's
+    /// layer choice is what fixed it.
+    /// </summary>
+    private static string DescribeLights(int tableLayer, int modLayer, string indent)
+    {
+        Light[] lights;
+        try { lights = Object.FindObjectsOfType<Light>(); }
+        catch (System.Exception ex)
+        {
+            return $"{indent}the light census threw ({ex.GetType().Name}) — no verdict.";
+        }
+        int tableBit = 1 << tableLayer, modBit = 1 << modLayer;
+        int discriminating = 0, enabledCount = 0, named = 0;
+        var sb = new StringBuilder(192);
+        for (int i = 0; i < lights.Length; i++)
+        {
+            Light l = lights[i];
+            if (l == null || !l.enabled || !l.gameObject.activeInHierarchy)
+                continue;
+            enabledCount++;
+            bool litsTable = (l.cullingMask & tableBit) != 0;
+            bool litsMod = (l.cullingMask & modBit) != 0;
+            bool splits = litsTable != litsMod;
+            if (splits)
+                discriminating++;
+            if (named < LightCap && (splits || named < 3))
+            {
+                named++;
+                sb.Append($"\n{indent}  '{l.name}' {l.type} intensity {l.intensity:F2} "
+                          + $"mask 0x{l.cullingMask:X8} → table layer {tableLayer} "
+                          + $"{(litsTable ? "LIT" : "not lit")}, mod layer {modLayer} "
+                          + $"{(litsMod ? "LIT" : "not lit")}{(splits ? "  <-- DISCRIMINATES" : "")}");
+            }
+        }
+        return $"{indent}{enabledCount} enabled light(s) in the scene; {discriminating} of them "
+               + $"light layer {tableLayer} and layer {modLayer} DIFFERENTLY. "
+               + (discriminating == 0
+                  ? "So the layer never changed the shading here and ModBuild 198's stated risk was "
+                    + "real but unrealised — the pale legs were the MATERIAL, and only the material."
+                  : "So ModBuild 198's legs WERE lit by a different light set than the table they held "
+                    + "up, exactly as that build's open-risk note predicted; putting them on the "
+                    + "table's own layer is what removes it.")
+               + sb;
+    }
+
     // ---- finding the table ---------------------------------------------------------------------
 
     /// <summary>
     /// WHICH RENDERER IS THE TABLETOP — by MEASUREMENT, never by name, so a renamed or a
-    /// per-map-variant asset still resolves and a coincidence cannot. A candidate qualifies when all
-    /// four hold, and each one is there to reject something the captured scene actually contains:
+    /// per-map-variant asset still resolves and a coincidence cannot.
+    ///
+    /// <para>MODBUILD 198 GOT THIS WRONG, AND ALL FOUR REPORTED FAULTS ARE THAT ONE MISTAKE. Its
+    /// hardware line reads: <c>'GH_Campaign_Map' on layer 0 is the only/smallest non-mod SLAB ...
+    /// 0.96 x 0.00 x 1.20 m ... material 'GloomhavenVR.MapRoom.MapUnlit.0'</c>. That renderer IS the
+    /// parchment — the very object <c>MapParchment</c> holds this mod's own unlit override on. Two
+    /// omissions let it win: the class's doc claimed the candidate must not be "the parchment itself"
+    /// but no line of code tested it, and the tie-break prefers the SMALLEST footprint, which the map
+    /// (1.15 m²) is against the real table (3.57 m²). Everything the user photographed follows:
+    /// legs at the MAP's corners, painted with the MAP's texture, and standing 4.4 mm proud of a
+    /// 0.6 mm sheet. Two independent tests now make it impossible — identity (5) and thickness (6).</para>
+    ///
+    /// <para>A candidate qualifies when all of these hold, and each is there to reject something the
+    /// captured scene actually contains:</para>
     /// <list type="number">
-    ///   <item>it is the game's (not on the mod layer) and is not the parchment itself;</item>
+    ///   <item>it is DRAWN — enabled and active in the hierarchy. (This rejects <c>cityMap</c>
+    ///   'GH_Campaign_Map_Gloomhaven', which the MAP SCENE REPORT shows sitting inactive at exactly
+    ///   the world map's bounds — a perfect decoy for every other test here.)</item>
+    ///   <item>it is the game's, i.e. not on the mod layer, and it is not this prop's own geometry.
+    ///   (The legs may now stand on layer 0 with the table — see <see cref="ChooseLayer"/> — so the
+    ///   layer test alone no longer excludes them.)</item>
     ///   <item>its horizontal footprint CONTAINS the parchment's — the map lies on the table, so the
     ///   table is at least as big. (This is what rejects <c>FogTarget</c>, which is wider than the
     ///   map in X but narrower in Z.)</item>
     ///   <item>it is a SLAB: thickness at most <see cref="SlabThicknessFactor"/> of its smaller
-    ///   horizontal extent, and no more than <see cref="MaxTableFactor"/> times the map across. (The
-    ///   first rejects <c>FogTarget</c> a second time — it is as tall as it is wide — the second
-    ///   would reject a ground plane.)</item>
+    ///   horizontal extent, and no more than <see cref="MaxTableFactor"/> times the map across.</item>
+    ///   <item>IT IS NOT THE PARCHMENT — not that renderer, not its GameObject, and not an ancestor or
+    ///   descendant of it. Identity, so no threshold can be tuned into letting it through.</item>
+    ///   <item>IT IS A BOARD, NOT A DECAL: thickness at least <see cref="MinTableThicknessMeters"/>.
+    ///   This is the measurement that separates a 148 mm tabletop from a 0.6 mm map, and it would have
+    ///   rejected 198's pick on its own even without (5).</item>
     ///   <item>its TOP FACE is flush with the parchment's top plane to within
-    ///   <see cref="TopBandMeters"/>. A table under the map, not a floor under the table.</item>
+    ///   <see cref="TopBandMeters"/>, and is not ABOVE it. A table under the map, not a lid over it.</item>
     /// </list>
     /// Among survivors the SMALLEST horizontal footprint wins, so a tabletop nested inside a larger
     /// platform is preferred to the platform.
@@ -511,24 +893,34 @@ internal sealed class MapTableLegs
     /// legs stand — the same order of cost as the map scene report the room already emits on entry,
     /// and deliberately not the per-frame kind.</para>
     /// </summary>
-    internal static bool TryFindTable(Bounds parchment, float scale, out MeshRenderer? table,
-                                      out string survey)
+    internal static bool TryFindTable(MeshRenderer? parchmentRenderer, Bounds parchment, float scale,
+                                      out MeshRenderer? table, out string survey)
     {
         table = null;
         var sb = new StringBuilder(256);
-        int considered = 0, named = 0;
+        int considered = 0, named = 0, skippedParchment = 0, skippedThin = 0;
         float best = float.MaxValue;
         try
         {
             int mod = VRLayers.ModLayer;
             float margin = ContainMarginMeters * scale;
             float band = TopBandMeters * scale;
+            float minThick = MinTableThicknessMeters * scale;
+            Transform? parchTf = parchmentRenderer != null ? parchmentRenderer.transform : null;
             float parchWidest = Mathf.Max(Mathf.Abs(parchment.size.x), Mathf.Abs(parchment.size.z));
             MeshRenderer[] all = Object.FindObjectsOfType<MeshRenderer>();
             for (int i = 0; i < all.Length; i++)
             {
                 MeshRenderer r = all[i];
                 if (r == null || r.gameObject.layer == mod)
+                    continue;
+                // Not this prop's own geometry. The legs may share the table's layer now, so the layer
+                // test above no longer covers them; the name is authored two lines apart in Build.
+                if (r.transform.parent != null && r.transform.parent.name == RootName)
+                    continue;
+                // NOT DRAWN, NOT A TABLE. 'GH_Campaign_Map_Gloomhaven' (the city map) sits inactive at
+                // exactly the world map's bounds and would otherwise pass every geometric test.
+                if (!r.enabled || !r.gameObject.activeInHierarchy)
                     continue;
                 Bounds b = r.bounds;
                 float sizeX = Mathf.Abs(b.size.x), sizeZ = Mathf.Abs(b.size.z);
@@ -538,10 +930,33 @@ internal sealed class MapTableLegs
                 if (!contains)
                     continue;
                 considered++;
+
+                // (5) IDENTITY, and it is checked before any threshold so nothing can be tuned into
+                // letting the map through. ModBuild 198 had this sentence in its doc and not in its code.
+                if (parchTf != null && (r == parchmentRenderer
+                                        || r.transform == parchTf
+                                        || r.transform.IsChildOf(parchTf)
+                                        || parchTf.IsChildOf(r.transform)))
+                {
+                    skippedParchment++;
+                    if (named < CandidateCap)
+                    {
+                        named++;
+                        sb.Append($"\n              REJECTED '{r.name}' L{r.gameObject.layer} "
+                                  + $"{sizeX / scale:F2} x {thick / scale:F3} x {sizeZ / scale:F2} m — "
+                                  + "IT IS THE PARCHMENT (or shares its transform). This is the exact "
+                                  + "renderer ModBuild 198 stood the legs on");
+                    }
+                    continue;
+                }
+
+                bool board = thick >= minThick;
                 bool slab = thick <= SlabThicknessFactor * Mathf.Min(sizeX, sizeZ);
                 bool sized = Mathf.Max(sizeX, sizeZ) <= MaxTableFactor * parchWidest;
-                bool flush = Mathf.Abs(b.max.y - parchment.max.y) <= band;
-                if (slab && sized && flush)
+                bool flush = Mathf.Abs(b.max.y - parchment.max.y) <= band && b.max.y <= parchment.max.y + margin;
+                if (!board)
+                    skippedThin++;
+                if (board && slab && sized && flush)
                 {
                     float area = sizeX * sizeZ;
                     if (area < best)
@@ -555,10 +970,11 @@ internal sealed class MapTableLegs
                 {
                     named++;
                     sb.Append($"\n              REJECTED '{r.name}' L{r.gameObject.layer} "
-                              + $"{sizeX / scale:F2} x {thick / scale:F2} x {sizeZ / scale:F2} m, top "
+                              + $"{sizeX / scale:F2} x {thick / scale:F3} x {sizeZ / scale:F2} m, top "
                               + $"{(b.max.y - parchment.max.y) / scale:F3} m from the map's plane — "
+                              + $"{(board ? "" : $"a DECAL, not a board ({thick / scale * 1000f:F1} mm thick, needs {MinTableThicknessMeters * 1000f:F0}); ")}"
                               + $"{(slab ? "" : "not a slab; ")}{(sized ? "" : "too big for a table; ")}"
-                              + $"{(flush ? "" : "top not flush with the map")}");
+                              + $"{(flush ? "" : "top not flush with (or is above) the map")}");
                 }
             }
         }
@@ -572,18 +988,26 @@ internal sealed class MapTableLegs
         {
             Bounds b = table.bounds;
             survey = $"MEASURED, not named: '{table.name}' on layer {table.gameObject.layer} is the "
-                     + $"only/smallest non-mod SLAB that contains the map's footprint and whose top "
-                     + $"face is flush with the map's own plane — "
-                     + $"{Mathf.Abs(b.size.x) / scale:F2} x {Mathf.Abs(b.size.y) / scale:F2} x "
-                     + $"{Mathf.Abs(b.size.z) / scale:F2} m, top "
-                     + $"{(b.max.y - parchment.max.y) / scale * 1000f:F0} mm from the map's plane. "
-                     + $"{considered} renderer(s) contained the map and were tested.{sb}";
+                     + "only/smallest DRAWN, non-mod, non-parchment BOARD that contains the map's "
+                     + "footprint and whose top face is flush under the map's own plane — "
+                     + $"{Mathf.Abs(b.size.x) / scale:F2} x {Mathf.Abs(b.size.y) / scale:F3} x "
+                     + $"{Mathf.Abs(b.size.z) / scale:F2} m ({Mathf.Abs(b.size.x):F1} x "
+                     + $"{Mathf.Abs(b.size.y):F1} x {Mathf.Abs(b.size.z):F1} world units), top face "
+                     + $"{(parchment.max.y - b.max.y) / scale * 1000f:F0} mm UNDER the map's plane, "
+                     + $"world centre ({b.center.x:F2}, {b.center.y:F2}, {b.center.z:F2}). "
+                     + $"{considered} renderer(s) contained the map and were tested; "
+                     + $"{skippedParchment} rejected as THE PARCHMENT ITSELF and {skippedThin} as a "
+                     + $"decal under {MinTableThicknessMeters * 1000f:F0} mm — the two tests ModBuild "
+                     + $"198 lacked, and either one alone would have changed its answer.{sb}";
             return true;
         }
-        survey = $"{considered} non-mod renderer(s) contain the map's footprint and NONE of them is a "
-                 + "slab flush with the map's own top plane. Without the tabletop this class has "
-                 + "neither the corners to stand legs at nor the material to skin them with, so it "
-                 + "builds NOTHING — a leg placed against a guessed footprint is worse than no leg. "
+        survey = $"{considered} drawn non-mod renderer(s) contain the map's footprint and NONE of them "
+                 + $"is a BOARD (at least {MinTableThicknessMeters * 1000f:F0} mm thick), slab-shaped "
+                 + "and flush under the map's own top plane; a further "
+                 + $"{skippedParchment} were the parchment itself and {skippedThin} were decals. "
+                 + "Without the tabletop this class has neither the corners to stand legs at nor the "
+                 + "material to skin them with, so it builds NOTHING — a leg placed against a guessed "
+                 + "footprint is worse than no leg, which is exactly what ModBuild 198 shipped. "
                  + "If the game's map screen really has changed, the rejections below are the "
                  + $"numbers to correct this file's thresholds from.{sb}";
         return false;
@@ -630,45 +1054,96 @@ internal sealed class MapTableLegs
     }
 
     /// <summary>
-    /// TAKE THE TABLE'S TEXTURE COORDINATES, NOT JUST ITS TEXTURE. Sharing the material makes the
-    /// legs the same WOOD; it does not make them the same wood at the same SIZE, and a leg whose
-    /// grain is twice as fine as the top it holds up reads as a different piece of furniture. So two
-    /// things are measured off the tabletop's own mesh and both are used:
+    /// TAKE THE TABLE'S TEXTURE COORDINATES, NOT JUST ITS TEXTURE — by TILING the grain, not by
+    /// clamping it into a window.
+    ///
+    /// <para>WHY THE CLAMP IS GONE. ModBuild 198 mapped every leg vertex at the top's texel scale and
+    /// then CLAMPED it into the top's UV rectangle trimmed 15 % a side. That is not a safe operation:
+    /// a clamp applied per VERTEX is not a clamp applied per pixel. Vertex UVs interpolate, so as soon
+    /// as one corner of a face is clamped and another is not, the whole face's mapping is squashed
+    /// toward the window edge — and if a face's whole span exceeds the window, the face collapses onto
+    /// one row of texels and renders as a single flat colour. A 15 % trim off a 1.0-wide window leaves
+    /// 0.70; a 0.78 m leg at 1.0 m per UV unit spans 0.78 of that, so 198's legs were within a hair of
+    /// exactly that failure even before the material was wrong. There is no threshold that makes a
+    /// per-vertex clamp correct, so it is replaced rather than retuned.</para>
+    ///
+    /// <para>TWO HONEST MODES, chosen by measurement:</para>
     /// <list type="bullet">
-    ///   <item>ITS TEXEL SCALE — how many real metres of table one UV unit covers, from the mesh's
-    ///   UV span against the renderer's world size. The legs are then mapped at exactly that many
-    ///   metres per UV unit, so the grain is the same size on the leg as on the top.</item>
-    ///   <item>ITS UV WINDOW — the rectangle of UV space the top actually occupies, trimmed by
-    ///   <see cref="UvRectInset"/> a side. Every leg vertex is CLAMPED into it, which is what makes
-    ///   "the same texture" survive the possibility that the top is one page of a shared atlas:
-    ///   whatever region of the sheet the table's wood lives in, no leg sample can leave it.</item>
+    ///   <item>TILE — the tabletop's own UVs cover at least <see cref="FullSheetThreshold"/> of the
+    ///   0..1 sheet in both axes, so the texture is the table's OWN and repeating it is exactly what
+    ///   the asset is for. The legs get CONTINUOUS UVs at the top's measured metres-per-UV-unit and
+    ///   the sampler wraps them, so the grain on a leg is the same size and the same wood as on the
+    ///   top, with no interpolation artefact anywhere. This is the expected case.</item>
+    ///   <item>FIT — the UVs occupy a sub-rectangle, i.e. the wood is one page of an atlas and
+    ///   repeating it would drag in the neighbouring page. Each leg is then mapped so that its WHOLE
+    ///   box lands inside that page (inset by <see cref="AtlasPageInset"/> for bilinear bleed),
+    ///   continuously and centred. The grain size is then whatever fits, the log says by what factor
+    ///   it differs from the top's, and no sample can leave the page.</item>
     /// </list>
-    /// Falls back to the whole 0..1 sheet at <see cref="FallbackMetresPerUv"/> — the ordinary case
-    /// for a dedicated texture — when the mesh is unreadable or carries no UVs, and says so.
+    /// <para>The mode is also forced to FIT when the material's own texture is set to
+    /// <c>TextureWrapMode.Clamp</c>, because tiling a clamped texture stretches its edge row exactly
+    /// the way the old per-vertex clamp did.</para>
+    ///
+    /// <para>Falls back to the whole 0..1 sheet at <see cref="FallbackMetresPerUv"/> when the mesh is
+    /// unreadable or carries no UVs, and says so — the parchment's mesh was not readable in the
+    /// ModBuild 198 session, so the tabletop's may not be either.</para>
     /// </summary>
-    private void AdoptTableUvs(MeshRenderer table, Bounds top, float scale, out string source)
+    private void AdoptTableUvs(MeshRenderer table, Material? skin, Bounds top, float scale,
+                               float legHeight, float legSide, out string source)
     {
         _uvRect = new Rect(0f, 0f, 1f, 1f);
         _uvCentre = new Vector2(0.5f, 0.5f);
         _uvWorldPerU = _uvWorldPerV = FallbackMetresPerUv * scale;
+        _uvTile = true;
+
+        // The wrap mode of the texture the legs will actually sample. A clamped texture cannot be
+        // tiled without smearing its edge row, so it forces FIT whatever the UV span says.
+        TextureWrapMode wrap = TextureWrapMode.Repeat;
+        string wrapNote = "no main texture to read a wrap mode from";
+        try
+        {
+            Texture? t = skin != null ? skin.mainTexture : null;
+            if (t != null)
+            {
+                wrap = t.wrapMode;
+                wrapNote = $"the skin's main texture '{t.name}' {t.width}x{t.height} wraps {wrap}";
+            }
+        }
+        catch { /* keep the Repeat default; the dump below names the texture either way */ }
+        bool mayTile = wrap == TextureWrapMode.Repeat || wrap == TextureWrapMode.Mirror;
+
+        // The largest half-extent any leg vertex reaches from its own leg centre: the leg is
+        // legSide x legHeight x legSide and legHeight dominates by an order of magnitude.
+        float halfReach = 0.5f * Mathf.Max(legHeight, legSide);
+
         try
         {
             var mf = table.GetComponent<MeshFilter>();
             Mesh? mesh = mf != null ? mf.sharedMesh : null;
             if (mesh == null || !mesh.isReadable)
             {
+                _uvTile = mayTile;
+                if (!_uvTile)
+                    FitIntoWindow(halfReach, AtlasPageInset);
                 source = $"the tabletop's mesh is {(mesh == null ? "absent" : "not CPU-readable")}, so "
-                         + $"the legs are mapped over the FULL 0..1 sheet at {FallbackMetresPerUv:F2} m "
-                         + "per UV unit. Correct if the wood turns out to be one page of an atlas (the "
-                         + "legs would show a neighbouring page) or a different grain size from the top";
+                         + "neither its texel scale nor its UV window can be measured. The legs are "
+                         + $"mapped over the FULL 0..1 sheet at {FallbackMetresPerUv:F2} m per UV unit "
+                         + $"in {(_uvTile ? "TILE" : "FIT")} mode ({wrapNote}). DISPROOF: if the wood on "
+                         + "the legs is the right colour but a visibly finer or coarser grain than the "
+                         + $"top's, this line is why — correct {nameof(FallbackMetresPerUv)} against "
+                         + "the texture size named in the material dump below";
                 return;
             }
             Vector2[] uv = mesh.uv;
             if (uv == null || uv.Length == 0)
             {
+                _uvTile = mayTile;
+                if (!_uvTile)
+                    FitIntoWindow(halfReach, AtlasPageInset);
                 source = "the tabletop's mesh carries no UV0 at all, so the legs are mapped over the "
-                         + $"full 0..1 sheet at {FallbackMetresPerUv:F2} m per UV unit (whatever the "
-                         + "table's shader does with texture coordinates, it is not reading them)";
+                         + $"full 0..1 sheet at {FallbackMetresPerUv:F2} m per UV unit in "
+                         + $"{(_uvTile ? "TILE" : "FIT")} mode (whatever the table's shader does with "
+                         + $"texture coordinates, it is not reading channel 0). {wrapNote}";
                 return;
             }
             int stride = Mathf.Max(1, uv.Length / 4096);
@@ -688,8 +1163,12 @@ internal sealed class MapTableLegs
             }
             if (sampled == 0 || !(maxU > minU) || !(maxV > minV))
             {
+                _uvTile = mayTile;
+                if (!_uvTile)
+                    FitIntoWindow(halfReach, AtlasPageInset);
                 source = $"the tabletop's {uv.Length} UV(s) are degenerate, so the legs are mapped over "
-                         + $"the full 0..1 sheet at {FallbackMetresPerUv:F2} m per UV unit";
+                         + $"the full 0..1 sheet at {FallbackMetresPerUv:F2} m per UV unit in "
+                         + $"{(_uvTile ? "TILE" : "FIT")} mode. {wrapNote}";
                 return;
             }
 
@@ -702,25 +1181,78 @@ internal sealed class MapTableLegs
             float mV = Mathf.Clamp(Mathf.Abs(top.size.z) / scale / vSpan, MinMetresPerUv, MaxMetresPerUv);
             float metresPerUv = 0.5f * (mU + mV);
             _uvWorldPerU = _uvWorldPerV = metresPerUv * scale;
-
-            float insetU = uSpan * UvRectInset, insetV = vSpan * UvRectInset;
-            _uvRect = Rect.MinMaxRect(minU + insetU, minV + insetV, maxU - insetU, maxV - insetV);
+            _uvRect = Rect.MinMaxRect(minU, minV, maxU, maxV);
             _uvCentre = _uvRect.center;
-            source = $"MEASURED off the tabletop's own mesh '{mesh.name}' ({uv.Length} UV(s), "
-                     + $"{sampled} sampled): they span ({minU:F3}..{maxU:F3}, {minV:F3}..{maxV:F3}) "
-                     + $"across a {Mathf.Abs(top.size.x) / scale:F2} x {Mathf.Abs(top.size.z) / scale:F2} m "
-                     + $"top, i.e. {mU:F3} / {mV:F3} m per UV unit — the legs use the average "
-                     + $"{metresPerUv:F3} m per UV unit, so their grain is the SAME SIZE as the top's, "
-                     + $"and every leg vertex is clamped into the trimmed window "
-                     + $"({_uvRect.xMin:F3}..{_uvRect.xMax:F3}, {_uvRect.yMin:F3}..{_uvRect.yMax:F3}) "
-                     + $"so an atlas cannot leak a neighbouring page onto them";
+
+            bool fullSheet = uSpan >= FullSheetThreshold && vSpan >= FullSheetThreshold;
+            _uvTile = fullSheet && mayTile;
+            if (_uvTile)
+            {
+                // TILE: the sheet is the table's own. Continuous UVs at the top's density, sampler
+                // wraps. The window is irrelevant and is widened so nothing can ever bite.
+                _uvRect = Rect.MinMaxRect(-1e6f, -1e6f, 1e6f, 1e6f);
+                source = $"MEASURED off the tabletop's own mesh '{mesh.name}' ({uv.Length} UV(s), "
+                         + $"{sampled} sampled): they span ({minU:F3}..{maxU:F3}, {minV:F3}..{maxV:F3}) "
+                         + $"across a {Mathf.Abs(top.size.x) / scale:F2} x "
+                         + $"{Mathf.Abs(top.size.z) / scale:F2} m top, i.e. {mU:F3} / {mV:F3} m per UV "
+                         + $"unit. That span covers at least {FullSheetThreshold:P0} of the 0..1 sheet "
+                         + "in both axes and " + wrapNote + ", so the texture is the TABLE'S OWN and "
+                         + $"TILE mode applies: the legs get continuous UVs at {metresPerUv:F3} m per "
+                         + "UV unit — the SAME grain size as the top, the same wood, and no per-vertex "
+                         + "clamp anywhere to squash a face";
+            }
+            else
+            {
+                float before = _uvWorldPerU;
+                FitIntoWindow(halfReach, AtlasPageInset);
+                source = $"MEASURED off the tabletop's own mesh '{mesh.name}' ({uv.Length} UV(s), "
+                         + $"{sampled} sampled): they span ({minU:F3}..{maxU:F3}, {minV:F3}..{maxV:F3}) "
+                         + $"across a {Mathf.Abs(top.size.x) / scale:F2} x "
+                         + $"{Mathf.Abs(top.size.z) / scale:F2} m top, i.e. {mU:F3} / {mV:F3} m per UV "
+                         + $"unit. FIT mode, because "
+                         + (fullSheet
+                            ? "the texture may not be repeated (" + wrapNote + ")"
+                            : $"that span is under {FullSheetThreshold:P0} of the 0..1 sheet, i.e. the "
+                              + "table's wood is ONE PAGE of an atlas and tiling it would drag the "
+                              + "neighbouring page onto the legs")
+                         + $": each leg's whole box is mapped continuously INSIDE the page "
+                         + $"({_uvRect.xMin:F3}..{_uvRect.xMax:F3}, {_uvRect.yMin:F3}..{_uvRect.yMax:F3}), "
+                         + $"which costs {_uvWorldPerU / Mathf.Max(before, 1e-6f):F2}x the top's grain "
+                         + "size. Right wood, coarser grain — and nothing can leave the page";
+            }
         }
         catch (System.Exception ex)
         {
+            _uvRect = new Rect(0f, 0f, 1f, 1f);
+            _uvCentre = new Vector2(0.5f, 0.5f);
+            _uvWorldPerU = _uvWorldPerV = FallbackMetresPerUv * scale;
+            _uvTile = mayTile;
+            if (!_uvTile)
+                FitIntoWindow(halfReach, AtlasPageInset);
             source = $"reading the tabletop's UVs threw ({ex.GetType().Name}: {ex.Message}), so the "
                      + $"legs are mapped over the full 0..1 sheet at {FallbackMetresPerUv:F2} m per "
-                     + "UV unit";
+                     + $"UV unit in {(_uvTile ? "TILE" : "FIT")} mode";
         }
+    }
+
+    /// <summary>
+    /// FIT MODE'S ONE PIECE OF ARITHMETIC: inset the measured UV window by
+    /// <paramref name="inset"/> a side, then COARSEN the metres-per-UV-unit until a leg's whole
+    /// half-reach maps inside it. Because the density is chosen so the geometry fits, the mapping
+    /// stays CONTINUOUS across every face — which is the whole difference from ModBuild 198, where a
+    /// per-vertex clamp could squash one face while leaving its neighbour alone.
+    /// </summary>
+    private void FitIntoWindow(float halfReach, float inset)
+    {
+        float insetU = _uvRect.width * inset, insetV = _uvRect.height * inset;
+        _uvRect = Rect.MinMaxRect(_uvRect.xMin + insetU, _uvRect.yMin + insetV,
+                                  _uvRect.xMax - insetU, _uvRect.yMax - insetV);
+        _uvCentre = _uvRect.center;
+        float halfU = Mathf.Max(_uvRect.width * 0.5f, 1e-5f);
+        float halfV = Mathf.Max(_uvRect.height * 0.5f, 1e-5f);
+        // world units per UV unit must be at least halfReach / halfSpan for the reach to fit.
+        _uvWorldPerU = Mathf.Max(_uvWorldPerU, halfReach / halfU);
+        _uvWorldPerV = Mathf.Max(_uvWorldPerV, halfReach / halfV);
     }
 
     // ---- geometry ----------------------------------------------------------------------------
@@ -729,7 +1261,7 @@ internal sealed class MapTableLegs
     /// One closed axis-aligned box: six quads, 24 vertices, 12 triangles, hard edges (each face
     /// carries its own normals). <paramref name="size"/> is a full size per axis, in world units,
     /// and <paramref name="centre"/> doubles as the box's UV origin so each leg carries its own copy
-    /// of the grain rather than sampling the same clamped column four times.
+    /// of the grain rather than four legs sampling one column of it.
     /// </summary>
     private void Box(Vector3 centre, Vector3 size)
     {
@@ -755,10 +1287,9 @@ internal sealed class MapTableLegs
     /// vertex normal) and says so in the log.</para>
     ///
     /// <para>AND THE UV AXES ARE CAPTURED BEFORE THAT FLIP — a small correction to the bench class
-    /// this file replaces, which took them after it. Flipping V mirrors the texture on that one face;
-    /// on a seamless tiling grain nobody could see it, but these legs are mapped into a FIXED window
-    /// of the table's sheet, where a mirrored V walks the sample off the bottom of the window and
-    /// clamps a whole face to one row of texels.</para>
+    /// this file replaces, which took them after it. Flipping V mirrors the texture on that one face:
+    /// invisible on the tiling grain of TILE mode, but in FIT mode it would walk the sample off the
+    /// bottom of the atlas page it is fitted into.</para>
     /// </summary>
     private void Face(Vector3 centre, Vector3 outward, Vector3 hu, Vector3 hv, Vector3 uvOrigin)
     {
@@ -778,10 +1309,16 @@ internal sealed class MapTableLegs
     {
         _verts.Add(p);
         _norms.Add(n);
-        // uv from the vertex's own OFFSET FROM ITS LEG, at the table's own texel scale and clamped
-        // into the table's own UV window. Position-derived, so a winding flip cannot move it;
-        // per-leg origin, so all four legs carry the grain rather than one clamped column; window-
-        // clamped, so no sample can leave the region the table's wood occupies.
+        // uv from the vertex's own OFFSET FROM ITS LEG, at the table's own texel scale. Position-
+        // derived, so a winding flip cannot move it; per-leg origin, so all four legs carry the grain
+        // rather than one column of it.
+        //
+        // THE MAPPING IS CONTINUOUS AND THE CLAMP CANNOT BITE, which is the correction to ModBuild
+        // 198. In TILE mode _uvRect is +/-1e6, i.e. the clamp is not there at all and the sampler's
+        // own wrap does the repeating. In FIT mode AdoptTableUvs has already coarsened
+        // _uvWorldPerU/V so that a leg's whole half-reach maps inside the window, so the clamp is a
+        // numerical backstop and never a shaping operation. A clamp that SHAPES the mapping squashes
+        // whole faces onto one texel row, because vertex UVs interpolate — see AdoptTableUvs.
         Vector3 d = p - uvOrigin;
         _uvs.Add(new Vector2(
             Mathf.Clamp(_uvCentre.x + Vector3.Dot(d, uAxis) / _uvWorldPerU, _uvRect.xMin, _uvRect.xMax),
@@ -799,8 +1336,10 @@ internal sealed class MapTableLegs
     /// </summary>
     private void Report(SkyStyle style, bool mixedReality, MapRoomSeat.Seat seat, Bounds parch,
                         MeshRenderer table, Bounds top, float floorY, float footY, float legHeight,
-                        float side, float cornerX, float cornerZ, float scale, string floorSource,
-                        string materialSource, string uvSource, string tableSurvey)
+                        float side, float cornerX, float cornerZ, float scale, float weld,
+                        float headBelowTopFace, float slabThickness, int skinIndex, int layer,
+                        string floorSource, string materialSource, string uvSource, string layerSource,
+                        string tableSurvey)
     {
         // THE WINDING GATE, ON THE FINISHED SOLID. Cheap (48 triangles) and it runs once.
         float volume = 0f;
@@ -837,21 +1376,36 @@ internal sealed class MapTableLegs
             + $"  the table : {tableSurvey}\n"
             + $"  footprint : the tabletop measures {Mathf.Abs(top.size.x) / scale:F3} x "
             + $"{Mathf.Abs(top.size.z) / scale:F3} m ({Mathf.Abs(top.size.x):F1} x "
-            + $"{Mathf.Abs(top.size.z):F1} world units), {Mathf.Abs(top.size.y) / scale:F3} m thick. "
-            + $"The map on it is {Mathf.Abs(parch.size.x) / scale:F3} x "
-            + $"{Mathf.Abs(parch.size.z) / scale:F3} m — so the table is genuinely bigger than the "
-            + "parchment, which is why the legs are placed against IT and not against the "
-            + "parchment-plus-rim model this room used before.\n"
+            + $"{Mathf.Abs(top.size.z):F1} world units), {slabThickness / scale:F3} m "
+            + $"({slabThickness:F1} world units) thick, world centre ({top.center.x:F2}, "
+            + $"{top.center.y:F2}, {top.center.z:F2}). The map on it is "
+            + $"{Mathf.Abs(parch.size.x) / scale:F3} x {Mathf.Abs(parch.size.z) / scale:F3} m at "
+            + $"({parch.center.x:F2}, {parch.center.y:F2}, {parch.center.z:F2}) — the table is "
+            + $"{Mathf.Abs(top.size.x) / Mathf.Max(Mathf.Abs(parch.size.x), 1e-4f):F2}x the map across "
+            + $"and {Mathf.Abs(top.size.z) / Mathf.Max(Mathf.Abs(parch.size.z), 1e-4f):F2}x along, so "
+            + "THESE ARE THE TABLE'S CORNERS AND NOT THE MAP'S. If those two factors ever read 1.00 "
+            + "the sweep has picked the parchment again, which is exactly the ModBuild 198 defect.\n"
             + $"  leg       : {LegSideMeters:F3} x {LegSideMeters:F3} m section x "
             + $"{legHeight / scale:F3} m tall ({side:F1} x {side:F1} x {legHeight:F1} world units), "
             + $"corners at +/-{cornerX / scale:F3} x +/-{cornerZ / scale:F3} m "
             + $"(+/-{cornerX:F1} x +/-{cornerZ:F1} world units) from the tabletop's centre, i.e. its "
-            + $"outer face {EdgeInsetMeters * 1000f:F0} mm inside the top's edge. Its head is pushed "
-            + $"{WeldMeters * 1000f:F0} mm up into the top so no daylight can show at the joint.\n"
+            + $"outer face {EdgeInsetMeters * 1000f:F0} mm inside the top's edge.\n"
+            + $"  the head  : the leg tops end at y={(footY + legHeight):F2}, which is "
+            + $"{weld / scale * 1000f:F1} mm UP INTO the slab from its underside (y={top.min.y:F2}) and "
+            + $"therefore {headBelowTopFace / scale * 1000f:F1} mm BELOW the slab's TOP face "
+            + $"(y={top.max.y:F2}) and {(parch.max.y - (footY + legHeight)) / scale * 1000f:F1} mm below "
+            + "the map's visible surface. NOTHING CAN EMERGE: the weld is "
+            + $"min({WeldMeters * 1000f:F0} mm, {WeldMaxThicknessFraction:P0} of the measured "
+            + $"{slabThickness / scale * 1000f:F0} mm thickness). ModBuild 198's line is the "
+            + "counter-example — 5 mm up from the underside of a 0.6 mm parchment put the heads 4.4 mm "
+            + "ABOVE the map, which is the four pale rectangles the user photographed.\n"
             + $"  material  : {materialSource}.\n"
+            + $"{DescribeMaterials(table, "the TABLETOP renderer:", "              ")}\n"
+            + $"              the legs wear mat[{skinIndex}] of that list, the same object.\n"
             + $"  texture   : {uvSource}. At that scale the {legHeight / scale:F2} m leg carries "
             + $"{legHeight / _uvWorldPerV:F2} UV unit(s) of grain down its length and "
-            + $"{side / _uvWorldPerU:F2} across its face.\n"
+            + $"{side / _uvWorldPerU:F2} across its face; mapping mode "
+            + $"{(_uvTile ? "TILE (sampler wraps, no window)" : $"FIT (window {_uvRect.xMin:F3}..{_uvRect.xMax:F3}, {_uvRect.yMin:F3}..{_uvRect.yMax:F3})")}.\n"
             + $"  the floor : the feet are cut at y={footY:F2} — the room floor y={floorY:F2} minus "
             + $"{FootSinkMeters * 1000f:F0} mm ({FootSinkMeters * scale:F1} world units). SOURCE: "
             + $"{floorSource}. The player's own tracking floor is y={seat.FloorPosition.y:F2}, i.e. "
@@ -872,21 +1426,24 @@ internal sealed class MapTableLegs
             + $"  mesh      : {_verts.Count} verts, {_tris.Count / 3} tris, signed volume "
             + $"{volumeCubicMetres:F5} m^3, {disagreeing} triangle(s) disagreeing with their own "
             + $"normal — winding gate {(woundRight ? "PASSED" : "FAILED")}.\n"
+            + $"  layer     : {layerSource}.\n"
+            + $"{DescribeLights(layer, VRLayers.ModLayer, "              ")}\n"
             + "  the player: NOT MOVED and not moveable from here — this class reads the seat, the "
-            + "table and the room and writes to none of them.\n"
+            + "table and the room and writes to none of them. IT ALSO TOUCHES NO WINDOW: it never "
+            + "names a Canvas, a ConvertedPanel, a GrabbableModal or ModalFallback, holds no reference "
+            + "that could reach one, and creates exactly one GameObject of its own with a MeshFilter "
+            + "and a MeshRenderer on it. ModBuild 198's 'all floating windows moved below the table' "
+            + "cannot have come from here and cannot come from here now.\n"
             + "  DISPROOF  : if the legs look like doll furniture or like pillars, the metre column "
             + "above is wrong while the world-unit column looks fine — that is a rig-scale slip, not "
             + "an art problem. If they float or sink, compare 'the floor' line's two planes. If they "
-            + "are the wrong wood, read 'material' — it names the exact material object taken off the "
-            + "table. If they are inside-out or half-missing, the winding gate line says so. If they "
-            + "appear where they should not, the 'gate' line says which style was read.\n"
-            + $"  ONE OPEN RISK, stated rather than assumed away: the legs carry the tabletop's "
-            + $"material but stand on the MOD layer ({VRLayers.ModLayer}) while the tabletop itself "
-            + "is on layer 0, because every other prop this room builds goes through VRLayers.Apply "
-            + "and that is what the head camera's mask is composed for. Same camera, same forward "
-            + "pass, same material — so the SHADING recipe is identical — but a realtime light whose "
-            + "own culling mask excludes the mod layer would light the two differently. If the next "
-            + "photo shows legs of visibly the wrong BRIGHTNESS against a table of the right wood, "
-            + "that is this and not the material; the fix is the layer, not the shader.");
+            + "stand under the MIDDLE of the table, the 'footprint' line's two size factors will read "
+            + "1.00 and the sweep picked the map again. If they are the wrong wood, the TABLETOP "
+            + "renderer dump above names every material, shader and texture the table actually draws "
+            + "with, and 'material' names which of them the legs took — the two together settle "
+            + "'wrong material' against 'wrong UV window' without a second photograph. If they poke "
+            + "out of the top, 'the head' line already says in millimetres that they cannot. If they "
+            + "are inside-out or half-missing, the winding gate line says so. If they appear where "
+            + "they should not, the 'gate' line says which style was read.");
     }
 }

@@ -118,7 +118,16 @@ internal static partial class Defaults
     // A/B it against today's behaviour inside ONE session. OFF is byte-for-byte today's rendering
     // — no camera, no render target, no layer is touched while the switch is false.
     internal const bool PanelSupersample = false;            // => [WorldUI] PanelSupersample
-    internal const float PanelSupersampleFactor = 1.0f;      // => [WorldUI] PanelSupersampleFactor
+    // ModBuild 199 RAISED THIS FROM 1.0, AND 1.0 WAS NEVER A SETTING — IT WAS A NO-OP.
+    // At factor 1.0 the capture target is allocated at exactly the window's authored resolution, i.e.
+    // one target texel per authored pixel, and nothing is band-limited. ModBuild 198 shipped a floor
+    // that raised it to 2.0 — but ONLY when the live value was `Mathf.Approximately` this constant,
+    // on the reasoning that a value the user set must be taken verbatim. All 153 RESAMPLE VERDICT
+    // lines of the next hardware log then read `config 1.00, taken verbatim — this is a value the
+    // user set`: his cfg carries a hand-written 1.0 that is not bit-equal, so THE FLOOR NEVER RAN AND
+    // THE EXPERIMENT NEVER EXECUTED. The verbatim rule is right for a TUNED value; it must not
+    // preserve an inherited default that provably does nothing.
+    internal const float PanelSupersampleFactor = 2.0f;      // => [WorldUI] PanelSupersampleFactor
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale

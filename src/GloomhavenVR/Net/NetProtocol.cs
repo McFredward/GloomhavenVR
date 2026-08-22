@@ -416,7 +416,164 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 198;
+    public const ushort ModBuild = 199;
+    // Build 199: THE TABLE THE LEGS WERE BUILT FOR WAS THE MAP, AND THE ModBuild 198 EXPERIMENT
+    // NEVER RAN. (Five workers, isolated worktrees.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── THE ModBuild 198 SUPERSAMPLE EXPERIMENT DID NOT EXECUTE, AND I SAID IT WOULD ──────
+    // 198 floored the factor to 2.0 ONLY when the live value was `Mathf.Approximately` the shipped
+    // default, so that a TUNED value would be taken verbatim. I read that logic against the source
+    // and told the user in writing: "verified down to the line — this time the remedy really runs."
+    // All 153 RESAMPLE VERDICT lines of the next hardware log read:
+    //     `config 1.00, taken verbatim — this is a value the user set`
+    // His cfg carries a hand-written 1.0 that is not bit-equal to the constant. THE FLOOR NEVER RAN.
+    // I verified the code path and not the OUTCOME against his actual configuration — the project's
+    // own rule (readiness probes lie, measure the outcome) applied to me and I missed it. Second time
+    // in three builds that a remedy shipped behind a condition that was never true.
+    // TWO CONSEQUENCES THE USER NEEDS: his "unverändert" for the moving window FALSIFIES NOTHING — I
+    // had committed in advance to reading it as a falsification, and I withdraw that, because the
+    // experiment did not happen. And my claim that factor 2 fixed the STILL window is unsupported: it
+    // was never 2. Whatever improved there came from something else.
+    // FIX: `Defaults.PanelSupersampleFactor` 1.0 -> 2.0, and the floor is UNCONDITIONAL below the band
+    // limit. A factor under it is not a preference, it is a no-op — at 1.0 the capture target is the
+    // window's own resolution. The override is now named on every report line instead of being silent.
+    // AND A FINDING THAT MOVES THE WHOLE THEORY: the windows read 0.23 RT texels per rendered eye
+    // pixel — MAGNIFIED, not minified. There is no undersampling aliasing on the window surface in
+    // either state, so the next round must not start from the resample family at all.
+    //
+    // ── (1) ONE BUG PRODUCED ALL FOUR TABLE-LEG FAULTS: IT PICKED THE MAP AS THE TABLE ────
+    // `TryFindTable` selected `GH_Campaign_Map` — the parchment — and its own log line said so:
+    //     `the table : 'GH_Campaign_Map' … 0.96 x 0.00 x 1.20 m`
+    //     `material  : 'GloomhavenVR.MapRoom.MapUnlit.0'`  <- THE MOD'S OWN MAP MATERIAL
+    // Two omissions let it win. The class doc claimed a candidate "is not the parchment itself" and
+    // NO LINE OF CODE TESTED IT (a comment is not code, again). And the tie-break prefers the
+    // SMALLEST footprint, so the map (1.15 m²) beat the real table (3.57 m²), which had passed every
+    // other test.
+    // Everything follows from that single pick: corners taken from the map's AABB (a); legs painted
+    // with the CAMPAIGN MAP texture, whose pale cream is the parchment's border (b); the head welded
+    // 5 mm up from the underside of a 0.6 mm DECAL, i.e. 4.4 mm ABOVE the map (c). The UV clamp was
+    // never the problem.
+    // NOW: the parchment renderer, its transform and its whole ancestor/descendant chain are excluded
+    // BEFORE any threshold; `MinTableThicknessMeters = 0.03` (a table is a board, a map is a decal —
+    // chosen AGAINST both measurements, 0.6 mm and 148 mm, not between them); candidates must be
+    // actually drawn, which rejects `GH_Campaign_Map_Gloomhaven`, the INACTIVE city map sitting at
+    // exactly the world map's bounds and a perfect decoy for every geometric test.
+    // Real numbers: tabletop 1.549 x 0.148 x 2.296 m; legs 0.10 x 0.10 x 0.777 m at ±0.705 x ±1.078 m
+    // (198 shipped ±0.411 x ±0.530 m — the map's corners). The head now ends ~143 mm BELOW the slab's
+    // top face; `WeldMaxThicknessFraction` makes emergence structurally impossible rather than lucky.
+    // THE PER-VERTEX UV CLAMP IS GONE AND IT WAS UNSOUND INDEPENDENTLY OF THE MATERIAL: a clamp
+    // applied per VERTEX is not a clamp applied per pixel. Vertex UVs interpolate, so once one corner
+    // clamps and another does not the face squashes toward the window edge, and a face whose span
+    // exceeds the window collapses onto ONE TEXEL ROW. 198's 15 % trim left a 0.70 window and a
+    // 0.78 m leg spanned 0.78 of it — on the edge of exactly that failure. Replaced by TILE (continuous
+    // UVs at the top's own metres-per-UV-unit, sampler wraps) or FIT (density coarsened until each leg
+    // lands inside the atlas page), decided from the measured UV span and wrap mode and logged.
+    // The layer question is resolved by construction: the legs take the TABLETOP'S OWN layer after
+    // reading the head camera's mask to confirm it is drawn. A light census prints regardless.
+    //
+    // ── (1d) THE WINDOWS WERE NOT UNDER THE TABLE — THEY WERE ON THE FLOOR ────────────────
+    // The pre-clamp pose was `(53.29, -154.55, 0.18)`, and `-184.45 + 1.20 x 198.12 = 53.294` EXACTLY:
+    // the rig root plus the reading distance along a perfectly horizontal forward at yaw exactly
+    // 90.0°, which no real HMD ever produces. The map room converts its permanent windows during the
+    // scene load, in the gap before the first tracked XR pose reaches the head camera — and until then
+    // that camera sits at `localPosition = 0`, which for the map rig IS the tracking floor.
+    // 0.7 s later: `Map rig recentered — head at (-184.45, 216.87, 0.18) (1.87 m above the tracking
+    // floor)`. THE WINDOWS HAD BEEN PLACED 1.77 m BELOW HIS EYES, and by the ModBuild 193 ruling they
+    // then never moved again. The log shows him hand-dragging the character screen up and back down.
+    // AND THE CLAMP LINE PRINTED THE LOSING CANDIDATE. `minY = Min(boardTopFloorY, eyeCap)`; eyeCap
+    // (-134.74) won over boardTopFloorY (115.16), and the message quoted the board-top expression with
+    // ", capped near eye level" appended. Proof half-height never decided it: all four windows landed
+    // on the SAME y with half-heights of 55.72, 68.93 and 76.28.
+    // NOT A ModBuild 198 REGRESSION, and the worker refused to name a culprit that does not exist: the
+    // spawn/placement files and `MapRoomSeat.Solve` are untouched by 198. What 198 plausibly did was
+    // WIDEN the race — the supersample floor quadrupling every capture texture during those load
+    // frames — and that could not be falsified because the 197 log is gone. Reported as likely trigger,
+    // not cause. FIX: the eye height is sampled every tick from the first tick onward; a reading below
+    // 0.40 m is not a head and the last real measurement is used. Only the HEIGHT is substituted.
+    // Deferring was rejected deliberately: a failed placement goes to `Failed` and retries only after a
+    // close/re-open, so refusing would strand the permanent windows for the whole visit. The window
+    // gets ONE placement, so it has to be right the first time.
+    //
+    // ── (2) THE FIXED SIZE SCALED THE WHOLE SUBTREE, INCLUDING THE COLUMN ─────────────────
+    // Third report of the same complaint. 198's gate finally armed (`FIXED FIT GATE … ARMED`, applied
+    // 5x, stable 22x) and the host really is pinned at 1143x1080 px — and it applied the content scale
+    // to `panel.Target`, the conversion root, WHOSE SUBTREE CONTAINS THE CHARACTER COLUMN. Open a
+    // full-screen sub-view and the column he is looking at shrank to 59.5 %; close it and it jumped
+    // back. It also SLID the column: the union's left-edge pin re-derived a ±400 px shift on every tab
+    // change, because a scaled union has a different left edge. Pinning the rect while rescaling
+    // everything inside it does not satisfy "die Größe ändert sich nicht" — it moves the change one
+    // level down.
+    // 199 splits the subtree. The BASE is never scaled and its bottom-left corner is pinned ONCE, never
+    // re-derived from a union a sub-view can change; `ReassertConversionFrame` is back to holding every
+    // converted target at localScale 1, so a target scale is unambiguously drift again and the guard
+    // now PROTECTS the column. Only the open sub-view is scaled, seated on its own root — found from
+    // the game's OWN serialised references plus `activeInHierarchy`, which is exact because `UIWindow`
+    // deactivates its GameObject at alpha 0. `ActiveDisplay` was deliberately not used: it has no value
+    // for enhancement cards and its LEVELUP names a window outside this panel.
+    // There are SIX sub-views, not five — `enhancementCardsDisplay` has a public accessor too and is
+    // the 716 px state nobody had named. Narrow views (388/532/738/808 px) now land beside the column
+    // at scale 1.000 where they used to be drawn at 0.595; perks and the character selector are 1620 px
+    // roots and land at 0.706, LARGER than today. Cost stated: those two cover the column while open,
+    // and the log prints how many px of it they cover.
+    // THE BLUR-PLATE EXCLUSION WAS EVALUATED AND REJECTED WITH A REASON: excluding the plate from the
+    // MEASURE does not stop it being RENDERED. Fit the 512 px perks column at 1.0 and the 1620 px plate
+    // still draws at 1620 px — and this panel's supersample deliberately GROWS its capture frame to
+    // cover content outside the host (`CAPTURE FRAME 1727x1453, GROWN by 584x373 px`), so a dim slab
+    // would hang ~240 px past each side. It also could never have fixed the character selector, whose
+    // 1477 px is a `Character3D/RawImage` — content, not backdrop. The plate census is now measured and
+    // logged and DECIDES NOTHING.
+    //
+    // ── (3) THE THROTTLED "FLICKER FIX" IS A RED HERRING, COUNTED ─────────────────────────
+    // `ReassertAdoptedSorting` made 2 overrideSorting re-clears and 1 concession write in the ENTIRE
+    // session, all three on ONE canvas, all three BEFORE that window was first grabbed; after the
+    // concession the branch is unreachable for it forever. Corrections while held: ZERO. While moving:
+    // ZERO. The window has nothing to correct during a drag, so the throttled fix never lost anything.
+    // I ALSO HAVE TO RETRACT THE SECOND ARGUMENT I USED TO KEEP THE THROTTLE. The 198 note said drags
+    // "already drop 40-50 % of their frames". Whole MOTION BUDGET distribution: 8 of 9 real drags run
+    // at mean 11.07-11.16 ms and STILL windows at 11.11 ms — the threshold sits exactly on the mean, so
+    // ~50 % over is what a healthy 90 Hz stream looks like. THERE WAS NO MEASURED DRAG COST TO PROTECT.
+    // The design defect is fixed anyway: `Diagnostic` is verbosity only and a separate `PerFrameGuards`
+    // flag carries the work, so throttling a log can never again throttle a fix. Logging stays throttled
+    // during a drag; the work runs every frame, which is exactly the state he already accepts as good.
+    // NEW STAGE MEASURED, the one nobody has looked at: the UPDATE -> LATEUPDATE POSE GAP. The host pose
+    // is published in Update and rewritten in LateUpdate, and the capture samples it in Update. Zero by
+    // construction for a still window; can only move during a drag — the exact interval under suspicion.
+    //
+    // ── (4) BUTTON ICONS: RAISING RENDER RESOLUTION WOULD HAVE MADE IT WORSE ──────────────
+    // He asked for "the same aliasing fix" on the button symbols. The same fix would have been wrong.
+    // The window fix raises the resolution a CANVAS is rendered into; a cap symbol has no canvas and no
+    // render target — it is a world quad textured straight from the game's art. Against a MIPLESS source
+    // more render resolution is worse: the source-texel footprint is unchanged while the pixel footprint
+    // shrinks, so more texels are dropped per pixel. The defect is in the data, so the fix is in the data.
+    // Counted, whole distribution: every one of the 49 distinct game textures the bake cache has ever
+    // measured logged `mips 1 -> N` — 33x 1->10, 7x 1->11, 6x 1->9, 2x 1->7, 1x 1->13. NO EXCEPTIONS.
+    // Second term, and why a mip chain alone would not have sufficed: `CapTiltDegrees = 0` by the user's
+    // own ruling, so the caps lie FLAT and are never seen head-on — the sampling ratio sits permanently
+    // near 1.8:1. Aniso 8 is in the fix for that.
+    // The exact texels-per-pixel number did not exist in any log, and the worker said so rather than
+    // inventing it: it ships `MAP BUTTON ICON SAMPLING` (comparison count, worst value and threshold on
+    // one line, formula copied AS A VALUE from MapIconLayer so the two are comparable).
+    // ANIMATIONS UNTOUCHED, verified from the diff: the only behavioural deletions are three sprite
+    // assignments. Colour, CanvasGroup alpha, the localScale-driven size animation, the highlight pulse
+    // and the whole press-travel path have zero diff. No stale bake is possible — nothing caches "the
+    // icon for this cap"; the cache is keyed by the GAME's sprite instance and re-consulted the frame
+    // the game swaps it.
+    // SIX MORE SITES with the same mipless-in-world-space defect were found and NOT fixed (other lanes'
+    // files, one line each): remote board symbol tiles, the item pile's fallback face, the loading
+    // indicator, mirrored peer panels, wrist/map-room class portraits, the remote board tooltip frame.
+    //
+    // ── RESIDUALS ─────────────────────────────────────────────────────────────────────────
+    // * `CanvasConversion.3.Fit.ReassertConversionFrame` allocates a `new StringBuilder(96)` per call,
+    //   i.e. per frame per modal host. It already did this for every still window; the guard split now
+    //   extends it across drags too. Should become a reused static.
+    // * `SkyAlternative` still has no floor accessor, so the legs find the room root by NAME string.
+    // * `MapLocationInteractor.cs:798` still calls the wood under the parchment environment geometry.
+    // * The map room's Quest Preview Popup spawned from a head reading 0.245 m BELOW the tracking floor.
+    //   The new guard corrects it, but the reading itself is unexplained.
+    // * Battle goals has never been opened in any log; its width is assumed full-screen and the FIXED
+    //   FIT line will name what it actually asks for.
+    //
     // Build 198: THE SUPERSAMPLER NEVER SUPERSAMPLED, AND THE GREY CARD IS A DIFFERENT PICTURE.
     // (Five workers, isolated worktrees.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

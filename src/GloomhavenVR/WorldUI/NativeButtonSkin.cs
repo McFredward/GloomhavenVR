@@ -355,13 +355,16 @@ internal static class NativeButtonSkin
 
         if (best != null && bestOwner != null)
         {
+            // MIP FIRST, THEN re-border (ModBuild 199 — see the MipBaked helper below): the
+            // game's uGUI art carries no mip chain, and these faces are world-space quads
+            // read at arm's length, not screen-space widgets at 1:1.
             // Re-border for world scale (test #26): the raw uGUI sprite's 9-slice border
             // would collapse on a small tray face — rescale each to a ~6 mm world frame.
-            _normalSprite = ReborderForWorld(best);
+            _normalSprite = ReborderForWorld(MipBaked(best));
             SpriteState ss = bestOwner.spriteState;
-            _pressedSprite = ReborderForWorld(ss.pressedSprite);
-            _disabledSprite = ReborderForWorld(ss.disabledSprite);
-            _highlightedSprite = ReborderForWorld(ss.highlightedSprite);
+            _pressedSprite = ReborderForWorld(MipBaked(ss.pressedSprite));
+            _disabledSprite = ReborderForWorld(MipBaked(ss.disabledSprite));
+            _highlightedSprite = ReborderForWorld(MipBaked(ss.highlightedSprite));
 
             ColorBlock cb = bestOwner.colors;
             float normal = cb.normalColor.grayscale;
@@ -396,8 +399,82 @@ internal static class NativeButtonSkin
                                   $"(sliced={(_normalSprite != null && _normalSprite.border != Vector4.zero)}), " +
                                   $"stateSprites=[p:{_pressedSprite != null},d:{_disabledSprite != null},h:{_highlightedSprite != null}], " +
                                   $"dim(pressed={_pressedMul:F2},disabled={_disabledMul:F2}), " +
-                                  $"font='{(_font != null ? _font.name : "none")}'.");
+                                  $"font='{(_font != null ? _font.name : "none")}'. " +
+                                  // ModBuild 199 — the aliasing evidence, on the same line, with the
+                                  // comparison count so "never ran" and "ran and found nothing" differ.
+                                  $"MIP STATE: {_mipAsked} sampled sprite(s) offered to the bake cache, " +
+                                  $"{_mipBaked} now sample a MIPMAPPED trilinear/aniso copy, " +
+                                  $"{_mipAsked - _mipBaked} kept " +
+                                  "the game's own texture (already mipped, or a rotated/tight atlas " +
+                                  "placement the cache refuses by design). FACE TEXTURE NOW: " +
+                                  FaceTextureState(_normalSprite) + ". A world-space quad read at arm's " +
+                                  "length minifies its source; mips=1 there IS the shimmer.");
         return _sampled;
+    }
+
+    /// <summary>Number of sampled sprites handed to the bake cache, and how many came back baked.
+    /// Log material only — see the MIP STATE clause on the sample line.</summary>
+    private static int _mipAsked;
+    private static int _mipBaked;
+
+    /// <summary>mips / filter / aniso of the texture a face actually samples, for the log line.</summary>
+    private static string FaceTextureState(Sprite? s)
+    {
+        Texture2D? t = s != null ? s.texture : null;
+        if (t == null)
+            return "no sprite sampled yet";
+        return $"'{t.name}' {t.width}x{t.height}, mips={t.mipmapCount}, {t.filterMode}, aniso {t.anisoLevel}";
+    }
+
+    /// <summary>
+    /// The sampled sprite, re-expressed on a MIPMAPPED copy of its texture — or the sprite
+    /// itself when no such copy is available.
+    ///
+    /// <para>WHY THIS IS HERE AND WHY IT IS NOT A COPY OF THE WINDOW FIX. The window fix
+    /// (<c>PanelSupersample</c>) renders a canvas into a render target above its authored
+    /// resolution so the eye lands on a real mip level. There is no canvas here: a native
+    /// face is a world-space <see cref="SpriteRenderer"/> quad textured straight from the
+    /// game's uGUI art, and the game's uGUI art is imported as "Sprite (2D and UI)" with mip
+    /// generation OFF — every one of the 49 distinct game textures the mip cache has ever
+    /// measured on hardware reported <c>mips 1</c>. A mipless texture minified onto a
+    /// few-centimetre quad drops source texels every frame no matter what the render target
+    /// resolution is, which is why the supersample lever cannot reach it. The fix is at the
+    /// DATA: a mip chain, trilinear, and aniso — the proven card-face path.</para>
+    ///
+    /// <para>ONE-SHOT AND SAFE. <see cref="EnsureSampled"/> runs once per session, so this is
+    /// four cache lookups in a lifetime and no per-frame cost at all. The cache refuses a
+    /// rotated or tight-packed atlas sprite (a rectangular copy would drag in its
+    /// neighbours' pixels — the v3 card-corruption rule) and refuses an already-mipped
+    /// source; both refusals return null and are handled by keeping the game's own sprite,
+    /// i.e. exactly today's look. The VRAM is charged against the ONE shared
+    /// <c>CardFaceMipBake</c> ceiling, so a button face sharing an atlas a card already paid
+    /// for costs nothing extra.</para>
+    ///
+    /// <para>Gated on the same [WorldUI] PanelMipBake dial as every other mip swap in this
+    /// module, so OFF is exactly the pre-199 build.</para>
+    /// </summary>
+    private static Sprite? MipBaked(Sprite? source)
+    {
+        if (source == null)
+            return null;
+        if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value)
+            return source;
+        _mipAsked++;
+        try
+        {
+            Sprite? baked = Cards.CardFaceMipBake.ReplacementFor(source);
+            if (baked == null)
+                return source;
+            _mipBaked++;
+            return baked;
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"NativeButtonSkin could not mip-bake '{source.name}' " +
+                                  $"({ex.GetType().Name}: {ex.Message}) — the face keeps the game's " +
+                                  "own mipless sprite, i.e. the pre-199 look, never worse.");
+            return source;
+        }
     }
 
     private static Color Grey(float v, float a) => new(v, v, v, a);
@@ -536,6 +613,8 @@ internal static class NativeButtonSkin
     {
         _sampled = false;
         _styleLogged = false;
+        _mipAsked = 0;
+        _mipBaked = 0;
         _normalSprite = _pressedSprite = _disabledSprite = _highlightedSprite = null;
         _font = null;
         _pressedMul = 0.7f;

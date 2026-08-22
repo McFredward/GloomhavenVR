@@ -14,6 +14,13 @@ internal static partial class CanvasConversion
             return;
         Active.Remove(panel);
 
+        // ModBuild 199: the per-frame maintenance enrolment ends with the conversion. Cleared here
+        // (and nowhere else — nothing may THROTTLE it, only end it) so a panel that is restored to
+        // 2D and re-converted later re-enrols through ConvertedPanel.Diagnostic's latch.
+        panel.PerFrameGuards = false;
+        panel.GuardHostMoving = false;
+        panel.GuardHostHeld = false;
+
         // ROUND 10 (supersample): stand the panel's capture path down FIRST, while its transforms
         // still carry the capture layer — this method's own layer restore (below) then hands them to
         // the game's layer. Both restores are guarded on the layer they expect to find, so the order
@@ -262,7 +269,7 @@ internal static partial class CanvasConversion
 
             // Tests #19/#20: pooled/late children may bring nested canvases after
             // Convert, and the game can flip overrideSorting back on live.
-            // Task #7: MODAL hosts (Diagnostic) sweep EVERY frame — a uGUI Dropdown
+            // Task #7: MODAL hosts (PerFrameGuards) sweep EVERY frame — a uGUI Dropdown
             // spawns its "Dropdown List"/"Blocker" canvases mid-life on a click, and on
             // the 30-frame schedule the open list stayed laser-unclickable (not yet
             // raycast-merged) for up to ~0.4 s. The scan is a cheap component walk of
@@ -271,9 +278,25 @@ internal static partial class CanvasConversion
             // adopted a NEW canvas (the fresh list/blocker must leave the game UI layer
             // before the game's mono UI Camera double-draws it).
             bool sweepDue = Time.frameCount >= panel.CanvasSweepNextFrame;
-            if (earlySettle || sweepDue || panel.Diagnostic)
+            long sweepTicksThisFrame = 0;
+            if (earlySettle || sweepDue || panel.PerFrameGuards)
             {
+                // ModBuild 199: this walk is the THIRD piece of work the log-verbosity flag used to
+                // gate, and the only one whose cost is not trivially bounded (a component walk of the
+                // whole modal subtree — 131 visible graphics on the party window). It is timed into
+                // the same still/moving budget as the two guards below, so "what a drag now costs"
+                // is one number and not an estimate.
+                long ta = System.Diagnostics.Stopwatch.GetTimestamp();
                 bool adoptedNew = AdoptNestedCanvases(panel);
+                long tb = System.Diagnostics.Stopwatch.GetTimestamp();
+                if (panel.PerFrameGuards)
+                {
+                    sweepTicksThisFrame = tb - ta;
+                    if (panel.GuardHostMoving) panel.AdoptSweepTicksMoving += sweepTicksThisFrame;
+                    else panel.AdoptSweepTicksStill += sweepTicksThisFrame;
+                    panel.AdoptSweepRuns++;
+                    if (adoptedNew) panel.AdoptSweepAdoptions++;
+                }
                 // User #8: a freshly adopted/pooled child spawns on the game's UI layer —
                 // re-assert the mod-layer move so the UI Camera never picks it up.
                 // ROUND 10: ...unless the supersample path currently OWNS this panel's layers. Two
@@ -317,17 +340,50 @@ internal static partial class CanvasConversion
             // renders that subtree at the nested order → it swaps in/out of the host's
             // dominant order between sweeps = flicker. Re-assert every frame for the
             // (few) modal hosts: cheap (a handful of adopted entries), change-gated writes.
-            if (panel.Diagnostic)
+            //
+            // ModBuild 199: the gate is PerFrameGuards, NOT Diagnostic. Diagnostic is the LOG
+            // verbosity flag, and GrabbableModal drops it to ~1 Hz while a window is held — which
+            // silently ran this every-frame fix at 1 Hz for exactly the interval the user reports
+            // the flicker under. See ConvertedPanel.Diagnostic for the full history. The budget the
+            // split is judged against is measured here and printed by TickGuardBudget below.
+            if (panel.PerFrameGuards)
             {
-                ReassertAdoptedSorting(panel);
+                bool moving = panel.GuardHostMoving;
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                ReassertAdoptedSorting(panel, moving);
+                long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
                 // ROUND 7 steady-state guard: the same reason the sorting is re-asserted every
                 // frame for modal hosts — a game writer that re-drives the conversion frame AFTER
                 // the reveal would otherwise leave the window rendering at a fraction of its size,
                 // or off its own plane, with the fit already locked and nothing left to notice.
                 // Height cap excluded here on purpose (see the parameter's doc): a rect the game
                 // drives from a layout component must not be fought every frame.
-                ReassertConversionFrame(panel, out _, includeHeightCap: false);
+                bool frameCorrected = ReassertConversionFrame(panel, out _, includeHeightCap: false);
+                long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+
+                if (moving)
+                {
+                    panel.SortGuardTicksMoving += t1 - t0;
+                    panel.FrameGuardTicksMoving += t2 - t1;
+                    panel.FrameGuardRunsMoving++;
+                    if (frameCorrected) panel.FrameGuardWritesMoving++;
+                }
+                else
+                {
+                    panel.SortGuardTicksStill += t1 - t0;
+                    panel.FrameGuardTicksStill += t2 - t1;
+                    panel.FrameGuardRunsStill++;
+                    if (frameCorrected) panel.FrameGuardWritesStill++;
+                }
+                // The worst-frame figure covers ALL THREE pieces of per-frame work the split put back
+                // on every drag frame — the adoption sweep included, or the number would flatter the
+                // change by leaving out its most expensive part.
+                long frameTotal = sweepTicksThisFrame + (t2 - t0);
+                if (frameTotal > panel.GuardWorstFrameTicks)
+                    panel.GuardWorstFrameTicks = frameTotal;
             }
+
+            TickGuardBudget(panel);
 
             TickFit(panel); // test #14 item 1: content fit + growth re-fit (throttled)
 
@@ -666,8 +722,23 @@ internal static partial class CanvasConversion
     /// </summary>
     internal const int ConcededOrderLift = 1;
 
-    private static void ReassertAdoptedSorting(ConvertedPanel panel)
+    /// <summary>
+    /// Re-assert the adoption's sorting contract on every nested canvas this host adopted.
+    ///
+    /// <para>ModBuild 199 INSTRUMENT: <paramref name="hostMoving"/> splits the run and correction
+    /// counters into a STILL and a MOVING population, because the whole question of the round is
+    /// whether running this at ~1 Hz instead of every frame WHILE A WINDOW IS HELD could produce a
+    /// visible defect. It cannot if it never corrects anything: the counters below are what settle
+    /// that, and <see cref="TickGuardBudget"/> prints them with the walk's comparison count on the
+    /// same line. Counting is three int increments on a path that already walks the list.</para>
+    /// </summary>
+    private static void ReassertAdoptedSorting(ConvertedPanel panel, bool hostMoving)
     {
+        int wrote = 0;
+        panel.SortGuardLastCanvases = panel.AdoptedCanvases.Count;
+        if (hostMoving) panel.SortGuardRunsMoving++;
+        else panel.SortGuardRunsStill++;
+
         for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
         {
             NestedCanvasRecord rec = panel.AdoptedCanvases[i];
@@ -684,9 +755,17 @@ internal static partial class CanvasConversion
                     ? panel.HostCanvas.sortingOrder + ConcededOrderLift
                     : nested.sortingOrder;
                 if (panel.HostCanvas != null && nested.sortingOrder != wantOrder)
+                {
                     nested.sortingOrder = wantOrder;
+                    panel.SortGuardOrderWrites++;
+                    wrote++;
+                }
                 if (panel.HostCanvas != null && nested.worldCamera != panel.HostCanvas.worldCamera)
+                {
                     nested.worldCamera = panel.HostCanvas.worldCamera;
+                    panel.SortGuardCameraWrites++;
+                    wrote++;
+                }
                 continue;
             }
 
@@ -706,7 +785,11 @@ internal static partial class CanvasConversion
                     rec.ConcededOverrideSorting = true;
                     rec.KeepOverrideSorting = true;
                     if (panel.HostCanvas != null)
+                    {
                         nested.sortingOrder = panel.HostCanvas.sortingOrder + ConcededOrderLift;
+                        panel.SortGuardOrderWrites++;
+                        wrote++;
+                    }
                     panel.AdoptedCanvases[i] = rec;
                     VRLog.Info("WorldUI", $"MODAL SORTING CONCEDED: adopted canvas '{nested.name}' in " +
                                           $"'{panel.HostGo.name}' had overrideSorting flipped back ON by a " +
@@ -719,6 +802,8 @@ internal static partial class CanvasConversion
                     continue;
                 }
                 nested.overrideSorting = false;
+                panel.SortGuardFlagWrites++;
+                wrote++;
                 panel.AdoptedCanvases[i] = rec;
                 VRLog.Debug("WorldUI", $"MODAL DIAG: adopted canvas '{nested.name}' in " +
                                        $"'{panel.HostGo.name}' had overrideSorting flipped back ON by the game — " +
@@ -731,8 +816,140 @@ internal static partial class CanvasConversion
             }
 
             if (panel.HostCanvas != null && nested.worldCamera != panel.HostCanvas.worldCamera)
+            {
                 nested.worldCamera = panel.HostCanvas.worldCamera;
+                panel.SortGuardCameraWrites++;
+                wrote++;
+            }
         }
+
+        if (wrote > 0)
+        {
+            if (hostMoving) panel.SortGuardWritesMoving++;
+            else panel.SortGuardWritesStill++;
+        }
+    }
+
+    /// <summary>How long a guard-budget report window is (unscaled seconds).</summary>
+    private const float GuardBudgetWindowSeconds = 10f;
+
+    /// <summary>
+    /// The per-frame budget one 90 Hz frame allows, in microseconds — the threshold every guard
+    /// cost below is printed against, on the same line as the value and the comparison count.
+    /// </summary>
+    private const double GuardFrameBudgetUs = 1000000.0 / 90.0;
+
+    /// <summary>
+    /// ModBuild 199 INSTRUMENT — "what does the per-frame modal maintenance actually correct, and
+    /// what does it cost?", answered separately for a STILL and a MOVING window.
+    ///
+    /// <para>WHY IT EXISTS. ModBuild 198 named <c>ReassertAdoptedSorting</c> as the next suspect for
+    /// "das Flackern beim Greifen und Verschieben": its own comment promises an every-frame
+    /// re-assert, and the log throttle dropped it to ~1 Hz for exactly the interval the user
+    /// complains about. That is a hypothesis about a fix that is not running — and it is only worth
+    /// anything if the fix, when it DOES run, finds something to fix. This line counts the
+    /// corrections. A window whose CORRECTED count stays 0 across a whole session of drags proves
+    /// the throttle was a red herring on that window, no matter how bad the coupling reads.</para>
+    ///
+    /// <para>The line carries the walk's comparison count (adopted canvases), the corrections split
+    /// by kind, the still/moving split with its per-second rate, and the cost as a mean AND a worst
+    /// single frame against the 90 Hz frame budget — value, count and threshold on one line, so it
+    /// can be read without the source. It is NOT gated on <see cref="ConvertedPanel.Diagnostic"/>:
+    /// the remedy it measures must never be gated behind the diagnostic shipped to test it.</para>
+    /// </summary>
+    private static void TickGuardBudget(ConvertedPanel panel)
+    {
+        if (!panel.PerFrameGuards)
+            return;
+        float now = Time.unscaledTime;
+        if (panel.GuardReportNextAt <= 0f)
+        {
+            panel.GuardReportNextAt = now + GuardBudgetWindowSeconds;
+            panel.GuardReportSince = now;
+            return;
+        }
+        if (now < panel.GuardReportNextAt)
+            return;
+
+        float span = Mathf.Max(now - panel.GuardReportSince, 0.001f);
+        int runsStill = panel.SortGuardRunsStill, runsMoving = panel.SortGuardRunsMoving;
+        int hitsStill = panel.SortGuardWritesStill, hitsMoving = panel.SortGuardWritesMoving;
+        int frameRunsStill = panel.FrameGuardRunsStill, frameRunsMoving = panel.FrameGuardRunsMoving;
+        int frameHitsStill = panel.FrameGuardWritesStill, frameHitsMoving = panel.FrameGuardWritesMoving;
+        int totalRuns = runsStill + runsMoving;
+        int totalHits = hitsStill + hitsMoving;
+
+        panel.GuardReportNextAt = now + GuardBudgetWindowSeconds;
+        panel.GuardReportSince = now;
+        panel.SortGuardRunsStill = panel.SortGuardRunsMoving = 0;
+        panel.SortGuardWritesStill = panel.SortGuardWritesMoving = 0;
+        panel.FrameGuardRunsStill = panel.FrameGuardRunsMoving = 0;
+        panel.FrameGuardWritesStill = panel.FrameGuardWritesMoving = 0;
+        int flagWrites = panel.SortGuardFlagWrites, orderWrites = panel.SortGuardOrderWrites;
+        int camWrites = panel.SortGuardCameraWrites;
+        panel.SortGuardFlagWrites = panel.SortGuardOrderWrites = panel.SortGuardCameraWrites = 0;
+        long sortTicks = panel.SortGuardTicksStill + panel.SortGuardTicksMoving;
+        long frameTicks = panel.FrameGuardTicksStill + panel.FrameGuardTicksMoving;
+        long sweepTicks = panel.AdoptSweepTicksStill + panel.AdoptSweepTicksMoving;
+        long movingTicks = panel.SortGuardTicksMoving + panel.FrameGuardTicksMoving
+                           + panel.AdoptSweepTicksMoving;
+        long worstTicks = panel.GuardWorstFrameTicks;
+        int sweepRuns = panel.AdoptSweepRuns, sweepAdoptions = panel.AdoptSweepAdoptions;
+        panel.SortGuardTicksStill = panel.SortGuardTicksMoving = 0;
+        panel.FrameGuardTicksStill = panel.FrameGuardTicksMoving = 0;
+        panel.AdoptSweepTicksStill = panel.AdoptSweepTicksMoving = 0;
+        panel.AdoptSweepRuns = panel.AdoptSweepAdoptions = 0;
+        panel.GuardWorstFrameTicks = 0;
+        int gapSamples = panel.PoseGapSamples, gapOver = panel.PoseGapOverOnePx;
+        float gapWorst = panel.PoseGapWorstPx;
+        double gapMean = gapSamples > 0 ? panel.PoseGapSumPx / gapSamples : 0.0;
+        panel.PoseGapSamples = panel.PoseGapOverOnePx = 0;
+        panel.PoseGapWorstPx = 0f;
+        panel.PoseGapSumPx = 0.0;
+
+        // A window nobody opened, moved or looked at this period says nothing worth a line.
+        if (totalRuns == 0)
+            return;
+
+        double usPerTick = 1000000.0 / System.Diagnostics.Stopwatch.Frequency;
+        double sortMeanUs = totalRuns > 0 ? sortTicks * usPerTick / totalRuns : 0.0;
+        int frameRunsTotal = frameRunsStill + frameRunsMoving;
+        double frameMeanUs = frameRunsTotal > 0 ? frameTicks * usPerTick / frameRunsTotal : 0.0;
+        double sweepMeanUs = sweepRuns > 0 ? sweepTicks * usPerTick / sweepRuns : 0.0;
+        double worstUs = worstTicks * usPerTick;
+        double movingMeanUs = runsMoving > 0 ? movingTicks * usPerTick / runsMoving : 0.0;
+        float stillSeconds = totalRuns > 0 ? span * runsStill / totalRuns : 0f;
+        float movingSeconds = totalRuns > 0 ? span * runsMoving / totalRuns : 0f;
+        double stillRate = stillSeconds > 0.01f ? hitsStill / (double)stillSeconds : 0.0;
+        double movingRate = movingSeconds > 0.01f ? hitsMoving / (double)movingSeconds : 0.0;
+
+        VRLog.Info("WorldUI",
+            $"MODAL GUARD BUDGET '{panel.HostGo.name}' (this {span:F1} s window): the every-frame "
+            + $"adopted-sorting re-assert RAN {totalRuns} time(s) over {panel.SortGuardLastCanvases} "
+            + $"adopted canvas(es) each and CORRECTED something on {totalHits} of them "
+            + $"({flagWrites} overrideSorting re-clear(s), {orderWrites} conceded sortingOrder "
+            + $"write(s), {camWrites} worldCamera re-bind(s)) — STILL {hitsStill} correction(s) in "
+            + $"{runsStill} run(s) over ~{stillSeconds:F1} s = {stillRate:F2}/s, MOVING {hitsMoving} "
+            + $"correction(s) in {runsMoving} run(s) over ~{movingSeconds:F1} s = {movingRate:F2}/s "
+            + $"(held by a hand on the last sample: {panel.GuardHostHeld}). The conversion-frame "
+            + $"guard RAN {frameRunsTotal} time(s) and corrected {frameHitsStill + frameHitsMoving} "
+            + $"({frameHitsMoving} of them while moving). The nested-canvas adoption sweep RAN "
+            + $"{sweepRuns} time(s) and adopted {sweepAdoptions} new canvas(es). COST: sorting mean "
+            + $"{sortMeanUs:F1} µs/frame, conversion frame mean {frameMeanUs:F1} µs/frame, adoption "
+            + $"sweep mean {sweepMeanUs:F1} µs/frame, MOVING frames mean {movingMeanUs:F1} µs, "
+            + $"WORST single frame {worstUs:F1} µs against a threshold of {GuardFrameBudgetUs:F0} µs "
+            + $"(one 90 Hz frame) = {worstUs / GuardFrameBudgetUs * 100.0:F2} % of a frame. "
+            + $"UPDATE->LATEUPDATE POSE GAP: {gapSamples} sample(s), mean {gapMean:F2} authored px, "
+            + $"WORST {gapWorst:F2} px against a threshold of {GrabbableModal.PoseGapThresholdPx:F2} "
+            + $"px (one authored pixel), {gapOver} sample(s) over it — this is how stale the host pose "
+            + "is for every consumer that reads it during Update (PanelSupersample.Tick does), and it "
+            + "is 0 for a window nobody is moving. HOW TO READ THIS: the "
+            + "MOVING correction rate is the whole question. ModBuild 198 argued that dropping this "
+            + "guard to ~1 Hz while the player holds a window is what the reported drag flicker is; "
+            + "that can only be true if the guard corrects something while the window MOVES. A "
+            + "MOVING figure of 0 over a session with real drags falsifies it outright — the guard "
+            + "was never doing anything to lose. Read the cost against the threshold before "
+            + "proposing to run anything else per frame.");
     }
 
     // Scratch for the modal camera scan (double-draw detection); reused, no per-frame alloc.

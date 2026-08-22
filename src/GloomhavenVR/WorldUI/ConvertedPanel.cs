@@ -370,14 +370,119 @@ internal sealed class ConvertedPanel
 
     // ---- floated-modal FLICKER instrumentation (targeted; only modal hosts opt in) -------
     /// <summary>
-    /// Opt-in per-frame diagnostics for the floated-modal flicker hunt (set by
+    /// VERBOSITY ONLY. Opt-in per-frame LOGGING for the floated-modal flicker hunt (set by
     /// <see cref="CanvasConversion.Convert"/> <c>diagnostic</c>, true for ModalFallback
     /// hosts only — the small content-fit panels never flicker and would only spam).
     /// Drives <see cref="CanvasConversion.DiagnoseModal"/>: a change-gated snapshot of the
     /// host + adopted-child render state, plus a camera scan that reveals a second camera
     /// double-drawing the modal's UI layer.
+    ///
+    /// <para><b>ModBuild 199 — THIS FIELD NO LONGER GATES ANY WORK, AND MUST NEVER DO SO AGAIN.</b>
+    /// Until ModBuild 198 it gated three pieces of real per-frame maintenance in
+    /// <c>CanvasConversion.Tick</c> (the per-frame nested-canvas sweep,
+    /// <c>ReassertAdoptedSorting</c> — whose own comment reads "FLICKER FIX (modal hosts only) …
+    /// re-assert every frame" — and <c>ReassertConversionFrame</c>). Because
+    /// <see cref="GrabbableModal.ThrottleDiagWhileMoving"/> clears it to ~1 Hz for exactly as long as
+    /// the player holds a window, a fix whose stated contract was "every frame" ran at 1 Hz precisely
+    /// during the interval the user reports flicker under. The two concerns are split now:
+    /// <see cref="PerFrameGuards"/> is the WORK gate and nothing throttles it; this flag is the LOG
+    /// gate and the drag throttle still owns it. A future spam fix may turn this off freely.</para>
     /// </summary>
-    public bool Diagnostic;
+    public bool Diagnostic
+    {
+        get => _diagnostic;
+        set
+        {
+            _diagnostic = value;
+            // ENROLMENT LATCH, never a throttle. The only writer that ever passes TRUE for a panel
+            // that was not already enrolled is CanvasConversion.Convert(diagnostic: true) — i.e. a
+            // ModalFallback host. Every later write is GrabbableModal's log throttle, which alternates
+            // this flag on a panel that is already enrolled, so the latch is a no-op for it. Setting
+            // the work gate HERE keeps the enrolment in one place without a second writer in
+            // CanvasConversion.1.Core.cs (another lane's file this round).
+            if (value)
+                PerFrameGuards = true;
+        }
+    }
+
+    private bool _diagnostic;
+
+    /// <summary>
+    /// WORK, NOT VERBOSITY: this host runs the per-frame modal-host maintenance in
+    /// <c>CanvasConversion.Tick</c> — the every-frame nested-canvas sweep, the adopted-sorting
+    /// re-assert and the conversion-frame guard. Latched on by <see cref="Diagnostic"/>'s enrolment
+    /// (see there) and cleared only by <c>CanvasConversion.Release</c>. <b>Nothing may throttle
+    /// this.</b> Its whole reason to exist is that a per-frame fix stops being a fix at 1 Hz.
+    /// </summary>
+    public bool PerFrameGuards;
+
+    // ---- guard budget instrument (ModBuild 199) ------------------------------------------
+    /// <summary>Published every <see cref="GrabbableModal.Tick"/>: the host pose changed this frame
+    /// (the same epsilon the log throttle uses). False for a window nobody is moving.</summary>
+    public bool GuardHostMoving;
+
+    /// <summary>Published every <see cref="GrabbableModal.Tick"/>: a hand actually grips this
+    /// window's bar right now. A window can be MOVING without being HELD (recall, refloat).</summary>
+    public bool GuardHostHeld;
+
+    /// <summary>Guard-budget accumulators for the current report window: how many times the
+    /// adopted-sorting re-assert RAN, split by whether the host was still or moving.</summary>
+    public int SortGuardRunsStill, SortGuardRunsMoving;
+
+    /// <summary>How many of those runs actually WROTE something (a correction). This is the number
+    /// that decides whether throttling the guard could ever have mattered.</summary>
+    public int SortGuardWritesStill, SortGuardWritesMoving;
+
+    /// <summary>Correction census by kind: overrideSorting cleared, conceded sortingOrder followed,
+    /// worldCamera re-bound. Summed over the report window.</summary>
+    public int SortGuardFlagWrites, SortGuardOrderWrites, SortGuardCameraWrites;
+
+    /// <summary>Stopwatch ticks spent inside the adopted-sorting re-assert, still vs moving.</summary>
+    public long SortGuardTicksStill, SortGuardTicksMoving;
+
+    /// <summary>Conversion-frame guard: runs and corrections, still vs moving.</summary>
+    public int FrameGuardRunsStill, FrameGuardRunsMoving;
+
+    /// <summary>Conversion-frame guard corrections (its return value), still vs moving.</summary>
+    public int FrameGuardWritesStill, FrameGuardWritesMoving;
+
+    /// <summary>Stopwatch ticks spent inside the conversion-frame guard, still vs moving.</summary>
+    public long FrameGuardTicksStill, FrameGuardTicksMoving;
+
+    /// <summary>Worst SINGLE frame's combined guard cost this window, in stopwatch ticks — the
+    /// number a per-frame budget is actually judged against (a mean hides the spike).</summary>
+    public long GuardWorstFrameTicks;
+
+    /// <summary>Adopted canvases walked on the last run — the loop's comparison count.</summary>
+    public int SortGuardLastCanvases;
+
+    /// <summary>Nested-canvas adoption sweep: stopwatch ticks, still vs moving, plus how often it
+    /// ran and how often it actually adopted a new canvas (the only outcome that costs writes).</summary>
+    public long AdoptSweepTicksStill, AdoptSweepTicksMoving;
+
+    /// <summary>Adoption sweep runs and real adoptions in the current report window.</summary>
+    public int AdoptSweepRuns, AdoptSweepAdoptions;
+
+    /// <summary>
+    /// UPDATE→LATEUPDATE POSE GAP (ModBuild 199, GrabbableModal): how far the host moved between the
+    /// Update-time frame→host copy and the LateUpdate re-sync, expressed in the window's own AUTHORED
+    /// PIXELS. Anything that samples the host pose during Update — and <c>PanelSupersample.Tick</c>
+    /// does, at the end of <c>CanvasConversion.Tick</c> — is reading a pose this many pixels stale.
+    /// Worst value and sample count for the current report window.
+    /// </summary>
+    public float PoseGapWorstPx;
+
+    /// <summary>Samples and over-threshold count for the Update→LateUpdate pose gap.</summary>
+    public int PoseGapSamples, PoseGapOverOnePx;
+
+    /// <summary>Sum of the pose gap in authored pixels (for the mean).</summary>
+    public double PoseGapSumPx;
+
+    /// <summary>Next unscaled time the guard-budget line prints (0 = not scheduled yet).</summary>
+    public float GuardReportNextAt;
+
+    /// <summary>Unscaled time the current report window opened (its real duration, not the nominal).</summary>
+    public float GuardReportSince;
 
     /// <summary>Last-logged per-frame host/child snapshot (change-gated — logs only on churn).</summary>
     public string? DiagLastSnapshot;

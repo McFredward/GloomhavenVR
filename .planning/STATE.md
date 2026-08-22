@@ -126,6 +126,41 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 199** (bundle UNCHANGED — plugin DLL only) — the table the legs were built for was the map,
+  and the ModBuild 198 experiment never ran. *(Five workers.)* **Nothing on the wire.**
+  * **I VERIFIED A CODE PATH AND NOT THE OUTCOME, AND SAID SO IN WRITING.** 198's band-limit floor only
+    applied when the live value was `Mathf.Approximately` the shipped default. All 153 verdict lines
+    read `config 1.00, taken verbatim — this is a value the user set`: his cfg holds a hand-written 1.0
+    that is not bit-equal. **The experiment did not happen.** So his "unverändert" falsifies nothing —
+    I had committed in advance to reading it as a falsification and withdrew that — and my claim that
+    factor 2 fixed the still window is unsupported, because it was never 2. Floor is unconditional now.
+    Related: the windows read **0.23 RT texels per eye pixel — MAGNIFIED**, so there is no undersampling
+    on the window surface in either state and the next round must not start from that family.
+  * **ONE BUG PRODUCED ALL FOUR TABLE-LEG FAULTS: the sweep picked the PARCHMENT as the tabletop.** Its
+    own line named the mod's own map material. The class doc claimed a candidate "is not the parchment
+    itself" and **no line of code tested it**; the tie-break preferred the *smallest* footprint, so the
+    map (1.15 m²) beat the real table (3.57 m²). Wrong corners, parchment texture, and a head welded
+    5 mm up from the underside of a **0.6 mm decal** all follow from that single pick.
+  * **A PER-VERTEX UV CLAMP IS NOT A PER-PIXEL CLAMP.** Vertex UVs interpolate: once one corner clamps
+    and another does not, the face squashes toward the window edge, and a face whose span exceeds the
+    window collapses onto **one texel row**. Unsound independently of the material bug.
+  * **THE WINDOWS WERE ON THE FLOOR, NOT UNDER THE TABLE.** `−184.45 + 1.20 × 198.12 = 53.294` exactly,
+    at yaw exactly 90.0° — the head camera had no tracked pose yet, and for the map rig its zero **is**
+    the tracking floor. 0.7 s later the head reads 1.87 m up. They were placed 1.77 m below his eyes and
+    the 193 ruling then froze them there. **The clamp line printed the losing candidate** — proof that
+    half-height never decided it: all four windows landed on the same y at half-heights 55.7/68.9/76.3.
+    Not a 198 regression; the worker refused to name a culprit that does not exist.
+  * **PINNING THE RECT WHILE RESCALING ITS CONTENTS IS NOT A FIXED SIZE** — it moves the change one level
+    down. 198 scaled the conversion root, whose subtree contains the permanently-visible character
+    column, so the column shrank to 59.5 % and slid ±400 px on every tab change.
+  * **THE THROTTLED "FLICKER FIX" HAD NOTHING TO CORRECT:** 2 re-clears + 1 concession all session, all
+    on one canvas, all before the first grab; **zero** while held or moving. And the second argument for
+    the throttle is retracted — drags run at 11.07–11.16 ms against still windows' 11.11 ms.
+  * **AGAINST A MIPLESS SOURCE, MORE RENDER RESOLUTION IS WORSE** (the pixel footprint shrinks while the
+    texel footprint does not), so "the same fix" was the wrong fix for the button icons. Counted: **49
+    of 49** game textures the bake cache has ever measured are `mips 1`. Second term: the caps lie flat
+    by user ruling, so they are never seen head-on — aniso, not just mips.
+
 - **ModBuild 198** (bundle UNCHANGED — plugin DLL only) — the supersampler never supersampled, and the
   grey card is a different picture. *(Five workers.)* **Nothing on the wire.**
   * **`PanelSupersampleFactor` HAS BEEN 1.0 SINCE IT SHIPPED.** The log says `1971x1458 (factor 1.00)`
