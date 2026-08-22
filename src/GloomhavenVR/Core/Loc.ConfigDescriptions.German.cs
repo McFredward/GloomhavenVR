@@ -446,8 +446,13 @@ internal static partial class Loc
                 + "Bücherregal im Keller, der Baumstumpf, der Totholzstamm und das Reisig im Wald — "
                 + "bekommt ihr eigenes tiefes Rauschen und ihr eigenes unregelmäßiges Knistern von "
                 + "genau dort, wo sie steht, sodass du hörst, welche davon die nächste ist. Ohne Feuer "
-                + "sind sie stumm und kosten nichts. Der Wind antwortet auf "
-                + "Luft. EIS macht überhaupt kein Geräusch — den Frost siehst du, hören wirst du ihn "
+                + "sind sie stumm und kosten nichts. DER WIND: ein ganz leiser Luftzug ist immer da "
+                + "— im Keller kommt er vom Fenster herein, im Wald geht er durchs Blätterdach — und "
+                + "eine Luft-Infusion lässt ihn zu echtem Wind ANSCHWELLEN und danach wieder "
+                + "abklingen. SONST LÄUFT NICHTS DAUERHAFT: die Insekten im Nachtwald kommen und "
+                + "gehen in Chören, statt das ganze Szenario durchzuzirpen, und ab und zu ruft ein "
+                + "Kauz oder ein kleiner Vogel — jedes Mal aus einem anderen Baum. EIS macht "
+                + "überhaupt kein Geräusch — den Frost siehst du, hören wirst du ihn "
                 + "nie. Bewusst LEISE und immer zweitrangig gegenüber dem "
                 + "Spiel: die ganze Kulisse senkt sich automatisch ab, sobald das Spiel selbst einen Ton "
                 + "macht, und sie richtet sich nach der Gesamt- und der Effektlautstärke, die du in den "
@@ -463,34 +468,11 @@ internal static partial class Loc
                 + "absichtlich weit unter der Lautstärke des Spiels gedeckelt: die Umgebung darf nie mit "
                 + "Sprache oder den Hinweistönen des Spiels konkurrieren. Ohne jede Wirkung, solange "
                 + "„Umgebungsgeräusche“ aus ist. Wirkt sofort.",
-            ["EnvSound/AmbienceBed"] =
-                "Eine durchgehende, leise GRUNDKULISSE unter allem anderen — das Geräusch, das der Raum "
-                + "selbst macht, wenn gerade nichts passiert. Im Keller ist das der dumpfe Körper eines "
-                + "geschlossenen Gemäuers mit dem feinen Rauschen, das harte Wände zurückwerfen; im "
-                + "Nachtwald die hohe, weiche, offene Luft eines Waldes, durch den kein Wind geht, darunter "
-                + "die Insekten am Boden und hier und da der Ruf eines Kauzes oder eines kleinen Vogels "
-                + "weiter weg. Sie läuft OHNE jede Element-Infusion — genau das tut der Rest der Kulisse "
-                + "nämlich nicht: der Tropfen, die Ratte, das Feuer, der Wind und das Grollen sind "
-                + "allesamt Ereignisse oder Antworten auf Elemente, und deshalb war der Wald früher völlig "
-                + "still, solange nichts geschah. DAS IST KEIN WIND und es reagiert nicht auf Luft — der "
-                + "Luftzug am Fenster und das Rascheln im Blätterdach bleiben die einzigen, die das tun, "
-                + "und sie bleiben stumm, solange keine Luft-Infusion aktiv ist. Sie senkt sich mit allem "
-                + "anderen ab, sobald das Spiel einen Ton macht. AUS pausiert die Raumquelle vollständig "
-                + "(nicht bloß stumm, also kostet sie dann auch nichts) und stellt die Insekten im Wald "
-                + "auf ihren früheren, leiseren Stand zurück; die Tierrufe und alle anderen "
-                + "Umgebungsgeräusche bleiben exakt so, wie sie sind. Ohne jede Wirkung, solange "
-                + "„Umgebungsgeräusche“ aus ist. Wirkt sofort.",
-            ["EnvSound/AmbienceBedGain"] =
-                "Wie laut die durchgehende Grundkulisse ist, zusätzlich zu „Lautstärke der Umgebung“. "
-                + "1 = wie vorgesehen, also etwas unter dem Pegel, den der Luftzug am Fenster bei "
-                + "wehendem Wind erreicht — und rund 45 dB unter einem Spielgeräusch bei voller "
-                + "Lautstärke, noch bevor deine eigenen Audio-Einstellungen überhaupt greifen. Im Wald "
-                + "ist sie noch einmal leiser als im Keller, weil sie dort mit nichts konkurriert. "
-                + "Kleiner ist dezenter; 0 entspricht dem Ausschalten von „Grundgeräuschkulisse“, nur "
-                + "dass die Insekten im Wald auf ihrem korrigierten Pegel bleiben. Selbst am Maximum "
-                + "bleibt die Grundkulisse unter dem lautesten Dauergeräusch, das die Umgebung machen "
-                + "kann. Ohne Wirkung, solange „Grundgeräuschkulisse“ oder „Umgebungsgeräusche“ aus ist. "
-                + "Wirkt sofort.",
+            // NO "EnvSound/AmbienceBed*" DESCRIPTIONS. Both dials were deleted at ModBuild 223
+            // with the two continuous room tones they existed for — see Core/EnvSound.cs's
+            // THE ROOM TONES, DELETED. The German for what replaced them (the resting draught,
+            // the intermittent insect chorus, the roaming night calls) is inside
+            // "EnvSound/Enabled" above, which is the switch that now owns all of it.
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "

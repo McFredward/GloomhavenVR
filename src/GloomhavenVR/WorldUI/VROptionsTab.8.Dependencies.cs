@@ -150,12 +150,11 @@ internal static partial class VROptionsTab
         //      never read, so there is nothing left for it to be the volume of.
         ["EnvSound/Gain"] = new("EnvSound", "Enabled", On),
 
-        // ---- ...and the room tone's own volume folds under the room tone, one level deeper, for
-        //      the same literal reason: Core/EnvSound.RoomTone returns a hard 0 on its first line
-        //      when 'AmbienceBed' is off, so the dial is multiplied into nothing and the two
-        //      sources are PAUSED rather than merely silent. The parent row itself needs no entry:
-        //      it is a switch, not a tuning, and it already reads as one under 'Enabled'.
-        ["EnvSound/AmbienceBedGain"] = new("EnvSound", "AmbienceBed", On),
+        // ---- ...and there is NO second EnvSound edge any more. "EnvSound/AmbienceBedGain" folded
+        //      under "EnvSound/AmbienceBed" from ModBuild 154 to 222; both dials were deleted at
+        //      ModBuild 223 with the two continuous room tones they existed for (user, 2026-08-22:
+        //      "Statt generrell durchgehende sounds zu machen lieber die Tierrufe"). The feature is
+        //      back to one toggle and one tuning, which is the single edge above.
 
         // ---- Brett & Karten: THE NAMED CASE — the pitch window only exists in the
         //      "Begrenzt mit Neigung" scheme (BoardMoveMode.LimitedPitch, whose own enum doc names

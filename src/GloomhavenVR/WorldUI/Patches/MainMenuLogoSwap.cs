@@ -51,12 +51,21 @@ namespace GloomhavenVR.WorldUI.Patches;
 /// leicht breiter da das VR breiter ist. Aber der 'Gloomhaven' Schriftzug sollte 1:1 genau an der
 /// Stelle sein, an dem das originale Logo war."</i> The artwork is the game's own wordmark with VR
 /// appended, so GLOOMHAVEN must keep the original's size and position and the VR must hang past it.
-/// <see cref="MainMenuLogoPlacement.PlaceOnBand"/> therefore GROWS the rect by the ratio of the sprite's height to its
-/// GLOOMHAVEN band and offsets it so the band lands on the box the old sprite drew in; the sprite
-/// is never stretched, because the new rect is made exactly the sprite's own aspect. The measured
-/// band constants and the arithmetic are documented on <see cref="MainMenuLogoPlacement"/>,
-/// and every number is logged so the result can be judged from a
-/// Player.log rather than only from a photograph.</para>
+/// <see cref="MainMenuLogoPlacement.PlaceOnBand"/> therefore GROWS the rect so that the sprite's
+/// GLOOMHAVEN band comes out at the WIDTH the old wordmark's own letters had, and offsets it so the
+/// band's left edge and vertical centre land on theirs; the sprite is never stretched, because the
+/// rect is made exactly the sprite's own aspect.</para>
+///
+/// <para><b>AND IT TOOK THREE ROUNDS, EACH FAILING THE SAME WAY.</b> 220 fitted the sprite inside
+/// the rect (wordmark too small); 221 matched the rect's height (2.35x too wide); 222 matched the
+/// old sprite's INK height — but the game's asset carries a broad soft outer glow that the artist's
+/// file, flattened onto black, does not, so its ink box is ~28 % taller than its letters while ours
+/// is ~3 % taller than ours. On identical artwork every one of those looks to the eye like "nothing
+/// changed", which is exactly what the user reported three times. The placement now matches on
+/// WIDTH, where the glow is a ~3 % effect instead of a ~28 % one, and
+/// <see cref="MainMenuLogoPlacement.MeasureInk"/> no longer guesses the contour at all: it SWEEPS
+/// the old asset's alpha contours and keeps the one whose box has our band's aspect. Every number is
+/// logged, so the result is judged from a Player.log rather than only from a photograph.</para>
 ///
 /// <para><b>WHERE THE BYTES LIVE — and why not the bundle.</b> The PNG ships as an
 /// <c>EmbeddedResource</c> inside the plugin DLL (<c>GloomhavenVR.Assets.GloomhavenVR_logo.png</c>,
@@ -451,38 +460,86 @@ internal static class MainMenuLogoPlacement
     // Seitenvehältnisse haben bzw nur leicht breiter da das VR breiter ist. Aber der 'Gloomhaven'
     // Schriftzug sollte 1:1 genau an der Stelle sein, an dem das originale Logo war."
     //
-    // MEASURED off Assets/GloomhavenVR_logo.png (1024x179 RGBA) at alpha > 0.08, by taking each
-    // column's first and last covered row. The wordmark's own band is rows 4..127 and holds flat
-    // across the whole GLOOMHAVEN run; from column 838 the bottom drops away to row 168 — that is
-    // the VR's descending flourish, and it is the ONLY reason the shipped PNG is taller than the
-    // original artwork. Measuring at 0.02 / 0.25 / 0.50 instead moves these by at most one pixel
-    // (0.6 % of the band), so the numbers are not threshold-sensitive.
+    // AND THEN TWICE MORE: "Das Logo ist immer noch das selbe" (ModBuild 220's fit-inside) and "Logo
+    // ist immer noch nicht sichtbar, bzw. ich sehe noch das originale logo" (221/222). Both times
+    // the swap HAD happened — the log said so — and both times the wordmark came out at the wrong
+    // SIZE, which on identical artwork is indistinguishable from "nothing changed".
+    //
+    // ================================ WHAT THE THIRD LOG SETTLED ==================================
+    // ModBuild 222 measured the game asset instead of assuming, and the number it printed refutes
+    // the assumption underneath BOTH earlier attempts:
+    //
+    //     GH_Logo 2048x582; ink 0.0469..0.9629 x, 0.1096..0.7808 y  =>  ink aspect 4.802
+    //
+    // The shipped wordmark's own band is aspect 6.7-7.0 (below). Those cannot both be the same
+    // artwork — so THE TWO BOXES ARE NOT MEASURING THE SAME THING. The game's asset carries a broad
+    // soft OUTER GLOW; the artist's file was flattened onto black, so its glow blended into the
+    // background and the alpha crop trimmed it away. Solving for the glow width g from
+    //     (1875 - 2g) / (390 - 2g) = 6.9   gives g ~ 55 px on a 2048 px asset,
+    // i.e. the game's ink box is ~28 % taller than its letters while ours is ~3 % taller than ours.
+    //
+    // ================================ WHAT FOLLOWS, AND IT IS THE FIX =============================
+    // MATCH BY WIDTH, NOT BY HEIGHT. Horizontally a 55 px glow is 3 % of a 1875 px wordmark;
+    // vertically it is 28 % of a 390 px one. The width is an order of magnitude more robust to the
+    // exact glow, which is the one quantity neither side can measure about the other.
+    // Sanity check on the arithmetic, and the reason this is not a fourth guess: matching widths
+    // predicts a letter height of 151.6 local units, while the game's ink box scaled by its own
+    // letters-to-ink ratio gives 151.7 — agreement to 0.1 %, from two independent routes.
+    //
+    // Anchors: the band's LEFT edge and its VERTICAL CENTRE. Not the top and not the bottom — a
+    // symmetric glow moves both of those and leaves the centre where it is.
+    //
+    // ---- and the contour is SEARCHED FOR, not chosen ---------------------------------------------
+    // We know one thing for certain and it is enough: the GLOOMHAVEN part of the new artwork IS the
+    // game's own wordmark. So at the contour where both are cut the same way, the two boxes must
+    // have the SAME ASPECT — and <see cref="MeasureInk"/> therefore sweeps the old asset's alpha
+    // contours and keeps the one whose aspect matches <see cref="BandAspect"/>. That turns the one
+    // quantity nobody can know about somebody else's asset (how far its soft glow reaches) into a
+    // measurement, and it fails loudly with a number when no contour matches at all.
+    //
+    // MEASURED off Assets/GloomhavenVR_logo.png (1024x179 RGBA). The band's right edge is defined
+    // reproducibly rather than by eye: it is the column at which the silhouette's bottom drops more
+    // than 12 px below the wordmark's own baseline, which is where the VR's descending flourish
+    // begins (column 838-840, stable across every threshold from 0.078 to 0.85). At the core
+    // threshold the band is x 5..838, y 5..123.
     //
     // THEY ARE FRACTIONS OF THE SPRITE, NOT PIXELS, on purpose: a future re-export at another
     // resolution keeps working as long as the composition is unchanged, and a re-export that MOVES
-    // the wordmark inside the canvas is a change to these four numbers and to nothing else.
+    // the wordmark inside the canvas is a change to these numbers and to nothing else.
 
-    /// <summary>Top of the GLOOMHAVEN band, as a fraction of sprite height from the TOP edge.</summary>
-    private const float BandTop = 4f / 179f;
+    /// <summary>Left edge of the GLOOMHAVEN band, as a fraction of sprite width.</summary>
+    private const float BandLeft = 5f / 1024f;
 
-    /// <summary>Bottom of the GLOOMHAVEN band (exclusive), as a fraction of sprite height from the
-    /// top edge. Everything below this is the VR's flourish and is allowed to hang past where the
-    /// original logo ended.</summary>
-    private const float BandBottom = 128f / 179f;
+    /// <summary>Right edge of the GLOOMHAVEN band (exclusive), as a fraction of sprite width — the
+    /// column where the VR's flourish takes over. THE PLACEMENT TURNS ON THIS NUMBER together with
+    /// <see cref="BandLeft"/>: the new rect is sized so that this span covers the width of the old
+    /// wordmark's letters exactly.</summary>
+    private const float BandRight = 839f / 1024f;
 
-    /// <summary>Left edge of the wordmark, as a fraction of sprite width. Non-zero only because the
-    /// crop keeps an 8 px margin for the rim glow.</summary>
-    private const float BandLeft = 4f / 1024f;
+    /// <summary>Top of the GLOOMHAVEN band, as a fraction of sprite height from the TOP edge.
+    /// Diagnostic only since ModBuild 223 — the placement anchors on the centre, not the top.</summary>
+    private const float BandTop = 5f / 179f;
 
-    /// <summary>Height of the GLOOMHAVEN band as a fraction of the sprite's height — the number the
-    /// whole placement turns on: the new rect is this much TALLER than the box the old wordmark
-    /// drew in, so that the band inside it comes out the original size.</summary>
+    /// <summary>Bottom of the GLOOMHAVEN band (exclusive), fraction of sprite height from the top.
+    /// Everything below is the VR's flourish and is allowed to hang past where the old logo ended.</summary>
+    private const float BandBottom = 124f / 179f;
+
+    /// <summary>Width of the GLOOMHAVEN band as a fraction of the sprite's width — the number the
+    /// whole placement turns on since ModBuild 223.</summary>
+    private const float BandWidth = BandRight - BandLeft;
+
+    /// <summary>Height of the GLOOMHAVEN band as a fraction of the sprite's height. Diagnostic only
+    /// — it is what the placement used to scale by, and reporting it is how the next log can be
+    /// compared against the two rounds that got this wrong.</summary>
     private const float BandHeight = BandBottom - BandTop;
 
-    /// <summary>Alpha at or below which a pixel counts as empty margin, 0..255. Deliberately low:
-    /// this hunts the outer edge of a glow, and a high threshold would crop into it and make the
-    /// replacement wordmark slightly too large.</summary>
-    private const byte InkAlpha = 20;
+    /// <summary>Vertical centre of the GLOOMHAVEN band, as a fraction of sprite height from the top
+    /// — the anchor that a symmetric glow cannot move.</summary>
+    private const float BandCentreY = (BandTop + BandBottom) * 0.5f;
+
+    /// <summary>Aspect of the GLOOMHAVEN band itself. Used ONLY for the consistency check against
+    /// the old wordmark's core box; nothing is scaled by it.</summary>
+    private const float BandAspect = 7.008f;
 
     /// <summary>Widest readback used to find the ink. 512 columns across a 2048 px asset resolves
     /// the box to 0.2 % of its width, which is far below anything the eye can judge against a
@@ -545,42 +602,98 @@ internal static class MainMenuLogoPlacement
             shot.Apply(false, false);
 
             Color32[] px = shot.GetPixels32();
-            int x0 = sw, x1 = -1, y0 = sh, y1 = -1, hits = 0;
-            for (int y = 0; y < sh; y++)
+            float pixelAspect = sw / (float)sh;
+
+            // ---- SELF-CALIBRATION, and it is what ends three rounds of threshold guessing ---------
+            //
+            // We know one thing for certain and it is enough: the GLOOMHAVEN part of the new artwork
+            // IS the game's own wordmark, so at the contour where the two are cut the same way, the
+            // two boxes MUST have the same aspect. So do not pick a threshold — SEARCH for the one
+            // whose box on the old art matches our band's aspect, and use that box.
+            //
+            // This turns the one quantity nobody can know about someone else's asset (how far its
+            // soft glow reaches) into a measurement. It also fails LOUDLY and informatively: if no
+            // contour anywhere in 8..248 produces our aspect, then the artwork is not what it was
+            // said to be, and the log says so with the closest it could get.
+            Rect bestFrac = whole;
+            float bestAspect = 0f, bestErr = float.MaxValue;
+            int bestAlpha = -1;
+            Rect outerFrac = whole;
+            float outerAspect = 0f;
+            bool anyLit = false;
+
+            for (int alpha = 8; alpha <= 248; alpha += 8)
             {
-                int row = y * sw;
-                for (int x = 0; x < sw; x++)
+                int x0 = sw, x1 = -1, y0 = sh, y1 = -1;
+                for (int y = 0; y < sh; y++)
                 {
-                    if (px[row + x].a <= InkAlpha)
-                        continue;
-                    hits++;
-                    if (x < x0) x0 = x;
-                    if (x > x1) x1 = x;
-                    if (y < y0) y0 = y;
-                    if (y > y1) y1 = y;
+                    int row = y * sw;
+                    for (int x = 0; x < sw; x++)
+                    {
+                        if (px[row + x].a <= alpha)
+                            continue;
+                        if (x < x0) x0 = x;
+                        if (x > x1) x1 = x;
+                        if (y < y0) y0 = y;
+                        if (y > y1) y1 = y;
+                    }
+                }
+                if (x1 < x0 || y1 < y0)
+                    break;   // nothing left at this contour; every higher one is emptier still
+
+                float fx = x0 / (float)sw;
+                float fw = (x1 - x0 + 1) / (float)sw;
+                float fyTop = 1f - (y1 + 1) / (float)sh;
+                float fh = (y1 - y0 + 1) / (float)sh;
+                float aspect = fh > 0.0001f ? fw / fh * pixelAspect : 0f;
+
+                if (!anyLit)
+                {
+                    anyLit = true;
+                    outerFrac = new Rect(fx, fyTop, fw, fh);
+                    outerAspect = aspect;
+                }
+
+                float err = Mathf.Abs(aspect - BandAspect);
+                if (err < bestErr)
+                {
+                    bestErr = err;
+                    bestAspect = aspect;
+                    bestAlpha = alpha;
+                    bestFrac = new Rect(fx, fyTop, fw, fh);
                 }
             }
 
-            if (hits == 0 || x1 < x0 || y1 < y0)
+            if (!anyLit)
             {
                 note = $"ink NOT found — every one of the {sw}x{sh} sampled pixels is at or below "
-                       + $"alpha {InkAlpha}. Either the source has no alpha channel at all (then the "
-                       + "whole rect IS the artwork and this is correct) or the readback failed "
-                       + "silently; the whole rect is used";
+                       + "alpha 8. Either the source has no alpha channel at all (then the whole rect "
+                       + "IS the artwork and this is correct) or the readback failed silently; the "
+                       + "whole rect is used";
                 return whole;
             }
 
-            // ReadPixels' origin is BOTTOM-left; the band constants run from the TOP. Flip here so
-            // everything downstream shares one convention.
-            float fx = x0 / (float)sw;
-            float fw = (x1 - x0 + 1) / (float)sw;
-            float fyTop = 1f - (y1 + 1) / (float)sh;
-            float fh = (y1 - y0 + 1) / (float)sh;
+            bool matched = bestErr / BandAspect < 0.08f;
+            note = $"old art measured on a {sw}x{sh} readback. OUTER contour (alpha>8): "
+                   + $"x {outerFrac.xMin:F4}..{outerFrac.xMax:F4} y {outerFrac.yMin:F4}..{outerFrac.yMax:F4}, "
+                   + $"aspect {outerAspect:F3}. CALIBRATED contour: alpha>{bestAlpha}, "
+                   + $"x {bestFrac.xMin:F4}..{bestFrac.xMax:F4} y {bestFrac.yMin:F4}..{bestFrac.yMax:F4}, "
+                   + $"aspect {bestAspect:F3} against our band's {BandAspect:F3}"
+                   + (matched
+                          ? $" — MATCHED to {bestErr / BandAspect * 100f:F1}%. The gap between the two "
+                            + "contours is the old asset's soft outer glow, which our own artwork does "
+                            + "not carry; the calibrated box is the one the placement uses"
+                          : $" — NO CONTOUR MATCHES (closest is {bestErr / BandAspect * 100f:F1}% off). "
+                            + "The new artwork is then NOT the game's wordmark plus VR, or the sprite "
+                            + "is atlased and the readback caught a neighbour. The closest box is used "
+                            + "anyway, and it will be wrong by about that much");
 
-            note = $"ink measured on a {sw}x{sh} readback: x {fx:F4}..{fx + fw:F4}, y (from top) "
-                   + $"{fyTop:F4}..{fyTop + fh:F4}, {hits} lit pixel(s), so {(1f - fw * fh) * 100f:F1}% "
-                   + "of the old asset is transparent margin";
-            return new Rect(fx, fyTop, fw, fh);
+            if (!matched)
+                VRLog.Warn(Scope,
+                    $"{note}. This is the check that caught ModBuild 221 and 222; treat the number "
+                    + "above as the size error to expect in the headset.");
+
+            return bestFrac;
         }
         catch (Exception ex)
         {
@@ -644,21 +757,19 @@ internal static class MainMenuLogoPlacement
     /// <para><paramref name="oldInk"/> is the box the old sprite's INK occupied, not the box it
     /// was drawn into — see <see cref="MeasureInk"/> for why the difference cost ModBuild 221.</para>
     ///
-    /// <para>THE ARITHMETIC. The band is <see cref="BandHeight"/> of the sprite's height, so the
-    /// new rect must be <c>oldInk.height / BandHeight</c> tall (≈ 1.44×) for the band inside it to
-    /// come out at the original height; the width follows from the sprite's own aspect, so nothing
-    /// is ever stretched. The rect is then offset so the band's top-left corner sits on
-    /// <c>oldInk</c>'s top-left. Net effect: the wordmark is the size and position it always was
-    /// and the rect around it is bigger — the opposite of ModBuild 220, which kept the rect and
-    /// shrank the wordmark into it.</para>
+    /// <para>THE ARITHMETIC. The band is <see cref="BandWidth"/> of the sprite's width, so the new
+    /// rect is <c>oldInk.width / BandWidth</c> wide for the band inside it to come out at the old
+    /// wordmark's own width; the height follows from the sprite's aspect, so nothing is ever
+    /// stretched. The rect is then offset so the band's LEFT edge and VERTICAL CENTRE sit on the old
+    /// letters'. Net effect: the wordmark is the size and position it always was and the rect around
+    /// it is a little bigger — the opposite of ModBuild 220, which kept the rect and shrank the
+    /// wordmark into it, and of 221/222, which matched the wrong axis.</para>
     ///
-    /// <para>A CONSISTENCY CHECK THAT COSTS NOTHING AND HAS ALREADY EARNED ITS KEEP — it is what
-    /// caught ModBuild 221, reporting 0.426 against a plausible 0.90 in the very log the user sent
-    /// with the photograph. If the new artwork really is the game's own wordmark plus VR, then the
-    /// old ink box's aspect IS the band's aspect, which puts the band's right edge at <c>oldAspect · BandHeight / spriteAspect</c> of
-    /// the sprite width. Independently measured, the VR's first column is at 0.818 and the N runs
-    /// on underneath it, so anything in roughly 0.82..1.00 corroborates the assumption. A value
-    /// outside 0.70..1.02 does not, and says so in the log rather than quietly mis-scaling.</para>
+    /// <para>A CONSISTENCY CHECK THAT COSTS NOTHING AND HAS ALREADY EARNED ITS KEEP TWICE — it is
+    /// what caught ModBuild 221 (0.426 against a plausible 0.90) and 222 (0.582), both times in the
+    /// very log the user sent with the photograph. It reports the SHAPE agreement between the old
+    /// letters and our band, i.e. the axis the placement does not scale by, so it is genuinely
+    /// independent of the fit.</para>
     ///
     /// <para>WHY THE RECT MAY BE TOUCHED AT ALL, when the ModBuild 220 note said it must not be:
     /// that rule was mine, not the user's, and his correction overrides it. It is still refused in
@@ -693,15 +804,17 @@ internal static class MainMenuLogoPlacement
             return "PLACEMENT REFUSED (layout-driven rect) — fitted inside instead.";
         }
 
-        float oldAspect = oldInk.width / oldInk.height;
-        float impliedBandRight = oldAspect * BandHeight / newAspect;
+        // ---- THE MATCH IS ON WIDTH. See the constants block for why height is the wrong axis: the
+        //      game's asset carries a broad soft glow our artwork does not, and vertically that
+        //      glow is ~28% of the wordmark while horizontally it is ~3%.
+        float w2 = oldInk.width / BandWidth;
+        float h2 = w2 / newAspect;
 
-        float h2 = oldInk.height / BandHeight;
-        float w2 = h2 * newAspect;
-
-        // The band's top-left inside the new rect, and the offset that puts it on the old box's.
+        // Band LEFT onto the old letters' left; band VERTICAL CENTRE onto theirs. Not the top and
+        // not the bottom — a symmetric glow moves both of those and leaves the centre alone.
         float targetXMin = oldInk.xMin - BandLeft * w2;
-        float targetYMin = (oldInk.yMax + BandTop * h2) - h2;
+        float targetYMax = oldInk.center.y + BandCentreY * h2;
+        float targetYMin = targetYMax - h2;
 
         Vector2 pivot = rt.pivot;
         string anchors = CollapseAnchors(rt);
@@ -710,16 +823,63 @@ internal static class MainMenuLogoPlacement
         rt.sizeDelta = new Vector2(w2, h2);
         rt.anchoredPosition += delta;
 
-        string verdict = impliedBandRight is > 0.70f and < 1.02f
-            ? $"consistent with the artwork (VR starts at 0.818 of the width and the N runs on under it)"
-            : "OUT OF RANGE — the new artwork is probably NOT the game's wordmark plus VR, or the "
-              + "original logo asset carries padding this patch cannot see. The wordmark will be "
-              + "the wrong size; the fix is the four Band* constants";
+        // ---- the consistency check, now on the axis the placement does NOT use, so it is genuinely
+        //      independent of it. If the artwork really is the same wordmark, the old LETTER box and
+        //      our band have the same aspect. 1.00 is perfect; the tolerance is wide because the two
+        //      alpha thresholds do not cut the letterforms at exactly the same contour.
+        float oldAspect = oldInk.width / oldInk.height;
+        float ratio = oldAspect / BandAspect;
+        string verdict = ratio is > 0.85f and < 1.18f
+            ? $"CONSISTENT — the old letters and our band agree on shape to {Mathf.Abs(1f - ratio) * 100f:F0}%"
+            : "OUT OF RANGE — the old LETTER box is not the same shape as our GLOOMHAVEN band, so "
+              + "either the artwork is not the game's wordmark plus VR, or the contour sweep found "
+              + "no matching cut. The wordmark will be the wrong size by about that much, and "
+              + "MeasureInk's own line above says which of the two it is — NOT another guess";
 
-        return $"rect {oldInk.width:F1}x{oldInk.height:F1} → {w2:F1}x{h2:F1} (×{h2 / oldInk.height:F3}), "
-               + $"moved by ({delta.x:F1},{delta.y:F1}), {anchors} The GLOOMHAVEN band now covers the "
-               + $"old drawn box exactly and the VR hangs past it. Implied band right edge "
-               + $"{impliedBandRight:F3} of sprite width: {verdict}.";
+        return $"letters {oldInk.width:F1}x{oldInk.height:F1} at ({oldInk.xMin:F1},{oldInk.yMin:F1}) → "
+               + $"rect {w2:F1}x{h2:F1}, moved by ({delta.x:F1},{delta.y:F1}), {anchors} "
+               + $"The GLOOMHAVEN band is now {oldInk.width:F1} wide — the old wordmark's own width — "
+               + $"and {BandHeight * h2:F1} tall; the VR hangs {(1f - BandRight) * w2:F1} past its right "
+               + $"edge and {(1f - BandBottom) * h2:F1} below. "
+               + $"Shape check old/band {oldAspect:F3}/{BandAspect:F3} = {ratio:F3}: {verdict}. "
+               + $"{DescribeClipping(rt)}";
+    }
+
+    /// <summary>
+    /// Whether anything above this graphic will CUT the widened rect, and how much room it has.
+    ///
+    /// <para>This exists because "I still see the original logo" is what an oversized wordmark whose
+    /// VR has been clipped away looks like — the two are indistinguishable in a photograph, since
+    /// the GLOOMHAVEN part is the same artwork either way. A mask is the one thing that could hide
+    /// the change while every number in the log reads correct, so the log states it rather than
+    /// leaving the next round to wonder.</para>
+    /// </summary>
+    private static string DescribeClipping(RectTransform rt)
+    {
+        var sb = new StringBuilder(160);
+        Transform? t = rt.parent;
+        int masks = 0;
+        while (t != null)
+        {
+            if (t.GetComponent<RectMask2D>() != null || t.GetComponent<Mask>() != null)
+            {
+                masks++;
+                if (masks == 1)
+                    sb.Append("CLIPPED BY '").Append(t.name).Append('\'');
+            }
+            t = t.parent;
+        }
+
+        if (masks == 0)
+            return "No RectMask2D/Mask anywhere above it, so nothing clips the widened rect.";
+
+        if (rt.parent is RectTransform p)
+            sb.Append(" — its rect is ").Append(p.rect.width.ToString("F0")).Append('x')
+              .Append(p.rect.height.ToString("F0")).Append(", ours is ")
+              .Append(rt.rect.width.ToString("F0")).Append('x').Append(rt.rect.height.ToString("F0"));
+        sb.Append(". IF THE VR IS MISSING IN THE HEADSET, THIS IS WHY, and the fix is to place the "
+                  + "wordmark inside the mask rather than to grow past it.");
+        return sb.ToString();
     }
 
     /// <summary>

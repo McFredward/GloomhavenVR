@@ -416,7 +416,77 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 222;
+    public const ushort ModBuild = 223;
+    // Build 223: THE ROOM TONES ARE DELETED, AND THE LOGO MATCHES ON THE OTHER AXIS. No wire change.
+    //
+    //   #1 SOUND — A DESIGN REVERSAL, NOT A TUNING ROUND. User, verbatim: "Im Keller hören sich die
+    //   Geräusche an wie Rauschen bei nem Fernseher. Es soll dezenter sein nicht aufdringliuch und
+    //   auf keinen Fall nervig." and "Auch die kontinuierlichen Sounds im Wald nerven mich. Statt
+    //   generrell durchgehende sounds zu machen lieber die Tierrufe und im Wald ein ganz leister
+    //   dezenter Windzug. Mach die meistens Sounds an eine Quelle in der Welt hörbar. zB der Windzug
+    //   im Keller könnte vom Fenster ausgehen (aber auch hier nur dezent!). Im Wald mal ne Eule oder
+    //   ähnliches die ruft (auch aus dem Wald hörbar, hier sollte die Position auch random
+    //   wechseln)."
+    //   THE "TV STATIC" IS MEASURED, not accepted as an impression. A 1/3-octave SPECTRAL FLATNESS
+    //   measure was added with band-limited white noise as the CONTROL — literally what a detuned set
+    //   emits. Control SFM 0.882 / spread 1.14 oct / 82.1 % above 2 kHz. The 222 stone bed:
+    //   SFM 0.210, spread 1.87 oct, 34.9 % above 2 kHz — the flattest, widest and least dynamic thing
+    //   the bank ever played, and at +15.5 dB over a candle bed the LOUDEST thing in the cellar at
+    //   rest. The move that did it is identifiable: my own StoneHissMix 0.14 -> 0.55 on a white
+    //   2200-9000 Hz layer took SFM 0.045 -> 0.210 and the high-band share 3.6 % -> 34.9 %. Every
+    //   axis moved toward the control. That is the whole of his report, in numbers.
+    //   DELETED: EnvSoundClip.Stone and NightAir, their generators, ~40 constants, both beds, the
+    //   RoomTone modulator and the two dials — 541 lines out of the bank alone, and 5.4 MB of clip
+    //   memory. The generators survive in the offline replica as the "before" column; nothing dead
+    //   is left in the shipped code to read like a feature.
+    //   WHAT PLAYS AT REST IS NOW A SOURCE IN THE ROOM, which is what he asked for. Cellar: the
+    //   draught AT THE WINDOW NODE, 0.00049 delivered at 4 m — 20.1 dB under the deleted bed and
+    //   4.7 dB under a single candle — with a 1.2 m rolloff minimum, so "vom Fenster ausgehen" is
+    //   literally true (~0.00167 at the window, almost nothing at the table). Forest: the canopy
+    //   draught at -10.3 dB, and THE INSECT FLOOR IS NOW INTERMITTENT rather than merely quieter —
+    //   53 s slots, 55 % carrying a 14-30 s chorus with 5 s edges and EXACTLY ZERO in between, source
+    //   paused. It was the loudest continuous thing left in the wood and it is the emitter his
+    //   sentence names; real insects stop.
+    //   THE OWL MOVES, AND THE OLD ONE COULD NOT: the bake welds every trunk into TrunksNear /
+    //   TrunksFar / Canopy, all at the room's local origin — so 222's owl called from the middle of
+    //   the clearing. It now draws a perch on a ring per call: azimuth, AREA-UNIFORM radius (the way
+    //   the bake seats its trees) and a canopy-relative height, inner radius 7 m against 5.4 m of
+    //   open ground so a call can never come from inside the player, outer 12 m against a trunk field
+    //   running to 27 m so it can never come from outside the wood. Pure function of the slot index,
+    //   so every client hears the same owl from the same tree on the same frame with zero wire bytes
+    //   — "pick a tree that is not too close to the listener" was REJECTED for exactly that reason.
+    //   THE WIND RULING IS NARROWED, NOT WITHDRAWN, and the narrowing is his: the Air infusion is no
+    //   longer the difference between silence and wind, it is the RISE above a resting whisper. The
+    //   floor is FLAT — a resting bed that swelled would be a wind with no wind. One floor on the
+    //   existing beds and not a second emitter, "because a second quiet-air source would be the room
+    //   tone again under another name". At full Air the level is +0.1 dB against 222, i.e. the
+    //   element response is untouched. `airGated` is renamed `AirLed` because the old name asserted
+    //   "exactly zero unless Air", which is no longer true, and the WIND LEAK assertion is NARROWED
+    //   to the new floor rather than deleted.
+    //
+    //   #5c THE LOGO — THIRD ROUND, AND THE FIRST TWO FAILED THE SAME WAY. 222 measured the game
+    //   asset instead of assuming, and the number it printed refutes the assumption under BOTH
+    //   earlier attempts: GH_Logo's ink box is aspect 4.802 while our GLOOMHAVEN band is 6.7-7.0.
+    //   Those cannot be the same artwork — so the two boxes were not measuring the same thing. The
+    //   game's asset carries a broad soft OUTER GLOW; the artist's file was flattened onto black, so
+    //   its glow blended into the background and the alpha crop took it away. Solving for the glow
+    //   width gives ~55 px on a 2048 px asset: the game's ink box is ~28 % taller than its letters
+    //   while ours is ~3 % taller than ours.
+    //   SO THE MATCH MOVED TO THE WIDTH, where that glow is a 3 % effect instead of a 28 % one, with
+    //   the band's LEFT edge and VERTICAL CENTRE as the anchors — a symmetric glow moves the top and
+    //   the bottom and leaves the centre alone.
+    //   AND THE CONTOUR IS NO LONGER GUESSED. One thing is certain and it is enough: the GLOOMHAVEN
+    //   part of the new artwork IS the game's wordmark, so at the contour where both are cut the same
+    //   way the two boxes must have the SAME ASPECT. MeasureInk therefore SWEEPS the old asset's
+    //   alpha contours and keeps the one whose box matches our band's aspect — turning the one
+    //   quantity nobody can know about somebody else's asset into a measurement, and failing loudly
+    //   with a number when no contour matches at all.
+    //   The swap has worked since 220; all three failures were SIZE, and on identical artwork a
+    //   wrong size is indistinguishable from "nothing changed" — which is what he reported, three
+    //   times. The log now also names any RectMask2D/Mask above the graphic, because a clipped VR is
+    //   the one cause that would leave every number in the log reading correct.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 222: THE 3D MAP GOES MULTIPLAYER — records 20 and 21, the first new wire records since
     // 19 — plus four corrections to builds 220/221. Wire Version stays 3: additive TLV records never
     // touch it, and a peer on an older build steps over both by their own length.
