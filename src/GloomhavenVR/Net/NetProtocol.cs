@@ -416,7 +416,119 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 203;
+    public const ushort ModBuild = 204;
+    // Build 204: THE DRAG FLICKER AND THE FROZEN PICTURE ARE TWO DIFFERENT BUGS, AND BOTH ARE NAMED.
+    // (Two workers on isolated worktrees plus integration.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── THE REPORT ───────────────────────────────────────────────────────────────────────
+    // "Beim ersten Aufruf der characterinformation wo das Problem besteht sah nun alles gut aus, aber
+    // sobald ich das Fenster einmal verschoben hat - hat während dem verschieben des Fensters flackern
+    // wieder begonnen und beim Loslassen wurde wieder random ein Stand eingefroren der wieder manche
+    // elemente nicht sichtbar macht. ... Das Problem hat jetzt priorität und wird so lange angegangen
+    // bis eine nachhaltige Lösung gefunden wurde."
+    // ModBuild 203's sub-view sweep burst DID close the "broken on open" half — he says so in the same
+    // sentence. What is left is the drag, and the drag has never been fixed: ModBuild 192's verdict was
+    // "Durchbruch beim Flackern! Allerdings tritt das flackern dann noch auf während dessen man das
+    // Fenster verschiebt", and twelve builds since have aimed at the still case.
+    //
+    // ── WHY EVERY SCAN WAS CLEAN FOR TWELVE BUILDS ──────────────────────────────────────
+    // Decompiled from the game's own ressources/Managed/Unity.TextMeshPro.dll and UnityEngine.UI.dll,
+    // verified independently by the integrator and by the implementing worker:
+    //
+    //   public override void Cull(Rect clipRect, bool validRect)     // TMP_SubMeshUI
+    //   {
+    //   }                                                            // <- EMPTY. A RectMask2D calls
+    //                                                                //    this every frame on every
+    //                                                                //    sub-mesh, and it does
+    //                                                                //    NOTHING. It can neither
+    //                                                                //    cull nor UN-cull one.
+    //
+    //   if (m_canvasRenderer.cull != flag)                           // TextMeshProUGUI.Cull
+    //   {
+    //       m_canvasRenderer.cull = flag;
+    //       for (int i = 1; i < m_subTextObjects.Length && ...; i++)
+    //           m_subTextObjects[i].canvasRenderer.cull = flag;      // <- THE ONLY WRITER, and it
+    //   }                                                            //    sits INSIDE the guard.
+    //
+    // `MaskableGraphic.UpdateCull(bool)` is PRIVATE and NON-VIRTUAL, and `UpdateClipParent()` calls it
+    // with `false` whenever the resolved clipper changes. So the parent goes cull true -> false WITHOUT
+    // the loop running; the sub-meshes stay culled; the next Cull computes flag=false, the guard sees
+    // no change and blocks — AND THE SUB-MESHES ARE NEVER REPAIRED, by TMP or by uGUI, ever.
+    // That is "beim Loslassen wurde random ein Stand eingefroren der manche elemente nicht sichtbar
+    // macht", exactly. It is why the character sheet reads 19 sub-meshes carrying vertices, 16 culled,
+    // while every parent-level scan is clean. It is why the loss is a SCATTERED SUBSET — only strings
+    // needing a second atlas page, a fallback font or an inline <sprite> HAVE sub-meshes. And it is why
+    // text, mesh, UV, layer, scale, sampling, draw-order and over-paint scans all came back perfect:
+    // the mesh IS submitted, the atlas IS right, the layer IS right. A boolean nobody had split out of
+    // a three-way `||` was true.
+    // THE MOD PULLS THAT TRIGGER ITSELF at UnmaskedUiGraphics.cs:141-142 (`maskable = false;
+    // RecalculateClipping();`). The worker then found the trigger is BIDIRECTIONAL — that same sweep
+    // un-latches some sub-meshes by accident, because TMP_SubMeshUI IS a MaskableGraphic and gets its
+    // own UpdateCull(false). That does not weaken the diagnosis; it explains why the damage is
+    // per-component and intermittent rather than total, which is the user's word "random".
+    //
+    // ── AND THE FLICKER WHILE DRAGGING IS A SECOND, INDEPENDENT BUG ─────────────────────
+    // ModBuild 203's hardware log: the party window RE-ALLOCATED ITS RENDER TARGET 58 TIMES IN 62 s,
+    // alternating 28/28 between two capture frames one 32-px FrameQuantumPx apart:
+    //     28 x  2020x1464  (host 1988x1080 + content overspill 32x384)
+    //     28 x  2020x1496  (host 1988x1080 + content overspill 32x416)
+    // 2.51 re-allocations per second WHILE HELD against 0.29/s while not held; 12 inside one 2.8 s
+    // drag. And `ClearRt` clears the bound surface, i.e. MIP LEVEL 0 ONLY — levels 1..N of a fresh
+    // display target held UNINITIALISED VRAM until the first GenerateMips(). This window samples at
+    // LOD 1.66, i.e. it reads levels 1 and 2 almost exclusively. Garbage, not a black flash, which is
+    // why it never looked like a missing texture. THE CHAIN: drag -> the content re-measure runs on the
+    // motion cadence -> the union sits on a quantum boundary and flips -> re-allocation -> undefined
+    // mip levels -> flicker.
+    // Why exactly these two sub-views, which is the question four rounds could not answer: the
+    // character sheet and perks are the ONLY sub-views whose content reaches outside the host rect, so
+    // they are the only ones with an overspill and therefore the only ones with a quantum boundary to
+    // flip. The working sub-views report "= the host rect: no content draws outside it" — no overspill,
+    // no re-allocation possible, ever.
+    //
+    // ── WHAT SHIPPED ─────────────────────────────────────────────────────────────────────
+    // 1. THE INVARIANT REPAIR (PanelSupersample.4.Content.cs). Parent TMP cull -> its TMP_SubMeshUI
+    //    children, every frame, gated on NOTHING. It supplies the run TMP's own guard skips and can
+    //    never make anything visible TMP meant to hide, because it only copies the parent's decision —
+    //    and TMP_SubMeshUI does not override SetClipRect, so the RectMask2D rectangle is still enforced
+    //    IN THE SHADER on an un-culled sub-mesh. Cost: one bool compare per cached pair (19 on this
+    //    window), 0.004 ms/frame against 11.11 ms.
+    // 2. THE FLAP (same file). A pure translation no longer schedules a content re-measure at all —
+    //    NoticeGeometry's own comment already said a translation "changes nothing about what it draws
+    //    or how big its render target must be", and every bound the measure takes is host-local, so
+    //    this is exact and not an approximation. Plus asymmetric hysteresis on the per-edge overspill:
+    //    grow immediately and unconditionally (content is never cropped for even one frame), shrink
+    //    only past a one-quantum dead band after 4 consecutive still measurements. 4 x 15 frames =
+    //    0.50 s at 90 Hz, against the measured 0.40 s flap dwell.
+    // 3. ATOMIC RE-ALLOCATION (PanelSupersample.2.Capture.cs). GenerateMips() now runs at creation, so
+    //    the whole chain is DEFINED from birth, and the new pair is primed with a synchronous capture
+    //    before Reallocate returns, so it is CORRECT on the frame it is bound. Double-buffering was
+    //    costed and REJECTED on the arithmetic: 90 + 60 + 60 = 210 MB against MaxPanelVramBytes 160.
+    // 4. THE RELEASE REPAIR NOW WAITS FOR THE HAND. The gate was pure pose-stillness with a
+    //    half-authored-pixel epsilon and no hand test at all, so of 33 "releases" in the 203 log only
+    //    16 followed a hand release — 15 fired mid-drag, one five times in 1.9 s, each running the
+    //    ~16.5 ms regeneration and a 23-35 ms frame. Now keyed on ConvertedPanel.GuardHostHeld.
+    // 5. THE REGENERATION CAP no longer silently drops the same tail forever. MaxRegeneratePerScan is
+    //    256 against a window carrying up to 297 text components, and the walk is deterministic, so the
+    //    same ~41 were skipped at every release in every session while the log called the pass
+    //    "unconditional". A resume cursor now covers the whole subtree across two passes. That is the
+    //    FIFTH instance of this project's signature failure and the count is printed.
+    // 6. THE TWO CONFLATED COUNTERS ARE SPLIT into three disjoint buckets each — cull flag / own alpha
+    //    / inherited alpha — and a culled sub-mesh now logs its PARENT's cull flag beside its own.
+    //    parent=FALSE with sub=TRUE is the latch, named, with no further measurement needed.
+    //
+    // ── A CORRECTION I OWE, AND THE DEFAULT THAT GOES BACK ──────────────────────────────
+    // ModBuild 203 shipped [WorldUI] PanelMipLodOffset at -0.5 to answer a resolution question. It ran
+    // (the log reads "asked -0.50 ... and the LIVE display render target reads -0.50 back"). What
+    // nobody checked is that unfiltered mip level 0 re-enters the blend below 2^(1-bias) texels per
+    // rendered pixel — 2.83 at -0.5, not the 2.00 the ModBuild 198 floor exists to guarantee — and 34
+    // of that session's 47 RESAMPLE VERDICT readings sit below 2.83. So it handed back half of the fix
+    // that closed the STILL case, in the middle of the round investigating the MOVING case. WORSE:
+    // SamplingSentence computed its LOD without adding the bias and then printed "BAND-LIMITED: the eye
+    // reads no unfiltered level 0 at all", and that verdict was quoted to the user as evidence. The
+    // arithmetic is fixed; the shipped default goes to 0.00 until the drag is closed. The dial stays.
+    // A filtering change and a filtering investigation must not run in the same build.
+    //
     // Build 203: TWO CAUSES REMOVED, AND THE ONE BLIND SPOT EVERY INSTRUMENT NAMED BUT NONE MEASURED.
     // (Four workers on isolated worktrees plus integration.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

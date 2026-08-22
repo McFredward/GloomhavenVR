@@ -144,6 +144,23 @@ internal static partial class Defaults
     // blur term) and deliberately never shipped either time so the next report stayed attributable.
     // The user has now asked about the symptom directly, so it ships, at the conservative end.
     //
+    // ModBuild 204: SHIPPED VALUE TAKEN BACK TO 0.00, AND THE PARAGRAPH ABOVE IS WHY IT HAD TO BE.
+    // The dial ran on hardware exactly once, and the log confirms it ran ("asked -0.50 … and the LIVE
+    // display render target reads -0.50 back — asked and in force AGREE"). What nobody had checked
+    // is what it does to the BAND LIMIT. Unfiltered mip level 0 re-enters the blend below
+    // 2^(1-bias) texels per rendered pixel — 2.83 at -0.5, not the 2.00 the ModBuild 198 floor was
+    // built to guarantee — and 34 of that session's 47 RESAMPLE VERDICT readings sit below 2.83
+    // (range 1.73 … 3.03). So this dial handed back roughly half of the one fix that closed the
+    // STILL case, in the middle of the round investigating the MOVING case.
+    // WORSE, THE INSTRUMENT COULD NOT SEE IT: SamplingSentence computed its LOD without adding the
+    // bias and then printed "BAND-LIMITED: the eye reads no unfiltered level 0 at all" on a build
+    // where most samples carried level 0. That verdict was quoted to the user as evidence. The
+    // arithmetic is fixed in PanelSupersample.3.Report.cs this build, and the DEFAULT goes to 0.00
+    // until the drag defect is closed — attribution first, sharpness second. The dial stays, its
+    // range stays, and a user-set value is still taken verbatim; only the shipped value changes.
+    // This is NOT a statement that the dial is wrong. It is a statement that a filtering change and
+    // a filtering investigation must not run in the same build.
+    //
     // RANGE -2.0 .. 0.0. Above 0 is BLUR, which is what the mip chain already does correctly and what
     // this dial exists to undo — a positive value would only re-buy the complaint. Below -1.0 the
     // sampled level carries more detail than the pixel grid can show, so -2.0 is a floor and not a
@@ -160,7 +177,7 @@ internal static partial class Defaults
     // LOCAL RENDERING ONLY, so no wire field and no EXEMPT line: [WorldUI] is not one of
     // check-wire-coverage.py's BOARD_SECTIONS, and an EXEMPT entry outside those sections is reported
     // STALE by that same script. Nothing a peer can see from their side of the table changes.
-    internal const float PanelMipLodOffset = -0.5f;          // => [WorldUI] PanelMipLodOffset
+    internal const float PanelMipLodOffset = 0.0f;          // => [WorldUI] PanelMipLodOffset
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale

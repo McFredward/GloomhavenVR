@@ -112,6 +112,7 @@ internal static partial class PanelSupersample
         AppendOverPaint(e);
         AppendSubViewBurst(e);
         AppendCapturePath(e);
+        AppendReallocations(e);
         AppendMotionBudget(e);
 
         Sb.Append(" HOW TO READ THIS LINE — MODBUILD 203 FIRST. (W0) THE ATTRIBUTION TAG "
@@ -869,7 +870,107 @@ internal static partial class PanelSupersample
                   + "the resolved mipped one, ").Append(e.ResolveSizeMismatch)
           .Append(" resolve(s) whose source and destination differed in size (= the target was "
                   + "re-allocated between the capture and the resolve, which would stretch one "
-                  + "frame's image across another's texels).");
+                  + "frame's image across another's texels)");
+
+        // ---- THE FOURTH EXPECTED-ZERO COUNTER (ModBuild 204) -------------------------------------
+        // The 203 forensics named this gap in one sentence and it is quoted verbatim in TargetLife:
+        // "there is no counter for frames on which the quad sampled a freshly re-allocated target
+        // that had not yet been captured into. With 58 re-allocations, 45 of them inside grabs and 12
+        // inside a single 2.8 s stretch, that is the one path a 'random frozen state' could take that
+        // this log cannot see." It is a REAL per-frame test of live state — NoteQuadSample compares
+        // the texture identity the quad is bound to against a per-target completed-capture count, at
+        // the first camera of the frame that is not one of ours — and never a derivation from the
+        // reallocation count.
+        TargetLife life = LifeOf(e);
+        Sb.Append(", and ").Append(life.SampledUncaptured)
+          .Append(" frame(s) on which the quad was VISIBLE AND SAMPLED A TARGET THAT HAD NEVER BEEN "
+                  + "CAPTURED INTO SINCE ITS CREATION, out of ").Append(life.SampleChecks)
+          .Append(" visible frame(s) checked (the denominator matters as much as the count here: a "
+                  + "zero with a zero denominator is an instrument that never ran, which is how four "
+                  + "remedies in this class's history came to ship and never execute). WHAT A HIT "
+                  + "WOULD MEAN: a freshly created RenderTexture's contents are UNDEFINED in D3D11, "
+                  + "not black, and ClearRt only ever wrote mip level 0 — this window samples at "
+                  + "LOD 1.66, i.e. levels 1 and 2, which is why that failure reads as garbage or as "
+                  + "nothing rather than as a slightly wrong image. ModBuild 204 closes it in two "
+                  + "layers (CreateMipRt generates the whole chain at creation; Reallocate primes the "
+                  + "new pair with a synchronous capture+resolve+mip before it returns), so this "
+                  + "number is the PROOF of that rather than its assumption. FILL LATENCY — frames "
+                  + "between a display target being created and its FIRST completed "
+                  + "capture+resolve+mip, the whole distribution because one end of it is not the "
+                  + "operating point: LOWEST ")
+          .Append(life.FillReadings > 0 ? life.FillFramesMin : -1).Append(", MEAN ")
+          .Append((life.FillReadings > 0 ? (double)life.FillFramesSum / life.FillReadings : -1.0)
+                  .ToString("F2"))
+          .Append(", HIGHEST ").Append(life.FillFramesMax).Append(", LAST ")
+          .Append(life.FillFramesLast).Append(" over ").Append(life.FillReadings)
+          .Append(" target(s) (-1 = no target has completed a first fill yet, which is a different "
+                  + "statement from a latency of 0 and must not be read as one; with the prime in "
+                  + "force every reading should be 0, and a 1 anywhere here is a target that reached "
+                  + "an eye pass before its first capture).");
+    }
+
+    /// <summary>
+    /// <b>THE RE-ALLOCATION PRICE LIST (ModBuild 204) — what asked for each one, whether the window
+    /// was being carried at the time, and what it cost.</b>
+    ///
+    /// <para><b>WHY IT EXISTS.</b> The ModBuild 203 hardware log could say only <i>"58 re-allocations
+    /// since engage"</i>. Getting from that to the actual finding — that they alternated 28/28
+    /// between two capture frames one 32 px quantum apart, that 45 of the 58 fell inside grabs, that
+    /// the rate was 2.51/s while held against 0.29/s while not, and that 12 landed in a single 2.8 s
+    /// stretch — took a whole session of cross-referencing timestamps against the grab lines. Every
+    /// one of those numbers is a field on this line now.</para>
+    ///
+    /// <para><b>AND IT PRICES THE NO-OP.</b> <see cref="ReleaseRepair"/> calls
+    /// <see cref="Reallocate"/> unconditionally. That call is already free when the frame has not
+    /// moved a target-sized pixel — the pixel-count compare early-outs before anything is allocated —
+    /// and the NO-OP column is what lets the log say so instead of leaving the next round to read the
+    /// source for it. Where the release-repair row's no-op count equals its total, the unconditional
+    /// call cost nothing at all and the release's real cost is the text regeneration beside it.</para>
+    /// </summary>
+    private static void AppendReallocations(Entry e)
+    {
+        TargetLife life = LifeOf(e);
+        int allocated = 0, moving = 0, noOp = 0;
+        for (int i = 0; i < ReallocTriggerCount; i++)
+        {
+            allocated += life.ByTrigger[i];
+            moving += life.ByTriggerMoving[i];
+            noOp += life.NoOpByTrigger[i];
+        }
+        Sb.Append(" RE-ALLOCATION PRICE LIST").Append(OpenViewTag(e)).Append(" (since engage): ")
+          .Append(allocated).Append(" allocation(s) that actually built a new target pair, of which ")
+          .Append(moving).Append(" were taken while the window was MOVING");
+        for (int i = 0; i < ReallocTriggerCount; i++)
+        {
+            Sb.Append(i == 0 ? " — " : ", ").Append(ReallocTriggerNames[i]).Append(' ')
+              .Append(life.ByTrigger[i]).Append(" (").Append(life.ByTriggerMoving[i])
+              .Append(" moving, ").Append(life.NoOpByTrigger[i]).Append(" no-op)");
+        }
+        Sb.Append(". NO-OPS: ").Append(noOp)
+          .Append(" call(s) returned without touching a target because the resolved pixel counts were "
+                  + "identical — that is what ReleaseRepair's UNCONDITIONAL call costs when the frame "
+                  + "has not changed, and it is ResolveRate's float arithmetic and nothing else. ")
+          .Append(life.Refusals)
+          .Append(" refusal(s) (the VRAM budget or the driver said no; the window keeps its existing "
+                  + "target and merely resamples). COST: ").Append(life.CreateMs.ToString("F2"))
+          .Append(" ms creating targets, ").Append(life.DestroyMs.ToString("F2"))
+          .Append(" ms releasing and destroying them, and ").Append(life.PrimeMs.ToString("F2"))
+          .Append(" ms priming (").Append(life.Primed)
+          .Append(" synchronous capture+resolve+mip pass(es) run inside the allocating LateUpdate, ")
+          .Append(life.PrimeCarriedOver)
+          .Append(" fell back to carrying the previous image over, ").Append(life.PrimeFailed)
+          .Append(" could not prime at all) = ")
+          .Append((life.CreateMs + life.DestroyMs + life.PrimeMs).ToString("F2"))
+          .Append(" ms total, i.e. ")
+          .Append((allocated > 0
+                      ? (life.CreateMs + life.DestroyMs + life.PrimeMs) / allocated : 0.0).ToString("F2"))
+          .Append(" ms per allocation. HOW TO READ IT: the ModBuild 203 log measured 58 "
+                  + "re-allocations in 62 s at 2.51/s WHILE HELD against 0.29/s while not, 45 of them "
+                  + "inside grabs and 28/28 alternating between two capture frames one 32 px quantum "
+                  + "apart. A 'content frame change' row that is large and mostly MOVING is that flap "
+                  + "still running; a 'release repair' row whose no-op count equals its total is the "
+                  + "unconditional call costing nothing, which is the expected reading; and the ms "
+                  + "column is what a re-allocation is worth paying to avoid at all.");
     }
 
     /// <summary>
@@ -954,8 +1055,41 @@ internal static partial class PanelSupersample
         // selected LOD towards the minor axis' rate — aniso is bought for the map room's windows
         // yawed up to 85 degrees, and it costs band-limiting on the ones facing the seat.
         float lod = Mathf.Max(0f, Mathf.Log(Mathf.Max(texelsPerPixel, 1e-4f), 2f));
-        float level0Weight = lod >= 1f ? 0f : 1f - lod;
+        float level0Unbiased = lod >= 1f ? 0f : 1f - lod;
         float bias = shownBias;
+
+        // ---- ModBuild 204: THE BIAS BELONGS IN THE VERDICT, AND IT WAS NEVER IN IT ---------------
+        // THE DEFECT, and it is the exact shape of this project's "an instrument that models a SUBSET
+        // of what the eye sees agrees with every broken build". The three lines above compute the LOD
+        // from the minification ALONE; `bias` was assigned and then used only for PRINTING, so the
+        // verdict below tested `texelsPerPixel >= 2.00` and announced "BAND-LIMITED: the eye reads no
+        // unfiltered level 0 at all". ModBuild 203 shipped [WorldUI] PanelMipLodOffset at -0.50 and
+        // its own hardware log confirms the dial is live ("asked -0.50 ... the LIVE display render
+        // target reads -0.50 back ... so the dial is running"). With a bias b, trilinear selects
+        // LOD + b, so unfiltered level 0 re-enters the blend below 2^(1-b) texels per rendered pixel
+        // — 2.83 at b = -0.5, NOT 2.00. Of that session's 47 RESAMPLE VERDICT samples, 34 read below
+        // 2.83 (range 1.73 .. 3.03): a large majority carried unfiltered level 0 while this line
+        // asserted the opposite.
+        //
+        // WHY IT IS NOT COSMETIC. ReportRelease calls this very sentence to judge the FROZEN half of
+        // the user's report, and BandLimitFactor's own header argues that unfiltered level 0 is
+        // precisely what makes the sub-texel phase sweep during a drag and LOCK at the release —
+        // which is the user's symptom verbatim. ReportMipLodOffset, in this same class, has done this
+        // arithmetic correctly since ModBuild 203; the two instruments disagreed.
+        //
+        // BOTH FIGURES ARE PRINTED. The unbiased pair is kept because it is what every log before
+        // this build carried and a reader comparing sessions needs it; the BIASED pair decides the
+        // verdict, because that is what the hardware samples. The arithmetic is correct for ANY bias,
+        // including 0.00, where the two collapse into one number by construction.
+        float lodBiased = Mathf.Log(Mathf.Max(texelsPerPixel, 1e-4f), 2f) + bias;
+        float level0Biased = 1f - Mathf.Clamp(lodBiased, 0f, 1f);
+        float biasedThreshold = Mathf.Pow(2f, 1f - bias);
+        bool bandLimited = texelsPerPixel >= biasedThreshold;
+        bool verdictsDisagree = bandLimited != (texelsPerPixel >= BandLimitedTexelsPerPixel);
+        // The counters follow the BIASED figure, deliberately: Level0Weight and Level0Readings are
+        // read by ReportMipLodOffset as "measurement(s) that have read level 0 on a MINIFIED window",
+        // and that claim is about the hardware, not about an unbiased model of it.
+        float level0Weight = level0Biased;
 
         e.SamplingMeasured++;
         e.TexelsPerRenderedPx = texelsPerPixel;
@@ -979,7 +1113,10 @@ internal static partial class PanelSupersample
         // the same shape: the fix IS in force (texels >= 2, no level 0 at all), the fix is PARTLY in
         // force (level 0 present but the window is magnified, i.e. harmless), and the fix is NOT in
         // force (level 0 present on a minified window — the defect the user reports).
-        string verdict = texelsPerPixel >= BandLimitedTexelsPerPixel
+        // ModBuild 204: DECIDED BY THE BIASED FIGURE. See the derivation above — the threshold is
+        // 2^(1-bias) and not the constant, because a mip LOD offset moves the rate at which trilinear
+        // stops blending level 0 by exactly that factor.
+        string verdict = bandLimited
             ? "BAND-LIMITED: the eye reads no unfiltered level 0 at all, so there is no sub-texel "
               + "phase term left to sweep while the window is carried — this is what the ModBuild 198 "
               + "factor floor exists to deliver"
@@ -996,13 +1133,25 @@ internal static partial class PanelSupersample
                + $"{XRSettings.renderViewportScale:F2}) = {texelsPerPixel:F2} RT texels per rendered "
                + $"pixel, against {authoredPerPixel:F2} authored px per rendered px (which is what "
                + "PANEL SAMPLING reported for this window before this build, and is now filtered "
-               + $"rather than point-sampled) -> trilinear MIP LOD {lod:F2} at mipMapBias "
-               + $"{bias:F2}, so {level0Weight * 100f:F0} % of every texture sample still comes from "
-               + $"UNFILTERED level 0 at {texelsPerPixel:F2}x minification. {LegibilitySentence(e, authoredPerPixel)} "
+               + $"rather than point-sampled) -> trilinear MIP LOD {lod:F2} BEFORE the bias and "
+               + $"{lodBiased:F2} AFTER it at mipMapBias {bias:F2}, so {level0Biased * 100f:F0} % of "
+               + "every texture sample comes from UNFILTERED level 0 at "
+               + $"{texelsPerPixel:F2}x minification (the unbiased model, which every log before "
+               + $"ModBuild 204 printed and which is what a cross-session comparison needs, says "
+               + $"{level0Unbiased * 100f:F0} %). {LegibilitySentence(e, authoredPerPixel)} "
                + $"RESAMPLE VERDICT — "
                + $"{texelsPerPixel:F2} RT texels per rendered eye px against a threshold of "
-               + $"{BandLimitedTexelsPerPixel:F2} (the rate at which trilinear stops blending level 0 "
-               + "at all). THE WHOLE DISTRIBUTION SINCE ENGAGE, because one end of it is not the "
+               + $"{biasedThreshold:F2} = 2^(1 - {bias:F2}) (the rate at which trilinear stops "
+               + "blending level 0 at all, WITH the mip LOD offset in it; the unbiased constant is "
+               + $"{BandLimitedTexelsPerPixel:F2} and it is the right threshold only at bias 0.00)"
+               + (verdictsDisagree
+                   ? " — AND THE TWO THRESHOLDS DISAGREE ON THIS SAMPLE: the unbiased model would "
+                     + "have called this window "
+                     + (bandLimited ? "NOT band-limited when the hardware is"
+                                    : "BAND-LIMITED when the hardware is not")
+                     + ", which is exactly the mislabel ModBuild 204 fixed"
+                   : " — both thresholds agree on this sample")
+               + ". THE WHOLE DISTRIBUTION SINCE ENGAGE, because one end of it is not the "
                + $"operating point: LOWEST {e.TexelsPerRenderedPxWorst:F2} (most MAGNIFIED — the "
                + "window held up to the face, the best case for legibility and the worst for "
                + $"aliasing), MEAN {(e.SamplingMeasured > 0 ? e.TexelsPerRenderedPxSum / e.SamplingMeasured : 0.0):F2}, "
@@ -1037,7 +1186,18 @@ internal static partial class PanelSupersample
                        : " (nothing clipped it)")
                + ". CAVEAT ON EVERY LEVEL-0 FIGURE ABOVE: it is a LOWER BOUND, because anisotropic "
                + $"filtering (aniso {AnisoLevel}) selects the LOD from the MINOR axis' rate, so a "
-               + "window yawed away from the head reads MORE level 0 than this line states;";
+               + "window yawed away from the head reads MORE level 0 than this line states. "
+               + "HOW TO READ THE VERDICT — THE ModBuild 204 CORRECTION AND THE TRAP IT NAMES: "
+               + "A FILTERING DIAL THAT THE SAMPLING VERDICT DOES NOT MODEL WILL AGREE WITH EVERY "
+               + "BROKEN BUILD. Up to ModBuild 203 this verdict was computed from the minification "
+               + "alone and tested against a hard 2.00, while [WorldUI] PanelMipLodOffset shipped at "
+               + "-0.50 and moved the real threshold to 2.83 — so 34 of that session's 47 samples "
+               + "carried unfiltered level 0 while this very sentence read 'the eye reads no "
+               + "unfiltered level 0 at all'. ReportMipLodOffset had the arithmetic right the whole "
+               + "time and the two instruments in one class disagreed. The lesson generalises past "
+               + "this dial: whenever a new knob is added that changes what the hardware SAMPLES, "
+               + "this sentence is the second place it has to land, and a verdict that cannot see a "
+               + "knob will confirm whatever the knob is set to;";
     }
 
     // THE ModBuild 192 OVERFLOW WARN IS GONE, and deliberately so. It compared the host rect with

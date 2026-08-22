@@ -95,6 +95,463 @@ internal static partial class PanelSupersample
     /// <see cref="ApplyMipLodOffset"/>.</summary>
     private static bool _mipBiasWriteWarned;
 
+    // ---- ModBuild 204: a re-allocation must be ATOMIC from the eye's point of view --------------
+
+    /// <summary>
+    /// <b>THE USER'S REPORT, VERBATIM:</b> <i>"das Flackerproblem WÄHREND DER BEWEGUNG ist noch da —
+    /// inklusive der möglichen kaputten Darstellung, wenn man nach der Bewegung ABRUPT loslässt"</i>,
+    /// and from the newest round <i>"mittlerweile taucht es auch initial kaputt auf wenn man das
+    /// Fenster öffnet"</i>.
+    ///
+    /// <para><b>WHAT THE ModBuild 203 HARDWARE LOG MEASURED, and it is the reason this block
+    /// exists.</b> The display render target was re-allocated <b>58 times in 62 seconds</b>,
+    /// alternating <b>28/28</b> between two capture frames exactly one <see cref="FrameQuantumPx"/>
+    /// (32 px) quantum apart, at <b>2.51 re-allocations per second while the hand held the window</b>
+    /// against <b>0.29/s while it did not</b>. <b>45 of the 58 fell inside grabs and 12 inside a
+    /// single 2.8 s stretch.</b> A parallel lane removes the FLAP. This block makes a re-allocation
+    /// HARMLESS when one legitimately happens — at open, at a sub-view change and at a genuine
+    /// resize — because those three will keep happening after the flap is gone.</para>
+    ///
+    /// <para><b>THE GAP THE 203 FORENSICS NAMED, verbatim:</b> <i>"the expected-zero set covers a
+    /// size mismatch between a capture and its resolve, but there is no counter for frames on which
+    /// the quad sampled a freshly re-allocated target that had not yet been captured into. With 58
+    /// re-allocations, 45 of them inside grabs and 12 inside a single 2.8 s stretch, that is the one
+    /// path a 'random frozen state' could take that this log cannot see."</i></para>
+    ///
+    /// <para><b>WHAT THE AUDIT OF THE EXISTING PATH ESTABLISHED, with file:line, because two of the
+    /// four answers are "already safe" and a later round must not re-fix them.</b>
+    /// <list type="number">
+    /// <item><b>IS THE OLD TARGET RELEASED BEFORE THE NEW ONE HAS BEEN RENDERED INTO? NO — and it
+    /// never was.</b> <see cref="Reallocate"/> creates the new capture target, calls
+    /// <see cref="AttachMipTarget"/>, re-points the camera and the quad, and only then calls
+    /// <c>Release()</c>/<c>Destroy()</c> on the old pair, all inside ONE statement block of ONE
+    /// LateUpdate. <c>LateTick</c> (<c>PanelSupersample.1.Core.cs</c>) drives it, so the swap happens
+    /// before the frame's camera loop has started, and the capture camera at <c>depth = -200</c> then
+    /// renders into the new target ahead of every other camera in the frame. So on the COMMON path
+    /// the new target is captured, resolved and mipped in the same frame it was created, before any
+    /// eye pass. The old target's release is not the hazard.</item>
+    /// <item><b>IS THERE A FRAME IN WHICH THE QUAD SAMPLES A TARGET THAT HAS BEEN Create()d BUT NOT
+    /// CAPTURED INTO? THE CONTENTS ARE NOT UNDEFINED — <see cref="ClearRt"/> has run a
+    /// <c>GL.Clear</c> on every new target since ModBuild 193, so level 0 is transparent black rather
+    /// than whatever that VRAM last held. THE MIP CHAIN WAS THE REAL HOLE (see 3).</b> The frames on
+    /// which it could happen at all are the ones this class does NOT control: a frame on which
+    /// <see cref="SyncVisibility"/> leaves the camera disabled while the quad stays visible (<c>visible
+    /// &amp;&amp; !due</c> — already counted as <see cref="Entry.CameraOffWhileVisible"/>, and
+    /// structurally impossible while <see cref="CaptureIntervalFrames"/> is 1), a re-allocation from
+    /// <see cref="ReleaseRepair"/>, which runs AFTER <c>SyncVisibility</c> in the same LateUpdate and
+    /// therefore cannot re-enable a camera that frame, and any frame on which the capture camera fails
+    /// to render for a reason outside this file. <b>THOSE THREE ARE UNVERIFIED, NOT PROVEN ABSENT:</b>
+    /// nothing in the code makes them impossible and no instrument before ModBuild 204 could see one.
+    /// That is exactly what <see cref="NoteQuadSample"/> now measures.</item>
+    /// <item><b>IS THE MIP CHAIN OF A NEW TARGET GENERATED BEFORE THE FIRST EYE PASS THAT SAMPLES IT?
+    /// BEFORE THIS BUILD, NO — AND THIS IS THE FINDING.</b> <c>GL.Clear</c> clears the BOUND SURFACE,
+    /// i.e. mip level 0, and <see cref="CreateMipRt"/> sets <c>autoGenerateMips = false</c> on
+    /// purpose, so levels 1..N of a fresh display target held uninitialised VRAM until the first
+    /// <see cref="ResolveAndMip"/> called <c>GenerateMips()</c>. This window samples at a measured
+    /// <b>LOD 1.66</b> — levels 1 and 2 almost exclusively — so any frame that reached the eye first
+    /// would show garbage or nothing, not a slightly wrong image, which is the shape of the "random
+    /// frozen state" report.</item>
+    /// <item><b>CAN THE QUAD'S SIZE OR UV MAPPING DISAGREE WITH ITS TARGET FOR A FRAME? NO.</b>
+    /// <see cref="SyncGeometry"/> writes <c>DisplayRect.sizeDelta = Frame.size</c> and then calls
+    /// <see cref="Reallocate"/> with the SAME <c>Frame</c>, in that order, in one method. The
+    /// <see cref="RawImage"/>'s <c>uvRect</c> is left at the default <c>(0,0,1,1)</c> by
+    /// <see cref="BuildDisplay"/> and is never written by anything in this class, so the mapping is
+    /// the identity for every target the quad will ever be pointed at — a target size change alters
+    /// texel DENSITY and can never alter the mapping. The one case where the two "disagree" is a
+    /// re-allocation the budget or the driver REFUSED: the quad takes the new size and the target
+    /// keeps the old one, which is a resolution loss measured by <see cref="RecordAchievedFactor"/>
+    /// and not a geometry fault.</item>
+    /// </list></para>
+    ///
+    /// <para><b>THE INVARIANT THIS BUILD SHIPS.</b> <i>The quad never samples a display target that
+    /// has not had at least one complete capture + resolve + mip generation.</i> It is delivered in
+    /// two layers, deliberately, because one of them is universal and cheap and the other is exact
+    /// and rare:
+    /// <list type="number">
+    /// <item><b>THE FLOOR, in <see cref="CreateMipRt"/>:</b> every mipped target has
+    /// <c>GenerateMips()</c> run on it immediately after its <see cref="ClearRt"/>, so its WHOLE
+    /// chain is defined (as downsampled transparent black) from the instant it exists. This closes
+    /// the hazard on every path, including engage and including any path not enumerated here.
+    /// <c>ClearRt</c> only ever wrote <b>mip level 0</b> — <c>GL.Clear</c> clears the bound surface,
+    /// and <c>autoGenerateMips</c> is off on purpose — so before this build levels 1..N of a fresh
+    /// target held whatever that VRAM last contained. This window samples at a measured
+    /// <b>LOD 1.66</b>, i.e. it reads levels 1 and 2 almost exclusively: exactly the levels that were
+    /// undefined. Cost: one mip-chain generation per allocation, which the allocation was going to
+    /// pay one frame later anyway.</item>
+    /// <item><b>THE EXACT GUARANTEE, in <see cref="PrimeNewTarget"/>:</b> a re-allocation renders the
+    /// capture camera SYNCHRONOUSLY into the new pair and resolves + mips it before
+    /// <see cref="Reallocate"/> returns — i.e. inside the LateUpdate that swapped the targets, before
+    /// any camera in the frame has culled. The new target is therefore never merely defined, it is
+    /// CORRECT, on the very frame it is bound to the quad.</item>
+    /// </list></para>
+    ///
+    /// <para><b>REJECTED: DOUBLE-BUFFERING THE DISPLAY TARGET</b> (keep the old one bound to the quad
+    /// until the new one has been filled once, then swap and release). It is the cleanest shape in the
+    /// abstract and it fails this window on the arithmetic. At <see cref="PreferredMsaa"/> 1 a pair
+    /// costs <c>w·h·13.33</c> bytes (<see cref="VramBytesFor"/>: 4 colour + 4 depth-stencil on the
+    /// capture side, 4 + 4/3 on the display side), so the capture side is 60 % of a pair and the
+    /// display side 40 %. This window's pair is ~150 MB = ~90 MB capture + ~60 MB display. Retaining
+    /// one extra display target puts the panel at <b>210 MB against a
+    /// <see cref="MaxPanelVramBytes"/> of 160 MB</b> — 50 MB over, 31 %. And the overrun is not
+    /// merely a number in a log: <see cref="Reallocate"/> derives its budget as
+    /// <c>min(MaxPanelVramBytes, MaxTotalVramBytes - (_vramTotal - e.VramBytes))</c> and hands it to
+    /// <see cref="ResolveRate"/>, whose step-down loop walks the rate down by
+    /// <see cref="RateQuantum"/> until the pair fits. Charging a retained 60 MB display target into
+    /// <c>_vramTotal</c> would cut this panel's budget to ~100 MB = 7.9 Mtexel against the ~11.8
+    /// Mtexel it needs, so the rate would step from ~2.4 to ~1.95 and STAY there — the band limit
+    /// silently traded away on every re-allocation, which is precisely the failure
+    /// <see cref="BandLimitFactor"/> exists to prevent. NOT charging it would make the budget a lie.
+    /// Both branches are worse than the disease.</para>
+    ///
+    /// <para><b>REJECTED: CARRYING THE OLD IMAGE OVER</b> (blit the old display target into the new
+    /// one, then <c>GenerateMips</c>, instead of taking a real capture). It costs nothing and needs no
+    /// camera, and it is what <see cref="PrimeNewTarget"/> falls back to if the synchronous render
+    /// fails — but as the PRIMARY it ships a resampled photograph of the PREVIOUS frame at the NEW
+    /// size, i.e. a deliberate one-frame stretch. On the 32-px-quantum flap that stretch is under
+    /// 3 %; on a genuine two-hand resize it is the whole scale ratio, which is the "manche Elemente
+    /// nicht richtig dargestellt" artifact this class already removed once (see
+    /// <see cref="SyncGeometry"/>'s ORDERING paragraph). A real capture costs one camera render on a
+    /// rare frame and has no such artifact.</para>
+    ///
+    /// <para><b>NOTE ON WHAT WAS ALREADY TRUE.</b> <see cref="Reallocate"/> has always created the new
+    /// pair BEFORE releasing the old, so this class already peaks at two full pairs (~300 MB for this
+    /// window) for the few statements between them, and <c>_vramTotal</c> has never seen that peak —
+    /// it tracks the STEADY state only. Nothing here changes that accounting; the synchronous prime
+    /// adds no allocation at all, which is the second reason it was chosen over double-buffering.</para>
+    /// </summary>
+    private sealed class TargetLife
+    {
+        // ---- the display target currently bound to the quad -------------------------------------
+
+        /// <summary><see cref="Object.GetInstanceID"/> of the texture the quad samples, 0 = none.</summary>
+        public int TargetId;
+
+        /// <summary><c>Time.frameCount</c> at which that texture was created.</summary>
+        public int CreatedFrame;
+
+        /// <summary>Complete capture + resolve + mip passes into THAT texture since it was created.
+        /// The whole of the ModBuild 204 invariant is "this is &gt; 0 whenever the eye samples it".</summary>
+        public int CompletedCaptures;
+
+        // ---- item 3: the expected-zero counter that did not exist -------------------------------
+
+        /// <summary>Frames on which the quad was VISIBLE and the texture it samples had never been
+        /// captured into since its creation. EXPECTED ZERO.</summary>
+        public int SampledUncaptured;
+
+        /// <summary>The denominator: visible frames on which the check actually ran. Without it a
+        /// zero cannot be told from an instrument that never executed.</summary>
+        public int SampleChecks;
+
+        /// <summary>Frames elapsed between a target being created and its FIRST completed
+        /// capture + resolve + mip — the whole distribution, because a worst is one question's
+        /// answer and the next question's blind spot.</summary>
+        public int FillFramesLast = -1, FillFramesMin = int.MaxValue, FillFramesMax = -1, FillReadings;
+        public long FillFramesSum;
+
+        // ---- item 2: what the prime did ---------------------------------------------------------
+
+        public int Primed, PrimeCarriedOver, PrimeFailed;
+        public double PrimeMs;
+
+        // ---- item 4: pricing the re-allocation itself -------------------------------------------
+
+        /// <summary>Re-allocations that actually built a new pair, by <see cref="ReallocTrigger"/>,
+        /// and the same split again for the ones taken while the window was MOVING. The 203 log could
+        /// only say "58 since engage", which is why it took a session to see that 45 were in grabs.</summary>
+        public readonly int[] ByTrigger = new int[ReallocTriggerCount];
+        public readonly int[] ByTriggerMoving = new int[ReallocTriggerCount];
+
+        /// <summary><see cref="Reallocate"/> calls that changed nothing: the pixel counts came back
+        /// identical, so the early-out ran and no target was touched. Split the same way.</summary>
+        public readonly int[] NoOpByTrigger = new int[ReallocTriggerCount];
+
+        public int Refusals;
+        public double CreateMs, DestroyMs;
+
+        // ---- item B: the hand -------------------------------------------------------------------
+
+        /// <summary>Frames of the CURRENT drag on which <c>ConvertedPanel.GuardHostHeld</c> read
+        /// true, and the frames sampled — the denominator, same rule as everywhere else here.</summary>
+        public int DragHandOnFrames, DragHandSamples;
+
+        /// <summary>The frame on which the hand was last observed letting go. The release gate is
+        /// keyed on the LATER of this and <c>Entry.LastMotionFrame</c>, so "released" means the hand
+        /// is off AND the pose has settled.
+        /// <para>The "never held" sentinel is <c>int.MinValue / 2</c> and NOT <c>int.MinValue</c>, on
+        /// purpose: <c>Time.frameCount - int.MinValue</c> overflows and the cadence built on it then
+        /// never fires, which is a bug this project has already shipped once
+        /// ("sentinel-overflow-and-silent-scans"). At half the range the subtraction is a large
+        /// positive number for any real frame count, which is the reading a window nobody has ever
+        /// grabbed must produce: released long ago, gate governed purely by stillness.</para></summary>
+        public int HandReleaseFrame = int.MinValue / 2;
+
+        /// <summary>True on the previous sample — the edge detector for the field above.</summary>
+        public bool HandWasOn;
+
+        /// <summary>Release repairs the hand gate DEFERRED. In the 203 log this number would have
+        /// been 15 of 33.
+        /// <para>It counts EVENTS, not frames. A hand that pauses mid-drag holds the stillness gate
+        /// open for as long as it hovers, so a naive increment would read in the hundreds per drag
+        /// and say nothing; keyed on <see cref="Entry.LastMotionFrame"/> — the same stamp
+        /// <c>ReleaseRepairStage</c>'s own re-arm is keyed on — one pause is one deferral, which is
+        /// exactly the shape of the 203 log's "one drag fired five of them in 1.9 s".</para></summary>
+        public int ReleasesDeferredHeld;
+
+        /// <summary>The motion stamp the last deferral was counted against — see above.</summary>
+        public int DeferredAtMotionFrame = int.MinValue / 2;
+
+        /// <summary>Release repairs that ran, split by whether the window has ever been held at all —
+        /// a window moved by a settings change or a re-fit is never grabbed and must still be
+        /// repaired.</summary>
+        public int ReleasesAfterHold, ReleasesNeverHeld;
+    }
+
+    /// <summary>
+    /// Why a re-allocation was asked for. The ModBuild 203 log could attribute none of its 58, which
+    /// is the whole reason the 28/28 flap between two frames one quantum apart took a session to see.
+    /// </summary>
+    private enum ReallocTrigger
+    {
+        /// <summary>The host transform's SCALE or its RectTransform's SIZE changed — a two-hand
+        /// resize, or the content fit writing <c>HostRect.sizeDelta</c>. See
+        /// <see cref="NoticeGeometry"/>, which deliberately does NOT report a pure translation.</summary>
+        HostGeometry = 0,
+
+        /// <summary>The measured capture frame moved past <see cref="RectChangeFraction"/> of the
+        /// frame the target was sized for. This is the trigger the 32-px flap rides.</summary>
+        ContentFrame = 1,
+
+        /// <summary>The smallest substantial content scale moved — a tab press inside ONE host rect,
+        /// which changes nothing about the host and doubles the rate the target must be sized for.
+        /// See <see cref="Entry.MinContentScale"/>.</summary>
+        SubViewScale = 2,
+
+        /// <summary><see cref="ReleaseRepair"/>'s call, which is unconditional. See there.</summary>
+        ReleaseRepair = 3,
+    }
+
+    private const int ReallocTriggerCount = 4;
+
+    private static readonly string[] ReallocTriggerNames =
+    {
+        "host rect/scale change", "content frame change", "sub-view scale change", "release repair",
+    };
+
+    /// <summary>Per-window ModBuild 204 bookkeeping. Keyed by window name and NOT held on
+    /// <see cref="Entry"/>, because that type lives in <c>PanelSupersample.1.Core.cs</c>, which this
+    /// lane does not own — the same reason and the same shape as
+    /// <see cref="MipBiasNextReport"/>.</summary>
+    private static readonly Dictionary<string, TargetLife> Lives = new Dictionary<string, TargetLife>(8);
+
+    /// <summary>The record for this window, created on first ask. One dictionary lookup; the only
+    /// per-frame consumer is <see cref="NoteQuadSample"/>, which runs once per VISIBLE panel per
+    /// frame inside a loop <see cref="OnPreCull"/> already performs.</summary>
+    private static TargetLife LifeOf(Entry e) => LifeOf(e.Window);
+
+    private static TargetLife LifeOf(string window)
+    {
+        if (!Lives.TryGetValue(window, out TargetLife life))
+        {
+            life = new TargetLife();
+            Lives[window] = life;
+        }
+        return life;
+    }
+
+    /// <summary>The quad has just been pointed at <paramref name="shown"/>. Everything the invariant
+    /// is stated about is keyed on this identity, so it is recorded in exactly the two places the
+    /// <c>RawImage.texture</c> is written — <see cref="BuildDisplay"/> and
+    /// <see cref="Reallocate"/>.</summary>
+    private static void BindDisplayTarget(Entry e, RenderTexture? shown)
+    {
+        TargetLife life = LifeOf(e);
+        int id = shown != null ? shown.GetInstanceID() : 0;
+        if (life.TargetId == id)
+            return;
+        life.TargetId = id;
+        life.CreatedFrame = Time.frameCount;
+        life.CompletedCaptures = 0;
+    }
+
+    /// <summary>
+    /// A capture + resolve + mip pass into the displayed target has just COMPLETED. Called from
+    /// <see cref="OnPostRender"/> (after <see cref="ResolveAndMip"/>) and from
+    /// <see cref="PrimeNewTarget"/>, and from nowhere else — "completed" must never be inferred.
+    /// <para>It is keyed on <see cref="DisplayTexture"/> rather than on <see cref="Entry.MipRt"/> so
+    /// the <see cref="Entry.MipFallback"/> case is measured by the same counter: there the quad shows
+    /// the capture target and the camera's own render IS the fill.</para>
+    /// </summary>
+    private static void NoteCaptureCompleted(Entry e)
+    {
+        RenderTexture shown = DisplayTexture(e);
+        if (shown == null)
+            return;
+        TargetLife life = LifeOf(e);
+        if (life.TargetId != shown.GetInstanceID())
+            return; // a target nobody is showing; the bind will start its life
+        if (life.CompletedCaptures == 0)
+        {
+            int frames = Time.frameCount - life.CreatedFrame;
+            if (frames < 0)
+                frames = 0;
+            life.FillFramesLast = frames;
+            if (frames < life.FillFramesMin)
+                life.FillFramesMin = frames;
+            if (frames > life.FillFramesMax)
+                life.FillFramesMax = frames;
+            life.FillFramesSum += frames;
+            life.FillReadings++;
+        }
+        life.CompletedCaptures++;
+    }
+
+    /// <summary>
+    /// <b>THE PER-FRAME CHECK ITEM 3 ASKS FOR, and it is a real test of live state rather than a
+    /// derivation.</b> Run once per VISIBLE panel per frame from <see cref="OnPreCull"/>'s existing
+    /// once-per-frame loop — i.e. at the FIRST camera of the frame that is not one of ours. Every
+    /// capture camera sits at <c>depth = -200</c> and every other camera in this game sits far above
+    /// it, so by that instant each panel's own capture and resolve for this frame have already run:
+    /// a hit here is a target that genuinely reached an eye pass unfilled.
+    /// <para>Cost: one dictionary lookup and one integer compare per visible panel per frame, inside
+    /// a loop that already existed. It adds no allocation and no work to a still window.</para>
+    /// <para>THE ONE CAVEAT, stated rather than hidden: if the game ever runs a camera at a depth
+    /// BELOW -200, this check would run before that frame's capture and over-report. That direction is
+    /// the safe one for an expected-zero counter — it can raise a false alarm, never give a false
+    /// all-clear — and the FILL LATENCY distribution printed beside it settles which of the two a
+    /// non-zero reading is.</para>
+    /// </summary>
+    private static void NoteQuadSample(Entry e)
+    {
+        if (e.DisplayGo == null || !e.DisplayGo.activeSelf)
+            return;
+        RenderTexture shown = DisplayTexture(e);
+        if (shown == null)
+            return;
+        TargetLife life = LifeOf(e);
+        life.SampleChecks++;
+        if (life.TargetId == shown.GetInstanceID() && life.CompletedCaptures == 0)
+            life.SampledUncaptured++;
+    }
+
+    /// <summary>
+    /// Set for exactly the duration of a <see cref="PrimeNewTarget"/> render. <c>Camera.Render()</c>
+    /// fires this class's own <see cref="OnPreCull"/> and <see cref="OnPostRender"/> handlers
+    /// re-entrantly, and a priming capture must not be counted as a frame's capture: the CAPTURE PATH
+    /// field's whole readability rests on captures, resolves and moving/still frames being the same
+    /// denominator. The handlers return early on this reference and the prime does its own resolve.
+    /// </summary>
+    private static Entry? _primingEntry;
+
+    /// <summary>One warn per session if the synchronous prime is not available — see
+    /// <see cref="PrimeNewTarget"/>.</summary>
+    private static bool _primeFailWarned;
+
+    /// <summary>
+    /// <b>MAKE THE RE-ALLOCATION ATOMIC: fill the new pair before anything can sample it.</b> Called
+    /// from <see cref="Reallocate"/> after the new targets are bound to the camera and the quad and
+    /// BEFORE the old ones are released — so the carry-over fallback still has a source.
+    ///
+    /// <para><b>WHY A SYNCHRONOUS RENDER IS SAFE HERE.</b> <see cref="Reallocate"/> runs inside
+    /// <c>LateTick</c>, i.e. in LateUpdate, before the frame's camera loop has started. Rendering the
+    /// capture camera by hand at that moment produces exactly the image the camera loop would produce
+    /// a few milliseconds later from the same transforms — <see cref="SyncProjection"/> is re-derived
+    /// immediately before the call, which is the same write the camera's own
+    /// <see cref="Camera.onPreCull"/> makes. The camera then renders AGAIN in the loop, which is one
+    /// extra capture on a rare frame and is measured into <see cref="TargetLife.PrimeMs"/>.</para>
+    ///
+    /// <para><b>AND IT ADDS NO PER-FRAME COST.</b> Nothing in this method runs on a frame without a
+    /// re-allocation. Once the parallel lane's hysteresis lands, that is a handful of frames per
+    /// session instead of the 203 log's 58 in 62 s.</para>
+    ///
+    /// <para><b>THE FALLBACK, and why it exists at all.</b> If the camera is unusable or
+    /// <c>Render()</c> throws, the new display target is filled by blitting the OLD one into it and
+    /// generating the chain — a resampled photograph of the last good frame at the new size. It is
+    /// the option rejected as a primary (see <see cref="TargetLife"/>), and it is the right last
+    /// resort: one frame of a &lt;3 % stretch beats one frame of an uninitialised chain read at
+    /// LOD 1.66. If even that is impossible the chain is still DEFINED, because
+    /// <see cref="CreateMipRt"/> generated it at creation.</para>
+    /// </summary>
+    private static void PrimeNewTarget(Entry e, RenderTexture? previousShown)
+    {
+        TargetLife life = LifeOf(e);
+        float start = Time.realtimeSinceStartup;
+        bool primed = false;
+        // activeInHierarchy, not just non-null: Camera.Render() on a camera inside a deactivated
+        // subtree logs an engine error rather than throwing, which no try/catch here could turn into
+        // a counted fallback. A panel whose host is deactivated has a hidden quad anyway
+        // (SyncVisibility), so the carry-over is the right answer for it and PrimeFailed says so.
+        if (e.Cam != null && e.CamGo != null && e.CamGo.activeInHierarchy && e.Rt != null
+            && e.Layer >= 0)
+        {
+            _primingEntry = e;
+            try
+            {
+                SyncProjection(e);
+                e.Cam.Render();
+                ResolveAndMip(e, priming: true);
+                NoteCaptureCompleted(e);
+                life.Primed++;
+                primed = true;
+            }
+            catch (System.Exception ex)
+            {
+                if (!_primeFailWarned)
+                {
+                    _primeFailWarned = true;
+                    VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: the synchronous prime of '{e.Window}'s new "
+                                      + $"render target threw ({ex.GetType().Name}: {ex.Message}). THE "
+                                      + "CONSEQUENCE: this re-allocation falls back to carrying the "
+                                      + "previous image over instead of taking a fresh capture, so the "
+                                      + "quad shows one frame of the last good image resampled to the "
+                                      + "new size. The mip chain is still fully defined (it is "
+                                      + "generated at creation), so nothing can read uninitialised "
+                                      + "VRAM either way. Capture, MSAA, geometry and input are "
+                                      + "unaffected.");
+                }
+            }
+            finally
+            {
+                _primingEntry = null;
+            }
+        }
+        if (!primed)
+        {
+            life.PrimeFailed++;
+            if (CarryOverInto(e, previousShown))
+                life.PrimeCarriedOver++;
+        }
+        life.PrimeMs += (Time.realtimeSinceStartup - start) * 1000.0;
+    }
+
+    /// <summary>Fill the new display target from the previous one and regenerate its chain. Returns
+    /// false when there is nothing to carry over (engage), where the cleared-and-generated chain from
+    /// <see cref="CreateMipRt"/> is already a defined image.
+    /// <para><see cref="RenderTexture.active"/> is saved and restored for the same reason
+    /// <see cref="ResolveAndMip"/> does it: <c>Graphics.Blit</c> re-points it at its destination.</para></summary>
+    private static bool CarryOverInto(Entry e, RenderTexture? previousShown)
+    {
+        RenderTexture shown = DisplayTexture(e);
+        if (shown == null || previousShown == null || ReferenceEquals(shown, previousShown))
+            return false;
+        RenderTexture? active = RenderTexture.active;
+        try
+        {
+            Graphics.Blit(previousShown, shown);
+            if (shown.mipmapCount > 1)
+                shown.GenerateMips();
+            return true;
+        }
+        catch
+        {
+            return false; // never throw out of a re-allocation
+        }
+        finally
+        {
+            RenderTexture.active = active;
+        }
+    }
+
     /// <summary>
     /// <c>[WorldUI] PanelMipLodOffset</c>, read LIVE and clamped to the shipped range. A user-set
     /// value is taken verbatim inside that range — there is deliberately no floor of the ModBuild 198
@@ -238,6 +695,18 @@ internal static partial class PanelSupersample
             // so a re-allocated window is never left carrying the previous build's filtering.
             ApplyMipLodOffset(rt, asked);
             ClearRt(rt);
+            // ModBuild 204: THE UNIVERSAL FLOOR OF THE ATOMIC-REALLOCATION INVARIANT, and the one
+            // line that closes the hazard on paths this class does not enumerate. ClearRt clears the
+            // BOUND SURFACE, which is mip level 0 and nothing else — autoGenerateMips is off on
+            // purpose (see the header) — so before this build levels 1..N of a freshly created
+            // display target held whatever that VRAM last contained. Unity does not clear them and
+            // D3D11 does not promise they are black. This window samples at a measured LOD 1.66, i.e.
+            // it reads levels 1 and 2 almost exclusively: precisely the levels that were undefined,
+            // which is why the failure reads as garbage or as nothing rather than as a slightly wrong
+            // image. One generation here makes the whole chain a defined downsample of the cleared
+            // level 0, and it costs what the next capture's own GenerateMips was going to cost one
+            // frame later anyway. See TargetLife for the full argument and the rejected alternatives.
+            rt.GenerateMips();
             return rt;
         }
         int got = rt.mipmapCount;
@@ -383,6 +852,12 @@ internal static partial class PanelSupersample
         var image = go.AddComponent<RawImage>();
         image.texture = DisplayTexture(e);
         image.raycastTarget = false;
+        // ModBuild 204: one of exactly TWO places the quad's texture is written (the other is
+        // Reallocate), and the invariant is stated about this identity. The uvRect is left at the
+        // default (0,0,1,1) and is never touched by anything in this class, so the quad's UV mapping
+        // is the identity for every target it will ever be pointed at — a target size change can
+        // therefore never disagree with the quad's UVs, only with its texel density.
+        BindDisplayTarget(e, DisplayTexture(e));
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -475,11 +950,19 @@ internal static partial class PanelSupersample
         // the sub-view that happened to be open at the last reallocation was the scaled one.
         bool scaleChanged = Mathf.Abs(e.MinContentScale - e.ScaleAtAllocation)
                             > 0.02f * Mathf.Max(e.ScaleAtAllocation, 0.01f);
-        if (dirty || scaleChanged
-            || Mathf.Abs(frame.width - e.Authored.x) > e.Authored.x * RectChangeFraction
-            || Mathf.Abs(frame.height - e.Authored.y) > e.Authored.y * RectChangeFraction)
+        bool frameChanged = Mathf.Abs(frame.width - e.Authored.x) > e.Authored.x * RectChangeFraction
+                            || Mathf.Abs(frame.height - e.Authored.y) > e.Authored.y * RectChangeFraction;
+        if (dirty || scaleChanged || frameChanged)
         {
-            Reallocate(e, frame);
+            // ModBuild 204: ATTRIBUTE THE RE-ALLOCATION. The three conditions can co-occur and the
+            // tag records the one that is most specific about what actually moved — a host rescale
+            // implies a frame change, and a sub-view swap implies neither. The 203 log could say only
+            // "58 re-allocations since engage", which is why it took a whole session to see that 45 of
+            // them were inside grabs and that they alternated 28/28 between two frames one 32 px
+            // quantum apart. See ReallocTrigger and AppendReallocations.
+            Reallocate(e, frame, dirty ? ReallocTrigger.HostGeometry
+                                       : scaleChanged ? ReallocTrigger.SubViewScale
+                                                      : ReallocTrigger.ContentFrame);
         }
 
         // Kept current from the LIVE frame and the LIVE target, not only at allocation time: a frame
@@ -610,6 +1093,11 @@ internal static partial class PanelSupersample
                 e.DragMaxStepWorld = 0f;
                 e.DragDroppedFrames = 0;
                 e.DragWorstFrameMs = 0f;
+                // ModBuild 204 (item B): the hand census restarts with the drag, so the RELEASE line's
+                // handsOn= field describes THIS drag and not the session.
+                TargetLife life = LifeOf(e);
+                life.DragHandOnFrames = 0;
+                life.DragHandSamples = 0;
             }
             e.LastMotionFrame = Time.frameCount;
             e.MotionFrames++;
@@ -701,8 +1189,18 @@ internal static partial class PanelSupersample
         }
     }
 
-    private static void Reallocate(Entry e, Rect frame)
+    /// <summary>
+    /// Re-size this window's target pair for <paramref name="frame"/>, atomically. See
+    /// <see cref="TargetLife"/> for the ModBuild 204 invariant, the VRAM arithmetic that decided the
+    /// shape, and the rejected alternatives.
+    /// <para><paramref name="trigger"/> is recorded whether or not anything is allocated, because the
+    /// question the 203 log could not answer is "what ASKED for these 58" and a call that early-outs
+    /// is as much a part of that answer as one that allocates.</para>
+    /// </summary>
+    private static void Reallocate(Entry e, Rect frame, ReallocTrigger trigger)
     {
+        TargetLife life = LifeOf(e);
+        bool moving = IsMoving(e);
         int msaa = e.Msaa;
         long budget = System.Math.Min(MaxPanelVramBytes,
             MaxTotalVramBytes - (_vramTotal - e.VramBytes));
@@ -710,6 +1208,16 @@ internal static partial class PanelSupersample
                     out long vram);
         if (rtW == e.RtW && rtH == e.RtH)
         {
+            // THE EARLY-OUT, AND WHAT ITEM 5 ASKED THIS METHOD TO CONFIRM ABOUT ReleaseRepair. When
+            // the frame has not moved a target-sized pixel, this branch runs and NOTHING is
+            // allocated, destroyed, blitted or re-pointed — the whole cost of the release repair's
+            // unconditional call is ResolveRate's float arithmetic and its two bounded step-down
+            // loops, which is far below a microsecond. So the 203 log's 16.5 ms release cost is NOT
+            // this call: it is MeasureFrame + ApplyCaptureLayer + MeasureContent(repairAll) in
+            // ReleaseRepair, and the CanvasConversion.Late spike that follows is downstream of the
+            // text regeneration, which is a separate deliberate repair and stays. Counted, so the log
+            // can say that rather than leaving the next round to re-derive it.
+            life.NoOpByTrigger[(int)trigger]++;
             e.Authored = frame.size;
             e.EffectiveFactor = rate;
             e.ScaleAtAllocation = e.MinContentScale;
@@ -719,14 +1227,18 @@ internal static partial class PanelSupersample
         {
             // Keep the existing target; the image merely resamples a little. Recording the new size
             // as `Authored` is what stops this from being re-tried (and re-logged) every frame.
+            life.Refusals++;
             e.Authored = frame.size;
             e.ScaleAtAllocation = e.MinContentScale;
             return;
         }
 
+        float createStart = Time.realtimeSinceStartup;
         RenderTexture? rt = CreateRt(rtW, rtH, ref msaa, e.Window);
         if (rt == null)
         {
+            life.Refusals++;
+            life.CreateMs += (Time.realtimeSinceStartup - createStart) * 1000.0;
             e.Authored = frame.size; // as above: do not retry a refused allocation per frame
             e.ScaleAtAllocation = e.MinContentScale;
             return;
@@ -734,12 +1246,18 @@ internal static partial class PanelSupersample
         long previous = e.VramBytes;
         RenderTexture old = e.Rt;
         RenderTexture? oldMip = e.MipRt;
+        // The texture the quad is showing RIGHT NOW, captured before it is replaced: the carry-over
+        // fallback in PrimeNewTarget needs it, and it is still alive because the old pair is not
+        // released until the bottom of this method.
+        RenderTexture previousShown = DisplayTexture(e);
         e.Cam.targetTexture = rt;
         e.Rt = rt;
         e.Msaa = msaa;
         e.VramBytes = vram;                 // AttachMipTarget trims this if the mip target is refused
         AttachMipTarget(e, rtW, rtH);
+        life.CreateMs += (Time.realtimeSinceStartup - createStart) * 1000.0;
         e.DisplayImage.texture = DisplayTexture(e);
+        BindDisplayTarget(e, DisplayTexture(e));
         _vramTotal += e.VramBytes - previous;
         if (_vramTotal < 0)
             _vramTotal = 0;
@@ -750,6 +1268,20 @@ internal static partial class PanelSupersample
         e.ScaleAtAllocation = e.MinContentScale;
         RecordAchievedFactor(e);
         e.Reallocations++;
+        life.ByTrigger[(int)trigger]++;
+        if (moving)
+            life.ByTriggerMoving[(int)trigger]++;
+
+        // ---- THE ATOMICITY STEP (ModBuild 204) -------------------------------------------------
+        // Fill the new pair NOW, in the LateUpdate that swapped it in, before the frame's camera loop
+        // has started and therefore before any eye pass can sample it. Placed AFTER the quad is
+        // re-pointed (so the prime fills the texture the quad is actually showing) and BEFORE the old
+        // pair is released (so the carry-over fallback still has a source). Everything downstream —
+        // the expected-zero counter, the FILL LATENCY distribution — measures whether this worked
+        // rather than asserting that it did.
+        PrimeNewTarget(e, previousShown);
+
+        float destroyStart = Time.realtimeSinceStartup;
         if (old != null)
         {
             old.Release();
@@ -760,6 +1292,7 @@ internal static partial class PanelSupersample
             oldMip.Release();
             Object.Destroy(oldMip);
         }
+        life.DestroyMs += (Time.realtimeSinceStartup - destroyStart) * 1000.0;
         VRLog.Info(Scope, $"PANEL SUPERSAMPLE re-allocated '{e.Window}' to {rtW}x{rtH} (MSAA {msaa}x, "
                           + $"mips {e.MipCount}, {Mb(e.VramBytes)} MB) after its capture frame changed "
                           + $"to {frame.width:F0}x{frame.height:F0} uGUI px (host rect "
@@ -774,7 +1307,21 @@ internal static partial class PanelSupersample
                           + ", so the smallest-scaled subtree in this window is captured at "
                           + (rate * e.MinContentScale).ToString("F2")
                           + " texels per ITS OWN authored px against a band limit of "
-                          + $"{BandLimitedTexelsPerPixel:F2}.");
+                          + $"{BandLimitedTexelsPerPixel:F2}."
+                          // ModBuild 204: WHO ASKED, AND WAS THE WINDOW BEING CARRIED. The 203 log
+                          // carried neither and could therefore only report "58 since engage".
+                          + $" TRIGGER: {ReallocTriggerNames[(int)trigger]}, window "
+                          + (moving ? "MOVING" : "still")
+                          + $" (re-allocation #{e.Reallocations} on this window). ATOMICITY: the new "
+                          + "pair was "
+                          + (life.Primed > 0 && life.PrimeFailed == 0
+                              ? "captured, resolved and mipped SYNCHRONOUSLY before this line was "
+                                + "printed, so the quad has never shown an unfilled target"
+                              : $"primed {life.Primed} time(s) and fell back to carrying the previous "
+                                + $"image over {life.PrimeCarriedOver} time(s) ({life.PrimeFailed} "
+                                + "prime(s) unavailable)")
+                          + $"; {life.PrimeMs:F2} ms of priming, {life.CreateMs:F2} ms of creation "
+                          + $"and {life.DestroyMs:F2} ms of destruction on this window since engage.");
     }
 
     /// <summary>
@@ -964,6 +1511,7 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void SampleFrameBudget(Entry e, bool moving)
     {
+        SampleHand(e);
         float ms = Time.unscaledDeltaTime * 1000f;
         if (ms <= 0f || ms > 1000f)
             return; // a load spike or a paused frame is not a frame-budget sample
@@ -994,6 +1542,63 @@ internal static partial class PanelSupersample
             if (ms > FrameBudgetMs)
                 e.StillFramesOverBudget++;
         }
+    }
+
+    // ---- the hand (ModBuild 204, item B) --------------------------------------------------------
+
+    /// <summary>
+    /// <b>IS A HAND ON THIS WINDOW RIGHT NOW?</b> <c>ConvertedPanel.GuardHostHeld</c> is the flag
+    /// chosen, and the choice was made against the alternatives rather than by availability:
+    /// <list type="bullet">
+    /// <item><c>GuardHostHeld</c> (<c>ConvertedPanel.cs:426</c>) is written every
+    /// <c>GrabbableModal.Tick</c> (<c>GrabbableModal.cs:467</c>) as
+    /// <c>_handle != null &amp;&amp; _handle.IsGrabbed</c> — i.e. from the grab handle's own live
+    /// state, in UPDATE, so a LateUpdate reader gets this frame's value and never last frame's. It is
+    /// the only published flag that answers "a hand grips this window" rather than "this window
+    /// moved".</item>
+    /// <item><c>GuardHostMoving</c> is the wrong question outright: it is a 5 mm pose epsilon, i.e.
+    /// the same class of value-watching this file already does in <see cref="NoticeGeometry"/>, and
+    /// it is exactly what fires on a momentary pause of the hand.</item>
+    /// <item><c>GrabbableModal.IsGrabbed</c> is the same boolean at its source, but it is
+    /// <c>internal</c> on a component this class holds no reference to; reaching for it would mean a
+    /// <c>GetComponent</c> per frame to learn what the panel already publishes.</item>
+    /// </list>
+    ///
+    /// <para><b>AND WHAT IT READS FOR A WINDOW NOBODY EVER GRABS.</b> False, permanently and by
+    /// construction: <c>CanvasConversion.Release</c>/conversion sets it false
+    /// (<c>CanvasConversion.4.Lifecycle.cs:22</c>) and only a <c>GrabbableModal</c> ever writes it
+    /// true. So a window moved by a settings change, by the content fit, by a recall or by a
+    /// presence-regain refloat is never "held", its release gate is the pure stillness gate this
+    /// class has always had, and it still gets both repair passes. The gate below can only ever
+    /// DEFER a repair on a window a hand is actually gripping.</para>
+    /// </summary>
+    private static bool HandOn(Entry e)
+    {
+        ConvertedPanel panel = e.Panel;
+        return panel != null && panel.GuardHostHeld;
+    }
+
+    /// <summary>
+    /// Sample the hand once per frame per window and record the RELEASE EDGE.
+    ///
+    /// <para><b>WHY AN EDGE AND NOT JUST THE FLAG.</b> Gating only on <c>!HandOn</c> would fire the
+    /// repair on the frame the hand lets go of a window that had been held perfectly still for
+    /// seconds — <see cref="Entry.LastMotionFrame"/> would be ancient and the settle gate would
+    /// already be open. That is not wrong (the hand coming off IS the release) but it would run the
+    /// repair before the window's own settle has been observed. Keying the gate on the LATER of the
+    /// two stamps makes "released" mean what its name says: the hand is off AND the pose has been
+    /// still for <see cref="ReleaseSettleFrames"/> frames since it came off.</para>
+    /// </summary>
+    private static void SampleHand(Entry e)
+    {
+        TargetLife life = LifeOf(e);
+        bool on = HandOn(e);
+        life.DragHandSamples++;
+        if (on)
+            life.DragHandOnFrames++;
+        if (life.HandWasOn && !on)
+            life.HandReleaseFrame = Time.frameCount;
+        life.HandWasOn = on;
     }
 
     // ---- the repairs ----------------------------------------------------------------------------
@@ -1028,18 +1633,60 @@ internal static partial class PanelSupersample
             e.ReleaseRepairedMotionFrame = e.LastMotionFrame;
             e.ReleaseRepairStage = 0;
         }
+        // ---- THE HAND GATE (ModBuild 204, item B) ------------------------------------------------
+        // A REPAIR NAMED "RELEASE" MUST NOT RUN WHILE THE WINDOW IS HELD, and the ModBuild 203
+        // hardware log says in one number that it did: of 33 PANEL SUPERSAMPLE RELEASE lines only 16
+        // followed a hand release — 15 fired WHILE THE HAND WAS STILL HOLDING and 2 before any grab
+        // — and one drag fired five of them in 1.9 s. Every one of those ran the unconditional
+        // Reallocate, re-measured the capture frame at the most transient instant possible, and
+        // regenerated 218 of 218 text components in ~16.5 ms, followed by a CanvasConversion.Late
+        // spike of 19.2-20.7 ms in a total frame of 23.4-34.8 ms — on 19 of the 33. The most
+        // expensive repair in this class was being triggered by a momentary pause of the user's hand.
+        //
+        // THE CAUSE was that the gate consulted nothing about the hand at all: the condition was
+        // purely `Time.frameCount - e.LastMotionFrame >= 2`, and LastMotionFrame comes from OBSERVED
+        // HOST VALUES against a position epsilon of half an authored pixel (NoticeGeometry). A hand
+        // that hovers for two frames is, to that instrument, indistinguishable from a hand that let
+        // go — this project's "a stillness gate never opens for state someone else rewrites each
+        // frame", in its mirror image.
+        //
+        // THE GATE NOW READS BOTH: the pose must have settled AND the hand must be off. See HandOn
+        // for which published flag was chosen and why, and for what a window nobody ever grabs does
+        // (nothing changes for it: GuardHostHeld is false by construction there).
+        TargetLife hand = LifeOf(e);
+        bool held = HandOn(e);
+        int sinceRelease = Time.frameCount - hand.HandReleaseFrame;
         int sinceMotion = Time.frameCount - e.LastMotionFrame;
-        if (e.ReleaseRepairStage == 0 && sinceMotion >= ReleaseSettleFrames)
+        // The LATER of the two stamps, so "released" means the hand is off AND the pose has been
+        // still for ReleaseSettleFrames frames SINCE it came off — see SampleHand.
+        int sinceQuiet = sinceMotion < sinceRelease ? sinceMotion : sinceRelease;
+        if (e.ReleaseRepairStage == 0 && sinceQuiet >= ReleaseSettleFrames && held)
+        {
+            // THE STILLNESS GATE IS OPEN AND THE HAND IS STILL ON. This is exactly the frame ModBuild
+            // 203 ran the whole repair on, 15 times out of 33. Counted once per motion event, not
+            // once per frame — see TargetLife.ReleasesDeferredHeld.
+            if (hand.DeferredAtMotionFrame != e.LastMotionFrame)
+            {
+                hand.DeferredAtMotionFrame = e.LastMotionFrame;
+                hand.ReleasesDeferredHeld++;
+            }
+            return; // deferred, NOT skipped: the stage stays 0 and the gate opens when the hand does
+        }
+        if (e.ReleaseRepairStage == 0 && sinceQuiet >= ReleaseSettleFrames)
         {
             e.ReleaseRepairStage = 1;
             e.ReleasesThisWindow++;
+            if (hand.DragHandOnFrames > 0)
+                hand.ReleasesAfterHold++;
+            else
+                hand.ReleasesNeverHeld++;
             if (sinceMotion > e.ReleaseGateFramesMax)
                 e.ReleaseGateFramesMax = sinceMotion;
             ReleaseRepair(e);
             ReportRelease(e, sinceMotion);
             return;
         }
-        if (e.ReleaseRepairStage == 1 && sinceMotion >= ReleaseSecondRepairFrames)
+        if (e.ReleaseRepairStage == 1 && !held && sinceQuiet >= ReleaseSecondRepairFrames)
         {
             e.ReleaseRepairStage = 2;
             ReleaseRepair(e);
@@ -1088,7 +1735,16 @@ internal static partial class PanelSupersample
         if (e.DisplayRect != null)
             e.DisplayRect.sizeDelta = e.Frame.size;
         SyncDisplayPose(e);
-        Reallocate(e, e.Frame);
+        // ITEM 5, ANSWERED IN THE CODE RATHER THAN IN A COMMENT. This call IS unconditional, and it
+        // is ALREADY a no-op whenever the frame has not changed: Reallocate's first branch compares
+        // the resolved pixel counts against the live ones and returns without touching a target. What
+        // it costs in that case is ResolveRate — a handful of float operations and two bounded loops
+        // — so the 203 log's 16.5 ms release is not here. It is the three lines around it:
+        // MeasureFrame, ApplyCaptureLayer and MeasureContent(repairAll: true), the last of which
+        // regenerated 218 of 218 text components and is the DELIBERATE repair that must not be
+        // removed. The no-op is now COUNTED per trigger (TargetLife.NoOpByTrigger) and printed, so
+        // the next log states it instead of leaving it to be re-derived from the source.
+        Reallocate(e, e.Frame, ReallocTrigger.ReleaseRepair);
         e.NextSweepFrame = Time.frameCount + SweepIntervalFrames;
         ApplyCaptureLayer(e, initial: false);
         // Scan AND repair in one walk: the counts recorded are the PRE-repair state, so the report
@@ -1164,11 +1820,33 @@ internal static partial class PanelSupersample
         int meshBad = e.MeshMissingQuads + e.MeshDegenerateQuads + e.MeshDegenerateUv
                       + e.MeshUvOutOfRange + e.MeshNonFinite;
         int glyphBad = e.GlyphsNotInAtlas + e.GlyphsNotVisible + e.GlyphsBlankQuad;
+        // ModBuild 204 (item B): THE HAND, AT THE INSTANT THIS REPAIR FIRED. In the 203 log 15 of 33
+        // of these lines fired while the hand was still holding, and nothing on the line could say
+        // so. `held=` must now read False on every line this build prints; a True is the gate having
+        // failed, which is a finding rather than a detail.
+        TargetLife hand = LifeOf(e);
+        string handSentence =
+            $" HAND AT THIS RELEASE: held={HandOn(e)}, handsOn={hand.DragHandOnFrames} of "
+            + $"{hand.DragHandSamples} frame(s) of this drag had a hand on the window "
+            + "(ConvertedPanel.GuardHostHeld, written every GrabbableModal.Tick from the grab "
+            + $"handle's own IsGrabbed), the hand last let go {Time.frameCount - hand.HandReleaseFrame} "
+            + "frame(s) ago, and this class has DEFERRED "
+            + $"{hand.ReleasesDeferredHeld} release repair(s) since engage because a hand was still "
+            + $"holding. SINCE ENGAGE: {hand.ReleasesAfterHold} release(s) followed a real hold and "
+            + $"{hand.ReleasesNeverHeld} fired on a window no hand had touched during the drag (a "
+            + "settings change, a content re-fit, a recall or a presence-regain refloat — those are "
+            + "legitimate and are exactly why the gate DEFERS on the hand rather than requiring one). "
+            + "READ held= FIRST: the ModBuild 203 log had 15 of 33 of these lines firing MID-DRAG, "
+            + "each costing an unconditional re-allocation plus a ~16.5 ms text regeneration plus a "
+            + "19-21 ms CanvasConversion.Late spike in a 23-35 ms frame, and it could not say so "
+            + "because the gate consulted only an observed pose epsilon of half an authored pixel. If "
+            + "held= ever reads True on this build, the hand gate is not in force and every judgement "
+            + "of the release behaviour from that session is a judgement of ModBuild 203's.";
         VRLog.Info(Scope,
             $"PANEL SUPERSAMPLE RELEASE '{e.Window}': the drag ran {e.DragMotionFrames} frame(s) "
             + $"({Time.frameCount - e.DragStartFrame} frame(s) wall) and the settle gate opened "
             + $"{gateFrames} frame(s) after the last change, against a threshold of "
-            + $"{ReleaseSettleFrames}. ABRUPTNESS (the user's own word, measured): the LAST "
+            + $"{ReleaseSettleFrames}." + handSentence + " ABRUPTNESS (the user's own word, measured): the LAST "
             + $"single-frame host step before the hand let go was {e.DragLastStepWorld:F4} world "
             + $"units = {lastPx:F2} RENDERED eye px, against this drag's LARGEST step of "
             + $"{e.DragMaxStepWorld:F4} = {maxPx:F2} RENDERED eye px and a detector epsilon of "
@@ -1396,6 +2074,13 @@ internal static partial class PanelSupersample
             Entry? mine = EntryForCamera(cam);
             if (mine != null)
             {
+                // ModBuild 204: a PRIMING render is not a frame's capture. PrimeNewTarget calls
+                // Camera.Render() by hand, which fires this callback re-entrantly; letting it through
+                // would inflate CaptureTicks, MotionCaptures and the two coincidence counters, and
+                // the CAPTURE PATH field's whole readability rests on those sharing one denominator
+                // with the frame count. The prime writes its own projection and does its own resolve.
+                if (ReferenceEquals(mine, _primingEntry))
+                    return;
                 mine.LastCaptureStart = Time.realtimeSinceStartup;
                 // THE CAPTURE-COINCIDENCE COUNTERS, recorded at the LAST instant before this camera
                 // culls — i.e. the exact state the captured image is taken from. Every one of them
@@ -1425,7 +2110,14 @@ internal static partial class PanelSupersample
             {
                 _poseSyncFrame = Time.frameCount;
                 for (int i = 0; i < Entries.Count; i++)
+                {
                     SyncDisplayPose(Entries[i]);
+                    // ModBuild 204, THE COUNTER THAT DID NOT EXIST. This is the first camera of the
+                    // frame that is not one of ours, i.e. the instant after every depth = -200
+                    // capture camera has rendered and resolved and before any eye pass draws the
+                    // quad. Full argument, and the one caveat, on NoteQuadSample.
+                    NoteQuadSample(Entries[i]);
+                }
             }
             // THE UNION, not one bit: since ModBuild 194 every engaged panel holds its own pool
             // layer, so a camera that is not one of ours must lose ALL of them for the duration of
@@ -1457,7 +2149,15 @@ internal static partial class PanelSupersample
             Entry? e = EntryForCamera(cam);
             if (e == null)
                 return;
+            // See OnPreCull: a priming render is not a frame's capture, and PrimeNewTarget resolves
+            // and books it itself.
+            if (ReferenceEquals(e, _primingEntry))
+                return;
             ResolveAndMip(e);
+            // ModBuild 204: the display target the quad shows has now had one COMPLETE capture +
+            // resolve + mip. Recorded here and in PrimeNewTarget and nowhere else — the invariant
+            // must never be inferred from a frame count or from "the camera was enabled".
+            NoteCaptureCompleted(e);
             e.Captures++;
             if (e.LastCaptureStart > 0f)
                 e.CaptureMs += (Time.realtimeSinceStartup - e.LastCaptureStart) * 1000.0;
@@ -1505,7 +2205,12 @@ internal static partial class PanelSupersample
     /// <c>Graphics.Blit</c> re-points it at its destination and we are inside the engine's own camera
     /// loop; leaving it moved would hand the next camera a target it did not ask for.</para>
     /// </summary>
-    private static void ResolveAndMip(Entry e)
+    /// <param name="priming">ModBuild 204: this resolve belongs to a <see cref="PrimeNewTarget"/>
+    /// render and not to a frame's capture, so it must not enter the moving/still resolve census —
+    /// those counts are read directly against the moving/still CAPTURE counts on the same line, and a
+    /// resolve without a matching capture would read as the very anomaly that field exists to
+    /// detect.</param>
+    private static void ResolveAndMip(Entry e, bool priming = false)
     {
         if (e.Rt == null || e.MipRt == null)
             return; // fallback: the quad shows the capture target directly (one Warn at allocation)
@@ -1533,6 +2238,8 @@ internal static partial class PanelSupersample
             // compare. ApplyMipLodOffset writes ONLY when the live value differs, so this is not a
             // per-frame write and cannot become a write war.
             ApplyMipLodOffset(e.MipRt, AskedMipLodOffset());
+            if (priming)
+                return; // counted as a PRIME, not as a frame's resolve — see the parameter doc
             if (IsMoving(e))
                 e.MotionResolves++;
             else
@@ -1667,6 +2374,10 @@ internal static partial class PanelSupersample
     {
         RestoreLayers(e);   // must run BEFORE the layer goes back in the pool: it reads e.Layer
         MipBiasNextReport.Remove(e.Window); // a re-engaged window reports its bias immediately
+        // ModBuild 204: the target-life record dies with the entry, for the same reason. Its counters
+        // are all "since engage" and a re-engaged window is a new engagement — carrying them over
+        // would make the FILL LATENCY distribution and the trigger census describe two lifetimes.
+        Lives.Remove(e.Window);
         int layer = e.Layer;
         ReleaseLayer(layer);
         e.Layer = -1;

@@ -88,7 +88,81 @@ internal static partial class PanelSupersample
     /// this is the only place that already knows both a child's authored rect and where that rect
     /// LANDS in host space. See <see cref="Entry.MinContentScale"/> for what that number is for and
     /// what the ModBuild 200 hardware log said about it. It also QUANTISES the frame it produces —
-    /// see <see cref="FrameQuantumPx"/>, which is the flicker half of this round.</para>
+    /// see <see cref="FrameQuantumPx"/>, which is the flicker half of that round.</para>
+    ///
+    /// <para><b>MODBUILD 204 — THE 28/28 FLAP, AND WHY THE QUANTUM ALONE WAS NOT ENOUGH.</b>
+    ///
+    /// <para>THE USER'S REPORT, VERBATIM: the converted character window renders correctly when
+    /// still; <i>"das flackern tritt auf sobald man das Fenster in die Hand nimmt und bewegt, und
+    /// beim Loslassen wurde random ein Stand eingefroren der wieder manche elemente nicht sichtbar
+    /// macht"</i>. ModBuild 192 fixed the STILL case and twelve builds did not fix the MOVING one.</para>
+    ///
+    /// <para><b>THE ModBuild 203 HARDWARE LOG SETTLES THE ALLOCATION HALF OF IT.</b> In 62 seconds
+    /// the party window re-allocated its render target <b>58 times</b>, and the two frames it
+    /// alternated between are:
+    /// <list type="bullet">
+    /// <item><b>28 x 2020x1464</b> uGUI px — host rect 1988x1080 + content overspill 32x384;</item>
+    /// <item><b>28 x 2020x1496</b> uGUI px — host rect 1988x1080 + content overspill 32x<b>416</b>.</item>
+    /// </list>
+    /// A 28/28 flap between two frames that differ by <b>exactly one 32 px
+    /// <see cref="FrameQuantumPx"/> in Y</b>. Rate: <b>2.51 re-allocations per second while the hand
+    /// holds the window and 0.29/s while it does not</b> — 45 of the 58 fall inside a grab and 12 of
+    /// them inside a single 2.8 s drag. Each one destroys and re-creates a ~150 MB, 12-mip render
+    /// target, and each one re-rolls the sub-texel phase of every glyph in the window.</para>
+    ///
+    /// <para><b>WHY MOVING MAKES IT WORSE, READ FROM THE CODE AND NOT INFERRED.</b> The re-measure
+    /// runs on <see cref="ContentMeasureIntervalFrames"/> (15) when nothing is changing, and
+    /// <c>SyncGeometry</c> forces it on any geometry change subject only to
+    /// <see cref="ContentMeasureMinIntervalFrames"/> (2). A union sitting ON a quantum boundary is
+    /// therefore SAMPLED several times as often while the window is in the hand, and flips several
+    /// times as often. The remedy is not a slower cadence, it is <b>not sampling at all</b>: see
+    /// <see cref="TranslateHoldFrames"/>, and note that <see cref="NoticeGeometry"/> has stated the
+    /// principle in its own comment since ModBuild 193 — it returns dirty for a rect or scale change
+    /// and NOT for a pure translation, because <i>moving a window changes nothing about what it draws
+    /// or how big its render target must be</i>. This build finally acts on that sentence.</para>
+    ///
+    /// <para><b>WHY IT IS EXACTLY THESE TWO SUB-VIEWS.</b> The character sheet and the perks view are
+    /// the only sub-views whose content reaches OUTSIDE the host rect, so they are the only ones with
+    /// a non-zero overspill and therefore the only ones with a quantum boundary to sit on. Every
+    /// working sub-view reports <c>CAPTURE FRAME ... = the host rect: no content draws outside it</c>
+    /// — zero overspill, no boundary, no re-allocation possible, ever. That is the 2-vs-2 differential
+    /// four rounds have been hunting, and this is its mechanism.</para>
+    ///
+    /// <para><b>AND IT EXPLAINS THE FREEZE.</b> When the motion stops, the frame is latched at
+    /// whichever of the two values the last measurement produced. If that is the SMALLER one while the
+    /// content genuinely needs the larger, 32 px of content lies outside the capture frame and is
+    /// simply not in the picture — permanently, until something re-measures. That is <i>"manche
+    /// Elemente nicht sichtbar"</i>, and it is random because it depends on which side of the boundary
+    /// the last sample fell. (It is NOT the only mechanism producing that sentence; the other, and the
+    /// larger one, is the TMP sub-mesh cull latch — see <see cref="RepairSubMeshCull"/>.)</para>
+    ///
+    /// <para><b>WHAT ModBuild 201 GOT RIGHT AND WHAT IT LEFT OPEN.</b> The 32 px quantum was added to
+    /// stop the sub-pixel PHASE re-rolling on every measurement and it succeeded at that: the frame no
+    /// longer takes arbitrary fractional values. It has no HYSTERESIS, so a union sitting on a
+    /// boundary still flips the whole frame by a full quantum, and one quantum is 32 px of phase.
+    /// ModBuild 204 adds the hysteresis: <b>GROW immediately, SHRINK only past a one-quantum dead band,
+    /// only after a run of <see cref="FrameShrinkRunMeasurements"/> consecutive measurements, and only
+    /// while the window is not moving.</b></para>
+    ///
+    /// <para><b>REJECTED ALTERNATIVES.</b>
+    /// <list type="number">
+    /// <item><b>A COARSER QUANTUM (64 or 128 px).</b> It moves the boundary; it does not remove it. A
+    /// union that lands on the new boundary flaps by 64 or 128 px instead of 32, i.e. the same defect
+    /// with a larger amplitude and a larger allocation. The observed flap is not caused by the quantum
+    /// being too fine, it is caused by there being no memory between measurements.</item>
+    /// <item><b>A REALLOCATION RATE LIMITER.</b> It would hide the churn and keep the defect: the
+    /// capture frame would still alternate, the camera would still re-frame, and the phase would still
+    /// re-roll — only the VRAM traffic would drop. This project has already paid for a fuse that was
+    /// hiding a loop ("the fuse was hiding a loop"), and the honest fix is upstream of the fuse.</item>
+    /// <item><b>LATCH THE FRAME AT ENGAGE AND NEVER RE-MEASURE.</b> It fixes the flap outright and
+    /// re-breaks ModBuild 192: the party window's host rect walks 328 -> 716 -> 1920 uGUI px across one
+    /// session and its sub-views swap under a fixed host rect, so a latched frame crops real content.
+    /// Growth must stay immediate and unconditional.</item>
+    /// <item><b>SYMMETRIC HYSTERESIS (a band in both directions).</b> Refused: a delay before GROWING
+    /// is a frame — possibly many — in which content the player can see is cut out of the picture. The
+    /// asymmetry is the whole point, and it is why the shrink side carries every condition.</item>
+    /// </list></para>
+    /// </para>
     /// </summary>
     private static void MeasureFrame(Entry e)
     {
@@ -97,9 +171,24 @@ internal static partial class PanelSupersample
         if (host == null || panel.HostGo == null)
             return;
 
+        // ---- THE TRANSLATION GATE (ModBuild 204, part 1) ----------------------------------------
+        // Everything this method measures is host-local, so a pure translation cannot change it. Do
+        // not sample it, do not schedule it, do not pay for it. The gate is HERE rather than at the
+        // call site on purpose: MeasureFrame has three callers (Engage, SyncGeometry's cadence and
+        // ReleaseRepair), two of them in a file this lane does not own, and a decision that must hold
+        // for all three belongs where the measurement is.
+        if (SkipMeasureWhileTranslating(e, host))
+        {
+            e.FrameMeasuresSkipped++;
+            return;
+        }
+
         float started = Time.realtimeSinceStartup;
         Rect hostRect = host.rect;
         Rect union = hostRect;
+        // THE ARGMAX/ARGMIN OF THE UNION (ModBuild 204, part 3). Four compares per drawing graphic on
+        // a walk that already has its host-local bounds in hand — no second traversal, no allocation.
+        ResetExtremes(hostRect);
         // THE CONTENT-SCALE CENSUS (ModBuild 201). Accumulated across the walk, committed at the end.
         float minScale = 1f;
         float minScaleArea = 0f;
@@ -156,6 +245,7 @@ internal static partial class PanelSupersample
                     if (Draws(graphic) && Intersect(clip, bounds, out Rect visible))
                     {
                         union = Union(union, visible);
+                        NoteExtremes(t.name, visible);
                         // THE SCALE OF THIS GRAPHIC'S OWN AUTHORED PIXELS, in host-local pixels. The
                         // two quantities are already in hand: `local` is the rect the artist authored
                         // and `bounds` is where it landed. Their ratio IS the accumulated scale chain
@@ -216,19 +306,40 @@ internal static partial class PanelSupersample
         // extra transparent margin on a window that was already at the limit.
         float padX = QuantiseUp(hostRect.width * (MaxContentExpansion - 1f) * 0.5f);
         float padY = QuantiseUp(hostRect.height * (MaxContentExpansion - 1f) * 0.5f);
-        float left = Mathf.Clamp(QuantiseUp(hostRect.xMin - union.xMin), 0f, padX);
-        float right = Mathf.Clamp(QuantiseUp(union.xMax - hostRect.xMax), 0f, padX);
-        float down = Mathf.Clamp(QuantiseUp(hostRect.yMin - union.yMin), 0f, padY);
-        float up = Mathf.Clamp(QuantiseUp(union.yMax - hostRect.yMax), 0f, padY);
-        float xMin = hostRect.xMin - left;
-        float xMax = hostRect.xMax + right;
-        float yMin = hostRect.yMin - down;
-        float yMax = hostRect.yMax + up;
+        float needLeft = Mathf.Clamp(QuantiseUp(hostRect.xMin - union.xMin), 0f, padX);
+        float needRight = Mathf.Clamp(QuantiseUp(union.xMax - hostRect.xMax), 0f, padX);
+        float needDown = Mathf.Clamp(QuantiseUp(hostRect.yMin - union.yMin), 0f, padY);
+        float needUp = Mathf.Clamp(QuantiseUp(union.yMax - hostRect.yMax), 0f, padY);
+        RecordNeed(e, hostRect.width + needLeft + needRight, hostRect.height + needDown + needUp);
+
+        // ---- THE HYSTERESIS (ModBuild 204, part 2) ----------------------------------------------
+        // What is held is the per-edge OVERSPILL, never the absolute frame: the host rect can move
+        // under it (the content fit walks this window 328 -> 716 -> 1920 uGUI px in one session) and
+        // that must be followed exactly and immediately, while the only part of the frame the CONTENT
+        // union decides — and therefore the only part that can flap — is the overspill.
+        ApplyFrameHysteresis(e, padX, padY, needLeft, needRight, needDown, needUp);
+        float xMin = hostRect.xMin - e.HoldLeft;
+        float xMax = hostRect.xMax + e.HoldRight;
+        float yMin = hostRect.yMin - e.HoldDown;
+        float yMax = hostRect.yMax + e.HoldUp;
+        // CLAMPED is judged against the frame that is actually COMMITTED, not against the raw need:
+        // the question the field answers is "is visible content outside the rectangle the camera
+        // frames", and after this build those two rectangles are no longer the same thing.
         bool clamped = xMin > union.xMin + 0.5f || xMax < union.xMax - 0.5f
                        || yMin > union.yMin + 0.5f || yMax < union.yMax - 0.5f;
         Rect frame = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
         if (frame.width < 1f || frame.height < 1f)
             frame = hostRect;
+
+        // A COMMITTED CHANGE is a change of the RECTANGLE, whatever produced it — a hysteresis grow,
+        // a hysteresis shrink, or the host rect moving under a fixed overspill. That is what costs a
+        // reallocation and re-rolls the phase, so that is what the change record is keyed on.
+        bool frameChanged = Mathf.Abs(frame.xMin - e.Frame.xMin) > 0.5f
+                            || Mathf.Abs(frame.xMax - e.Frame.xMax) > 0.5f
+                            || Mathf.Abs(frame.yMin - e.Frame.yMin) > 0.5f
+                            || Mathf.Abs(frame.yMax - e.Frame.yMax) > 0.5f;
+        if (frameChanged)
+            NoteFrameChange(e, frame);
 
         e.Frame = frame;
         e.HostRectAtMeasure = hostRect;
@@ -237,6 +348,9 @@ internal static partial class PanelSupersample
         e.ExpandClamped = clamped;
         e.ContentMeasures++;
         e.LastMeasureFrame = Time.frameCount;
+        e.ScaleAtMeasure = host.lossyScale;
+        e.ScaleAtMeasureValid = true;
+        CommitExtremes(e);
         RecordContentScale(e, minScale, minScaleArea, minScaleName, scaleSamples,
                            subCritical, subCriticalArea);
         e.ContentMs += (Time.realtimeSinceStartup - started) * 1000.0;
@@ -263,6 +377,371 @@ internal static partial class PanelSupersample
     /// <see cref="FrameQuantumPx"/>. Every use rounds OUTWARD, so quantising the capture frame can
     /// only ever grow it and can never crop content that ModBuild 200 kept.</summary>
     private static float QuantiseUp(float v) => Mathf.Ceil(v / FrameQuantumPx) * FrameQuantumPx;
+
+    // ---- THE TRANSLATION GATE (ModBuild 204, part 1) --------------------------------------------
+
+    /// <summary>
+    /// <b>MAY THIS MEASUREMENT BE SKIPPED BECAUSE THE WINDOW IS ONLY BEING CARRIED?</b>
+    ///
+    /// <para>THREE conditions, and all three must hold. (1) Nothing has explicitly FORCED a measure —
+    /// a sub-view change sets <see cref="Entry.ForceMeasure"/> and is the one event that changes what
+    /// the window draws without touching its transform. (2) The host moved within the last
+    /// <see cref="TranslateHoldFrames"/> frames, which during a drag is every frame, because
+    /// <c>GrabbableModal.SyncHostToFrame</c> rewrites the host pose from the grab frame every frame.
+    /// (3) NEITHER the host rect NOR the host's lossy scale has changed since the last completed
+    /// measurement — i.e. the change really is a pure translation (or rotation) and not the resize or
+    /// the re-scale that <see cref="NoticeGeometry"/> already treats as a real invalidation.</para>
+    ///
+    /// <para><b>WHY THIS IS SOUND, and the one thing that would falsify it.</b>
+    /// <see cref="MeasureFrame"/> expresses every bound in HOST-LOCAL uGUI pixels
+    /// (<see cref="TryHostLocalBounds"/> inverse-transforms world corners through the host), so a
+    /// rigid motion of the host cancels EXACTLY and the union is translation invariant up to float
+    /// rounding — which is many orders below the 32 px <see cref="FrameQuantumPx"/> the frame is
+    /// quantised to. Nothing downstream reads a camera or a viewport either: uGUI's own rect culling
+    /// is judged against the mask rect, not against a view. <b>What a pure translation CAN still change
+    /// is the CONTENT: an animation, a scroll or a pooled child arriving mid-drag genuinely moves the
+    /// union.</b> That is the cost of this gate and it is bounded, not hidden — such a growth is
+    /// deferred to the release, which re-measures unconditionally
+    /// <see cref="ReleaseSettleFrames"/> frames after the hand lets go, and to the sub-view force
+    /// above. The report prints the skip count next to the measure count so the size of that deferral
+    /// is always on the record.</para>
+    ///
+    /// <para>The rect/scale test is made HERE, from the live host, rather than by reading
+    /// <see cref="NoticeGeometry"/>'s verdict: that verdict is computed in another lane's file and is
+    /// not passed down, and re-deriving it from two values this method already needs costs four
+    /// compares.</para>
+    /// </summary>
+    private static bool SkipMeasureWhileTranslating(Entry e, RectTransform host)
+    {
+        if (e.ForceMeasure)
+        {
+            e.ForceMeasure = false;
+            return false;
+        }
+        if (Time.frameCount - e.LastMotionFrame > TranslateHoldFrames)
+            return false;
+        if (!e.ScaleAtMeasureValid)
+            return false;
+        Rect r = host.rect;
+        if (Mathf.Abs(r.width - e.HostRectAtMeasure.width) > 0.5f
+            || Mathf.Abs(r.height - e.HostRectAtMeasure.height) > 0.5f)
+            return false;
+        Vector3 scale = host.lossyScale;
+        // The same relative epsilon NoticeGeometry uses for its own rescale test, so the two cannot
+        // disagree about what counts as a scale change.
+        if ((scale - e.ScaleAtMeasure).magnitude > e.ScaleAtMeasure.magnitude * 1e-4f + 1e-9f)
+            return false;
+        return true;
+    }
+
+    // ---- THE HYSTERESIS (ModBuild 204, part 2) --------------------------------------------------
+
+    /// <summary>
+    /// <b>ASYMMETRIC HYSTERESIS ON THE PER-EDGE CAPTURE OVERSPILL — GROW NOW, SHRINK SLOWLY, AND ONLY
+    /// IN THE SAFE DIRECTION.</b> The measured flap it exists to swallow, and every alternative that
+    /// was rejected, are in <see cref="MeasureFrame"/>'s block comment. The rules, in order:
+    /// <list type="number">
+    /// <item><b>GROWTH IS IMMEDIATE AND UNCONDITIONAL</b>, per edge, whatever the window is doing.
+    /// Content must never be cropped, not for one frame; a delay here would be the ModBuild 192
+    /// defect back again.</item>
+    /// <item><b>A NEED WITHIN <see cref="FrameShrinkDeadBandQuanta"/> QUANTA OF THE COMMITTED FRAME
+    /// NEVER SHRINKS IT.</b> The ModBuild 203 flap is exactly one quantum, so the dead band kills it
+    /// by construction rather than merely damping it.</item>
+    /// <item><b>A LARGER SHRINK NEEDS A RUN</b> of <see cref="FrameShrinkRunMeasurements"/>
+    /// consecutive measurements (or <see cref="FrameOutlierShrinkRunMeasurements"/> while an outlier
+    /// growth is pending) AND the window at rest. What it then adopts is the run's per-edge MAXIMUM,
+    /// never its last reading, so a shrink can never crop something that was needed inside the
+    /// run.</item>
+    /// <item><b>AN OUTLIER GROWTH IS ADOPTED IN FULL AND MARKED.</b> See
+    /// <see cref="FrameOutlierGrowQuanta"/> for how it is released again, which is the answer to "a
+    /// window must not ratchet upward forever".</item>
+    /// </list>
+    ///
+    /// <para><b>WHAT THIS DOES TO THE TWO CEILINGS, stated because holding a frame LARGER than the
+    /// current need is a real cost and this is where it is paid.</b>
+    /// <list type="bullet">
+    /// <item><b><see cref="MaxRtDimension"/> = 4096, and on this window the headroom is under 30 px
+    /// of frame width.</b> The rate ceiling is <c>4096 / width</c> floored to
+    /// <see cref="RateQuantum"/>: at the measured 2020 px frame that is 2.03 -> <b>2.00</b>, exactly
+    /// the band limit, and at 2052 px — ONE quantum wider — it is 1.996 -> <b>1.75</b>. So a growth in
+    /// X is not cosmetic and a held-large frame can silently cost this window its band limit. That is
+    /// why <see cref="NoteFrameChange"/> computes the ceiling on both sides of every committed change
+    /// and warns once, by name, when a growth pushes it under
+    /// <see cref="BandLimitedTexelsPerPixel"/>; the live value is on every CAPTURE FRAME line as
+    /// well. Growing can no longer step the achieved rate down without the log saying so.</item>
+    /// <item><b><see cref="MaxPanelVramBytes"/> = 160 MB, and the hysteresis SPENDS LESS of it, not
+    /// more.</b> The dead band's whole worst case is one quantum of extra margin per edge; on a
+    /// 2020x1496 frame at rate 2.00 that is under 3 % of the target's texels, i.e. ~4 MB against this
+    /// window's ~150 MB. Set against it, the ModBuild 203 log measured 58 destroy-and-recreate cycles
+    /// of that ~150 MB target in 62 seconds. The hysteresis trades a few MB of steady residency for
+    /// removing that churn, and if the trade ever goes the wrong way — a window held far above its
+    /// need — the CAPTURE FRAME line says so directly as a large REFUSED-shrink count next to a large
+    /// frame, and <see cref="FrameOutlierGrowQuanta"/> is the lever.</item>
+    /// </list></para>
+    /// </summary>
+    private static void ApplyFrameHysteresis(Entry e, float padX, float padY,
+                                             float needLeft, float needRight,
+                                             float needDown, float needUp)
+    {
+        // The standing hold is clamped to the CURRENT expansion limits first: the host rect can shrink
+        // under it, and a hold left over from a larger host would push the frame past the limit that
+        // MaxContentExpansion exists to enforce.
+        e.HoldLeft = Mathf.Min(e.HoldLeft, padX);
+        e.HoldRight = Mathf.Min(e.HoldRight, padX);
+        e.HoldDown = Mathf.Min(e.HoldDown, padY);
+        e.HoldUp = Mathf.Min(e.HoldUp, padY);
+
+        float step = Mathf.Max(Mathf.Max(needLeft - e.HoldLeft, needRight - e.HoldRight),
+                               Mathf.Max(needDown - e.HoldDown, needUp - e.HoldUp));
+        if (step > 0.5f)
+        {
+            bool outlier = step > FrameOutlierGrowQuanta * FrameQuantumPx + 0.5f;
+            e.HoldLeft = Mathf.Max(e.HoldLeft, needLeft);
+            e.HoldRight = Mathf.Max(e.HoldRight, needRight);
+            e.HoldDown = Mathf.Max(e.HoldDown, needDown);
+            e.HoldUp = Mathf.Max(e.HoldUp, needUp);
+            e.FrameGrows++;
+            e.ShrinkRun = 0;
+            if (outlier)
+            {
+                e.FrameOutlierGrowths++;
+                e.FrameOutlierPending = true;
+            }
+            else
+            {
+                // An ordinary growth REPLACES a pending outlier: the frame is now large because
+                // ordinary content asked for it, so it must be given back on the ordinary run length.
+                e.FrameOutlierPending = false;
+            }
+            return;
+        }
+
+        float dead = FrameShrinkDeadBandQuanta * FrameQuantumPx + 0.5f;
+        bool candidate = e.HoldLeft - needLeft > dead || e.HoldRight - needRight > dead
+                         || e.HoldDown - needDown > dead || e.HoldUp - needUp > dead;
+        if (!candidate)
+        {
+            // Inside the dead band on every edge. This is the ModBuild 203 flap's smaller value and it
+            // is not a shrink request at all — the run is broken rather than counted as refused, so
+            // the REFUSED counter stays a measure of real pressure against the hysteresis.
+            e.ShrinkRun = 0;
+            return;
+        }
+
+        if (e.ShrinkRun == 0)
+        {
+            e.RunLeft = needLeft;
+            e.RunRight = needRight;
+            e.RunDown = needDown;
+            e.RunUp = needUp;
+        }
+        else
+        {
+            e.RunLeft = Mathf.Max(e.RunLeft, needLeft);
+            e.RunRight = Mathf.Max(e.RunRight, needRight);
+            e.RunDown = Mathf.Max(e.RunDown, needDown);
+            e.RunUp = Mathf.Max(e.RunUp, needUp);
+        }
+        e.ShrinkRun++;
+
+        int required = e.FrameOutlierPending
+            ? FrameOutlierShrinkRunMeasurements
+            : FrameShrinkRunMeasurements;
+        if (e.ShrinkRun < required || IsMoving(e))
+        {
+            e.FrameShrinksRefused++;
+            return;
+        }
+
+        bool shrank = false;
+        if (e.HoldLeft - e.RunLeft > dead) { e.HoldLeft = e.RunLeft; shrank = true; }
+        if (e.HoldRight - e.RunRight > dead) { e.HoldRight = e.RunRight; shrank = true; }
+        if (e.HoldDown - e.RunDown > dead) { e.HoldDown = e.RunDown; shrank = true; }
+        if (e.HoldUp - e.RunUp > dead) { e.HoldUp = e.RunUp; shrank = true; }
+        e.ShrinkRun = 0;
+        if (!shrank)
+        {
+            // The run's MAXIMUM turned out to be inside the dead band even though some individual
+            // reading was not. Refused, and counted as refused: that is exactly the flap signature.
+            e.FrameShrinksRefused++;
+            return;
+        }
+        e.FrameShrinks++;
+        if (e.FrameOutlierPending)
+        {
+            e.FrameOutlierReleases++;
+            e.FrameOutlierPending = false;
+        }
+    }
+
+    /// <summary>Record one measured NEED into the per-window distribution. The last reading of a
+    /// flapping quantity is indistinguishable from a steady one, which is why this is kept as
+    /// lowest / mean / highest over a count and never as a single field.</summary>
+    private static void RecordNeed(Entry e, float w, float h)
+    {
+        if (e.NeedReadings == 0)
+        {
+            e.NeedWLowest = w;
+            e.NeedWHighest = w;
+            e.NeedHLowest = h;
+            e.NeedHHighest = h;
+        }
+        else
+        {
+            if (w < e.NeedWLowest) e.NeedWLowest = w;
+            if (w > e.NeedWHighest) e.NeedWHighest = w;
+            if (h < e.NeedHLowest) e.NeedHLowest = h;
+            if (h > e.NeedHHighest) e.NeedHHighest = h;
+        }
+        e.NeedReadings++;
+        e.NeedWSum += w;
+        e.NeedHSum += h;
+    }
+
+    /// <summary>The per-axis capture RATE CEILING <see cref="MaxRtDimension"/> leaves for a frame,
+    /// quantised down to <see cref="RateQuantum"/> exactly as <see cref="ResolveRate"/> does it.
+    /// <para>It is computed here — a pure function of the frame and two constants — so that a GROWTH
+    /// which silently steps the achievable rate down is named by the lane that caused it. The party
+    /// window's 2020 px frame leaves 4096/2020 = 2.03 -> <b>2.00</b>, exactly the band limit; one
+    /// quantum wider (2052 px) leaves 1.996 -> <b>1.75</b>, and the ModBuild 203 outlier at 2276 px
+    /// leaves 1.80 -> 1.75, which is the only sub-band-limit rate in that whole session
+    /// (<c>GOT 1.75</c>). So on THIS window the headroom above the band limit is under 30 px of frame
+    /// width, and a growth in X is not a cosmetic cost.</para></summary>
+    private static float FrameRateCeilingFor(Rect frame)
+    {
+        float raw = Mathf.Min(MaxRtDimension / Mathf.Max(frame.width, 1f),
+                              MaxRtDimension / Mathf.Max(frame.height, 1f));
+        return Mathf.Max(RateQuantum, Mathf.Floor(raw / RateQuantum) * RateQuantum);
+    }
+
+    // ---- THE EXTREMES (ModBuild 204, part 3) ----------------------------------------------------
+
+    /// <summary>Live extremes of the measurement in progress. Static scratch, like every other buffer
+    /// in this file, and committed onto the entry at the end of the walk.</summary>
+    private static readonly ExtremeRecord[] ExtremeScratch = new ExtremeRecord[4];
+
+    private static void ResetExtremes(Rect hostRect)
+    {
+        // Seeded from the HOST RECT, because the union is: an edge no graphic reaches past is set by
+        // the host itself, and saying so is more useful than reporting an empty record.
+        ExtremeScratch[EdgeLeft] = new ExtremeRecord
+            { Value = hostRect.xMin, Name = "(host rect)", Rect = hostRect, Valid = true };
+        ExtremeScratch[EdgeRight] = new ExtremeRecord
+            { Value = hostRect.xMax, Name = "(host rect)", Rect = hostRect, Valid = true };
+        ExtremeScratch[EdgeDown] = new ExtremeRecord
+            { Value = hostRect.yMin, Name = "(host rect)", Rect = hostRect, Valid = true };
+        ExtremeScratch[EdgeUp] = new ExtremeRecord
+            { Value = hostRect.yMax, Name = "(host rect)", Rect = hostRect, Valid = true };
+    }
+
+    /// <summary>Four compares against the running extremes, for one drawing graphic whose host-local
+    /// visible rect the walk already computed. This is the whole cost of part 3.</summary>
+    private static void NoteExtremes(string name, Rect visible)
+    {
+        if (visible.xMin < ExtremeScratch[EdgeLeft].Value)
+            ExtremeScratch[EdgeLeft] = new ExtremeRecord
+                { Value = visible.xMin, Name = name, Rect = visible, Valid = true };
+        if (visible.xMax > ExtremeScratch[EdgeRight].Value)
+            ExtremeScratch[EdgeRight] = new ExtremeRecord
+                { Value = visible.xMax, Name = name, Rect = visible, Valid = true };
+        if (visible.yMin < ExtremeScratch[EdgeDown].Value)
+            ExtremeScratch[EdgeDown] = new ExtremeRecord
+                { Value = visible.yMin, Name = name, Rect = visible, Valid = true };
+        if (visible.yMax > ExtremeScratch[EdgeUp].Value)
+            ExtremeScratch[EdgeUp] = new ExtremeRecord
+                { Value = visible.yMax, Name = name, Rect = visible, Valid = true };
+    }
+
+    private static void CommitExtremes(Entry e)
+    {
+        for (int i = 0; i < 4; i++)
+            e.Extremes[i] = ExtremeScratch[i];
+    }
+
+    /// <summary>
+    /// <b>NAME THE FLAPPER.</b> One sentence per committed capture-frame change: the previous and the
+    /// new rectangle, and for EACH of the four edges the graphic that set it, with its host-local
+    /// rect, then and now.
+    /// <para>This is the field the last four rounds did not have. The existing <c>CONTENT EXTREMES</c>
+    /// census (<c>CanvasConversion.3.Fit.cs</c>, another lane) names the LEFT and RIGHT edge only, and
+    /// the ModBuild 203 flap is entirely in Y — so nothing in the log could say whether the union
+    /// genuinely changed or whether the SAME graphic was being measured to two different heights. If
+    /// the TOP/BOTTOM names are identical across a change and only the numbers move, it is the second;
+    /// if the names change, the window's content genuinely changed and the hysteresis is doing exactly
+    /// what it should by making that cost one reallocation instead of 2.51 per second.</para>
+    /// <para>It also records what the change did to the achievable capture RATE — see
+    /// <see cref="FrameRateCeilingFor"/> — and warns ONCE per window if a growth pushed that ceiling
+    /// below the band limit, so growing can never silently step the picture down.</para>
+    /// </summary>
+    private static void NoteFrameChange(Entry e, Rect frame)
+    {
+        e.FrameChanges++;
+        float wasCeiling = e.FrameRateCeiling > 0f ? e.FrameRateCeiling : FrameRateCeilingFor(e.Frame);
+        float nowCeiling = FrameRateCeilingFor(frame);
+        e.FrameRateCeiling = nowCeiling;
+
+        FrameSb.Length = 0;
+        FrameSb.Append(e.Frame.width.ToString("F0")).Append('x')
+               .Append(e.Frame.height.ToString("F0")).Append(" -> ")
+               .Append(frame.width.ToString("F0")).Append('x').Append(frame.height.ToString("F0"))
+               .Append(" uGUI px on frame ").Append(Time.frameCount)
+               .Append(IsMoving(e) ? " (window MOVING)" : " (window at rest)")
+               .Append("; rate ceiling ").Append(wasCeiling.ToString("F2")).Append(" -> ")
+               .Append(nowCeiling.ToString("F2")).Append(" texels per authored px (the ")
+               .Append(MaxRtDimension).Append(" px per-axis ceiling over the frame, quantised to ")
+               .Append(RateQuantum.ToString("F2")).Append("); EXTREMES then -> now:");
+        for (int i = 0; i < 4; i++)
+        {
+            ExtremeRecord was = e.ExtremesPrev[i];
+            ExtremeRecord now = ExtremeScratch[i];
+            FrameSb.Append(' ').Append(EdgeNames[i]).Append(' ');
+            if (!was.Valid)
+                FrameSb.Append("(no previous reading)");
+            else
+                FrameSb.Append(was.Value.ToString("F0")).Append(" set by '").Append(was.Name)
+                       .Append("' at ").Append(RectText(was.Rect));
+            FrameSb.Append(" -> ").Append(now.Value.ToString("F0")).Append(" set by '")
+                   .Append(now.Name).Append("' at ").Append(RectText(now.Rect))
+                   .Append(was.Valid && string.Equals(was.Name, now.Name, System.StringComparison.Ordinal)
+                       ? " [SAME GRAPHIC, different measurement]"
+                       : " [DIFFERENT GRAPHIC]")
+                   .Append(i < 3 ? ";" : ".");
+        }
+        e.FrameChangeNote = FrameSb.ToString();
+        FrameSb.Length = 0;
+        for (int i = 0; i < 4; i++)
+            e.ExtremesPrev[i] = ExtremeScratch[i];
+
+        if (nowCeiling < wasCeiling - 1e-3f && nowCeiling < BandLimitedTexelsPerPixel - 1e-3f
+            && !e.RateCeilingWarned)
+        {
+            e.RateCeilingWarned = true;
+            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: '{e.Window}' GREW its capture frame to "
+                              + $"{frame.width:F0}x{frame.height:F0} uGUI px, and that growth stepped "
+                              + $"the achievable capture rate from {wasCeiling:F2} down to "
+                              + $"{nowCeiling:F2} render-target texels per authored pixel — BELOW the "
+                              + $"{BandLimitedTexelsPerPixel:F2} band limit, because "
+                              + $"{MaxRtDimension} / {frame.width:F0} px leaves less than 2.00 and the "
+                              + $"rate is quantised to {RateQuantum:F2}. THE CONSEQUENCE: on this "
+                              + "window the eye starts reading unfiltered mip level 0 again, i.e. "
+                              + "exactly the ModBuild 198 defect, for as long as the frame stays this "
+                              + "wide. THE HEADROOM IS SMALL BY CONSTRUCTION: at 2020 px this window "
+                              + "sits at 2.03 and one 32 px quantum of extra width takes it to 1.996. "
+                              + "THE LEVERS, in order: find what draws outside the host rect (the "
+                              + "EXTREMES field on this window's CAPTURE FRAME line names it), then "
+                              + "MaxContentExpansion, then MaxRtDimension. This is warned ONCE per "
+                              + "window; the CAPTURE FRAME line carries the live ceiling every "
+                              + "report.");
+        }
+    }
+
+    private static string RectText(Rect r) =>
+        $"({r.xMin:F0},{r.yMin:F0})-({r.xMax:F0},{r.yMax:F0})";
+
+    /// <summary>Scratch for the frame-change sentence and for the two ModBuild 204 report lines.
+    /// Deliberately not <c>Sb</c>: that one is owned by <c>Report</c>, which is another lane's file,
+    /// and these lines are emitted from inside the same LateUpdate.</summary>
+    private static readonly StringBuilder FrameSb = new(1024);
 
     /// <summary>
     /// Commit the content-scale census this measurement produced, and keep the whole distribution of
@@ -489,7 +968,10 @@ internal static partial class PanelSupersample
     /// <summary>Scratch for the atlas census sentence.</summary>
     private static readonly StringBuilder AtlasSb = new(256);
 
-    /// <summary>Cap on regenerations one scan may force, so a repair can never become the spike.</summary>
+    /// <summary>Cap on regenerations one scan may force, so a repair can never become the spike.
+    /// <para>From ModBuild 204 it is a cap on ONE PASS and no longer a cap on COVERAGE — see
+    /// <see cref="WantsRegeneration"/> for the resume cursor, and for the reason the old behaviour
+    /// was unsound.</para></summary>
     private const int MaxRegeneratePerScan = 256;
 
     /// <summary>
@@ -619,6 +1101,24 @@ internal static partial class PanelSupersample
         e.ContentScanTruncated = false;
         e.RegeneratedComponents = 0;
         e.RegeneratedChars = 0;
+        // ---- ModBuild 204: the three-way splits, the latch census and the regeneration pass ------
+        e.SubMeshesCullFlag = 0;
+        e.SubMeshesOwnAlpha = 0;
+        e.SubMeshesInheritedAlpha = 0;
+        e.SubMeshCullLatched = 0;
+        e.SubMeshCullLatchedNote = string.Empty;
+        e.SubMeshCullLatchedNamed = 0;
+        e.TextCulledFlag = 0;
+        e.TextCulledOwnAlpha = 0;
+        e.TextCulledInheritedAlpha = 0;
+        e.TextCulledNote = string.Empty;
+        e.RegenCapBit = false;
+        e.RegenDeferred = 0;
+        e.RegenSkippedBeforeCursor = 0;
+        // The pair cache is rebuilt by this walk (ScanTmpSubMeshes appends to it for free). Cleared
+        // HERE rather than there, because there is per-component and this is per-scan.
+        e.CullPairs.Clear();
+        e.CullPairsTruncated = false;
         AtlasSb.Length = 0;
         int atlasesNamed = 0;
         bool anyRepaired = false;
@@ -740,6 +1240,15 @@ internal static partial class PanelSupersample
             e.OverPaintMs += (Time.realtimeSinceStartup - commitStarted) * 1000.0;
         }
 
+        // The pair cache is now this walk's, and it covers every text component the walk reached.
+        e.CullPairCollections++;
+        e.CullPairsFrame = Time.frameCount;
+        e.CullPairsSource = "the content scan";
+        // Park or wrap the regeneration cursor — see WantsRegeneration. Must run whether or not
+        // anything was regenerated: a pass that found the whole subtree under the cap is exactly the
+        // pass that completes a sweep.
+        CloseRegenerationPass(e, repairAll);
+
         if (atlasesNamed == 0)
             AtlasSb.Append("no font asset reached");
         e.AtlasNote = AtlasSb.ToString();
@@ -830,7 +1339,7 @@ internal static partial class PanelSupersample
         // actually written into the vertex and UV arrays that get uploaded.
         int meshBad = ScanTmpMesh(e, t, info);
 
-        NoteRendererState(e, t.canvasRenderer);
+        NoteRendererState(e, t.canvasRenderer, t.gameObject.name);
         // AND THE SUB-MESHES THIS COMPONENT HANDS ITS OTHER MATERIALS TO — see Entry.SubMeshesSeen.
         // Done from here rather than from the outer walk on purpose: that walk skips anything
         // !activeInHierarchy, which is precisely one of the states this needs to be able to report.
@@ -851,12 +1360,8 @@ internal static partial class PanelSupersample
             e.TextClean++;
         bad += meshBad;
 
-        if ((!repairAll && bad == 0) || e.RegeneratedComponents >= MaxRegeneratePerScan)
-        {
-            if (e.RegeneratedComponents >= MaxRegeneratePerScan)
-                e.ContentScanTruncated = true;
+        if (!WantsRegeneration(e, repairAll, bad, e.TextComponents))
             return false;
-        }
 
         // THE REPAIR, in the order that makes it a repair rather than a retry: put the characters
         // back in the atlas FIRST (a mesh regenerated against an atlas that still lacks them would
@@ -1018,6 +1523,11 @@ internal static partial class PanelSupersample
     {
         Transform parent = t.transform;
         int layer = e.Layer;
+        // THE PARENT'S OWN CULL FLAG, read ONCE. It is the other half of every sentence below: a
+        // sub-mesh reading cull=TRUE under a parent reading cull=FALSE is the ModBuild 204 latch, and
+        // nothing further has to be measured to say so (see RepairSubMeshCull).
+        CanvasRenderer parentCr = t.canvasRenderer;
+        bool parentCull = parentCr != null && parentCr.cull;
         for (int i = parent.childCount - 1; i >= 0; i--)
         {
             Transform c = parent.GetChild(i);
@@ -1027,6 +1537,14 @@ internal static partial class PanelSupersample
             if (sub == null)
                 continue;
             e.SubMeshesSeen++;
+            // THE PAIR CACHE rides this enumeration for free — see RepairSubMeshCull for why the
+            // invariant is checked from a cache rather than from a walk. Recorded for EVERY sub-mesh
+            // including the pooled empty ones: a pooled sub-mesh that the next string fills would
+            // otherwise be filled with a latched cull flag and stay invisible.
+            if (e.CullPairs.Count < MaxCullPairs)
+                e.CullPairs.Add(new CullPair(t, sub));
+            else
+                e.CullPairsTruncated = true;
 
             // THE REPAIR, FIRST AND UNCONDITIONAL — before the emptiness test below can skip
             // anything. Only when this panel actually holds a private layer; a refused panel has
@@ -1071,9 +1589,42 @@ internal static partial class PanelSupersample
                 bad++;
             }
 
+            // ---- THREE DISJOINT BUCKETS (ModBuild 204), where there used to be one `||` ----------
+            // "16 culled/transparent" is noise: the three conditions have completely different
+            // causes, different fixes and different evidential weight. The CULL FLAG is the ModBuild
+            // 204 latch; a zero OWN alpha is authored or animated; a zero INHERITED alpha is a
+            // CanvasGroup fade somewhere above. Tested in that order and `continue`d, so every
+            // sub-mesh lands in exactly one bucket and the three counts sum to the old one.
             CanvasRenderer cr = sub.canvasRenderer;
-            if (cr != null && (cr.cull || cr.GetAlpha() <= 0.004f || cr.GetInheritedAlpha() <= 0.004f))
+            if (cr != null && cr.cull)
             {
+                e.SubMeshesCullFlag++;
+                e.SubMeshesCulled++;
+                bad++;
+                if (!parentCull)
+                {
+                    // THE LATCH, and it needs no further measurement: TMP writes this flag ONLY from
+                    // inside the parent's `if (m_canvasRenderer.cull != flag)` guard, so a culled
+                    // child under an un-culled parent is a state TMP itself cannot reach or repair.
+                    e.SubMeshCullLatched++;
+                    if (e.SubMeshCullLatchedNamed < MaxCullNamed)
+                    {
+                        e.SubMeshCullLatchedNamed++;
+                        e.SubMeshCullLatchedNote += (e.SubMeshCullLatchedNote.Length > 0 ? "; " : "")
+                            + "'" + c.gameObject.name + "' cull=TRUE under '" + t.gameObject.name
+                            + "' cull=FALSE";
+                    }
+                }
+            }
+            else if (cr != null && cr.GetAlpha() <= 0.004f)
+            {
+                e.SubMeshesOwnAlpha++;
+                e.SubMeshesCulled++;
+                bad++;
+            }
+            else if (cr != null && cr.GetInheritedAlpha() <= 0.004f)
+            {
+                e.SubMeshesInheritedAlpha++;
                 e.SubMeshesCulled++;
                 bad++;
             }
@@ -1093,6 +1644,321 @@ internal static partial class PanelSupersample
     /// <summary>Cached <c>_MainTex</c> id for <see cref="ScanTmpSubMeshes"/> — a string lookup per
     /// sub-mesh per scan would be the most expensive line in the walk.</summary>
     private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
+
+    // ---- THE TMP SUB-MESH CULL LATCH (ModBuild 204) ----------------------------------------------
+
+    /// <summary>Work stack for <see cref="RefreshCullPairs"/>. A fourth stack rather than a shared
+    /// one, for the reason every buffer in this file gets its own: these walks run inside the same
+    /// LateUpdate and can be reached from each other's call chains.</summary>
+    private static readonly List<Transform> CullWalk = new(256);
+
+    /// <summary>
+    /// <b>THE ROOT CAUSE, AND THE REPAIR. THIS IS MODBUILD 204's HEADLINE.</b>
+    ///
+    /// <para><b>THE USER'S REPORT, VERBATIM:</b> <i>"beim Loslassen wurde random ein Stand eingefroren
+    /// der wieder manche elemente nicht sichtbar macht"</i> — and, before that, <i>"beim Loslassen kann
+    /// es passieren, dass die dargestellte Anzeige kaputt ist ... bewege ich es nochmal und lasse los,
+    /// sieht es wieder anders aus"</i>. Inside <c>New Party display</c> exactly TWO of six sub-views
+    /// break: the CHARACTER SHEET and PERKS.</para>
+    ///
+    /// <para><b>THE EVIDENCE IS TWO QUOTATIONS OUT OF THE GAME'S OWN SHIPPED ASSEMBLIES</b>
+    /// (<c>ressources/Managed/Unity.TextMeshPro.dll</c> and <c>UnityEngine.UI.dll</c>; both were
+    /// decompiled and read, not inferred).
+    /// <list type="number">
+    /// <item><b><c>TMP_SubMeshUI.Cull(Rect, bool)</c> IS AN EMPTY METHOD.</b>
+    /// <code>public override void Cull(Rect clipRect, bool validRect) { }</code>
+    /// <c>TMP_SubMeshUI</c> derives from <see cref="MaskableGraphic"/>, so a <see cref="RectMask2D"/>
+    /// registers it as a clippable and calls <c>Cull</c> on it every frame — <b>and it does nothing</b>.
+    /// A RectMask2D is structurally incapable of culling OR UN-CULLING a TMP sub-mesh.</item>
+    /// <item><b>THE ONLY WRITER OF A SUB-MESH'S CULL FLAG SITS INSIDE THE PARENT'S CHANGE-GUARD.</b>
+    /// <c>TextMeshProUGUI.Cull</c>:
+    /// <code>
+    /// bool flag = !validRect || !clipRect.Overlaps(canvasSpaceClippingRect, allowInverse: true);
+    /// if (m_canvasRenderer.cull != flag)              // THE GUARD
+    /// {
+    ///     m_canvasRenderer.cull = flag;
+    ///     ...
+    ///     for (int i = 1; i &lt; m_subTextObjects.Length &amp;&amp; m_subTextObjects[i] != null; i++)
+    ///         m_subTextObjects[i].canvasRenderer.cull = flag;   // ONLY HERE
+    /// }
+    /// </code></item>
+    /// <item><b><c>MaskableGraphic.UpdateCull(bool)</c> IS PRIVATE AND NON-VIRTUAL</b>, and
+    /// <c>MaskableGraphic.UpdateClipParent()</c> calls <c>UpdateCull(cull: false)</c> whenever the
+    /// resolved clipper changes: <c>if (m_ParentMask != null &amp;&amp; (rectMask2D != m_ParentMask ||
+    /// !rectMask2D.IsActive())) { m_ParentMask.RemoveClippable(this); UpdateCull(cull: false); }</c>.
+    /// <c>TextMeshProUGUI</c> cannot override it and does not.</item>
+    /// </list></para>
+    ///
+    /// <para><b>THE LATCH.</b> The parent goes <c>cull: true -> false</c> through
+    /// <c>UpdateClipParent</c>, <b>without the sub-mesh loop running</b>. The sub-meshes stay
+    /// <c>true</c>. The next <c>TextMeshProUGUI.Cull</c> computes <c>flag = false</c>, tests
+    /// <c>m_canvasRenderer.cull != flag</c> — which is now FALSE — and the guard blocks. <b>The
+    /// sub-meshes are never repaired. They are permanently invisible, and nothing in TMP or in uGUI
+    /// can ever fix them.</b></para>
+    ///
+    /// <para><b>AND THE MOD PULLS THAT TRIGGER ITSELF.</b> <c>UnmaskedUiGraphics</c> does
+    /// <c>g.maskable = false; g.RecalculateClipping();</c> on every maskable graphic of a floated
+    /// subtree, and <c>RecalculateClipping</c> IS <c>UpdateClipParent</c>. TMP reaches it too, from
+    /// <c>TMP_SubMeshUI.OnEnable / OnDisable / OnTransformParentChanged</c> and from
+    /// <c>MaskableGraphic.OnEnable / OnDisable</c> on the parent. <b>HONEST CAVEAT, because it cuts
+    /// the other way:</b> <c>UnmaskedUiGraphics</c> sweeps <c>MaskableGraphic</c>, and a
+    /// <c>TMP_SubMeshUI</c> IS one, so a sub-mesh that is in that sweep AND has a live
+    /// <c>m_ParentMask</c> gets <c>UpdateCull(false)</c> of its own and is un-latched by accident.
+    /// That is why the defect is intermittent and per-component rather than total, and it is exactly
+    /// the <i>"random ein Stand"</i> the user reports.</para>
+    ///
+    /// <para><b>WHY EVERY PREVIOUS SCAN WAS CLEAN, AND ALL OF THEM WERE CORRECT.</b> The mesh IS
+    /// submitted; the atlas IS right; the UVs ARE right; the layer IS right; the sampling IS
+    /// band-limited. Twelve rounds measured all of that and every reading is still believed. A boolean
+    /// on a CHILD GameObject that nobody ever split out is <c>true</c>. It is also why the missing
+    /// pieces are a SCATTERED SUBSET: only a string that needs a second atlas page, a fallback font or
+    /// an inline <c>&lt;sprite&gt;</c> HAS a sub-mesh at all. And it is why the character sheet reports
+    /// 19 sub-meshes carrying vertices with 16 of them culled while every parent-level counter reads
+    /// clean.</para>
+    ///
+    /// <para><b>THE REPAIR: COPY THE PARENT'S DECISION ONTO ITS CHILDREN.</b> That is precisely what
+    /// TMP's own loop intends to do; this only supplies the run TMP's guard skipped. Four properties
+    /// of it are load-bearing:
+    /// <list type="number">
+    /// <item><b>IT IS UNCONDITIONAL.</b> Not gated on a defect count, not gated on a scan finding
+    /// something first, not gated on a config dial. This project has shipped FOUR remedies that never
+    /// executed because they were conditioned on the very instrument that was supposed to decide
+    /// whether they were needed — ModBuild 196's text regeneration and ModBuild 198's band-limit floor
+    /// among them. This is not the fifth.</item>
+    /// <item><b>IT CANNOT MAKE ANYTHING VISIBLE THAT TMP INTENDED TO HIDE</b>, for two independent
+    /// reasons. First, it only ever copies PARENT -> CHILDREN, never the reverse, so a legitimately
+    /// culled parent leaves its children culled; the two directions are counted separately
+    /// (<see cref="Entry.CullRepairsUnhid"/> / <see cref="Entry.CullRepairsHid"/>) because they say
+    /// completely different things about what went wrong. Second, and this is the belt to that
+    /// braces: <c>TMP_SubMeshUI</c> does NOT override <c>SetClipRect</c>, so
+    /// <see cref="MaskableGraphic"/>'s own implementation still runs on it and still calls
+    /// <c>canvasRenderer.EnableRectClipping</c>. A RectMask2D's rectangle is therefore still enforced
+    /// IN THE SHADER on an un-culled sub-mesh — <c>cull</c> was only ever the draw-call optimisation
+    /// on top of it. Un-culling can at worst submit quads the shader then discards; it cannot put a
+    /// glyph outside a viewport. (That asymmetry is exactly why TMP could get away with an empty
+    /// <c>Cull</c> override in the first place, and exactly why the latch is invisible until a
+    /// sub-mesh is stranded at <c>true</c>.)</item>
+    /// <item><b>IT WALKS THE ACTUAL CHILD OBJECTS, NOT TMP'S <c>m_subTextObjects</c> ARRAY.</b> TMP's
+    /// own loop reads <c>for (i = 1; i &lt; m_subTextObjects.Length &amp;&amp; m_subTextObjects[i] !=
+    /// null; i++)</c> — it STOPS AT THE FIRST NULL, so a hole in that array strands every entry past
+    /// it even on the code path where the guard does open. Enumerating the GameObject's children has
+    /// no such hole, and it is also the enumeration <see cref="ScanTmpSubMeshes"/> already uses.</item>
+    /// <item><b>THE PER-FRAME COST IS A COMPARE, NOT A WRITE.</b> The (parent, sub-mesh) pairs are
+    /// CACHED (<see cref="Entry.CullPairs"/>, re-collected by every content scan and at the two
+    /// release-edge instants), so the per-frame work is one boolean compare per pair — 19 of them on
+    /// the character window — and only a mismatch writes. The cost is measured and printed against
+    /// the 11.11 ms budget, because "unconditional and every frame" is a claim that has to be
+    /// priced.</item>
+    /// </list></para>
+    ///
+    /// <para><b>THE FLICKER HALF, SAME FILE, SAME MECHANISM.</b> <c>TextMeshProUGUI.Cull</c> defers
+    /// whenever <c>m_isLayoutDirty</c>, stashing <c>m_ClipRect</c> / <c>m_ValidRect</c> and returning
+    /// without updating anything; the stash is consumed later by <c>UpdateCulling()</c>, which compares
+    /// that STORED clip rect against a FRESHLY COMPUTED <c>GetCanvasSpaceClippingRect()</c>. The two
+    /// samples are taken at two different poses, so a rigid canvas move no longer cancels — and the
+    /// size of that error is a number this mod already measures: the UPDATE -> LATEUPDATE POSE GAP,
+    /// mean 2.28 and worst 31.66 authored px. Any text whose glyphs sit within ~32 authored px of a
+    /// viewport edge therefore flips cull state while the window is dragged and is stable when it is
+    /// still. <b>That is the flicker, in a number we already have</b>, and this repair covers it for
+    /// the sub-mesh half by running every frame.</para>
+    ///
+    /// <para><b>REJECTED ALTERNATIVES.</b>
+    /// <list type="number">
+    /// <item><b>HARMONY-PATCH <c>TextMeshProUGUI.Cull</c> to run the loop unconditionally.</b> It is
+    /// the narrowest possible fix and it was refused: it is a per-frame patch on a hot uGUI callback
+    /// invoked by every RectMask2D for every text component in the whole game, mod-floated or not, and
+    /// the mod's patch inventory is a frozen, audited surface. A cached compare over the panels this
+    /// class already owns is smaller in blast radius and is measurable from the log.</item>
+    /// <item><b>SET <c>maskable = false</c> ON THE SUB-MESHES.</b> That is the trigger, not the cure —
+    /// it is literally the call <c>UnmaskedUiGraphics</c> makes, and whether it un-culls depends on
+    /// whether <c>m_ParentMask</c> happens to be non-null at that instant. Relying on a side effect
+    /// with a precondition nobody controls is what produced the intermittency in the first
+    /// place.</item>
+    /// <item><b>FORCE A MESH REGENERATION (<c>ForceMeshUpdate</c>) AND HOPE THE FLAG FOLLOWS.</b>
+    /// ModBuild 197 already ships that on every release and the user reports the defect unchanged.
+    /// Regeneration writes vertices; it does not touch <c>canvasRenderer.cull</c>, and the guard is
+    /// still shut. That path is FALSIFIED, not untested.</item>
+    /// <item><b>WRITE THE CHILD'S FLAG ONTO THE PARENT (the other direction).</b> Would make TMP's
+    /// legitimate culling leak upward and hide whole labels. Never.</item>
+    /// </list></para>
+    /// </summary>
+    private static void ServiceSubMeshCull(Entry e)
+    {
+        try
+        {
+            bool held = e.Panel != null && e.Panel.GuardHostHeld;
+
+            // THE FOUR READINGS' EDGES, taken BEFORE this frame's pass so "at release" is the state
+            // the hand left behind rather than the state this pass just repaired.
+            if (held && !e.CullHeldLast)
+            {
+                // Rising edge: the reading standing before the grab is the BASELINE.
+                e.CullGrabs++;
+                e.CullBaseline = e.CullLive;
+                e.CullDragMin = -1;
+                e.CullDragMax = -1;
+                e.CullDragSamples = 0;
+                e.CullAtRelease = -1;
+                e.CullSettled = -1;
+                e.CullSettleFrame = -1;
+            }
+            else if (!held && e.CullHeldLast)
+            {
+                // Falling edge: force a fresh pair collection so the release reading cannot be a
+                // stale cache, take the reading, and arm the settled one.
+                RefreshCullPairs(e, "the release edge");
+                RepairSubMeshCull(e);
+                e.CullAtRelease = e.CullLive;
+                e.CullSettleFrame = Time.frameCount + SubMeshCullSettleFrames;
+                e.CullHeldLast = held;
+                return;
+            }
+            e.CullHeldLast = held;
+
+            if (e.CullSettleFrame >= 0 && Time.frameCount >= e.CullSettleFrame)
+            {
+                e.CullSettleFrame = -1;
+                RefreshCullPairs(e, "the settled reading");
+                RepairSubMeshCull(e);
+                e.CullSettled = e.CullLive;
+            }
+            else
+            {
+                RepairSubMeshCull(e);
+            }
+
+            if (held)
+            {
+                e.CullDragSamples++;
+                if (e.CullDragMin < 0 || e.CullLive < e.CullDragMin)
+                    e.CullDragMin = e.CullLive;
+                if (e.CullLive > e.CullDragMax)
+                    e.CullDragMax = e.CullLive;
+            }
+        }
+        catch (System.Exception)
+        {
+            // A throw here must cost this frame's invariant pass and nothing else — reaching
+            // LateTick's catch would stand the whole supersample path down. The pair cache is
+            // rebuilt by the next content scan regardless.
+            CullWalk.Clear();
+        }
+    }
+
+    /// <summary>
+    /// THE INVARIANT ITSELF: for every cached (parent, sub-mesh) pair, if the child's cull flag
+    /// disagrees with its parent's, write the PARENT's value onto the child. One compare per pair;
+    /// only a mismatch writes. See <see cref="RepairSubMeshCull"/>'s call-site doc above for the
+    /// decompiled evidence and for why the direction is one-way.
+    /// </summary>
+    private static void RepairSubMeshCull(Entry e)
+    {
+        List<CullPair> pairs = e.CullPairs;
+        if (pairs.Count == 0)
+        {
+            e.CullLive = 0;
+            return;
+        }
+        float started = Time.realtimeSinceStartup;
+        // LATCHED PAIRS SEEN BY THIS PASS, counted BEFORE the write. This — not the number of pairs
+        // left culled afterwards — is what the four readings snapshot: a pair that ends up culled
+        // because its PARENT is culled is TMP working correctly and says nothing, while a child culled
+        // under an UN-culled parent is a state TMP cannot reach and cannot repair. Measuring after the
+        // repair would make every reading read 0 by construction, which is the mistake of measuring
+        // the wrong stage that this project keeps paying for.
+        int latched = 0;
+        for (int i = 0; i < pairs.Count; i++)
+        {
+            CullPair p = pairs[i];
+            if (p.Parent == null || p.Sub == null)
+                continue;
+            CanvasRenderer parentCr = p.Parent.canvasRenderer;
+            CanvasRenderer subCr = p.Sub.canvasRenderer;
+            if (parentCr == null || subCr == null)
+                continue;
+            e.CullChecks++;
+            bool want = parentCr.cull;
+            bool has = subCr.cull;
+            if (has == want)
+                continue;
+            if (!want)
+                latched++;
+            subCr.cull = want;
+            e.CullRepairs++;
+            e.CullRepairsThisWindow++;
+            if (want)
+                e.CullRepairsHid++;
+            else
+                e.CullRepairsUnhid++;
+            e.CullRepairNote = (want ? "HID '" : "UN-HID '") + p.Sub.gameObject.name
+                               + "' under '" + p.Parent.gameObject.name + "' on frame "
+                               + Time.frameCount.ToString();
+        }
+        e.CullLive = latched;
+        e.CullCheckFrames++;
+        e.CullCheckMs += (Time.realtimeSinceStartup - started) * 1000.0;
+    }
+
+    /// <summary>
+    /// Re-collect the (parent, sub-mesh) pair cache by walking the panel subtree. Used at the two
+    /// release-edge instants; the ordinary refresh rides <see cref="ScanTmpSubMeshes"/> for free.
+    /// <para>It deliberately does NOT apply <see cref="ScanTmpText"/>'s filters — that method returns
+    /// early for a component that is not <c>isActiveAndEnabled</c> or whose string is empty, and both
+    /// of those states still have sub-mesh children whose cull flag can be latched. So this collection
+    /// is a superset of the scan's, and the report says which of the two produced the cache.</para>
+    /// </summary>
+    private static void RefreshCullPairs(Entry e, string why)
+    {
+        ConvertedPanel panel = e.Panel;
+        if (panel == null || panel.HostGo == null)
+            return;
+        float started = Time.realtimeSinceStartup;
+        e.CullPairs.Clear();
+        e.CullPairsTruncated = false;
+        CullWalk.Clear();
+        CullWalk.Add(panel.HostGo.transform);
+        while (CullWalk.Count > 0)
+        {
+            int last = CullWalk.Count - 1;
+            Transform t = CullWalk[last];
+            CullWalk.RemoveAt(last);
+            if (t == null)
+                continue;
+            var tmp = t.GetComponent<TMP_Text>();
+            if (tmp != null)
+                CollectCullPairs(e, tmp);
+            for (int i = t.childCount - 1; i >= 0; i--)
+                CullWalk.Add(t.GetChild(i));
+        }
+        CullWalk.Clear();
+        e.CullPairCollections++;
+        e.CullPairsFrame = Time.frameCount;
+        e.CullPairsSource = why;
+        e.CullPairCollectMs += (Time.realtimeSinceStartup - started) * 1000.0;
+    }
+
+    /// <summary>Append every <see cref="TMPro.TMP_SubMeshUI"/> DIRECT CHILD of one text component to
+    /// the pair cache. TMP parents its sub-meshes as direct children
+    /// (<c>TMP_SubMeshUI.AddSubTextObject</c> does <c>SetParent(textComponent.transform)</c>), so this
+    /// is one <c>childCount</c> loop and one <c>GetComponent</c> per child.</summary>
+    private static void CollectCullPairs(Entry e, TMP_Text t)
+    {
+        Transform parent = t.transform;
+        for (int i = parent.childCount - 1; i >= 0; i--)
+        {
+            if (e.CullPairs.Count >= MaxCullPairs)
+            {
+                e.CullPairsTruncated = true;
+                return;
+            }
+            Transform c = parent.GetChild(i);
+            if (c == null)
+                continue;
+            var sub = c.GetComponent<TMP_SubMeshUI>();
+            if (sub != null)
+                e.CullPairs.Add(new CullPair(t, sub));
+        }
+    }
 
     private static bool Finite(Vector3 v) =>
         !(float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z)
@@ -1138,7 +2004,7 @@ internal static partial class PanelSupersample
             }
         }
 
-        NoteRendererState(e, t.canvasRenderer);
+        NoteRendererState(e, t.canvasRenderer, t.gameObject.name);
 
         if (bad > e.WorstTextBad)
         {
@@ -1149,7 +2015,7 @@ internal static partial class PanelSupersample
         if (bad == 0)
             e.TextClean++;
 
-        if ((!repairAll && bad == 0) || e.RegeneratedComponents >= MaxRegeneratePerScan)
+        if (!WantsRegeneration(e, repairAll, bad, e.TextComponents))
             return false;
         if (font.dynamic)
             font.RequestCharactersInTexture(s, t.fontSize, t.fontStyle);
@@ -1204,12 +2070,112 @@ internal static partial class PanelSupersample
     /// collapse into one number, and for the plain statement that NOTHING in this scan can see the
     /// second of those.</para>
     /// </summary>
-    private static void NoteRendererState(Entry e, CanvasRenderer? cr)
+    private static void NoteRendererState(Entry e, CanvasRenderer? cr, string name)
     {
         if (cr == null)
             return;
-        if (cr.cull || cr.GetAlpha() <= 0.004f || cr.GetInheritedAlpha() <= 0.004f)
-            e.TextCulled++;
+        // THREE DISJOINT BUCKETS (ModBuild 204) — the identical `||` this site used to carry. See
+        // ScanTmpSubMeshes for the argument; it applies word for word here, and the three counts sum
+        // to the old TextCulled so nothing that was measured before this build becomes unreadable.
+        string reason;
+        if (cr.cull)
+        {
+            e.TextCulledFlag++;
+            reason = "CULL FLAG";
+        }
+        else if (cr.GetAlpha() <= 0.004f)
+        {
+            e.TextCulledOwnAlpha++;
+            reason = "own alpha 0";
+        }
+        else if (cr.GetInheritedAlpha() <= 0.004f)
+        {
+            e.TextCulledInheritedAlpha++;
+            reason = "inherited alpha 0";
+        }
+        else
+        {
+            return;
+        }
+        e.TextCulled++;
+        if (e.TextCulledNote.Length == 0)
+            e.TextCulledNote = "'" + name + "' (" + reason + ")";
+    }
+
+    /// <summary>
+    /// <b>MAY THIS COMPONENT BE RE-GENERATED BY THIS PASS? — THE ModBuild 204 RESUME CURSOR.</b>
+    ///
+    /// <para><b>WHAT WAS WRONG.</b> <c>ReleaseRepair</c> calls <c>MeasureContent(e, repairAll: true)</c>
+    /// precisely so the regeneration is UNCONDITIONAL — that was ModBuild 197's correction of ModBuild
+    /// 196's "a remedy gated on its own diagnostic" defect, and the release line still advertises it:
+    /// <i>"this pass is unconditional, so if the broken image survives it the text-source family is
+    /// falsified rather than untested"</i>. But the same <c>if</c> also short-circuited on
+    /// <c>RegeneratedComponents &gt;= MaxRegeneratePerScan</c> (256), and this window carries up to
+    /// <b>297</b> text components — the ModBuild 203 log reads 218 on the character sheet, the CARDS
+    /// sub-view measured 270 and the ModBuild 202 log 239, so the window is one tab press from the cap.
+    /// The walk is a DETERMINISTIC depth-first pre-order, so when the cap bit <b>the same components
+    /// were skipped at every release, in every session, forever</b> — and any conclusion drawn from
+    /// "the repair ran and the image is still broken" was unsound for exactly those components. That is
+    /// the fourth instance of this project's signature failure: a remedy that looks unconditional and
+    /// is not.</para>
+    ///
+    /// <para><b>WHY A CURSOR AND NOT AN UNBOUNDED PASS.</b> Lifting the cap was the other option and it
+    /// was priced before it was rejected: the ModBuild 203 log measures ~16.5 ms for 218 components,
+    /// i.e. ~76 µs each, so 297 components is ~22.5 ms — on a release frame that already runs 23-35 ms
+    /// against an 11.11 ms budget, and a dropped frame during a release is exactly the judder this
+    /// class has spent three rounds trying not to add. The cursor keeps the per-pass cost EXACTLY where
+    /// it is today and buys full coverage instead: each <c>repairAll</c> pass starts where the last one
+    /// stopped, and one release already runs TWO passes (<see cref="ReleaseSettleFrames"/> and
+    /// <see cref="ReleaseSecondRepairFrames"/>), so 2 x 256 = 512 covers a 297-component window
+    /// completely in a single release.</para>
+    ///
+    /// <para><b>THE RULES.</b> A component that measured BAD is always regenerated, cursor or not, up
+    /// to the cap — the cursor may never delay a repair the scan actually asked for. A component that
+    /// measured clean is regenerated only when <paramref name="repairAll"/> and its walk index is at or
+    /// past the cursor. When the cap bites the pass records where to resume and marks itself TRUNCATED;
+    /// when a pass reaches the end of the walk under the cap, the cursor wraps to 0 and one full sweep
+    /// is complete. Every one of those numbers is printed (<see cref="ReportSubMeshCull"/>'s
+    /// REGENERATION field), so a truncated pass can never again be reported in language implying
+    /// completeness.</para>
+    /// </summary>
+    private static bool WantsRegeneration(Entry e, bool repairAll, int bad, int index)
+    {
+        if (!repairAll && bad == 0)
+            return false;
+        if (e.RegeneratedComponents >= MaxRegeneratePerScan)
+        {
+            e.ContentScanTruncated = true;
+            e.RegenCapBit = true;
+            e.RegenDeferred++;
+            return false;
+        }
+        if (repairAll && bad == 0 && index < e.RegenCursor)
+        {
+            // Covered by an earlier pass of the SAME round-robin sweep. Counted, never silent.
+            e.RegenSkippedBeforeCursor++;
+            return false;
+        }
+        e.RegenLastIndex = index;
+        return true;
+    }
+
+    /// <summary>Close out one <paramref name="repairAll"/> pass: either park the cursor where the cap
+    /// stopped it, or wrap it and record that a full sweep of the subtree has completed. See
+    /// <see cref="WantsRegeneration"/>.</summary>
+    private static void CloseRegenerationPass(Entry e, bool repairAll)
+    {
+        if (!repairAll)
+            return;
+        e.RegenPassesThisSweep++;
+        if (e.RegenCapBit)
+        {
+            e.RegenCursor = e.RegenLastIndex + 1;
+            return;
+        }
+        e.RegenCursor = 0;
+        e.RegenFullSweeps++;
+        e.RegenPassesLastSweep = e.RegenPassesThisSweep;
+        e.RegenPassesThisSweep = 0;
     }
 
     /// <summary>A component name plus the first few characters of its string, for the report. Bounded
@@ -1257,7 +2223,12 @@ internal static partial class PanelSupersample
         // newly opened sub-view is exactly the case in which the window's drawn content changes
         // without its host rect moving, so nothing else in this class would notice: SyncGeometry's own
         // trigger reads the host transform and the host RectTransform, and a tab press moves neither.
+        // ModBuild 204: AND IT FORCES IT PAST THE TRANSLATION GATE. A tab can be pressed while the
+        // other hand carries the window, and that is precisely the case in which the gate would
+        // otherwise skip the one measurement that genuinely has new information in it. See
+        // SkipMeasureWhileTranslating — this flag is the only way through it.
         e.NextContentFrame = Time.frameCount;
+        e.ForceMeasure = true;
 
         // THE COST FUSE — see SweepBurstCooldownFrames. A change inside the cooldown is the SAME
         // repopulation still settling; it extends a burst that is still running and is counted, but
@@ -1270,6 +2241,14 @@ internal static partial class PanelSupersample
                 e.SweepBurstFramesLeft = Mathf.Max(e.SweepBurstFramesLeft, 1);
             return;
         }
+
+        // AND RE-COLLECT THE SUB-MESH CULL PAIR CACHE (ModBuild 204). A new sub-view brings new text
+        // components and therefore new TMP sub-meshes, and a sub-mesh born after the last content scan
+        // is invisible to the per-frame invariant until the next one — which is up to ten seconds
+        // away, and is exactly the window in which the user reports a freshly opened view coming up
+        // broken. Placed AFTER the cooldown check on purpose, so the same cost fuse that bounds the
+        // 1.71 ms layer sweep also bounds this ~1 ms walk.
+        RefreshCullPairs(e, "a sub-view change");
 
         e.SweepBursts++;
         e.SubViewChangeFrame = Time.frameCount;
@@ -1921,5 +2900,246 @@ internal static partial class PanelSupersample
                    : "material is NOT the default UI material")
                + ": shader '" + (shader != null ? shader.name : "?") + "', renderQueue "
                + mat.renderQueue + probes;
+    }
+
+    // ---- THE TWO ModBuild 204 REPORT LINES ------------------------------------------------------
+
+    /// <summary>
+    /// <b>ONE LINE PER PANEL PER REPORT CADENCE: THE SUB-MESH CULL LATCH, THE INVARIANT REPAIR, THE
+    /// THREE-WAY SPLITS AND THE REGENERATION CURSOR.</b> Emitted from this file rather than as more
+    /// fields on <c>Report</c>'s state line, because each of those needs its own comparison spelled
+    /// out and that line is already at the limit of what a reader can hold.
+    /// </summary>
+    private static void ReportSubMeshCull(Entry e)
+    {
+        float perFrameMs = e.CullCheckFrames > 0 ? (float)(e.CullCheckMs / e.CullCheckFrames) : 0f;
+        float collectMs = e.CullPairCollections > 0
+            ? (float)(e.CullPairCollectMs / e.CullPairCollections)
+            : 0f;
+
+        FrameSb.Length = 0;
+        FrameSb.Append("PANEL SUB-MESH CULL '").Append(e.Window).Append("'").Append(OpenViewTag(e))
+               .Append(": THE INVARIANT — parent TextMeshProUGUI cull -> its TMP_SubMeshUI children — "
+                       + "is checked EVERY FRAME and gated on nothing. ")
+               .Append(e.CullPairs.Count).Append(" (parent, sub-mesh) pair(s) cached")
+               .Append(e.CullPairsTruncated
+                   ? " [TRUNCATED at " + MaxCullPairs + ": every count below is a LOWER BOUND]"
+                   : string.Empty)
+               .Append(", collected on frame ").Append(e.CullPairsFrame).Append(" by ")
+               .Append(e.CullPairsSource).Append(" (").Append(e.CullPairCollections)
+               .Append(" collection(s) at ").Append(collectMs.ToString("F2")).Append(" ms each); ")
+               .Append(e.CullChecks).Append(" compare(s) over ").Append(e.CullCheckFrames)
+               .Append(" frame(s) at ").Append(perFrameMs.ToString("F3"))
+               .Append(" ms per frame against the ").Append(FrameBudgetMs.ToString("F2"))
+               .Append(" ms budget. REPAIRED: ").Append(e.CullRepairs)
+               .Append(" sub-mesh(es) since engage (").Append(e.CullRepairsUnhid)
+               .Append(" UN-HIDDEN — the latch — and ").Append(e.CullRepairsHid)
+               .Append(" hidden because their parent was legitimately culled), ")
+               .Append(e.CullRepairsThisWindow).Append(" in this 10 s window")
+               .Append(e.CullRepairNote.Length > 0 ? "; last: " + e.CullRepairNote : string.Empty)
+               .Append(". LATCH CENSUS at the last content scan (taken AFTER that frame's invariant "
+                       + "pass, so 0 here means the repair is HOLDING and not that no latch "
+                       + "happened — read 'REPAIRED ... UN-HIDDEN' above for that): ")
+               .Append(e.SubMeshCullLatched)
+               .Append(" sub-mesh(es) read cull=TRUE while their PARENT read cull=FALSE, out of ")
+               .Append(e.SubMeshesInUse).Append(" carrying vertices (").Append(e.SubMeshesSeen)
+               .Append(" seen, ").Append(e.SubMeshesEmpty).Append(" pooled/empty)")
+               .Append(e.SubMeshCullLatchedNote.Length > 0
+                   ? " — " + e.SubMeshCullLatchedNote
+                   : string.Empty)
+               .Append(". WHY A SUB-MESH PUT NO PIXELS INTO THE CAPTURE, in three DISJOINT buckets "
+                       + "(they used to be one '||'): ")
+               .Append(e.SubMeshesCullFlag).Append(" CULL FLAG, ").Append(e.SubMeshesOwnAlpha)
+               .Append(" own alpha 0, ").Append(e.SubMeshesInheritedAlpha)
+               .Append(" inherited alpha 0; plus ").Append(e.SubMeshesInactive)
+               .Append(" inactive, ").Append(e.SubMeshesWrongLayer)
+               .Append(" on the wrong layer (repaired), ").Append(e.SubMeshesNoTexture)
+               .Append(" with no bound texture. THE SAME SPLIT FOR WHOLE TEXT COMPONENTS: ")
+               .Append(e.TextCulledFlag).Append(" CULL FLAG, ").Append(e.TextCulledOwnAlpha)
+               .Append(" own alpha 0, ").Append(e.TextCulledInheritedAlpha)
+               .Append(" inherited alpha 0, out of ").Append(e.TextComponents)
+               .Append(" component(s)")
+               .Append(e.TextCulledNote.Length > 0 ? " — first: " + e.TextCulledNote : string.Empty)
+               .Append(". MOVING vs SETTLED (the four readings — LATCHED pairs seen at that instant, "
+                       + "each taken BEFORE that frame's write; ").Append(e.CullGrabs)
+               .Append(" grab(s) seen): baseline before the grab ")
+               .Append(Reading(e.CullBaseline)).Append(", during the drag min ")
+               .Append(Reading(e.CullDragMin)).Append(" max ").Append(Reading(e.CullDragMax))
+               .Append(" over ").Append(e.CullDragSamples).Append(" sample(s), at the release edge ")
+               .Append(Reading(e.CullAtRelease)).Append(", settled +")
+               .Append(SubMeshCullSettleFrames).Append(" frames ").Append(Reading(e.CullSettled))
+               .Append(". REGENERATION (release passes): ").Append(e.RegeneratedComponents)
+               .Append(" of ").Append(e.TextComponents)
+               .Append(" component(s) re-generated by the last pass, cap ")
+               .Append(MaxRegeneratePerScan).Append(" per pass, cursor now at ").Append(e.RegenCursor)
+               .Append(e.RegenCursor == 0
+                   ? " (= the start: a full sweep of the subtree has COMPLETED)"
+                   : " (the pass was TRUNCATED by the cap and the next one RESUMES there — it did NOT "
+                     + "restart at the root)")
+               .Append("; ").Append(e.RegenDeferred).Append(" component(s) deferred to the next pass, ")
+               .Append(e.RegenSkippedBeforeCursor)
+               .Append(" skipped as already covered by an earlier pass of this sweep; ")
+               .Append(e.RegenFullSweeps).Append(" full sweep(s) completed, last one in ")
+               .Append(e.RegenPassesLastSweep).Append(" pass(es); scan truncated: ")
+               .Append(e.ContentScanTruncated ? "YES" : "no")
+               .Append(". CONTENT-SCALE FRESHNESS: ").Append(e.ContentScaleUnmeasured)
+               .Append(" measurement(s) found no measurable rect and therefore kept the PREVIOUS "
+                       + "MinContentScale (deliberate — an unmeasured window and an unscaled one must "
+                       + "not print alike), and the last capture-frame measurement ran on frame ")
+               .Append(e.LastMeasureFrame).Append(" (now ").Append(Time.frameCount)
+               .Append("), so a release that lands on an unmeasured frame is identifiable here.");
+
+        FrameSb.Append(" HOW TO READ IT. (1) THE HEADLINE IS 'REPAIRED ... UN-HIDDEN'. Every "
+                       + "un-hidden sub-mesh is a glyph run that WAS in the mesh, WAS in the atlas, "
+                       + "WAS on the capture layer and was invisible anyway because a boolean on a "
+                       + "child GameObject said so. TMP writes that boolean ONLY from inside "
+                       + "TextMeshProUGUI.Cull's `if (m_canvasRenderer.cull != flag)` guard, and "
+                       + "uGUI's MaskableGraphic.UpdateClipParent clears the PARENT's flag through a "
+                       + "private non-virtual UpdateCull that does not run the loop — after which the "
+                       + "guard is permanently shut. TMP_SubMeshUI.Cull is an EMPTY METHOD, so no "
+                       + "RectMask2D can ever repair it either. Both quotations are in "
+                       + "RepairSubMeshCull's doc, read out of the shipped assemblies. "
+                       + "(2) THE 'REPAIRED' COUNT AND THE 'LATCH CENSUS' MEASURE DIFFERENT STAGES "
+                       + "AND MUST NOT BE READ AS THE SAME NUMBER. The invariant pass runs EVERY "
+                       + "FRAME and the content scan runs after it, so once the repair is working the "
+                       + "LATCH CENSUS necessarily reads 0 — that zero means THE REPAIR IS HOLDING, "
+                       + "not that the latch never happened. The number that proves the latch is real "
+                       + "is 'REPAIRED ... UN-HIDDEN': it can only be non-zero if a sub-mesh was found "
+                       + "culled under an un-culled parent, which is a state TMP itself cannot reach "
+                       + "and cannot fix. So: UN-HIDDEN non-zero = the diagnosis is confirmed; "
+                       + "UN-HIDDEN ZERO across a session in which the user still reports missing "
+                       + "elements RETIRES this hypothesis outright — that outcome is stated here so "
+                       + "it cannot be read as 'the instrument found nothing yet'. A non-zero LATCH "
+                       + "CENSUS on top of a running repair is a THIRD thing: something is "
+                       + "re-latching faster than once per frame, i.e. a writer this repair is losing "
+                       + "a race with, and that is a write-war finding rather than a latch finding. "
+                       + "(3) THE FOUR READINGS ARE WHAT MAKE THE NEXT SESSION CONCLUSIVE, and they "
+                       + "are all taken BEFORE that frame's write, so they are the DEFECT RATE and "
+                       + "not the residue. baseline 0 / drag max N / at release N / settled N means "
+                       + "the latch is being re-created continuously and the repair is holding it off "
+                       + "frame by frame — that is exactly the user's 'beim Loslassen wurde random "
+                       + "ein Stand eingefroren' with the freeze now being repaired every frame. "
+                       + "baseline 0 / drag max N / at release 0 / settled 0 means the latch is "
+                       + "created only while the pose moves — which is the TextMeshProUGUI.Cull "
+                       + "deferred-clip-rect path described in RepairSubMeshCull, and it predicts the "
+                       + "flicker exactly. ALL FOUR ZERO with a non-zero UN-HIDDEN total means the "
+                       + "latch happened outside a grab (a sub-view switch, a re-parent, an enable). "
+                       + "ALL FOUR n/a means no grab was seen at all — the readings did not fail, "
+                       + "there was nothing to read. "
+                       + "(4) THE THREE-WAY SPLITS ARE NOT COSMETIC. 'CULL FLAG' is this defect; 'own "
+                       + "alpha 0' is authored or animated and is not ours; 'inherited alpha 0' is a "
+                       + "CanvasGroup fade above the component. Before this build all three were one "
+                       + "'||' and '16 culled/transparent' carried no information at all. "
+                       + "(5) THE REGENERATION CURSOR CLOSES A FOURTH 'UNCONDITIONAL' REMEDY THAT WAS "
+                       + "NOT. The cap is 256 per pass and this window carries up to 297 components, "
+                       + "and the walk is a deterministic pre-order — so the SAME tail was skipped at "
+                       + "every release, forever, while the release line called the pass "
+                       + "unconditional. One release runs two passes, so 2 x 256 now covers the whole "
+                       + "subtree. If 'cursor now at' is non-zero on every report, the window needs "
+                       + "more passes than a release provides and the lever is MaxRegeneratePerScan — "
+                       + "priced at ~76 microseconds per component against a release frame already "
+                       + "running 23-35 ms.");
+        VRLog.Info(Scope, FrameSb.ToString());
+        FrameSb.Length = 0;
+        e.CullRepairsThisWindow = 0;
+    }
+
+    /// <summary>A four-readings field that never lets "not measured" look like "measured zero".</summary>
+    private static string Reading(int v) => v < 0 ? "n/a" : v.ToString();
+
+    /// <summary>
+    /// <b>ONE LINE PER PANEL PER REPORT CADENCE: THE CAPTURE FRAME, ITS HYSTERESIS AND WHAT SET ITS
+    /// EDGES.</b> The whole argument is on <see cref="MeasureFrame"/>; this prices it.
+    /// </summary>
+    private static void ReportCaptureFrame(Entry e)
+    {
+        int measures = e.ContentMeasures;
+        float needWMean = e.NeedReadings > 0 ? (float)(e.NeedWSum / e.NeedReadings) : 0f;
+        float needHMean = e.NeedReadings > 0 ? (float)(e.NeedHSum / e.NeedReadings) : 0f;
+        float ceiling = e.FrameRateCeiling > 0f ? e.FrameRateCeiling : FrameRateCeilingFor(e.Frame);
+        e.FrameRateCeiling = ceiling;
+
+        FrameSb.Length = 0;
+        FrameSb.Append("PANEL CAPTURE FRAME '").Append(e.Window).Append("'").Append(OpenViewTag(e))
+               .Append(": ").Append(e.Frame.width.ToString("F0")).Append('x')
+               .Append(e.Frame.height.ToString("F0")).Append(" uGUI px = host rect ")
+               .Append(e.HostRectAtMeasure.width.ToString("F0")).Append('x')
+               .Append(e.HostRectAtMeasure.height.ToString("F0")).Append(" + HELD overspill L")
+               .Append(e.HoldLeft.ToString("F0")).Append(" R").Append(e.HoldRight.ToString("F0"))
+               .Append(" D").Append(e.HoldDown.ToString("F0")).Append(" U")
+               .Append(e.HoldUp.ToString("F0")).Append(" px (grid ")
+               .Append(FrameQuantumPx.ToString("F0")).Append(" px). MEASUREMENTS: ").Append(measures)
+               .Append(" taken, ").Append(e.FrameMeasuresSkipped)
+               .Append(" SKIPPED because the window was only being TRANSLATED (the ModBuild 204 gate: "
+                       + "every bound this measurement takes is HOST-LOCAL, so a rigid move cannot "
+                       + "change it — see SkipMeasureWhileTranslating). HYSTERESIS: ")
+               .Append(e.FrameGrows).Append(" grow(s), ").Append(e.FrameShrinks).Append(" shrink(s), ")
+               .Append(e.FrameShrinksRefused)
+               .Append(" shrink(s) REFUSED, current shrink run ").Append(e.ShrinkRun).Append(" of ")
+               .Append(e.FrameOutlierPending
+                   ? FrameOutlierShrinkRunMeasurements + " (an OUTLIER growth is pending, so the run "
+                     + "is shortened)"
+                   : FrameShrinkRunMeasurements.ToString())
+               .Append(", dead band ").Append(FrameShrinkDeadBandQuanta).Append(" quantum(a) = ")
+               .Append((FrameShrinkDeadBandQuanta * FrameQuantumPx).ToString("F0")).Append(" px; ")
+               .Append(e.FrameOutlierGrowths).Append(" outlier growth(s) past ")
+               .Append(FrameOutlierGrowQuanta).Append(" quanta in one step, ")
+               .Append(e.FrameOutlierReleases).Append(" of them released again. ")
+               .Append("MEASURED NEED (the whole distribution, because a flap is a distribution and "
+                       + "its last reading is not): W lowest ")
+               .Append(e.NeedWLowest.ToString("F0")).Append(" mean ").Append(needWMean.ToString("F1"))
+               .Append(" highest ").Append(e.NeedWHighest.ToString("F0")).Append(" / H lowest ")
+               .Append(e.NeedHLowest.ToString("F0")).Append(" mean ").Append(needHMean.ToString("F1"))
+               .Append(" highest ").Append(e.NeedHHighest.ToString("F0")).Append(" over ")
+               .Append(e.NeedReadings).Append(" reading(s). RE-ALLOCATIONS since engage: ")
+               .Append(e.Reallocations).Append(" (the ModBuild 203 log measured 58 in 62 s on this "
+                       + "window, 45 of them inside a grab, 2.51/s held against 0.29/s not held). "
+                       + "RATE CEILING for this frame: ")
+               .Append(ceiling.ToString("F2")).Append(" texels per authored px (")
+               .Append(MaxRtDimension).Append(" px per axis, quantised to ")
+               .Append(RateQuantum.ToString("F2")).Append(") against a band limit of ")
+               .Append(BandLimitedTexelsPerPixel.ToString("F2"))
+               .Append(ceiling < BandLimitedTexelsPerPixel - 1e-3f
+                   ? " — BELOW THE BAND LIMIT: this frame is wide enough that the dimension ceiling, "
+                     + "not the config, is what sets the rate, and the eye is reading unfiltered mip "
+                     + "level 0 again"
+                   : " — at or above it, so growth has not cost this window its band limit")
+               .Append(". FRAME CHANGES: ").Append(e.FrameChanges).Append(" committed since engage; "
+                       + "LAST CHANGE: ").Append(e.FrameChangeNote)
+               .Append(" CONTENT OUTSIDE THE COMMITTED FRAME: ")
+               .Append(e.ExpandClamped
+                   ? "YES — the expansion clamp is biting and content IS being cropped"
+                   : "none")
+               .Append('.');
+
+        FrameSb.Append(" HOW TO READ IT. GROWS + SHRINKS NEAR ZERO OVER A SESSION WITH REAL DRAGS IS "
+                       + "THE FIX WORKING — the frame settled once and stayed there, and the "
+                       + "re-allocation count should be within one or two of the grow count. A LARGE "
+                       + "REFUSED-SHRINK COUNT WITH A LARGE FRAME IS THE HYSTERESIS HOLDING AN "
+                       + "OUTLIER, and the GROWTH BOUND (FrameOutlierGrowQuanta) is what to look at "
+                       + "next; check 'outlier growth(s)' against 'released again' on the same line. "
+                       + "A LARGE SKIP COUNT NEXT TO A SMALL MEASURE COUNT IS EXPECTED AND IS THE "
+                       + "POINT: it is the drag frames that used to re-sample a union that cannot "
+                       + "have changed. THE 'MEASURED NEED' DISTRIBUTION IS THE FALSIFIER FOR THE "
+                       + "WHOLE ROUND: if H lowest and H highest differ by exactly one 32 px quantum "
+                       + "then the ModBuild 203 flap is still live in the MEASUREMENT and the "
+                       + "hysteresis is doing its job downstream of it; if they are equal, the union "
+                       + "itself has stopped moving and the flap was a sampling artefact of the "
+                       + "cadence. THE 'LAST CHANGE' EXTREMES ARE THE ONE FIELD THAT NAMES THE "
+                       + "FLAPPER: four edges, each with the graphic that set it, then and now. "
+                       + "'[SAME GRAPHIC, different measurement]' on the TOP or BOTTOM edge means one "
+                       + "object is being measured to two different heights — a layout or animation "
+                       + "question, not a capture one. '[DIFFERENT GRAPHIC]' means the window's "
+                       + "content genuinely changed and one reallocation is the correct price. NOTE "
+                       + "WHAT THIS LINE CANNOT SEE: a growth that arrives DURING a drag is deferred "
+                       + "to the release re-measure (ReleaseSettleFrames = "
+                       + ReleaseSettleFrames + " frames after the hand stops), so content that "
+                       + "appears outside the frame mid-drag is cropped for the rest of that drag. "
+                       + "That is the stated cost of the translation gate; if a hardware session ever "
+                       + "shows content missing ONLY WHILE DRAGGING and present again the instant the "
+                       + "hand lets go, this is the first suspect and TranslateHoldFrames is the "
+                       + "lever.");
+        VRLog.Info(Scope, FrameSb.ToString());
+        FrameSb.Length = 0;
     }
 }
