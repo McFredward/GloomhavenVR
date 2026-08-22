@@ -416,7 +416,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 217;
+    public const ushort ModBuild = 218;
+    // Build 218: THE SECOND HALF OF THE GAME'S OWN REMEDY. 217 dropped the GrabPass material and the
+    // defect went with it — the user, after eighteen builds: "OMG! DAS PROBLEM IST WEG." What it left
+    // behind was a WHITE BACKDROP, because the graphic's authored colour is RGBA
+    // 1.000/1.000/1.000/0.392 and the stock UI shader honours exactly that.
+    //
+    // UIBlurDisabler does not stop at the material either; its non-black-filter path is
+    //     _image.color = Color.clear; _image.enabled = false;
+    // and that is what ships here. The black-filter path is DELIBERATELY NOT reproduced: its colour
+    // is `new Color(17f, 17f, 17f, 85f)` — components far outside the 0..1 range UnityEngine.Color
+    // takes, so it clamps to opaque white and would put back the very backdrop being removed.
+    // Following the game there would be following a bug.
+    //
+    // The graphic stays in place, switched off, with its layout and hit-testing intact. It is a
+    // backdrop; the window has never needed it drawn. [WorldUI] NeutraliseGrabPassBlur, default on.
+    // Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 217: A GRABPASS BLUR PAINTING OVER 272 OF 764 GRAPHICS — and it has been in the log,
     // named, in the over-paint census's own third slot, for rounds.
     //     #3 'Blur' at New Party display/UI Item Confirmation Box/Blur: rect 1920x1080 px = 99 % of

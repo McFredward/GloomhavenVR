@@ -563,8 +563,9 @@ internal static class WorldUIConfig
                 "blurred copy of its own half-finished self, once per eye, every frame. The mod's " +
                 "log measures one such graphic covering 99 % of the character window and painting " +
                 "over 272 of its 764 visible elements. Dropping the material leaves the element in " +
-                "place with the stock UI shader, which is exactly what the game itself does when you " +
-                "enable its Simplified UI option. Turn it off if you want the blur back."));
+                "place but switched off, exactly as the game itself does when you enable its Simplified " +
+                "UI option, so the room shows through the window instead of a white backdrop. Turn " +
+                "it off if you want the blur back."));
 
         PanelRepairInheritedAlpha = _file.Bind("WorldUI", "PanelRepairInheritedAlpha",
             Defaults.PanelRepairInheritedAlpha,

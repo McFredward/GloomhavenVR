@@ -4241,6 +4241,24 @@ internal static partial class PanelSupersample
         {
             string shaderName = g.material.shader.name;
             g.material = null;
+            // ---- AND THE OTHER TWO LINES OF THE GAME'S OWN REMEDY (ModBuild 218) ---------------
+            // ModBuild 217 dropped the material and stopped there, which fixed the defect outright —
+            // the user: "OMG! DAS PROBLEM IST WEG." — and left the graphic drawing as a plain white
+            // quad, because its authored colour is RGBA 1.000/1.000/1.000/0.392 and the stock UI
+            // shader honours exactly that. He photographed the result: a white backdrop where the
+            // room used to show through.
+            //
+            // UIBlurDisabler does not stop at the material either. Its non-black-filter path is
+            //     _image.color = Color.clear; _image.enabled = false;
+            // and that is the path taken here. The black-filter path is deliberately NOT reproduced:
+            // its colour is `new Color(17f, 17f, 17f, 85f)` — components far outside the 0..1 range a
+            // UnityEngine.Color takes, so it clamps to opaque white and would put back exactly the
+            // backdrop being removed. Following the game there would be following a bug.
+            //
+            // The graphic is left in place, switched off, with its layout and hit-testing intact: it
+            // is a backdrop, and the window has never needed it to be drawn.
+            g.color = Color.clear;
+            g.enabled = false;
             e.GrabPassNeutralised++;
             if (GrabPassSb.Length < 400)
                 GrabPassSb.Append(" '").Append(g.gameObject.name).Append("' (")
