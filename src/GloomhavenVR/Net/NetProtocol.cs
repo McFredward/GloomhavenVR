@@ -416,7 +416,101 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 205;
+    public const ushort ModBuild = 206;
+    // Build 206: THE INK IS NOT WHERE THE MESH SAYS — NOW FIND OUT WHETHER IT IS ELSEWHERE OR NOWHERE.
+    // (One worker plus integration.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── THE A/B THE USER RAN, AND WHAT IT SETTLES ───────────────────────────────────────
+    // "'Fenster scharf zeichnen' zu deaktivieren bringt wieder das konstante Flackern von Beginn
+    // zurück - es hört nur auf mit dieser Option aktiviert, dann aber mit den bekannten Problemen."
+    // So the supersampler is not the disease, it is the CURE for the larger one: with it off the
+    // window flickers constantly from the first frame (the pre-ModBuild-192 defect, everywhere), and
+    // with it on that stops and only this residual remains. The capture path cannot be removed and the
+    // answer is inside it. That closes a branch I would otherwise still have been working.
+    //
+    // ── THE INK CENSUS ANSWERED, AND IT IS THE FIRST POSITIVE FINDING IN FOURTEEN BUILDS ─
+    // Self-check first, because everything rests on it:
+    //     MEDIAN deviation — INKED 196.2–208.0/255, EMPTY 0.0–3.1/255
+    //     row 0 of the readback is the BOTTOM (correlation 0.46–0.52 delivered, −0.22..−0.26 reversed)
+    // Two orders apart, and the orientation resolved with margin on every reading. The verdicts, one
+    // window, 12 components, 139 quads:
+    //     139/139 INKED, 0 EMPTY  ×33 readings
+    //     137/2, 130/9, 127/12, 120/19, 107/32, 99/40, 94/45, 86/53, 71/68, 67/72, 30/109, 19/120, 18/121
+    // and broken readings land at BOTH the release edge and the settled +30 reading.
+    // **THE GLYPHS ARE ABSENT FROM THE CAPTURED TEXTURE.** The resolve, the mip chain, the display quad
+    // and the eye are exonerated in one line: the loss is at or before rasterisation into our target.
+    //
+    // AND ONE HYPOTHESIS DIED ON DATA ALREADY IN HAND, so nobody re-opens it: sub-texel PHASE
+    // ATTENUATION — a one-texel stroke split across two texels at half intensity — is what this class
+    // chased from ModBuild 198 to 202 and it would also produce a varying scattered subset. An
+    // attenuated stroke reads TENS of 255. The EMPTY median is 0.0–3.1. The ink at the predicted place
+    // is not faint, it is NOT THERE. Two possibilities remain: it is somewhere else, or it was never
+    // drawn.
+    //
+    // ── WHY I DID NOT ACT ON IT, AND WHAT 206 ADDS ──────────────────────────────────────
+    // The shape of the answer forbids the obvious reading. The SAME string 'Quest freischalten' —
+    // 17 glyphs, ONE component, ONE mesh, ONE draw call — reads 0/17, 3/14, a DIFFERENT 3/14, 7/10,
+    // 9/8, 12/5 and 16/1 across the session. **You cannot rasterise half a mesh.** A scattered subset
+    // of quads from a single submitted mesh, different every reading, is not something a rasteriser
+    // can produce by dropping some and keeping others.
+    // What produces exactly that: a POSITIONAL disagreement. Shift a string by a fraction of a glyph
+    // advance and some predicted quads land on ink and others land in the gaps between letters —
+    // pseudo-random along the line, a different subset for every offset, 0/17 for a large one and
+    // 16/17 for a small one and 139/139 for none. Every reading fits. So the census as it stood could
+    // not tell "the ink is missing" from "the ink is 30 texels to the left", and after three wrong
+    // diagnoses a number with two readings is not a basis for a fix.
+    //
+    // 206 makes it decide, and the decision is arithmetic, not judgement:
+    //  * MEASURE THE OFFSET. For every INKED glyph, the deviation-weighted ink centroid inside its own
+    //    quad, reported as a distribution in texels and authored px. Only the MEAN speaks to the
+    //    mapping — 'j' sits low-left in its own quad and 'T' is top-heavy, so the scatter carries
+    //    glyph shapes too, and the line says so.
+    //  * SEARCH BEFORE DECLARING ABSENT. 13×13 candidate offsets spanning ±1 glyph advance and ±1 line
+    //    height, fitted PER COMPONENT and not per glyph — in running text a single glyph shifted by one
+    //    advance lands on its NEIGHBOUR, which is also ink, so per-glyph fitting would report a
+    //    spurious match for every glyph. Fitting the whole string breaks that degeneracy; where it does
+    //    not, the result is called a LATTICE ALIAS and reported ambiguous rather than as a shift.
+    //  * THREE DISJOINT FATES: GENUINELY ABSENT / FOUND OFFSET at (dx,dy) / AMBIGUOUS. An offset that
+    //    runs off the strip scores −1 and not 0, because "no ink there" and "we could not look there"
+    //    must not be the same character; and the search cap makes a glyph NOT SEARCHED, never ABSENT,
+    //    because a cap must never be able to manufacture the more alarming verdict.
+    //  * THE BORING EXPLANATIONS, each counted separately: cropped by the committed capture frame (the
+    //    camera's viewport IS e.Frame, so the test reads it live and needs no cooperation from the
+    //    clamp ModBuild 205 added); within one glyph advance of a strip edge; and — new, and it would
+    //    have poisoned everything — the FRAME MOVED between request and delivery. The old staleness
+    //    test compared target id and RtW/RtH, but the mapping subtracts Frame.xMin/yMin, so a frame
+    //    re-committed WITHOUT a re-allocation (the hysteresis can commit new overspill inside
+    //    RectChangeFraction at an unchanged pixel count) re-maps every glyph by ~80 texels while every
+    //    previous check passes. Dropped and counted now.
+    //  * A VERDICT SENTENCE CHOSEN BY THE NUMBERS, in five forms, none of which is silence:
+    //    MAPPING VERIFIED (so EMPTY means absent) / MAPPING DISPLACED by (dx,dy) / MIXED / UNDECIDED
+    //    because no glyph was INKED / UNDECIDED because the search could not classify them.
+    //    MIXED carries its own pointer: some components at zero and others not is a PER-COMPONENT
+    //    displacement, which neither a whole-picture shift nor a rasterisation loss can produce.
+    //
+    // A CONSTANT mapping bug is ALREADY falsified by the 205 data — 33 readings of 139-of-139 cannot
+    // come from a mapping that is wrong by construction — and within one reading the two sides cannot
+    // disagree, because SyncProjection writes the camera from e.Frame in OnPreCull and the census
+    // builds from the same e.Frame, the same RtW/RtH and the same frame's uploaded vertices in
+    // OnPostRender of that same camera. What could still vary is Frame.xMin/yMin, so the line now
+    // prints the frame origin and its sub-texel phase at all three moments: if the origin is identical
+    // across them and the fitted offset is not, the displacement is not coming from the frame.
+    //
+    // WHAT THE NEXT LOG DECIDES, in one sentence each:
+    //   VERIFIED  -> the glyphs were never drawn. The next round works between the mesh upload and the
+    //                capture camera's rasteriser, with the named characters as the sample.
+    //   DISPLACED -> the picture is shifted, and (dx,dy) plus the frame origin say whether that is the
+    //                capture or this instrument. An instrument error is the same offset on every
+    //                reading of every window; a capture displacement moves with the drag and is what
+    //                the user sees.
+    //
+    // COST: the search is ~376k texel reads on a 139-glyph reading, ~2 ms, on the DELIVERY frame two
+    // frames after the release edge — never on the release frame itself. Both halves printed against
+    // the 11.11 ms budget. The inner sample grid went 8×8 → 12×12 so a centroid can resolve a
+    // sub-advance shift; expect EMPTY counts to read marginally LOWER than 205's for the same picture,
+    // because a finer grid also catches a thin stem more often. That is a measurement change, not a fix.
+    //
     // Build 205: THIRTEEN BUILDS OF CLEAN STATE. NOW LOOK AT THE PICTURE ITSELF.
     // (Two workers on isolated worktrees plus integration.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

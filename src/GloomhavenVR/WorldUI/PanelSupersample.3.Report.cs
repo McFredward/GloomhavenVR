@@ -540,6 +540,19 @@ internal static partial class PanelSupersample
               .Append(", ").Append(comp.Ink).Append(" with ink, ").Append(comp.Empty).Append(" EMPTY")
               .Append(comp.Empty > 0 ? ": " + comp.EmptyChars : string.Empty)
               .Append(comp.EmptyNotNamed > 0 ? $" (+{comp.EmptyNotNamed} more not named)" : string.Empty)
+              // ModBuild 206: WHAT BECAME OF THOSE EMPTIES. Without this the line said "something is
+              // missing"; with it the line says what is wrong, which is the difference between another
+              // wrong diagnosis and a fix.
+              .Append(comp.Empty > 0
+                  ? $" — of which {comp.Absent} genuinely ABSENT (no ink anywhere in the search "
+                    + $"window), {comp.FoundOffset} FOUND OFFSET at ({comp.FitDx:F1},{comp.FitDy:F1}) "
+                    + $"texels, {comp.Ambiguous} AMBIGUOUS"
+                    + (comp.EmptyNearStripEdge > 0
+                        ? $"; {comp.EmptyNearStripEdge} of them sit within one glyph advance of a "
+                          + "strip edge and are not clean readings whichever bucket they fell in"
+                        : string.Empty)
+                    + (comp.FitNote.Length > 0 ? ". FIT: " + comp.FitNote : string.Empty)
+                  : string.Empty)
               .Append('.');
         }
         if (c.Comps.Count > named)
@@ -577,6 +590,62 @@ internal static partial class PanelSupersample
                   + "healthy reading has the EMPTY median in the single digits and the INKED median in "
                   + "three.");
 
+        // ---- THE MAPPING SELF-CHECK (ModBuild 206) ----------------------------------------------
+        // WHY IT IS HERE: the ModBuild 205 census answered, and the shape of the answer forced this.
+        // The SAME component — 'Quest freischalten', 17 glyphs, ONE mesh, ONE draw call — reported
+        // 0/17 EMPTY, then 3/14, then 3/14 with a DIFFERENT subset, then 7/10, 9/8, 12/5, 16/1, and 33
+        // readings of 139-of-139 clean. You cannot rasterise half a mesh, so a scattered varying
+        // subset out of one submitted mesh is not the rasteriser dropping quads — it is a POSITIONAL
+        // disagreement between where the census predicts a quad and where the ink is. These two fields
+        // measure that displacement instead of assuming it is zero.
+        float rateX = Mathf.Max(c.RateX, 1e-4f), rateY = Mathf.Max(c.RateY, 1e-4f);
+        float mdx = c.CentroidCount > 0 ? (float)(c.CentroidDxSum / c.CentroidCount) : 0f;
+        float mdy = c.CentroidCount > 0 ? (float)(c.CentroidDySum / c.CentroidCount) : 0f;
+        Sb.Append(" MAPPING SELF-CHECK, PART 1 — WHERE THE INK ACTUALLY SITS INSIDE THE QUADS THAT DO "
+                  + "HAVE INK. Displacement of the ink centroid from the predicted quad centre, over ")
+          .Append(c.CentroidCount).Append(" INKED glyph(s): X lowest ")
+          .Append(c.CentroidDxLow.ToString("F2")).Append(", MEAN ").Append(mdx.ToString("F2"))
+          .Append(", highest ").Append(c.CentroidDxHigh.ToString("F2")).Append(" texels; Y lowest ")
+          .Append(c.CentroidDyLow.ToString("F2")).Append(", MEAN ").Append(mdy.ToString("F2"))
+          .Append(", highest ").Append(c.CentroidDyHigh.ToString("F2")).Append(" texels — i.e. a mean "
+                  + "of ")
+          .Append((mdx / rateX).ToString("F2")).Append(',').Append((mdy / rateY).ToString("F2"))
+          .Append(" AUTHORED px, against a ").Append(InkMappingVerifiedTexels.ToString("F1"))
+          .Append("-texel bar. READ THE MEAN, NOT THE EXTREMES: a single glyph's ink is not centred in "
+                  + "its own quad ('j' sits low and left, 'T' is top-heavy), so the per-glyph scatter "
+                  + "carries the glyph SHAPES as well as any displacement and only the mean is a "
+                  + "statement about the mapping. A systematic non-zero mean is a displaced capture or "
+                  + "a wrong mapping; a mean near zero with this much scatter is the mapping being "
+                  + "right, and then an EMPTY verdict really does mean absent.");
+
+        Sb.Append(" MAPPING SELF-CHECK, PART 2 — WHERE THE MISSING GLYPHS ARE, IF THEY ARE ANYWHERE. "
+                  + "Every EMPTY glyph is re-tested over a bounded search window of +/- one glyph "
+                  + "advance in X and +/- one line height in Y around its predicted position, and the "
+                  + "offset is fitted PER COMPONENT rather than per glyph — a whole-string "
+                  + "displacement is ONE number for the string, and fitting per glyph is degenerate "
+                  + "because in running text a glyph shifted by one advance lands on its NEIGHBOUR, "
+                  + "which is also ink. OF ").Append(c.TotalEmpty).Append(" EMPTY glyph(s): ")
+          .Append(c.EmptyAbsent)
+          .Append(" GENUINELY ABSENT (nothing within the search window either), ")
+          .Append(c.EmptyFoundOffset).Append(" FOUND OFFSET, ").Append(c.EmptyAmbiguous)
+          .Append(" AMBIGUOUS (of which ").Append(c.EmptyNotSearched)
+          .Append(" were never searched because the ").Append(MaxInkSearchGlyphs)
+          .Append("-glyph search cap bit — a cap must never be able to manufacture the more alarming "
+                  + "verdict, so those are NOT counted as absent), and ")
+          .Append(c.EmptyNearStripEdge)
+          .Append(" sit within one glyph advance of a strip edge (an OVERLAY count, not a fourth "
+                  + "bucket: a partially covered quad is not a clean reading whichever bucket it "
+                  + "landed in). THE FITTED OFFSETS, over ").Append(c.FitCount)
+          .Append(" component(s) that produced a usable sub-advance fit: X ")
+          .Append(c.FitDxLow.ToString("F1")).Append("..").Append(c.FitDxHigh.ToString("F1"))
+          .Append(", Y ").Append(c.FitDyLow.ToString("F1")).Append("..")
+          .Append(c.FitDyHigh.ToString("F1")).Append(" texels; ").Append(c.FitLatticeAlias)
+          .Append(" component(s) fitted a LATTICE ALIAS (an offset a whole advance or line away, "
+                  + "which an is-there-ink test cannot tell from the truth in running text, so it is "
+                  + "reported as ambiguous and never as a displacement) and ").Append(c.FitNoFit)
+          .Append(" found NOTHING better than the predicted position. PER COMPONENT:")
+          .Append(c.FitNote);
+
         Sb.Append(" ORIENTATION SELF-CHECK: ").Append(c.Orientation)
           .Append(". This is MEASURED and not assumed because AsyncGPUReadback returns the source "
                   + "texture's own layout and Unity does not flip it; a census that guessed would read "
@@ -594,6 +663,22 @@ internal static partial class PanelSupersample
           .Append(" host-local uGUI px and the target is ").Append(c.RtW).Append('x').Append(c.RtH)
           .Append(" texels, so the authored-to-texel rate is ").Append(c.RateX.ToString("F3"))
           .Append(" x ").Append(c.RateY.ToString("F3"))
+          .Append(". THE FRAME'S ORIGIN, which is what a VARYING displacement would have to come from: "
+                  + "xMin ").Append(c.FrameAtRequest.xMin.ToString("F3")).Append(", yMin ")
+          .Append(c.FrameAtRequest.yMin.ToString("F3")).Append(" host-local uGUI px, i.e. a sub-texel "
+                  + "PHASE of ")
+          .Append((c.FrameAtRequest.xMin * c.RateX - Mathf.Floor(c.FrameAtRequest.xMin * c.RateX))
+                  .ToString("F3"))
+          .Append(',')
+          .Append((c.FrameAtRequest.yMin * c.RateY - Mathf.Floor(c.FrameAtRequest.yMin * c.RateY))
+                  .ToString("F3"))
+          .Append(" texels. The mapping subtracts this origin and so does SyncProjection, so the two "
+                  + "cannot disagree ABOUT IT — but it is printed because a frame origin that moves "
+                  + "between readings is the only quantity in this path that could make the SAME "
+                  + "string register at a different offset on different captures, which is exactly the "
+                  + "pattern that forced the mapping self-check. Compare it across the three moments: "
+                  + "if the origin is identical and the fitted offset is not, the displacement is not "
+                  + "coming from the frame")
           .Append(" — character for character the pair RecordAchievedFactor reports as the ACHIEVED "
                   + "factor. The configured factor is deliberately NOT used: the band-limit floor, the "
                   + "content-scale boost, RateQuantum, the VRAM step-down and the ")
@@ -607,8 +692,20 @@ internal static partial class PanelSupersample
           .Append(c.RtW).Append(" (the ").Append(MaxInkCensusTexels)
           .Append("-texel readback budget divided by the target's height, i.e. ")
           .Append((c.StripW * c.StripH * 4f / (1024f * 1024f)).ToString("F1"))
-          .Append(" MB per request); ").Append(c.GlyphsOutsideStrip)
-          .Append(" glyph quad(s) fell outside it or were under two texels on an axis, ")
+          .Append(" MB per request); ").Append(c.GlyphsOutsideFrame)
+          .Append(" glyph quad(s) fell outside the COMMITTED CAPTURE FRAME itself and are therefore "
+                  + "CROPPED — legitimately absent from the picture and NEVER a defect. That is the "
+                  + "authoritative crop test and it needs no cooperation from any other lane: the "
+                  + "camera's viewport IS the frame, so whatever shrinks the frame (the expansion "
+                  + "limit, the hysteresis, a band-limit clamp) shows up here, live. ")
+          .Append(c.GlyphsOutsideStrip)
+          .Append(" further quad(s) were inside the frame but outside the census strip, or were under "
+                  + "two texels on an axis, ")
+          .Append(c.GlyphsSubMeshTransform)
+          .Append(" were excluded because a TMP_SubMeshUI child's local transform is not identity, so "
+                  + "the parent's matrix could not speak for them (expect 0; excluded rather than "
+                  + "mismapped, because a mismapped glyph reports EMPTY and that is the one answer "
+                  + "this instrument must not be able to invent), ")
           .Append(c.GlyphsClipped)
           .Append(" were CLIPPED AWAY by a mask or a scroll viewport (uGUI clips in the SHADER, so a "
                   + "scrolled-out label keeps a perfect quad in the submitted mesh and draws nothing "
@@ -637,6 +734,11 @@ internal static partial class PanelSupersample
           .Append(" completed, ").Append(c.Errors).Append(" readback error(s), ")
           .Append(c.DroppedStale)
           .Append(" dropped because the target was re-allocated between request and delivery, ")
+          .Append(c.DroppedFrameMoved)
+          .Append(" dropped because the COMMITTED CAPTURE FRAME moved between request and delivery "
+                  + "WITHOUT a re-allocation (the mapping subtracts the frame's origin, so such a "
+                  + "reading is stale by construction — and a frame that moves between two frames is "
+                  + "itself the same re-mapping that would displace the picture the eye sees), ")
           .Append(c.DroppedInFlight)
           .Append(" deferred because a readback was still in flight (the mod-wide budget is ")
           .Append(MaxInkReadsInFlight)
@@ -662,7 +764,24 @@ internal static partial class PanelSupersample
                   + "MOMENTS TOGETHER: the release edge, thirty frames later, and the settled cadence. "
                   + "The user's report is that the picture FREEZES broken on release, so 'EMPTY at the "
                   + "release edge and INKED thirty frames later' is a transient the eye saw for a third "
-                  + "of a second, while 'EMPTY at both' is a LATCHED image and a different bug.");
+                  + "of a second, while 'EMPTY at both' is a LATCHED image and a different bug. (5) "
+                  + "AND READ THE VERDICT BELOW BEFORE ANY OF THAT. ModBuild 205 could not tell a "
+                  + "missing glyph from a glyph this instrument was looking for in the wrong place, "
+                  + "and its own output said so: one component, one mesh, one draw call, reporting a "
+                  + "different scattered subset of its 17 glyphs on every reading. You cannot "
+                  + "rasterise half a mesh. Everything above is only about MISSING INK if the verdict "
+                  + "says the mapping is VERIFIED. (6) ONE HYPOTHESIS IS ALREADY DEAD AND SHOULD NOT "
+                  + "BE RE-OPENED: sub-texel PHASE ATTENUATION — a one-texel stroke split across two "
+                  + "texels at half intensity each, which this class chased from ModBuild 198 to 202 "
+                  + "and which would also produce a varying scattered subset. It is killed by the "
+                  + "EMPTY median deviation printed above: an attenuated stroke reads tens of 255, not "
+                  + "single digits. If that median is at or near zero, the ink at the predicted place "
+                  + "is not faint, it is NOT THERE — which leaves exactly two live possibilities, and "
+                  + "the verdict below picks between them: the ink is somewhere else (displacement), "
+                  + "or it was never drawn (absence).");
+
+        // ---- REQUIREMENT 4: THE VERDICT, LAST AND IN ONE SENTENCE, CHOSEN BY THE NUMBERS ---------
+        Sb.Append(" MAPPING VERDICT: ").Append(c.MappingVerdict);
 
         VRLog.Info(Scope, Sb.ToString());
         Sb.Length = 0;

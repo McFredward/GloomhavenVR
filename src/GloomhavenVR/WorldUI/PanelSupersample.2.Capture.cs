@@ -2590,12 +2590,84 @@ internal static partial class PanelSupersample
     /// game's Sarala-Regular SDF atlas and still leaves the full stem of an 'l' or an 'i'.</summary>
     private const float InkQuadInset = 0.15f;
 
-    /// <summary>Interior samples per axis inside one glyph quad (so up to 64 per glyph), and the width
-    /// in texels of the ring just OUTSIDE the quad from which the local background is taken. The ring
-    /// background is a MEDIAN, not a mean, so an adjacent glyph intruding into the ring cannot drag
-    /// the estimate onto the ink.</summary>
-    private const int InkInnerSamples = 8;
+    /// <summary>Interior samples per axis inside one glyph quad (so up to 144 per glyph), and the
+    /// width in texels of the ring just OUTSIDE the quad from which the local background is taken.
+    /// <para>TWELVE, raised from eight in ModBuild 206, and the reason is the INK CENTROID: at 8x8 a
+    /// glyph quad ~25x40 texels wide is sampled every 3x5 texels and the centroid it yields cannot
+    /// resolve the sub-advance displacement the mapping self-check exists to measure. At 12 the grid
+    /// is ~2x3 texels and the centroid is good to about a texel, which is a fifth of the smallest
+    /// displacement that could produce the observed pattern.</para></summary>
+    private const int InkInnerSamples = 12;
     private const int InkRingBandTexels = 2;
+
+    // ---- THE MAPPING SELF-CHECK (ModBuild 206) --------------------------------------------------
+    //
+    // WHY IT EXISTS. ModBuild 205's census answered, and the SHAPE of the answer is what forced this.
+    // The same component — 'Quest freischalten', 17 glyphs, ONE mesh, ONE draw call — came back
+    // across one session as 0/17 EMPTY, 3/14, 3/14 with a DIFFERENT subset, 7/10, 9/8, 12/5, 16/1,
+    // and 33 readings of 139-of-139 with nothing empty at all. YOU CANNOT RASTERISE HALF A MESH: a
+    // varying, spatially scattered subset of quads out of one submitted mesh cannot be produced by a
+    // rasteriser dropping some quads and keeping others.
+    //
+    // WHAT CAN PRODUCE EXACTLY THAT is a POSITIONAL DISAGREEMENT between where this census predicts a
+    // quad and where the ink actually is. Displace the whole string by a fraction of a glyph advance
+    // and some predicted quads land on ink and others land in the gaps BETWEEN letters — pseudo-random
+    // along the string, a different subset for every different offset, 0-of-17 for a large offset and
+    // 16-of-17 for a small one. That fits every reading including the perfect ones (offset ~ 0).
+    //
+    // AND THE CENSUS COULD NOT TELL THAT APART FROM A GENUINELY DISPLACED CAPTURE, which would itself
+    // be the bug. So it measures the displacement instead of assuming it is zero, and says which.
+    // Two independent estimates are taken, deliberately, because either alone is arguable:
+    //
+    //   (1) THE INK CENTROID, over the glyphs judged INKED. Sub-texel, cheap, and it needs no search
+    //       — but a single glyph's ink is not centred in its own quad ('j' sits low and left, 'T' is
+    //       top-heavy), so only the MEAN over many glyphs is meaningful and the report prints the
+    //       whole distribution rather than one number.
+    //   (2) THE JOINT REGISTRATION SEARCH, per COMPONENT. One offset is fitted to ALL of a
+    //       component's glyphs at once — the offset at which the most of them pass the ink test —
+    //       because a whole-string displacement is ONE number for the string, not one per glyph.
+    //       Fitting per glyph would be meaningless: in running text, shifting a single glyph by one
+    //       advance lands it on its NEIGHBOUR, which is also ink, so every glyph would report a
+    //       spurious match. Fitting the string as a whole is what breaks that degeneracy — and where
+    //       it does not (a best offset a full advance away is a LATTICE ALIAS, not a finding) the
+    //       report says so instead of claiming a displacement.
+
+    /// <summary>Offsets per axis in the joint registration search (so up to 169 candidate offsets),
+    /// spanning +/- one glyph advance in X and +/- one line height in Y around the predicted position.
+    /// Odd on purpose so the ZERO offset is exactly the middle sample and the search always contains
+    /// the null hypothesis.</summary>
+    private const int InkSearchSteps = 13;
+
+    /// <summary>Interior samples per axis used INSIDE the search (so 16 per glyph per offset, against
+    /// <see cref="InkInnerSamples"/>'s 144 for the verdict itself). The search only has to find where
+    /// the ink IS; the fine grid then re-judges nothing, because the classification is taken from the
+    /// coarse score at the fitted offset. 169 offsets x 16 samples x 139 glyphs is ~376k texel reads,
+    /// which is the whole measured cost of this addition.</summary>
+    private const int InkSearchCoarseSamples = 4;
+
+    /// <summary>Glyphs whose component may be given a joint registration search in one census. Beyond
+    /// this the remaining components' EMPTY glyphs are reported as NOT SEARCHED rather than as
+    /// genuinely absent — a cap must never be able to manufacture the more alarming verdict.</summary>
+    private const int MaxInkSearchGlyphs = 384;
+
+    /// <summary>
+    /// A fitted offset counts as a genuine SUB-ADVANCE displacement only inside this fraction of one
+    /// glyph advance in X and one line height in Y. Beyond it the offset is a LATTICE ALIAS — the
+    /// string re-registered onto its own neighbouring letters or its neighbouring line, which any
+    /// is-there-ink test is degenerate against in running text — and the component's EMPTY glyphs are
+    /// reported AMBIGUOUS instead of FOUND OFFSET. 0.6, i.e. comfortably inside half an advance.
+    /// </summary>
+    private const float InkSubAdvanceFraction = 0.6f;
+
+    /// <summary>Mean ink-centroid displacement, in texels, at or below which the mapping is called
+    /// VERIFIED. 1.5 texels is 0.6 authored px at the shipped factor 2.5 — below the sub-pixel
+    /// registration this whole path is built on, and far below the several-texel offset that would be
+    /// needed to move a glyph quad off its own ink.</summary>
+    private const float InkMappingVerifiedTexels = 1.5f;
+
+    /// <summary>Fraction of the classified EMPTY glyphs one bucket must hold before the verdict names
+    /// it outright rather than reporting MIXED.</summary>
+    private const float InkVerdictMajority = 0.6f;
 
     /// <summary>Bands the orientation self-check splits the strip into, the stride at which the
     /// measured band profile is sampled, and the two bars the verdict must clear: an absolute
@@ -2675,6 +2747,41 @@ internal static partial class PanelSupersample
         internal int Empty;
         internal string EmptyChars = string.Empty;
         internal int EmptyNotNamed;
+
+        // ---- the slice of InkCensus.Glyphs this component owns, and its own scale ---------------
+        // The glyph list is built component by component, so each component's glyphs are contiguous.
+        // The two radii are what the joint registration search spans: one glyph advance in X and one
+        // line height in Y, both estimated from this component's OWN quads rather than from a
+        // constant, because this window carries body text and headings at very different sizes.
+        internal int FirstGlyph;
+        internal int GlyphCount;
+        internal float AdvanceX;
+        internal float LineY;
+
+        // ---- the three DISJOINT fates of an EMPTY glyph (ModBuild 206) -------------------------
+        /// <summary>EMPTY at the predicted place and EMPTY everywhere in the search window: the ink
+        /// is genuinely absent from the capture.</summary>
+        internal int Absent;
+
+        /// <summary>EMPTY at the predicted place but FOUND at a sub-advance offset: a mapping or
+        /// capture DISPLACEMENT, and the offset is the finding.</summary>
+        internal int FoundOffset;
+
+        /// <summary>Neither could be established — the search could not run, ran into the strip edge,
+        /// or fitted a LATTICE ALIAS (an offset a whole advance or line away, which an is-there-ink
+        /// test cannot distinguish from the truth in running text).</summary>
+        internal int Ambiguous;
+
+        /// <summary>EMPTY glyphs sitting within one glyph advance of a strip edge. An OVERLAY count,
+        /// not a fourth bucket: a partially covered quad is not a clean reading whichever bucket it
+        /// landed in, and the line says so rather than quietly counting it as evidence.</summary>
+        internal int EmptyNearStripEdge;
+
+        /// <summary>The offset this component's glyphs registered best at, in texels, and whether the
+        /// fit is usable (in the window, sub-advance, and better than the null hypothesis).</summary>
+        internal float FitDx, FitDy;
+        internal int FitPassAtBest, FitPassAtZero;
+        internal string FitNote = string.Empty;
     }
 
     /// <summary>Per-window census state: what is armed, what is in flight, and every counter the line
@@ -2708,6 +2815,27 @@ internal static partial class PanelSupersample
         internal bool WalkTruncated;
 
         /// <summary>
+        /// <b>GLYPH QUADS THE COMMITTED CAPTURE FRAME DOES NOT CONTAIN — i.e. CROPPED, AND THEREFORE
+        /// LEGITIMATELY ABSENT.</b> Split out of <see cref="GlyphsOutsideStrip"/> in ModBuild 206
+        /// because the two mean opposite things and were being added together.
+        /// <para>The capture camera's viewport IS <see cref="Entry.Frame"/> (see
+        /// <see cref="SyncProjection"/>), so in texel space the frame is exactly [0, RtW] x [0, RtH]
+        /// and a quad straddling that boundary is content the capture cannot hold. That is the
+        /// authoritative crop test and it needs no cooperation from any other lane: whatever clamps
+        /// the frame — the expansion limit, the hysteresis, a band-limit clamp — does it by making
+        /// <c>Frame</c> smaller, and this test reads <c>Frame</c> live. A cropped glyph must NEVER be
+        /// counted as a defect, and before this split it was.</para>
+        /// </summary>
+        internal int GlyphsOutsideFrame;
+
+        /// <summary>Glyphs excluded because their material is served by a TMP_SubMeshUI CHILD whose
+        /// local transform is NOT identity, so the parent's matrix would map them to the wrong texels.
+        /// Expected 0 — TMP creates its sub-mesh children matching the parent rect — and excluded
+        /// rather than mismapped, because an instrument that mismaps a glyph reports it EMPTY and that
+        /// is exactly the wrong answer to hand this investigation.</summary>
+        internal int GlyphsSubMeshTransform;
+
+        /// <summary>
         /// <b>GLYPH QUADS EXCLUDED BECAUSE A MASK OR A SCROLL VIEWPORT CLIPS THEM, AND THIS COUNTER IS
         /// LOAD-BEARING.</b> uGUI's <see cref="RectMask2D"/> and <see cref="Mask"/> discard fragments
         /// in the SHADER, so a label scrolled out of a viewport keeps a perfectly good quad in the
@@ -2737,6 +2865,41 @@ internal static partial class PanelSupersample
         internal int TotalGlyphs, TotalInk, TotalEmpty;
         internal float MedDevInk = -1f, MedDevEmpty = -1f;
         internal double BuildMs, ReadMs;
+
+        // ---- THE MAPPING SELF-CHECK'S OWN RESULT (ModBuild 206) ---------------------------------
+
+        /// <summary>The capture frame as it stood when the request went out. Compared against the LIVE
+        /// frame at delivery: any movement at all makes every texel coordinate in the result describe a
+        /// viewport that no longer exists, so the reading is DROPPED rather than judged. The frame is
+        /// quantised to a 32 px grid and damped by hysteresis, so it is either identical or a whole
+        /// quantum different — there is no near-miss to tolerate.</summary>
+        internal Rect FrameAtRequest;
+        internal int DroppedFrameMoved;
+
+        /// <summary>THE INK-CENTROID DISPLACEMENT over the glyphs judged INKED, per axis, in texels:
+        /// lowest / mean / highest over a count. Never one number — a single glyph's ink is not
+        /// centred in its own quad, so the per-glyph scatter carries the glyph SHAPES as well as any
+        /// displacement and only the mean is about the mapping.</summary>
+        internal int CentroidCount;
+        internal float CentroidDxLow, CentroidDxHigh, CentroidDyLow, CentroidDyHigh;
+        internal double CentroidDxSum, CentroidDySum;
+
+        /// <summary>The three disjoint fates of an EMPTY glyph, summed over the components, plus the
+        /// EMPTY glyphs no search could be spent on because the cap bit.</summary>
+        internal int EmptyAbsent, EmptyFoundOffset, EmptyAmbiguous, EmptyNotSearched;
+        internal int EmptyNearStripEdge;
+
+        /// <summary>The distribution of the FITTED offsets across the components that produced a
+        /// usable sub-advance fit, in texels. A whole-string displacement gives a tight cluster; noise
+        /// gives scatter, and the spread is printed so the two cannot be confused.</summary>
+        internal int FitCount;
+        internal float FitDxLow, FitDxHigh, FitDyLow, FitDyHigh;
+        internal double FitDxSum, FitDySum;
+        internal int FitLatticeAlias, FitNoFit;
+
+        /// <summary>THE ONE-SENTENCE VERDICT, chosen by the numbers rather than left to the reader.</summary>
+        internal string MappingVerdict = "not measured yet";
+        internal string FitNote = string.Empty;
 
         // ---- since engage -----------------------------------------------------------------------
         internal int Armed, Issued, Completed, Errors;
@@ -2768,6 +2931,12 @@ internal static partial class PanelSupersample
     private static readonly List<float> InkDevEmpty = new(MaxInkCensusGlyphs);
     private static readonly List<float> InkScratch = new(4096);
     private static readonly StringBuilder InkCharsSb = new(128);
+
+    // The mapping self-check's per-glyph working set, indexed in lockstep with InkCensus.Glyphs.
+    private static readonly float[] InkGlyphBg = new float[MaxInkCensusGlyphs];
+    private static readonly bool[] InkGlyphInked = new bool[MaxInkCensusGlyphs];
+    private static readonly float[] InkSearchScores = new float[InkSearchSteps * InkSearchSteps];
+    private static readonly StringBuilder InkFitSb = new(512);
 
     /// <summary>Arm a census for this window. It is ISSUED later in the same frame, from the capture
     /// camera's own <see cref="Camera.onPostRender"/> — i.e. after <see cref="ResolveAndMip"/> has
@@ -2871,6 +3040,10 @@ internal static partial class PanelSupersample
         c.RtH = e.RtH;
         c.FrameW = e.Frame.width;
         c.FrameH = e.Frame.height;
+        // ModBuild 206: the WHOLE frame rect, not only its size. The mapping subtracts Frame.xMin /
+        // Frame.yMin, so a frame that keeps its size and MOVES its origin re-maps every glyph without
+        // changing a single number the previous staleness test compared. See InkCensus.FrameAtRequest.
+        c.FrameAtRequest = e.Frame;
         c.InFlight = true;
         c.Gen++;
         c.Issued++;
@@ -2959,6 +3132,8 @@ internal static partial class PanelSupersample
         c.GlyphsOutsideStrip = 0;
         c.GlyphsSkippedCap = 0;
         c.GlyphsClipped = 0;
+        c.GlyphsOutsideFrame = 0;
+        c.GlyphsSubMeshTransform = 0;
         c.ComponentsNotDrawn = 0;
         c.WalkTruncated = false;
 
@@ -3074,10 +3249,22 @@ internal static partial class PanelSupersample
                 MeshGlyphs = cand.MeshGlyphs,
             };
             int compIndex = c.Comps.Count;
+            comp.FirstGlyph = c.Glyphs.Count;
+            float sumW = 0f, sumH = 0f;
             for (int g = cand.First; g < cand.First + cand.Count; g++)
             {
                 InkGlyph gl = InkCandidates[g];
-                if (gl.X0 < stripX || gl.X1 > stripX + stripW || gl.Y0 < 0f || gl.Y1 > e.RtH)
+                // CROPPED BY THE CAPTURE FRAME comes FIRST and is its own count. The frame is the
+                // camera's viewport, so [0, RtW] x [0, RtH] IS the frame in texel space and a quad
+                // outside it is content the capture legitimately cannot hold — never a defect. Before
+                // ModBuild 206 this was added to the outside-the-strip total, where it read as a
+                // budget outcome rather than as a crop. See InkCensus.GlyphsOutsideFrame.
+                if (gl.X0 < 0f || gl.X1 > e.RtW || gl.Y0 < 0f || gl.Y1 > e.RtH)
+                {
+                    c.GlyphsOutsideFrame++;
+                    continue;
+                }
+                if (gl.X0 < stripX || gl.X1 > stripX + stripW)
                 {
                     c.GlyphsOutsideStrip++;
                     continue;
@@ -3090,9 +3277,21 @@ internal static partial class PanelSupersample
                 gl.Comp = compIndex;
                 c.Glyphs.Add(gl);
                 comp.InStrip++;
+                sumW += gl.X1 - gl.X0;
+                sumH += gl.Y1 - gl.Y0;
             }
+            comp.GlyphCount = comp.InStrip;
             if (comp.InStrip > 0)
+            {
+                // THE SEARCH RADII, from this component's OWN quads. A glyph advance is a little wider
+                // than a glyph box (side bearings), and a line height is well above a glyph box, so
+                // both are scaled up from the means rather than taken raw — the search window has to
+                // CONTAIN the displacement being hunted or the fit sits on the window boundary and is
+                // reported ambiguous, which is a silent way to answer nothing.
+                comp.AdvanceX = Mathf.Max(sumW / comp.InStrip * 1.2f, 4f);
+                comp.LineY = Mathf.Max(sumH / comp.InStrip * 1.5f, 6f);
                 c.Comps.Add(comp);
+            }
         }
         InkCandidates.Clear();
         InkCandidateComps.Clear();
@@ -3100,7 +3299,10 @@ internal static partial class PanelSupersample
         if (c.Glyphs.Count == 0)
         {
             why = $"every one of this window's glyph quads fell OUTSIDE the {stripW}x{e.RtH}-texel "
-                  + $"census strip at x={stripX} ({c.GlyphsOutsideStrip} excluded). The strip is "
+                  + $"census strip at x={stripX} ({c.GlyphsOutsideStrip} excluded), or outside the "
+                  + $"COMMITTED CAPTURE FRAME itself ({c.GlyphsOutsideFrame} — those are CROPPED and "
+                  + "legitimately absent from the picture, which is a finding about the frame and not "
+                  + "about the capture). The strip is "
                   + "full-height by construction (see MinInkStripTexels) and its WIDTH is what the "
                   + $"{MaxInkCensusTexels}-texel readback budget leaves against a {e.RtH}-texel-tall "
                   + "target, so this is a budget outcome and not a fault of the capture";
@@ -3139,6 +3341,30 @@ internal static partial class PanelSupersample
             return;
 
         Matrix4x4 toHost = host.worldToLocalMatrix * t.transform.localToWorldMatrix;
+
+        // ---- CAN THE PARENT'S MATRIX SPEAK FOR THE SUB-MESHES? (ModBuild 206) --------------------
+        // Every glyph whose materialReferenceIndex is above 0 is drawn by a TMP_SubMeshUI on a CHILD
+        // GameObject with its own transform, and this mapping uses the PARENT's matrix for all of
+        // them. TMP creates those children matching the parent's rect, so the matrices agree — but
+        // "so it should" is exactly the assumption that has cost this project two instruments. If any
+        // sub-mesh child's local transform is not identity, the m > 0 glyphs are EXCLUDED and counted
+        // rather than mapped through the wrong matrix: a mismapped glyph reports EMPTY, which is the
+        // one answer this instrument must not be able to invent.
+        bool subMeshesAligned = true;
+        for (int i = 0; i < t.transform.childCount; i++)
+        {
+            Transform child = t.transform.GetChild(i);
+            if (child == null || child.GetComponent<TMPro.TMP_SubMeshUI>() == null)
+                continue;
+            if (child.localPosition.sqrMagnitude > 1e-8f
+                || Quaternion.Angle(child.localRotation, Quaternion.identity) > 0.01f
+                || (child.localScale - Vector3.one).sqrMagnitude > 1e-8f)
+            {
+                subMeshesAligned = false;
+                break;
+            }
+        }
+
         int first = InkCandidates.Count;
         int meshGlyphs = 0;
         float sumX = 0f;
@@ -3151,6 +3377,11 @@ internal static partial class PanelSupersample
             int m = ci.materialReferenceIndex;
             if (m < 0 || m >= info.meshInfo.Length)
                 continue;
+            if (m > 0 && !subMeshesAligned)
+            {
+                c.GlyphsSubMeshTransform++;
+                continue;
+            }
             TMPro.TMP_MeshInfo mi = info.meshInfo[m];
             Vector3[] verts = mi.vertices;
             int v = ci.vertexIndex;
@@ -3271,6 +3502,32 @@ internal static partial class PanelSupersample
                     + "rather than mapped onto the new one");
                 return;
             }
+            // ModBuild 206: THE FRAME ITSELF, not only the target. The capture frame can be re-committed
+            // WITHOUT a re-allocation — the hysteresis commits a new overspill inside RectChangeFraction
+            // and the target keeps its pixel count — and the mapping subtracts Frame.xMin/yMin, so a
+            // frame that moved by one 32 px quantum re-maps every glyph in the census by 80 texels at
+            // the shipped rate while every check above still passes. The frame is quantised and damped,
+            // so it is either identical or a whole quantum away; there is no near-miss to tolerate.
+            Rect liveFrame = e.Frame;
+            if (Mathf.Abs(liveFrame.xMin - c.FrameAtRequest.xMin) > 0.01f
+                || Mathf.Abs(liveFrame.yMin - c.FrameAtRequest.yMin) > 0.01f
+                || Mathf.Abs(liveFrame.width - c.FrameAtRequest.width) > 0.01f
+                || Mathf.Abs(liveFrame.height - c.FrameAtRequest.height) > 0.01f)
+            {
+                c.DroppedFrameMoved++;
+                ReportInkUnanswerable(e, c, c.Reason,
+                    "the COMMITTED CAPTURE FRAME moved between the request and its delivery (was "
+                    + $"[{c.FrameAtRequest.xMin:F1},{c.FrameAtRequest.yMin:F1} "
+                    + $"{c.FrameAtRequest.width:F0}x{c.FrameAtRequest.height:F0}], now "
+                    + $"[{liveFrame.xMin:F1},{liveFrame.yMin:F1} "
+                    + $"{liveFrame.width:F0}x{liveFrame.height:F0}] host-local uGUI px) WITHOUT a "
+                    + "re-allocation — the target kept its pixel count, so every other staleness check "
+                    + "passed. The mapping subtracts the frame's origin, so this result is stale by "
+                    + "construction and is DROPPED rather than judged; a frame that moves between "
+                    + "request and delivery is itself worth reading, because it is the same "
+                    + "re-mapping that would displace the picture the eye sees");
+                return;
+            }
             Unity.Collections.NativeArray<Color32> data = req.GetData<Color32>();
             long need = (long)c.StripW * c.StripH;
             if (data.Length < need)
@@ -3384,28 +3641,62 @@ internal static partial class PanelSupersample
               + $"{c.CorrAsIs:F2} as delivered against {c.CorrFlip:F2} reversed), i.e. the same "
               + "orientation the orthographic capture camera's viewport uses";
 
-        // ---- the per-glyph verdict --------------------------------------------------------------
+        // ---- the per-glyph verdict, AND the ink centroid that judges the mapping -----------------
         InkDevInk.Clear();
         InkDevEmpty.Clear();
         for (int i = 0; i < c.Comps.Count; i++)
         {
-            c.Comps[i].Ink = 0;
-            c.Comps[i].Empty = 0;
-            c.Comps[i].EmptyChars = string.Empty;
-            c.Comps[i].EmptyNotNamed = 0;
+            InkComponent reset = c.Comps[i];
+            reset.Ink = 0;
+            reset.Empty = 0;
+            reset.EmptyChars = string.Empty;
+            reset.EmptyNotNamed = 0;
+            reset.Absent = 0;
+            reset.FoundOffset = 0;
+            reset.Ambiguous = 0;
+            reset.EmptyNearStripEdge = 0;
+            reset.FitDx = 0f;
+            reset.FitDy = 0f;
+            reset.FitPassAtBest = 0;
+            reset.FitPassAtZero = 0;
+            reset.FitNote = string.Empty;
         }
         c.TotalGlyphs = c.Glyphs.Count;
         c.TotalInk = 0;
         c.TotalEmpty = 0;
+        c.CentroidCount = 0;
+        c.CentroidDxSum = 0;
+        c.CentroidDySum = 0;
+        c.CentroidDxLow = float.MaxValue;
+        c.CentroidDxHigh = float.MinValue;
+        c.CentroidDyLow = float.MaxValue;
+        c.CentroidDyHigh = float.MinValue;
+
         for (int i = 0; i < c.Glyphs.Count; i++)
         {
             InkGlyph g = c.Glyphs[i];
-            float dev = InkGlyphDeviation(data, c, g);
+            float bg = InkLocalBackground(data, c, g);
+            InkGlyphBg[i] = bg;
+            float dev = InkQuadScore(data, c, g, 0f, 0f, InkInnerSamples, bg,
+                                     out float cx, out float cy, out _);
             bool ink = dev >= InkThreshold;
+            InkGlyphInked[i] = ink;
             if (ink)
             {
                 c.TotalInk++;
                 InkDevInk.Add(dev);
+                // REQUIREMENT 1: MEASURE THE OFFSET, DO NOT ASSUME IT IS ZERO. This is the cheap,
+                // sub-texel estimate — where the ink actually sits inside a quad the census says has
+                // ink. It carries the glyph's own shape asymmetry as well as any displacement, which
+                // is why only the MEAN over the distribution is a statement about the mapping and why
+                // the whole distribution is printed.
+                c.CentroidCount++;
+                c.CentroidDxSum += cx;
+                c.CentroidDySum += cy;
+                if (cx < c.CentroidDxLow) c.CentroidDxLow = cx;
+                if (cx > c.CentroidDxHigh) c.CentroidDxHigh = cx;
+                if (cy < c.CentroidDyLow) c.CentroidDyLow = cy;
+                if (cy > c.CentroidDyHigh) c.CentroidDyHigh = cy;
             }
             else
             {
@@ -3437,32 +3728,381 @@ internal static partial class PanelSupersample
                 }
             }
         }
+        if (c.CentroidCount == 0)
+        {
+            c.CentroidDxLow = c.CentroidDxHigh = c.CentroidDyLow = c.CentroidDyHigh = 0f;
+        }
         InkScratch.Clear();
         InkScratch.AddRange(InkDevInk);
         c.MedDevInk = InkMedian(InkScratch);
         InkScratch.Clear();
         InkScratch.AddRange(InkDevEmpty);
         c.MedDevEmpty = InkMedian(InkScratch);
+
+        // ---- REQUIREMENT 2: SEARCH A NEIGHBOURHOOD BEFORE DECLARING EMPTY -----------------------
+        FitInkComponents(data, c);
+        BuildMappingVerdict(c);
         return true;
     }
 
     /// <summary>
-    /// The largest absolute deviation of any interior texel of <paramref name="g"/> from the LOCAL
-    /// background measured on the ring just outside it. See <see cref="InkThreshold"/> for why the
-    /// measurement is premultiplied luminance against a local background and not the alpha channel.
+    /// <b>THE JOINT REGISTRATION SEARCH — one fitted offset per COMPONENT, not per glyph.</b>
+    ///
+    /// <para>The whole argument is in the MAPPING SELF-CHECK block above <see cref="InkSearchSteps"/>.
+    /// In one sentence: a whole-string displacement is ONE number for the string, and fitting it per
+    /// glyph would be degenerate — in running text a single glyph shifted by one advance lands on its
+    /// neighbour, which is also ink, so every glyph would report a spurious match. Fitting the string
+    /// as a whole breaks that, and where it does not (a best offset a whole advance or line away is a
+    /// LATTICE ALIAS) the component is reported AMBIGUOUS rather than as a displacement.</para>
+    ///
+    /// <para>The score at an offset is HOW MANY of the component's glyphs pass the ink test there,
+    /// using each glyph's OWN local background measured at its predicted position — the plate under a
+    /// line of text is far larger than one glyph advance, so that background is still the right one a
+    /// few texels away, and re-measuring a ring per offset would multiply the cost by twenty for no
+    /// information.</para>
     /// </summary>
-    private static float InkGlyphDeviation(Unity.Collections.NativeArray<Color32> data, InkCensus c,
-                                           InkGlyph g)
+    private static void FitInkComponents(Unity.Collections.NativeArray<Color32> data, InkCensus c)
+    {
+        c.EmptyAbsent = 0;
+        c.EmptyFoundOffset = 0;
+        c.EmptyAmbiguous = 0;
+        c.EmptyNotSearched = 0;
+        c.EmptyNearStripEdge = 0;
+        c.FitCount = 0;
+        c.FitDxSum = 0;
+        c.FitDySum = 0;
+        c.FitDxLow = float.MaxValue;
+        c.FitDxHigh = float.MinValue;
+        c.FitDyLow = float.MaxValue;
+        c.FitDyHigh = float.MinValue;
+        c.FitLatticeAlias = 0;
+        c.FitNoFit = 0;
+        InkFitSb.Length = 0;
+
+        const int half = (InkSearchSteps - 1) / 2;
+        int searched = 0;
+        int named = 0;
+
+        for (int ci = 0; ci < c.Comps.Count; ci++)
+        {
+            InkComponent comp = c.Comps[ci];
+            if (comp.Empty == 0)
+                continue;
+            if (searched + comp.GlyphCount > MaxInkSearchGlyphs)
+            {
+                // The cap must never be able to manufacture the more alarming verdict, so an
+                // unsearched EMPTY is NOT "genuinely absent" — it is its own count and it is printed.
+                comp.Ambiguous += comp.Empty;
+                c.EmptyNotSearched += comp.Empty;
+                comp.FitNote = "not searched (the census-wide search cap bit)";
+                continue;
+            }
+            searched += comp.GlyphCount;
+
+            float stepX = Mathf.Max(1f, comp.AdvanceX / half);
+            float stepY = Mathf.Max(1f, comp.LineY / half);
+            int best = -1;
+            float bestScore = -1f;
+            int offsetsUnavailable = 0;
+            for (int j = 0; j < InkSearchSteps; j++)
+            {
+                float dy = (j - half) * stepY;
+                for (int i = 0; i < InkSearchSteps; i++)
+                {
+                    float dx = (i - half) * stepX;
+                    int pass = 0;
+                    bool offClipped = false;
+                    for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount; gi++)
+                    {
+                        float s = InkQuadScore(data, c, c.Glyphs[gi], dx, dy, InkSearchCoarseSamples,
+                                               InkGlyphBg[gi], out _, out _, out bool clipped);
+                        if (clipped)
+                            offClipped = true;
+                        if (s >= InkThreshold)
+                            pass++;
+                    }
+                    int slot = j * InkSearchSteps + i;
+                    // AN OFFSET THAT RAN OFF THE STRIP IS UNAVAILABLE, NOT UNSUCCESSFUL. Scoring it 0
+                    // would make "no ink there" and "we could not look there" the same character, and
+                    // it must never be able to WIN — a partly-clipped quad scores low for the wrong
+                    // reason. Marked -1 and counted; only if too many of the window is unavailable is
+                    // the whole fit disqualified, so one glyph near a strip edge no longer poisons a
+                    // whole component the way the first cut of this search did.
+                    InkSearchScores[slot] = offClipped ? -1f : pass;
+                    if (offClipped)
+                    {
+                        offsetsUnavailable++;
+                        continue;
+                    }
+                    if (pass > bestScore)
+                    {
+                        bestScore = pass;
+                        best = slot;
+                    }
+                }
+            }
+            bool windowMostlyUnavailable =
+                best < 0 || offsetsUnavailable > InkSearchSteps * InkSearchSteps * 2 / 5;
+            if (windowMostlyUnavailable)
+            {
+                comp.Ambiguous += comp.Empty;
+                c.EmptyAmbiguous += comp.Empty;
+                comp.FitNote = $"{offsetsUnavailable} of {InkSearchSteps * InkSearchSteps} candidate "
+                               + "offsets ran off the census strip, so the search window is mostly "
+                               + "unavailable and no fit can be trusted";
+                if (named < MaxInkComponentsReported)
+                {
+                    named++;
+                    InkFitSb.Append(" '").Append(comp.Name).Append("': ").Append(comp.FitNote)
+                            .Append('.');
+                }
+                continue;
+            }
+
+            int zeroSlot = half * InkSearchSteps + half;
+            comp.FitPassAtZero = Mathf.Max(0, (int)InkSearchScores[zeroSlot]);
+            comp.FitPassAtBest = (int)bestScore;
+            int bi = best % InkSearchSteps, bj = best / InkSearchSteps;
+            comp.FitDx = (bi - half) * stepX;
+            comp.FitDy = (bj - half) * stepY;
+
+            // ---- is this fit usable? Three disqualifications, each named -------------------------
+            // (Off-strip offsets are NOT among them any more: they are scored -1 above, cannot win,
+            // and disqualify the component only when they take out most of the window. A dead guard
+            // that reads as a live one is how an instrument comes to look stricter than it is.)
+            bool onBorder = bi == 0 || bi == InkSearchSteps - 1 || bj == 0 || bj == InkSearchSteps - 1;
+            bool subAdvance = Mathf.Abs(comp.FitDx) <= comp.AdvanceX * InkSubAdvanceFraction
+                              && Mathf.Abs(comp.FitDy) <= comp.LineY * InkSubAdvanceFraction;
+            bool better = comp.FitPassAtBest > comp.FitPassAtZero;
+            string? disqualified = null;
+            if (onBorder)
+                disqualified = "the best offset sits ON the search-window boundary, so the true match "
+                               + "may lie outside it";
+            else if (!subAdvance)
+            {
+                c.FitLatticeAlias++;
+                disqualified = $"the best offset ({comp.FitDx:F1},{comp.FitDy:F1} texels) is a LATTICE "
+                               + $"ALIAS — a whole advance ({comp.AdvanceX:F1}) or line "
+                               + $"({comp.LineY:F1}) away, i.e. the string re-registered onto its own "
+                               + "neighbouring letters, which an is-there-ink test cannot tell from "
+                               + "the truth";
+            }
+            else if (!better)
+            {
+                c.FitNoFit++;
+                disqualified = $"no offset beats the predicted position ({comp.FitPassAtBest} glyph(s) "
+                               + $"pass at the best offset against {comp.FitPassAtZero} at zero), so "
+                               + "there is nowhere else the ink is";
+            }
+
+            if (disqualified != null)
+            {
+                // NOT "absent": we could not establish either answer, and saying absent would be the
+                // instrument choosing the conclusion the coordinator is trying to test.
+                if (!better && !onBorder && subAdvance)
+                {
+                    // The one case that IS informative: the predicted position is the best position
+                    // there is, so the empties really have no ink anywhere in a whole advance around
+                    // them. That is genuinely absent.
+                    comp.Absent += comp.Empty;
+                    c.EmptyAbsent += comp.Empty;
+                    comp.FitNote = "the predicted position IS the best registration in the whole "
+                                   + $"search window ({comp.FitPassAtZero} of {comp.GlyphCount} pass "
+                                   + "there and no offset does better), so its EMPTY glyphs are "
+                                   + "genuinely absent from the capture";
+                }
+                else
+                {
+                    comp.Ambiguous += comp.Empty;
+                    c.EmptyAmbiguous += comp.Empty;
+                    comp.FitNote = disqualified;
+                }
+                if (named < MaxInkComponentsReported)
+                {
+                    named++;
+                    InkFitSb.Append(" '").Append(comp.Name).Append("': ").Append(comp.FitNote)
+                            .Append('.');
+                }
+                continue;
+            }
+
+            // ---- a usable sub-advance fit: classify each EMPTY glyph at it ----------------------
+            c.FitCount++;
+            c.FitDxSum += comp.FitDx;
+            c.FitDySum += comp.FitDy;
+            if (comp.FitDx < c.FitDxLow) c.FitDxLow = comp.FitDx;
+            if (comp.FitDx > c.FitDxHigh) c.FitDxHigh = comp.FitDx;
+            if (comp.FitDy < c.FitDyLow) c.FitDyLow = comp.FitDy;
+            if (comp.FitDy > c.FitDyHigh) c.FitDyHigh = comp.FitDy;
+
+            for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount; gi++)
+            {
+                if (InkGlyphInked[gi])
+                    continue;
+                InkGlyph g = c.Glyphs[gi];
+                // REQUIREMENT 3b: an EMPTY glyph within one advance of a strip edge is not a clean
+                // reading whichever bucket it lands in. An OVERLAY count, printed with the rest.
+                if (g.X0 - c.StripX < comp.AdvanceX
+                    || (c.StripX + c.StripW) - g.X1 < comp.AdvanceX)
+                {
+                    comp.EmptyNearStripEdge++;
+                    c.EmptyNearStripEdge++;
+                }
+                // THE FULL GRID, not the search's coarse one. The search may use a cheap 4x4 to FIND
+                // the offset — a whole-string fit aggregates over many glyphs, so a missed stem here
+                // and there does not move it — but the per-glyph FOUND/ABSENT verdict is reported next
+                // to the INKED/EMPTY verdict and must be measured to the same standard, or a thin
+                // glyph would be called absent by a test the primary verdict would have passed.
+                float s = InkQuadScore(data, c, g, comp.FitDx, comp.FitDy, InkInnerSamples,
+                                       InkGlyphBg[gi], out _, out _, out bool clipped);
+                if (clipped)
+                {
+                    comp.Ambiguous++;
+                    c.EmptyAmbiguous++;
+                }
+                else if (s >= InkThreshold)
+                {
+                    comp.FoundOffset++;
+                    c.EmptyFoundOffset++;
+                }
+                else
+                {
+                    comp.Absent++;
+                    c.EmptyAbsent++;
+                }
+            }
+            comp.FitNote = $"registers best at ({comp.FitDx:F1},{comp.FitDy:F1}) texels, where "
+                           + $"{comp.FitPassAtBest} of {comp.GlyphCount} glyph(s) find ink against "
+                           + $"{comp.FitPassAtZero} at the predicted position";
+            if (named < MaxInkComponentsReported)
+            {
+                named++;
+                InkFitSb.Append(" '").Append(comp.Name).Append("': ").Append(comp.FitNote).Append('.');
+            }
+        }
+
+        if (c.FitCount == 0)
+            c.FitDxLow = c.FitDxHigh = c.FitDyLow = c.FitDyHigh = 0f;
+        c.FitNote = InkFitSb.Length > 0 ? InkFitSb.ToString() : " (no component needed a fit.)";
+        InkFitSb.Length = 0;
+    }
+
+    /// <summary>
+    /// <b>REQUIREMENT 4: STATE THE VERDICT, CHOSEN BY THE NUMBERS.</b> The reader is not asked to
+    /// weigh a centroid distribution against a fit distribution — this does it, and names which rule
+    /// fired. There is deliberately no branch that ends in silence.
+    /// </summary>
+    private static void BuildMappingVerdict(InkCensus c)
+    {
+        float mdx = c.CentroidCount > 0 ? (float)(c.CentroidDxSum / c.CentroidCount) : 0f;
+        float mdy = c.CentroidCount > 0 ? (float)(c.CentroidDySum / c.CentroidCount) : 0f;
+        float mag = Mathf.Sqrt(mdx * mdx + mdy * mdy);
+        int classified = c.EmptyAbsent + c.EmptyFoundOffset + c.EmptyAmbiguous;
+        float fdx = c.FitCount > 0 ? (float)(c.FitDxSum / c.FitCount) : 0f;
+        float fdy = c.FitCount > 0 ? (float)(c.FitDySum / c.FitCount) : 0f;
+        float rateX = Mathf.Max(c.RateX, 1e-4f), rateY = Mathf.Max(c.RateY, 1e-4f);
+
+        if (c.CentroidCount == 0)
+        {
+            c.MappingVerdict = "UNDECIDED, because NOT ONE glyph in this census was judged INKED, so "
+                               + "there is no ink anywhere to measure a centroid against and the "
+                               + "mapping cannot be checked at all. Read that as a finding in its own "
+                               + "right before reading it as an instrument failure: a whole strip of "
+                               + "predicted text with no ink under any of it is either a completely "
+                               + "displaced capture or a completely blank one, and the ORIENTATION and "
+                               + "band figures above say which is more likely.";
+            return;
+        }
+        string centroid = $"mean ink centroid {mdx:F2},{mdy:F2} texels = "
+                          + $"{mdx / rateX:F2},{mdy / rateY:F2} authored px over {c.CentroidCount} "
+                          + $"INKED glyph(s), against a {InkMappingVerifiedTexels:F1}-texel bar";
+
+        if (c.TotalEmpty == 0)
+        {
+            c.MappingVerdict = mag <= InkMappingVerifiedTexels
+                ? $"MAPPING VERIFIED — the ink sits where the mesh says ({centroid}) and there were no "
+                  + "EMPTY glyphs at all in this census, so this reading contains no evidence of any "
+                  + "defect anywhere in the capture path."
+                : $"MIXED — no glyph was EMPTY, so nothing is missing, but the ink is systematically "
+                  + $"OFF-CENTRE in its own quads ({centroid}). That is a real registration error "
+                  + "which happens to be small enough that every quad still catches its own ink; a "
+                  + "reading with EMPTY glyphs and this same centroid would be a displacement, not "
+                  + "missing ink.";
+            return;
+        }
+        if (classified == 0)
+        {
+            c.MappingVerdict = $"UNDECIDED, because all {c.TotalEmpty} EMPTY glyph(s) fell outside "
+                               + "what the neighbourhood search could classify "
+                               + $"({c.EmptyNotSearched} not searched at all because the cap bit). "
+                               + $"The centroid still reads {centroid}.";
+            return;
+        }
+        float foundFrac = c.EmptyFoundOffset / (float)classified;
+        float absentFrac = c.EmptyAbsent / (float)classified;
+
+        if (foundFrac >= InkVerdictMajority)
+        {
+            c.MappingVerdict =
+                $"MAPPING DISPLACED by ({fdx:F1},{fdy:F1}) texels = ({fdx / rateX:F2},{fdy / rateY:F2}) "
+                + $"authored px — the EMPTY verdicts above are THAT DISPLACEMENT, not missing ink. "
+                + $"{c.EmptyFoundOffset} of {classified} classified EMPTY glyph(s) were found at the "
+                + $"fitted offset, {c.EmptyAbsent} were absent there too, {c.EmptyAmbiguous} could not "
+                + $"be classified. The fit spans {c.FitDxLow:F1}..{c.FitDxHigh:F1} x "
+                + $"{c.FitDyLow:F1}..{c.FitDyHigh:F1} texels over {c.FitCount} component(s) — a TIGHT "
+                + "span is one coherent shift of the whole picture and a WIDE one is not a single "
+                + $"displacement at all. Independently, {centroid}. WHAT THIS DOES NOT YET SAY: "
+                + "whether the displacement is in the CAPTURE (the picture really is shifted, which is "
+                + "the bug) or in THIS INSTRUMENT'S mapping (the picture is fine and the census is "
+                + "looking in the wrong place). The two are separated by the sign and the stability of "
+                + "the offset across the three moments and across windows: an instrument error is the "
+                + "SAME offset on every reading of every window, while a capture displacement moves "
+                + "with the drag and is what the user sees.";
+            return;
+        }
+        if (absentFrac >= InkVerdictMajority && mag <= InkMappingVerifiedTexels)
+        {
+            c.MappingVerdict =
+                $"MAPPING VERIFIED — the ink sits where the mesh says ({centroid}), and "
+                + $"{c.EmptyAbsent} of {classified} classified EMPTY glyph(s) had no ink ANYWHERE "
+                + "within a whole glyph advance and a whole line height of their predicted position. "
+                + "SO EMPTY MEANS ABSENT: those glyphs are genuinely not in the captured texture, and "
+                + "the loss is at or before rasterisation into the render target.";
+            return;
+        }
+        c.MappingVerdict =
+            $"MIXED — {c.EmptyFoundOffset} of {classified} classified EMPTY glyph(s) were FOUND at a "
+            + $"fitted offset, {c.EmptyAbsent} were genuinely ABSENT and {c.EmptyAmbiguous} could not "
+            + $"be classified, with {centroid}"
+            + (c.FitCount > 0
+                ? $" and a fitted offset of ({fdx:F1},{fdy:F1}) texels over {c.FitCount} component(s)"
+                : " and NO component producing a usable fit")
+            + $" ({c.FitLatticeAlias} component(s) fitted a lattice alias, {c.FitNoFit} found nothing "
+            + "better than the predicted position). NEITHER a clean displacement NOR a clean absence: "
+            + "read the per-component fits above, because a MIXED verdict on a window where some "
+            + "components register at zero and others do not is a per-COMPONENT displacement, which "
+            + "neither a whole-picture shift nor a rasterisation loss can produce.";
+    }
+
+    /// <summary>
+    /// The LOCAL BACKGROUND against which <paramref name="g"/>'s interior is judged: a ring just
+    /// outside the quad, read at the percentile on the PAGE side. See <see cref="InkThreshold"/> for
+    /// why the measurement is premultiplied luminance against a local background and not the alpha
+    /// channel.
+    /// <para>Measured ONCE per glyph at its PREDICTED position and then reused for every offset the
+    /// registration search tries. That is deliberate and it is sound: the plate under a line of text
+    /// is far larger than one glyph advance, so the page level a few texels away is the same level,
+    /// and re-measuring a ring per offset would multiply the search cost by twenty for no
+    /// information.</para>
+    /// </summary>
+    private static float InkLocalBackground(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+                                            InkGlyph g)
     {
         int w = c.StripW, h = c.StripH;
         float x0 = g.X0 - c.StripX, x1 = g.X1 - c.StripX;
         float y0 = g.Y0, y1 = g.Y1;
-        float insetX = (x1 - x0) * InkQuadInset;
-        float insetY = (y1 - y0) * InkQuadInset;
-        float ix0 = x0 + insetX, ix1 = x1 - insetX;
-        float iy0 = y0 + insetY, iy1 = y1 - insetY;
 
-        // ---- the local background: the MEDIAN of a ring just outside the quad -------------------
+        // ---- the local background: a ring just outside the quad ---------------------------------
         int ring = 0;
         int rx0 = Mathf.FloorToInt(x0) - InkRingBandTexels;
         int rx1 = Mathf.CeilToInt(x1) + InkRingBandTexels;
@@ -3493,36 +4133,81 @@ internal static partial class PanelSupersample
         // dark page or dark text on a light one, and the ring percentile is taken on the PAGE side —
         // the 25th percentile for a dark page, the 75th for a light one. Contamination by neighbouring
         // ink then pushes samples AWAY from the value being read, so it cannot corrupt the estimate.
-        float bg;
-        if (ring >= 4)
-        {
-            System.Array.Sort(InkRing, 0, ring);
-            bool darkPage = c.Background < 0.5f;
-            bg = darkPage ? InkRing[ring / 4] : InkRing[ring - 1 - ring / 4];
-        }
-        else
-        {
-            bg = c.Background; // the quad sits against the strip edge; the strip-wide median stands in
-        }
+        if (ring < 4)
+            return c.Background; // the quad sits against the strip edge; the strip-wide median stands in
+        System.Array.Sort(InkRing, 0, ring);
+        bool darkPage = c.Background < 0.5f;
+        return darkPage ? InkRing[ring / 4] : InkRing[ring - 1 - ring / 4];
+    }
+
+    /// <summary>
+    /// Score <paramref name="g"/>'s quad SHIFTED by (<paramref name="dx"/>, <paramref name="dy"/>)
+    /// texels: the largest absolute deviation of any interior sample from <paramref name="bg"/>, plus
+    /// the ink CENTROID's displacement from the shifted quad's centre.
+    ///
+    /// <para>The shift is the whole of ModBuild 206. At (0,0) this is exactly ModBuild 205's ink test
+    /// and nothing about the verdict thresholds changed; every other offset is the registration search
+    /// asking "and is the ink over HERE instead".</para>
+    ///
+    /// <para><paramref name="clipped"/> reports that a sample fell outside the census strip, which is
+    /// how a search that ran off the edge becomes AMBIGUOUS instead of silently scoring low — an
+    /// out-of-strip offset would otherwise look exactly like an offset with no ink at it.</para>
+    /// </summary>
+    private static float InkQuadScore(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+                                      InkGlyph g, float dx, float dy, int n, float bg,
+                                      out float cx, out float cy, out bool clipped)
+    {
+        int w = c.StripW, h = c.StripH;
+        cx = 0f;
+        cy = 0f;
+        clipped = false;
+        float x0 = g.X0 - c.StripX + dx, x1 = g.X1 - c.StripX + dx;
+        float y0 = g.Y0 + dy, y1 = g.Y1 + dy;
+        float insetX = (x1 - x0) * InkQuadInset;
+        float insetY = (y1 - y0) * InkQuadInset;
+        float ix0 = x0 + insetX, ix1 = x1 - insetX;
+        float iy0 = y0 + insetY, iy1 = y1 - insetY;
+        float centreX = (x0 + x1) * 0.5f, centreY = (y0 + y1) * 0.5f;
 
         float worst = 0f;
-        for (int sy = 0; sy < InkInnerSamples; sy++)
+        double wsum = 0, wx = 0, wy = 0;
+        for (int sy = 0; sy < n; sy++)
         {
-            float fy = iy0 + (iy1 - iy0) * (sy + 0.5f) / InkInnerSamples;
+            float fy = iy0 + (iy1 - iy0) * (sy + 0.5f) / n;
             int py = Mathf.FloorToInt(fy);
             if (py < 0 || py >= h)
-                continue;
-            int row = (c.Flipped ? (h - 1 - py) : py) * w;
-            for (int sx = 0; sx < InkInnerSamples; sx++)
             {
-                float fx = ix0 + (ix1 - ix0) * (sx + 0.5f) / InkInnerSamples;
+                clipped = true;
+                continue;
+            }
+            int row = (c.Flipped ? (h - 1 - py) : py) * w;
+            for (int sx = 0; sx < n; sx++)
+            {
+                float fx = ix0 + (ix1 - ix0) * (sx + 0.5f) / n;
                 int px = Mathf.FloorToInt(fx);
                 if (px < 0 || px >= w)
+                {
+                    clipped = true;
                     continue;
+                }
                 float d = Mathf.Abs(InkValue(data[row + px]) - bg);
                 if (d > worst)
                     worst = d;
+                // The centroid is weighted by deviation and only over samples that ARE ink, so the
+                // page around a thin stem cannot drag it back toward the quad centre and make a real
+                // displacement read as zero.
+                if (d >= InkThreshold)
+                {
+                    wsum += d;
+                    wx += d * (fx - centreX);
+                    wy += d * (fy - centreY);
+                }
             }
+        }
+        if (wsum > 0)
+        {
+            cx = (float)(wx / wsum);
+            cy = (float)(wy / wsum);
         }
         return worst;
     }
