@@ -1829,6 +1829,24 @@ internal static partial class PanelSupersample
         internal int PhaseStillCompares, PhaseStillChanges;
         internal int PhaseWorstFlips;
         internal string PhaseFlipNote = string.Empty;
+
+        // ---- THE TWO PROPERTIES THAT DECIDE WHETHER A CAMERA DRAWS AN OBJECT (ModBuild 216) -------
+        // Everything about uGUI's own state is now measured and constant: the drawn set is identical
+        // between every camera of a frame (214: 1 in 4382) and between consecutive frames while the
+        // window is carried (215: 0 of 258). Sampling is measured and falsified too — raising
+        // WindowLegibility to 1.00 lifted the rate from 2.06-2.12 to 2.4-3.0 texels per eye pixel and
+        // the user reports the symptom unchanged. So the graphics are asked to draw, they are asked
+        // identically every frame, and they are sampled well enough — and the render target still
+        // comes back missing their ink.
+        //
+        // A camera draws an object if and only if THREE things hold: the object draws at all (done),
+        // its LAYER is in the camera's culling mask, and its geometry is inside the FRUSTUM. The last
+        // two have never been read by any instrument in this class. The layer sweep counts what IT
+        // moved, which is not the same question as what the layer IS at capture time, and the frame
+        // measurement bounds the CONTENT, which is not the same question as whether each graphic is
+        // inside the bound it produced.
+        internal int PhaseWrongLayer, PhaseOutsideFrame;
+        internal string PhaseLayerNote = string.Empty, PhaseFrameNote = string.Empty;
         internal string PhaseWorstNote = string.Empty;
 
         // ---- THE RELEASE EDGE ITSELF (ModBuild 197) ---------------------------------------------

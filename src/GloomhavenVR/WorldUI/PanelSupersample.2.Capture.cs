@@ -3896,6 +3896,8 @@ internal static partial class PanelSupersample
     private static readonly StringBuilder InkPlateSb = new(512);
     private static readonly StringBuilder InkRepairSb = new(512);
     private static readonly StringBuilder PhaseFlipSb = new(512);
+    private static readonly StringBuilder PhaseLayerSb = new(512);
+    private static readonly StringBuilder PhaseFrameSb = new(512);
     private static readonly List<bool> PhaseDrawn = new(MaxPhaseGraphics);
 
     // ---- THE DRAW-STATE LEDGER (ModBuild 210) ---------------------------------------------------
@@ -4204,6 +4206,24 @@ internal static partial class PanelSupersample
         if (e.PhaseGraphics.Count < MaxPhaseGraphics)
             e.PhaseGraphics.Add(g);
 
+        // ---- THE LAYER AND THE FRUSTUM (ModBuild 216) ------------------------------------------
+        // Read on the graphic itself, at census time, and compared against the two things the capture
+        // camera actually tests. Only for graphics that DRAW — a hidden one being off-layer or out of
+        // frame is not a defect, and counting it would bury the signal under this window's 484
+        // legitimately hidden components.
+        if (reason == DrawReason.Drawn)
+        {
+            if (e.Layer >= 0 && g.gameObject.layer != e.Layer)
+            {
+                e.PhaseWrongLayer++;
+                if (PhaseLayerSb.Length < 400)
+                    PhaseLayerSb.Append(" '").Append(g.gameObject.name).Append("' (")
+                                .Append(g.GetType().Name).Append(") on layer ")
+                                .Append(g.gameObject.layer).Append(" not ").Append(e.Layer)
+                                .Append(';');
+            }
+        }
+
         float cx = 0f, cy = 0f;
         bool haveRect = false;
         Rect b = default;
@@ -4212,6 +4232,21 @@ internal static partial class PanelSupersample
             cx = b.center.x;
             cy = b.center.y;
             haveRect = true;
+        }
+
+        // The FRUSTUM half of ModBuild 216, placed here because it needs the host-local bounds above.
+        // A graphic that draws, is on the right layer, and whose rect does not meet the capture frame
+        // is simply not in the photograph — and the frame is the mod's own measurement, so a graphic
+        // outside it is a defect in that measurement rather than in the window.
+        if (reason == DrawReason.Drawn && haveRect && !b.Overlaps(e.Frame))
+        {
+            e.PhaseOutsideFrame++;
+            if (PhaseFrameSb.Length < 400)
+                PhaseFrameSb.Append(" '").Append(g.gameObject.name).Append("' at (")
+                            .Append(b.center.x.ToString("F0")).Append(',')
+                            .Append(b.center.y.ToString("F0")).Append(") size ")
+                            .Append(b.width.ToString("F0")).Append('x')
+                            .Append(b.height.ToString("F0")).Append(';');
         }
 
         // ---- THE PLATE CANDIDATE (ModBuild 210) ----------------------------------------------
@@ -4380,6 +4415,10 @@ internal static partial class PanelSupersample
                   .Append("the first one to point past uGUI's own state.");
         }
 
+        e.PhaseLayerNote = PhaseLayerSb.ToString();
+        e.PhaseFrameNote = PhaseFrameSb.ToString();
+        PhaseLayerSb.Length = 0;
+        PhaseFrameSb.Length = 0;
         e.DrawLedgerNote = DrawSb.ToString();
         DrawSb.Length = 0;
         DrawLost.Clear();
@@ -4873,6 +4912,9 @@ internal static partial class PanelSupersample
         // where the next line will print them as if they had just been measured.
         e.DrawLedgerNote = string.Empty;
         e.PhaseGraphics.Clear();
+        e.PhaseWrongLayer = e.PhaseOutsideFrame = 0;
+        PhaseLayerSb.Length = 0;
+        PhaseFrameSb.Length = 0;
         c.Plates.Clear();
         c.PlatesSeen = c.PlatesOutsideStrip = c.PlatesBlank = c.PlatesPresent = c.PlatesUnjudged = 0;
         c.PlateNote = string.Empty;

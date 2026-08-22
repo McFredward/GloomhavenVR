@@ -1021,6 +1021,33 @@ internal static partial class PanelSupersample
         // symbols too. See the ledger's own header in PanelSupersample.2.Capture.cs.
         Sb.Append(e.DrawLedgerNote);
 
+        // ---- LAYER AND FRUSTUM (ModBuild 216) ---------------------------------------------------
+        Sb.Append(" LAYER AND FRUSTUM — THE LAST TWO PROPERTIES THAT DECIDE WHETHER A CAMERA DRAWS AN "
+                  + "OBJECT, and neither has ever been read by an instrument in this class. A camera "
+                  + "draws a graphic if and only if the graphic draws at all, its LAYER is in the "
+                  + "camera's culling mask, and its geometry meets the FRUSTUM. The first is now "
+                  + "measured to death and is constant. The layer sweep counts what IT moved, which "
+                  + "is a different question from what the layer IS at capture time; the frame "
+                  + "measurement bounds the CONTENT, which is a different question from whether each "
+                  + "graphic lies inside the bound it produced. Counted over the graphics that DRAW "
+                  + "only — a hidden component off-layer or out of frame is not a defect, and "
+                  + "counting this window's 484 legitimately hidden ones would bury the signal. ")
+          .Append(e.PhaseWrongLayer)
+          .Append(" drawing graphic(s) are NOT on this panel's capture layer")
+          .Append(e.PhaseWrongLayer > 0 ? " —" + e.PhaseLayerNote : " (expected 0)")
+          .Append(' ').Append(e.PhaseOutsideFrame)
+          .Append(" drawing graphic(s) lie OUTSIDE the capture frame entirely")
+          .Append(e.PhaseOutsideFrame > 0 ? " —" + e.PhaseFrameNote : " (expected 0)")
+          .Append(" WHAT EACH ANSWER MEANS: a non-zero LAYER count is the defect outright — those "
+                  + "graphics are drawn straight into the eye and are missing from the photograph, "
+                  + "which is exactly the picture the user reports, and the sweep that is supposed to "
+                  + "prevent it is reporting 0 late joiners while it happens. A non-zero FRUSTUM "
+                  + "count means the mod's own capture frame does not contain the window it was "
+                  + "measured from. BOTH ZERO, with the drawn set already proven constant and the "
+                  + "sampling rate already proven sufficient, means every property that governs "
+                  + "whether these pixels can reach the target is correct — and the next round has to "
+                  + "read the target itself against the mesh, not the state that produced it.");
+
         // ---- THE PHASE CENSUS (ModBuild 214) ----------------------------------------------------
         Sb.Append(" PHASE CENSUS — DOES THE DRAWN SET CHANGE WITHIN ONE FRAME? This is the question "
                   + "every earlier instrument in this class was structurally unable to ask, and the "

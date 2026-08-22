@@ -416,7 +416,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 215;
+    public const ushort ModBuild = 216;
+    // Build 216: THE LAST TWO PROPERTIES THAT DECIDE WHETHER A CAMERA DRAWS AN OBJECT — the LAYER and
+    // the FRUSTUM — and no instrument in this class has ever read either.
+    //
+    // WHAT 215 SETTLED, and it is a clean negative on both axes: frame to frame the drawn set changed
+    // 0 of 258 times while the window was MOVING (8 of 480 while still, all of them at the window's
+    // opening and not growing after), and within a frame every camera agreed (214: 1 in 4382 samples
+    // over 626 frames). uGUI's state does not oscillate — not between cameras, not between frames,
+    // not while carried. The picture changes without the state changing.
+    //
+    // AND SAMPLING IS FALSIFIED TOO, by an A-B the user ran rather than by an argument. Taking
+    // [WorldUI] WindowLegibility from 1.25 to 1.00 lifted the measured rate from 2.06-2.12 to
+    // 2.4-3.0 RT texels per rendered eye pixel against a 2.00 bar — the log carries both settings in
+    // force — and he reports the symptom unchanged. The window sitting on the band limit was a real
+    // finding and is not the residual.
+    //
+    // SO: the graphics are asked to draw, identically, every frame; they are sampled well enough; and
+    // the target still comes back missing their ink. A camera draws a graphic if and only if it draws
+    // at all, its layer is in the culling mask, and its geometry meets the frustum. The first is
+    // measured to death. The other two are counted here, over the DRAWING graphics only, and named —
+    // the layer sweep counts what IT moved, which is not what the layer IS at capture time, and the
+    // frame measurement bounds the CONTENT, which is not whether each graphic lies inside the bound
+    // it produced.
+    //
+    // Instrument only, third build running. Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 215: THE 214 CENSUS ANSWERED ITS QUESTION AND IT WAS THE WRONG HALF OF THE QUESTION.
     // Within one frame, every camera sees the same drawn set: 1 disagreement in 4382 samples over
     // 626 sampled frames. That is a clean negative and it closes "the two MultiPass eyes see
